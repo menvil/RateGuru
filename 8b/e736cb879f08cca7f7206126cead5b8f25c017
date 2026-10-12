@@ -1,0 +1,108 @@
+tests/Feature/Filament/EnglishReferenceEditorsTest.php
+  s_7d2d8843838027::t_6327a855cf79ef 81
+  s_7d2d8843838027::t_a64ff27dab0f5d 73-74,76-77,79-80,82,87,90,92-94
+tests/Browser/AdminProjectSettingsBrowserTest.php
+  s_7d2d8843838027::t_c79e52c7ecb5a0 1-37,41-70,72-77,80-124,126-130
+  s_7d2d8843838027::t_142ab9b59483ac 38-40,71,78-79,125
+resources/views/components/admin/ui/segmented.blade.php
+  s_7d2d8843838027::t_29bc13e1dcdc28 6,16-17,74-76
+resources/views/filament/pages/project-settings.blade.php
+  s_7d2d8843838027::t_4c256ff00d4d3c 1-64,66-101
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_7d2d8843838027::t_444214e1fcab19 251,309-312
+resources/views/filament/pages/project-settings/defaults.blade.php
+  s_7d2d8843838027::t_b426449fd5d6ea 1-50
+resources/views/filament/pages/project-settings/pages.blade.php
+  s_7d2d8843838027::t_b426449fd5d6ea 1-61,63-76
+  s_7d2d8843838027::t_965352fafb677a 62
+app/Filament/Support/TranslationSourceEditor.php
+  s_7d2d8843838027::t_b3a08e10be06c6 22-24
+resources/views/filament/pages/project-settings/confirmation.blade.php
+  s_7d2d8843838027::t_b4b76481bd8de5 10,27
+  s_7d2d8843838027::t_3579cdb6b3a662 4
+  s_7d2d8843838027::t_b426449fd5d6ea 1-3,5-9,11-26,28-45
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_7d2d8843838027::t_55239f595a8c5f 248,286-301
+app/Providers/Filament/AdminPanelProvider.php
+  s_7d2d8843838027::t_a7a8df350fa248 6,85-88
+  s_7d2d8843838027::t_488905aaca257f 77,82,133-140
+tests/Browser/AdminRatingGroupsBrowserTest.php
+  s_7d2d8843838027::t_aca55557e867a3 31,57,59,65,71,75,85,90,99,104,122
+tests/Feature/Theme/AdminSettingsThemeTest.php
+  s_7d2d8843838027::t_b6e68086a8d9a9 5,9
+app/Filament/Pages/ProjectSettingsPage.php
+  s_7d2d8843838027::t_12168a11364e24 8-9,15-16,19,21-24,27-46,48-81,84-86,93-115,123,133-135,140-156,158-232,235,238-266,268,270,274-368,371-378,380-383,385-429,432-477,482-483,485-502,504-508
+  s_7d2d8843838027::t_6d19dac9d4c56f 267,269
+  s_7d2d8843838027::t_e7d1779d857ada 384
+resources/views/filament/pages/rating-group.blade.php
+  s_7d2d8843838027::t_488905aaca257f 9,11,19,21
+app/Filament/Support/ContentTranslationStatus.php
+  s_7d2d8843838027::t_d75f9edaa0d4e3 91-106,109,113,117,126
+resources/views/filament/pages/project-settings/features.blade.php
+  s_7d2d8843838027::t_b426449fd5d6ea 1-22
+tests/Feature/Filament/ProjectStaticPagesTest.php
+  s_7d2d8843838027::t_a64ff27dab0f5d 12
+docs/design/admin/design-contract.md
+  s_7d2d8843838027::t_ccdf7450fc0fc3 209-210,250-253,932-940,943-974,977-978,1045-1050
+  s_7d2d8843838027::t_55239f595a8c5f 941-942
+docs/i18n/translatable-settings.md
+  s_7d2d8843838027::t_74fc287bcc8f92 38-40,44-46,48
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_7d2d8843838027::t_901ed898d55763 55-57
+  s_7d2d8843838027::t_b4b76481bd8de5 104
+  s_7d2d8843838027::t_94b598e4688933 3-6,8-10,12-54,58-103,105-194,196-200,203-205,207-210,213-214,216-218
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_7d2d8843838027::t_6ac6a96fd1b3db 420-422,424-426,687-705
+  s_7d2d8843838027::t_444214e1fcab19 423
+resources/views/filament/pages/project-settings/providers.blade.php
+  s_7d2d8843838027::t_b426449fd5d6ea 1-29
+resources/views/filament/pages/project-settings/preview.blade.php
+  s_7d2d8843838027::t_229434b84522fb 1-36
+tests/Pest.php
+  s_7d2d8843838027::t_8afaf3d8fb3759 7748-7782
+resources/views/filament/pages/project-settings/preset.blade.php
+  s_7d2d8843838027::t_4c256ff00d4d3c 1-56
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_7d2d8843838027::t_3332b420ec5e20 136-139,141-142,147,149-151,153-154,167-169
+  s_7d2d8843838027::t_5bf78a3f85c07d 135,140,143-146,148,152
+docs/design/admin/migration-plan.md
+  s_7d2d8843838027::t_55239f595a8c5f 210,240-248
+app/Filament/Pages/AdminUiKit.php
+  s_7d2d8843838027::t_295dabc0d20cf0 592
+  s_7d2d8843838027::t_3332b420ec5e20 576,606
+resources/views/components/admin/ui/icon.blade.php
+  s_7d2d8843838027::t_29bc13e1dcdc28 67-73
+resources/views/components/admin/ui/switch.blade.php
+  s_7d2d8843838027::t_6f4e96d43111a5 10,24-27,29-32,34,37-68,97
+resources/views/filament/pages/editor/script.blade.php
+  s_7d2d8843838027::t_488905aaca257f 2-10,17-19,22-26,29-36
+resources/css/filament/admin/components.css
+  s_7d2d8843838027::t_965352fafb677a 3713-4026
+  s_7d2d8843838027::t_30cf85efeaa72d 1754
+  s_7d2d8843838027::t_5bf78a3f85c07d 6118-6122
+  s_7d2d8843838027::t_6f4e96d43111a5 1261-1306
+resources/views/filament/pages/editor/topbar.blade.php
+  s_7d2d8843838027::t_488905aaca257f 2-5,7-9,12-18
+resources/views/filament/pages/project-settings/text.blade.php
+  s_7d2d8843838027::t_229434b84522fb 1-66
+tests/Feature/Auth/SignInProviderSwitchesTest.php
+  s_7d2d8843838027::t_a64ff27dab0f5d 37,49,53-56,69
+tests/Feature/I18n/ProjectTranslationCatalogTest.php
+  s_7d2d8843838027::t_a64ff27dab0f5d 287-288,290-292,295-297,300-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8be736cb879f08cca7f7206126cead5b8f25c017",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
