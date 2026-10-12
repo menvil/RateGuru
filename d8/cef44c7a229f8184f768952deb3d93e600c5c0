@@ -1,0 +1,37 @@
+.github/workflows/prepare-tits-guru-public-http.yml
+  s_3481294084957b::t_6c38f2a839f4c9 14-16
+infrastructure/scripts/prepare-public-http
+  s_3481294084957b::t_c703fc5afe7765 60-71,88-89,222-225,228-229,492-497,499,510-515,517-522,560-561,567-569,571,1021,1025-1027,1145-1146,1148-1149,1199-1200,1202
+  s_3481294084957b::t_179de118ce9ac2 1377-1379
+tests/Feature/Architecture/PublicHttpTest.php
+  s_3481294084957b::t_d50e7b21a08508 32-68,192,194-196,199,201-258,464,466-468,475-478,594,601,607,610,614,617
+.github/actions/prepare-rateguru-public-http/action.yml
+  s_3481294084957b::t_9b67af6262d3c1 388-389
+  s_3481294084957b::t_bbf5b0d6b29dde 78,351
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_aa234e444ca5bd 19,22-29,42-43,49-91,213-216,240-241,244-245,275-276,287-292,315-319,329-331
+.github/workflows/rollback-tits-guru-public-http.yml
+  s_3481294084957b::t_6c38f2a839f4c9 12-14
+tests/Support/real-nginx/scenario.sh
+  s_3481294084957b::t_68ccf89c455fe4 33-35,334-394
+tests/Feature/Architecture/PublicHttpWorkflowTest.php
+  s_3481294084957b::t_6c38f2a839f4c9 262-263
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_35990f949a1e88 2444-2451,2470,2474-2480
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8cef44c7a229f8184f768952deb3d93e600c5c0",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
