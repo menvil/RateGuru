@@ -463,6 +463,30 @@ operational step, documented here rather than wired into any deploy or
 release automation — there is no migration/backfill script that runs it
 automatically.
 
+## Display variants are WebP
+
+The variants a page shows (`post_feed_640`, `post_feed_1280`,
+`post_detail_1920`, `avatar_128`, `avatar_256`) are encoded as `image/webp`
+at the same fixed quality, whatever format the upload was. They used to keep
+the master's format, so a photo uploaded as PNG made PNG variants: one
+1280x853 feed variant on staging weighed 1 075 KB, where WebP at quality 82
+is 85 KB. WebP keeps transparency, so a PNG with an alpha channel is
+resampled with it intact, not flattened. Only `open_graph` stays JPEG, the
+one format every link-preview crawler reads.
+
+Changing a variant's format changes its file extension, and with it its
+path. `MediaVariantWriter` treats that as a move: once the row names the new
+file, it deletes the previous one if no row claims it any more. If the
+database write fails instead, it deletes the new file, because the row still
+names the previous one.
+
+Variants generated before the change keep their old format until they are
+regenerated:
+
+```bash
+php artisan media:generate-variants --force
+```
+
 ## Open Graph media variant
 
 PR-06 adds a fourth post-image variant, `open_graph`, and wires it into the
@@ -471,8 +495,9 @@ PR-06 adds a fourth post-image variant, `open_graph`, and wires it into the
 **Specification** (`MediaVariantSpecificationRegistry`, last entry under
 `MediaKind::PostImage`): exact `1200x630`, `Cover` mode (crop-to-fill, not
 letterboxed), always encoded as `image/jpeg` regardless of the master's own
-format (`MediaVariantSpecification::$outputMimeType`, a spec-level override —
-every other variant leaves this `null`, meaning "same as source"). The
+format (`MediaVariantSpecification::$outputMimeType`, a spec-level override;
+the variants a page shows set it to `image/webp`, see "Display variants are
+WebP" below). The
 1200x630/`image/jpeg` values match `config/share.php`'s pre-existing
 `open_graph.*` block (already read by the SEO placeholder fallback before
 PR-06); a registry test cross-checks the two so they can't silently drift

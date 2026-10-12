@@ -27,7 +27,8 @@ it('returns the three contain post-image variants followed by the open graph cov
             ->and($spec->maxWidth)->toBeGreaterThan(0)
             ->and($spec->maxHeight)->toBeGreaterThan(0)
             ->and($spec->quality)->toBeGreaterThan(0)->toBeLessThanOrEqual(100)
-            ->and($spec->outputMimeType)->toBeNull();
+            // Whatever the upload was: a PNG photo made a 1 MB feed variant.
+            ->and($spec->outputMimeType)->toBe('image/webp');
     }
 
     $widths = array_map(fn (MediaVariantSpecification $spec): int => $spec->maxWidth, $containSpecs);
@@ -64,7 +65,8 @@ it('returns the two cover-square avatar variants', function () {
 
     foreach ($specs as $spec) {
         expect($spec->mode)->toBe(MediaResizeMode::CoverSquare)
-            ->and($spec->maxWidth)->toBe($spec->maxHeight);
+            ->and($spec->maxWidth)->toBe($spec->maxHeight)
+            ->and($spec->outputMimeType)->toBe('image/webp');
     }
 });
 

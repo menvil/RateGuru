@@ -7956,6 +7956,12 @@ function storeVariantFiles(Post $post, MediaVariantName ...$names): Post
     return $post;
 }
 
+/** The committed Nginx vhost of the staging target. */
+function stagingVhost(): string
+{
+    return File::get(base_path('infrastructure/config/nginx/rateguru-staging'));
+}
+
 /**
  * Makes the project offer these installed languages through the same action
  * the Languages page uses — so a test cannot set up a state the application
