@@ -16,5 +16,7 @@ return [
     'share_via' => 'Поделиться через',
     'share_unavailable' => 'Функция «Поделиться» недоступна',
     'copy_failed' => 'Не удалось скопировать. Выделите и скопируйте вручную.',
+    'picture_copied' => 'Картинка скопирована. Откройте :provider и вставьте её.',
+    'open_provider' => 'Открыть :provider',
     'post_fallback_description' => 'Посмотрите и оцените этот пост на сайте :siteName.',
 ];

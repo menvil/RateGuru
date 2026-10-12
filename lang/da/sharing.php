@@ -16,5 +16,7 @@ return [
     'share_via' => 'Del via',
     'share_unavailable' => 'Deling er ikke tilgængelig',
     'copy_failed' => 'Kunne ikke kopiere automatisk. Markér og kopiér manuelt.',
+    'picture_copied' => 'Billedet er kopieret. Åbn :provider og indsæt det.',
+    'open_provider' => 'Åbn :provider',
     'post_fallback_description' => 'Se og bedøm dette opslag på :siteName.',
 ];

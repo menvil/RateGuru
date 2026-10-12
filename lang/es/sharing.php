@@ -16,5 +16,7 @@ return [
     'share_via' => 'Compartir por',
     'share_unavailable' => 'No se puede compartir',
     'copy_failed' => 'No se pudo copiar automáticamente. Selecciona el enlace y cópialo manualmente.',
+    'picture_copied' => 'Imagen copiada. Abre :provider y pégala.',
+    'open_provider' => 'Abrir :provider',
     'post_fallback_description' => 'Mira y valora esta publicación en :siteName.',
 ];

@@ -16,5 +16,7 @@ return [
     'share_via' => 'Şununla paylaş',
     'share_unavailable' => 'Paylaşım kullanılamıyor',
     'copy_failed' => 'Otomatik olarak kopyalanamadı. Seçip elle kopyalayın.',
+    'picture_copied' => 'Görsel kopyalandı. :provider uygulamasını açıp yapıştırın.',
+    'open_provider' => ':provider\'ı aç',
     'post_fallback_description' => 'Bu gönderiyi :siteName üzerinde görün ve değerlendirin.',
 ];

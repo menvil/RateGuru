@@ -16,5 +16,7 @@ return [
     'share_via' => 'Megosztás itt:',
     'share_unavailable' => 'A megosztás nem érhető el',
     'copy_failed' => 'Az automatikus másolás nem sikerült. Jelöld ki és másold ki kézzel.',
+    'picture_copied' => 'A kép kimásolva. Nyisd meg a(z) :provider alkalmazást, és illeszd be.',
+    'open_provider' => ':provider megnyitása',
     'post_fallback_description' => 'Nézd meg és értékeld ezt a bejegyzést itt: :siteName.',
 ];

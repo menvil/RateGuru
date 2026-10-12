@@ -16,5 +16,7 @@ return [
     'share_via' => 'Kongsi melalui',
     'share_unavailable' => 'Perkongsian tidak tersedia',
     'copy_failed' => 'Tidak dapat menyalin secara automatik. Pilih dan salin secara manual.',
+    'picture_copied' => 'Gambar disalin. Buka :provider dan tampalkannya.',
+    'open_provider' => 'Buka :provider',
     'post_fallback_description' => 'Lihat dan nilai siaran ini di :siteName.',
 ];

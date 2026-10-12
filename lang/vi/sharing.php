@@ -16,5 +16,7 @@ return [
     'share_via' => 'Chia sẻ qua',
     'share_unavailable' => 'Không thể chia sẻ',
     'copy_failed' => 'Không thể tự động sao chép. Hãy chọn và sao chép thủ công.',
+    'picture_copied' => 'Đã sao chép ảnh. Mở :provider và dán ảnh vào.',
+    'open_provider' => 'Mở :provider',
     'post_fallback_description' => 'Xem và đánh giá bài đăng này trên :siteName.',
 ];

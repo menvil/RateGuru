@@ -16,5 +16,7 @@ return [
     'share_via' => 'Kopīgot, izmantojot',
     'share_unavailable' => 'Kopīgošana nav pieejama',
     'copy_failed' => 'Neizdevās nokopēt automātiski. Atlasiet un nokopējiet manuāli.',
+    'picture_copied' => 'Attēls nokopēts. Atveriet :provider un ielīmējiet to.',
+    'open_provider' => 'Atvērt :provider',
     'post_fallback_description' => 'Apskatiet un novērtējiet šo ierakstu vietnē :siteName.',
 ];

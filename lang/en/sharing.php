@@ -16,5 +16,7 @@ return [
     'share_via' => 'Share via',
     'share_unavailable' => 'Sharing unavailable',
     'copy_failed' => 'Could not copy automatically. Select and copy manually.',
+    'picture_copied' => 'Picture copied. Open :provider and paste it in.',
+    'open_provider' => 'Open :provider',
     'post_fallback_description' => 'See and rate this post on :siteName.',
 ];

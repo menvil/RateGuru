@@ -2,6 +2,7 @@
     'provider',
     'url',
     'label',
+    'takesPicture' => false,
 ])
 
 @php
@@ -27,6 +28,11 @@
     title="{{ $label }}"
     data-testid="share-{{ $provider }}"
     aria-label="{{ $label }}"
+    @if($takesPicture)
+        x-on:click="sharePicture($event)"
+        data-picture-copied="{{ __('sharing.picture_copied', ['provider' => $label]) }}"
+        data-picture-open="{{ __('sharing.open_provider', ['provider' => $label]) }}"
+    @endif
     class="group flex w-full cursor-pointer flex-col items-center gap-1.5 rounded-rgSm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
 >
     <span

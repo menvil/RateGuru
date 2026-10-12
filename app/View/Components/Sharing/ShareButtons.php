@@ -9,6 +9,7 @@ use App\Support\Sharing\ShareMetadata;
 use App\Support\Sharing\ShareUrlBuilder;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\View\Component;
 
 final class ShareButtons extends Component
@@ -29,6 +30,12 @@ final class ShareButtons extends Component
 
     public bool $hasNative;
 
+    /** @var list<string> */
+    public array $pictureProviderKeys;
+
+    /** The name the shared picture's file goes by, without its extension. */
+    public string $pictureFileName;
+
     public function __construct(
         public Post $post,
         PostShareMetadata $postShareMetadata,
@@ -48,6 +55,11 @@ final class ShareButtons extends Component
             fn ($provider) => isset($this->providerUrls[$provider])
         )->values();
         $this->hasNative = isset($this->enabledProviders['native']);
+        $this->pictureProviderKeys = $this->metadata->pictureUrl === null ? [] : array_values(array_map(
+            fn (ShareProvider $provider): string => $provider->value,
+            array_filter(ShareProvider::cases(), fn (ShareProvider $provider): bool => $provider->takesPicture()),
+        ));
+        $this->pictureFileName = Str::slug($this->metadata->title) ?: 'picture';
     }
 
     public function render(): View

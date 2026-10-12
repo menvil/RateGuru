@@ -16,5 +16,7 @@ return [
     'share_via' => 'Подели преко',
     'share_unavailable' => 'Дељење није доступно',
     'copy_failed' => 'Аутоматско копирање није успело. Означи и копирај ручно.',
+    'picture_copied' => 'Слика је копирана. Отворите :provider и налепите је.',
+    'open_provider' => 'Отвори :provider',
     'post_fallback_description' => 'Погледај и оцени ову објаву на :siteName.',
 ];

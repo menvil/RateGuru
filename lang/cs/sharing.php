@@ -16,5 +16,7 @@ return [
     'share_via' => 'Sdílet přes',
     'share_unavailable' => 'Sdílení není k dispozici',
     'copy_failed' => 'Automatické kopírování se nezdařilo. Označ odkaz a zkopíruj ho ručně.',
+    'picture_copied' => 'Obrázek je zkopírovaný. Otevřete :provider a vložte ho.',
+    'open_provider' => 'Otevřít :provider',
     'post_fallback_description' => 'Podívej se na tento příspěvek na :siteName a ohodnoť ho.',
 ];
