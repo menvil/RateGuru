@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\View\ViewException;
 
 /**
@@ -473,4 +475,62 @@ it('lets a screen decide on a combobox choice before it is taken', function () {
         ->toContain("new CustomEvent('choose', { detail: { value }, bubbles: true, cancelable: true })")
         ->toContain('if (this.$root.dispatchEvent(event))')
         ->toContain('x-on:choose="$event.preventDefault()"');
+});
+
+it('leads a combobox of things with an icon instead of a flag, and shows identifiers in mono', function () {
+    $html = (string) $this->blade('<x-admin.ui.combobox id="model" label="AI model" :options="$options" value="gpt-5-luna" />', ['options' => [
+        ['value' => '', 'label' => 'All models', 'icon' => 'boxes'],
+        ['value' => 'gpt-5-luna', 'label' => 'gpt-5-luna', 'icon' => 'cpu', 'mono' => true],
+    ]]);
+
+    expect($html)
+        ->toContain('<span class="rg-admin-combobox__icon" aria-hidden="true">')
+        ->toContain('x-show="display[selected]?.icon === \'cpu\'"')
+        ->toContain('x-show="display[selected]?.icon === \'boxes\'"')
+        ->not->toContain('rg-admin-combobox__leading')
+        ->toContain('class="rg-admin-combobox__value rg-admin-combobox__value--mono"')
+        ->toContain('<span class="rg-admin-combobox__option-label rg-admin-combobox__option-label--mono">gpt-5-luna</span>')
+        ->and(substr_count($html, 'rg-admin-combobox__option-icon'))->toBe(2)
+        // The icon of the option not chosen starts hidden, before Alpine runs.
+        ->and($html)->toMatch('/<svg[^>]*style="display: none;?"[^>]*x-show="display\[selected\]\?\.icon === \'boxes\'"/s')
+        ->and($html)->not->toContain('style=";"');
+});
+
+it('pages a list with links: the range, the pages around the current one with gaps, and arrows disabled at the ends', function () {
+    $paginator = (new LengthAwarePaginator([], 1231, 25, 1, ['path' => '/admin/posts']));
+    $html = (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" noun="posts" />', ['paginator' => $paginator]);
+
+    expect($html)
+        ->toContain('<nav class="rg-admin-pagination" aria-label="Pagination">')
+        ->toContain('1–25 of 1,231 posts')
+        ->toMatch('/<a\s+class="rg-admin-pagination__page"\s+href="\/admin\/posts\?page=1"\s+aria-label="Page 1"\s+aria-current="page"\s*>1<\/a>/')
+        ->toContain('href="/admin/posts?page=2"')
+        ->toContain('href="/admin/posts?page=50"')
+        ->toMatch('/<button[^>]*aria-label="Previous page"[^>]*disabled/')
+        ->toMatch('/<a[^>]*href="\/admin\/posts\?page=2"[^>]*aria-label="Next page"|<a href="\/admin\/posts\?page=2" aria-label="Next page"/')
+        ->and(substr_count($html, 'rg-admin-pagination__gap'))->toBe(1)
+        ->and(substr_count($html, 'rg-admin-pagination__page"'))->toBe(3);
+});
+
+it('pages a list on the server through a Livewire method, with a note after the range', function () {
+    $paginator = new LengthAwarePaginator([], 120, 25, 3);
+    $html = (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" noun="calls" note="newest first" action="goToCallsPage" />', ['paginator' => $paginator]);
+
+    expect($html)
+        ->toContain('51–75 of 120 calls')
+        ->toContain('· newest first')
+        ->toContain('wire:click="goToCallsPage(1)"')
+        ->toContain('wire:click="goToCallsPage(2)"')
+        ->toContain('wire:click="goToCallsPage(4)"')
+        ->toContain('wire:click="goToCallsPage(5)"')
+        ->toMatch('/<button\s+type="button"\s+class="rg-admin-pagination__page"\s+wire:click="goToCallsPage\(3\)"\s+aria-label="Page 3"\s+aria-current="page"\s*>3<\/button>/')
+        ->not->toContain('href=');
+});
+
+it('says a paged list is empty, and refuses a paginator that does not know its total', function () {
+    $empty = (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" noun="calls" note="newest first" />', ['paginator' => new LengthAwarePaginator([], 0, 25, 1)]);
+
+    expect($empty)->toContain('No calls')->not->toContain('newest first')
+        ->and(fn () => (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" />', ['paginator' => new Paginator([], 25)]))
+        ->toThrow(ViewException::class, 'Admin pagination needs a length-aware paginator.');
 });

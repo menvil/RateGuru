@@ -6,6 +6,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
@@ -49,6 +50,7 @@ final class AdminShellNavigation
         RatingGroupResource::class => 'star',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
+        TranslationAiPage::class => 'bot',
         ProjectSettingsPage::class => 'settings-2',
         MediaDiagnosticsPage::class => 'hard-drive',
     ];

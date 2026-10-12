@@ -544,6 +544,7 @@ final class AdminUiKit extends Page
                     ['Trigger', '52 h · radius 12 · border gray-300 · overline + value · badge · chevrons-up-down'],
                     ['List', '420 w (max 100vw − 32) · search first · max 340 h, scrolls'],
                     ['Option', '44 h · flag · name — native · code, state, missing · %'],
+                    ['Icon', 'for a list of things rather than languages: a 28 sunken square (32 in the trigger) instead of the flag · an identifier label in mono'],
                     ['Search', 'filters in the browser · “No installed language matches.”'],
                     ['Keyboard', 'Enter, Space or arrows open · focus in the search · Up and Down move · Enter chooses · Escape back to the trigger'],
                     ['A11y', 'combobox over a listbox · aria-activedescendant · aria-selected'],
@@ -644,25 +645,24 @@ final class AdminUiKit extends Page
             ],
             'NAV-04' => [
                 'name' => 'Pagination',
-                'source' => 'CSS primitive · .rg-admin-pagination',
-                'kind' => 'primitive',
-                'purpose' => 'Table footer with range and pages.',
+                'source' => 'Blade component · x-admin.ui.pagination',
+                'kind' => 'component',
+                'purpose' => 'The footer of a list the server reads one page at a time: range and pages.',
                 'specs' => [
                     ['Footer', 'padding 12 16 · 13px gray-600'],
-                    ['Range', '“1–25 of 1,231” tabular'],
+                    ['Range', '“1–25 of 1,231 posts” tabular · optional note (“newest first”)'],
+                    ['Pages', 'first, last and either side of the current · a gap where pages are left out'],
                     ['Page', '32 min · current sunken + hairline + 500 · aria-current'],
                     ['Arrows', 'x-admin.ui.icon-button ghost sm · disabled at ends'],
+                    ['Server', 'links to the paginator’s URLs, or with action buttons that call a Livewire method with the page'],
                 ],
                 'code' => <<<'BLADE'
-                    <nav class="rg-admin-pagination" aria-label="Pagination">
-                        <span class="rg-admin-pagination__range">1–25 of 1,231</span>
-                        <ul class="rg-admin-pagination__pages">
-                            <li><x-admin.ui.icon-button icon="chevron-left" label="Previous page" variant="ghost" size="sm" disabled /></li>
-                            <li><a class="rg-admin-pagination__page" aria-current="page" href="?page=1">1</a></li>
-                            …
-                        </ul>
-                    </nav>
+                    <x-admin.ui.pagination :paginator="$calls" noun="calls" note="newest first" action="goToCallsPage" />
                     BLADE,
+                'rules' => [
+                    'Page size 25. A filter that changes goes back to the first page.',
+                    'Only a list read page by page has it; a bounded list on the page has none.',
+                ],
             ],
             'LAY-01' => [
                 'name' => 'Page header',

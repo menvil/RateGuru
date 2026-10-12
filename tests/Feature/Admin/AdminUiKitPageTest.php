@@ -253,5 +253,25 @@ it('shows the segmented control, the filter dropdown and the combobox live, from
         ->toContain('No installed language matches.');
 
     // Built for thirty languages and more.
-    expect(substr_count(adminUiKitSpecimen($html, 'FRM-11'), 'role="option"'))->toBe(32);
+    expect(substr_count(adminUiKitSpecimen($html, 'FRM-11'), 'id="kit-combobox-option-'))->toBe(32)
+        // And for a list of things, each leading with an icon, an identifier in mono.
+        ->and(adminUiKitSpecimen($html, 'FRM-11'))
+        ->toContain('id="kit-combobox-models-trigger"')
+        ->toContain('rg-admin-combobox__icon')
+        ->toContain('rg-admin-combobox__option-icon')
+        ->toContain('rg-admin-combobox__option-label rg-admin-combobox__option-label--mono');
+});
+
+it('shows pagination live from its component, at the first, a middle, the last and a single page', function () {
+    // Without Livewire's block markers, so a range reads as one text.
+    $specimen = (string) preg_replace('/<!--.*?-->/s', '', adminUiKitSpecimen($this->actingAs(User::factory()->admin()->create())->get(ADMIN_UI_KIT_URL)->getContent(), 'NAV-04'));
+
+    expect($specimen)
+        ->toContain('x-admin.ui.pagination')
+        ->toContain('1–25 of 1,231 posts')
+        ->toContain('601–625 of 1,231 posts · newest first')
+        ->toContain('1,226–1,231 of 1,231 posts')
+        ->toContain('1–12 of 12 posts')
+        ->and(substr_count($specimen, 'aria-current="page"'))->toBe(4)
+        ->and(substr_count($specimen, 'class="rg-admin-pagination__gap"'))->toBe(4);
 });

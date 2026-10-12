@@ -127,19 +127,44 @@
     ])->all();
 @endphp
 
+@php
+    // A list of things rather than languages: each option leads with an icon, an identifier in mono.
+    $kitModels = [
+        ['value' => '', 'label' => 'All models', 'icon' => 'boxes', 'meta' => '2 models with recorded calls or configured', 'trailing' => '1,284 calls', 'badge' => ['label' => '2 models', 'tone' => 'outline', 'dot' => false]],
+        ['value' => 'gpt-6-luna-2026-09-01', 'label' => 'gpt-6-luna-2026-09-01', 'icon' => 'cpu', 'mono' => true, 'meta' => 'openai · Configured now', 'trailing' => '1,201 calls', 'badge' => ['label' => 'Current', 'tone' => 'success', 'dot' => true]],
+        ['value' => 'gpt-5-luna', 'label' => 'gpt-5-luna', 'icon' => 'cpu', 'mono' => true, 'meta' => 'openai · Last call 21 Sep 2026', 'trailing' => '83 calls', 'badge' => ['label' => 'Not current', 'tone' => 'neutral', 'dot' => false]],
+    ];
+@endphp
+
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-11']])
-    <div class="rg-admin-kit__stack" x-data="{ language: 'bg' }" style="min-height: 460px">
-        <div style="width: 420px; max-width: 100%">
-            <x-admin.ui.combobox
-                id="kit-combobox"
-                label="Target language"
-                :options="$kitLanguages"
-                value="bg"
-                :search-placeholder="'Search '.count($kitLanguages).' target languages'"
-                empty="No installed language matches."
-                x-model="language"
-            />
+    <div class="rg-admin-kit__row" style="align-items: flex-start; min-height: 460px">
+        <div class="rg-admin-kit__stack" x-data="{ language: 'bg' }">
+            <div style="width: 420px; max-width: 100%">
+                <x-admin.ui.combobox
+                    id="kit-combobox"
+                    label="Target language"
+                    :options="$kitLanguages"
+                    value="bg"
+                    :search-placeholder="'Search '.count($kitLanguages).' target languages'"
+                    empty="No installed language matches."
+                    x-model="language"
+                />
+            </div>
+            <span class="rg-admin-kit__caption" x-text="`language = ${language}`">language = bg</span>
         </div>
-        <span class="rg-admin-kit__caption" x-text="`language = ${language}`">language = bg</span>
+        <div class="rg-admin-kit__stack" x-data="{ model: '' }">
+            <div style="width: 360px; max-width: 100%">
+                <x-admin.ui.combobox
+                    id="kit-combobox-models"
+                    label="AI model"
+                    :options="$kitModels"
+                    value=""
+                    search-placeholder="Search 2 models"
+                    empty="No model matches."
+                    x-model="model"
+                />
+            </div>
+            <span class="rg-admin-kit__caption" x-text="`model = ${model === '' ? 'all' : model}`">model = all</span>
+        </div>
     </div>
 @endcomponent

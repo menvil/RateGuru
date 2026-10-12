@@ -1647,6 +1647,40 @@
         box-shadow: inset 0 0 0 1px var(--rg-admin-border-strong);
     }
 
+    /* A list of things rather than languages leads with an icon in a sunken square instead of a flag. */
+    .rg-admin-combobox__icon,
+    .rg-admin-combobox__option-icon {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-combobox__icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* An identifier, such as a model name, in mono. */
+    .rg-admin-combobox__value--mono,
+    .rg-admin-combobox__option-label--mono {
+        font-family: var(--rg-admin-font-mono);
+        letter-spacing: 0;
+    }
+
+    .rg-admin-combobox__value--mono {
+        font-size: var(--rg-admin-text-ui);
+    }
+
+    .rg-admin-combobox__option-label--mono {
+        font-size: var(--rg-admin-text-caption);
+    }
+
     .rg-admin-combobox__option-leading {
         width: 22px;
         font-size: 18px;
@@ -1794,6 +1828,9 @@
         border: 1px solid transparent;
         border-radius: var(--rg-admin-radius-control);
         color: var(--rg-admin-text-secondary);
+        background: transparent;
+        font: inherit;
+        cursor: pointer;
         font-variant-numeric: tabular-nums;
         text-decoration: none;
     }
@@ -3869,6 +3906,703 @@
         .rg-admin-translation-context__payload-row {
             grid-template-columns: minmax(0, 1fr);
             gap: 2px;
+        }
+    }
+
+    /* Translation AI screen (TranslationAiPage): provider health, usage, failures, calls, generations, configuration */
+    .rg-admin-translation-ai__header {
+        align-items: center;
+    }
+
+    .rg-admin-translation-ai__intro {
+        flex: 1 1 420px;
+        min-width: 0;
+    }
+
+    /* The model filter, and under it when the figures were read, the period and Refresh. */
+    .rg-admin-translation-ai__controls {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__model {
+        width: 360px;
+        max-width: 100%;
+    }
+
+    .rg-admin-translation-ai__refresh {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-translation-ai__updated,
+    .rg-admin-translation-ai__checked {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__body {
+        gap: var(--rg-admin-card-gap);
+        transition: opacity var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-translation-ai__body--loading {
+        opacity: 0.6;
+    }
+
+    /* One card, three sections: side by side where they fit, each at least 320 wide; hairlines between them. */
+    .rg-admin-translation-ai__sections {
+        display: flex;
+        flex-wrap: wrap;
+        margin: -1px 0 0 -1px;
+    }
+
+    .rg-admin-translation-ai__section {
+        display: flex;
+        flex: 1 1 320px;
+        flex-direction: column;
+        min-width: 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__section-head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__section-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__section-note {
+        margin: auto 0 0;
+        padding: 10px var(--rg-admin-space-5) var(--rg-admin-space-3);
+        border-top: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-translation-ai__details {
+        padding: 6px var(--rg-admin-space-5) var(--rg-admin-space-3);
+    }
+
+    /* A long value, such as when the last success was, wraps under itself rather than being cut. */
+    .rg-admin-translation-ai__value-text {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-ai__value--mono {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-translation-ai__value--muted {
+        color: var(--rg-admin-text-tertiary);
+        font-weight: var(--rg-admin-weight-regular);
+    }
+
+    /* Usage figures: two by two, split by hairlines. */
+    .rg-admin-translation-ai__figures {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin: 0;
+        overflow: hidden;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__figure {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+        margin: -1px 0 0 -1px;
+        padding: 14px var(--rg-admin-space-5) var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__figure-value {
+        margin: 0;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__figure-value--quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-ai__figure-note {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-ai__figure-note--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* Calls per hour or day: succeeded calls in ink under failed ones in red, scaled to the busiest point. */
+    .rg-admin-translation-ai__chart {
+        margin: 0;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) 18px;
+    }
+
+    .rg-admin-translation-ai__chart-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px var(--rg-admin-space-4);
+        margin-bottom: 10px;
+    }
+
+    .rg-admin-translation-ai__chart-title {
+        flex: 1;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__legend {
+        display: inline-flex;
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-translation-ai__legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-ai__swatch {
+        width: 6px;
+        height: 6px;
+        border-radius: var(--rg-admin-radius-full);
+    }
+
+    .rg-admin-translation-ai__swatch--succeeded {
+        background: var(--rg-admin-data-progress);
+    }
+
+    .rg-admin-translation-ai__swatch--failed {
+        background: var(--rg-admin-data-invalid);
+    }
+
+    .rg-admin-translation-ai__bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        height: 96px;
+        margin: 0;
+        padding: 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        list-style: none;
+    }
+
+    .rg-admin-translation-ai__bars--dense {
+        gap: 3px;
+    }
+
+    .rg-admin-translation-ai__bar {
+        position: relative;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        justify-content: flex-end;
+        min-width: 0;
+        height: 100%;
+        transition: opacity var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-translation-ai__bar:hover {
+        opacity: 0.75;
+    }
+
+    .rg-admin-translation-ai__bar-failed {
+        min-height: 3px;
+        border-radius: 2px 2px 0 0;
+        background: var(--rg-admin-data-invalid);
+    }
+
+    .rg-admin-translation-ai__bar-succeeded {
+        min-height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--rg-admin-data-progress);
+    }
+
+    .rg-admin-translation-ai__bar-succeeded--under {
+        border-radius: 0;
+    }
+
+    /* An hour or day without a successful call still shows where it is. */
+    .rg-admin-translation-ai__bar-succeeded--none {
+        background: var(--rg-admin-data-track);
+    }
+
+    .rg-admin-translation-ai__bar-succeeded--none.rg-admin-translation-ai__bar-succeeded--under {
+        display: none;
+    }
+
+    .rg-admin-translation-ai__ticks {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-2);
+        margin-top: 6px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__chart-empty {
+        flex: 1;
+    }
+
+    /* Failures by error type: failed calls and failed items side by side, never added up. */
+    .rg-admin-translation-ai__failures {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-translation-ai__failure {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: var(--rg-admin-space-3);
+        padding: 10px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__failures > .rg-admin-translation-ai__failure:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-translation-ai__failure-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__failure-code {
+        overflow: hidden;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__failure--none .rg-admin-translation-ai__failure-code {
+        color: var(--rg-admin-text-secondary);
+        font-weight: var(--rg-admin-weight-regular);
+    }
+
+    .rg-admin-translation-ai__failure-description {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-translation-ai__failure-last {
+        margin-top: 2px;
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-ai__failure-figures {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-1);
+        text-align: right;
+    }
+
+    .rg-admin-translation-ai__failure-count {
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__failure-count--none {
+        color: var(--rg-admin-text-tertiary);
+        font-weight: var(--rg-admin-weight-regular);
+    }
+
+    .rg-admin-translation-ai__failure-items,
+    .rg-admin-translation-ai__failure-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__failure-note {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* Recent provider calls */
+    .rg-admin-translation-ai__calls-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__calls-head > .rg-admin-translation-ai__section-text {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-translation-ai__calls .rg-admin-table__row {
+        min-height: 52px;
+    }
+
+    .rg-admin-translation-ai__calls .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-translation-ai__calls .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-translation-ai__calls .rg-admin-table__row--head .rg-admin-table__cell,
+    .rg-admin-translation-ai__calls .rg-admin-table__cell--numeric {
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__calls .rg-admin-table__meta:not(.rg-admin-translation-ai__result-detail) {
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__stack {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__time,
+    .rg-admin-translation-ai__locale {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-translation-ai__usage {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__usage-icon {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-ai__usage-label {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__model {
+        max-width: 100%;
+        overflow: hidden;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-caption);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-translation-ai__language {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-translation-ai__flag {
+        font-size: 16px;
+        line-height: 1;
+    }
+
+    .rg-admin-translation-ai__tokens {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-ai__unknown {
+        color: var(--rg-admin-text-disabled);
+    }
+
+    .rg-admin-translation-ai__latency--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-translation-ai__latency--danger {
+        color: var(--rg-admin-red-950);
+    }
+
+    .rg-admin-translation-ai__success {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-translation-ai__result {
+        max-width: 100%;
+    }
+
+    .rg-admin-translation-ai__result--code {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    /* Background generations: language, progress, counts and expiry, in one row where there is room. */
+    .rg-admin-translation-ai__generations {
+        container-type: inline-size;
+    }
+
+    .rg-admin-translation-ai__generation-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-translation-ai__generation {
+        display: grid;
+        grid-template-columns: minmax(200px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.2fr);
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-6);
+        padding: 14px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__generation-list > .rg-admin-translation-ai__generation:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-translation-ai__generation-language {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-translation-ai__generation-flag {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .rg-admin-translation-ai__generation-progress {
+        display: grid;
+        grid-template-columns: auto minmax(60px, 1fr);
+        align-items: center;
+        gap: 6px var(--rg-admin-space-3);
+    }
+
+    .rg-admin-translation-ai__generation-figure {
+        grid-column: 1 / -1;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-translation-ai__generation-counts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-4);
+        margin: 0;
+    }
+
+    .rg-admin-translation-ai__generation-counts > div {
+        display: flex;
+        gap: 6px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-translation-ai__generation-counts dt {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-ai__generation-counts dd {
+        margin: 0;
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-translation-ai__generation-expiry {
+        display: flex;
+        flex-wrap: wrap;
+        grid-column: 1 / -1;
+        align-items: center;
+        gap: 6px var(--rg-admin-space-3);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    @container (max-width: 759.98px) {
+        .rg-admin-translation-ai__generation {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    /* Configuration and guardrails: folded away; a two-column list of settings once open. */
+    .rg-admin-translation-ai__configuration-title {
+        margin: 0;
+        font: inherit;
+    }
+
+    .rg-admin-translation-ai__configuration-toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        width: 100%;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border: 0;
+        border-radius: var(--rg-admin-radius-card);
+        background: transparent;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-translation-ai__configuration-toggle:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-translation-ai__configuration-toggle[aria-expanded='true'] {
+        border-radius: var(--rg-admin-radius-card) var(--rg-admin-radius-card) 0 0;
+    }
+
+    .rg-admin-translation-ai__configuration-icon,
+    .rg-admin-translation-ai__configuration-chevron {
+        flex-shrink: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-translation-ai__configuration-chevron {
+        transition: transform var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-translation-ai__configuration-chevron--open {
+        transform: rotate(180deg);
+    }
+
+    .rg-admin-translation-ai__settings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+        margin: 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__setting {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        align-content: start;
+        gap: 2px var(--rg-admin-space-4);
+        padding: 10px var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-translation-ai__setting-label {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-translation-ai__setting-value {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-translation-ai__setting-note {
+        grid-column: 1 / -1;
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* On a phone the controls take the width: the model first, then the period, Refresh and when. */
+    @media (max-width: 639.98px) {
+        .rg-admin-translation-ai__controls,
+        .rg-admin-translation-ai__model {
+            width: 100%;
+        }
+
+        .rg-admin-translation-ai__controls {
+            align-items: stretch;
+        }
+
+        .rg-admin-translation-ai__refresh {
+            justify-content: flex-start;
         }
     }
 
