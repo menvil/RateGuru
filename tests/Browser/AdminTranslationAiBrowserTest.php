@@ -24,6 +24,7 @@ use Carbon\CarbonImmutable;
 function seedTranslationAiWeek(CarbonImmutable $now): void
 {
     $call = fn (CarbonImmutable $at, array $attributes = []) => TranslationAiProviderCall::factory()->create(['completed_at' => $at, ...$attributes]);
+    $languages = array_slice(translatedLocales(), 0, 3);
     $interactive = ['consumer' => 'interactive_ai', 'item_count' => 1, 'succeeded_item_count' => 1, 'input_tokens' => 620, 'output_tokens' => 38, 'total_tokens' => 658, 'estimated_cost_usd' => '0.000081000000', 'latency_ms' => 1400];
     $chunk = ['consumer' => 'generate_missing', 'item_count' => 20, 'succeeded_item_count' => 20, 'input_tokens' => 9000, 'output_tokens' => 1500, 'total_tokens' => 10500, 'estimated_cost_usd' => '0.001650000000', 'latency_ms' => 6200];
 
@@ -34,7 +35,7 @@ function seedTranslationAiWeek(CarbonImmutable $now): void
             $at = $day->setTime($hour, 10 + $index * 7);
 
             if ($at->lessThan($now)) {
-                $call($at, [...$interactive, 'target_locale' => ['de', 'ru', 'bg'][$index % 3], 'provider_target_locale' => ['de', 'ru', 'bg'][$index % 3], 'latency_ms' => 900 + $index * 230]);
+                $call($at, [...$interactive, 'target_locale' => $languages[$index % count($languages)], 'provider_target_locale' => $languages[$index % count($languages)], 'latency_ms' => 900 + $index * 230]);
             }
         }
 
