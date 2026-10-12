@@ -92,6 +92,7 @@ final class AdminUiKit extends Page
             ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-03', 'TBL-04', 'TBL-05', 'TBL-06']],
             ['key' => 'feedback', 'label' => 'Overlays and feedback', 'description' => 'Confirmations, drawers, toasts and notices.', 'ids' => ['OVL-01', 'OVL-02', 'FBK-01', 'FBK-02']],
             ['key' => 'localization', 'label' => 'Localization domain', 'description' => 'Patterns that exist only in RateGuru Admin: the translation states Translation Center is built on.', 'ids' => ['DOM-01']],
+            ['key' => 'moderation', 'label' => 'Moderation domain', 'description' => 'Patterns that exist only in RateGuru Admin: a report, what it points to and that content’s author, read as one chain.', 'ids' => ['DOM-02']],
         ];
     }
 
@@ -1168,6 +1169,29 @@ final class AdminUiKit extends Page
                 'rules' => [
                     '!Never write AI output to the database before the administrator saves it.',
                     'Switching the target language asks before dropping unsaved drafts.',
+                ],
+            ],
+            'DOM-02' => [
+                'name' => 'Report chain',
+                'source' => 'Blade component · x-admin.ui.timeline-item',
+                'kind' => 'component',
+                'purpose' => 'A report, its target and the target’s author as one chain, with the actions for each link next to it.',
+                'specs' => [
+                    ['Marker', '32 · an icon 16 in a hairline circle, or the person’s initials · danger tone on the status fill'],
+                    ['Line', '1 hairline from under the marker to the next link · none after the last'],
+                    ['Title', '14/22 500 · optional time 13 tertiary on the right · a badge beside it'],
+                    ['Body', '6 under the title · 12 between parts · 14/22 secondary'],
+                    ['Spacing', '16 between marker and text · 24 between links'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.timeline-item icon="flag" title="Reported as spam" time="08:31">
+                        Reported by <strong>biscuit_mum</strong> · 2 open reports on this post
+                    </x-admin.ui.timeline-item>
+                    <x-admin.ui.timeline-item icon="image" title="Post #48227">…the post and Hide target…</x-admin.ui.timeline-item>
+                    <x-admin.ui.timeline-item initials="KO" title="Author · kotofey" last>…status, View user, Ban author…</x-admin.ui.timeline-item>
+                    BLADE,
+                'rules' => [
+                    'Acting on a link — hiding the target, banning the author — leaves the report open; closing it is its own step.',
                 ],
             ],
         ];

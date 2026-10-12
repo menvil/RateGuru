@@ -206,8 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Posts, Comments, Categories, Tags, Rating groups and Project
-settings are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Comments, Reports, Categories, Tags, Rating groups and
+Project settings are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -248,7 +248,8 @@ settings are migrated: their content is Admin v2 too.
   migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
-  and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
+  step through reports (J, K). The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -270,8 +271,8 @@ These are the current migration state, not changes to the target design:
   user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
   settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
   than a partial imitation.
-- **Operational counts** (reports open, media critical) are not shown yet; Posts shows its pending count and
-  Comments its reported comments still visible (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
+- **Operational counts** (media critical) are not shown yet; Posts shows its pending count, Comments its reported
+  comments still visible and Reports its open reports (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
   queries of its own; each count arrives with the migration of its screen, from its resource.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
@@ -1056,18 +1057,54 @@ in the list by its id.
 - **Access:** comments are moderated by moderators and administrators; finalizing is an administrator's. Nothing
   here deletes a comment: that is its author's alone.
 
+### Reports
+
+Reports (`ListReports`) is drawn entirely in Admin v2: each report points to one post, comment or person, and the
+screen reads them a tab at a time on the server (`ModerationReportsQuery`), beside the open report's chain. The
+resource keeps the route, the navigation item — with the open reports, warning — and the policy.
+
+- **Header band:** “Each report points to one post, comment or person, and its author. Acting on the content and
+  closing the report are separate steps.” Stats: Open, Targets (what the open reports point to) and Oldest open.
+  The top bar shows the keys: J for the next report, K for the previous, from anywhere but a field or a dialog.
+- **Tabs (NAV-03):** Open (oldest first) · Resolved · Ignored · All (newest first), each with its count and an
+  address of its own.
+- **Toolbar (TBL-02):** the search over the reported content, the reporter, the reason, the reporter's message and
+  the report's id; Type (All, Posts, Comments, People) as a filter dropdown (FRM-10); “n reports”.
+- **Docked or over the list:** where the main column leaves 1048 for the list, the open report's chain docks
+  beside it as the 448 panel, sticky as the page scrolls, and the list condenses to Target · Reason · reporter ·
+  Status · Created — opened wide with nothing chosen, the first report opens. Otherwise the list keeps Type ·
+  Target · Reason · Reporter · Status · Created · Actions (Resolve and Ignore on an open report, Open details),
+  scrolling inside its card, and the chain floats over it on the right, 472 wide with its card's shadow. A report's
+  target opens its chain; the report is in the address (`?report=2284`).
+- **Report chain (DOM-02):** the report — “Reported as spam”, who reported it, their message, and “3 open reports
+  point to this post. Each one is closed separately.”; the target — its text, what it is, its state, Open target
+  while visitors can see it and Hide target while it can be hidden, and the info notice that a hidden target's
+  report stays open; the author — or the person reported — with their status, whether they are trusted, their
+  posts and the reports on their content, View user and Ban author (unavailable, with the reason: already
+  banned, account deleted, administrators only). The panel's head has Previous, Next and Close.
+- **Closing:** the footer takes an optional resolution note, stored with the report; Resolve and Ignore close that
+  report only, toast with Undo — which opens it again — and open the next open report. A closed report says who
+  closed it, when and with which note, and offers Reopen (`ReopenReportAction`).
+- **Hide target** is a warning confirmation — a required reason for a post, an optional one for a comment, the
+  report's own reason filled in; **Ban author** is a danger confirmation with what a ban does and an optional
+  reason. Both leave the report open, and say so in their toast.
+- **Something that changed meanwhile** — a report someone else closed, a target already hidden — is not acted on;
+  the toast says so.
+- **Access:** reports are processed by moderators and administrators; banning is an administrator's. Every change
+  goes through its action.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Categories, Tags, Rating groups and
-  Project settings also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Categories, Tags, Rating groups
+  and Project settings also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
 - A grid without a minimum width — Translation Center's rows — stacks its cells in their own order once its own
   width (a container query, not the window's) leaves them too narrow, rather than scrolling or reshuffling.
 - Toolbars wrap; auto-fit grids reflow; drawers cap at `100vw`.
-- Reports docks its 448 panel only when the main column leaves at least 1048 px for the table; otherwise the panel
-  floats over the list.
+- Reports docks its 448 panel only when the main column leaves at least 1048 px for the table — from 1348 px with the
+  full sidebar, from 1116 px with the rail — otherwise the panel floats over the list.
 
 ## Accessibility baseline
 
@@ -1148,6 +1185,12 @@ in the list by its id.
 | Comment Hide reasons | Spam or advertising, Harassment, Off-topic, Misinformation | Spam, Offensive, Fake, Copyright | the reasons visitors report a comment with |
 | Finalize a comment | on hidden and on any author-deleted comment | on a hidden comment, its author's deleted one included | FinalizeCommentRemovalAction finalizes a hidden comment only |
 | Comments grid | `minmax(240px,1fr) 150px 180px 80px 150px 104px 140px`, 1044 | State 170 and Created 120, 1080 | “Hidden by moderation” and the time fit without wrapping |
+| Report ids | “R-2284”, the target's “P-48090” | “Report #2284”, the target's “#48090” (“@name” for a person) | the ids as stored, as the other lists show them |
+| Report targets | posts and comments | posts, comments and people, with Type: People | a person can be reported, and their report reads as their chain |
+| Report order | oldest first in every tab | Open oldest first; Resolved, Ignored and All newest first | the queue waits oldest first, and a closed report is looked up by when it came in |
+| Hide target reasons | “Shared with the author.”; pet-specific chips | “Stored in the moderation log.”; the reasons visitors report with | a hide's reason is not sent to the author |
+| Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
+| Reports empty queue | “New reports appear here as they arrive.” | “New reports appear here when you open the page again.” | the list is read on load |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
@@ -1192,6 +1235,6 @@ built.
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
 | Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all; TBL-03 and TBL-04 as live, reusable components |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
-| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
+| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | all; DOM-02 as a live, reusable component (`x-admin.ui.timeline-item`) |
 
 The [migration plan](migration-plan.md) says when the remaining elements are built.

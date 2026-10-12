@@ -17,6 +17,11 @@ class ReportPolicy
         return $this->canProcess($user);
     }
 
+    public function reopen(User $user, Report $report): bool
+    {
+        return $this->canProcess($user);
+    }
+
     private function canProcess(User $user): bool
     {
         // Role AND lifecycle: a sanctioned moderator/admin loses
