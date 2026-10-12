@@ -176,7 +176,7 @@ Translation engine  ≠  translation storage  ≠  draft storage
 
 ## Translation AI telemetry
 
-Every request a provider was actually sent leaves one row of technical metadata in PostgreSQL, the raw material of
+Every request a provider was actually sent leaves one row of technical metadata in the database, the raw material of
 the Translation AI page. The engine still stores nothing: its consumers record the calls of a result it returned.
 
 ```text
