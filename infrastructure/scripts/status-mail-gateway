@@ -18,6 +18,15 @@ POSTFIX_UNIT="postfix.service"
 POSTFIX_INSTANCE_UNIT="postfix@-.service"
 OWNERSHIP_MARKER="/var/lib/rateguru-mail-gateway/ownership"
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+INBOUND_FILE="${SCRIPT_DIR}/../config/mail-inbound.json"
+
+# Who may listen on a public SMTP port, from the one judge every mail tool asks.
+# shellcheck disable=SC2034 # read by public-smtp-port
+SS_BIN=ss
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/public-smtp-port"
+
 case "${1:-}" in
     -h|--help)
         printf 'Usage: status-mail-gateway\n\nRead-only status of the RateGuru mail gateway. Changes nothing.\n'
@@ -69,9 +78,10 @@ for endpoint in "${endpoints[@]}"; do
         printf '  %s  NOT listening\n' "${endpoint}"
     fi
 done
-for port in 25 465 587; do
-    grep -qE ":${port}\$" <<<"${bound}" && printf '  WARNING: something listens on port %s\n' "${port}"
-done
+printf '  public SMTP: %s\n' "$(public_smtp_summary '')"
+while IFS= read -r problem; do
+    [[ -n "${problem}" ]] && printf '  WARNING: %s\n' "${problem}"
+done < <(public_smtp_problems '' "${INBOUND_FILE}")
 
 section "routes (as Postfix reads them)"
 for endpoint in "${endpoints[@]}"; do

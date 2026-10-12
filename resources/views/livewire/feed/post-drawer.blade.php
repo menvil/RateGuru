@@ -42,6 +42,9 @@
                 $el.classList.remove('translate-x-full', 'pointer-events-none', 'shadow-none');
                 $el.classList.add('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
                 $el.removeAttribute('inert');
+                {{-- The mobile overlay hears no selection from the server (PostDrawer::getListeners()):
+                     it is told here, so a desktop never loads the post into it. --}}
+                if (@js($mobileOnly)) $wire.setSelectedPost($event.detail.postId, $event.detail.focus ?? null);
             "
             x-on:post-selected.window="
                 if (@js($mobileOnly) && window.innerWidth >= 1024) return;

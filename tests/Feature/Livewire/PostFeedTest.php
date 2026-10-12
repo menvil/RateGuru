@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Livewire\Feed\PostFeed;
 use App\Models\Post;
 use App\Models\RatingGroup;
@@ -33,6 +34,21 @@ it('shows newly published post after upload event', function () {
     $component
         ->dispatch('post-uploaded')
         ->assertSee('New Uploaded Dish');
+});
+
+it('drops a post its author deleted from the feed', function () {
+    $author = User::factory()->create();
+    $post = Post::factory()->published()->for($author)->create(['title' => 'Soon Deleted Dish']);
+
+    $component = Livewire::actingAs($author)
+        ->test(PostFeed::class)
+        ->assertSee('Soon Deleted Dish');
+
+    app(DeletePostAction::class)->handle($author, $post);
+
+    $component
+        ->dispatch('post-deleted', postId: $post->id)
+        ->assertDontSee('Soon Deleted Dish');
 });
 
 it('can render post feed component', function () {
@@ -126,4 +142,28 @@ it('passes bulk loaded post card vote results and permissions into feed cards', 
         ->assertSee('Bulk Loaded Results')
         ->assertSee('60% (3)')
         ->assertSee('40% (2)');
+});
+
+it('fetches only the first card image eagerly, at high priority, and the rest lazily', function () {
+    Post::factory()->published()->withImage(path: 'posts/1/first.jpg')->create(['published_at' => now()]);
+    Post::factory()->published()->withImage(path: 'posts/2/second.jpg')->create(['published_at' => now()->subMinute()]);
+
+    $images = livewireDom($this->get(route('feed', ['sort' => 'newest']))->assertOk()->getContent())
+        ->query("//*[@data-testid='post-card-image-open']//img");
+
+    expect($images)->toHaveCount(2)
+        ->and($images->item(0)->hasAttribute('loading'))->toBeFalse()
+        ->and($images->item(0)->getAttribute('fetchpriority'))->toBe('high')
+        ->and($images->item(1)->getAttribute('loading'))->toBe('lazy')
+        ->and($images->item(1)->hasAttribute('fetchpriority'))->toBeFalse();
+});
+
+it('serves the original image with no srcset while its variants have not been generated', function () {
+    Post::factory()->published()->withImage(path: 'posts/1/original.jpg')->create();
+
+    $image = livewireDom($this->get(route('feed'))->assertOk()->getContent())
+        ->query("//*[@data-testid='post-card-image-open']//img")->item(0);
+
+    expect($image?->getAttribute('src'))->toContain('posts/1/original.jpg')
+        ->and($image?->hasAttribute('srcset'))->toBeFalse();
 });

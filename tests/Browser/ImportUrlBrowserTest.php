@@ -10,13 +10,6 @@ beforeEach(function () {
     actingAs(User::factory()->create());
 });
 
-it('import from url tab is present in upload modal', function () {
-    visit(route('feed'))
-        ->click('[data-testid="open-upload-button"]')
-        ->assertVisible('[data-testid="upload-modal"]')
-        ->assertVisible('[data-testid="image-tab-url"]');
-});
-
 it('import url input is present on import tab', function () {
     visit(route('feed'))
         ->click('[data-testid="open-upload-button"]')

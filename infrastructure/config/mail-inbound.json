@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "receiver": {
+    "public_smtp": "enabled",
+    "loopback_port": 2580,
+    "limits": {
+      "message_size_bytes": 10485760,
+      "recipients_per_message": 1,
+      "connections_per_client": 5,
+      "connection_rate_per_client": 30,
+      "message_rate_per_client": 60,
+      "concurrent_sessions": 20,
+      "storage_bytes": 1073741824,
+      "storage_reserve_bytes": 104857600,
+      "host_reserve_bytes": 2147483648
+    }
+  },
+  "targets": {
+    "tits-guru": {
+      "mx_hostname": "mx1.tits.guru",
+      "support": {
+        "local_parts": [
+          "postmaster",
+          "support"
+        ]
+      },
+      "bounce": {
+        "prefix": "b",
+        "identifier": "base32-128"
+      },
+      "reply": {
+        "prefix": "r",
+        "identifier": "base32-128"
+      }
+    }
+  }
+}

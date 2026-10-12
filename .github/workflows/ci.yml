@@ -41,8 +41,11 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      # Checking each file is independent of every other, so the files are
+      # spread over the runner's CPUs: 46 s on one, about a quarter of that
+      # on four.
       - name: Check code style
-        run: vendor/bin/pint --test
+        run: vendor/bin/pint --test --parallel
 
   static-analysis:
     name: Architecture & static analysis (PHPStan)
@@ -553,14 +556,21 @@ jobs:
       # third file goes unrun: the sums still come out right. Its own negative cases
       # are covered by tests/Feature/Architecture/ArchitectureShardPartitionGuardTest.php.
       #
-      # A stale timings file costs balance, not coverage; it stays a warning.
+      # A stale timings file costs balance, not coverage, so it never fails the
+      # run. But a file that now takes far longer than recorded, or one with no
+      # timing, makes its leg run long while the others wait, and that is easy
+      # not to notice. shard-timing-drift.php names those files, with how to
+      # regenerate the timings, in the job summary, and the run carries a
+      # warning that points there.
       - name: Check the shard ran its share
         run: |
           php tools/pest/bin/verify-shard-partition.php leg \
             architecture-pest.log architecture-junit.xml \
             | tee "shard-${{ matrix.shard }}.json"
-          if grep -q 'shards.json\] file is out of date' architecture-pest.log; then
-            echo '::warning::tests/.pest/shards.json is out of date. Regenerate it with tools/pest/bin/shards-from-junit.php from the architecture-junit-* artifacts of a green develop run.'
+          drift="$(php tools/pest/bin/shard-timing-drift.php architecture-junit.xml tests/.pest/shards.json || true)"
+          if [ -n "${drift}" ]; then
+            printf '%s\n' "${drift}" >> "${GITHUB_STEP_SUMMARY}"
+            echo '::warning title=Architecture shard timings::tests/.pest/shards.json no longer describes leg ${{ matrix.shard }}. The job summary names the files and how to regenerate it.'
           fi
 
       - name: Upload shard partition report
@@ -880,6 +890,51 @@ jobs:
           ].join("\n"));
           '
 
+  # The host's one Postfix, with inbound mail, on a REAL Postfix: the
+  # configuration install-mail-gateway renders, run by Ubuntu's postfix package
+  # (installed with no configuration of its own, its service never started) in
+  # a network namespace with only loopback, so no message can leave and no DNS
+  # answers, and a mount namespace, so the runner's /etc/postfix is never
+  # written. The scenario proves what no stub can: Postfix accepts the render,
+  # the outbound part reads back exactly as without inbound mail, mail an
+  # application sends to a domain this host receives for still leaves by its
+  # own route, every inbound address is answered as mail-inbound route judges
+  # it, accepted mail is stored by virtual(8) and waits in the queue while the
+  # store cannot be written, a bounce to a forged sender has no route, the
+  # limits hold, and a reload closes TCP 25 without restarting Postfix. See
+  # tests/Support/real-postfix/scenario.sh.
+  mail-real-postfix:
+    name: Mail on a real Postfix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # It reads the checkout and runs a script as root: no write permission, and
+    # no token left behind in the checkout for that script to find.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Postfix, with no configuration of its own
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "postfix postfix/main_mailer_type select No configuration" | sudo debconf-set-selections
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends postfix
+          sudo systemctl stop postfix >/dev/null 2>&1 || true
+          postconf -d mail_version
+
+      - name: Run the scenario in a network and mount namespace of its own
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work="/tmp/rateguru-real-postfix-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+          mkdir -m 0755 "${work}"
+          sudo unshare --net --mount bash tests/Support/real-postfix/scenario.sh "${GITHUB_WORKSPACE}" "${work}"
+
   ci-summary:
     name: Summary
     if: always()
@@ -895,6 +950,7 @@ jobs:
       - tests-sqlite
       - dependency-audit
       - verify-shard-partition
+      - mail-real-postfix
     permissions:
       contents: read
       issues: write
@@ -945,6 +1001,7 @@ jobs:
           SQLITE_MIGRATIONS: ${{ needs['tests-sqlite'].outputs.migrations }}
           SQLITE_ROLLBACK: ${{ needs['tests-sqlite'].outputs.rollback }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
+          MAIL_REAL_POSTFIX_RESULT: ${{ needs['mail-real-postfix'].result }}
           COMPOSER_PACKAGES: ${{ needs['dependency-audit'].outputs.composer-packages }}
           COMPOSER_ADVISORIES: ${{ needs['dependency-audit'].outputs.composer-advisories }}
           NPM_PACKAGES: ${{ needs['dependency-audit'].outputs.npm-packages }}
@@ -1010,6 +1067,7 @@ jobs:
               `| Architecture tests (Pest) | ${details(process.env.ARCHITECTURE_RESULT, `${architectureTests} tests · 4 shards`)} |`,
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
+              `| Mail on a real Postfix | ${details(process.env.MAIL_REAL_POSTFIX_RESULT, 'inbound and outbound together · network and mount namespaces of its own')} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,
@@ -1070,6 +1128,7 @@ jobs:
           SQLITE_RESULT: ${{ needs['tests-sqlite'].result }}
           DEPENDENCY_AUDIT_RESULT: ${{ needs['dependency-audit'].result }}
           SHARD_PARTITION_RESULT: ${{ needs['verify-shard-partition'].result }}
+          MAIL_REAL_POSTFIX_RESULT: ${{ needs['mail-real-postfix'].result }}
         run: |
           for result in \
             "$SHARD_PARTITION_RESULT" \
@@ -1081,7 +1140,8 @@ jobs:
             "$ARCHITECTURE_RESULT" \
             "$MARIADB_RESULT" \
             "$SQLITE_RESULT" \
-            "$DEPENDENCY_AUDIT_RESULT"
+            "$DEPENDENCY_AUDIT_RESULT" \
+            "$MAIL_REAL_POSTFIX_RESULT"
           do
             if [ "$result" != 'success' ]; then
               echo "At least one CI job did not succeed."

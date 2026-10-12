@@ -83,6 +83,12 @@ abstract class TestCase extends BaseTestCase
             // needs a Redis server and every test starts with none.
             $app['config']->set('translation.bulk.cache_store', 'array');
 
+            // Signing in and asking for a password reset are timeboxed: Laravel
+            // pads each to 200 ms, so how long one takes cannot tell an attacker
+            // whether the account exists. Tests measure no timing, and the
+            // padding was real sleep — 200 ms in every test that signs in.
+            $app['config']->set('auth.timebox_duration', 0);
+
             foreach (static::$bootConfiguration as $key => $value) {
                 $app['config']->set($key, $value);
             }

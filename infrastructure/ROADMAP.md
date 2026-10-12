@@ -1976,11 +1976,11 @@ Slices, in order:
    directories. See [`runbooks/mail-signing.md`](runbooks/mail-signing.md).
 
    **8.4B.4.2b Guarded outbound activation and the first real delivery —
-   IMPLEMENTED — production activation pending.** The tooling only: merging
-   it activates nothing, and `tits-guru` stays held, direct delivery
-   disabled, `lifecycle=planned`. `scripts/activate-mail-outbound`
-   (`--check`, `--apply`, `--verify`, `--rollback`, `--target` and nothing
-   else) activates exactly what its trusted bundle requests — the target
+   IMPLEMENTED and PRODUCTION-ACCEPTED 2026-10-08.** The tooling: merging it
+   activated nothing — `tits-guru` stayed held, direct delivery disabled,
+   `lifecycle=planned` — until the activation recorded in 8.4B.4.2 below.
+   `scripts/activate-mail-outbound` (`--check`, `--apply`, `--verify`,
+   `--rollback`, `--target` and nothing else) activates exactly what its trusted bundle requests — the target
    `outbound` by `direct` delivery and `direct.enabled: true` — and refuses
    anything else ("activation is not requested by this trusted bundle")
    before it changes anything. It derives the one legal pre-activation state
@@ -2026,8 +2026,9 @@ Slices, in order:
    workflows: **Activate tits.guru outbound mail**, **Rollback tits.guru
    outbound mail activation** and **Send tits.guru production mail canary**
    (recipient only from the `MAIL_CANARY_RECIPIENT` Environment secret).
-   *The actual activation is a later, explicit operator cutover:* a separate
-   two-file activation pull request into `develop` (`mail-routing.json`:
+   *The activation was a separate, explicit operator cutover,* performed on
+   2026-10-08 and recorded in 8.4B.4.2 below: a separate two-file activation
+   pull request into `develop` (`mail-routing.json`:
    `tits-guru` held → outbound with `{"kind": "direct"}`;
    `mail-outbound.json`: `direct.enabled` → `true`) that passes CI and reaches
    `main` by the ordinary promotion — never a pull request directly into
@@ -2039,8 +2040,8 @@ Slices, in order:
    (`OUTBOUND READY: YES`), the canary, the operator's inspection of the
    received message's raw headers (SPF, DKIM and DMARC PASS,
    `d=tits.guru s=rg1`, from `213.199.41.241` as `mta1.tits.guru`), then
-   Verify staging infrastructure. Not accepted until a real canary has been
-   received and its headers inspected.
+   Verify staging infrastructure. Accepted only once a real canary had been
+   received and its headers inspected — see 8.4B.4.2 below.
    *Tooling accepted on the shared host on 2026-10-08,* with `tits-guru` still
    held and direct delivery disabled: Prepare staging host run `37779425683`
    and Verify staging infrastructure run `37780411751` (`develop` `92252559`),
@@ -2055,8 +2056,9 @@ Slices, in order:
    for nothing. Sender reputation warm-up follows the first delivery. See
    [`runbooks/mail-outbound-activation.md`](runbooks/mail-outbound-activation.md).
 
-   **8.4B.4.2c Production outbound activation policy — IMPLEMENTED in the
-   repository — host activation pending.** The committed policy now requests
+   **8.4B.4.2c Production outbound activation policy — IMPLEMENTED,
+   activated on the host and PRODUCTION-ACCEPTED 2026-10-08.** The committed
+   policy requests
    `tits-guru`'s direct outbound delivery: in `mail-routing.json` its
    `delivery_mode` is `outbound` with `{"kind": "direct"}` and every other
    field of it unchanged (`127.0.0.1:2526`, `tits.guru`, `noreply@tits.guru`,
@@ -2086,12 +2088,151 @@ Slices, in order:
    then the policy returned to held by its own pull request through
    `develop` → `main`; ordinary Verify and Prepare resume once the committed
    and the applied policy match. Nothing was activated or sent by this
-   change.
+   change; the three states have agreed since 2026-10-08, when the host was
+   activated and the delivery accepted (8.4B.4.2 below).
+
+   **8.4B.4.2 Production outbound activation — PRODUCTION-ACCEPTED
+   2026-10-08.** The cutover 8.4B.4.2b and 8.4B.4.2c prepared, performed on
+   the shared host and accepted from its real results. Activate tits.guru
+   outbound mail run `37813433328` SUCCESS. Verify production infrastructure
+   run `37814215899` SUCCESS, `OUTBOUND READY: YES`. The first canary to
+   Gmail, run `37814715904`, was delivered — `status=sent`, DSN `2.0.0`, SPF,
+   DKIM and DMARC PASS — and its run still ended FAILURE: the result check
+   required a lowercase `Message-ID`, while the canary ID carries the `T` and
+   `Z` of its UTC time. PR #1245 made the check follow the canary ID's own
+   form and named the sender `TitsGuru` in the `From` header, the envelope
+   sender unchanged. The repeated canary to Gmail, run `37821815403` SUCCESS,
+   arrived as `From: TitsGuru <noreply@tits.guru>` with SPF PASS, DKIM PASS
+   (`d=tits.guru`, `s=rg1`) and DMARC PASS, over TLS 1.3, from
+   `213.199.41.241` as `mta1.tits.guru`. The Mail-Tester check, run
+   `37822226157` SUCCESS, passed SpamAssassin and the blocklist checks; its
+   score of 7/10 is the missing MX for `tits.guru` — inbound mail, which is
+   8.4B.5. The closing Verify staging infrastructure run
+   `37823079457` SUCCESS: 6 PASS, 0 FAIL, 0 DEFERRED, 1 N/A, with Mailpit,
+   Mailtrap Local and staging's isolation confirmed. *State now:* the shared
+   host delivers `tits-guru`'s mail, signed, directly to each recipient's MX;
+   the production application is still `lifecycle=planned` and undeployed —
+   outbound delivery was activated independently of it, and its own `MAIL_*`
+   values remain 8.6's. Mail sent today carries the envelope sender
+   `noreply@tits.guru`; the bounce domain is not an envelope sender yet.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
-   planned.** The production Return-Path and bounce identity, bounce reception
-   on the bounce domain, reply routing on the reply domain, and the support
-   mailbox integration.
+   current.** Started 2026-10-08. Receiving mail from the Internet for a
+   production target — support mail, delivery status notifications on the
+   bounce domain and replies on the reply domain — through the host's one
+   Postfix: independent SMTP listeners, one shared queue, a separate inbound
+   store, and guarded activation of public SMTP. Every public-port check
+   recognizes that Postfix's own recorded public listener, and nothing else,
+   through one shared judge. Inbound mail is not working until a message
+   from outside has actually been received.
+   See [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md).
+
+   **8.4B.5.1 Inbound contract and DNS plan — COMPLETED.** Merged as PR #1248.
+   The new `config/mail-inbound.json` (schema 1) held only what was new:
+   `receiver.public_smtp` — `disabled` while no receiver existed — and per
+   production target its MX host inside its own
+   mail domain (`tits-guru`: `mx1.tits.guru`), its exact support local parts
+   (`postmaster` and `support`; `postmaster` is required, and accepted at the
+   bounce and reply domains too, by RFC 5321 §4.5.1), and its bounce and reply
+   address forms
+   (`b-<identifier>@bounce.tx.tits.guru`, `r-<identifier>@reply.tits.guru`,
+   the identifier 128 random bits as 26 lowercase Crockford base32
+   characters). The mail, bounce and reply domains are read from
+   `mail-routing render-plan`, never restated, and the outbound MTA hostname
+   from `mail-outbound.json` through `mail-identity validate`. The
+   repository-only `scripts/mail-inbound` validates it — staging is never a
+   public destination, no wildcard or catch-all, no forwarding, relay or AUTH
+   setting exists, `noreply@` is never a mailbox, bounce and reply never
+   share a prefix, every name has one owner and an MX host is never the MTA
+   hostname — and renders the inbound plan (`render-plan`, with the
+   receiver's twenty requirements and each destination's future handler),
+   the DNS plan (`render-dns`: MX 10 for `tits.guru`, `bounce.tx.tits.guru`
+   and `reply.tits.guru` naming `mx1.tits.guru`, and its A record with an
+   explicitly given, globally reachable IPv4 address — never in an IANA
+   special-purpose range such as the RFC 5737 documentation ranges or
+   `198.18.0.0/15` — or marked not provided; nothing of the outbound
+   identity) and the verdict for one recipient (`route`).
+   Genericity is proved against a synthetic second brand. MX records are
+   published only after the receiver is installed, verified and activated.
+   *Unchanged on purpose:* the gateway and its public-port checks, OpenDKIM,
+   the routing policy, `mail-outbound.json`, every lifecycle, environment
+   file and secret, DNS and the firewall; nothing listened on port 25.
+
+   **8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation —
+   IMPLEMENTED in repository, awaiting real-host activation and acceptance.**
+   One Postfix — independent SMTP listeners — one shared queue — a separate
+   inbound store — guarded activation of public SMTP. `install-mail-gateway`
+   stays the only owner of `main.cf`, `master.cf` and `postfix@-.service`,
+   and renders the inbound part from `mail-inbound render-receiver` beside
+   the outbound one: a loopback inbound listener (`127.0.0.1:2580`) and,
+   only once activated, one public listener on exactly one IPv4 address,
+   port 25, each with its own per-service overrides — recipients judged at
+   `RCPT TO` against the rendered table, relaying refused to every client,
+   loopback included, no AUTH, no milter, no content filter, their own
+   cleanup and address rewriting (the bare `<Postmaster>` to a host mailbox
+   of its own), STARTTLS as `mx1.tits.guru` from the operator's certificate
+   on the host — and `virtual(8)` delivery into Maildirs. The submission
+   listeners on 2525 and 2526, their routes, OpenDKIM and the hostname
+   `mta1.tits.guru` are untouched, and mail they take for `tits.guru` still
+   leaves through its outbound route. The queue is shared and not isolated:
+   the inbound listeners refuse new mail below a queue floor of their own,
+   with per-client session, rate and message limits (schema 2 of the
+   contract adds the loopback port and the reviewed limits). The store
+   (`scripts/install-mail-inbound`) is a 1 GiB `nodev,nosuid,noexec` volume
+   of its own with a no-login owner; while it cannot be written, mail waits
+   in the queue. `250` means queued, not stored: at `RCPT TO`, before any
+   `250`, the inbound listeners ask a store gate — a Postfix policy service
+   (spawn, as `nobody`) — and refuse temporarily while the store is not
+   mounted, is read-only, or is below its reserve of space or inodes. Mail
+   accepted before the store failed waits in the queue for
+   `maximal_queue_lifetime` (five days, shared with outbound mail, so not made
+   unlimited) and is lost after it — that is the stated boundary. The risk is
+   detected long before: `activate-mail-inbound --health` reads each queued
+   message's envelope (the listener that accepted it, never its recipient),
+   fails as soon as accepted inbound mail waits, and reports it AT RISK OF
+   LOSS after a day. Every six hours, unattended, a schedule dispatches Check
+   tits.guru inbound mail health on main, which runs the same checks on the
+   host through a read-only monitor key of its own — an account whose one key
+   runs the monitor, as postfix, with no argument, and nothing else — from an
+   Environment of its own that needs no approval and admits main alone, and
+   keeps one issue open while it fails; the production Environment, its
+   reviewers and the bootstrap credential are never used by it. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
+   stopping Postfix at boot. The host's state — absent, disabled or
+   enabled on one address — is the gateway's own record, moved only by a
+   one-use authorization from `scripts/activate-mail-inbound`, each move a
+   reload, never a stop: preflight (address, TLS, the gateway, the firewall,
+   the store, the queue reserve), a live proof on the loopback listener, a
+   capsule, TCP 25 opened for that address in ufw (or no host firewall at
+   all; anything else refuses), the proof again, and an automatic return to
+   disabled on any failure, CRITICAL when even that cannot be proved.
+   Rollback closes only 25, keeping 2525, 2526, the queue and the store. The
+   committed `public_smtp: enabled` is a request that opens nothing; Prepare,
+   bootstrap and repair never open or close it. One library,
+   `scripts/public-smtp-port`, is every check's judge of 25, 465 and 587:
+   465 and 587 never, 25 only for `postfix@-.service`'s own recorded
+   listener. Activate, Verify and Rollback tits.guru inbound SMTP run from
+   `main` only, the two that change the host behind a typed confirmation
+   judged before any secret; Verify production infrastructure gains a Mail
+   inbound group. A CI job runs the rendered configuration on a real Postfix
+   in a network namespace with only loopback. *Not done here:* the real-host
+   activation, the A and MX records the operator publishes afterwards in the
+   runbook's order, and the external message that accepts it — 8.4B.5.2 is
+   not accepted until a message from outside is stored.
+
+   **8.4B.5.3 Bounce reception and correlation — planned.** The Return-Path
+   on the bounce domain; delivery status notifications received with an
+   empty sender, never answered, and matched to the message they report on;
+   the bounce domain's own SPF record, with DMARC resting on DKIM once SPF no
+   longer aligns.
+
+   **8.4B.5.4 Reply routing and the support mailbox — planned.** `Reply-To`
+   addresses on the reply domain, replies matched to their conversation, and
+   the support mailbox and its storage.
+
+   **8.4B.5.5 Real-host acceptance and recovery proof — planned.** MX records
+   published, external messages received at each destination, relay, AUTH
+   and limit probes from outside, and recovery on a replacement host behind
+   an inbound fence.
 
    **8.4B.6 Suppression, delivery state and per-target metrics — planned.**
    Recording what was delivered, deferred and bounced per target, suppressing

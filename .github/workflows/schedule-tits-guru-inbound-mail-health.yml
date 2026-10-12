@@ -1,0 +1,40 @@
+name: Schedule tits.guru inbound mail health
+
+# Every six hours, asks for one run of Check tits.guru inbound mail health — on
+# main, as every production operation runs. A schedule always runs on the
+# default branch, and the monitor's Environment admits only main, so this
+# workflow never runs the check itself: it holds no secret, reaches no host,
+# and can do nothing but dispatch that one workflow. The check needs no
+# approval: it reaches the host only through the monitor's own read-only key.
+#
+# It does nothing until an operator sets the repository variable
+# RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE to "enabled" — after the inbound
+# activation, as infrastructure/runbooks/mail-inbound.md says — so no check
+# waits for an approval while no inbound mail exists.
+on:
+  schedule:
+    - cron: "41 */6 * * *"
+
+permissions: {}
+
+jobs:
+  dispatch:
+    name: Dispatch the health check from main
+    runs-on: ubuntu-24.04
+    if: ${{ vars.RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE == 'enabled' }}
+    timeout-minutes: 5
+
+    permissions:
+      actions: write
+
+    steps:
+      - name: Dispatch Check tits.guru inbound mail health on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+
+          gh api -X POST "repos/${REPOSITORY}/actions/workflows/check-tits-guru-inbound-mail-health.yml/dispatches" -f ref=main
+          echo "Dispatched Check tits.guru inbound mail health on main."

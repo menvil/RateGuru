@@ -15,7 +15,7 @@ it('allows authenticated user to update locale preference', function (string $lo
         ->assertHasNoErrors();
 
     expect($user->fresh()->locale)->toBe($locale);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('reloads the page after saving, so all of it shows the new language at once', function () {
     [$locale] = twoTranslatedLocales();

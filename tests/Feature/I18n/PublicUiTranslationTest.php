@@ -40,7 +40,7 @@ it('renders the sign-in screen in the visitor language through named keys', func
         // The English these screens used to carry as JSON prose keys.
         ->assertDontSee('Remember me')
         ->assertDontSee('Forgot your password?');
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders the registration and password screens in the visitor language', function (string $locale) {
     offerEveryInstalledLocale();
@@ -58,7 +58,7 @@ it('renders the registration and password screens in the visitor language', func
         ->assertSee(__('auth.forgot_password.intro', [], $locale))
         ->assertSee(__('auth.forgot_password.action', [], $locale))
         ->assertDontSee('Email Password Reset Link');
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders account settings in the account language', function (string $locale) {
     offerEveryInstalledLocale();
@@ -75,7 +75,21 @@ it('renders account settings in the account language', function (string $locale)
         ->assertDontSee('Delete Account')
         ->assertDontSee('Profile Information')
         ->assertDontSee('Update Password');
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
+
+it('translates, in every language, the lines these screens used to carry as English prose', function () {
+    // The screens above are drawn for the languages whose code path differs.
+    // What any other language can still get wrong is its own text: a line
+    // left as the English it replaced, which the parity check cannot tell
+    // from a translation. Every language, without a request each.
+    $lines = ['auth.login.remember', 'auth.login.forgot_password', 'auth.fields.password_confirmation', 'auth.forgot_password.action', 'profile.delete.title', 'profile.information.title', 'profile.password.update_title'];
+
+    foreach (translatedLocales() as $locale) {
+        foreach ($lines as $key) {
+            expect(__($key, [], $locale))->not->toBe(__($key, [], 'en'), "{$key} is still English in {$locale}");
+        }
+    }
+});
 
 it('names the failing field in the visitor language', function (string $locale) {
     offerEveryInstalledLocale();
@@ -86,7 +100,7 @@ it('names the failing field in the visitor language', function (string $locale) 
         ->assertSessionHasErrors([
             'email' => __('validation.required', ['attribute' => __('validation.attributes.email', [], $locale)], $locale),
         ]);
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('reports a password reset link in the visitor language', function (string $locale) {
     offerEveryInstalledLocale();
@@ -97,4 +111,4 @@ it('reports a password reset link in the visitor language', function (string $lo
         ->from(route('password.request'))
         ->post(route('password.email'), ['email' => "reader-{$locale}@example.test"])
         ->assertSessionHas('status', __('passwords.sent', [], $locale));
-})->with(supportedLocales());
+})->with(representativeLocales());

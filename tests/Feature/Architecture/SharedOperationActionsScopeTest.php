@@ -60,6 +60,10 @@ it('has exactly one build, one deploy and one rollback implementation', function
         ->all();
 
     expect($actions)->toBe([
+        // The inbound receiver's transport: it runs exactly
+        // activate-mail-inbound, in the one mode its workflow fixed, and
+        // carries no material.
+        'activate-rateguru-mail-inbound',
         // The outbound mail activation's transport: it runs exactly
         // activate-mail-outbound, in the one mode its workflow fixed, and
         // carries no material.
@@ -110,6 +114,17 @@ it('has exactly one build, one deploy and one rollback implementation', function
 
 it('keeps one operator-facing workflow per environment, with no target selector anywhere', function () {
     expect(array_keys(phase71Workflows()))->toEqualCanonicalizing([
+        // tits-guru's inbound SMTP: its guarded activation, its read-only
+        // verification and its rollback.
+        'activate-tits-guru-inbound-smtp.yml',
+        'verify-tits-guru-inbound-smtp.yml',
+        'rollback-tits-guru-inbound-smtp.yml',
+        // Its inbound mail health check, read-only, the schedule that only
+        // dispatches it on main, and the one-time installation of the monitor
+        // access it reaches the host through.
+        'check-tits-guru-inbound-mail-health.yml',
+        'schedule-tits-guru-inbound-mail-health.yml',
+        'install-tits-guru-inbound-mail-monitor.yml',
         // tits-guru's outbound mail: its guarded activation, the rollback of
         // that activation while it is planned, and the first real delivery.
         'activate-tits-guru-mail.yml',
@@ -533,6 +548,18 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'activate-tits-guru-mail.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
         'rollback-tits-guru-mail-activation.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
         'send-tits-guru-mail-canary.yml:canary' => ['tits-guru', 'rateguru-staging-deployment'],
+        // The inbound activation and rollback change the host's Postfix and the
+        // firewall of that same machine, and its verification reads them: the
+        // same domain.
+        'activate-tits-guru-inbound-smtp.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
+        'verify-tits-guru-inbound-smtp.yml:verify' => ['tits-guru', 'rateguru-staging-deployment'],
+        'rollback-tits-guru-inbound-smtp.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Installing the health check's monitor access adds an account and a
+        // sudoers rule on that same machine: the same domain. The health check
+        // itself names no target here — it runs no action, only the monitor
+        // key's one read-only program — and waits in a group of its own, so
+        // its schedule never displaces an operator's pending run.
+        'install-tits-guru-inbound-mail-monitor.yml:install' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

@@ -58,7 +58,7 @@ it('renders the public site in the language on the account', function (string $l
         ->assertOk()
         ->assertSee('lang="'.$locale.'"', false)
         ->assertSee(__('ui.nav.home', [], $locale));
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders the admin panel in English for any account or site language', function (string $locale) {
     siteDefaultsTo($locale);
@@ -70,7 +70,7 @@ it('renders the admin panel in English for any account or site language', functi
         ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'));
 
     expect(app()->getLocale())->toBe('en');
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('keeps English for actions taken inside the panel', function (string $locale) {
     // A button in the panel is a Livewire update, which arrives through the
@@ -98,7 +98,7 @@ it('keeps English for actions taken inside the panel', function (string $locale)
         ->and(app()->getLocale())->toBe('en')
         ->and($response->json('components.0.effects.html'))->toBeString()
         ->toContain(__('filament-panels::resources/pages/create-record.form.actions.create.label', [], 'en'));
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders the admin sign-in page in English for a visitor browsing in another language', function (string $locale) {
     siteDefaultsTo($locale);
@@ -111,7 +111,7 @@ it('renders the admin sign-in page in English for a visitor browsing in another 
 
     expect(app()->getLocale())->toBe('en')
         ->and(session('locale'))->toBe($locale);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('leaves the public language untouched after working in the panel', function (string $locale) {
     offerEveryInstalledLocale();
@@ -133,4 +133,4 @@ it('leaves the public language untouched after working in the panel', function (
         ->assertOk()
         ->assertSee('lang="'.$locale.'"', false)
         ->assertSee(__('ui.nav.home', [], $locale));
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());

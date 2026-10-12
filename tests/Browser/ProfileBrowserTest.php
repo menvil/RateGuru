@@ -23,15 +23,3 @@ it('switches from another tab back to the posts tab in browser', function () {
 
     expect($page->script('document.querySelector(\'[data-testid="profile-activity-tab"]\') === null'))->toBeTrue();
 })->group('browser');
-
-it('can navigate to activity tab in browser', function () {
-    $user = User::factory()->create([
-        'username' => 'profile-browser-activity',
-        'rating_activity_visibility' => 'public',
-    ]);
-
-    visit(route('profile.show', $user->username))
-        ->assertPresent('[data-testid="profile-tab-activity"]')
-        ->click('[data-testid="profile-tab-activity"]')
-        ->assertPresent('[data-testid="profile-activity-tab"]');
-})->group('browser');

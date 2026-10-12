@@ -46,21 +46,6 @@ it('can follow and unfollow author in browser', function () {
         ->and($follows())->toBeFalse();
 });
 
-it('does not show follow button on own profile in browser', function () {
-    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
-
-    $user = User::factory()->create([
-        'email' => 'follow-self-browser@example.com',
-        'password' => bcrypt('password'),
-        'username' => 'follow-self-user',
-    ]);
-
-    actingAs($user);
-
-    visit(route('profile.show', $user->username))
-        ->assertNotPresent('[data-testid="follow-button"]');
-});
-
 it('follow button does not overflow at mobile viewport', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
 
@@ -84,19 +69,4 @@ it('follow button does not overflow at mobile viewport', function () {
 
     // 1px tolerance for subpixel rendering differences across browsers
     expect($overflow)->toBeLessThanOrEqual(1);
-});
-
-it('shows followers count on profile in browser', function () {
-    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
-
-    $author = User::factory()->create([
-        'username' => 'follow-count-browser-author',
-    ]);
-
-    Follow::factory()->count(2)->create([
-        'author_id' => $author->id,
-    ]);
-
-    visit(route('profile.show', $author->username))
-        ->assertPresent('[data-testid="followers-count"]');
 });

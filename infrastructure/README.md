@@ -146,9 +146,9 @@ infrastructure, and moves out once a second project exists.
   listening only on each target's loopback endpoint, queueing staging capture
   into Mailpit, holding production mail with no route, and delivering nothing
   else. Its direct outbound transport — each outbound target's own smtp client,
-  straight to the recipient domain's MX — is requested for `tits-guru` by the
-  committed policy and the host contract `config/mail-outbound.json`, and
-  reaches a host only through the guarded `activate-mail-outbound`. Converged by host bootstrap
+  straight to the recipient domain's MX — reaches a host only through the
+  guarded `activate-mail-outbound`, and has delivered `tits-guru`'s mail on the
+  shared host since its production-accepted activation. Converged by host bootstrap
   after mail capture and accepted on the real staging host;
   `verify-mail-gateway --e2e` is its mutating low-level acceptance primitive,
   run on the host by hand — see
@@ -159,6 +159,13 @@ infrastructure, and moves out once a second project exists.
   `infrastructure/scripts/mail-identity` that judges them, prints the DNS
   records to publish and verifies public DNS read-only — see
   [`runbooks/mail-identity.md`](runbooks/mail-identity.md);
+- the inbound mail contract: which production targets will receive mail from
+  the Internet — exact support addresses, bounce and reply address spaces — at
+  which MX host, in `config/mail-inbound.json`, judged against the routing
+  policy by the repository-only `infrastructure/scripts/mail-inbound`, which
+  also renders the inbound plan, its DNS and the verdict for one recipient.
+  Public inbound SMTP is disabled: no receiver is installed yet — see
+  [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md);
 - infrastructure verification: the repository-only, read-only
   `infrastructure/scripts/verify-infrastructure --target T`, which composes the
   contract owners a target's current lifecycle requires — preparation and

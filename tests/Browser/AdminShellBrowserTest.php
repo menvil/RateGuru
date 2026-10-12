@@ -131,7 +131,6 @@ it('shows each desktop page inside the shell with its own destination marked', f
 })->with([
     'dashboard' => ['/admin', 'Dashboard', 'Pending posts'],
     'posts' => ['/admin/posts', 'Posts', 'Author'],
-    'languages' => ['/admin/languages', 'Languages', 'Manage which installed languages are available to visitors'],
     'project settings' => ['/admin/project-settings', 'Project settings', 'Project Settings'],
 ]);
 

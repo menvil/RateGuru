@@ -917,6 +917,7 @@ it('sends no catalog issue to Translation Center, and offers nothing to translat
     $drawer = (string) languagesDrawer(languagesPage()->call('showMissing', $target));
 
     expect($drawer)->toContain('Application translations')
+        ->toContain("{$target}/ui.php is missing")
         ->toContain('Every piece of project content has a translation.')
         ->not->toContain('Translate all missing')
         ->not->toContain(e(TranslationCenterPage::getUrl()));

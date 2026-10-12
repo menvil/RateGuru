@@ -325,8 +325,8 @@ function mailGatewayAcceptanceHost(array $toggles = [], ?callable $policy = null
         chmod($scratch.'/bin/'.$name, 0o755);
     }
 
-    // The installer's own --verify is proved on a simulated Postfix in
-    // MailGatewayTest; here it only has to give its verdict.
+    // The installer's own --verify is proved on a simulated Postfix in the
+    // MailGateway*Test files; here it only has to give its verdict.
     file_put_contents($scratch.'/install-mail-gateway', <<<'STUB'
         #!/bin/bash
         printf 'install-mail-gateway %s\n' "$*" >> "${STUB_LOG}"

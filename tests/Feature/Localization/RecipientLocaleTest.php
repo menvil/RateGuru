@@ -51,7 +51,7 @@ it('prefers the language the account chose', function (string $locale) {
     offerEveryInstalledLocale();
 
     expect(User::factory()->create(['locale' => $locale])->preferredLocale())->toBe($locale);
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('has no preference when the account never chose one', function () {
     // NULL is not "English". It means "no preference", so Laravel renders in
@@ -67,7 +67,7 @@ it('has no preference when the stored language is no longer supported', function
     config()->set('locales.supported', Arr::except(config('locales.supported'), $locale));
 
     expect($user->preferredLocale())->toBeNull();
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders mail in the account language, whatever the request locale is', function (string $locale) {
     offerEveryInstalledLocale();
@@ -77,7 +77,7 @@ it('renders mail in the account language, whatever the request locale is', funct
     $user->notify(new LocaleRecordingNotification);
 
     expect(LocaleRecordingNotification::$renderedIn)->toBe($locale);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('renders mail in the site language when the account has no preference', function (string $locale) {
     $user = User::factory()->create(['locale' => null]);
@@ -86,7 +86,7 @@ it('renders mail in the site language when the account has no preference', funct
     $user->notify(new LocaleRecordingNotification);
 
     expect(LocaleRecordingNotification::$renderedIn)->toBe($locale);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('restores the request locale after rendering', function (string $locale) {
     // withLocale() is scoped; a mail to a reader of another language must not
@@ -97,7 +97,7 @@ it('restores the request locale after rendering', function (string $locale) {
     $user->notify(new LocaleRecordingNotification);
 
     expect(app()->getLocale())->toBe('en');
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('reaches a password reset through that same preference', function (string $locale) {
     // The case this change exists for: the person is NOT logged in, so the
@@ -110,7 +110,7 @@ it('reaches a password reset through that same preference', function (string $lo
 
     expect(fn () => Password::sendResetLink(['email' => $user->email]))->not->toThrow(Exception::class)
         ->and($user->fresh()->preferredLocale())->toBe($locale);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('stores the site language on the account at registration', function (string $locale) {
     // Without this the column stays NULL for every new account, preferredLocale()
@@ -127,7 +127,7 @@ it('stores the site language on the account at registration', function (string $
 
     expect($user->locale)->toBe($locale)
         ->and($user->preferredLocale())->toBe($locale);
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('stores English when the request locale is not an offered language', function (string $requestLocale) {
     offerEveryInstalledLocaleExcept(twoTranslatedLocales()[1]);

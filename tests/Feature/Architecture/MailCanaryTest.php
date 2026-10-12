@@ -4,8 +4,11 @@ use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
 /*
- * send-mail-canary: one real message from an activated production target,
- * followed by its exact queue ID — and the workflow that carries its recipient.
+ * send-mail-canary: what it requires before it sends — an activated target
+ * that verifies — what it withholds from its output, the result the workflow
+ * accepts from it, and the workflow that carries its recipient. Sending and
+ * following the message, and the recipient file, are in MailCanaryDeliveryTest
+ * and MailCanaryRecipientFileTest.
  *
  * Every run uses the REAL script from a bundle of its own
  * (mailActivationHost() in tests/Pest.php, with `listener`): the activated
@@ -13,349 +16,6 @@ use Symfony\Component\Yaml\Yaml;
  * requires is the real activate-mail-outbound --verify, and the queue and the
  * mail log are the fake gateway's own.
  */
-
-const MAIL_CANARY_RECIPIENT = 'alice.smith@mailbox.example-receiver.net';
-
-/** An activated host, with tits-guru's listener running and DELIVERY its outcome. */
-function mailCanaryHost(?string $delivery = 'sent', array $options = []): array
-{
-    $host = mailActivationHost(['installed' => 'outbound', 'listener' => true, ...$options]);
-
-    if ($delivery !== null) {
-        file_put_contents($host['state'].'/toggles/delivery', $delivery);
-    }
-
-    return $host;
-}
-
-/** @return array{0: int, 1: string} */
-function mailCanarySend(array $host, string $file, string $mode = 'send', array $env = []): array
-{
-    return mailActivationRun($host, ["--{$mode}", '--target', 'tits-guru', '--recipient-file', $file], $env, 'send-mail-canary');
-}
-
-/** @return list<string> */
-function mailCanaryQueueCalls(array $host): array
-{
-    return array_values(array_filter(explode("\n", (string) @file_get_contents($host['log'].'/queue.log'))));
-}
-
-/** The local part never reaches anything the tooling prints. */
-function mailCanaryExpectNoRecipient(string $output): void
-{
-    expect(str_contains(strtolower($output), 'alice.smith'))->toBeFalse('the recipient\'s local part reached the output');
-}
-
-// =============================================================================
-// SENT, AND ONLY ITS OWN QUEUE ENTRY FOLLOWED
-// =============================================================================
-
-it('sends exactly one canary from the reviewed sender and passes once its own queue ID is logged status=sent', function () {
-    $host = mailCanaryHost('sent');
-    // The gateway signs what it accepts.
-    file_put_contents($host['state'].'/toggles/signature', "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=tits.guru; s=rg1; h=from:to:subject:date:message-id; bh=c2ltdWxhdGVk; b=c2ltdWxhdGVk\n");
-
-    try {
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(0, $output);
-
-        $result = mailCanaryResult($output);
-        expect(array_keys($result))->toBe(['target', 'mode', 'status', 'canary_id', 'message_id', 'queue_id', 'recipient_domain', 'smtp_delivery', 'dsn', 'deleted']);
-        expect($result)->toMatchArray(['target' => 'tits-guru', 'mode' => 'send', 'status' => 'pass', 'recipient_domain' => 'mailbox.example-receiver.net', 'smtp_delivery' => 'sent', 'dsn' => '2.0.0', 'deleted' => false]);
-        expect($result['canary_id'])->toMatch('/^rgcanary-\d{8}T\d{6}Z-[0-9a-f]{12}$/');
-        expect($result['message_id'])->toBe("<{$result['canary_id']}@tits.guru>");
-        expect($result['queue_id'])->toMatch('/^[0-9A-F]{10}$/');
-
-        expect($output)
-            ->toContain('PASS the activation verifies: OUTBOUND READY: YES')
-            ->toContain("PASS queue entry {$result['queue_id']}: status=sent (dsn 2.0.0) — the receiving server at mailbox.example-receiver.net accepted the canary")
-            ->toContain('This is NOT proof of SPF, DKIM or DMARC at the receiver: read the raw headers of the received message');
-
-        // One message, from the reviewed sender, to the one recipient, through
-        // tits-guru's own listener: the envelope sender is the bare reviewed
-        // address, and the From header shows TitsGuru before that same
-        // address.
-        $smtp = File::get($host['state'].'/smtp.log');
-        expect(substr_count($smtp, 'DATA'))->toBe(1);
-        expect($smtp)
-            ->toContain("EHLO mail-canary\nMAIL FROM:<noreply@tits.guru>\nRCPT TO:<".MAIL_CANARY_RECIPIENT.">\nDATA");
-        $headers = File::get(glob($host['state'].'/headers-*')[0]);
-        expect($headers)
-            ->toStartWith('DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=tits.guru; s=rg1;')
-            ->toContain("From: TitsGuru <noreply@tits.guru>\n")
-            ->not->toContain("From: noreply@tits.guru\n")
-            ->toContain("Message-ID: {$result['message_id']}\n")
-            ->toContain("X-RateGuru-Mail-Canary: {$result['canary_id']}\n")
-            ->toContain("Content-Type: text/plain; charset=us-ascii\n");
-
-        // The mail log was read; the queue was not changed; the unrelated
-        // entry is still there.
-        expect(array_filter(mailCanaryQueueCalls($host), static fn (string $call): bool => str_starts_with($call, 'postsuper')))->toBe([]);
-        expect(File::get($host['state'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
-
-        // The log line names the recipient; the canary never repeats it.
-        expect(File::get($host['state'].'/journal'))->toContain(MAIL_CANARY_RECIPIENT);
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-});
-
-it('fails a canary that bounced or expired, and has nothing of its own left to delete', function (string $delivery, string $dsn) {
-    $host = mailCanaryHost($delivery);
-
-    try {
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(1, $output);
-        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'smtp_delivery' => $delivery, 'dsn' => $dsn, 'deleted' => false]);
-        expect($output)->toContain("status={$delivery} (dsn {$dsn}) — the canary was not delivered");
-        expect(array_filter(mailCanaryQueueCalls($host), static fn (string $call): bool => str_starts_with($call, 'postsuper')))->toBe([]);
-        expect(File::get($host['state'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'bounced' => ['bounced', '5.1.1'],
-    'expired' => ['expired', '4.4.1'],
-]);
-
-it('deletes only its own queue entry when it reaches no final status within the window', function (string $delivery, string $last) {
-    $host = mailCanaryHost($delivery);
-
-    try {
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(1, $output);
-        $result = mailCanaryResult($output);
-        expect($result)->toMatchArray(['status' => 'fail', 'smtp_delivery' => $last, 'deleted' => true]);
-        $id = $result['queue_id'];
-
-        expect($output)->toContain("deleted the canary's own queue entry {$id}, so it does not keep retrying");
-
-        // Exactly that ID, and the unrelated entry untouched.
-        expect(array_values(array_filter(mailCanaryQueueCalls($host), static fn (string $call): bool => str_starts_with($call, 'postsuper'))))->toBe(["postsuper -d {$id}"]);
-        expect(File::get($host['state'].'/queue'))->toBe("FOREIGN0001\tdeferred\tsomeone@example.net\n");
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'deferred' => ['deferred', 'deferred'],
-    'never attempted' => ['none', 'unknown'],
-]);
-
-it('never reports its own entry deleted when the queue cannot be read', function (string $toggle, bool $deleteAttempted, string $failure) {
-    $host = mailCanaryHost('deferred');
-
-    try {
-        touch($host['state'].'/'.$toggle);
-
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(1, $output);
-        $result = mailCanaryResult($output);
-        expect($result)->toMatchArray(['status' => 'fail', 'smtp_delivery' => 'deferred', 'deleted' => false]);
-        expect($output)
-            ->toContain($failure)
-            ->toContain("remove it with: postsuper -d {$result['queue_id']}")
-            ->not->toContain("deleted the canary's own queue entry");
-
-        $deletes = array_values(array_filter(mailCanaryQueueCalls($host), static fn (string $call): bool => str_starts_with($call, 'postsuper')));
-        expect($deletes)->toBe($deleteAttempted ? ["postsuper -d {$result['queue_id']}"] : []);
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'unreadable before the deletion' => ['postqueue-fails', false, 'FAIL could not read the Postfix queue to remove the canary queue entry'],
-    'unreadable after the deletion' => ['postqueue-fails-after-delete', true, 'FAIL could not read the Postfix queue to confirm the canary queue entry'],
-]);
-
-it('follows the mail log of its own submission only', function () {
-    $code = executableSourceLines(File::get(base_path('infrastructure/scripts/send-mail-canary')));
-
-    expect($code)
-        ->toContain('"${JOURNALCTL_BIN}" --no-pager --quiet --output=cat --since="@${DELIVERY_SINCE}" SYSLOG_FACILITY=2')
-        ->toContain('[[ "${line}" == "${QUEUE_ID}: "* ]] || continue');
-});
-
-// =============================================================================
-// NOTHING IS SENT UNLESS EVERYTHING BEFORE IT HOLDS
-// =============================================================================
-
-it('refuses a recipient file that is not exactly one public address, before any connection', function (string $content, int $mode, string $problem) {
-    $host = mailCanaryHost();
-
-    try {
-        $file = mailCanaryRecipientFile($host, $content, $mode);
-        [$status, $output] = mailCanarySend($host, $file);
-
-        expect($status)->toBe(1, $output);
-        expect($output)->toContain($problem)->toContain('nothing was sent');
-        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
-        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'queue_id' => null, 'smtp_delivery' => null]);
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'readable by others' => [MAIL_CANARY_RECIPIENT."\n", 0o644, 'the recipient file is readable or writable by others (mode 644)'],
-    'empty' => ['', 0o600, 'the recipient file is empty or too large to hold one address'],
-    'two lines' => [MAIL_CANARY_RECIPIENT."\nbob@example-receiver.net\n", 0o600, 'the recipient file holds more than one line'],
-    'a second line without a newline' => [MAIL_CANARY_RECIPIENT."\nx", 0o600, 'the recipient file holds more than one line'],
-    'a carriage return' => [MAIL_CANARY_RECIPIENT."\r\n", 0o600, 'the recipient file holds a control character or a non-ASCII byte'],
-    'a NUL' => ["alice.smith\0@mailbox.example-receiver.net\n", 0o600, 'the recipient file holds a control character or a non-ASCII byte'],
-    'non-ASCII' => ["alice.smith@m\u{e4}ilbox.example-receiver.net\n", 0o600, 'the recipient file holds a control character or a non-ASCII byte'],
-    'a space' => ['Alice Smith <'.MAIL_CANARY_RECIPIENT.">\n", 0o600, 'the recipient file holds a space'],
-    'two addresses' => [MAIL_CANARY_RECIPIENT.',bob@example-receiver.net', 0o600, 'the recipient file does not hold one plain email address'],
-    'no domain' => ["alice.smith\n", 0o600, 'the recipient file does not hold one plain email address'],
-    'a bracketed literal' => ["alice.smith@[192.0.2.25]\n", 0o600, 'the recipient file does not hold one plain email address'],
-    'an IP address' => ["alice.smith@192.0.2.25\n", 0o600, "the recipient's domain is not a public domain name"],
-    'a single label' => ["alice.smith@localhost\n", 0o600, "the recipient's domain is not a public domain name"],
-    'a dotted local part' => ["alice..smith@mailbox.example-receiver.net\n", 0o600, "the recipient's local part is not a plain one"],
-    '.invalid' => ["alice.smith@mail.invalid\n", 0o600, "the recipient's domain is under the reserved or local .invalid"],
-    '.test' => ["alice.smith@mail.test\n", 0o600, 'under the reserved or local .test'],
-    '.localhost' => ["alice.smith@mail.localhost\n", 0o600, 'under the reserved or local .localhost'],
-    '.local' => ["alice.smith@printer.local\n", 0o600, 'under the reserved or local .local'],
-    '.example' => ["alice.smith@mail.example\n", 0o600, 'under the reserved or local .example'],
-    'example.com' => ["alice.smith@example.com\n", 0o600, "the recipient's domain is the reserved example.com"],
-    'a subdomain of example.org' => ["alice.smith@mail.example.org\n", 0o600, "the recipient's domain is the reserved example.org"],
-]);
-
-it('refuses a recipient file that is missing, a symlink or not root\'s, before any connection', function (string $case, string $problem) {
-    $host = mailCanaryHost();
-
-    try {
-        $file = $host['scratch'].'/recipient';
-        $env = [];
-
-        match ($case) {
-            'missing' => null,
-            'a symlink' => [mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"), rename($file, $file.'.real'), symlink($file.'.real', $file)],
-            'a directory' => mkdir($file),
-            'another owner' => [mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"), $env = ['RATEGURU_MAILCANARY_FILE_OWNER_UID' => '0']],
-        };
-
-        [$status, $output] = mailCanarySend($host, $file, env: $env);
-
-        expect($status)->toBe(1, $output);
-        expect($output)->toContain($problem);
-        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'missing' => ['missing', 'the recipient file does not exist'],
-    'a symlink' => ['a symlink', 'the recipient file is a symlink'],
-    'a directory' => ['a directory', 'the recipient file is not a regular file'],
-    'another owner' => ['another owner', 'the recipient file is not owned by root'],
-]);
-
-it('takes the recipient only from the file, never as an argument', function () {
-    $host = mailCanaryHost();
-
-    try {
-        [$status, $output] = mailActivationRun($host, ['--send', '--target', 'tits-guru', '--recipient', MAIL_CANARY_RECIPIENT], script: 'send-mail-canary');
-
-        expect($status)->toBe(1, $output);
-        expect($output)->toContain('the recipient is never an argument, only the content of --recipient-file');
-        mailCanaryExpectNoRecipient($output);
-
-        [$status, $output] = mailActivationRun($host, ['--send', '--target', 'tits-guru'], script: 'send-mail-canary');
-        expect($status)->toBe(1, $output);
-        expect($output)->toContain('--send requires --recipient-file');
-        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
-    } finally {
-        mailActivationCleanup($host);
-    }
-});
-
-it('sends nothing for a target that is still held, or whose activation does not verify', function (string $case, string $problem) {
-    $host = match ($case) {
-        'held' => mailActivationHost(['requested' => false, 'listener' => true]),
-        'not ready' => mailCanaryHost('sent', ['toggles' => ['readonly-signing-fails']]),
-        'gateway not activated' => mailActivationHost(['listener' => true]),
-    };
-
-    try {
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(1, $output);
-        expect($output)->toContain($problem)->toContain('nothing was sent');
-        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
-        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'queue_id' => null]);
-    } finally {
-        mailActivationCleanup($host);
-    }
-})->with([
-    'held' => ['held', "tits-guru's mail is held (route none), not outbound by direct delivery"],
-    'not ready' => ['not ready', 'the activation of tits-guru does not verify (exit 1)'],
-    'gateway not activated' => ['gateway not activated', 'the activation of tits-guru does not verify (exit 1)'],
-]);
-
-it('checks everything and sends nothing in --check', function () {
-    $host = mailCanaryHost();
-
-    try {
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"), 'check');
-
-        expect($status)->toBe(0, $output);
-        expect($output)->toContain('MAIL CANARY CHECK: READY — --send would send one canary to an address at mailbox.example-receiver.net');
-        expect(mailCanaryResult($output))->toMatchArray(['mode' => 'check', 'status' => 'pass', 'queue_id' => null, 'recipient_domain' => 'mailbox.example-receiver.net']);
-        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
-        mailCanaryExpectNoRecipient($output);
-    } finally {
-        mailActivationCleanup($host);
-    }
-});
-
-it('withholds a gateway reply that names the recipient', function () {
-    $host = mailCanaryHost();
-
-    try {
-        file_put_contents($host['state'].'/toggles/refuse-rcpt', '');
-        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
-
-        expect($status)->toBe(1, $output);
-        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'smtp_delivery' => 'not_submitted', 'queue_id' => null]);
-        expect($output)->toContain('FAIL the gateway did not accept the canary (rcpt: 554 5.7.1 refused)');
-
-        // And a reply that names it is cut to its codes.
-        $command = 'source '.escapeshellarg(base_path('infrastructure/scripts/send-mail-canary'))
-            .'; RECIPIENT='.escapeshellarg(MAIL_CANARY_RECIPIENT).'; redact "550 5.1.1 <Alice.Smith@mailbox.example-receiver.net>: Recipient address rejected"';
-        exec('bash -c '.escapeshellarg($command), $redacted);
-        expect($redacted)->toBe(['550 5.1.1 (the rest of the reply names the recipient and is withheld)']);
-    } finally {
-        mailActivationCleanup($host);
-    }
-});
-
-it('never flushes or releases anything, deletes only by its own ID, and never hands the recipient to another program', function () {
-    $code = executableSourceLines(File::get(base_path('infrastructure/scripts/send-mail-canary')));
-
-    foreach (['postqueue -f', 'POSTQUEUE_BIN}" -f', '-d ALL', '-H', '-r ALL', 'postcat', 'sendmail', 'curl', 'wget', 'eval ', '/dev/tcp', 'queue_ids_for'] as $forbidden) {
-        expect(str_contains($code, $forbidden))->toBeFalse("send-mail-canary uses {$forbidden}");
-    }
-
-    expect(substr_count($code, '"${POSTSUPER_BIN}"'))->toBe(1);
-    expect($code)->toContain('"${POSTSUPER_BIN}" -d "${QUEUE_ID}"');
-
-    // Every use of the recipient is a shell builtin or the shared SMTP
-    // conversation: printf into the message, the reply redaction, the domain.
-    $uses = array_values(array_filter(preg_split('/\R/', $code), static fn (string $line): bool => str_contains($line, '${RECIPIENT}') || str_contains($line, '${RECIPIENT%')));
-    expect(array_map('trim', $uses))->toBe([
-        'local reply="$1" local_part="${RECIPIENT%@*}"',
-        'printf \'To: <%s>\n\' "${RECIPIENT}"',
-        'if ! smtp_submit_message "${LISTEN_HOST}" "${LISTEN_PORT}" mail-canary "${SENDER}" "${RECIPIENT}" "$(compose)"; then',
-    ]);
-});
-
-// =============================================================================
-// THE ACTION'S RESULT CHECK
-// =============================================================================
 
 /**
  * The action's "Send the canary" step, run as the runner runs it, against an
@@ -438,6 +98,74 @@ function mailCanaryRemoteReport(array|string $result): string
 
     return "[2026-10-08T17:13:43Z] sending one canary\n  PASS the canary was queued\nRATEGURU_MAIL_CANARY_RESULT={$line}\n";
 }
+
+// =============================================================================
+// NOTHING IS SENT UNLESS EVERYTHING BEFORE IT HOLDS
+// =============================================================================
+
+it('sends nothing for a target that is still held, or whose activation does not verify', function (string $case, string $problem) {
+    $host = match ($case) {
+        'held' => mailActivationHost(['requested' => false, 'listener' => true]),
+        'not ready' => mailCanaryHost('sent', ['toggles' => ['readonly-signing-fails']]),
+        'gateway not activated' => mailActivationHost(['listener' => true]),
+    };
+
+    try {
+        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
+
+        expect($status)->toBe(1, $output);
+        expect($output)->toContain($problem)->toContain('nothing was sent');
+        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
+        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'queue_id' => null]);
+    } finally {
+        mailActivationCleanup($host);
+    }
+})->with([
+    'held' => ['held', "tits-guru's mail is held (route none), not outbound by direct delivery"],
+    'not ready' => ['not ready', 'the activation of tits-guru does not verify (exit 1)'],
+    'gateway not activated' => ['gateway not activated', 'the activation of tits-guru does not verify (exit 1)'],
+]);
+
+it('checks everything and sends nothing in --check', function () {
+    $host = mailCanaryHost();
+
+    try {
+        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"), 'check');
+
+        expect($status)->toBe(0, $output);
+        expect($output)->toContain('MAIL CANARY CHECK: READY — --send would send one canary to an address at mailbox.example-receiver.net');
+        expect(mailCanaryResult($output))->toMatchArray(['mode' => 'check', 'status' => 'pass', 'queue_id' => null, 'recipient_domain' => 'mailbox.example-receiver.net']);
+        expect(file_exists($host['state'].'/smtp.log'))->toBeFalse();
+        mailCanaryExpectNoRecipient($output);
+    } finally {
+        mailActivationCleanup($host);
+    }
+});
+
+it('withholds a gateway reply that names the recipient', function () {
+    $host = mailCanaryHost();
+
+    try {
+        file_put_contents($host['state'].'/toggles/refuse-rcpt', '');
+        [$status, $output] = mailCanarySend($host, mailCanaryRecipientFile($host, MAIL_CANARY_RECIPIENT."\n"));
+
+        expect($status)->toBe(1, $output);
+        expect(mailCanaryResult($output))->toMatchArray(['status' => 'fail', 'smtp_delivery' => 'not_submitted', 'queue_id' => null]);
+        expect($output)->toContain('FAIL the gateway did not accept the canary (rcpt: 554 5.7.1 refused)');
+
+        // And a reply that names it is cut to its codes.
+        $command = 'source '.escapeshellarg(base_path('infrastructure/scripts/send-mail-canary'))
+            .'; RECIPIENT='.escapeshellarg(MAIL_CANARY_RECIPIENT).'; redact "550 5.1.1 <Alice.Smith@mailbox.example-receiver.net>: Recipient address rejected"';
+        exec('bash -c '.escapeshellarg($command), $redacted);
+        expect($redacted)->toBe(['550 5.1.1 (the rest of the reply names the recipient and is withheld)']);
+    } finally {
+        mailActivationCleanup($host);
+    }
+});
+
+// =============================================================================
+// THE ACTION'S RESULT CHECK
+// =============================================================================
 
 it('accepts the delivered canary\'s own result: its IDs carry the T and Z of the time they were made', function () {
     $run = mailCanaryActionStep(mailCanaryRemoteReport(mailCanaryDeliveredResult()));

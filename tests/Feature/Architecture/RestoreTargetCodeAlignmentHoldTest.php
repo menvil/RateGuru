@@ -409,7 +409,7 @@ it('survives an unhandled kill mid-activation, which is the window a trap cannot
         writeExecutable($killer, <<<'BASH'
             #!/bin/bash
             case "$*" in
-                *--activate*) kill -9 "${PPID}"; sleep 5 ;;
+                *--activate*) kill -9 "${PPID}" ;;
             esac
             exec "${RGTEST_REAL_RESTORE_STORAGE}" "$@"
             BASH);

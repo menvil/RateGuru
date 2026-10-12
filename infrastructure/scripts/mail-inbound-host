@@ -1,0 +1,227 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034 # every name below is read by the scripts that source it
+#
+# mail-inbound-host — where the inbound receiver lives on a host, and how its
+# applied state is read. A sourced library, never executed.
+#
+# The receiver is not a mail server of its own: it is a set of listeners and a
+# delivery route of the host's one Postfix, the mail gateway. So every part of
+# it has exactly one owner, and they all read these names from here:
+#
+#   install-mail-gateway   renders the inbound listeners and the virtual(8)
+#                          delivery into /etc/postfix from `mail-inbound
+#                          render-receiver`, and records the applied state;
+#   install-mail-inbound   owns the store those messages are delivered to, and
+#                          judges the public listener's certificate;
+#   activate-mail-inbound  moves the host between states, through a one-use
+#                          authorization the gateway consumes;
+#   public-smtp-port       judges who may hold TCP 25.
+#
+# Every path is a host path; a caller prefixes its own FS_ROOT test seam.
+
+# The store: a fixed-size volume of its own, mounted at the base virtual(8)
+# delivers under, and the system account everything stored belongs to. The
+# shared Postfix queue is never on it.
+MAIL_INBOUND_HOME="/var/lib/rateguru-mail-inbound"
+MAIL_INBOUND_STORE_IMAGE="${MAIL_INBOUND_HOME}/store.img"
+MAIL_INBOUND_STORE="${MAIL_INBOUND_HOME}/store"
+MAIL_INBOUND_STORE_LABEL="rgmailin"
+MAIL_INBOUND_STORE_MOUNT_UNIT='var-lib-rateguru\x2dmail\x2dinbound-store.mount'
+MAIL_INBOUND_STORE_USER="rateguru-mail-inbound"
+MAIL_INBOUND_STORE_GECOS="RateGuru inbound mail store"
+
+# The public listener's certificate: the operator's, copied onto the host, and
+# never generated or committed.
+MAIL_INBOUND_TLS_DIR="/etc/rateguru-mail-inbound/tls"
+MAIL_INBOUND_TLS_CERT="${MAIL_INBOUND_TLS_DIR}/fullchain.pem"
+MAIL_INBOUND_TLS_KEY="${MAIL_INBOUND_TLS_DIR}/privkey.pem"
+
+# The gateway's own record of the receiver — whether its listeners are
+# installed and whether public SMTP is open, as the gateway applied them — the
+# one-use authorization activate-mail-inbound writes for a transition, and the
+# ledger of every authorization the gateway consumed.
+MAIL_INBOUND_GATEWAY_STATE="/var/lib/rateguru-mail-gateway"
+MAIL_INBOUND_GATEWAY_MARKER="${MAIL_INBOUND_GATEWAY_STATE}/ownership"
+MAIL_INBOUND_APPLIED="${MAIL_INBOUND_GATEWAY_STATE}/applied-inbound.json"
+MAIL_INBOUND_APPLIED_KIND="rateguru-mail-gateway-applied-inbound"
+MAIL_INBOUND_AUTHORIZATION="${MAIL_INBOUND_GATEWAY_STATE}/inbound-transition-authorization.json"
+MAIL_INBOUND_AUTHORIZATION_KIND="rateguru-mail-gateway-inbound-transition-authorization"
+MAIL_INBOUND_CONSUMED="${MAIL_INBOUND_GATEWAY_STATE}/consumed-inbound-transition-authorizations"
+
+# What the gateway renders for the receiver: the table virtual(8) and the
+# listeners read the allowed recipients from, the cleanup and address
+# rewriting services of the inbound listeners alone, and the port the public
+# listener holds.
+MAIL_INBOUND_RECIPIENT_TABLE="/etc/postfix/rateguru-inbound-recipients.regexp"
+MAIL_INBOUND_CLEANUP_SERVICE="rateguru-inbound-cleanup"
+MAIL_INBOUND_REWRITE_SERVICE="rateguru-inbound-rewrite"
+MAIL_INBOUND_PUBLIC_PORT=25
+
+# The store gate: a Postfix policy service (spawn) the inbound listeners ask at
+# RCPT TO, before any message is accepted, whether the store can take mail
+# right now. It answers with a temporary refusal while the store volume is not
+# mounted, is mounted read-only, or has less free space than its reserve or
+# fewer free inodes than MAIL_INBOUND_STORE_GATE_MIN_INODES — so no 250 is ever
+# given for mail the store cannot take at that moment. It runs as an
+# unprivileged user, reads no message and logs nothing.
+MAIL_INBOUND_STORE_GATE="/etc/postfix/rateguru-inbound-store-gate"
+MAIL_INBOUND_STORE_GATE_SERVICE="rateguru-inbound-store-gate"
+MAIL_INBOUND_STORE_GATE_USER="nobody"
+MAIL_INBOUND_STORE_GATE_MIN_INODES=1024
+
+# The Postfix unit every listener of the gateway runs in, the inbound ones
+# included: Ubuntu runs Postfix as postfix@-.service.
+MAIL_INBOUND_POSTFIX_UNIT="postfix@-.service"
+
+# Accepted inbound mail that is still in the shared queue. A message counts as
+# waiting once Postfix deferred or held it, or once it has been in the queue
+# MAIL_INBOUND_QUEUE_WAITING_SECONDS in any state; it is at risk once it has
+# been there MAIL_INBOUND_QUEUE_RISK_SECONDS. Postfix gives up a message it
+# could not deliver within maximal_queue_lifetime (five days by default), and
+# an inbound message given up is lost — its bounce has no route off the host —
+# so a day leaves the operator four to restore the store.
+MAIL_INBOUND_QUEUE_WAITING_SECONDS=900
+MAIL_INBOUND_QUEUE_RISK_SECONDS=86400
+
+# mail_inbound_applied ROOT — the receiver as the gateway recorded it:
+# "absent" (no inbound listener was ever installed), "disabled<TAB>-" (its
+# listeners and delivery are installed, public SMTP is closed),
+# "enabled<TAB>ADDRESS" (public SMTP is open on ADDRESS:25), or "corrupt" when
+# the record cannot be trusted — a link, a document of another kind, or a
+# record on a host whose gateway is not marked installed.
+mail_inbound_applied() {
+    local root="$1" path marker
+
+    path="${root}${MAIL_INBOUND_APPLIED}"
+    marker="${root}${MAIL_INBOUND_GATEWAY_MARKER}"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]] \
+        || ! [[ -f "${marker}" && ! -L "${marker}" ]] \
+        || [[ "$(sed -n 's/^state=//p' "${marker}" 2>/dev/null | tail -n 1)" != installed ]]
+    then
+        printf 'corrupt\n'
+        return 0
+    fi
+
+    jq -r --arg kind "${MAIL_INBOUND_APPLIED_KIND}" '
+        def ipv4: type == "string" and test("\\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\z");
+        if type == "object" and (keys == ["address", "kind", "public_smtp", "schema_version"])
+            and .kind == $kind and .schema_version == 1
+        then
+            if .public_smtp == "disabled" and .address == null then "disabled\t-"
+            elif .public_smtp == "enabled" and (.address | ipv4) then "enabled\t\(.address)"
+            else "corrupt" end
+        else
+            "corrupt"
+        end' "${path}" 2>/dev/null || printf 'corrupt\n'
+}
+
+# mail_inbound_queue_scan POSTQUEUE POSTCAT LOOPBACK_PORT DOMAINS NOW — every
+# message an inbound listener accepted that is still in the shared queue, as
+# one JSON object: {"inbound", "waiting", "at_risk", "oldest_seconds",
+# "queues": {QUEUE: COUNT}}. POSTQUEUE and POSTCAT are the commands to run (a
+# caller may pass a function); DOMAINS is a JSON array of the inbound domains;
+# NOW is the time in seconds. Counts and ages only: never an address or a byte
+# of a message.
+#
+# The direction is read from each message's own envelope, never guessed from
+# its recipient. Postfix records the address and port of the listener that
+# accepted a message (server_address, server_port), and a submission listener's
+# message also carries its content filter. A message is inbound only when the
+# inbound loopback listener, or port 25 on any address — which nothing but the
+# public inbound listener ever holds — accepted it, and it names no content
+# filter. A recipient at an inbound domain only selects which envelopes are
+# read at all (postcat -e: the envelope, never the message): mail to any other
+# domain can never have been accepted by an inbound listener.
+#
+# Fails, printing nothing, when the queue cannot be listed, or an envelope
+# still in the queue cannot be read: an unreadable queue is never an empty one.
+mail_inbound_queue_scan() {
+    local postqueue="$1" postcat="$2" loopback_port="$3" domains="$4" now="$5"
+    local listing candidates relisted id queue arrival envelope address port rows=""
+
+    listing="$("${postqueue}" -j 2>/dev/null)" || return 1
+    candidates="$(jq -r --argjson domains "${domains}" '
+        select(any(.recipients[]?; (.address | ascii_downcase | split("@") | last) as $d | any($domains[]; . == $d)))
+        | "\(.queue_id)\t\(.queue_name)\t\(.arrival_time)"' <<<"${listing}" 2>/dev/null)" || return 1
+
+    while IFS=$'\t' read -r id queue arrival; do
+        [[ -n "${id}" ]] || continue
+        [[ "${id}" =~ ^[0-9A-Za-z]+$ && "${arrival}" =~ ^[0-9]+$ ]] || return 1
+
+        if ! envelope="$("${postcat}" -e -q "${id}" 2>/dev/null)"; then
+            # Delivered or returned since the listing — unless it is still listed.
+            relisted="$("${postqueue}" -j 2>/dev/null)" || return 1
+            if jq -e --arg id "${id}" 'select(.queue_id == $id)' <<<"${relisted}" >/dev/null 2>&1; then
+                return 1
+            fi
+            continue
+        fi
+
+        ! grep -q '^content_filter: ' <<<"${envelope}" || continue
+        address="$(sed -n 's/^named_attribute: server_address=//p' <<<"${envelope}" | head -n 1)"
+        port="$(sed -n 's/^named_attribute: server_port=//p' <<<"${envelope}" | head -n 1)"
+        if [[ "${port}" == "${MAIL_INBOUND_PUBLIC_PORT}" || ( "${address}" == 127.0.0.1 && "${port}" == "${loopback_port}" ) ]]; then
+            rows+="${queue}"$'\t'"$(( now - arrival ))"$'\n'
+        fi
+    done <<<"${candidates}"
+
+    jq -R -s -c --argjson waiting "${MAIL_INBOUND_QUEUE_WAITING_SECONDS}" --argjson risk "${MAIL_INBOUND_QUEUE_RISK_SECONDS}" '
+        [split("\n")[] | select(length > 0) | split("\t") | {queue: .[0], age: (.[1] | tonumber)}]
+        | {inbound: length,
+           waiting: (map(select(.queue == "deferred" or .queue == "hold" or .age >= $waiting)) | length),
+           at_risk: (map(select(.age >= $risk)) | length),
+           oldest_seconds: (map(.age) | max // 0),
+           queues: (group_by(.queue) | map({key: .[0].queue, value: length}) | from_entries)}' <<<"${rows}"
+}
+
+# mail_inbound_gate_verdict GATE STORE RESERVE MIN_INODES MOUNTINFO — what the
+# installed store gate GATE answers right now, as the inbound listeners ask it:
+# DUNNO when the store takes mail, a 451/452 action when it does not, nothing
+# when the gate cannot run. It is asked one empty request; it reads no message.
+mail_inbound_gate_verdict() {
+    [[ -f "$1" ]] || return 0
+    printf 'request=smtpd_access_policy\n\n' \
+        | bash "$1" "$2" "$3" "$4" "$5" 2>/dev/null \
+        | sed -n 's/^action=//p' | head -n 1 || true
+}
+
+# mail_inbound_queue_lifetime POSTCONF — maximal_queue_lifetime as Postfix reads
+# it, in seconds (a number without a unit is days); nothing when it cannot be
+# read.
+mail_inbound_queue_lifetime() {
+    local value
+    value="$("$1" -h maximal_queue_lifetime 2>/dev/null || true)"
+    [[ "${value}" =~ ^([0-9]+)([smhdw]?)$ ]] || return 0
+    case "${BASH_REMATCH[2]}" in
+        s) printf '%s\n' "${BASH_REMATCH[1]}" ;;
+        m) printf '%s\n' $(( BASH_REMATCH[1] * 60 )) ;;
+        h) printf '%s\n' $(( BASH_REMATCH[1] * 3600 )) ;;
+        w) printf '%s\n' $(( BASH_REMATCH[1] * 604800 )) ;;
+        *) printf '%s\n' $(( BASH_REMATCH[1] * 86400 )) ;;
+    esac
+}
+
+# mail_inbound_duration SECONDS — "2d 3h", "5h 12m" or "7m": an age, for a person.
+mail_inbound_duration() {
+    local seconds="$1"
+    if (( seconds >= 86400 )); then
+        printf '%dd %dh\n' $(( seconds / 86400 )) $(( seconds % 86400 / 3600 ))
+    elif (( seconds >= 3600 )); then
+        printf '%dh %dm\n' $(( seconds / 3600 )) $(( seconds % 3600 / 60 ))
+    else
+        printf '%dm\n' $(( seconds / 60 ))
+    fi
+}
+
+# mail_inbound_applied_document STATE [ADDRESS] — the record of STATE
+# (disabled | enabled), canonical: what the gateway writes and compares.
+mail_inbound_applied_document() {
+    jq -S -n --arg kind "${MAIL_INBOUND_APPLIED_KIND}" --arg state "$1" --arg address "${2:-}" \
+        '{kind: $kind, schema_version: 1, public_smtp: $state, address: (if $address == "" then null else $address end)}'
+}

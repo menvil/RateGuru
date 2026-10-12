@@ -205,7 +205,7 @@ it('serves the language of a regional browser setting', function (string $locale
         ->get(route('feed'))
         ->assertOk()
         ->assertSee('lang="'.$locale.'"', false);
-})->with(translatedLocales());
+})->with(representativeTranslatedLocales());
 
 it('follows the browser quality order', function () {
     [$preferred] = twoTranslatedLocales();

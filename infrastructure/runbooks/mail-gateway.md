@@ -15,10 +15,12 @@ transport works and reaches a host only through the guarded activation.
 | Real-host acceptance (`verify-mail-gateway --e2e`) | **Passed** on the real staging host — see [Real-host acceptance](#real-host-acceptance) |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
 | `tits-guru` — committed policy | `lifecycle=planned`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |
-| `tits-guru` — real host | **Held** until Activate: its listener exists and **holds** everything, the recorded applied policy is held, and nothing is delivered |
-| DKIM signing of `tits-guru`'s listener | **Accepted on the shared host**: its listener hands each message to the host's DKIM signer before it is held — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
-| Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented, requested, not yet active on the host**: the committed `config/mail-outbound.json` enables direct delivery for `tits-guru`, and the host renders the route only once `activate-mail-outbound` has crossed the activation boundary |
-| Production outbound delivery | **None yet**: no route to the Internet exists on any host. A production target is activated only through the guarded `activate-mail-outbound`, and accepted only after a real canary — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| `tits-guru` — real host | **Outbound**, activated on 2026-10-08 through `activate-mail-outbound`: its listener signs each message and delivers it through `rateguru-outbound-tits-guru` to the recipient domain's MX, and the recorded applied policy is outbound |
+| DKIM signing of `tits-guru`'s listener | **Accepted on the shared host**: its listener hands each message to the host's DKIM signer before it is queued — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
+| Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08: the committed `config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`, and the host rendered the route when `activate-mail-outbound` crossed the activation boundary |
+| Production outbound delivery | **Production-accepted** on 2026-10-08: `tits-guru`'s mail is delivered directly, signed, and the real canary was received with SPF, DKIM and DMARC passing. A production target is activated only through the guarded `activate-mail-outbound` — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
+| Inbound mail (bounces, replies, support) | **Implemented on this Postfix, not active on any host**: inbound listeners and delivery to a store of their own, rendered by this installer only after the guarded Activate tits.guru inbound SMTP — see [`mail-inbound.md`](mail-inbound.md) and [Inbound mail on this Postfix](#inbound-mail-on-this-postfix) |
+| Public SMTP ports on the host | **Judged by one library**, `scripts/public-smtp-port`, in every check below: 465 and 587 never; 25 only for this Postfix's own recorded public listener, once activated — see [Inbound mail on this Postfix](#inbound-mail-on-this-postfix) |
 
 ## What is installed
 
@@ -28,17 +30,17 @@ Laravel staging ──SMTP──▶ 127.0.0.1:2525 ─┐
 tits-guru (not deployed) ─▶ 127.0.0.1:2526 ┤    listener = routing identity
                                           │    sender domain = authorization
                                           ▼
-              2525 (capture) → Postfix queue → smtp:[127.0.0.1]:1025 Mailpit → Mailtrap Local mirror
-              2526 (held)    → HOLD queue    → no route, ever
-              anything else  → error(8)      → never delivered
+              2525 (capture)  → Postfix queue → smtp:[127.0.0.1]:1025 Mailpit → Mailtrap Local mirror
+              2526 (outbound) → DKIM signer   → Postfix queue → rateguru-outbound-tits-guru → recipient MX
+              anything else   → error(8)      → never delivered
 ```
 
-That is the whole gateway on the real host today. The committed policy now
-requests `tits-guru`'s direct outbound route, described
-[below](#direct-outbound-on-a-host-only-through-the-activation), but the host
-renders none of it until `activate-mail-outbound` crosses the activation
-boundary; then `2526` hands its mail to `rateguru-outbound-tits-guru`, straight
-to each recipient domain's MX.
+That is the whole gateway on the real host today. `tits-guru`'s direct outbound
+route, described [below](#direct-outbound-on-a-host-only-through-the-activation),
+was rendered on the host when `activate-mail-outbound` crossed the activation
+boundary on 2026-10-08: since then `2526` hands its mail to
+`rateguru-outbound-tits-guru`, straight to each recipient domain's MX. Before
+that it was held, as the next paragraphs describe.
 
 One Postfix instance for the host, owned end to end by
 `infrastructure/scripts/install-mail-gateway`:
@@ -47,27 +49,31 @@ One Postfix instance for the host, owned end to end by
   policy names (`127.0.0.1:2525`, `127.0.0.1:2526`). There is no `smtp`
   (port 25), `submission` (587) or `smtps` (465) listener, nothing binds
   `0.0.0.0`, `::` or a public address, and Postfix runs IPv4-only. A firewall is
-  never what makes this safe: Postfix itself binds nothing public.
+  never what makes this safe: Postfix itself binds nothing public. The one
+  exception is inbound mail's public listener — port 25 on exactly one IPv4
+  address, with rules of its own — which this installer renders only once the
+  guarded activation has recorded it (see [Inbound mail on this
+  Postfix](#inbound-mail-on-this-postfix)).
 - **Capture is store-and-forward.** The staging listener sets a content filter
   naming its own transport and its capture destination. Postfix **accepts and
   queues** the message, then delivers it to `[127.0.0.1]:1025`. If Mailpit is
   down, the message is **deferred and retried**, not lost, and Laravel never
   depended on Mailpit being up at that moment. Mailpit then mirrors to Mailtrap
   Local exactly as [`mail-capture.md`](mail-capture.md) describes.
-- **Held means HOLD.** The `tits-guru` listener accepts a message from its own
-  domain and places it on Postfix's hold queue — DKIM-signed first, see
-  [below](#signing-held-mail-is-signed-and-still-held). Nothing names a route for it:
-  no Mailpit, no other target's transport, no relayhost, no DNS delivery. A
-  held message released by hand still has nowhere to go — it bounces into the
-  error transport.
+- **Held means HOLD.** A held listener — `tits-guru`'s, until its activation —
+  accepts a message from its own domain and places it on Postfix's hold queue
+  — DKIM-signed first, see [below](#signing-held-mail-is-signed-and-still-held).
+  Nothing names a route for it: no Mailpit, no other target's transport, no
+  relayhost, no DNS delivery. A held message released by hand still has nowhere
+  to go — it bounces into the error transport.
 - **Fail closed.** `default_transport`, `relay_transport`, `local_transport`
   and `virtual_transport` are all `error:`; `relayhost`, `mydestination`,
   `relay_domains` and `transport_maps` are empty; there is no generic `smtp`,
   `relay`, `local`, `virtual` or `lmtp` delivery agent. Mail with no rendered
   route — a local `sendmail`, a cron report, anything — is undeliverable. The
   only smtp clients are the ones the plan's own listeners name, and on the real
-  host today that is the staging capture transport alone: there is no Internet
-  delivery in it at all.
+  host today those are the staging capture transport and `tits-guru`'s direct
+  transport: nothing else reaches the Internet.
 - **Sender policy.** The port chooses the target; the envelope sender is then
   checked against that target's domain, **exactly** (a subdomain is a different
   identity): `2525` accepts only `@staging.invalid`, `2526` only `@tits.guru`.
@@ -157,8 +163,8 @@ bootstrap.
 A production target's mail is eventually delivered by the gateway itself,
 straight to each recipient's mail servers — self-hosted direct SMTP, with no
 provider, relay host, smart host or credential. The capability exists, and the
-committed policy requests it for `tits-guru`; it is not active on any host
-until `activate-mail-outbound` has run there.
+committed policy requests it for `tits-guru`, and it has been active on the
+shared host since `activate-mail-outbound` ran there on 2026-10-08.
 
 ```
 Laravel ─▶ 127.0.0.1:<target port> ─▶ Postfix queue ─▶ rateguru-outbound-<target> (smtp)
@@ -235,16 +241,16 @@ client IPv4 too), and unclassified mail stays undeliverable. A plan with no
 outbound target renders **byte for byte** what it rendered before outbound
 routes existed, so the real host does not drift.
 
-**Not in this capability** — each needs its own reviewed change before any
-target is switched to `outbound`: DKIM signing, published and verified DNS
-(the reviewed MTA hostname, its PTR, SPF, DKIM and DMARC — see
-[`mail-identity.md`](mail-identity.md)), the production Return-Path and bounce
-reception, reply routing, a support mailbox, the production `MAIL_*` values, a
-controlled real canary delivery, header verification at the large mailbox
-providers, and sender reputation warm-up. The committed `mail-outbound.json`
-now says `enabled: true` and `tits-guru`'s policy says `outbound`; the shared
-host stays held until Activate, and production is accepted only after the real
-canary and its headers.
+**Not in this capability** — each is its own reviewed change: DKIM signing and
+published, verified DNS (the reviewed MTA hostname, its PTR, SPF, DKIM and
+DMARC — see [`mail-identity.md`](mail-identity.md)), both done before
+`tits-guru` was activated on 2026-10-08; a controlled real canary delivery with
+its headers verified at a large mailbox provider, done right after; the
+production Return-Path and bounce reception, reply routing and a support
+mailbox, which are inbound mail (see [`mail-inbound.md`](mail-inbound.md)); and
+the production `MAIL_*` values and sender reputation warm-up. The committed `mail-outbound.json` says
+`enabled: true` and `tits-guru`'s policy says `outbound`, and the shared host
+applies both.
 
 The contract is judged by `infrastructure/scripts/mail-identity`
 (`check-outbound`), the one judge of the host's and the targets' mail
@@ -376,7 +382,8 @@ sudo infrastructure/scripts/verify-mail-gateway --e2e
 `--read-only` is `install-mail-gateway --verify`: installed files equal the
 current render, Postfix parses them, `postfix.service` is enabled and
 `postfix@-.service` stably running, the listeners are exactly the plan's
-loopback endpoints, nothing listens on 25/465/587, no gateway port is bound off
+loopback endpoints, nothing listens on a public SMTP port that may not (see
+[below](#inbound-mail-on-this-postfix)), no gateway port is bound off
 loopback, every capture destination is listening, held mail has no route and
 unclassified mail cannot be delivered. The smtp clients are exactly the plan's
 transports, and for an outbound target its transport is the only one its
@@ -424,11 +431,60 @@ sudo infrastructure/scripts/status-mail-gateway
 ```
 
 Read-only: package and version, ownership marker, service state, listeners,
-each listener's route as Postfix reads it from the installed configuration —
+who holds a public SMTP port and whether that is allowed, each listener's route as Postfix reads it from the installed configuration —
 an outbound one as `outbound, queued -> direct SMTP -> recipient MX` with its
 transport, HELO name and TLS level — queue counts by queue (counts only — no
 address, no body), and the last hour of gateway warnings. Logs:
 `journalctl -u postfix@-.service`.
+
+## Inbound mail on this Postfix
+
+Inbound mail ([`mail-inbound.md`](mail-inbound.md)) is part of this same
+Postfix — one service, one configuration, one queue — and this installer is the
+only writer of every Postfix file for it too. It renders, from `mail-inbound
+render-receiver`, only what the host's recorded inbound state says
+(`/var/lib/rateguru-mail-gateway/applied-inbound.json`):
+
+| Recorded state | Rendered |
+|----------------|----------|
+| absent | nothing of inbound mail: `main.cf` and `master.cf` exactly as without it |
+| disabled | the inbound loopback listener `127.0.0.1:2580`, its cleanup and address rewriting, the store gate (a policy service the inbound listeners ask at `RCPT TO` whether the store can take mail, `/etc/postfix/rateguru-inbound-store-gate`), `virtual(8)` delivery into the store; `virtual_transport` and `virtual_mailbox_*` in `main.cf` |
+| enabled on one address | all of that, and one public listener on that address, port 25 |
+
+Every inbound rule is a per-service override of the inbound listeners
+themselves, so no submission listener's behaviour changes: each of them still
+names its own content filter and judges no recipient against the inbound table,
+so mail to `tits.guru` taken on `2526` still leaves through its outbound route.
+The default, relay and local transports stay `error(8)`.
+
+One `--apply` runs at a time — it holds `/var/lib/rateguru-mail-gateway` locked
+for its whole run, and a second one refuses at once. The recorded state moves
+only by a one-use authorization `activate-mail-inbound` writes after its proof — `install`, `enable` or
+`disable` — consumed by `--apply`, each a reload, never a stop or a restart. An
+ordinary `--apply` — Prepare, bootstrap, repair — keeps the recorded state, and
+a bundle that no longer requests public SMTP refuses to touch a host where it is
+open. `--verify` judges the inbound part like the rest: the twenty-one receiver
+requirements by name, against `postconf`.
+
+Every check that refuses a public SMTP listener — `install-mail-gateway
+--verify` (Prepare, Verify, `verify-mail-gateway --read-only`),
+`activate-mail-outbound`'s read-back, `status-mail-gateway` and the inbound
+activation — asks the same library, `infrastructure/scripts/public-smtp-port`:
+
+- 465 and 587 are refused to everything, always;
+- 25 is refused to everything unless the gateway is marked installed, its
+  recorded inbound state says `enabled` on one address, the trusted bundle's
+  inbound contract requests `enabled`, the listener is on exactly that
+  address, every process holding it runs in `postfix@-.service`'s own cgroup —
+  never judged by a process name — and the installed `master.cf` names exactly
+  that one listener off loopback.
+
+While public SMTP is disabled — the state of every host until Activate
+tits.guru inbound SMTP runs — every check refuses 25 exactly as before, and
+the submission listeners are proved loopback-only whatever inbound mail does.
+The inbound activation proves the outbound part of the configuration —
+everything but the inbound settings — unchanged before and after it opens the
+port, and after its rollback closes it.
 
 ## Staging cutover
 

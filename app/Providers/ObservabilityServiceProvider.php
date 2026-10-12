@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Support\Observability\DiagnoseHealthDependencies;
 use App\Support\Observability\NightwatchPrivacy;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Foundation\Events\DiagnosingHealth;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Nightwatch\Facades\Nightwatch;
@@ -33,6 +35,10 @@ final class ObservabilityServiceProvider extends ServiceProvider
         $this->shareDeploymentContext();
         $this->configureSentry();
         $this->configureNightwatch();
+
+        // /up answers for the database and the cache store too, not only for
+        // the framework starting: see DiagnoseHealthDependencies.
+        $this->app->make(Dispatcher::class)->listen(DiagnosingHealth::class, DiagnoseHealthDependencies::class);
     }
 
     /**

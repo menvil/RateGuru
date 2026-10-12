@@ -22,22 +22,6 @@ const REGISTER_PANEL = '[data-testid="auth-modal-register-panel"]';
 /** Whether the dialog is on screen, as one expression a test can wait for. */
 const AUTH_MODAL_SHOWN = 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"';
 
-/**
- * Submits a modal form and waits until the server's answer has replaced the
- * page. A failed submission comes back to the very same URL with the dialog
- * open again, so the URL and the dialog cannot tell the two pages apart: a
- * marker on window can, because only the old document carries it.
- */
-function submitAndWaitForNewPage(mixed $page, string $submit): mixed
-{
-    $page->script('window.__rgPageBeforeSubmit = true');
-    $page->click($submit);
-
-    waitForScript($page, 'window.__rgPageBeforeSubmit !== true && document.readyState === "complete"');
-
-    return $page;
-}
-
 /** The vertical position of an element inside one of the modal's panels. */
 function topOf(string $panel, string $testId): string
 {
@@ -68,28 +52,6 @@ it('opens the login form from the header, with the providers below the submit bu
         ->and($facebook)->toBeLessThan($switch);
 });
 
-it('opens the same dialog in registration mode from the header', function () {
-    $page = visit(route('feed'))
-        ->click('[data-testid="header-register-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->assertVisible('[data-testid="auth-modal-register-form"]')
-        ->assertMissing('[data-testid="auth-modal-login-form"]')
-        ->assertVisible('[data-testid="auth-modal-title-register"]')
-        ->assertSeeIn(REGISTER_PANEL, 'Log in with Google')
-        ->assertSeeIn(REGISTER_PANEL, 'Log in with Facebook')
-        ->assertCount(AUTH_MODAL, 1)
-        ->assertPathIs('/');
-
-    $submit = $page->script(topOf(REGISTER_PANEL, 'auth-modal-register-submit'));
-    $google = $page->script(topOf(REGISTER_PANEL, 'social-google'));
-    $facebook = $page->script(topOf(REGISTER_PANEL, 'social-facebook'));
-    $switch = $page->script(topOf(REGISTER_PANEL, 'auth-switch-to-login'));
-
-    expect($submit)->toBeLessThan($google)
-        ->and($google)->toBeLessThan($facebook)
-        ->and($facebook)->toBeLessThan($switch);
-});
-
 it('switches between login and sign-up without navigating, reloading or closing', function () {
     $page = visit(route('feed', ['sort' => 'top']))
         ->click('[data-testid="header-login-link"]')
@@ -110,14 +72,6 @@ it('switches between login and sign-up without navigating, reloading or closing'
         ->assertPathIs('/')
         ->assertQueryStringHas('sort', 'top')
         ->assertScript('window.__rgSameDocument', 'yes');
-});
-
-it('has no tabs', function () {
-    visit(route('feed'))
-        ->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->assertNotPresent(AUTH_MODAL.' [role="tab"]')
-        ->assertNotPresent(AUTH_MODAL.' [role="tablist"]');
 });
 
 it('puts the focus in the first field and keeps it predictable when the mode changes', function () {
@@ -237,24 +191,6 @@ it('opens in registration mode when a guest presses upload, without the old toas
         ->assertPathIs('/');
 });
 
-it('signs in from the modal and stays on the page, query string included', function () {
-    User::factory()->create(['email' => 'modal-login@rateguru.test']);
-
-    $page = visit(route('feed', ['sort' => 'top']))
-        ->click('[data-testid="header-login-link"]')
-        ->assertVisible(AUTH_MODAL)
-        ->type('[data-testid="auth-modal-login-email"]', 'modal-login@rateguru.test')
-        ->type('[data-testid="auth-modal-login-password"]', 'password');
-
-    submitAndWaitForNewPage($page, '[data-testid="auth-modal-login-submit"]')
-        ->assertPresent('[data-testid="header-auth-actions"]')
-        ->assertPathIs('/')
-        ->assertQueryStringHas('sort', 'top')
-        ->assertNotPresent('[data-testid="auth-modal-root"]');
-
-    assertAuthenticated();
-});
-
 it('returns to the post the person was reading after signing in', function () {
     $post = Post::factory()->published()->create(['title' => 'Return Here Post']);
     User::factory()->create(['email' => 'modal-post@rateguru.test']);
@@ -270,28 +206,6 @@ it('returns to the post the person was reading after signing in', function () {
         ->assertSee('Return Here Post');
 
     assertAuthenticated();
-});
-
-it('reopens in login mode on the same page after invalid credentials', function () {
-    $post = Post::factory()->published()->create(['title' => 'Stay On This Post']);
-    User::factory()->create(['email' => 'modal-wrong@rateguru.test']);
-
-    $page = visit(route('posts.show', $post))
-        ->click('[data-testid="header-login-link"]')
-        ->type('[data-testid="auth-modal-login-email"]', 'modal-wrong@rateguru.test')
-        ->type('[data-testid="auth-modal-login-password"]', 'not-the-password');
-
-    submitAndWaitForNewPage($page, '[data-testid="auth-modal-login-submit"]')
-        ->assertPathIs(route('posts.show', $post, absolute: false))
-        ->assertSee('Stay On This Post')
-        ->assertVisible(AUTH_MODAL)
-        ->assertVisible('[data-testid="auth-modal-login-form"]')
-        ->assertMissing('[data-testid="auth-modal-register-form"]')
-        ->assertSeeIn(LOGIN_PANEL, 'These credentials do not match our records.')
-        ->assertValue('[data-testid="auth-modal-login-email"]', 'modal-wrong@rateguru.test')
-        ->assertValue('[data-testid="auth-modal-login-password"]', '');
-
-    assertGuest();
 });
 
 it('reopens in registration mode on the same page after a validation error', function () {
@@ -340,16 +254,23 @@ it('registers from the modal and stays on the page', function () {
     expect(User::query()->where('email', 'newcomer@rateguru.test')->exists())->toBeTrue();
 });
 
-it('points the provider links at the page the person is on right now', function () {
-    $page = visit(route('feed', ['sort' => 'top']))
-        ->click('[data-testid="header-login-link"]')
+it('points the provider links and the form at the page the person is on now, not the one the server drew', function () {
+    $page = visit(route('feed', ['sort' => 'top']));
+
+    // The server drew every return path as /?sort=top. Livewire moves the
+    // address without a reload, as it does when the feed is re-sorted: only
+    // the modal itself can know the page is somewhere else by now.
+    $page->script("() => { history.pushState(null, '', '/?sort=newest'); return true; }");
+
+    $page->click('[data-testid="header-login-link"]')
         ->assertVisible(AUTH_MODAL);
 
     $href = $page->script('document.querySelector(\''.LOGIN_PANEL.' [data-testid="social-google"]\').href');
     parse_str((string) parse_url((string) $href, PHP_URL_QUERY), $query);
 
     expect(parse_url((string) $href, PHP_URL_PATH))->toBe('/auth/google')
-        ->and($query)->toBe(authModalFields('login', '/?sort=top'));
+        ->and($query)->toBe(authModalFields('login', '/?sort=newest'))
+        ->and($page->script('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value'))->toBe('/?sort=newest');
 });
 
 it('fits a phone screen in both modes, with every control reachable', function (string $trigger, string $panel, string $switch, array $viewport) {

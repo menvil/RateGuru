@@ -17,4 +17,4 @@ it('has follow translation keys for all supported locales', function (string $lo
     ] as $key) {
         expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());

@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Support\Seo\PostOpenGraph;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Storage;
 
@@ -35,16 +36,27 @@ it('renders complete opengraph and twitter metadata on post show', function () {
 });
 
 it('announces the reader language to link previews', function (string $locale) {
-    // og:locale is mapped per language in PostOpenGraph, with en_US for
-    // anything it does not know — so a newly declared language would be
-    // announced as English without this turning red.
+    // The page carries what PostOpenGraph maps the reader's language to; that
+    // every installed language has a mapping of its own is checked below.
     offerEveryInstalledLocale();
     $post = Post::factory()->published()->create();
 
     $response = $this->withSession(['locale' => $locale])->get(route('posts.show', $post))->assertOk();
 
     expect($response->getContent())->toMatch('/<meta property="og:locale" content="'.$locale.'_[A-Z]{2}">/');
-})->with(supportedLocales());
+})->with(representativeLocales());
+
+it('maps every installed language to an og:locale of its own', function () {
+    // PostOpenGraph maps each language to a locale of its own and falls back
+    // to en_US for one it does not know, so a newly declared language would
+    // be announced to link previews as English. Every language, without a
+    // request each.
+    foreach (supportedLocales() as $locale) {
+        app()->setLocale($locale);
+
+        expect(app(PostOpenGraph::class)->locale())->toMatch("/^{$locale}_[A-Z]{2}$/", "og:locale for {$locale}");
+    }
+});
 
 it('renders canonical link tag on post show', function () {
     config(['app.url' => 'https://rateguru.test']);

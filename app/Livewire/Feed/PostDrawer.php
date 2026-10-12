@@ -34,10 +34,24 @@ final class PostDrawer extends Component
     // components, which self-update in place. The drawer intentionally does
     // not re-render on votes so the card does not reload.
 
-    // Lets a persistent, layout-hosted instance (the global sliding overlay)
-    // track the selected post without being re-mounted by a parent component,
-    // since it isn't fed :post-id as a reactive prop like the feed's inline drawer.
-    #[On('select-post')]
+    /**
+     * Only the global overlay hears a selected post from the server: it is
+     * hosted by the layout and has no parent to mount it afresh. The split
+     * view's two drawers would each load and draw the post, while only one is
+     * on screen. The feed page mounts the inline one afresh for each selection
+     * on a desktop, and the browser hands the mobile overlay its selection only
+     * below the desktop breakpoint (post-drawer.blade.php).
+     *
+     * @return array<string, string>
+     */
+    protected function getListeners(): array
+    {
+        return $this->asOverlay && ! $this->mobileOnly ? ['select-post' => 'setSelectedPost'] : [];
+    }
+
+    // Lets an overlay track the selected post without being re-mounted by a
+    // parent component, since it isn't fed :post-id as a reactive prop like
+    // the feed's inline drawer.
     public function setSelectedPost(int $postId, ?string $focus = null): void
     {
         $this->postId = $postId;

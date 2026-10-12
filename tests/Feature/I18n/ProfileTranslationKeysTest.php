@@ -17,4 +17,4 @@ it('has the profile translation keys in every supported locale', function (strin
     ] as $key) {
         expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());

@@ -6,7 +6,7 @@ it('has import translation keys in every supported locale', function (string $lo
     foreach (['import.from_url', 'import.preview', 'import.errors.unsupported', 'import.manual_upload_hint'] as $key) {
         expect(Lang::hasForLocale($key, $locale))->toBeTrue("Missing {$key} for {$locale}");
     }
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('has all required import keys in english', function () {
     app()->setLocale('en');

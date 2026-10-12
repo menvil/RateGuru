@@ -20,7 +20,7 @@ it('remembers a guest choice in the session and in a cookie', function (string $
         ->assertCookie('locale', $locale);
 
     expect(session('locale'))->toBe($locale);
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('remembers a signed-in choice on the account, in the session and in a cookie', function (string $locale) {
     offerEveryInstalledLocale();
@@ -33,7 +33,7 @@ it('remembers a signed-in choice on the account, in the session and in a cookie'
 
     expect($user->fresh()->locale)->toBe($locale)
         ->and(session('locale'))->toBe($locale);
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('sets a long-lived, site-wide cookie that scripts cannot read', function () {
     $cookie = localeCookie($this->post(route('locale.change'), ['locale' => 'en']));

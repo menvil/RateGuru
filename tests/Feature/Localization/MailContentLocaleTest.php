@@ -44,7 +44,7 @@ it('renders the verification email with no untranslated keys', function (string 
         ->and($mail['body'])->not->toContain('mail.salutation')
         // The framework's own English must be gone, not merely joined.
         ->and($mail['subject'])->not->toBe('Verify Email Address');
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('takes its wording from the catalog of the running release, with nothing stored', function () {
     // Mail wording is the application's, not the project's: a release that
@@ -68,7 +68,7 @@ it('renders the password reset email with no untranslated keys', function (strin
     expect($mail['subject'])->not->toContain('mail.')
         ->and($mail['body'])->not->toContain('mail.reset')
         ->and($mail['subject'])->not->toBe('Reset Password');
-})->with(supportedLocales());
+})->with(representativeLocales());
 
 it('writes the lines around the message in the recipient language too', function (string $locale) {
     // The button fallback under the action and the footer come from the
