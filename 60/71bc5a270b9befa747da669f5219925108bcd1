@@ -1,0 +1,11 @@
+tests/Feature/Docs/AdminDesignDocsTest.php
+  ai_agent 248,254-255,258-259
+docs/design/admin/migration-plan.md
+  ai_agent 181-188,201,221-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6071bc5a270b9befa747da669f5219925108bcd1",
+  "prompts": {}
+}
