@@ -6,28 +6,16 @@ use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use Illuminate\Support\Facades\RateLimiter;
 
-it('has upload rate limit config', function () {
-    expect(config('rate_limits.upload.max_attempts'))->toBeInt();
-    expect(config('rate_limits.upload.decay_seconds'))->toBeInt();
-});
+it('gives every throttled action a positive attempt limit and decay window', function () {
+    // config/rate_limits.php casts each env value to int: an empty value becomes
+    // 0, and a limit of 0 refuses the action on its very first attempt.
+    foreach (['upload', 'comment', 'report', 'vote'] as $action) {
+        foreach (['max_attempts', 'decay_seconds'] as $setting) {
+            $key = "rate_limits.{$action}.{$setting}";
 
-it('has comment rate limit config', function () {
-    expect(config('rate_limits.comment.max_attempts'))->toBeInt();
-    expect(config('rate_limits.comment.decay_seconds'))->toBeInt();
-});
-
-it('has report rate limit config', function () {
-    expect(config('rate_limits.report.max_attempts'))->toBeInt();
-    expect(config('rate_limits.report.decay_seconds'))->toBeInt();
-});
-
-it('has vote rate limit config', function () {
-    expect(config('rate_limits.vote.max_attempts'))->toBeInt();
-    expect(config('rate_limits.vote.decay_seconds'))->toBeInt();
-});
-
-it('resolves action rate limiter', function () {
-    expect(app(ActionRateLimiter::class))->toBeInstanceOf(ActionRateLimiter::class);
+            expect(config($key))->toBeInt($key)->toBeGreaterThan(0, $key);
+        }
+    }
 });
 
 it('throws when action limit is exceeded', function () {

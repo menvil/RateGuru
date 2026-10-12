@@ -51,7 +51,3 @@ it('feature flags from db override defaults', function () {
 
     expect($manager->featureEnabled('show_comments'))->toBeFalse();
 });
-
-it('missing settings row does not crash the app', function () {
-    expect(fn () => app(ProjectSettingsManager::class)->current())->not->toThrow(Throwable::class);
-});

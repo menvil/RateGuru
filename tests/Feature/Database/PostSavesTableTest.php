@@ -6,10 +6,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-it('has post_saves table', function () {
-    expect(Schema::hasTable('post_saves'))->toBeTrue();
-});
-
 it('creates post_saves table with required columns', function () {
     expect(Schema::hasColumns('post_saves', [
         'id',

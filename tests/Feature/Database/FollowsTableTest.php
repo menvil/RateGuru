@@ -5,10 +5,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-it('has follows table', function () {
-    expect(Schema::hasTable('follows'))->toBeTrue();
-});
-
 it('has follows table with required columns', function () {
     expect(Schema::hasColumns('follows', [
         'id',

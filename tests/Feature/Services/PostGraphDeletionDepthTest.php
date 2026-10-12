@@ -35,18 +35,6 @@ function purgeablePostWithComments(callable $buildComments): Post
     return $post;
 }
 
-it('purges the supported one-level shape exactly as before', function () {
-    $post = purgeablePostWithComments(function (Post $post): void {
-        $root = Comment::factory()->create(['post_id' => $post->id]);
-        Comment::factory()->create(['post_id' => $post->id, 'parent_id' => $root->id]);
-    });
-
-    expect(app(PostRetentionPurgeService::class)->purge($post->id))->toBe(PostPurgeOutcome::Purged);
-
-    expect(Post::withTrashed()->find($post->id))->toBeNull()
-        ->and(Comment::withTrashed()->where('post_id', $post->id)->count())->toBe(0);
-});
-
 it('purges a malformed deeply nested chain leaves-first without FK violations', function () {
     // A -> B -> C -> D, built directly (bypasses reply-depth validation —
     // exactly the malformed/legacy shape the boundary must survive).

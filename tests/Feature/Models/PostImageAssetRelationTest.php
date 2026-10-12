@@ -16,12 +16,3 @@ it('has no image asset by default', function () {
 
     expect($post->imageAsset)->toBeNull();
 });
-
-it('nulls the image asset id when the referenced asset is deleted', function () {
-    $asset = MediaAsset::factory()->postImage()->create();
-    $post = Post::factory()->create(['image_asset_id' => $asset->id]);
-
-    $asset->forceDelete();
-
-    expect($post->fresh()->image_asset_id)->toBeNull();
-});

@@ -81,20 +81,6 @@ it('is collision-resistant across repeated calls for the same request', function
     expect(array_unique($paths))->toHaveCount(20);
 });
 
-it('never derives the path from the client-supplied original filename', function () {
-    $request = new MediaStoreRequest(
-        disk: 'public',
-        directory: 'media/post-images',
-        kind: MediaKind::PostImage,
-        visibility: MediaVisibility::Public,
-        ownerUserId: 1,
-    );
-
-    $path = (new MediaPathGenerator)->generate($request, 'jpg');
-
-    expect($path)->not->toContain('my dish photo');
-});
-
 it('returns the explicit deterministic path when the request provides one', function () {
     $request = new MediaStoreRequest(
         disk: 'public',

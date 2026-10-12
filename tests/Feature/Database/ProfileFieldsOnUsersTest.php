@@ -17,7 +17,13 @@ it('has profile fields on users table', function () {
 });
 
 it('defaults rating_activity_visibility to private', function () {
-    $user = User::factory()->create();
+    // Created without the factory, which sets the value itself, so the
+    // default under test is the column's.
+    $user = User::query()->create([
+        'name' => 'Private Rater',
+        'email' => 'private-rater@example.com',
+        'password' => 'password',
+    ]);
 
-    expect($user->rating_activity_visibility)->toBe(ProfileActivityVisibility::Private);
+    expect($user->fresh()->rating_activity_visibility)->toBe(ProfileActivityVisibility::Private);
 });

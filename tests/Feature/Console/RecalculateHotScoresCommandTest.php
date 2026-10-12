@@ -3,11 +3,6 @@
 use App\Models\Post;
 use Carbon\CarbonImmutable;
 
-it('has recalculate hot scores command', function () {
-    $this->artisan('posts:recalculate-hot-scores')
-        ->assertExitCode(0);
-});
-
 it('handles empty database gracefully', function () {
     $this->artisan('posts:recalculate-hot-scores')
         ->expectsOutput('Recalculated hot scores for 0 posts.')

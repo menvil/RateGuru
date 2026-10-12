@@ -5,11 +5,6 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
-it('resolves post list cache manager', function () {
-    expect(app(PostListCacheManager::class))
-        ->toBeInstanceOf(PostListCacheManager::class);
-});
-
 it('post list cache placeholder returns callback result', function () {
     $result = app(PostListCacheManager::class)->remember(
         key: 'feed:newest:page:1',

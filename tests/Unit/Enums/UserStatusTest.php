@@ -10,13 +10,6 @@ it('contains expected user statuses', function () {
     expect(UserStatus::Deleted->value)->toBe('deleted');
 });
 
-it('knows whether a status can create content', function () {
-    expect(UserStatus::Active->canCreateContent())->toBeTrue();
-    expect(UserStatus::Banned->canCreateContent())->toBeFalse();
-    expect(UserStatus::Limited->canCreateContent())->toBeFalse();
-    expect(UserStatus::Shadowbanned->canCreateContent())->toBeFalse();
-});
-
 /*
  * The lifecycle capability matrix — the product contract for what each
  * lifecycle state may do. Mirrors docs/architecture/user-lifecycle.md.

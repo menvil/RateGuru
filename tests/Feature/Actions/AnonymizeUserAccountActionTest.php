@@ -298,7 +298,8 @@ it('keeps a shared former avatar active when someone else still references it', 
 
     app(AnonymizeUserAccountAction::class)->execute($user);
 
-    expect(MediaAsset::find($shared->id)->trashed())->toBeFalse();
+    expect($user->fresh()->avatar_asset_id)->toBeNull()
+        ->and(MediaAsset::find($shared->id)->trashed())->toBeFalse();
 });
 
 it('completes without error for a user with no avatar and no private state', function () {

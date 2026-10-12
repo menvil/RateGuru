@@ -22,7 +22,12 @@ use App\Services\Media\StoredMedia;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+
+// Under the sync queue the variant and follower-notification jobs would run
+// inline; both have their own tests, and nothing here asserts on them.
+beforeEach(fn () => Queue::fake());
 
 function fakeUploadWithBytes(string $bytes, string $originalName, string $mimeType): UploadedFile
 {

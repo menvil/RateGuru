@@ -4,10 +4,6 @@ use App\Models\MediaAsset;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
 
-it('media_assets table exists', function () {
-    expect(Schema::hasTable('media_assets'))->toBeTrue();
-});
-
 it('creates media_assets table with required columns', function () {
     expect(Schema::hasColumns('media_assets', [
         'id',
