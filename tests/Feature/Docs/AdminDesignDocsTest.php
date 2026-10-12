@@ -111,7 +111,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 500);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page, are done, and budgets, limits and provider policies are next.');
+        ->and($phase5)->toContain('**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is next.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -137,7 +137,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain("A list's search is clearable");
 });
 
-it('splits AI suggestions into four steps, the engine, interactive and bulk suggestions done and 5D in progress', function () {
+it('splits AI suggestions into four steps, done but for 5D\'s budgets, limits and policies, and puts the cutover next', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
     $start = strpos($plan, '### Phase 5+');
     $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
@@ -154,17 +154,21 @@ it('splits AI suggestions into four steps, the engine, interactive and bulk sugg
         '**5A — Translation engine. Status: done.**',
         '**5B — Interactive AI suggestions. Status: done.**',
         '**5C — Background and bulk generation. Status: done.**',
-        '**5D — Observability, limits and provider policies. Status: in progress.**',
+        '**5D — Observability, limits and provider policies.**',
         '**5D.1 — Translation AI telemetry. Status: done.**',
         '**5D.2 — Translation AI page. Status: done.**',
+        '**Deferred: budgets, limits and provider policies**',
+        '6. **Workflow** — review states, if the product needs them. **Status: deferred.**',
+        '7. **Translation cutover. Status: next.**',
     ];
     $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
 
     expect($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all())
         ->and(substr_count($phase5, 'Status: done.'))->toBe(5)
-        ->and(substr_count($phase5, 'Status: in progress.'))->toBe(1)
-        ->and(substr_count($phase5, 'Status: next.'))->toBe(0)
+        ->and(substr_count($phase5, 'Status: in progress.'))->toBe(0)
+        ->and(substr_count($phase5, 'Status: deferred.'))->toBe(1)
+        ->and(substr_count($phase5, 'Status: next.'))->toBe(1)
         ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
         ->and($phase5)->toContain('docs/architecture/translation-engine.md');
 });
@@ -218,11 +222,11 @@ it('records Generate missing: background generation, persisted drafts and an exp
         ->toContain('is never retried');
 });
 
-it('records Translation AI telemetry and the Translation AI page as done, and budgets, limits and policies as next', function () {
+it('records Translation AI telemetry and the Translation AI page as done, and budgets, limits and policies as deferred', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
 
     expect($plan)
-        ->toContain('5D.1, Translation AI telemetry, and 5D.2, the Translation AI page, are done, and budgets, limits and provider policies are next')
+        ->toContain('of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page')
         ->toContain('**5D.1 — Translation AI telemetry. Status: done.**')
         ->toContain('`TranslationAiCallRecorder`')
         ->toContain('Provider success and item success are counted apart.')
@@ -233,9 +237,28 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
         ->toContain('one rejected API key with no success since is Degraded, any other failure only in a series')
         ->toContain('never a scan')
         ->toContain('Not configured for limits and budgets')
-        ->toContain('**Next: budgets, limits and provider policies**')
-        ->not->toContain('**Next: the Translation AI page**')
+        ->toContain('**Deferred: budgets, limits and provider policies**')
+        ->toContain('a short-lived, opt-in journal of what each call sent and what came back')
+        ->not->toContain('**Next: budgets, limits and provider policies**')
         ->not->toContain('No page yet');
+});
+
+it('puts the translation cutover next, in one change, and the content screens first after it', function () {
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+    $order = ['| 1 | Categories and Tags |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
+
+    expect($plan)
+        ->toContain('7. **Translation cutover. Status: next.** In one change, in the editors as they are')
+        ->toContain('No data moves: the stored translations stay where they are')
+        ->toContain('with no note in their place')
+        ->toContain('Translation Center keeps listing what visitors can see, as it does now')
+        ->toContain('**Status: in effect.** Localization runs on v2, so the kit is frozen as Admin UI Kit v1')
+        ->toContain('are reviewed against the current one, which then becomes their reference')
+        ->toContain('Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own')
+        ->not->toContain('| 9 | Dashboard |')
+        ->and($positions)->not->toContain(false)
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all());
 });
 
 it('describes the Translation AI page: health of the configuration, the history filters choose, and the guardrails', function () {
