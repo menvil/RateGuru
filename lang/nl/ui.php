@@ -275,6 +275,7 @@ return [
         'submit' => 'Bericht aanmaken',
         'submitting' => 'Bezig met uploaden...',
         'success_pending' => 'Je bericht is ingediend en verschijnt na moderatie.',
+        'success_published' => 'Je bericht is geplaatst.',
         'error_generic' => 'Er is iets misgegaan bij het aanmaken van je bericht.',
         'error_invalid_image' => 'Deze afbeelding kon niet worden verwerkt. Probeer een ander bestand.',
         'selected_image_alt' => 'Voorbeeld van de geselecteerde afbeelding',

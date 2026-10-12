@@ -275,6 +275,7 @@ return [
         'submit' => 'Create post',
         'submitting' => 'Uploading...',
         'success_pending' => 'Your post has been submitted and will appear after moderation.',
+        'success_published' => 'Your post has been published.',
         'error_generic' => 'Something went wrong while creating your post.',
         'error_invalid_image' => 'This image could not be processed. Please try a different file.',
         'selected_image_alt' => 'Selected image preview',

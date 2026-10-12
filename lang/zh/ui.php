@@ -275,6 +275,7 @@ return [
         'submit' => '创建帖子',
         'submitting' => '上传中...',
         'success_pending' => '您的帖子已提交，审核通过后将会显示。',
+        'success_published' => '您的帖子已发布。',
         'error_generic' => '创建帖子时出错了。',
         'error_invalid_image' => '无法处理此图片，请尝试其他文件。',
         'selected_image_alt' => '所选图片预览',

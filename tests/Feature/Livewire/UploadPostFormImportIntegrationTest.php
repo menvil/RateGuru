@@ -73,7 +73,7 @@ it('submit downloads importedImageUrl before validation and creates post', funct
         ->set('importedImageUrl', 'https://example.com/image.jpg')
         ->call('submit')
         ->assertDispatched('post-uploaded')
-        ->assertDispatched('toast', message: __('ui.upload.success_pending'))
+        ->assertDispatched('toast', message: __('ui.upload.success_published'))
         ->assertHasNoErrors();
 });
 

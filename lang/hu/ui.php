@@ -275,6 +275,7 @@ return [
         'submit' => 'Bejegyzés létrehozása',
         'submitting' => 'Feltöltés...',
         'success_pending' => 'A bejegyzésedet megkaptuk, és moderálás után jelenik meg.',
+        'success_published' => 'A bejegyzésed megjelent.',
         'error_generic' => 'Hiba történt a bejegyzés létrehozása közben.',
         'error_invalid_image' => 'Ezt a képet nem sikerült feldolgozni. Próbálkozz egy másik fájllal.',
         'selected_image_alt' => 'A kiválasztott kép előnézete',

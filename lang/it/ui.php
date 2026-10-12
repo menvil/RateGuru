@@ -275,6 +275,7 @@ return [
         'submit' => 'Crea post',
         'submitting' => 'Caricamento in corso...',
         'success_pending' => 'Il tuo post è stato inviato e apparirà dopo la moderazione.',
+        'success_published' => 'Il tuo post è stato pubblicato.',
         'error_generic' => 'Si è verificato un errore durante la creazione del tuo post.',
         'error_invalid_image' => 'Non è stato possibile elaborare questa immagine. Prova con un file diverso.',
         'selected_image_alt' => 'Anteprima dell\'immagine selezionata',

@@ -275,6 +275,7 @@ return [
         'submit' => 'Luo julkaisu',
         'submitting' => 'Ladataan...',
         'success_pending' => 'Julkaisusi on lähetetty, ja se näkyy moderoinnin jälkeen.',
+        'success_published' => 'Julkaisusi on julkaistu.',
         'error_generic' => 'Julkaisun luomisessa tapahtui virhe.',
         'error_invalid_image' => 'Kuvaa ei voitu käsitellä. Kokeile toista tiedostoa.',
         'selected_image_alt' => 'Valitun kuvan esikatselu',

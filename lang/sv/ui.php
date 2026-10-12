@@ -275,6 +275,7 @@ return [
         'submit' => 'Skapa inlägg',
         'submitting' => 'Laddar upp...',
         'success_pending' => 'Ditt inlägg har skickats in och visas efter granskning.',
+        'success_published' => 'Ditt inlägg har publicerats.',
         'error_generic' => 'Något gick fel när ditt inlägg skulle skapas.',
         'error_invalid_image' => 'Bilden kunde inte bearbetas. Prova en annan fil.',
         'selected_image_alt' => 'Förhandsvisning av vald bild',

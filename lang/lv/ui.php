@@ -278,6 +278,7 @@ return [
         'submit' => 'Izveidot ierakstu',
         'submitting' => 'Augšupielādē...',
         'success_pending' => 'Jūsu ieraksts ir iesniegts un parādīsies pēc moderēšanas.',
+        'success_published' => 'Jūsu ieraksts ir publicēts.',
         'error_generic' => 'Veidojot ierakstu, radās kļūda.',
         'error_invalid_image' => 'Šo attēlu neizdevās apstrādāt. Lūdzu, izmēģiniet citu failu.',
         'selected_image_alt' => 'Izvēlētā attēla priekšskatījums',

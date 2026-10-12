@@ -275,6 +275,7 @@ return [
         'submit' => 'Crear publicación',
         'submitting' => 'Subiendo...',
         'success_pending' => 'Tu publicación se ha enviado y aparecerá después de la moderación.',
+        'success_published' => 'Tu publicación se ha publicado.',
         'error_generic' => 'Algo salió mal al crear tu publicación.',
         'error_invalid_image' => 'No se pudo procesar esta imagen. Prueba con otro archivo.',
         'selected_image_alt' => 'Vista previa de la imagen seleccionada',

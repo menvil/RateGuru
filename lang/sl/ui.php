@@ -275,6 +275,7 @@ return [
         'submit' => 'Ustvari objavo',
         'submitting' => 'Nalaganje …',
         'success_pending' => 'Tvoja objava je bila oddana in bo prikazana po moderiranju.',
+        'success_published' => 'Tvoja objava je bila objavljena.',
         'error_generic' => 'Pri ustvarjanju objave je prišlo do napake.',
         'error_invalid_image' => 'Te slike ni bilo mogoče obdelati. Poskusi z drugo datoteko.',
         'selected_image_alt' => 'Predogled izbrane slike',

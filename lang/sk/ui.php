@@ -275,6 +275,7 @@ return [
         'submit' => 'Vytvoriť príspevok',
         'submitting' => 'Nahráva sa...',
         'success_pending' => 'Tvoj príspevok bol odoslaný a zobrazí sa po schválení moderátorom.',
+        'success_published' => 'Tvoj príspevok bol zverejnený.',
         'error_generic' => 'Pri vytváraní príspevku sa niečo pokazilo.',
         'error_invalid_image' => 'Tento obrázok sa nepodarilo spracovať. Skús iný súbor.',
         'selected_image_alt' => 'Náhľad vybraného obrázka',

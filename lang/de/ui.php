@@ -275,6 +275,7 @@ return [
         'submit' => 'Beitrag erstellen',
         'submitting' => 'Wird hochgeladen...',
         'success_pending' => 'Dein Beitrag wurde eingereicht und erscheint nach der Moderation.',
+        'success_published' => 'Dein Beitrag wurde veröffentlicht.',
         'error_generic' => 'Beim Erstellen deines Beitrags ist ein Fehler aufgetreten.',
         'error_invalid_image' => 'Dieses Bild konnte nicht verarbeitet werden. Bitte versuche es mit einer anderen Datei.',
         'selected_image_alt' => 'Vorschau des ausgewählten Bildes',
