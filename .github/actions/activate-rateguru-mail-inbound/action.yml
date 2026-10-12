@@ -434,7 +434,7 @@ runs:
             (if .status == "critical" then
                "**CRITICAL:** public SMTP could not be returned to disabled and proved closed. Inspect the host now: install-mail-gateway --verify, what listens on TCP 25, and the firewall rule commented rateguru-mail-inbound. The mail gateway was not stopped."
              elif .mode == "apply" and .status == "pass" then
-               "The host's mail gateway accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
+               "The mail gateway of the host accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
              elif .mode == "apply" and .rolled_back then
                "The activation failed and public SMTP was returned to disabled: nothing listens on TCP 25."
              elif .mode == "apply" then
@@ -444,9 +444,9 @@ runs:
              elif .mode == "verify" and .status == "pass" then
                "The host is in a consistent state: \(.state). The outbound gateway verifies."
              elif .mode == "install-tls" and .status == "pass" then
-               "The public listener's certificate is the one Certbot holds for the MX host, and Certbot's deploy hook copies every renewal of it into place and reloads Postfix. Public SMTP was not changed. Next: the TLS checks in infrastructure/runbooks/mail-inbound.md, \"TLS for `mx1.tits.guru`\"."
+               "The certificate Certbot holds for the MX host is in place for the public listener, and the Certbot deploy hook installed with it copies every renewal of it into place and reloads the mail gateway. Public SMTP was not changed. Next: the TLS checks in infrastructure/runbooks/mail-inbound.md, \"TLS for mx1.tits.guru\"."
              elif .mode == "install-monitor" and .status == "pass" then
-               "The automatic health check's read-only access is installed: one key, which runs the read-only inbound mail monitor and nothing else. Next: its private half into the production-tits-guru-monitor Environment — infrastructure/runbooks/mail-inbound.md, \"The automatic monitor\"."
+               "The read-only access of the automatic health check is installed: one key, which runs the read-only inbound mail monitor and nothing else. Next: its private half into the production-tits-guru-monitor Environment — infrastructure/runbooks/mail-inbound.md, \"The automatic monitor\"."
              else
                "The host is not in a consistent state. The complete report is in the job log."
              end),

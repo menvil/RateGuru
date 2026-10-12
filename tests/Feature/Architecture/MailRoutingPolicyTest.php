@@ -1255,7 +1255,10 @@ it('configures no public SMTP listener anywhere in the repository but the activa
     // MailPublicSmtpPortTest proves they write nothing. The monitor's installer
     // renders a program that reads the queue's envelopes as postfix, and the
     // sudoers rule that lets it — MailInboundMonitorTest proves it writes and
-    // configures nothing of Postfix.
+    // configures nothing of Postfix. The listener's certificate installer
+    // copies the pair Certbot holds and renders a Certbot deploy hook that asks
+    // postfix@-.service for a reload and nothing else — MailInboundTlsTest
+    // proves it configures, stops and restarts nothing of Postfix.
     $gateway = [
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/verify-mail-gateway',
@@ -1268,6 +1271,7 @@ it('configures no public SMTP listener anywhere in the repository but the activa
         'infrastructure/scripts/mail-inbound-host',
         'infrastructure/scripts/public-smtp-port',
         'infrastructure/scripts/install-mail-inbound-monitor',
+        'infrastructure/scripts/install-mail-inbound-tls',
     ];
 
     foreach (operationalFiles() as $path) {

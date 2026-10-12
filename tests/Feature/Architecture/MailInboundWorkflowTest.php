@@ -207,3 +207,86 @@ it('installs the listener\'s certificate from what is already on the host: no ce
         ->toContain('test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound-tls"')
         ->toContain("tar --create --gzip --file \"\${bundle_path}\" \\\n          --directory \"\${GITHUB_WORKSPACE}\" infrastructure");
 });
+
+/**
+ * The action's "Run the inbound operation" step, run as the runner would, with
+ * an ssh that answers OUTPUT and exits STATUS in place of the host.
+ *
+ * @return array{status: int, output: string, summary: string, outputs: string}
+ */
+function mailInboundActionStep(string $operation, string $output, int $status = 0): array
+{
+    $action = Yaml::parse(File::get(base_path('.github/actions/activate-rateguru-mail-inbound/action.yml')));
+    $script = collect($action['runs']['steps'])->firstWhere('name', 'Run the inbound operation')['run'];
+
+    $dir = sys_get_temp_dir().'/inbound-action-'.bin2hex(random_bytes(6));
+    mkdir($dir.'/bin', 0o755, true);
+    file_put_contents($dir.'/answer', $output);
+    file_put_contents($dir.'/bin/ssh', "#!/bin/bash\ncat ".escapeshellarg($dir.'/answer')."\nexit {$status}\n");
+    chmod($dir.'/bin/ssh', 0o755);
+    touch($dir.'/summary');
+    touch($dir.'/outputs');
+
+    $process = proc_open(['bash', '-c', $script], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $dir, [
+        'PATH' => $dir.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+        'OPERATION' => $operation,
+        'DEPLOYMENT_TARGET' => 'tits-guru',
+        'MONITOR_PUBLIC_KEY' => $operation === 'install-monitor' ? MAIL_MONITOR_KEY : '',
+        'BOOTSTRAP_HOST' => 'host.example',
+        'BOOTSTRAP_PORT' => '22',
+        'BOOTSTRAP_USER' => 'root',
+        'RATEGURU_PRIVILEGED_PREFIX' => '',
+        'RATEGURU_REMOTE_ROOT' => '/root/rateguru-mail-inbound-1-1',
+        'RATEGURU_BOOTSTRAP_SSH_KEY_PATH' => $dir.'/key',
+        'RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH' => $dir.'/known_hosts',
+        'GITHUB_OUTPUT' => $dir.'/outputs',
+        'GITHUB_STEP_SUMMARY' => $dir.'/summary',
+    ]);
+    $printed = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $result = ['status' => proc_close($process), 'output' => $printed, 'summary' => (string) file_get_contents($dir.'/summary'), 'outputs' => (string) file_get_contents($dir.'/outputs')];
+    exec('rm -rf '.escapeshellarg($dir));
+
+    return $result;
+}
+
+/** A result line of activate-mail-inbound for MODE, with FIELDS changed. */
+function mailInboundActionResult(string $mode, array $fields = []): string
+{
+    return 'RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT='.json_encode([
+        'target' => 'tits-guru', 'mode' => $mode, 'status' => 'pass', 'requested' => true, 'changed' => true,
+        'rolled_back' => false, 'state' => 'installed-disabled', 'public_smtp' => 'disabled', 'address' => null,
+        'firewall' => 'ufw', 'queue' => null, ...$fields,
+    ])."\n";
+}
+
+it('judges every operation\'s result and writes its summary, as the runner runs the step', function (string $operation, array $fields, string $said) {
+    $run = mailInboundActionStep($operation, "the host's report\n".mailInboundActionResult($operation, $fields));
+
+    expect($run['status'])->toBe(0, $run['output']);
+    expect($run['output'])->toContain("the host's report");
+    expect($run['summary'])
+        ->toContain("## tits-guru inbound SMTP — {$operation}")
+        ->toContain('| **Overall** | **PASS** |')
+        ->toContain($said);
+    expect($run['outputs'])->toContain('status=pass');
+})->with([
+    'apply' => ['apply', ['state' => 'enabled-verified', 'public_smtp' => 'enabled', 'address' => '1.2.3.4'], 'accepts mail on 1.2.3.4:25'],
+    'verify' => ['verify', [], 'The host is in a consistent state: installed-disabled.'],
+    'rollback' => ['rollback', [], 'Public SMTP is closed'],
+    'install-monitor' => ['install-monitor', [], 'The read-only access of the automatic health check is installed'],
+    'install-tls, before inbound mail' => ['install-tls', ['state' => 'not-installed'], 'The certificate Certbot holds for the MX host is in place for the public listener'],
+    'install-tls, public SMTP open' => ['install-tls', ['state' => 'installed-enabled', 'public_smtp' => 'enabled', 'address' => '1.2.3.4'], 'Public SMTP was not changed.'],
+]);
+
+it('fails a certificate installation that did not pass, or claims a state it cannot have', function (string $answer, int $status, string $reason) {
+    $run = mailInboundActionStep('install-tls', $answer, $status);
+
+    expect($run['status'])->not->toBe(0, $run['output']);
+    expect($run['output'])->toContain($reason);
+})->with([
+    'a failure' => [mailInboundActionResult('install-tls', ['status' => 'fail', 'changed' => false]), 1, 'The inbound SMTP install-tls for tits-guru did not pass (exit 1)'],
+    'a pass in drift' => [mailInboundActionResult('install-tls', ['state' => 'drift']), 0, 'The machine-readable result is not an inbound result for tits-guru (install-tls)'],
+    'a pass for another mode' => [mailInboundActionResult('install-monitor'), 0, 'The machine-readable result is not an inbound result for tits-guru (install-tls)'],
+    'no result' => ["the run did not complete\n", 255, 'Expected exactly one RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT line, got 0'],
+]);
