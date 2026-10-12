@@ -17,6 +17,14 @@ not reorganize unrelated infrastructure.
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
+**NEXT: Phase 8.5 — TLS and real tits.guru public routing.** Then 8.6
+(production operations acceptance) and 8.7 (GO LIVE). The aim is to launch
+production as soon as the checks required before GO LIVE pass, with no waiting
+period of its own. Bounce and reply processing, the remaining inbound mail work
+and unified monitoring are deferred until after the first production launch —
+see **Post-launch: Mail Processing & Unified Monitoring**, after Phase 8. It
+is not a numbered phase, and Phases 9 and 10 keep their numbers.
+
 ## 1. VPS / deployment / backup foundation — completed
 
 Single-VPS staging with atomic release deploys, rollback, local + offsite
@@ -1630,10 +1638,29 @@ is cheap and repeatable — in the provisioner's own tests, against a synthetic
 brand that exists nowhere in this repository — and then exercised for real on
 `tits-guru`.
 
+**Where it stands, 2026-10-12.**
+
+- **Done.** 8.2 ACCEPTED and 8.3 PRODUCTION-ACCEPTED.
+- **Mail.** Outbound mail has been PRODUCTION-ACCEPTED since 2026-10-08
+  (8.4B.4.2). Inbound SMTP and its delivery into the inbound store were
+  PRODUCTION-ACCEPTED on 2026-10-12 (8.4B.5.2).
+- **Still open, for the launch.** The production backup policy (8.4A) is
+  implemented and still inactive. 8.4 as a whole is not accepted.
+- **Deferred.** Bounce and reply processing, the remaining inbound mail work
+  and unified monitoring are moved to after the first production launch. They
+  are not implemented and not cancelled: see **Post-launch: Mail Processing &
+  Unified Monitoring** below. The mail safeguards required before GO LIVE
+  stay in 8.6 and 8.7.
+- **Next.** **NEXT: Phase 8.5 — TLS and real tits.guru public routing**, then
+  8.6 and 8.7.
+- **Not launched.** `tits-guru` is still `lifecycle=planned`, no application
+  release is deployed, and nothing public serves the site. Phase 8 is not
+  complete.
+
 Slices, in order:
 
-1. **8.1 Generic production target provisioner — IMPLEMENTED, awaiting real
-   acceptance in 8.2.** `infrastructure/scripts/provision-target` creates the
+1. **8.1 Generic production target provisioner — IMPLEMENTED, accepted on
+   the real host in 8.2.** `infrastructure/scripts/provision-target` creates the
    non-secret infrastructure of one `lifecycle=planned`,
    `environment_class=production` target on a host that is already a RateGuru
    host: identities and memberships, the filesystem contract, a PHP-FPM pool,
@@ -1655,13 +1682,23 @@ Slices, in order:
    that a provisioned planned target is accepted without drift once it is
    activated — but a real host acceptance is 8.2's job. See
    [`runbooks/provision-target.md`](runbooks/provision-target.md).
-2. **8.2 Provision the real tits-guru target.** Execute the 8.1 mechanism
+2. **8.2 Provision the real tits-guru target — ACCEPTED.** Execute the 8.1 mechanism
    against the real `tits-guru` target on the real host. The target stays
    `lifecycle=planned` and nothing is publicly activated. *Acceptance:* this
    run is the real-host acceptance of 8.1 — `provision-target --verify`
    passes on a real machine, staging is provably untouched, and the target is
    still planned, undeployed and unreachable from the public internet.
-3. **8.3 Production environment, database and GitHub operational access.**
+   *Accepted on the real host:* Provision tits.guru run
+   [`36734550283`](https://github.com/menvil/RateGuru/actions/runs/36734550283)
+   SUCCESS, 2026-09-30.
+   - **Its own `provision-target --verify`:** PASS 8, with 0 missing, 0
+     drift and 0 conflict.
+   - **The target:** identities, layout, the PHP-FPM pool, the internal-only
+     Nginx vhost, the queue program and the scheduler, each in place.
+   - **What it left alone:** `tits-guru` is still `lifecycle=planned`, with no
+     application deployed and no public traffic activated.
+3. **8.3 Production environment, database and GitHub operational access —
+   PRODUCTION-ACCEPTED 2026-10-05.**
    The production `.env` and its application key, the PostgreSQL database and
    application role, the deploy user's `authorized_keys`, the target-specific
    deploy sudo perimeter, the production GitHub Environment and its
@@ -1669,6 +1706,21 @@ Slices, in order:
    applicable. No production secret in Git. *Acceptance:* the target is
    internally functional and observable, and the deploy channel is
    authorized, before any public traffic exists.
+   *Production-accepted:* Configure tits.guru run
+   [`37302604843`](https://github.com/menvil/RateGuru/actions/runs/37302604843)
+   SUCCESS, from `main`, 2026-10-05.
+   - **What it put in place:**
+     - the production environment file, with every one of its 99 declared
+       keys;
+     - the PostgreSQL role and database, which the target's own credentials
+       connect to;
+     - the deploy key.
+   - **One thing is not granted yet.** The deploy user's sudo grant is
+     reported `DEPLOY AUTHORIZATION: NOT GRANTED`, deliberately.
+     `install-target-perimeter` grants it only to a `lifecycle=active` target,
+     so it arrives with the activation before the first deploy (8.6).
+   - **The target is unchanged in the rest:** still `lifecycle=planned`, with
+     no application deployed and nothing public.
 4. **8.4 Production mail gateway and backup policy.** A Postfix-based
    production transport, outbound delivery, SPF/DKIM/DMARC, bounce and reply
    handling, support/reply routing, and the production
@@ -1679,6 +1731,17 @@ Slices, in order:
    before activation; the first real production backup is accepted in 8.6,
    because it cannot exist before the target is active and deployed (see
    8.4A).
+
+   **What the first launch needs from 8.4.** Only what 8.6 and 8.7 require:
+   - outbound delivery — accepted in 8.4B.4.2;
+   - inbound SMTP and storage — accepted in 8.4B.5.2;
+   - the backup policy — 8.4A, accepted by the first real backup in 8.6;
+   - the mail safeguards 8.4B.7 marks as required before GO LIVE.
+
+   Bounce and reply handling are deferred until after the launch: 8.4B.5.3,
+   8.4B.5.4 and 8.4B.6, in **Post-launch: Mail Processing & Unified
+   Monitoring**. That covers the "failure paths" of the acceptance above, so 8.4
+   as a whole is accepted only then. Launch does not wait for it.
 
    **8.4A Production backup perimeter readiness — IMPLEMENTED, not yet
    active.** The backup cron is rendered by `install-target-perimeter` the
@@ -2117,7 +2180,8 @@ Slices, in order:
    `noreply@tits.guru`; the bounce domain is not an envelope sender yet.
 
    **8.4B.5 Bounce reception, reply routing and the support mailbox —
-   current.** Started 2026-10-08. Receiving mail from the Internet for a
+   inbound SMTP production-accepted; the rest deferred until after the first
+   launch.** Started 2026-10-08. Receiving mail from the Internet for a
    production target — support mail, delivery status notifications on the
    bounce domain and replies on the reply domain — through the host's one
    Postfix: independent SMTP listeners, one shared queue, a separate inbound
@@ -2125,6 +2189,16 @@ Slices, in order:
    recognizes that Postfix's own recorded public listener, and nothing else,
    through one shared judge. Inbound mail is not working until a message
    from outside has actually been received.
+
+   One was received and stored on 2026-10-12, so 8.4B.5.1 and 8.4B.5.2 are
+   done. 8.4B.5.3 to 8.4B.5.5 are deferred until after the first production
+   launch (**Post-launch: Mail Processing & Unified Monitoring**). They are
+   still planned, not implemented and not cancelled. Of 8.4B.5.5, the MX
+   records and the first external message are already done within 8.4B.5.2.
+   Until then:
+   - received mail is stored and not processed;
+   - mail sent today still carries the envelope sender `noreply@tits.guru`.
+
    See [`runbooks/mail-inbound.md`](runbooks/mail-inbound.md).
 
    **8.4B.5.1 Inbound contract and DNS plan — COMPLETED.** Merged as PR #1248.
@@ -2159,7 +2233,7 @@ Slices, in order:
    file and secret, DNS and the firewall; nothing listened on port 25.
 
    **8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation —
-   IMPLEMENTED in repository, awaiting real-host activation and acceptance.**
+   PRODUCTION-ACCEPTED 2026-10-12.**
    One Postfix — independent SMTP listeners — one shared queue — a separate
    inbound store — guarded activation of public SMTP. `install-mail-gateway`
    stays the only owner of `main.cf`, `master.cf` and `postfix@-.service`,
@@ -2220,65 +2294,239 @@ Slices, in order:
    (`scripts/install-mail-inbound-tls`, behind a typed confirmation) judges
    it, copies it into place, and installs a Certbot deploy hook of its own
    that does the same for every renewal of that one lineage and reloads
-   Postfix, never restarting it. *Not done here:* the real-host
+   Postfix, never restarting it. The rule this slice was held to: the real-host
    activation, the A and MX records the operator publishes afterwards in the
    runbook's order, and the external message that accepts it — 8.4B.5.2 is
    not accepted until a message from outside is stored.
+
+   *What its acceptance rests on:* public SMTP that is safe, DNS, TLS, and a
+   real message received and stored.
+   - **The automatic monitor is not installed and not enabled.** The
+     repository implements it: the monitor, its read-only access, its
+     Environment's rules and the six-hourly schedule. None of it is set up on
+     the host or in GitHub, and the schedule is off. Its setup moves into
+     RateGuru's future unified monitoring (post-launch), and it no longer
+     blocks the closure of this slice.
+   - **No check in the code was weakened for that.** Activate, Verify and
+     Install TLS require exactly what they did.
+
+   *Production-accepted 2026-10-12, on the real host:*
+   1. Install tits.guru inbound mail TLS, run
+      [`38260303027`](https://github.com/menvil/RateGuru/actions/runs/38260303027),
+      SUCCESS:
+      - Certbot's `mx1.tits.guru` pair installed;
+      - the deploy hook in place;
+      - its verify PASS.
+   2. Activate tits.guru inbound SMTP, run
+      [`38260744608`](https://github.com/menvil/RateGuru/actions/runs/38260744608),
+      SUCCESS: `enabled-verified` on `213.199.41.241`, firewall `ufw`.
+   3. The independent Verify tits.guru inbound SMTP, run
+      [`38261781978`](https://github.com/menvil/RateGuru/actions/runs/38261781978),
+      SUCCESS: `enabled-verified`, and no inbound mail waiting in the queue.
+   4. From an outside machine, a TCP connection to `213.199.41.241:25`
+      succeeded.
+   5. Both public resolvers, `1.1.1.1` and `8.8.8.8`, answer:
+      - `mx1.tits.guru A 213.199.41.241`;
+      - `tits.guru`, `bounce.tx.tits.guru` and `reply.tits.guru`, each
+        `MX 10 mx1.tits.guru`.
+   6. A real message from outside to `support@tits.guru` was received and
+      stored in
+      `/var/lib/rateguru-mail-inbound/store/targets/tits-guru/support/new/`:
+      one message file, owned by `rateguru-mail-inbound`, mode `0600`.
+
+   **Inbound SMTP and delivery into the Maildir work on the real host.** Nothing
+   processes that mail yet: no Laravel model, handler or inbox reads the
+   store. Bounce and reply handling are 8.4B.5.3 and 8.4B.5.4, deferred.
+
+   *Not part of this acceptance, and open before GO LIVE (8.6):*
+   - Verify production infrastructure and Verify staging infrastructure have
+     not run since the activation.
+   - No backup carries the inbound store or the shared Postfix queue.
 
    **8.4B.5.3 Bounce reception and correlation — planned.** The Return-Path
    on the bounce domain; delivery status notifications received with an
    empty sender, never answered, and matched to the message they report on;
    the bounce domain's own SPF record, with DMARC resting on DKIM once SPF no
-   longer aligns.
+   longer aligns. *Deferred until after the first production launch.*
 
    **8.4B.5.4 Reply routing and the support mailbox — planned.** `Reply-To`
    addresses on the reply domain, replies matched to their conversation, and
-   the support mailbox and its storage.
+   the support mailbox and its storage. *Deferred until after the first
+   production launch.*
 
    **8.4B.5.5 Real-host acceptance and recovery proof — planned.** MX records
    published, external messages received at each destination, relay, AUTH
    and limit probes from outside, and recovery on a replacement host behind
    an inbound fence.
+   - *Already done within 8.4B.5.2:* the MX records published, and one
+     external message to `support@tits.guru` received and stored.
+   - *Deferred until after the first production launch:* the extended trials —
+     messages at the bounce and reply destinations, the probes from outside,
+     and the recovery behind an inbound fence.
 
    **8.4B.6 Suppression, delivery state and per-target metrics — planned.**
    Recording what was delivered, deferred and bounced per target, suppressing
    addresses that must not be mailed again, and per-target delivery metrics.
+   *Deferred until after the first production launch.*
 
    **8.4B.7 Mail operations, recovery and security acceptance — planned.**
    Operating the production mail path day to day, recovering it on a
-   replacement machine, and its security acceptance. Required before go-live:
-   production backup and recovery must carry the active DKIM signing private
-   key, so a recovered host signs with the same key the published DNS names; a
-   recovery-time outbound fence, so a replacement host delivers nothing before
-   it is proved; A, PTR and SPF re-accepted for the replacement host's address
-   before mail resumes; and a host-scoped mail topology once staging and
-   production run on separate machines. The permanent outbound hold of a live
-   target belongs here too — the 8.4B.4.2b rollback is for the initial launch
-   only.
-5. **8.5 TLS and real tits.guru public routing.** The real certificate, the
+   replacement machine, and its security acceptance. It is split, not moved
+   wholesale.
+
+   Required before go-live:
+   - production backup and recovery must carry the active DKIM signing private
+     key, so a recovered host signs with the same key the published DNS names;
+   - a recovery-time outbound fence, so a replacement host delivers nothing
+     before it is proved;
+   - A, PTR and SPF re-accepted for the replacement host's address before mail
+     resumes;
+   - a host-scoped mail topology once staging and production run on separate
+     machines.
+
+   These stay required before GO LIVE and are carried, open, into 8.6. So are:
+   - the protection of the running SMTP services;
+   - staging's isolation;
+   - an honest account of the inbound mail already accepted, held in the store
+     and the shared queue.
+
+   *Deferred until after the first production launch:*
+   - the day-to-day mail operations beyond those safeguards;
+   - the extended security and recovery trials;
+   - the permanent outbound hold of a live target. The 8.4B.4.2b rollback is
+     for the initial launch only.
+5. **8.5 TLS and real tits.guru public routing — NEXT.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,
    and rehearsing on a substitute would prove less than the real cutover with
    a rollback path.
-6. **8.6 Production operations acceptance.** Before the first production
-   deploy, a separately reviewed operation sets and verifies the application's
-   mail transport from the reviewed mail routing plan — `MAIL_MAILER=smtp`,
-   `MAIL_HOST=127.0.0.1`, `MAIL_PORT` the target's submission port (`2526`),
-   `MAIL_FROM_ADDRESS` its `default_from` (`noreply@tits.guru`), no SMTP
-   username or password — moved here from 8.4B.4.2b, because the application
-   is undeployed while its mail is activated. Then a real production deploy,
-   rollback, and deploy again; queue, scheduler and health; observability;
-   backup, offsite and restore-test; the mail delivery and bounce path; and
-   target isolation from staging. No infrastructure operation performed
-   during go-live should be happening for the first time. This is where the
-   first real `backup-cycle --target tits-guru` runs — after activation and
-   the first real production deploy, before any public traffic — and must
-   complete local backup, local restore-test, B2 upload, retention and
-   offsite restore-test: the production backup acceptance 8.4A prepared
-   for.
+
+   **Keep port 80 working for `mx1.tits.guru`.** The inbound listener's
+   certificate renews over HTTP-01 through the existing port-80 webroot
+   `/var/www/html`
+   ([`runbooks/mail-inbound.md`](runbooks/mail-inbound.md)). The public
+   routing must keep `http://mx1.tits.guru/.well-known/acme-challenge/`
+   answered from there, or that certificate stops renewing.
+6. **8.6 Production operations acceptance.** Everything the launch needs,
+   proved before any public traffic. No infrastructure operation performed
+   during go-live should be happening for the first time.
+   - **The production mail environment.** Before the first production
+     deploy, a separately reviewed operation sets and verifies the
+     application's mail transport from the reviewed mail routing plan:
+     - `MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`;
+     - `MAIL_PORT` the target's submission port (`2526`);
+     - `MAIL_FROM_ADDRESS` its `default_from` (`noreply@tits.guru`);
+     - no SMTP username or password.
+
+     This moved here from 8.4B.4.2b, because the application is undeployed
+     while its mail is activated.
+   - **The activation and the first production release.** The activation is
+     a reviewed registry change. It also gives the deploy user the sudo grant
+     8.3 deliberately left ungranted. Then the first real production release:
+     deploy, rollback, and deploy again.
+   - **The application runs.** Laravel, the database, the queue, the
+     scheduler and the health check, with errors reported.
+   - **Security and isolation.** The target is isolated from staging, and the
+     running SMTP services are protected: the outbound route, the inbound
+     listeners and staging's capture.
+   - **A real backup cycle, with local and offsite restore.** This is where
+     the first real `backup-cycle --target tits-guru` runs — after activation
+     and the first real production deploy, before any public traffic. It must
+     complete:
+     - the local backup and the local restore-test;
+     - the B2 upload and retention;
+     - the offsite restore-test.
+
+     That run is the production backup acceptance 8.4A prepared for.
+   - **Outbound mail.** Real mail sent by the deployed application is
+     delivered through the accepted outbound route.
+   - **The mail safeguards required before GO LIVE, carried from 8.4B.7.**
+     Open:
+     - production backup and recovery carry the active DKIM signing key, so a
+       recovered host signs with the same key and mail identity the published
+       DNS names;
+     - a recovery-time outbound fence, so a recovered host sends nothing
+       before it is proved;
+     - A, PTR and SPF re-accepted for a replacement host's address before
+       mail resumes;
+     - a host-scoped mail topology, should staging and production run on
+       separate machines.
+   - **Inbound mail already accepted.** Prove that the inbound store and the
+     shared queue survive the launch's own operations: deploys, rollbacks and
+     backup cycles.
+     - No backup carries either of them today, and none is claimed.
+     - Either they are carried and proved, or the loss boundary is stated and
+       accepted explicitly before GO LIVE.
+   - **The minimal infrastructure check.** Verify production infrastructure
+     and Verify staging infrastructure pass, and the application is
+     reachable. Neither Verify has run since the inbound activation.
+
+   Bounce and reply processing are **not** a condition of the first launch:
+   they are post-launch work.
 7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
-   production activation and its final verification: public health, backup,
-   monitoring and mail, confirmed on the live site. Closes Phase 8.
+   production activation and its final verification, confirmed on the live
+   site:
+   - the site reachable over HTTPS, and its public checks;
+   - public health;
+   - basic mail: outbound delivery, and mail to `support@tits.guru` stored;
+   - backup;
+   - error tracking.
+
+   Closes Phase 8. Unified monitoring is not a condition of it: it is
+   post-launch work.
+
+## Post-launch: Mail Processing & Unified Monitoring — deferred
+
+Work deliberately deferred until after the first production launch (8.7).
+These are future tasks, not a new phase that must pass before GO LIVE, and
+nothing in them is implemented or cancelled by the deferral. Where an item
+continues a planned Phase 8 slice, that slice keeps its number and its
+description above. Phases 9 and 10 keep their numbers.
+
+1. **Unified monitoring.** One monitoring system for RateGuru covering:
+   - the sites;
+   - the VPS;
+   - mail;
+   - PostgreSQL and Redis;
+   - the queues;
+   - disks;
+   - certificates;
+   - backups.
+
+   The inbound mail monitor the repository already holds — the Install
+   tits.guru inbound mail monitor, Check and Schedule workflows, and
+   `install-mail-inbound-monitor` — is **not installed and not enabled**:
+   - its installation has never run, and Verify tits.guru inbound SMTP
+     reports the monitor not installed on the host;
+   - no `production-tits-guru-monitor` Environment exists;
+   - the schedule is off: `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is not
+     set.
+
+   Its setup moves into this system. Until then, inbound mail health is
+   checked by hand with Verify tits.guru inbound SMTP.
+2. **Rspamd.** Evaluating and, if it is worth it, introducing Rspamd for the
+   host's own Postfix.
+3. **Bounce correlation and delivery failures.** Delivery status
+   notifications received on the bounce domain, matched to their messages,
+   and acted on (8.4B.5.3).
+4. **Reply routing and Support requests.** Replies on the reply domain
+   matched to their conversation, and the support mailbox processed
+   (8.4B.5.4).
+5. **What processing needs around it** (8.4B.6):
+   - retention periods and cleanup of the inbound store;
+   - protection against processing a message twice;
+   - delivery state and metrics per target;
+   - suppression of problem addresses.
+6. **Extended security and recovery trials.** 8.4B.5.5's remaining part,
+   and 8.4B.7's operations beyond the safeguards required before GO LIVE:
+   - relay, AUTH and limit probes from outside;
+   - messages at every destination;
+   - recovery on a replacement host behind an inbound fence;
+   - the permanent outbound hold of a live target.
+7. **Ordinary mailboxes with a provider.** Possibly, in the future, Google
+   Workspace or another mail provider for people's ordinary mailboxes. Postfix
+   would stay for the technical mail: application mail, bounces, replies and
+   support routing.
 
 ## 9. Repeatable production target onboarding — planned
 
