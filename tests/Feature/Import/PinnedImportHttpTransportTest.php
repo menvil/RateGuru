@@ -33,7 +33,8 @@ it('pins the connection via CURLOPT_RESOLVE to host:port:ip, never touches TLS v
         // (true) is what's in effect here.
         ->and($seenOptions['verify'] ?? true)->toBeTrue()
         ->and(isset($seenOptions['on_headers']))->toBeTrue()
-        ->and(isset($seenOptions['progress']))->toBeTrue();
+        ->and($seenOptions['curl'][CURLOPT_NOPROGRESS])->toBeFalse()
+        ->and($seenOptions['curl'][CURLOPT_XFERINFOFUNCTION])->toBeCallable();
 });
 
 it('explicitly disables proxying, so an ambient http_proxy/https_proxy environment variable can never route the request through a proxy', function () {
@@ -226,9 +227,9 @@ it('rejects a chunked-style oversized body with no Content-Length header', funct
 
 // ---------------------------------------------------------------------
 // Part 3: real local-loopback HTTP server — the only way to genuinely
-// exercise curl's own CURLOPT_RESOLVE pinning, on_headers, and progress-
-// based mid-stream abort (all bypassed entirely by Http::fake(), see
-// PinnedImportHttpTransport's own docblock). Never touches the real
+// exercise curl's own CURLOPT_RESOLVE pinning, on_headers, and the
+// transfer-info callback's mid-stream abort (all bypassed entirely by
+// Http::fake(), see PinnedImportHttpTransport's own docblock). Never touches the real
 // Internet or DNS: 127.0.0.1 only, and the pinned hostname doesn't exist
 // in DNS at all — the request only succeeds because of the pin.
 // ---------------------------------------------------------------------
@@ -261,6 +262,13 @@ switch ($mode) {
             }
             flush();
         }
+        break;
+
+    case 'stalled-oversized-stream':
+        header('Content-Type: application/octet-stream');
+        echo str_repeat('A', 300000);
+        flush();
+        sleep(20);
         break;
 
     case 'oversized-content-length':
@@ -463,13 +471,38 @@ it('aborts a genuinely large streaming response well before it finishes, instead
         $start = microtime(true);
 
         expect(fn () => $transport->get($target, new ImportFetchPolicy(maxBytes: 200_000, timeoutSeconds: 20, connectTimeoutSeconds: 3)))
-            ->toThrow(ImportFetchException::class);
+            ->toThrow(ImportFetchException::class, 'exceeds the 195 KB limit');
 
         $elapsed = microtime(true) - $start;
 
         // The fixture would take a long time to fully send ~6.5 GB; aborting
         // well under it (a few seconds, generously) is the whole point.
         expect($elapsed)->toBeLessThan(10.0);
+    } finally {
+        stopLoopbackFixtureServer($server);
+    }
+});
+
+it('stops reading a body the moment it passes the cap, instead of waiting for the server to finish sending it', function () {
+    $server = startLoopbackFixtureServer();
+    [, $port] = $server;
+
+    try {
+        $transport = new PinnedImportHttpTransport;
+        $target = new ResolvedImportTarget(url: "http://127.0.0.1:{$port}/router.php?mode=stalled-oversized-stream", scheme: 'http', host: '127.0.0.1', port: $port, ip: '127.0.0.1');
+
+        $start = microtime(true);
+
+        expect(fn () => $transport->get($target, new ImportFetchPolicy(maxBytes: 200_000, timeoutSeconds: 25, connectTimeoutSeconds: 3)))
+            ->toThrow(ImportFetchException::class, 'exceeds the 195 KB limit');
+
+        $elapsed = microtime(true) - $start;
+
+        // The fixture sends more than the cap at once and then holds the
+        // connection for 20s. A transfer that is really stopped at the cap
+        // ends in a fraction of a second; one that only notices the cap once
+        // the server is done takes all of those 20s.
+        expect($elapsed)->toBeLessThan(5.0);
     } finally {
         stopLoopbackFixtureServer($server);
     }
