@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\PHPStan;
+namespace Tests\PHPStan;
 
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Contracts\Persistence\StablePaginationBoundary;
@@ -17,7 +17,7 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
     /** @return list<string> */
     public static function getAdditionalConfigFiles(): array
     {
-        return [dirname(__DIR__, 3).'/phpstan.neon'];
+        return [dirname(__DIR__, 2).'/phpstan.neon'];
     }
 
     public static function setUpBeforeClass(): void
@@ -79,7 +79,7 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
 
     public function test_registered_behavior_tests_are_in_their_canonical_suites(): void
     {
-        $composer = json_decode((string) file_get_contents(dirname(__DIR__, 3).'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
+        $composer = json_decode((string) file_get_contents(dirname(__DIR__, 2).'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
         $this->assertIsArray($composer);
         $scripts = $composer['scripts'] ?? null;
         $this->assertIsArray($scripts);
@@ -118,7 +118,7 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
         $this->assertNotEmpty($tests);
 
         foreach ($tests as $test) {
-            $this->assertFileExists(dirname(__DIR__, 3).'/'.$test);
+            $this->assertFileExists(dirname(__DIR__, 2).'/'.$test);
         }
     }
 

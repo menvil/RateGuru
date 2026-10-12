@@ -47,6 +47,34 @@ it('makes architecture enforcement explicit in the phpstan ci check', function (
         ->toContain('Architecture findings in baseline');
 });
 
+it('tests the phpstan rules once, in the static analysis job, before it applies them', function () {
+    $workflow = Yaml::parseFile(base_path('.github/workflows/ci.yml'));
+    $steps = collect($workflow['jobs']['static-analysis']['steps'])->pluck('run')->map(fn ($run): string => (string) $run)->values();
+
+    $rulesTested = $steps->search(fn (string $run): bool => trim($run) === 'composer test:phpstan');
+    $rulesApplied = $steps->search(fn (string $run): bool => str_contains($run, 'composer analyse:architecture'));
+
+    expect($rulesTested)->toBeInt()
+        ->and($rulesApplied)->toBeInt()
+        ->and($rulesTested)->toBeLessThan($rulesApplied);
+
+    expect(File::get(base_path('phpunit.xml')))
+        ->toContain('<testsuite name="PHPStan">')
+        ->toContain('<directory>tests/PHPStan</directory>');
+
+    // A rule test anywhere else would run in every database job again, each
+    // worker building PHPStan's container from cold to answer nothing a
+    // database could change.
+    $strays = collect(File::allFiles(base_path('tests')))
+        ->reject(fn ($file): bool => str_starts_with($file->getRealPath(), base_path('tests/PHPStan').DIRECTORY_SEPARATOR))
+        ->filter(fn ($file): bool => (bool) preg_match('/\bextends\s+(RuleTestCase|PHPStanTestCase)\b/', $file->getContents()))
+        ->map(fn ($file): string => $file->getRelativePathname())
+        ->values()
+        ->all();
+
+    expect($strays)->toBe([]);
+});
+
 it('runs architecture rules without the legacy phpstan baseline', function () {
     $configuration = File::get(base_path('tools/phpstan/architecture-only.neon'));
 

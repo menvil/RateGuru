@@ -4,10 +4,6 @@ use App\Enums\MediaKind;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('does not attach a media asset to a post by default', function () {
     $post = Post::factory()->create();

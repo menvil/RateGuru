@@ -2,10 +2,6 @@
 
 use App\Models\MediaAsset;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('belongs to an avatar asset', function () {
     $asset = MediaAsset::factory()->avatar()->create();

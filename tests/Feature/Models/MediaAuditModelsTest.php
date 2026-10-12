@@ -7,11 +7,7 @@ use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\MediaVariant;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('casts MediaAuditRun status and timestamps', function () {
     $run = MediaAuditRun::factory()->create();

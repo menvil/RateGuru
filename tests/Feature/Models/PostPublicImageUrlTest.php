@@ -1,11 +1,7 @@
 <?php
 
 use App\Models\Post;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
-use Tests\TestCase;
-
-uses(TestCase::class, RefreshDatabase::class);
 
 it('resolves the public image url through the image asset disk and path', function () {
     Storage::fake('public');
