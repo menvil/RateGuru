@@ -1,0 +1,84 @@
+.github/actions/activate-rateguru-mail-inbound/action.yml
+  s_3481294084957b::t_ca11d9e1597438 21-23,238,241
+  s_3481294084957b::t_17227840947c7a 40-42,51-58,90,102,112,114,119-130,324,334-336,379,397,441
+  s_3481294084957b::t_121c35e263623b 442
+tests/Feature/Architecture/MailInboundStoreGateTest.php
+  s_3481294084957b::t_bec49786c2ea86 145-148,150-152
+tests/Feature/Architecture/MailInboundWorkflowTest.php
+  s_3481294084957b::t_bec49786c2ea86 139-140,142-144
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_bec49786c2ea86 550-552
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_3481294084957b::t_bec49786c2ea86 122-124,127,557-562
+tests/Feature/Architecture/MailInboundRealPostfixTest.php
+  s_3481294084957b::t_121c35e263623b 104-105
+tests/Feature/Architecture/MailInboundHealthWorkflowTest.php
+  s_3481294084957b::t_f26940a064ac38 7-18,28-31,34,36,42,45-46,49-54,56-59,61,64-70,72-73,76-86,92-99,108,113-119,121,123-139,142-149,151-168,174-177,180-182,184-188,191-192,197-252,269,271-273,288-297
+  s_3481294084957b::t_6cb175dcf8d09b 150
+.github/workflows/check-tits-guru-inbound-mail-health.yml
+  s_3481294084957b::t_58b63beeb25ff7 3-9,11-16,24-26,78-79,84-88,91-94,97-98,100-104,106-179,181-194,203-204,217-220,228-230,242-243
+tests/Feature/Architecture/MailInboundMonitorTest.php
+  s_3481294084957b::t_45b1211caf3266 240
+  s_3481294084957b::t_73881df00208ba 28,155-160
+  s_3481294084957b::t_a152d8f5df30a0 1-27,29-154,161-239,241-254
+tests/Feature/Architecture/MailInboundTest.php
+  s_3481294084957b::t_121c35e263623b 1395,1417,1425
+.github/workflows/schedule-tits-guru-inbound-mail-health.yml
+  s_3481294084957b::t_8cdb3c65ea6fc8 5-8
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_345ac718ae2eae 2193-2199
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_3481294084957b::t_121c35e263623b 143-152,666,669-672,688-700
+  s_3481294084957b::t_bec49786c2ea86 242,506
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_3481294084957b::t_bec49786c2ea86 33-35
+tests/Feature/Architecture/MailInboundHealthTest.php
+  s_3481294084957b::t_73881df00208ba 120,127-128
+tests/.pest/shards.json
+  s_3481294084957b::t_ec094e3635de50 75,154
+tests/Pest.php
+  s_3481294084957b::t_bec49786c2ea86 562,7937-7938,7940
+  s_3481294084957b::t_ace6368f297713 4060,4266
+  s_3481294084957b::t_662f782d2e49ca 4114-4115,4118-4125,4131-4153,4262-4265,4267-4291,4397-4401,4445-4456,4483-4494
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_3481294084957b::t_bec49786c2ea86 1255-1258,1270
+infrastructure/runbooks/mail-inbound.md
+  s_3481294084957b::t_2b2439dde9c74d 39,696-773,850,852-853
+  s_3481294084957b::t_345ac718ae2eae 851
+infrastructure/scripts/install-mail-inbound-monitor
+  s_3481294084957b::t_2f781aa9cb99f8 251
+  s_3481294084957b::t_b66feed6bd40bc 388,393-394
+  s_3481294084957b::t_0fa89fa79c2bef 237
+  s_3481294084957b::t_a7300c2a9a5a0a 1-236,238-250,252-387,389-392,395-579
+.github/workflows/install-tits-guru-inbound-mail-monitor.yml
+  s_3481294084957b::t_8cdb3c65ea6fc8 1-152
+infrastructure/scripts/activate-mail-inbound
+  s_3481294084957b::t_17227840947c7a 1409-1413
+  s_3481294084957b::t_63bef5d1bdfa57 183-185,188,229,248-255,1070,1381-1408,1414-1433,1483,1488-1493,1511-1516,1536
+  s_3481294084957b::t_0e4a4487114016 76-81
+  s_3481294084957b::t_078c63aaf70eb0 546,567-568
+infrastructure/runbooks/deployment-targets.md
+  s_3481294084957b::t_9c48c513d74e92 119-124
+tests/Support/real-postfix/scenario.sh
+  s_3481294084957b::t_3e6e4f4f4f6aa4 439-447
+tests/Feature/Architecture/MailInboundActivationTest.php
+  s_3481294084957b::t_bec49786c2ea86 129,134-135
+infrastructure/scripts/mail-inbound-host
+  s_3481294084957b::t_078c63aaf70eb0 183-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c3ba2bbb08259b0048e2efe27082de74c284b2cd",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
