@@ -1,7 +1,7 @@
 <?php
 
-use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
-use App\Filament\Resources\RatingGroups\RatingGroupResource;
+use App\Filament\Resources\Users\Pages\EditUser;
+use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -64,7 +64,7 @@ it('renders the admin panel in English for any account or site language', functi
     siteDefaultsTo($locale);
 
     $this->actingAs(panelAdmin($locale))
-        ->get(RatingGroupResource::getUrl('create'))
+        ->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))
         ->assertOk()
         ->assertSee('lang="en"', false)
         ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'));
@@ -79,12 +79,12 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     siteDefaultsTo($locale);
     $this->actingAs(panelAdmin($locale));
 
-    $html = $this->get(RatingGroupResource::getUrl('create'))->assertOk()->getContent();
+    $html = $this->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))->assertOk()->getContent();
 
     $response = $this->withHeaders(['X-Livewire' => '1'])
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
-                'snapshot' => adminPageSnapshot($html, CreateRatingGroup::class),
+                'snapshot' => adminPageSnapshot($html, EditUser::class),
                 'updates' => [],
                 'calls' => [['path' => '', 'method' => '$refresh', 'params' => []]],
             ]],
@@ -97,7 +97,7 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     expect($snapshot['memo']['locale'])->toBe('en')
         ->and(app()->getLocale())->toBe('en')
         ->and($response->json('components.0.effects.html'))->toBeString()
-        ->toContain(__('filament-panels::resources/pages/create-record.form.actions.create.label', [], 'en'));
+        ->toContain(__('filament-panels::resources/pages/edit-record.form.actions.save.label', [], 'en'));
 })->with(representativeTranslatedLocales());
 
 it('renders the admin sign-in page in English for a visitor browsing in another language', function (string $locale) {
@@ -122,7 +122,7 @@ it('leaves the public language untouched after working in the panel', function (
         ->get(route('feed'))
         ->assertSee('lang="'.$locale.'"', false);
 
-    $this->get(RatingGroupResource::getUrl('create'))
+    $this->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))
         ->assertOk()
         ->assertSee('lang="en"', false);
 

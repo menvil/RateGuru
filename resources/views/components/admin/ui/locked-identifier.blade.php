@@ -5,6 +5,7 @@
     'prefix' => null,
     'generated' => null,
     'locked' => false,
+    'lockedNote' => 'Locked',
     'hint' => null,
     'error' => null,
     'warning' => null,
@@ -19,7 +20,8 @@
      * While it is being generated, `generated` names where from (“Generated
      * from name”) in a chip beside the label. Locked, the field is sunken and
      * read-only — still focusable, so its value can be read and copied — with
-     * a lock and “Locked” beside the label, and the `unlock` slot, when given,
+     * a lock and `lockedNote` (“Locked”, or “Fixed after creation” for a key
+     * that never changes) beside the label, and the `unlock` slot, when given,
      * as the text action that unlocks it:
      *
      *     <x-slot:unlock wire:click="unlockSlug">Change slug</x-slot:unlock>
@@ -40,7 +42,7 @@
         @if ($locked)
             <span class="rg-admin-identifier__locked">
                 <x-admin.ui.icon name="lock" :size="12" />
-                Locked
+                {{ $lockedNote }}
             </span>
             @isset($unlock)
                 <button type="button" {{ $unlock->attributes->class(['rg-admin-identifier__unlock']) }}>{{ $unlock }}</button>

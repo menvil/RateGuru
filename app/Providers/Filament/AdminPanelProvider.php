@@ -5,6 +5,10 @@ namespace App\Providers\Filament;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
+use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
+use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
+use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
@@ -61,6 +65,21 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::createAction(TagResource::canCreate(), 'Create tag', 'create-tag'),
                 scopes: ManageTags::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => RatingGroupResource::canCreate() ? view('filament.pages.rating-groups.topbar')->render() : '',
+                scopes: ManageRatingGroups::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.rating-group.topbar', ['save' => 'Create group'])->render(),
+                scopes: CreateRatingGroup::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.rating-group.topbar', ['save' => 'Save group'])->render(),
+                scopes: EditRatingGroup::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

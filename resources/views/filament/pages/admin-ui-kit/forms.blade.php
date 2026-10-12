@@ -92,6 +92,10 @@
             </div>
             <span class="rg-admin-kit__caption" x-text="unlocked ? 'edit · unlocked, with the warning' : 'edit · locked'">edit · locked</span>
         </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.locked-identifier label="Key" id="kit-key-fixed" value="heart_melting" locked locked-note="Fixed after creation" hint="Stored with every vote." />
+            <span class="rg-admin-kit__caption">a key that never changes · no unlock</span>
+        </div>
     </div>
 @endcomponent
 

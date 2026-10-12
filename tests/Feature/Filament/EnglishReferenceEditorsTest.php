@@ -6,7 +6,6 @@ use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
-use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
 use App\Models\ProjectSettings;
@@ -55,9 +54,23 @@ it('offers no translation field in any editor, for any language', function () {
             ->and(array_filter($fields, fn (string $id): bool => ! preg_match('/-(name|slug|sort)$/', $id)))->toBe([], "the {$editor} drawer has a field besides the English ones");
     }
 
+    // A rating group and its option drawer, in Admin v2: their fields are a draft of English, and nothing else.
+    $option = RatingOption::factory()->for($group, 'group')->create(['label_translations' => translationsOf('Very')]);
+    $ratingEditors = [
+        'rating group' => [Livewire::test(CreateRatingGroup::class), '//input | //textarea'],
+        'rating group edit' => [Livewire::test(EditRatingGroup::class, ['record' => $group->id]), '//input | //textarea'],
+        'rating option' => [Livewire::test(EditRatingGroup::class, ['record' => $group->id])->call('editOption', $option->id), "//*[@role='dialog']//input | //*[@role='dialog']//textarea"],
+    ];
+
+    foreach ($ratingEditors as $editor => [$page, $query]) {
+        $fields = array_map(fn (DOMElement $field): string => (string) $field->getAttribute('id'), iterator_to_array(livewireDom($page)->query($query)));
+
+        expect(array_filter(array_keys($page->instance()->all()), fn (string $property): bool => str_contains($property, 'translation')))->toBe([], "the {$editor} editor holds a translation")
+            ->and(array_filter($fields, fn (string $id): bool => str_ends_with($id, '-label')))->not->toBe([], "the {$editor} editor has no label field")
+            ->and(array_filter($fields, fn (string $id): bool => ! preg_match('/-(key|label|description|min|max|sort)$/', $id)))->toBe([], "the {$editor} editor has a field besides the English ones");
+    }
+
     $editors = [
-        'rating group' => [Livewire::test(CreateRatingGroup::class), ['label', 'description']],
-        'rating group edit' => [Livewire::test(EditRatingGroup::class, ['record' => $group->getRouteKey()]), ['label', 'description']],
         'project settings' => [Livewire::test(ProjectSettingsPage::class), ['site_name', 'site_tagline', 'site_description', 'object_singular_name', 'object_plural_name', 'upload_cta_label', 'feed_title']],
     ];
 
@@ -70,16 +83,6 @@ it('offers no translation field in any editor, for any language', function () {
 
         expect($page->html())->not->toContain('>Translations<', "the {$editor} editor still has a Translations section");
     }
-
-    // An option is edited in a modal: whatever is sent for a translation there is not a field of its form, and is never saved.
-    $option = RatingOption::factory()->for($group, 'group')->create(['label_translations' => translationsOf('Very'), 'description_translations' => null]);
-    RatingOption::factory()->count(2)->for($group, 'group')->create();
-
-    Livewire::test(OptionsRelationManager::class, ['ownerRecord' => $group, 'pageClass' => EditRatingGroup::class])
-        ->callTableAction('edit', $option, data: ['label' => 'Very', 'label_translations' => translationsOf('Forged'), 'description_translations' => translationsOf('Forged')])
-        ->assertHasNoTableActionErrors();
-
-    expect($option->fresh())->label_translations->toBe(translationsOf('Very'))->description_translations->toBeNull();
 });
 
 it('edits each static page in English only', function () {
@@ -119,13 +122,16 @@ it('keeps a rating group\'s and its options\' translations when their English is
     $option = RatingOption::factory()->for($group, 'group')->create(['label_translations' => translationsOf('Very'), 'description_translations' => translationsOf('Very cute')]);
     RatingOption::factory()->count(2)->for($group, 'group')->create();
 
-    Livewire::test(EditRatingGroup::class, ['record' => $group->getRouteKey()])
-        ->fillForm(['label' => 'Cuteness level', 'description' => 'How cute it is'])
-        ->call('save')
-        ->assertHasNoFormErrors();
-    Livewire::test(OptionsRelationManager::class, ['ownerRecord' => $group, 'pageClass' => EditRatingGroup::class])
-        ->callTableAction('edit', $option, data: ['key' => $option->key, 'label' => 'Very much', 'description' => 'Very cute indeed', 'is_active' => true, 'sort_order' => 1])
-        ->assertHasNoTableActionErrors();
+    Livewire::test(EditRatingGroup::class, ['record' => $group->id])
+        ->set('draftLabel', 'Cuteness level')
+        ->set('draftDescription', 'How cute it is')
+        ->dispatch('save-rating-group')
+        ->assertHasNoErrors()
+        ->call('editOption', $option->id)
+        ->set('draftOptionLabel', 'Very much')
+        ->set('draftOptionDescription', 'Very cute indeed')
+        ->call('saveOption')
+        ->assertHasNoErrors();
 
     expect($group->fresh())->label->toBe('Cuteness level')->label_translations->toBe(translationsOf('Cuteness'))->description_translations->toBe(translationsOf('How cute'))
         ->and($option->fresh())->label->toBe('Very much')->label_translations->toBe(translationsOf('Very'))->description_translations->toBe(translationsOf('Very cute'));

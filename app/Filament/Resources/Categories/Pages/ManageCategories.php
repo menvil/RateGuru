@@ -346,7 +346,7 @@ final class ManageCategories extends Page
                     'missing' => $category->is_active ? ContentTranslationStatus::missing($chips) : 0,
                     'search' => mb_strtolower("{$category->name} {$category->slug}"),
                     // Translation Center lists what visitors can see: an inactive category waits until it is active again.
-                    'translate' => $translate && $category->is_active ? $status->translateUrl(ProjectContentSection::Categories, $category->id, 'name', $chips) : null,
+                    'translate' => $translate && $category->is_active ? $status->translateUrl(ProjectContentSection::Categories, $category->id, ['name' => $chips]) : null,
                     'url' => self::getUrl(['edit' => $category->id]),
                 ]];
             })

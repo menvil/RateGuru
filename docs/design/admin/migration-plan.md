@@ -206,7 +206,7 @@ translation status that links into Translation Center. The moderation screens fo
 | Order | Section | Kit elements it brings |
 |---|---|---|
 | 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
-| 2 | Rating groups and the group editor | STS-04 range slots (FRM-05 number stepper is built) |
+| 2 | Rating groups and the group editor — **done** | STS-04 range slots (FRM-05 number stepper is built) |
 | 3 | Project settings and Static pages | — |
 | 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
 | 5 | Comments | — |
@@ -224,6 +224,18 @@ post holds, and otherwise say why. The resources keep their routes, navigation, 
 results — like Edit source in Translation Center and Languages — open the record's drawer (`?edit=`). Moderators
 curate tags as before; deleting and translating stay an administrator's. The kit elements it needed — FRM-04,
 FRM-05 and FRM-06 earlier than this table first planned — are live in `/admin/dev/ui-kit`.
+
+**Rating groups. Status: done.** The list (`ManageRatingGroups`), a new group (`CreateRatingGroup`) and one group
+with its options (`EditRatingGroup`) are drawn in Admin v2, as the contract's
+[Rating groups](design-contract.md#rating-groups) section describes: each group's options against its range
+(STS-04), activation with Undo or the reason it cannot, and a group editor that saves its settings from the top bar,
+checks the range as it is typed, lists its translations and holds its options — created and edited in a drawer,
+activated with Undo, archived, unarchived and deleted only unused, with the maximum raised in one step when an
+option needs it. The new actions keep the range: `CreateRatingGroupAction` creates a group inactive,
+`UpdateRatingGroupAction` refuses a range or an activation that leaves an active group's options outside it,
+`UnarchiveRatingOptionAction` and `ActivateRatingOptionRaisingMaximumAction`. Two changes of behaviour the
+prototype asks for: a group's and an option's key are fixed once created, and a group starts inactive. A group is
+still never deleted.
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is

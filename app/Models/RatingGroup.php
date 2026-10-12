@@ -12,6 +12,12 @@ class RatingGroup extends Model
 {
     use HasFactory;
 
+    /** The fewest active options any group's range may ask for. */
+    public const FEWEST_OPTIONS = 2;
+
+    /** The most active options any group's range may allow: the vote form stays short. */
+    public const MOST_OPTIONS = 10;
+
     protected $fillable = [
         'key',
         'label',

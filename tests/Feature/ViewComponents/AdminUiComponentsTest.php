@@ -682,3 +682,38 @@ it('shows a note of its own beside a text field\'s label', function () {
         ->toContain('<span class="rg-admin-field__tag">English · reference</span>')
         ->not->toContain('>Required<');
 });
+
+it('draws a group\'s active options against its range as one named picture', function () {
+    $view = (string) $this->blade('<x-admin.ui.range-slots :active="5" :min="2" :max="4" :count="6" />');
+
+    expect($view)
+        ->toContain('role="img"')
+        ->toContain('aria-label="5 active, 2 to 4 allowed"')
+        ->and(substr_count($view, 'rg-admin-range-slots__slot--active'))->toBe(4)
+        ->and(substr_count($view, 'rg-admin-range-slots__slot--over'))->toBe(1)
+        ->and(substr_count($view, 'rg-admin-range-slots__slot--outside'))->toBe(1)
+        ->and($view)->toContain('title="5 · active, above the maximum"');
+
+    $missing = (string) $this->blade('<x-admin.ui.range-slots :active="1" :min="3" :max="4" :count="5" />');
+
+    expect(substr_count($missing, 'rg-admin-range-slots__slot--required'))->toBe(2)
+        ->and(substr_count($missing, 'rg-admin-range-slots__slot--allowed'))->toBe(1);
+});
+
+it('numbers the editor\'s slots, dimming those outside the range', function () {
+    $view = (string) $this->blade('<x-admin.ui.range-slots size="editor" :active="3" :min="2" :max="4" />');
+
+    expect(substr_count($view, 'rg-admin-range-slots__cell'))->toBe(10)
+        ->and(substr_count($view, 'rg-admin-range-slots__number--outside'))->toBe(7)
+        ->and($view)->toContain('rg-admin-range-slots--editor');
+});
+
+it('rejects a range slots size it does not have', function () {
+    $this->blade('<x-admin.ui.range-slots size="huge" :active="1" :min="2" :max="4" />');
+})->throws(ViewException::class, 'Unknown admin range slots size [huge]');
+
+it('names a key that never changes as fixed, with nothing to unlock it', function () {
+    expect((string) $this->blade('<x-admin.ui.locked-identifier label="Key" id="key" value="vibe" locked locked-note="Fixed after creation" />'))
+        ->toMatch('/rg-admin-identifier__locked">\s*<svg[^>]*>.*<\/svg>\s*Fixed after creation/s')
+        ->not->toContain('rg-admin-identifier__unlock');
+});
