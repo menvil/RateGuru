@@ -19,15 +19,14 @@ use RuntimeException;
  * relying on one mechanism:
  *  - on_headers rejects immediately once an honest, oversized Content-Length
  *    is seen — before any body byte is read.
- *  - progress rejects a genuinely large, actively-streaming body within a
- *    curl-buffer-sized margin of the cap, without waiting for it to finish
- *    (verified empirically: aborts a multi-GB unbounded stream in well under
- *    a second). This is the real defense against an oversized/adversarial
- *    response.
+ *  - curl's transfer-info callback stops the transfer itself within a
+ *    curl-buffer-sized margin of the cap, without waiting for the server to
+ *    finish or to close the connection. This is the real defense against an
+ *    oversized/adversarial response.
  *  - A final exact strlen() check on the completed body is what makes
  *    "exactly N bytes succeeds, N+1 fails" reliably testable, and is what
  *    actually catches a missing/lying-small/chunked Content-Length once the
- *    (still-bounded, thanks to the progress check above) transfer completes.
+ *    (still-bounded, thanks to the callback above) transfer completes.
  *
  * A custom sink stream object was deliberately not used here: Laravel's
  * Http::fake() stub handler special-cases the "sink" option by calling raw
@@ -70,6 +69,7 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
         }
 
         $contentLengthExceeded = false;
+        $bodyCapExceeded = false;
 
         try {
             $response = Http::withOptions([
@@ -104,16 +104,27 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                         throw new RuntimeException('Content-Length exceeds the configured cap.');
                     }
                 },
-                'progress' => function (int $downloadTotal, int $downloaded) use ($policy): void {
-                    if ($downloaded > $policy->maxBytes) {
-                        // Thrown raw here reaches the catch below completely
-                        // unwrapped — curl's progress callback, unlike
-                        // on_headers, has no surrounding try/catch anywhere
-                        // in Guzzle's own CurlFactory (verified empirically).
-                        throw new StreamCapExceededSignal;
-                    }
-                },
                 'curl' => [
+                    // Stops the transfer itself once the body passes the
+                    // cap: a transfer-info callback that returns non-zero
+                    // makes curl abort on the spot. Guzzle's own "progress"
+                    // option cannot do this. Its wrapper discards the
+                    // callback's return value, and an exception thrown from
+                    // it only surfaces after curl has finished, so a server
+                    // that kept sending, or held the connection open, was
+                    // read to the end or to the timeout first. Guzzle marks
+                    // these raw options as superseded by "progress" for
+                    // that reason alone; nothing else here uses them.
+                    CURLOPT_NOPROGRESS => false,
+                    CURLOPT_XFERINFOFUNCTION => function ($handle, int $downloadTotal, int $downloaded) use ($policy, &$bodyCapExceeded): int {
+                        if ($downloaded > $policy->maxBytes) {
+                            $bodyCapExceeded = true;
+
+                            return 1;
+                        }
+
+                        return 0;
+                    },
                     // Connects to the exact IP UrlImportValidator already
                     // resolved and validated for this hop, instead of
                     // letting curl perform its own uncontrolled DNS lookup
@@ -127,15 +138,14 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                 ->connectTimeout($policy->connectTimeoutSeconds)
                 ->withoutRedirecting()
                 ->get($target->url);
-        } catch (StreamCapExceededSignal) {
-            throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
         } catch (ConnectionException $e) {
-            if ($contentLengthExceeded) {
-                // on_headers aborts differently from progress: throwing from
-                // inside it is caught by Guzzle's own CurlFactory and
-                // re-wrapped into the same ConnectionException a real
-                // network failure would produce. The flag set just above is
-                // what tells the two apart.
+            if ($contentLengthExceeded || $bodyCapExceeded) {
+                // Both caps end the transfer the way a network failure does:
+                // a throw from on_headers is caught by Guzzle's own
+                // CurlFactory, and a transfer the callback aborted fails
+                // with curl's "aborted by callback", and either surfaces as
+                // the same ConnectionException a real network failure would
+                // produce. The flags set above are what tell them apart.
                 throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
             }
 
