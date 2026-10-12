@@ -23,7 +23,7 @@
 <a
     href="{{ $url }}"
     target="_blank"
-    rel="noopener noreferrer"
+    rel="nofollow noopener noreferrer"
     title="{{ $label }}"
     data-testid="share-{{ $provider }}"
     aria-label="{{ $label }}"

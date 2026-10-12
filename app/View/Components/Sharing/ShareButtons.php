@@ -55,13 +55,22 @@ final class ShareButtons extends Component
         return view('components.sharing.share-buttons');
     }
 
-    /** @return array<string, string|null> */
+    /**
+     * Where each provider's button links, or null when the provider has
+     * nothing to share for this post.
+     *
+     * @return array<string, string|null>
+     */
     private function buildProviderUrls(ShareUrlBuilder $urlBuilder): array
     {
         $urls = [];
 
         foreach (ShareProvider::urlProviders() as $provider) {
-            $urls[$provider->value] = $urlBuilder->build($provider, $this->metadata);
+            $url = $urlBuilder->build($provider, $this->metadata);
+
+            $urls[$provider->value] = $url !== null && $provider->sharesThroughRedirect()
+                ? route('posts.share', ['post' => $this->post, 'provider' => $provider])
+                : $url;
         }
 
         return $urls;

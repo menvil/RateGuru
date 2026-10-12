@@ -19,7 +19,7 @@ it('hides share buttons on post show when feature flag disabled', function () {
         ->assertDontSee('data-testid="share-buttons"', false);
 });
 
-it('shows share buttons on the published post page, each provider link pointing at that provider', function () {
+it('shows share buttons on the published post page, each social link going through our own redirect', function () {
     ProjectSettings::factory()->create(['feature_flags' => ['show_share_buttons' => true]]);
 
     $post = Post::factory()->published()->create();
@@ -30,10 +30,13 @@ it('shows share buttons on the published post page, each provider link pointing 
         ->assertSee('data-testid="share-facebook"', false)
         ->assertSee('data-testid="share-x"', false);
     $page = livewireDom($response->getContent());
-    $metadata = app(PostShareMetadata::class)->forPost($post);
 
-    foreach (['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'pinterest', 'email'] as $provider) {
+    // A link straight to a provider's share page is hidden by ad blockers.
+    foreach (['facebook', 'x', 'telegram', 'whatsapp', 'reddit', 'pinterest'] as $provider) {
         expect($page->query("//a[@data-testid='share-{$provider}']/@href")->item(0)?->nodeValue)
-            ->toBe(app(ShareUrlBuilder::class)->build($provider, $metadata), "share-{$provider}");
+            ->toBe(route('posts.share', ['post' => $post, 'provider' => $provider]), "share-{$provider}");
     }
+
+    expect($page->query("//a[@data-testid='share-email']/@href")->item(0)?->nodeValue)
+        ->toBe(app(ShareUrlBuilder::class)->build('email', app(PostShareMetadata::class)->forPost($post)));
 });
