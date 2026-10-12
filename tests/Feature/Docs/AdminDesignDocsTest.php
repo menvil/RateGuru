@@ -245,15 +245,18 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('puts the translation cutover next, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |', '| 9 | Dashboard |'];
+    $order = ['| 1 | Categories and Tags |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
         ->toContain('7. **Translation cutover. Status: next.** In one change, in the editors as they are')
         ->toContain('No data moves: the stored translations stay where they are')
+        ->toContain('with no note in their place')
+        ->toContain('Translation Center keeps listing what visitors can see, as it does now')
         ->toContain('**Status: in effect.** Localization runs on v2, so the kit is frozen as Admin UI Kit v1')
         ->toContain('are reviewed against the current one, which then becomes their reference')
-        ->toContain('Not planned: the prototype\'s Growth section')
+        ->toContain('Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own')
+        ->not->toContain('| 9 | Dashboard |')
         ->and($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all());
 });

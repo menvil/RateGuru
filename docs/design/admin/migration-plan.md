@@ -178,13 +178,14 @@ In separate steps:
        would keep texts, which telemetry deliberately does not, so it needs its own decision first.
 6. **Workflow** — review states, if the product needs them. **Status: deferred.**
 7. **Translation cutover. Status: next.** In one change, in the editors as they are: Categories, Tags, Rating
-  groups and options, Project settings and Static pages stop editing every language. Their per-language tabs go;
-  each keeps its English reference content and says that translations are edited in Translation Center, with a
-  link to its section there. No data moves: the stored translations stay where they are, and Translation Center
-  already edits them, so it becomes the single admin editor for DB-owned translated content at once. The
-  translation status the prototype shows on these screens (locale chips, STS-05, and missing counts) arrives with
-  their Admin v2 migration below. Whether Translation Center then also lists inactive and archived content, which
-  no visitor sees and which today only its own editor translates, is decided in this step.
+  groups and options, Project settings and Static pages stop editing every language. Their per-language tabs go
+  and each keeps its English reference content, with no note in their place: Translation Center is where
+  translations are edited, and the navigation already leads there. No data moves: the stored translations stay
+  where they are, and Translation Center already edits them, so it becomes the single admin editor for DB-owned
+  translated content at once. Translation Center keeps listing what visitors can see, as it does now: the
+  translations of inactive and archived content are kept as they are, edited nowhere while it is off, and come
+  back into Translation Center with it. The translation status the prototype shows on these screens (locale
+  chips, STS-05, and missing counts) arrives with their Admin v2 migration below.
 
 ### Then — freeze Admin UI Kit v1
 
@@ -197,8 +198,7 @@ that needs it.
 
 Migrated one at a time, in this order, each building any missing kit element first. The content screens come
 first: after the translation cutover their prototype already has no language tabs, and each brings the
-translation status that links into Translation Center. The moderation screens follow, then the system pages,
-and the dashboard last, once the screens whose operational counts it summarises are on v2.
+translation status that links into Translation Center. The moderation screens follow, then the system pages.
 
 | Order | Section | Kit elements it brings |
 |---|---|---|
@@ -210,7 +210,6 @@ and the dashboard last, once the screens whose operational counts it summarises 
 | 6 | Reports | DOM-02 report chain, the docked 448 panel |
 | 7 | Users and user edit | FRM-06 switch, FRM-09 radio cards (FRM-08 segmented control is built) |
 | 8 | Media diagnostics | — |
-| 9 | Dashboard | — |
 
 Each migration also brings its navigation item's operational count (see the contract's
 [Transitional omissions](design-contract.md#transitional-omissions)).
@@ -219,8 +218,8 @@ Alongside, as a step of its own: Languages and Translation Center were built fro
 prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, which then becomes their
 reference.
 
-Not planned: the prototype's Growth section — Games with the game editor, Experiments and Analytics — has no
-product behind it yet; it is migrated, if ever, once there is.
+Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
+migration, and the prototype's Growth section — Games with the game editor, Experiments and Analytics.
 
 ## Definition of done for a migrated screen
 
