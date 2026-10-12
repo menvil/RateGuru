@@ -273,7 +273,7 @@ Limited/Banned, and existing content remains publicly visible.
   `PostPolicy::create/report/vote/deleteFromFeed`, `AddCommentAction`,
   `VotePostAction`, `VoteCommentAction`, `VoteRatingOptionAction`,
   `ReportContentAction`, `FollowAuthorAction`, `CreatePostAction`
-  (auto-publish trust gate), `User::canAccessPanel()`.
+  (auto-publish gate: trust plus a confirmed email), `User::canAccessPanel()`.
 - Direct `UserStatus` usage remains legitimate for: transition guards in
   moderation actions (above), audience query filters
   (`MatchedUsersQuery`, `SendContactMessageAction`, Filament table

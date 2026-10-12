@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\ImageInputSource;
@@ -102,6 +103,38 @@ it('creates a published post for trusted user', function () {
     expect($post->status)->toBe(PostStatus::Published);
     expect($post->published_at)->not->toBeNull();
 });
+
+it('holds the post of an author who has not confirmed their email for a moderator, and publishes the next one once they have', function () {
+    $user = User::factory()->unverified()->create();
+    $data = fn (string $title) => new CreatePostData(title: $title, description: null, sourceUrl: null, tagIds: [], image: null);
+
+    $first = app(CreatePostAction::class)->handle($user, $data('Before confirming'));
+
+    expect($user->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL)
+        ->and($first->status)->toBe(PostStatus::Pending)
+        ->and($first->published_at)->toBeNull();
+
+    $user->markEmailAsVerified();
+
+    expect(app(CreatePostAction::class)->handle($user, $data('After confirming'))->status)->toBe(PostStatus::Published);
+});
+
+it('holds the post of an untrusted author for a moderator, confirmed email or not', function () {
+    $user = User::factory()->create(['trust_level' => 0]);
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(title: 'Sample entry', description: null, sourceUrl: null, tagIds: [], image: null));
+
+    expect($user->hasVerifiedEmail())->toBeTrue()
+        ->and($post->status)->toBe(PostStatus::Pending);
+});
+
+it('publishes staff posts at once without a confirmed email, since staff could approve them themselves', function (string $role) {
+    $user = User::factory()->{$role}()->unverified()->create();
+
+    $post = app(CreatePostAction::class)->handle($user, new CreatePostData(title: 'Sample entry', description: null, sourceUrl: null, tagIds: [], image: null));
+
+    expect($post->status)->toBe(PostStatus::Published);
+})->with(['moderator', 'admin']);
 
 it('does not allow banned user to create post', function () {
     $user = User::factory()->banned()->create();
