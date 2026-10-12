@@ -14,6 +14,7 @@ use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Translations\TranslatableField;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -234,6 +235,6 @@ class ApplyProjectPresetAction
             return [$value, null];
         }
 
-        return [$value['en'] ?? null, $value];
+        return [$value[TranslatableField::REFERENCE_LOCALE] ?? null, TranslatableField::withoutReference($value)];
     }
 }

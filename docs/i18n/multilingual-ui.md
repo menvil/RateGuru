@@ -124,8 +124,11 @@ The `rating-options` Blade component uses `translatedLabel()` for rendering.
 `App\Support\Translations\TranslatableField::resolve(mixed $translations, string $fallback, ?string $locale = null): string`
 
 Fallback chain:
-1. `translations[current_locale]` if non-empty
-2. `$fallback` base field value
+1. English: always the base field value — the text its editor saves. Translations never hold English
+   (`TranslatableField::withoutReference()` drops it wherever they are written), and an English entry left among
+   them is never read.
+2. Any other language: `translations[current_locale]` if non-empty
+3. `$fallback` base field value
 
 ## What is NOT auto-translated
 
