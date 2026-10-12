@@ -1,0 +1,23 @@
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_7d2d8843838027::t_74b057ee6873ee 152
+docs/design/admin/design-contract.md
+  ai_agent 1193
+resources/views/filament/pages/reports/confirmation.blade.php
+  s_7d2d8843838027::t_74b057ee6873ee 32,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4e08a3a3a6218aaf90389bb64671fe825c4e561b",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
