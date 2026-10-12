@@ -140,6 +140,16 @@ it('never takes production tooling from develop', function (string $file) {
     // and is a prerequisite, not something this can check.
     $refs = controlPlaneCheckoutRefs(controlPlaneWorkflow($file));
 
+    // The one main-only workflow that takes no tooling at all: the inbound mail
+    // health check runs nothing of this repository — no checkout, no action —
+    // only the monitor key's one program on the host.
+    if ($file === 'check-tits-guru-inbound-mail-health.yml') {
+        expect($refs)->toBe([]);
+        expect(File::get(base_path('.github/workflows/'.$file)))->not->toContain('uses:');
+
+        return;
+    }
+
     expect($refs)->not->toBeEmpty("{$file} checks nothing out");
 
     foreach ($refs as $where => $ref) {
@@ -225,6 +235,11 @@ it('pins the classification of every operational workflow literally', function (
         'activate-tits-guru-mail.yml' => 'main',
         'rollback-tits-guru-mail-activation.yml' => 'main',
         'send-tits-guru-mail-canary.yml' => 'main',
+        'activate-tits-guru-inbound-smtp.yml' => 'main',
+        'verify-tits-guru-inbound-smtp.yml' => 'main',
+        'rollback-tits-guru-inbound-smtp.yml' => 'main',
+        'check-tits-guru-inbound-mail-health.yml' => 'main',
+        'install-tits-guru-inbound-mail-monitor.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -264,6 +279,10 @@ it('classifies every operational workflow in the repository', function () {
             'ci.yml',
             'coverage.yml',
             'label-review-bot-prs.yml',
+            // The inbound mail health check's schedule: it holds no secret,
+            // reaches no host and can only dispatch Check tits.guru inbound mail
+            // health on main, which is classified — MailInboundHealthWorkflowTest.
+            'schedule-tits-guru-inbound-mail-health.yml',
             // The application release path, governed by its own rules below.
             'release.yml',
         ], true))
@@ -480,6 +499,11 @@ function mainOnlyProductionWorkflows(): array
         'activate-tits-guru-mail.yml',
         'rollback-tits-guru-mail-activation.yml',
         'send-tits-guru-mail-canary.yml',
+        'activate-tits-guru-inbound-smtp.yml',
+        'verify-tits-guru-inbound-smtp.yml',
+        'rollback-tits-guru-inbound-smtp.yml',
+        'check-tits-guru-inbound-mail-health.yml',
+        'install-tits-guru-inbound-mail-monitor.yml',
         'prepare-production-host.yml',
         'repair-production.yml',
         'restore-production.yml',
@@ -639,9 +663,13 @@ it('leaves the release path on v*, with no main-ref gate and its ancestry proof 
     expect(data_get($workflow, 'jobs.deploy-production.environment'))->toBe('production-tits-guru');
 });
 
-it('introduces no second GitHub Environment', function () {
+it('introduces no second GitHub Environment holding production credentials', function () {
     // The decision: one Environment permitting main and v*, with the main-only
     // rule enforced in the repository instead of by splitting the Environment.
+    // The one other production Environment is the inbound mail monitor's: it
+    // holds that monitor's read-only key and nothing else, needs no approval,
+    // and one job of one workflow uses it — asserted below and in
+    // MailInboundHealthWorkflowTest.
     $environments = collect(glob(base_path('.github/workflows/*.yml')) ?: [])
         ->flatMap(static function (string $path): array {
             $workflow = Yaml::parse(File::get($path));
@@ -657,7 +685,19 @@ it('introduces no second GitHub Environment', function () {
         ->values()
         ->all();
 
-    expect($environments)->toBe(['production-tits-guru', 'staging']);
+    expect($environments)->toBe(['production-tits-guru', 'production-tits-guru-monitor', 'staging']);
+
+    $monitorJobs = [];
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        foreach ((array) data_get(Yaml::parse(File::get($path)), 'jobs', []) as $name => $job) {
+            if (($job['environment'] ?? null) === 'production-tits-guru-monitor') {
+                $monitorJobs[] = basename($path).':'.$name;
+            }
+        }
+    }
+    expect($monitorJobs)->toBe(['check-tits-guru-inbound-mail-health.yml:monitor']);
+    preg_match_all('/secrets\.([A-Z_]+)/', File::get(base_path('.github/workflows/check-tits-guru-inbound-mail-health.yml')), $secrets);
+    expect(array_values(array_unique($secrets[1])))->toBe(['MAIL_MONITOR_SSH_KEY', 'MAIL_MONITOR_KNOWN_HOSTS']);
 });
 
 it('gates a staging operation on develop, never on main', function (string $file) {

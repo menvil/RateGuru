@@ -32,6 +32,12 @@
 #   verify-mail-gateway --read-only      MAIL GATEWAY
 #   mail-identity validate | dkim-key | check-key | readiness
 #                                        MAIL IDENTITY (production)
+#   activate-mail-inbound --verify --target T
+#                                        MAIL INBOUND (production): the inbound
+#                                        receiver's state — not installed,
+#                                        installed and disabled, or enabled and
+#                                        verified — and its isolation from the
+#                                        outbound gateway
 #   health-check --target T              APPLICATION (active)
 #
 # What this file adds is only the decision of which contract the target's
@@ -108,6 +114,8 @@ PERIMETER_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_TARGET_PERIMETER_BIN "$
 MAIL_CAPTURE_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_CAPTURE_BIN "${SCRIPT_DIR}/verify-mail-capture")"
 MAIL_GATEWAY_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_GATEWAY_BIN "${SCRIPT_DIR}/verify-mail-gateway")"
 HEALTH_CHECK="$(gated_default RATEGURU_VERIFYINFRA_HEALTH_CHECK_BIN "${SCRIPT_DIR}/health-check")"
+MAIL_INBOUND_VERIFIER="$(gated_default RATEGURU_VERIFYINFRA_MAIL_INBOUND_BIN "${SCRIPT_DIR}/activate-mail-inbound")"
+MAIL_INBOUND="${SCRIPT_DIR}/mail-inbound"
 MAIL_IDENTITY="${SCRIPT_DIR}/mail-identity"
 MAIL_ROUTING="${SCRIPT_DIR}/mail-routing"
 TARGETS_CLI="${SCRIPT_DIR}/targets"
@@ -332,7 +340,7 @@ resolve_target() {
 # picture as a whole one.
 require_bundle() {
     local child
-    local -a needed=("${PERIMETER_VERIFIER}" "${HOST_INVENTORY}" "${MAIL_GATEWAY_VERIFIER}" "${MAIL_IDENTITY}" "${MAIL_ROUTING}")
+    local -a needed=("${PERIMETER_VERIFIER}" "${HOST_INVENTORY}" "${MAIL_GATEWAY_VERIFIER}" "${MAIL_IDENTITY}" "${MAIL_ROUTING}" "${MAIL_INBOUND}")
 
     case "${LIFECYCLE}" in
         active)  needed+=("${PREPARATION_VERIFIER}" "${LIVE_TARGET_VERIFIER}" "${HEALTH_CHECK}") ;;
@@ -556,6 +564,61 @@ verify_outbound_readiness() {
     show_child
 }
 
+# --- Mail inbound: the public receiver, production targets ---------------------------------
+#
+# Who may listen on TCP 25 is part of the mail gateway group for every target;
+# this group is the receiver itself, for a production target the reviewed
+# inbound plan receives mail for. Not installed, or installed but not yet
+# activated while the plan requests public SMTP, is DEFERRED: activation is a
+# guarded operator step, never a verification's. An enabled receiver that
+# verifies passes; anything else fails.
+
+verify_mail_inbound() {
+    group mail-inbound "Mail inbound"
+
+    if [[ "${ENVIRONMENT_CLASS}" != production ]]; then
+        item N/A "mail-inbound" "a ${ENVIRONMENT_CLASS} target never receives public mail: who may listen on TCP 25 is proved in the mail gateway group"
+        return 0
+    fi
+
+    local plan
+    if ! plan="$("${MAIL_INBOUND}" render-plan 2>/dev/null)"; then
+        item FAIL "inbound contract" "mail-inbound render-plan refuses the reviewed inbound contract"
+        return 0
+    fi
+
+    if ! jq -e --arg t "${TARGET_ID}" 'any(.targets[]; .target == $t)' <<<"${plan}" >/dev/null; then
+        item N/A "mail-inbound" "${TARGET_ID} receives no inbound mail: the reviewed inbound plan has no policy for it"
+        return 0
+    fi
+
+    [[ -x "${MAIL_INBOUND_VERIFIER}" ]] \
+        || { item FAIL "inbound receiver" "the inbound verifier is not executable: ${MAIL_INBOUND_VERIFIER}"; return 0; }
+
+    run_child "${MAIL_INBOUND_VERIFIER}" --verify --target "${TARGET_ID}"
+
+    local result state requested
+    result="$(sed -n 's/^RATEGURU_MAIL_INBOUND_ACTIVATION_RESULT=//p' <<<"${CHILD_OUTPUT}" | tail -n 1)"
+    state="$(jq -r '.state // "unknown"' <<<"${result:-null}" 2>/dev/null || echo unknown)"
+    # Whether the trusted bundle requests the receiver to be public, as the
+    # verifier read it from the same plan.
+    requested="$(jq -r '.requested == true' <<<"${result:-null}" 2>/dev/null || echo false)"
+
+    if (( CHILD_STATUS != 0 )); then
+        child_verdict "inbound receiver" "" "the receiver is in drift (state ${state}): it is not one of the consistent states"
+    elif [[ "${state}" != not-installed && "${state}" != installed-disabled && "${state}" != enabled-verified ]]; then
+        item FAIL "inbound receiver" "activate-mail-inbound --verify passed without saying which state the receiver is in (${state}) — a verification with no verdict is never a pass"
+    elif [[ "${state}" == enabled-verified ]]; then
+        item PASS "inbound receiver" "public SMTP enabled: the receiver alone listens on TCP 25, verifies, and the outbound gateway is untouched"
+    elif [[ "${requested}" == true ]]; then
+        item DEFERRED "inbound receiver" "${state}: public SMTP is requested by the reviewed contract and not yet activated — the guarded Activate inbound SMTP workflow is the step that opens it"
+    else
+        item PASS "inbound receiver" "${state}: public SMTP is not requested, and nothing listens on TCP 25"
+    fi
+
+    show_child
+}
+
 # --- Application ------------------------------------------------------------------------
 
 verify_application() {
@@ -624,6 +687,7 @@ main() {
     verify_mail_capture
     verify_mail_gateway
     verify_mail_identity
+    verify_mail_inbound
     verify_application
 
     local status=pass id group_result groups='[]'

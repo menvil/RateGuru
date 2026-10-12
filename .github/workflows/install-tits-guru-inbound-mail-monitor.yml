@@ -1,0 +1,152 @@
+name: Install tits.guru inbound mail monitor
+
+# Once, after the inbound activation — and again to replace the key: the
+# read-only access the automatic health check uses. On the production host,
+# infrastructure/scripts/activate-mail-inbound --install-monitor runs
+# install-mail-inbound-monitor from trusted main tooling: an account whose one
+# key — the public half given here — runs the inbound mail monitor, as postfix,
+# with no argument, and nothing else. It changes no Postfix file, no queue, no
+# store, no sshd configuration and no firewall rule, and refuses a key any
+# other account on the host already holds.
+#
+# The private half never passes through here: it goes into the
+# production-tits-guru-monitor Environment, as infrastructure/runbooks/
+# mail-inbound.md says under "The automatic monitor".
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: The public half of the monitor's own ed25519 key — the one line of rateguru-mail-monitor.pub
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# It adds an account and a sudoers rule on the machine tits-guru shares with
+# staging, so it waits in that machine's domain, like every change to it.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  # The key is judged before the Environment, its approval or any secret: one
+  # ed25519 public key, one line, no options. The host judges it again, and
+  # refuses one any other account already holds.
+  validate-key:
+    name: Accept only one ed25519 public key
+    runs-on: ubuntu-24.04
+    needs: [validate-ref]
+    timeout-minutes: 5
+
+    steps:
+      - name: Require an ed25519 public key
+        shell: bash
+        env:
+          PUBLIC_KEY: ${{ inputs.public_key }}
+        run: |
+          set -Eeuo pipefail
+
+          key_regex='^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]{43}( [A-Za-z0-9@._-]{1,64})?$'
+          if [[ ! "${PUBLIC_KEY}" =~ ${key_regex} ]]; then
+            echo "public_key is not one ed25519 public key: paste the one line of rateguru-mail-monitor.pub — never a private key." >&2
+            exit 1
+          fi
+          echo "An ed25519 public key."
+
+  install:
+    name: Install the monitor's read-only access on the production host
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref, validate-key]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from the integration branch.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install on the production host
+        id: inbound
+        uses: ./.github/actions/activate-rateguru-mail-inbound
+        with:
+          operation: install-monitor
+          deployment-target: tits-guru
+          monitor-public-key: ${{ inputs.public_key }}
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the account, its sudoers rule
+          # and its key are root's to install. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      - name: Report an incomplete run
+        if: ${{ always() && steps.inbound.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru inbound mail monitor"
+            echo
+            echo "The installation did not complete, so there is no result; the reason is in the job log."
+          } >> "${GITHUB_STEP_SUMMARY}"
