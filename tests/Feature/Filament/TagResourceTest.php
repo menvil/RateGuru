@@ -137,6 +137,14 @@ it('lets a moderator curate tags but not delete them', function () {
         ->assertDispatched('rg-admin-toast', message: 'Only administrators delete tags.', tone: 'error');
 
     expect($tag->fresh())->not->toBeNull();
+
+    // In the drawer too, Delete stays, disabled, with its reason in words tied to it.
+    $drawer = $page->call('edit', $tag->id);
+
+    expect(livewireFragment($drawer, "//*[contains(@class, 'rg-admin-drawer__footer')]//button[@disabled]"))
+        ->toContain('aria-describedby="rg-admin-tag-drawer-delete-reason"')
+        ->toContain('Delete')
+        ->and(livewireFragment($drawer, "//*[@id='rg-admin-tag-drawer-delete-reason']"))->toContain('Only administrators delete tags.');
 });
 
 it('translates a tag in Translation Center, which only an administrator opens', function () {

@@ -82,7 +82,8 @@
                 {{-- The confirmation replaces the drawer. --}}
                 <x-admin.ui.button icon="trash-2" x-on:click="hide()" wire:click="askToDelete({{ $row['id'] }})">Delete</x-admin.ui.button>
             @else
-                <x-admin.ui.button icon="trash-2" disabled title="Only administrators delete tags">Delete</x-admin.ui.button>
+                <x-admin.ui.button icon="trash-2" disabled aria-describedby="{{ $drawerId }}-delete-reason">Delete</x-admin.ui.button>
+                <span class="rg-admin-hint" id="{{ $drawerId }}-delete-reason">Only administrators delete tags.</span>
             @endif
         @endunless
         <span class="rg-admin-taxonomy__spacer"></span>
