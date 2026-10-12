@@ -2,6 +2,8 @@
 
 namespace App\Support\Settings;
 
+use App\Support\Translations\TranslatableField;
+
 class PresetSettingsBuilder
 {
     /** The project settings that carry a translation per language. */
@@ -34,8 +36,8 @@ class PresetSettingsBuilder
             }
 
             if (is_array($value)) {
-                $result[$field] = $value['en'] ?? null;
-                $result["{$field}_translations"] = $value ?: null;
+                $result[$field] = $value[TranslatableField::REFERENCE_LOCALE] ?? null;
+                $result["{$field}_translations"] = TranslatableField::withoutReference($value);
 
                 continue;
             }

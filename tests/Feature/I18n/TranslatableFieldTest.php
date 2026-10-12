@@ -151,3 +151,16 @@ it('serves visitors the database text, never what the repository ships now', fun
     expect($read())->toBe($before)
         ->and($before['static page'])->not->toBe('Translated anew in a later release');
 });
+
+it('shows an English visitor the base column, whatever English copy sits among the translations', function (string $content) {
+    // The text English editors save is the base column; a copy among the
+    // translations — which presets used to write — must never shadow it.
+    expect(visitorText($content, TranslatableField::REFERENCE_LOCALE, 'A stale English copy'))->toBe('Reference text');
+})->with(['category', 'tag', 'rating group', 'rating option', ...PresetSettingsBuilder::TRANSLATABLE]);
+
+it('stores translations beside a base column without English, which the base column holds', function () {
+    expect(TranslatableField::withoutReference(['en' => 'Dogs', ...array_fill_keys(translatedLocales(), 'Translated')]))->toBe(array_fill_keys(translatedLocales(), 'Translated'))
+        ->and(TranslatableField::withoutReference(['en' => 'Dogs']))->toBeNull()
+        ->and(TranslatableField::withoutReference(null))->toBeNull()
+        ->and(TranslatableField::withoutReference('Dogs'))->toBeNull();
+});

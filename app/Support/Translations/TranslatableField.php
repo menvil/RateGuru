@@ -28,7 +28,9 @@ class TranslatableField
     /**
      * The stored translation for this language when it is one (see
      * isPresent()), otherwise the fallback — never blank text and never a
-     * value that is not a string.
+     * value that is not a string. English is the base column itself: an
+     * English entry among the translations is never read, so the text its
+     * editor saves is the text a visitor sees.
      */
     public static function resolve(
         mixed $translations,
@@ -36,8 +38,30 @@ class TranslatableField
         ?string $locale = null
     ): string {
         $locale ??= app()->getLocale();
+
+        if ($locale === self::REFERENCE_LOCALE) {
+            return $fallback;
+        }
+
         $value = is_array($translations) ? ($translations[$locale] ?? null) : null;
 
         return self::isPresent($value) ? $value : $fallback;
+    }
+
+    /**
+     * Translations as stored beside a base column: every language but English,
+     * which the base column holds — or null when none is left.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function withoutReference(mixed $translations): ?array
+    {
+        if (! is_array($translations)) {
+            return null;
+        }
+
+        unset($translations[self::REFERENCE_LOCALE]);
+
+        return $translations === [] ? null : $translations;
     }
 }
