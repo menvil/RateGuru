@@ -197,6 +197,21 @@
     </div>
 @endcomponent
 
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-09']])
+    <div class="rg-admin-kit__row" x-data="{ trust: 'reviewed' }">
+        <div class="rg-admin-kit__item rg-admin-kit__item--wide" style="max-width: 520px">
+            <x-admin.ui.radio-cards
+                id="kit-radio-cards"
+                label="Trust"
+                :options="['reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits for moderation.'], 'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once, once their email is confirmed.']]"
+                value="reviewed"
+                x-model="trust"
+            />
+            <span class="rg-admin-kit__caption" x-text="`live · trust = ${trust}`">live · trust = reviewed</span>
+        </div>
+    </div>
+@endcomponent
+
 @php
     $kitSections = [
         ['value' => '', 'label' => 'All sections', 'trigger' => 'All'],

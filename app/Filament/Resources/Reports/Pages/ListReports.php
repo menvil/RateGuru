@@ -5,7 +5,6 @@ namespace App\Filament\Resources\Reports\Pages;
 use App\Actions\Comments\HideCommentAction;
 use App\Actions\Moderation\BanUserAction;
 use App\Actions\Moderation\HidePostAction;
-use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Reports\IgnoreReportAction;
 use App\Actions\Reports\ReopenReportAction;
 use App\Actions\Reports\ResolveReportAction;
@@ -351,8 +350,8 @@ final class ListReports extends Page
             'author' => $author === null ? null : [
                 'name' => $author->username,
                 'initials' => ModerationListFormat::initials((string) $author->username),
-                'status' => self::personStatus($author),
-                'trust' => (int) $author->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL ? 'Trusted' : 'Not trusted',
+                'status' => ModerationListFormat::personStatus($author),
+                'trust' => ModerationListFormat::trust($author),
                 'stats' => number_format($posts).' '.Str::plural('post', $posts).' · '.number_format(app(ModerationReportsQuery::class)->reportsOnContentOf($author)).' reports on their content',
                 'url' => UserResource::canEdit($author) ? UserResource::getUrl('edit', ['record' => $author]) : null,
                 'ban' => match (true) {
@@ -452,7 +451,7 @@ final class ListReports extends Page
                 'id' => '@'.$target->username,
                 'preview' => (string) $target->username,
                 'meta' => $target->created_at !== null ? 'Joined '.$target->created_at->format('d M Y') : null,
-                'state' => self::personStatus($target),
+                'state' => ModerationListFormat::personStatus($target),
                 'url' => ! $target->isTombstoned() ? route('profile.show', $target->username) : null,
             ],
             default => ['kind' => 'Content', 'icon' => 'circle-x', 'id' => '#'.$report->target_id, 'preview' => 'Target unavailable', 'meta' => null, 'state' => null, 'url' => null],
@@ -493,18 +492,6 @@ final class ListReports extends Page
             $comment->isAuthorDeleted() => ['label' => 'Deleted by author', 'tone' => 'outline', 'dot' => false],
             $comment->isModeratorHidden() => ['label' => 'Hidden', 'tone' => 'neutral', 'dot' => false],
             default => ['label' => 'Visible', 'tone' => 'success', 'dot' => true],
-        };
-    }
-
-    /** @return array{label: string, tone: string, dot: bool} */
-    private static function personStatus(User $person): array
-    {
-        return match ($person->status) {
-            UserStatus::Limited => ['label' => 'Limited', 'tone' => 'warning', 'dot' => false],
-            UserStatus::Banned => ['label' => 'Banned', 'tone' => 'danger', 'dot' => false],
-            UserStatus::Shadowbanned => ['label' => 'Shadowbanned', 'tone' => 'neutral', 'dot' => false],
-            UserStatus::Deleted => ['label' => 'Deleted', 'tone' => 'outline', 'dot' => false],
-            default => ['label' => 'Active', 'tone' => 'success', 'dot' => false],
         };
     }
 

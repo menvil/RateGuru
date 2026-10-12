@@ -1,6 +1,9 @@
 <?php
 
+use App\Actions\Moderation\LimitUserAction;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
@@ -9,231 +12,221 @@ use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
-it('allows admin to access user resource index', function () {
-    $admin = User::factory()->admin()->create();
+/**
+ * People in Admin v2: the list — who may open it, what each tab holds and
+ * how each row reads — and a person's page, where an administrator edits
+ * their profile, role, trust and password from the top bar, a change of role
+ * asked about first, while their status moves only through the moderation
+ * actions.
+ */
+it('opens the list for administrators and moderators, and for nobody else', function (string $role, int $status) {
+    $user = match ($role) {
+        'admin' => User::factory()->admin()->create(),
+        'moderator' => User::factory()->moderator()->create(),
+        default => User::factory()->create(),
+    };
 
-    $this->actingAs($admin)
-        ->get(UserResource::getUrl('index'))
-        ->assertOk();
+    $this->actingAs($user)->get(UserResource::getUrl('index'))->assertStatus($status);
+})->with([
+    'an administrator' => ['admin', 200],
+    'a moderator' => ['moderator', 200],
+    'a member' => ['user', 403],
+]);
+
+it('sits last in the Moderation section, with the list and a person\'s page', function () {
+    expect(UserResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
+        ->and(UserResource::getNavigationSort())->toBe(40)
+        ->and(array_keys(UserResource::getPages()))->toBe(['index', 'edit']);
 });
 
-it('allows moderator to access user resource index', function () {
-    $moderator = User::factory()->moderator()->create();
+// One request per test: Filament reads the page's scope, the top bar's
+// actions included, from the request the page was first rendered for.
+it('draws the list in Admin v2', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    User::factory()->create(['username' => 'biscuit_mum']);
 
-    $this->actingAs($moderator)
-        ->get(UserResource::getUrl('index'))
-        ->assertOk();
+    expect($this->get(UserResource::getUrl('index'))->assertOk()->getContent())
+        ->toContain('<h1 id="rg-admin-users-title" class="rg-admin-page-header__title">Users</h1>')
+        ->toContain('biscuit_mum')
+        ->not->toContain('fi-ta-table');
 });
 
-it('allows admin to edit user identity and password', function () {
+it('draws a person\'s page in Admin v2, with Save changes in the top bar', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['username' => 'kotofey']);
+
+    expect($this->get(EditUser::getUrl(['record' => $person]))->assertOk()->getContent())
+        ->toContain('<h1 id="rg-admin-user-title" class="rg-admin-page-header__title">kotofey</h1>')
+        ->toContain("\$dispatch('save-user')")
+        ->toContain('Save changes')
+        ->toContain('Moderation history')
+        ->not->toContain('fi-section');
+});
+
+it('counts every tab, and reads each row: role, status, trust, posts and the reports on their content', function () {
     $admin = User::factory()->admin()->create();
-    $user = User::factory()->create([
-        'name' => 'Old Name',
-        'email' => 'old-user@example.com',
-        'status' => UserStatus::Active,
+    $this->actingAs($admin);
+    $person = User::factory()->create(['username' => 'cheap_pet_meds', 'name' => 'No name given', 'trust_level' => 0, 'status' => UserStatus::Shadowbanned]);
+    $post = Post::factory()->published()->for($person)->create();
+    reportOn($post);
+    User::factory()->moderator()->create();
+
+    $page = Livewire::test(ListUsers::class);
+    $row = listedRow($page, $person);
+
+    // The administrator, the person, the moderator and whoever made the report.
+    expect(array_column($page->viewData('tabs'), 'count', 'id'))->toMatchArray(['all' => '4', 'active' => '3', 'shadowbanned' => '1'])
+        ->and($page->viewData('stats'))->toBe(['total' => '4', 'restricted' => '1', 'staff' => '2'])
+        ->and($row)->toMatchArray([
+            'username' => 'cheap_pet_meds',
+            'initials' => 'CH',
+            'role' => 'User',
+            'staff' => false,
+            'trust' => 'Not trusted',
+            'posts' => 1,
+            'reports' => 1,
+            'editUrl' => EditUser::getUrl(['record' => $person]),
+            'postsUrl' => ListPosts::getUrl(['status' => 'all', 'q' => 'cheap_pet_meds']),
+        ])
+        ->and($row['meta'])->toStartWith('No name given · joined ')
+        ->and($row['status'])->toBe(['label' => 'Shadowbanned', 'tone' => 'neutral', 'dot' => false]);
+});
+
+it('narrows the list to a tab, a role and the suspicious, and searches it on the server', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $moderator = User::factory()->moderator()->create(['username' => 'georgi_d']);
+    $shadowbanned = User::factory()->shadowbanned()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect(array_column($page->set('role', 'moderator')->viewData('rows'), 'id'))->toBe([$moderator->id])
+        ->and(array_column($page->set('role', '')->set('suspicious', true)->viewData('rows'), 'id'))->toBe([$shadowbanned->id])
+        ->and(array_column($page->set('suspicious', false)->set('q', 'georgi')->viewData('rows'), 'id'))->toBe([$moderator->id])
+        ->and(array_column($page->set('q', '')->set('status', 'shadowbanned')->viewData('rows'), 'id'))->toBe([$shadowbanned->id]);
+
+    $page->set('q', 'nobody like this')->assertSeeHtml('No people match')->call('clearFilters')->assertSet('q', '');
+});
+
+it('opens the suspicious from the dashboard', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    Livewire::withQueryParams(['suspicious' => 1])->test(ListUsers::class)
+        ->assertSet('suspicious', true)
+        ->assertSeeHtml('Suspicious: shadowbanned or reported content');
+});
+
+it('saves the profile, the role, the trust and a new password from the top bar, the role change asked about first', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+    $person = User::factory()->create(['name' => 'Old Name', 'username' => 'old_name', 'email' => 'old@example.com', 'trust_level' => 10]);
+
+    $page = Livewire::test(EditUser::class, ['record' => $person->id])
+        ->set('name', '  New   Name ')
+        ->set('username', 'new_name')
+        ->set('email', 'NEW@example.com')
+        ->set('role', 'moderator')
+        ->set('trust', 'reviewed')
+        ->set('password', 'a-long-new-password-2026')
+        ->dispatch('save-user')
+        ->assertHasNoErrors()
+        ->assertSet('confirmingRole', true)
+        ->assertSeeHtml('Change role to Moderator?');
+
+    expect($person->fresh()->role)->toBe(UserRole::User);
+
+    $page->call('save')
+        ->assertSet('confirmingRole', false)
+        ->assertDispatched('rg-admin-toast', message: 'Changes to new_name saved')
+        ->assertSet('password', '')
+        ->assertSet('saved.role', 'moderator');
+
+    $fresh = $person->fresh();
+
+    expect($fresh)->name->toBe('New Name')->username->toBe('new_name')->email->toBe('new@example.com')->role->toBe(UserRole::Moderator)->trust_level->toBe(0)->status->toBe(UserStatus::Active)
+        ->and(Hash::check('a-long-new-password-2026', $fresh->password))->toBeTrue()
+        ->and(ModerationLog::query()->count())->toBe(0);
+});
+
+it('says what to change when the draft cannot be saved', function (array $draft, string $field) {
+    $this->actingAs(User::factory()->admin()->create());
+    User::factory()->create(['username' => 'taken_name', 'email' => 'taken@example.com']);
+    $person = User::factory()->create();
+
+    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+
+    foreach ($draft as $property => $value) {
+        $page->set($property, $value);
+    }
+
+    $page->dispatch('save-user')->assertHasErrors([$field]);
+})->with([
+    'a username in use' => [['username' => 'taken_name'], 'username'],
+    'a username with capitals' => [['username' => 'Not Allowed'], 'username'],
+    'an email address in use' => [['email' => 'taken@example.com'], 'email'],
+    'no name' => [['name' => ''], 'name'],
+    'a role that does not exist' => [['role' => 'owner'], 'role'],
+]);
+
+it('puts the saved values back on Discard', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['name' => 'Kept Name']);
+
+    Livewire::test(EditUser::class, ['record' => $person->id])
+        ->set('name', 'Something else')
+        ->set('password', 'typed-but-discarded')
+        ->dispatch('discard-user')
+        ->assertSet('name', 'Kept Name')
+        ->assertSet('password', '');
+});
+
+it('keeps what is saved and the person it edits on the server', function (string $property, mixed $value) {
+    $this->actingAs(User::factory()->admin()->create());
+
+    Livewire::test(EditUser::class, ['record' => User::factory()->create()->id])->set($property, $value);
+})->throws(CannotUpdateLockedPropertyException::class)
+    ->with([
+        'what is saved' => ['saved', ['role' => 'admin']],
+        'the person' => ['userId', 1],
+        'the confirmation' => ['sanction', ['kind' => 'ban', 'id' => 1]],
     ]);
 
+it('lets nobody but an administrator edit someone else\'s account, never another administrator\'s', function (string $case) {
+    $actor = $case === 'a moderator' ? User::factory()->moderator()->create() : User::factory()->admin()->create();
+    $target = match ($case) {
+        'another administrator' => User::factory()->admin()->create(),
+        'their own account' => $actor,
+        default => User::factory()->create(),
+    };
+
+    $this->actingAs($actor)->get(EditUser::getUrl(['record' => $target]))->assertForbidden();
+})->with(['a moderator', 'another administrator', 'their own account']);
+
+it('shows where the person stands: the decision behind their status, their account and their moderation history', function () {
+    $admin = User::factory()->admin()->create(['name' => 'Daria Kovaleva']);
     $this->actingAs($admin);
+    $person = User::factory()->create(['locale' => 'en']);
+    app(LimitUserAction::class)->handle($admin, $person, 'Repeated vitamin promos.');
 
-    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-        ->fillForm([
-            'name' => 'New Name',
-            'username' => 'new_username',
-            'email' => 'new-user@example.com',
-            'role' => $user->role->value,
-            'password' => 'new-password',
-        ])
-        ->call('save')
-        ->assertHasNoFormErrors();
+    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+    $view = $page->viewData('person');
+    $history = $page->viewData('history');
 
-    $fresh = $user->fresh();
-
-    // Lifecycle status is not editable through the generic form: it stays
-    // exactly as it was and no moderation log appears.
-    expect($fresh->name)->toBe('New Name')
-        ->and($fresh->username)->toBe('new_username')
-        ->and($fresh->email)->toBe('new-user@example.com')
-        ->and($fresh->status)->toBe(UserStatus::Active)
-        ->and(Hash::check('new-password', $fresh->password))->toBeTrue()
-        ->and(ModerationLog::query()->count())->toBe(0);
+    expect($view['since'])->toStartWith('Since Today')->toEndWith('by Daria Kovaleva')
+        ->and($view['reason'])->toBe('Repeated vitamin promos.')
+        ->and($view['signIn'])->toBe('Email and password')
+        ->and($history[0])->toMatchArray(['icon' => 'shield-alert', 'title' => 'Limited by Daria Kovaleva', 'body' => 'Reason: Repeated vitamin promos.'])
+        ->and(end($history)['title'])->toBe('Account created')
+        ->and($page->viewData('options')['restore'])->toBeTrue();
 });
 
-it('cannot mutate lifecycle status through the generic edit form even with injected state', function () {
-    $admin = User::factory()->admin()->create();
-    $user = User::factory()->create(['status' => UserStatus::Active]);
+it('opens a person found by global search on their page, or the list where the page is not theirs to edit', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $member = User::factory()->create(['username' => 'biscuit_mum']);
+    $otherAdmin = User::factory()->admin()->create(['username' => 'daria_k']);
 
-    $this->actingAs($admin);
-
-    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-        ->fillForm([
-            'name' => $user->name,
-            'username' => $user->username,
-            'email' => $user->email,
-            'role' => $user->role->value,
-        ])
-        // Injected Livewire state for a field that no longer exists in the
-        // schema must be ignored by save().
-        ->set('data.status', UserStatus::Banned->value)
-        ->call('save')
-        ->assertHasNoFormErrors();
-
-    expect($user->fresh()->status)->toBe(UserStatus::Active)
-        ->and(ModerationLog::query()->count())->toBe(0);
-});
-
-it('validates username uniqueness when editing a user', function () {
-    $admin = User::factory()->admin()->create();
-    User::factory()->create(['username' => 'taken_username']);
-    $user = User::factory()->create(['username' => 'original_username']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-        ->fillForm([
-            'name' => $user->name,
-            'username' => 'taken_username',
-            'email' => $user->email,
-            'role' => $user->role->value,
-        ])
-        ->call('save')
-        ->assertHasFormErrors(['username' => 'unique']);
-});
-
-it('requires an integer trust level when editing a user', function () {
-    $admin = User::factory()->admin()->create();
-    $user = User::factory()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-        ->fillForm([
-            'name' => $user->name,
-            'username' => $user->username,
-            'email' => $user->email,
-            'role' => $user->role->value,
-            'trust_level' => 1.5,
-        ])
-        ->call('save')
-        ->assertHasFormErrors(['trust_level' => 'integer']);
-});
-
-it('does not allow moderators to edit users directly', function () {
-    $moderator = User::factory()->moderator()->create();
-    $user = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-        ->assertForbidden();
-});
-
-it('does not allow normal user to access user resource index', function () {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->get(UserResource::getUrl('index'))
-        ->assertForbidden();
-});
-
-it('renders in the Moderation section of the admin navigation', function () {
-    expect(UserResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
-        ->and(UserResource::getNavigationSort())->toBe(40);
-});
-
-it('exposes index and edit pages', function () {
-    expect(array_keys(UserResource::getPages()))->toBe(['index', 'edit']);
-});
-
-it('lists users on the index page', function () {
-    $admin = User::factory()->admin()->create();
-    $other = User::factory()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$admin, $other]);
-});
-
-it('renders a searchable, sortable username column', function () {
-    $admin = User::factory()->admin()->create();
-    $user = User::factory()->create(['username' => 'chef_ivan']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$user])
-        ->assertTableColumnExists('username')
-        ->assertCanRenderTableColumn('username')
-        ->assertSee('chef_ivan');
-});
-
-it('renders a searchable, sortable email column', function () {
-    $admin = User::factory()->admin()->create();
-    $user = User::factory()->create(['email' => 'user@example.com']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$user])
-        ->assertTableColumnExists('email')
-        ->assertCanRenderTableColumn('email')
-        ->assertSee('user@example.com');
-});
-
-it('renders a reports count placeholder column', function () {
-    $admin = User::factory()->admin()->create();
-    $user = User::factory()->create(['username' => 'reported_user_placeholder']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$user])
-        ->assertTableColumnExists('reports_count_placeholder')
-        ->assertCanRenderTableColumn('reports_count_placeholder')
-        ->assertSee('—');
-});
-
-it('renders a posts count column', function () {
-    $admin = User::factory()->admin()->create();
-    $author = User::factory()->create(['username' => 'poster']);
-    Post::factory()->count(2)->for($author)->published()->create();
-
-    $this->actingAs($admin);
-
-    // Assert the cell state for $author's posts_count column comes from
-    // withCount('posts') and resolves to 2 — this exercises the table
-    // rendering path, not just the underlying loadCount().
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$author])
-        ->assertTableColumnExists('posts_count')
-        ->assertCanRenderTableColumn('posts_count')
-        ->assertTableColumnStateSet('posts_count', 2, $author);
-});
-
-it('renders a sortable status badge column', function () {
-    $admin = User::factory()->admin()->create();
-    $banned = User::factory()->banned()->create(['username' => 'banned_user']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$banned])
-        ->assertTableColumnExists('status')
-        ->assertCanRenderTableColumn('status')
-        ->assertSee('banned');
-});
-
-it('renders a sortable role badge column', function () {
-    $admin = User::factory()->admin()->create();
-    $moderator = User::factory()->moderator()->create(['username' => 'mod_user']);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertCanSeeTableRecords([$moderator])
-        ->assertTableColumnExists('role')
-        ->assertCanRenderTableColumn('role')
-        ->assertSee('moderator');
+    expect(UserResource::getGlobalSearchResultUrl($member))->toBe(EditUser::getUrl(['record' => $member]))
+        ->and(UserResource::getGlobalSearchResultUrl($otherAdmin))->toBe(ListUsers::getUrl(['q' => 'daria_k']));
 });

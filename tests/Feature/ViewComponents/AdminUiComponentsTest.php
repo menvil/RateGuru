@@ -714,6 +714,24 @@ it('draws a checkbox as a real input under its picture, named by its label', fun
         ->and((string) $this->blade('<x-admin.ui.checkbox label="Select" disabled />'))->toContain('rg-admin-checkbox--disabled')->toMatch('/<input[^>]*disabled/s');
 });
 
+it('draws radio cards as a radio group with one chosen card, reachable by Tab', function () {
+    $html = (string) $this->blade('<x-admin.ui.radio-cards label="Trust" :options="$options" value="trusted" wire:model="trust" />', [
+        'options' => ['reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits.'], 'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once.']],
+    ]);
+
+    expect($html)
+        ->toMatch('/role="radiogroup"\s+aria-label="Trust"/')
+        ->toContain('x-modelable="selected"')
+        ->toContain('wire:model="trust"')
+        ->toMatch('/role="radio"\s+class="rg-admin-radio-card"\s+aria-checked="false"\s+tabindex="-1"/')
+        ->toMatch('/role="radio"\s+class="rg-admin-radio-card"\s+aria-checked="true"\s+tabindex="0"/')
+        ->toContain('<span class="rg-admin-radio-card__help">Posts publish at once.</span>');
+});
+
+it('holds radio cards to two to four options', function () {
+    $this->blade('<x-admin.ui.radio-cards label="Trust" :options="[\'only\' => [\'label\' => \'Only\']]" />');
+})->throws(ViewException::class, 'Radio cards offer two to four options.');
+
 it('draws a report chain link: its marker, the line to the next, the title and time, and its details', function () {
     $view = (string) $this->blade('<x-admin.ui.timeline-item icon="flag" title="Reported as spam" time="08:31">Reported by georgi.d</x-admin.ui.timeline-item>');
 

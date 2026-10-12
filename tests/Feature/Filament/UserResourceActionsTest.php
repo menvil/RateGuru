@@ -1,295 +1,135 @@
 <?php
 
-use App\Actions\Moderation\MarkUserTrustedAction;
-use App\Enums\ModerationActionType;
 use App\Enums\UserStatus;
+use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Models\ModerationLog;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('allows admin to ban a user via the ban table action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->callTableAction('ban', $target, data: ['reason' => 'Repeated abuse.']);
-
-    expect($target->fresh()->status)->toBe(UserStatus::Banned);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::BanUser->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-    ]);
+/**
+ * The moderation actions on a person, from the Users list's row menu and
+ * from their page: Limit, Shadowban and Ban after a confirmation, with Undo
+ * from an active account; Restore access at once, with Undo; Mark trusted
+ * after a confirmation. Who may do what, and why not, as UserPolicy has it.
+ */
+beforeEach(function () {
+    $this->admin = User::factory()->admin()->create();
+    $this->actingAs($this->admin);
 });
 
-it('hides the ban action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
+it('applies a sanction after asking, with the reason, and Undo restores access', function (string $kind, UserStatus $status, string $word) {
+    $person = User::factory()->create(['username' => 'grumpy_max']);
 
-    $this->actingAs($moderator);
+    $page = Livewire::test(ListUsers::class)
+        ->call('askToSanction', $kind, $person->id)
+        ->assertSet('sanction', ['kind' => $kind, 'id' => $person->id])
+        ->set('reason', 'Repeated spam')
+        ->call('confirmSanction')
+        ->assertSet('sanction', null)
+        ->assertDispatched('rg-admin-toast', message: 'grumpy_max is now '.$word, action: ['label' => 'Undo', 'event' => 'restore-user-access', 'params' => ['id' => $person->id]]);
+
+    expect($person->fresh()->status)->toBe($status)
+        ->and(ModerationLog::query()->latest('id')->first()->reason)->toBe('Repeated spam');
+
+    $page->dispatch('restore-user-access', id: $person->id)
+        ->assertDispatched('rg-admin-toast', message: 'Access restored for grumpy_max');
+
+    expect($person->fresh()->status)->toBe(UserStatus::Active);
+})->with([
+    'ban' => ['ban', UserStatus::Banned, 'banned'],
+    'limit' => ['limit', UserStatus::Limited, 'limited'],
+    'shadowban' => ['shadowban', UserStatus::Shadowbanned, 'shadowbanned'],
+]);
+
+it('says what each sanction really does: no participation, never a locked account', function () {
+    $person = User::factory()->create();
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('ban', $target);
+        ->call('askToSanction', 'ban', $person->id)
+        ->assertSeeHtml('They can still sign in, browse and manage their account.')
+        ->assertSeeHtml('No new posts, comments, votes, reports or follows.')
+        ->assertDontSeeHtml('signed out');
 });
 
-it('hides the edit action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($moderator);
+it('offers no Undo for a sanction on someone already restricted', function () {
+    $person = User::factory()->limited()->create(['username' => 'kotofey']);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('edit', $target);
+        ->call('askToSanction', 'ban', $person->id)
+        ->call('confirmSanction')
+        ->assertDispatched('rg-admin-toast', message: 'kotofey is now banned', action: null);
 });
 
-it('hides the ban action for admin targets', function () {
-    $admin = User::factory()->admin()->create();
-    $otherAdmin = User::factory()->admin()->create();
+it('restores access at once, and Undo applies the sanction again', function () {
+    $person = User::factory()->banned()->create(['username' => 'spam_pawz']);
 
-    $this->actingAs($admin);
+    $page = Livewire::test(ListUsers::class)
+        ->call('restoreAccess', $person->id)
+        ->assertDispatched('rg-admin-toast', message: 'Access restored for spam_pawz', action: ['label' => 'Undo', 'event' => 'sanction-user-again', 'params' => ['id' => $person->id, 'kind' => 'ban']]);
 
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('ban', $otherAdmin);
+    expect($person->fresh()->status)->toBe(UserStatus::Active);
+
+    $page->dispatch('sanction-user-again', id: $person->id, kind: 'ban')
+        ->assertDispatched('rg-admin-toast', message: 'spam_pawz is banned again');
+
+    expect($person->fresh()->status)->toBe(UserStatus::Banned);
 });
 
-it('hides the ban action for the acting admin themselves', function () {
-    $admin = User::factory()->admin()->create();
-
-    $this->actingAs($admin);
+it('marks someone trusted after asking, without a reason to give', function () {
+    $person = User::factory()->create(['username' => 'dasha_lapki', 'trust_level' => 0]);
 
     Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('ban', $admin);
+        ->call('askToSanction', 'trust', $person->id)
+        ->assertSeeHtml('Mark dasha_lapki as trusted?')
+        ->assertDontSeeHtml('rg-admin-moderation-reason')
+        ->call('confirmSanction')
+        ->assertDispatched('rg-admin-toast', message: 'dasha_lapki is now trusted', action: null);
+
+    expect($person->fresh()->trust_level)->toBe(10);
 });
 
-it('hides the ban action for already banned users', function () {
-    $admin = User::factory()->admin()->create();
-    $banned = User::factory()->banned()->create();
+it('says why an action is unavailable, and opens no confirmation for it', function (string $case, string $kind, string $hint) {
+    $person = match ($case) {
+        'an administrator' => User::factory()->admin()->create(),
+        'themselves' => $this->admin,
+        'a trusted member' => User::factory()->create(['trust_level' => 10]),
+        default => User::factory()->limited()->create(['trust_level' => 0]),
+    };
 
-    $this->actingAs($admin);
+    $page = Livewire::test(ListUsers::class);
 
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('ban', $banned);
+    expect(listedRow($page, $person)['options'][$kind])->toMatchArray(['available' => false, 'hint' => $hint]);
+
+    $page->call('askToSanction', $kind, $person->id)->assertSet('sanction', null);
+})->with([
+    'an administrator' => ['an administrator', 'ban', 'Administrators can’t be sanctioned'],
+    'themselves' => ['themselves', 'limit', 'This is your account'],
+    'a trusted member' => ['a trusted member', 'trust', 'Already trusted'],
+    'a restricted member' => ['a restricted member', 'trust', 'Restore access first'],
+]);
+
+it('lets a moderator see the list but take no moderation action', function () {
+    $this->actingAs(User::factory()->moderator()->create());
+    $person = User::factory()->create();
+
+    $page = Livewire::test(ListUsers::class);
+    $row = listedRow($page, $person);
+
+    expect($row['editUrl'])->toBeNull()
+        ->and($row['options']['ban'])->toMatchArray(['available' => false, 'hint' => 'Administrators only']);
+
+    $page->call('askToSanction', 'ban', $person->id)->assertSet('sanction', null);
+
+    expect($person->fresh()->status)->toBe(UserStatus::Active);
 });
 
-it('allows admin to restore access via the restore table action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->banned()->create();
+it('moderates from the person\'s page too', function () {
+    $person = User::factory()->create();
 
-    $this->actingAs($admin);
+    Livewire::test(EditUser::class, ['record' => $person->id])
+        ->call('askToSanction', 'shadowban', $person->id)
+        ->call('confirmSanction');
 
-    Livewire::test(ListUsers::class)
-        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Appeal accepted.']);
-
-    expect($target->fresh()->status)->toBe(UserStatus::Active);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::RestoreUserAccess->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-    ]);
-});
-
-it('allows admin to restore a limited user via the restore table action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->limited()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Limit lifted.']);
-
-    expect($target->fresh()->status)->toBe(UserStatus::Active);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::RestoreUserAccess->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-    ]);
-});
-
-it('allows admin to restore a shadowbanned user via the restore table action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->create(['status' => UserStatus::Shadowbanned]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->callTableAction('restoreAccess', $target, data: ['reason' => 'Appeal accepted.']);
-
-    expect($target->fresh()->status)->toBe(UserStatus::Active);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::RestoreUserAccess->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-    ]);
-});
-
-it('hides the restore access action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $target = User::factory()->banned()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('restoreAccess', $target);
-});
-
-it('hides the restore access action for active users', function () {
-    $admin = User::factory()->admin()->create();
-    $active = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('restoreAccess', $active);
-});
-
-it('hides the unban action for the acting admin themselves', function () {
-    // Defence in depth: admins cannot be banned via normal flow, but if
-    // schema drift puts one in a banned state the self-guard must still
-    // prevent the action from rendering. The Banned status here is what
-    // exposes the self-guard — otherwise the status branch would hide
-    // the action for unrelated reasons and the assertion would pass
-    // spuriously.
-    $admin = User::factory()->admin()->create(['status' => UserStatus::Banned]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('restoreAccess', $admin);
-});
-
-it('hides the unban action for admin targets', function () {
-    $admin = User::factory()->admin()->create();
-    // Same defence-in-depth: another admin in a banned state must still
-    // not be unbannable through this resource.
-    $adminTarget = User::factory()->admin()->create(['status' => UserStatus::Banned]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('restoreAccess', $adminTarget);
-});
-
-it('allows admin to mark a user trusted via the mark trusted action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->create([
-        'status' => UserStatus::Active,
-        'trust_level' => 0,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->callTableAction('markTrusted', $target, data: ['reason' => 'Reliable contributor.']);
-
-    $fresh = $target->fresh();
-    expect($fresh->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL);
-    expect($fresh->status)->toBe(UserStatus::Active);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::MarkUserTrusted->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-        'reason' => 'Reliable contributor.',
-    ]);
-});
-
-it('hides the mark trusted action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('markTrusted', $target);
-});
-
-it('hides the mark trusted action for admin or moderator targets', function () {
-    $admin = User::factory()->admin()->create();
-    $otherMod = User::factory()->moderator()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('markTrusted', $otherMod);
-});
-
-it('hides the mark trusted action for already trusted users', function () {
-    $admin = User::factory()->admin()->create();
-    $trusted = User::factory()->trusted()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('markTrusted', $trusted);
-});
-
-it('allows admin to shadowban a user via the shadowban table action', function () {
-    $admin = User::factory()->admin()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->callTableAction('shadowban', $target, data: ['reason' => 'Suspicious behavior.']);
-
-    expect($target->fresh()->status)->toBe(UserStatus::Shadowbanned);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'moderator_id' => $admin->id,
-        'action' => ModerationActionType::ShadowbanUser->value,
-        'target_type' => User::class,
-        'target_id' => $target->id,
-    ]);
-});
-
-it('hides the shadowban action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $target = User::factory()->create(['status' => UserStatus::Active]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('shadowban', $target);
-});
-
-it('hides the shadowban action for admin targets', function () {
-    $admin = User::factory()->admin()->create();
-    $otherAdmin = User::factory()->admin()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('shadowban', $otherAdmin);
-});
-
-it('hides the shadowban action for the acting admin themselves', function () {
-    $admin = User::factory()->admin()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('shadowban', $admin);
-});
-
-it('hides the shadowban action for already banned or shadowbanned users', function () {
-    $admin = User::factory()->admin()->create();
-    $shadowbanned = User::factory()->create(['status' => UserStatus::Shadowbanned]);
-    $banned = User::factory()->banned()->create();
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListUsers::class)
-        ->assertTableActionHidden('shadowban', $shadowbanned)
-        ->assertTableActionHidden('shadowban', $banned);
+    expect($person->fresh()->status)->toBe(UserStatus::Shadowbanned);
 });

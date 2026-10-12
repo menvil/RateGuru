@@ -14,6 +14,7 @@ use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
+use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
@@ -98,6 +99,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => view('filament.pages.reports.topbar')->render(),
                 scopes: ListReports::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save changes', null, 'discard-user', 'save-user'),
+                scopes: EditUser::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

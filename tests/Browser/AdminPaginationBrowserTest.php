@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\MediaAuditIssue;
+use App\Models\MediaAuditRun;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
@@ -24,11 +26,11 @@ function perPageSelect(mixed $page): array
 
 it('draws the records-per-page chooser without a frame or a focus ring, when clicked and after a value is picked', function () {
     actingAs(User::factory()->admin()->create());
-    User::factory()->count(30)->create();
+    MediaAuditIssue::factory()->count(30)->for(MediaAuditRun::factory(), 'run')->create();
     $select = '.fi-pagination-records-per-page-select:not(.fi-compact) select';
 
     // A list still drawn by Filament's table, whose pagination this styles.
-    $page = resizeAndSettle(visit('/admin/users'), 1440, 900);
+    $page = resizeAndSettle(visit('/admin/media-diagnostics'), 1440, 900);
     $page->click($select);
 
     // A mouse click is what puts the ring on a select — it matches

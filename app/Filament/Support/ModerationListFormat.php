@@ -2,12 +2,16 @@
 
 namespace App\Filament\Support;
 
+use App\Actions\Moderation\MarkUserTrustedAction;
+use App\Enums\UserStatus;
+use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Str;
 
 /**
- * How the moderation lists — Posts and Comments — say when something
- * happened, how long it has waited and whose initials an avatar shows.
+ * How the moderation screens — Posts, Comments, Reports and Users — say when
+ * something happened, how long it has waited, whose initials an avatar
+ * shows, and where a person stands.
  */
 final class ModerationListFormat
 {
@@ -32,6 +36,29 @@ final class ModerationListFormat
             $minutes < 1440 => intdiv($minutes, 60).' h '.($minutes % 60).' min',
             default => intdiv($minutes, 1440).' d '.intdiv($minutes % 1440, 60).' h',
         };
+    }
+
+    /**
+     * A person's lifecycle status as its badge shows it (STS-01): the live
+     * dot on Active only.
+     *
+     * @return array{label: string, tone: string, dot: bool}
+     */
+    public static function personStatus(User $person): array
+    {
+        return match ($person->status) {
+            UserStatus::Limited => ['label' => 'Limited', 'tone' => 'warning', 'dot' => false],
+            UserStatus::Banned => ['label' => 'Banned', 'tone' => 'danger', 'dot' => false],
+            UserStatus::Shadowbanned => ['label' => 'Shadowbanned', 'tone' => 'neutral', 'dot' => false],
+            UserStatus::Deleted => ['label' => 'Deleted', 'tone' => 'outline', 'dot' => false],
+            default => ['label' => 'Active', 'tone' => 'success', 'dot' => true],
+        };
+    }
+
+    /** Whether a person is trusted: at or above the trusted level their posts can publish at once. */
+    public static function trust(User $person): string
+    {
+        return (int) $person->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL ? 'Trusted' : 'Not trusted';
     }
 
     /** The first two letters of a name, for an avatar: “luna.the.husky” is LU. */
