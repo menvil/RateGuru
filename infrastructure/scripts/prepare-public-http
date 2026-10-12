@@ -57,6 +57,14 @@
 # asked, on 127.0.0.1 and [::1]: the public hostnames answer as above, and the
 # MX host names and an unlisted name answer exactly as they did before.
 #
+# A host may run with IPv6 deliberately disabled: net.ipv6.conf.lo.disable_ipv6=1
+# and no ::1 on lo. Nothing can answer on [::1] there, so its probes — and only
+# they — are skipped, saying so; 127.0.0.1 stays required, and so does every
+# check of the configuration, the [::]:80 listeners and default_server
+# included. When IPv6 is up on loopback, [::1] must answer like 127.0.0.1. When
+# its state cannot be read, or reads inconsistently, it is never taken for
+# disabled: the run refuses.
+#
 # OWNERSHIP. This script owns the public site in two states only —
 # not-prepared and http-acme-ready — and only as its exact render: a regular
 # file, root:root 0644, byte for byte what it renders, and the link to it. The
@@ -84,7 +92,7 @@
 #
 # Every run whose mode and target were understood ends with exactly one line
 # RATEGURU_PUBLIC_HTTP_RESULT={target, mode, status, state, site, hostnames,
-# lifecycle, changed, reloaded, rolled_back}; status is pass, fail or critical,
+# lifecycle, changed, reloaded, rolled_back, ipv6_loopback}; status is pass, fail or critical,
 # and state not-prepared, http-acme-ready, drift (its own pieces incomplete),
 # foreign (something at its paths it does not own) or unknown.
 #
@@ -152,7 +160,14 @@ UNAVAILABLE_BODY="Service Unavailable"
 
 # The two sockets the public site listens on.
 PUBLIC_SOCKETS=("*:80" "[::]:80")
-PROBE_ADDRESSES=("127.0.0.1" "[::1]")
+
+# The loopback addresses Nginx's answers are asked on: 127.0.0.1 always, and
+# [::1] when IPv6 is up on loopback — decided by report_probe_addresses.
+PROBE_ADDRESSES=("127.0.0.1")
+
+# Where the kernel says whether IPv6 is up on loopback.
+IPV6_LO_DISABLE_FILE="/proc/sys/net/ipv6/conf/lo/disable_ipv6"
+IPV6_ADDRESSES_FILE="/proc/net/if_inet6"
 
 # --- State ----------------------------------------------------------------------
 
@@ -177,6 +192,8 @@ HOST_LOCK_FD=""
 RESULT_READY=false
 RESULT_PRINTED=false
 HOST_STATE="unknown"
+# available, disabled or unknown, once report_probe_addresses has read it.
+IPV6_LOOPBACK=""
 CHANGED=false
 RELOADED=false
 ROLLED_BACK=false
@@ -251,11 +268,13 @@ result_line() {
         --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
         --arg state "${HOST_STATE}" --arg site "${PUBLIC_SITE}" --argjson hostnames "${hostnames}" \
         --arg lifecycle "${TARGET_LIFECYCLE}" --argjson changed "${CHANGED}" \
-        --argjson reloaded "${RELOADED}" --argjson rolled_back "${ROLLED_BACK}" '
+        --argjson reloaded "${RELOADED}" --argjson rolled_back "${ROLLED_BACK}" \
+        --arg ipv6_loopback "${IPV6_LOOPBACK}" '
         {target: $target, mode: $mode, status: $status, state: $state,
          site: (if $site == "" then null else $site end), hostnames: $hostnames,
          lifecycle: (if $lifecycle == "" then null else $lifecycle end),
-         changed: $changed, reloaded: $reloaded, rolled_back: $rolled_back}' \
+         changed: $changed, reloaded: $reloaded, rolled_back: $rolled_back,
+         ipv6_loopback: (if $ipv6_loopback == "" then null else $ipv6_loopback end)}' \
         | sed 's/^/RATEGURU_PUBLIC_HTTP_RESULT=/'
 }
 
@@ -1017,6 +1036,66 @@ report_nginx() {
     done
 }
 
+# ipv6_loopback_state — available, disabled, or unknown|WHY: what the kernel
+# says about IPv6 on loopback, read from /proc and nothing else.
+#
+# Disabled is both at once: net.ipv6.conf.lo.disable_ipv6=1 and no ::1 on lo —
+# a deliberate choice under which nothing can answer on [::1]. Anything else,
+# a file that cannot be read included, is never taken for disabled.
+ipv6_loopback_state() {
+    local flag_file addresses flag has_loopback=false
+    flag_file="$(physical "${IPV6_LO_DISABLE_FILE}")"
+    addresses="$(physical "${IPV6_ADDRESSES_FILE}")"
+
+    if [[ ! -r "${flag_file}" ]]; then
+        printf 'unknown|%s cannot be read\n' "${IPV6_LO_DISABLE_FILE}"
+        return 0
+    fi
+    if [[ ! -r "${addresses}" ]]; then
+        printf 'unknown|%s cannot be read\n' "${IPV6_ADDRESSES_FILE}"
+        return 0
+    fi
+
+    flag="$(tr -d '[:space:]' <"${flag_file}")"
+    if awk '$1 == "00000000000000000000000000000001" && $6 == "lo" { found = 1 } END { exit !found }' "${addresses}"; then
+        has_loopback=true
+    fi
+
+    case "${flag}:${has_loopback}" in
+        0:true)  printf 'available\n' ;;
+        1:false) printf 'disabled\n' ;;
+        0:false) printf 'unknown|IPv6 is enabled on loopback (disable_ipv6=0), yet ::1 is not on lo\n' ;;
+        1:true)  printf 'unknown|IPv6 is disabled on loopback (disable_ipv6=1), yet ::1 is still on lo\n' ;;
+        *)       printf 'unknown|%s reads "%s"\n' "${IPV6_LO_DISABLE_FILE}" "${flag}" ;;
+    esac
+}
+
+# report_probe_addresses — which loopback addresses Nginx's answers are asked
+# on. 127.0.0.1 always; [::1] when IPv6 is up there, and when it is disabled,
+# a SKIP that says so. An unknown state refuses rather than skip.
+report_probe_addresses() {
+    local state
+    state="$(ipv6_loopback_state)"
+    PROBE_ADDRESSES=("127.0.0.1")
+
+    case "${state}" in
+        available)
+            IPV6_LOOPBACK=available
+            PROBE_ADDRESSES+=("[::1]")
+            item PASS "probes:loopback" "127.0.0.1 and [::1]: IPv6 is up on loopback, so both must answer"
+            ;;
+        disabled)
+            IPV6_LOOPBACK=disabled
+            item PASS "probes:loopback" "127.0.0.1, which must answer"
+            printf '  %-8s %-44s %s\n' SKIP "probes:[::1]" "IPv6 is disabled on loopback (net.ipv6.conf.lo.disable_ipv6=1, no ::1): nothing can answer there, so its probes are skipped. The [::]:80 listeners, default_server and every routing check stay required"
+            ;;
+        *)
+            IPV6_LOOPBACK=unknown
+            item FAIL "probes:loopback" "${state#unknown|} — whether [::1] must answer cannot be told, and IPv6 is never assumed disabled"
+            ;;
+    esac
+}
+
 report_public_paths() {
     local state line
 
@@ -1100,6 +1179,7 @@ report_internal_site() {
 preflight() {
     report_target
     report_nginx
+    report_probe_addresses
 
     section "PUBLIC SITE"
     report_public_paths
@@ -1151,7 +1231,7 @@ report_plan() {
                 || printf '  %-8s %s\n' LINK "${PUBLIC_LINK} -> ${PUBLIC_FILE}"
             printf '  %-8s %s\n' TEST "nginx -t, and the candidate's routing judged again before any reload"
             printf '  %-8s %s\n' RELOAD "systemctl reload nginx — never a restart or a stop"
-            printf '  %-8s %s\n' PROVE "the public hostnames answer the 503 and the ACME webroot; every MX host and unlisted name answers as before"
+            printf '  %-8s %s\n' PROVE "on ${PROBE_ADDRESSES[*]}: the public hostnames answer the 503 and the ACME webroot; every MX host and unlisted name answers as before"
             ;;
     esac
     printf '  %-8s %s\n' NEVER "a certificate, a TLS listener, a redirect, the internal site, another site, DNS, the mail gateway or the lifecycle"
@@ -1429,6 +1509,7 @@ run_rollback() {
 
     report_target
     report_nginx
+    report_probe_addresses
     section "PUBLIC SITE"
     report_public_paths
 

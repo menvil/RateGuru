@@ -353,6 +353,7 @@ runs:
           and (.hostnames | type == "array" and all(type == "string"))
           and (.lifecycle == null or (.lifecycle | type == "string"))
           and ([.changed, .reloaded, .rolled_back] | all(type == "boolean"))
+          and (.ipv6_loopback == null or (.ipv6_loopback | IN("available", "disabled", "unknown")))
           and (.status != "pass"
                or ($mode == "apply" and .state == "http-acme-ready" and .lifecycle == "planned" and (.rolled_back | not))
                or ($mode == "rollback" and .state == "not-prepared" and (.rolled_back | not))
@@ -378,6 +379,7 @@ runs:
             "| Public hostnames | \(if (.hostnames | length) > 0 then (.hostnames | join(", ")) else "unknown" end) |",
             "| State | **\(.state)** |",
             "| Target lifecycle | \(.lifecycle // "unknown") |",
+            "| Answers asked on | \(if .ipv6_loopback == "available" then "127.0.0.1 and [::1]" elif .ipv6_loopback == "disabled" then "127.0.0.1 — IPv6 is disabled on loopback, so [::1] is skipped" elif .ipv6_loopback == "unknown" then "refused: IPv6 on loopback could not be determined" else "not reached" end) |",
             "| Changed by this run | \(.changed | yesno) |",
             "| Nginx reloaded | \(.reloaded | yesno) |",
             "| Put back to the previous state | \(.rolled_back | yesno) |",

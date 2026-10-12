@@ -11743,6 +11743,17 @@ function publicHttpStubs(): array
             done
             printf 'curl %s %s\n' "${host}" "${url}" >> "${STUB_LOG}/reads.log"
             [[ -e "${STUB_TOGGLES}/curl-down" ]] && exit 7
+            # Each loopback address answers only while it is up: [::1] not while
+            # IPv6 is disabled on lo, as on a host that disables it.
+            case "${url}" in
+                http://\[::1\]*)
+                    [[ -e "${STUB_TOGGLES}/ipv6-unreachable" ]] && { echo "curl: (7) Failed to connect to ::1 port 80: Connection refused" >&2; exit 7; }
+                    [[ "$(cat "${STUB_FS}/proc/sys/net/ipv6/conf/lo/disable_ipv6" 2>/dev/null)" == 1 ]] && { echo "curl: (7) Failed to connect to ::1 port 80: Network is unreachable" >&2; exit 7; }
+                    ;;
+                http://127.0.0.1*)
+                    [[ -e "${STUB_TOGGLES}/ipv4-unreachable" ]] && { echo "curl: (7) Failed to connect to 127.0.0.1 port 80: Connection refused" >&2; exit 7; }
+                    ;;
+            esac
             rest="${url#http://}"
             path="/${rest#*/}"
             webroot="${STUB_FS}/var/www/html"
@@ -11784,6 +11795,7 @@ function publicHttpStubs(): array
  * A simulated production host, with OPTIONS:
  *   sites       name => content, replacing the sites-enabled the host carries
  *   registry    the installed registry's JSON (default: the committed one)
+ *   ipv6        IPv6 on loopback, as publicHttpIpv6() lays it out (default: available)
  *
  * @return array{scratch: string, fs: string, state: string, log: string, toggles: string, bin: string, run: string, env: array<string, string>}
  */
@@ -11792,7 +11804,7 @@ function publicHttpHost(array $options = []): array
     $scratch = makeScratchDir('rateguru-public-http', ['', '/fs', '/state', '/log', '/toggles', '/bin', '/run', '/tmp']);
     $fs = $scratch.'/fs';
 
-    foreach (['/etc/nginx/sites-available', '/etc/nginx/sites-enabled', '/etc/nginx/conf.d', '/etc/nginx/snippets', '/var/www/html'] as $dir) {
+    foreach (['/etc/nginx/sites-available', '/etc/nginx/sites-enabled', '/etc/nginx/conf.d', '/etc/nginx/snippets', '/var/www/html', '/proc/sys/net/ipv6/conf/lo', '/proc/net'] as $dir) {
         mkdir($fs.$dir, 0o755, true);
     }
 
@@ -11821,6 +11833,7 @@ function publicHttpHost(array $options = []): array
     }
 
     file_put_contents($scratch.'/installed-registry.json', $options['registry'] ?? File::get(base_path('infrastructure/config/deployment-targets.json')));
+    publicHttpIpv6(['fs' => $fs], $options['ipv6'] ?? 'available');
     foreach (['mutations.log', 'reads.log'] as $log) {
         file_put_contents($scratch.'/log/'.$log, '');
     }
@@ -11903,6 +11916,37 @@ function publicHttpResetLogs(array $host): void
 {
     foreach (['mutations.log', 'reads.log'] as $name) {
         file_put_contents($host['log'].'/'.$name, '');
+    }
+}
+
+/**
+ * IPv6 on HOST's loopback, as the kernel reports it in /proc:
+ *   available                 disable_ipv6=0, ::1 on lo
+ *   disabled                  disable_ipv6=1, no ::1 — a host that turns IPv6 off
+ *   enabled-without-address   disable_ipv6=0, no ::1
+ *   disabled-with-address     disable_ipv6=1, ::1 still on lo
+ *   unreadable                neither file there
+ */
+function publicHttpIpv6(array $host, string $state): void
+{
+    $flag = $host['fs'].'/proc/sys/net/ipv6/conf/lo/disable_ipv6';
+    $addresses = $host['fs'].'/proc/net/if_inet6';
+    $loopback = "00000000000000000000000000000001 01 80 10 80       lo\n";
+    $other = "fe80000000000000020c29fffe8b0c45 02 40 20 80     eth0\n";
+
+    [$disable, $list] = match ($state) {
+        'available' => ['0', $loopback.$other],
+        'disabled' => ['1', ''],
+        'enabled-without-address' => ['0', $other],
+        'disabled-with-address' => ['1', $loopback],
+        'unreadable' => [null, null],
+    };
+
+    @unlink($flag);
+    @unlink($addresses);
+    if ($disable !== null) {
+        file_put_contents($flag, $disable."\n");
+        file_put_contents($addresses, $list);
     }
 }
 
