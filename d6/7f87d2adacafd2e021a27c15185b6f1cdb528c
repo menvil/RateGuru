@@ -1,0 +1,17 @@
+tests/Feature/Docs/TranslationEngineDocsTest.php
+  ai_agent 113-114
+docs/design/admin/migration-plan.md
+  ai_agent 104,157-175
+docs/architecture/translation-engine.md
+  ai_agent 187,233-243
+docs/design/admin/design-contract.md
+  ai_agent 167,188,209,327-330,352,390-392,406-409,470-471,703-775,778,829-836,865
+tests/Feature/Docs/AdminDesignDocsTest.php
+  ai_agent 111,114,159,165,221,225,231-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d67f87d2adacafd2e021a27c15185b6f1cdb528c",
+  "prompts": {}
+}

@@ -1,0 +1,87 @@
+app/Filament/Support/AdminShellNavigation.php
+  s_7d2d8843838027::t_ecf5d45855bed7 9,53
+app/Filament/Pages/AdminUiKit.php
+  s_7d2d8843838027::t_fa3e0fa0504694 547,648-650,653-654,657,660,662-665
+resources/views/components/admin/ui/combobox.blade.php
+  s_7d2d8843838027::t_de6b5c77f1aadb 18-20,52-53,56-57,155-157,163-167,170-172,231-233,237
+  s_7d2d8843838027::t_80fda13b3ee100 158-162
+  s_7d2d8843838027::t_188d2ad2878629 173
+resources/views/components/admin/ui/pagination.blade.php
+  s_7d2d8843838027::t_d7fbacd7cca251 1-30,33-34,36-41,47-71,77-79
+  s_7d2d8843838027::t_4b99ca3dc6f0ba 31-32,35
+  s_7d2d8843838027::t_9230815ff9ef18 42-46,72-76
+app/Filament/Pages/TranslationAiPage.php
+  s_7d2d8843838027::t_b836262eb307e3 1-86,88-121
+  s_7d2d8843838027::t_bebee7c82757b7 87
+tests/Browser/AdminTranslationAiBrowserTest.php
+  s_7d2d8843838027::t_716e8e97014979 1-5,8-9,17-36,38-59,70-71,94,279
+  s_7d2d8843838027::t_bba1ae6f1ebab8 6-7,10-16,60-69,72-93,95-135,137-251,253,258-266,270-278
+  s_7d2d8843838027::t_fc31ba7eab396b 136,252,254-257,267-269
+tests/Feature/Admin/AdminShellTest.php
+  s_7d2d8843838027::t_16b401a4494148 7,42,266,283
+  s_7d2d8843838027::t_b444cc869819ee 174
+resources/css/filament/admin/components.css
+  s_7d2d8843838027::t_615e80c2396a42 1650-1669,4339
+  s_7d2d8843838027::t_62928c8a11d472 1670-1683,1831-1833,3912-3921,3923-3924,3928-3939,3941-4007,4009,4012-4305,4315-4338,4340-4360,4362-4600,4605
+  s_7d2d8843838027::t_0346de1fda7cd7 3922,3925-3927,3940,4306-4312,4314,4361,4601-4604
+  s_7d2d8843838027::t_2120e1155a6cc4 4008,4010-4011
+  s_7d2d8843838027::t_7623d2dd631ce0 4313
+resources/views/filament/pages/admin-ui-kit/navigation.blade.php
+  s_7d2d8843838027::t_fa3e0fa0504694 129-133,135-144
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_7d2d8843838027::t_fa3e0fa0504694 130-138,140-167
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_7d2d8843838027::t_188d2ad2878629 256-265,268-276
+  s_7d2d8843838027::t_889f91d65aab80 266-267
+resources/views/livewire/admin/translation-ai-generations.blade.php
+  s_7d2d8843838027::t_3105a9c3f87241 1-75
+app/Livewire/Admin/TranslationAiGenerations.php
+  s_7d2d8843838027::t_1934987193ad3d 1-101
+resources/views/components/admin/ui/icon.blade.php
+  s_7d2d8843838027::t_ab3e76782179b8 60-73
+resources/views/filament/pages/translation-ai.blade.php
+  s_7d2d8843838027::t_aeb3bf9d9bcb12 1-31,33-34,36-41,43-68
+  s_7d2d8843838027::t_d3939bcadfd79d 32,35,42
+resources/views/filament/pages/translation-ai/configuration.blade.php
+  s_7d2d8843838027::t_e0e0ef850d8416 1-39
+resources/views/filament/pages/translation-ai/overview.blade.php
+  s_7d2d8843838027::t_23585e7bed45a1 1-148
+tests/Feature/Filament/TranslationAiPageTest.php
+  s_7d2d8843838027::t_8a8a4d0325b095 1-2,5-6,10,16,709
+  s_7d2d8843838027::t_fcbf1e4a7ce30c 3-4,7-9,11-15,17-80,82-171,173-354,356-466,471-490,492-584,588-601,603-708
+  s_7d2d8843838027::t_2e387a6441dfee 81,585,602
+  s_7d2d8843838027::t_89bd3250cac1d0 172,355,467-470,491,586-587
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_7d2d8843838027::t_2e387a6441dfee 3-4,500,516,531,534
+  s_7d2d8843838027::t_7e25aea68d054f 479-494,497-499,501-515,517-530,532-533,536
+  s_7d2d8843838027::t_80fda13b3ee100 495-496,535
+resources/views/filament/pages/translation-ai/calls.blade.php
+  s_7d2d8843838027::t_305cecd7395c7b 1-7,9-17,19-21,25-40,42-67,69-75,77-88,90,92-98,100-101
+  s_7d2d8843838027::t_7623d2dd631ce0 8,68,91
+  s_7d2d8843838027::t_d3939bcadfd79d 18,22-24,41,99
+  s_7d2d8843838027::t_89bd3250cac1d0 76
+  s_7d2d8843838027::t_791dba917c864d 89
+app/Filament/Support/TranslationAiDiagnostics.php
+  s_7d2d8843838027::t_d112fe0fe8ad15 1-116,118,120-123,125-289,291-441,443-488,490-504,506-521,523-676,682-685,691-725
+  s_7d2d8843838027::t_d3939bcadfd79d 117,119,124
+  s_7d2d8843838027::t_66633f07198e0f 290,505,522
+  s_7d2d8843838027::t_16b401a4494148 442
+  s_7d2d8843838027::t_2e2d5fdcd4e7a6 489
+  s_7d2d8843838027::t_0346de1fda7cd7 677-681,686-690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7d6c7eca38fda74ce6275eccd3da307c7c4ddcf6",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
