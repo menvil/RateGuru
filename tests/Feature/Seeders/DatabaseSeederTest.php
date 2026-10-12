@@ -29,6 +29,56 @@ beforeEach(function () {
     Storage::fake('public');
 });
 
+/*
+ * The votes the seed casts on one demo post, written out: which way each
+ * voter votes and which option they pick in each rating group follows from
+ * their place among the voters, so a seed that wrote the wrong vote or
+ * option, or left a changed one alone on a rerun, no longer matches.
+ */
+const SAMPLE_POST_DEMO_VOTES = [
+    'post votes' => [
+        'admin@rateguru.test' => 'up',
+        'alice@rateguru.test' => 'up',
+        'carla@rateguru.test' => 'up',
+        'moderator@rateguru.test' => 'down',
+        'trusted@rateguru.test' => 'up',
+    ],
+    'rating votes' => [
+        'admin@rateguru.test attribute' => 'attribute_b',
+        'admin@rateguru.test type' => 'type_a',
+        'alice@rateguru.test attribute' => 'attribute_c',
+        'alice@rateguru.test type' => 'type_b',
+        'carla@rateguru.test attribute' => 'attribute_a',
+        'carla@rateguru.test type' => 'type_a',
+        'moderator@rateguru.test attribute' => 'attribute_b',
+        'moderator@rateguru.test type' => 'type_b',
+        'trusted@rateguru.test attribute' => 'attribute_c',
+        'trusted@rateguru.test type' => 'type_a',
+    ],
+];
+
+/**
+ * The votes on the seeded post with this title, in the shape of
+ * SAMPLE_POST_DEMO_VOTES.
+ *
+ * @return array{'post votes': array<string, string>, 'rating votes': array<string, string>}
+ */
+function seededVotesOn(string $title): array
+{
+    $post = Post::query()->where('title', $title)->sole();
+
+    return [
+        'post votes' => PostVote::query()->whereBelongsTo($post)->with('user')->get()
+            ->mapWithKeys(fn (PostVote $vote): array => [$vote->user->email => $vote->type->value])
+            ->sortKeys()
+            ->all(),
+        'rating votes' => RatingVote::query()->whereBelongsTo($post)->with(['user', 'group', 'option'])->get()
+            ->mapWithKeys(fn (RatingVote $vote): array => ["{$vote->user->email} {$vote->group->key}" => $vote->option->key])
+            ->sortKeys()
+            ->all(),
+    ];
+}
+
 /**
  * Every stored counter on a seeded post or comment that disagrees with the
  * rows it counts, keyed by what it belongs to. Empty when they all agree.
@@ -128,8 +178,7 @@ it('seeds comments, votes and reports, and post and comment counters that match 
         ->and(Comment::query()->doesntHave('user')->exists())->toBeFalse()
         ->and(Comment::query()->pluck('body')->contains(fn (string $body): bool => str_contains(strtolower($body), 'plating')))->toBeFalse();
 
-    expect(PostVote::query()->exists())->toBeTrue()
-        ->and(RatingVote::query()->exists())->toBeTrue()
+    expect(seededVotesOn('Demo: Sample Post 02'))->toBe(SAMPLE_POST_DEMO_VOTES)
         ->and(Post::query()->where('status', PostStatus::Published)->where('hot_score', '>', 0)->exists())->toBeTrue();
 
     expect(Report::query()->count())->toBeGreaterThanOrEqual(4)
@@ -139,7 +188,7 @@ it('seeds comments, votes and reports, and post and comment counters that match 
     expect(seededCounterMismatches())->toBe([]);
 });
 
-it('adds nothing and keeps its counters right when it runs again on a seeded database', function () {
+it('adds nothing, puts changed demo votes back and keeps its counters right when it runs again on a seeded database', function () {
     $rowCounts = fn (): array => collect(Schema::getTableListing(Schema::getCurrentSchemaListing(), schemaQualified: false))
         ->mapWithKeys(fn (string $table): array => [$table => DB::table($table)->count()])
         ->sortKeys()
@@ -148,8 +197,17 @@ it('adds nothing and keeps its counters right when it runs again on a seeded dat
     $this->seed(DatabaseSeeder::class);
     $afterFirstRun = $rowCounts();
 
+    // Someone trying the demo turns every vote on the post up and picks the
+    // first type option throughout.
+    $post = Post::query()->where('title', 'Demo: Sample Post 02')->sole();
+    $type = RatingGroup::query()->where('key', 'type')->sole();
+    PostVote::query()->whereBelongsTo($post)->update(['type' => VoteType::Up->value]);
+    RatingVote::query()->whereBelongsTo($post)->whereBelongsTo($type, 'group')
+        ->update(['rating_option_id' => $type->options()->where('key', 'type_a')->value('id')]);
+
     $this->seed(DatabaseSeeder::class);
 
     expect($rowCounts())->toBe($afterFirstRun)
+        ->and(seededVotesOn('Demo: Sample Post 02'))->toBe(SAMPLE_POST_DEMO_VOTES)
         ->and(seededCounterMismatches())->toBe([]);
 });
