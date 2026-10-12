@@ -15,6 +15,18 @@ LIVE POST ── author delete ──▶ SOFT-DELETED (restorable) ── retent
 Published ── moderator Hide ──▶ Hidden ── moderator Restore ──▶ Published
 ```
 
+## Creation
+
+A new post is **Published** at once when its author is trusted
+(`trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL`) and has confirmed
+their email address. Otherwise it is **Pending** until a moderator approves
+it. Every new account is trusted, so for a newcomer the confirmed email is
+what decides: an account registered with an address nobody has proved
+cannot publish straight into the feed. Moderators and admins need only the
+trust, since they could approve the post themselves. The decision is made
+in `CreatePostAction` on the locked author row, and the upload form tells
+the author which of the two happened.
+
 ## Author deletion vs moderation
 
 | | Author delete | Moderation hide |

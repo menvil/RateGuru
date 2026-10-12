@@ -6,6 +6,7 @@ use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
 use App\Enums\PostStatus;
+use App\Enums\UserRole;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
@@ -79,9 +80,15 @@ final class CreatePostAction
                     throw CannotCreatePostException::becauseUserIsNotAllowed();
                 }
 
-                $isTrusted = $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL;
-                $status = $isTrusted ? PostStatus::Published : PostStatus::Pending;
-                $publishedAt = $isTrusted ? now() : null;
+                // Published at once only for a trusted author who has also
+                // proved the email address is theirs: every new account is
+                // trusted, so trust alone would publish whatever an account
+                // registered with any address posts. Staff are exempt from the
+                // email half, since they could approve the post themselves.
+                $publishesAtOnce = $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
+                    && ($lockedActor->hasVerifiedEmail() || $lockedActor->role !== UserRole::User);
+                $status = $publishesAtOnce ? PostStatus::Published : PostStatus::Pending;
+                $publishedAt = $publishesAtOnce ? now() : null;
 
                 $imageAsset = $storedImage !== null
                     ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)

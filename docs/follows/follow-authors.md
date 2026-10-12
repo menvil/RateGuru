@@ -69,7 +69,7 @@ Loads all follow states for a set of authors with a single query. Safe for guest
 `FollowedAuthorPostedNotification` — database channel only.
 
 Triggered:
-- When a trusted user creates a post (published immediately via `CreatePostAction`)
+- When a post is published the moment it is created (`CreatePostAction`: a trusted author with a confirmed email, or staff)
 - When a moderator approves a post (via `ApprovePostAction`)
 
 Not triggered:
