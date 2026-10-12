@@ -52,7 +52,18 @@ server {
 
     server_name rateguru.staging.myprojects.pp.ua;
 
-    auth_basic "RateGuru staging";
+    # The bots that build link previews fetch a shared page and its image
+    # without credentials, so a password leaves every preview blank. They are
+    # let through by User-Agent. That is trivially spoofed, which opens staging
+    # to anyone who sends one; it holds test data only. Search engines are not
+    # on the list and still get the 401, so nothing here can be indexed.
+    set $rateguru_staging_auth "RateGuru staging";
+
+    if ($http_user_agent ~* "(facebookexternalhit|Facebot|Twitterbot|TelegramBot|Slackbot|Slack-ImgProxy|LinkedInBot|WhatsApp|Discordbot|redditbot|vkShare)") {
+        set $rateguru_staging_auth off;
+    }
+
+    auth_basic $rateguru_staging_auth;
     auth_basic_user_file /etc/nginx/rateguru-staging.htpasswd;
 
     root /home/www/rateguru/staging/current/public;
