@@ -19,6 +19,7 @@ use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\RepositoryTranslations;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -286,49 +287,48 @@ it('finds nothing for an id that names nothing the catalog lists', function (Clo
 // Limits -------------------------------------------------------------------------
 
 /**
- * The translation fields of a form, by state path within the form: the
- * maximum length each enforces and whether it is a textarea.
+ * The text fields of a form, by state path within the form: the maximum
+ * length each enforces and whether it is a textarea.
  *
  * @return array<string, array{0: ?int, 1: bool}>
  */
-function translationFieldsOf(Schema $form): array
+function formFieldLimitsOf(Schema $form): array
 {
     return collect($form->getFlatFields(withHidden: true))
-        ->filter(fn (Field $field, string $key): bool => str_contains($key, '_translations.') || str_starts_with($key, 'static_pages.'))
-        ->map(fn (Field $field): array => [$field->getMaxLength(), $field instanceof Textarea])
+        ->filter(fn (Field $field): bool => $field instanceof TextInput || $field instanceof Textarea)
+        ->map(fn (TextInput|Textarea $field): array => [$field->getMaxLength(), $field instanceof Textarea])
         ->all();
 }
 
-it('holds every unit to the limits the editors that still translate in place enforce', function () {
+it('holds every translation to the limits of the English field it translates', function () {
     ProjectSettings::factory()->create();
     $this->actingAs(User::factory()->admin()->create());
-    [$target] = twoTranslatedLocales();
     $fields = ProjectTranslationCatalog::FIELDS;
     $group = RatingGroup::factory()->create();
     $settingsPage = Livewire::test(ProjectSettingsPage::class)->instance();
     $groupPage = Livewire::test(EditRatingGroup::class, ['record' => $group->id])->instance();
     $optionsManager = Livewire::test(OptionsRelationManager::class, ['ownerRecord' => $group, 'pageClass' => EditRatingGroup::class])->instance();
 
-    $settings = translationFieldsOf($settingsPage->form(Schema::make($settingsPage)));
-    $category = translationFieldsOf(CategoryForm::configure(Schema::make($groupPage)));
-    $tag = translationFieldsOf(TagForm::configure(Schema::make($groupPage)));
-    $group = translationFieldsOf(RatingGroupForm::configure(Schema::make($groupPage)));
-    $option = translationFieldsOf($optionsManager->form(Schema::make($optionsManager)));
+    $settings = formFieldLimitsOf($settingsPage->form(Schema::make($settingsPage)));
+    $category = formFieldLimitsOf(CategoryForm::configure(Schema::make($groupPage)));
+    $tag = formFieldLimitsOf(TagForm::configure(Schema::make($groupPage)));
+    $group = formFieldLimitsOf(RatingGroupForm::configure(Schema::make($groupPage)));
+    $option = formFieldLimitsOf($optionsManager->form(Schema::make($optionsManager)));
 
     foreach ($fields['project_settings'] as $field => $limits) {
-        expect($settings["data.{$field}_translations.{$target}"] ?? $settings["{$field}_translations.{$target}"])->toBe($limits, $field);
+        expect($settings["data.{$field}"] ?? $settings[$field])->toBe($limits, $field);
     }
 
     foreach ($fields['static_pages'] as $field => $limits) {
-        expect($settings["data.static_pages.about.{$target}.{$field}"] ?? $settings["static_pages.about.{$target}.{$field}"])->toBe($limits, $field);
+        expect($settings["data.static_pages.about.en.{$field}"] ?? $settings["static_pages.about.en.{$field}"])->toBe($limits, $field);
     }
 
-    expect($category["name_translations.{$target}"])->toBe($fields['categories']['name'])
-        ->and($tag["name_translations.{$target}"])->toBe($fields['tags']['name'])
-        ->and($group["label_translations.{$target}"])->toBe($fields['rating_groups']['label'])
-        ->and($group["description_translations.{$target}"])->toBe($fields['rating_groups']['description'])
-        ->and($option["label_translations.{$target}"])->toBe($fields['rating_options']['label'])
-        ->and($option["description_translations.{$target}"])->toBe($fields['rating_options']['description']);
+    expect($category['name'])->toBe($fields['categories']['name'])
+        ->and($tag['name'])->toBe($fields['tags']['name'])
+        ->and($group['label'])->toBe($fields['rating_groups']['label'])
+        ->and($group['description'])->toBe($fields['rating_groups']['description'])
+        ->and($option['label'])->toBe($fields['rating_options']['label'])
+        ->and($option['description'])->toBe($fields['rating_options']['description']);
 });
 
 it('translates the same settings and page fields the repository ships', function () {

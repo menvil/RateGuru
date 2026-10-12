@@ -9,7 +9,7 @@ return [
         'defaults' => 'Defaults',
         'feature_flags' => 'Feature Flags',
         'static_pages' => 'Static pages',
-        'static_pages_description' => 'Edit the public page title and placeholder content for every supported language.',
+        'static_pages_description' => 'The title and content of each public page, in English.',
         'preset_status_title' => 'Installation preset',
         'preset_status_description' => 'Presets are applied once from the server with php artisan rateguru:setup.',
         'preset_status_label' => 'Status',

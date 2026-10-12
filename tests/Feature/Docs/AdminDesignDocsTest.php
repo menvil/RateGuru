@@ -38,7 +38,7 @@ it('names both reference files as the source of truth', function () {
         ->toContain('--rg-admin-*')
         ->toContain('x-admin.ui.*')
         ->toContain('/admin/dev/ui-kit')
-        ->toContain('Translation Center becomes the single admin editor for DB-owned translated content');
+        ->toContain('Translation Center is the single admin editor for DB-owned translated content');
 });
 
 it('plans the migration one vertical at a time, starting with localization', function () {
@@ -111,7 +111,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
     $phase5 = substr($plan, (int) strpos($plan, '### Phase 5+'), 500);
 
     expect($phase4)->toContain('**Status: done.**')
-        ->and($phase5)->toContain('**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is next.');
+        ->and($phase5)->toContain('**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is done.');
 
     expect($contract)
         ->toContain('**Translation Center** (production): `/admin/translation-center`')
@@ -137,7 +137,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain("A list's search is clearable");
 });
 
-it('splits AI suggestions into four steps, done but for 5D\'s budgets, limits and policies, and puts the cutover next', function () {
+it('splits AI suggestions into four steps, done but for 5D\'s budgets, limits and policies, and records the cutover as done', function () {
     $plan = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md'));
     $start = strpos($plan, '### Phase 5+');
     $end = strpos($plan, '### Then — freeze Admin UI Kit v1');
@@ -159,16 +159,16 @@ it('splits AI suggestions into four steps, done but for 5D\'s budgets, limits an
         '**5D.2 — Translation AI page. Status: done.**',
         '**Deferred: budgets, limits and provider policies**',
         '6. **Workflow** — review states, if the product needs them. **Status: deferred.**',
-        '7. **Translation cutover. Status: next.**',
+        '7. **Translation cutover. Status: done.**',
     ];
     $positions = array_map(fn (string $step): int|false => strpos($phase5, $step), $steps);
 
     expect($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all())
-        ->and(substr_count($phase5, 'Status: done.'))->toBe(5)
+        ->and(substr_count($phase5, 'Status: done.'))->toBe(6)
         ->and(substr_count($phase5, 'Status: in progress.'))->toBe(0)
         ->and(substr_count($phase5, 'Status: deferred.'))->toBe(1)
-        ->and(substr_count($phase5, 'Status: next.'))->toBe(1)
+        ->and(substr_count($phase5, 'Status: next.'))->toBe(0)
         ->and($phase5)->not->toContain('**Status: done.** — Phase 5')
         ->and($phase5)->toContain('docs/architecture/translation-engine.md');
 });
@@ -243,13 +243,14 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
         ->not->toContain('No page yet');
 });
 
-it('puts the translation cutover next, in one change, and the content screens first after it', function () {
+it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
     $order = ['| 1 | Categories and Tags |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
-        ->toContain('7. **Translation cutover. Status: next.** In one change, in the editors as they are')
+        ->toContain('7. **Translation cutover. Status: done.** In one change, in the editors as they are')
+        ->toContain('so one saved in Translation Center while the page was open is kept')
         ->toContain('No data moves: the stored translations stay where they are')
         ->toContain('with no note in their place')
         ->toContain('Translation Center keeps listing what visitors can see, as it does now')
@@ -294,4 +295,17 @@ it('records the Languages drawer\'s bridge to the editors as closed, with Transl
         ->toContain('Translate, which opens Translation Center on that item')
         ->toContain('Catalog issues are the release\'s to fix: nothing sends them to Translation Center')
         ->not->toContain('which is not built yet');
+});
+
+it('records Translation Center as the single editor of translations, the content editors editing English only', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+
+    expect($contract)
+        ->toContain('**Invariant.** Translation Center is the single admin editor for DB-owned translated content.')
+        ->toContain('edit their English reference content only — never an editor for every language, and no note where one was')
+        ->toContain('`SaveProjectSettingsAction` refuses translations')
+        ->toContain('the translations of inactive and archived content are kept, edited nowhere while it is off')
+        ->not->toContain('**Translation editors in place.**')
+        ->not->toContain('Until that cutover the existing translation forms')
+        ->not->toContain('keep doing so until the translation cutover');
 });

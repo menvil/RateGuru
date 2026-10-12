@@ -273,10 +273,9 @@ These are the current migration state, not changes to the target design:
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation editors in place.** Translation Center edits every unit of project content, but until the
-  translation cutover (Phase 7 of the [migration plan](migration-plan.md)) the Categories, Tags, Rating groups
-  and options, Project settings and Static pages editors keep their translation tabs. Both write the same stored
-  value, so either one shows what the other saved; there is no second copy to keep in step.
+- **Translation status on the content editors.** The Categories, Tags, Rating groups and options, Project
+  settings and Static pages editors edit English only and are still Filament's; the translation status the
+  prototype shows on them (locale chips, missing counts) arrives with their Admin v2 migration.
 
 ## Page anatomy
 
@@ -471,11 +470,13 @@ Localization
 └── Translation AI
 ```
 
-**Invariant.** Translation Center becomes the single admin editor for DB-owned translated content. After the
-translation cutover, Categories, Tags, Rating groups and options, Project settings and Static pages hold their
-English reference content plus a translation status and a link to Translation Center (“Translations are edited
-in Translation Center.”) — not an editor for every language. Until that cutover the existing translation forms
-stay exactly as they are.
+**Invariant.** Translation Center is the single admin editor for DB-owned translated content. Categories, Tags,
+Rating groups and options, Project settings and Static pages edit their English reference content only — never
+an editor for every language, and no note where one was. Their editors keep no copy of a translation, so saving
+one never changes or overwrites a translation (`SaveProjectSettingsAction` refuses translations, and takes a
+static page's English alone, keeping its other languages as stored). Translation Center lists what visitors can
+see: the translations of inactive and archived content are kept, edited nowhere while it is off, and come back
+with it.
 
 **Languages** (prototype):
 
@@ -681,8 +682,7 @@ settings (`manage-project-settings`), the boundary Languages uses.
   saving it lets the server's copy go. Discard and Discard generated let suggestions go on the server too; if
   the server cannot be told, the draft stays.
 - **Not in this step.** No review states and no translation history; source fingerprints exist only to keep a
-  generated suggestion from outliving the English it was made from, and go with it. The editors that translate in
-  place keep doing so until the translation cutover (Phase 7).
+  generated suggestion from outliving the English it was made from, and go with it.
 
 **Translation field states (DOM-01)** — they must never look alike:
 

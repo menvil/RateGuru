@@ -4,8 +4,6 @@ namespace App\Filament\Resources\Categories\Schemas;
 
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
@@ -43,21 +41,6 @@ class CategoryForm
                 Toggle::make('is_active')
                     ->label('Active')
                     ->default(true),
-                Section::make('Translations')
-                    ->schema([
-                        Tabs::make('Translations')
-                            ->tabs(array_map(
-                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
-                                    ->schema([
-                                        TextInput::make("name_translations.{$locale}")
-                                            ->label('Name')
-                                            ->maxLength(80),
-                                    ]),
-                                array_keys(config('locales.supported', [])),
-                                config('locales.supported', []),
-                            )),
-                    ])
-                    ->collapsible(),
             ]);
     }
 }

@@ -5,8 +5,6 @@ namespace App\Filament\Resources\Tags\Schemas;
 use App\Models\Tag;
 use App\Rules\UniqueEffectiveTagSlug;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
@@ -53,21 +51,6 @@ class TagForm
                         $record?->getKey(),
                     ))
                     ->helperText('Lowercase, URL-safe. Auto-generated from the name if left blank.'),
-                Section::make('Translations')
-                    ->schema([
-                        Tabs::make('Translations')
-                            ->tabs(array_map(
-                                fn (string $locale, array $info) => Tabs\Tab::make($info['native'])
-                                    ->schema([
-                                        TextInput::make("name_translations.{$locale}")
-                                            ->label('Name')
-                                            ->maxLength(80),
-                                    ]),
-                                array_keys(config('locales.supported', [])),
-                                config('locales.supported', []),
-                            )),
-                    ])
-                    ->collapsible(),
             ]);
     }
 }
