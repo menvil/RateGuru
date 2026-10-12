@@ -1450,8 +1450,8 @@ it('documents the order: the receiver first, MX records only once it is active',
     expect($runbook)
         ->toContain('**No MX record is published before the receiver is installed, verified and activated.**')
         ->toContain('| Public inbound SMTP — committed request | **`enabled`** — a request, never the state of a host |')
-        ->toContain('| Public inbound SMTP — real host | **Disabled**: nothing listens on port 25 until the guarded activation has run |')
-        ->toContain('| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Not published**')
+        ->toContain('| Public inbound SMTP — real host | **Enabled** on `213.199.41.241:25`, `enabled-verified`, and reached from outside |')
+        ->toContain('| MX records for `tits.guru`, `bounce.tx.tits.guru`, `reply.tits.guru` | **Published** — `MX 10 mx1.tits.guru`, after public SMTP was active and verified')
         ->toContain('The envelope sender of every message sent today is `noreply@tits.guru`')
         ->toContain('`verify-mail-gateway` is never weakened to allow port 25 in general')
         // One Postfix: the queue is shared and never claimed isolated, and no second instance remains.
@@ -1520,23 +1520,23 @@ it('gives the operator the eleven steps from merge to acceptance, DNS only after
         ->toContain('**It changes no DNS record.** After it, check the published MX records');
 });
 
-it('records the inbound contract as completed and the receiver as implemented, not accepted', function () {
+it('records the inbound contract as completed and the receiver as production-accepted', function () {
     $roadmap = preg_replace('/\s+/', ' ', File::get(base_path('infrastructure/ROADMAP.md')));
 
     expect($roadmap)
         ->toContain('**8.4B.4.2 Production outbound activation — PRODUCTION-ACCEPTED 2026-10-08.**')
         ->toContain('Activate tits.guru outbound mail run `37813433328` SUCCESS')
         ->toContain('Verify production infrastructure run `37814215899` SUCCESS, `OUTBOUND READY: YES`')
-        ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — current.**')
+        ->toContain('**8.4B.5 Bounce reception, reply routing and the support mailbox — inbound SMTP production-accepted; the rest deferred until after the first launch.**')
         ->toContain('**8.4B.5.1 Inbound contract and DNS plan — COMPLETED.**')
-        ->toContain('**8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — IMPLEMENTED in repository, awaiting real-host activation and acceptance.**')
+        ->toContain('**8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — PRODUCTION-ACCEPTED 2026-10-12.**')
         ->toContain('8.4B.5.2 is not accepted until a message from outside is stored.')
         ->toContain('**8.4B.5.3 Bounce reception and correlation — planned.**')
         ->toContain('**8.4B.5.4 Reply routing and the support mailbox — planned.**')
         ->toContain('**8.4B.5.5 Real-host acceptance and recovery proof — planned.**')
         ->toContain('Inbound mail is not working until a message from outside has actually been received.')
         ->toContain('[`runbooks/mail-inbound.md`](runbooks/mail-inbound.md)')
-        ->not->toContain('8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — PRODUCTION-ACCEPTED')
+        ->not->toContain('8.4B.5.2 Inbound SMTP on the host Postfix and guarded activation — IMPLEMENTED in repository')
         ->not->toContain('Inbound mail — ACCEPTED');
 
     // Exactly five inbound slices: none added for the infrastructure alone.
