@@ -1,0 +1,21 @@
+tests/Browser/AdminTranslationAiBrowserTest.php
+  s_7d2d8843838027::t_1ecb114c7826ec 27,38
+tests/Feature/I18n/ProjectTranslationGenerationMonitorTest.php
+  s_7d2d8843838027::t_1ecb114c7826ec 36-38,42,49,57,59,63,70-71,75,78,82,85,91,93,129,132,135-136,145,150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6088ef34dcd01974e5131dc0ae70b85f4783e53b",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
