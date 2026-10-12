@@ -131,7 +131,8 @@ it('runs no public HTTP operation on a merge, a push or a schedule', function ()
 
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
         $source = File::get($path);
-        if (! str_contains($source, 'prepare-rateguru-public-http') && ! str_contains($source, 'prepare-public-http')) {
+        // The public HTTP site's own operation — not its HTTPS successor's.
+        if (preg_match('/prepare-(?:rateguru-)?public-http(?!s)/', executableSourceLines($source)) !== 1) {
             continue;
         }
 

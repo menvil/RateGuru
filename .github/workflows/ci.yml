@@ -1108,7 +1108,7 @@ jobs:
               `| SQLite compatibility | ${details(process.env.SQLITE_RESULT, `Unit + Feature passed · ${value('SQLITE_MIGRATIONS')} migrations · seed passed · rollback ${value('SQLITE_ROLLBACK')}`)} |`,
               `| MariaDB compatibility | ${details(process.env.MARIADB_RESULT, `Unit + Feature passed · ${value('MARIADB_MIGRATIONS')} migrations · seed passed · rollback ${value('MARIADB_ROLLBACK')}`)} |`,
               `| Mail on a real Postfix | ${details(process.env.MAIL_REAL_POSTFIX_RESULT, 'inbound and outbound together · network and mount namespaces of its own')} |`,
-              `| Public HTTP on a real Nginx | ${details(process.env.PUBLIC_HTTP_REAL_NGINX_RESULT, 'ACME webroot and 503 · the MX host route kept · network and mount namespaces of its own')} |`,
+              `| Public HTTP on a real Nginx | ${details(process.env.PUBLIC_HTTP_REAL_NGINX_RESULT, 'HTTP and HTTPS: ACME, 503, tls-ready, renewal · the MX host route kept · network and mount namespaces of its own')} |`,
               `| Dependencies | ${details(process.env.DEPENDENCY_AUDIT_RESULT, `Composer: ${value('COMPOSER_PACKAGES')} packages · ${value('COMPOSER_ADVISORIES')} advisories; npm: ${value('NPM_PACKAGES')} packages · ${value('NPM_VULNERABILITIES')} vulnerabilities (${value('NPM_HIGH')} high / ${value('NPM_CRITICAL')} critical)`)} |`,
               '',
               `[Open workflow run](${runUrl})`,

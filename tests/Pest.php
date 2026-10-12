@@ -551,6 +551,10 @@ function sourcedLibraryNames(): array
  * --verify from its bundle. The gateway's installer reads `mail-inbound` from
  * its bundle, as it reads `mail-routing`, once a host records inbound mail.
  *
+ * `prepare-public-https` takes that site on to HTTPS and, at GO LIVE, to the
+ * public. It runs only from the same kind of bundle, by its own workflows, and
+ * sources prepare-public-http from it.
+ *
  * `prepare-public-http`, the public HTTP site of a planned production target,
  * runs only from the trusted bundle its own workflows upload: host bootstrap
  * never runs it, and it reads `mail-inbound` from that bundle for the MX host
@@ -569,7 +573,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'prepare-public-https', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -8322,6 +8326,13 @@ function trustedToolingRefs(): array
         'prepare-tits-guru-public-http.yml' => 'main',
         'verify-tits-guru-public-http.yml' => 'main',
         'rollback-tits-guru-public-http.yml' => 'main',
+        // and over HTTPS: tls-ready, its verification and rollback, GO LIVE,
+        // and closing it to the public again.
+        'prepare-tits-guru-https.yml' => 'main',
+        'verify-tits-guru-https.yml' => 'main',
+        'rollback-tits-guru-https.yml' => 'main',
+        'go-live-tits-guru.yml' => 'main',
+        'close-tits-guru-public-site.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',
@@ -11714,6 +11725,10 @@ function publicHttpStubs(): array
                         echo "nginx: [emerg] the candidate is refused" >&2
                         exit 1
                     fi
+                    if [[ -e "${STUB_TOGGLES}/nginx-t-fail-with-https" ]] && grep -q 'listen 443 ssl;' "${fs}/etc/nginx/sites-available/rateguru-tits-guru-public" 2>/dev/null; then
+                        echo "nginx: [emerg] the HTTPS candidate is refused" >&2
+                        exit 1
+                    fi
                     if [[ -e "${STUB_TOGGLES}/nginx-t-fail-without-public" && ! -L "${fs}/etc/nginx/sites-enabled/rateguru-tits-guru-public" ]]; then
                         echo "nginx: [emerg] the configuration without the public site is refused" >&2
                         exit 1
@@ -11770,59 +11785,108 @@ function publicHttpStubs(): array
         // 503; every other name the default site, or a redirect for the MX host.
         'curl' => <<<'STUB'
             #!/bin/bash
-            out="" headers="" host="" url=""
+            out="/dev/null" headers="/dev/null" host="" url="" resolve="" insecure=false
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --output) out="$2"; shift 2 ;;
                     --dump-header) headers="$2"; shift 2 ;;
                     --header) host="${2#Host: }"; shift 2 ;;
-                    --write-out|--max-time|--noproxy) shift 2 ;;
+                    --resolve) resolve="$2"; shift 2 ;;
+                    --insecure) insecure=true; shift ;;
+                    --write-out|--max-time|--noproxy|--cacert) shift 2 ;;
                     --*) shift ;;
                     *) url="$1"; shift ;;
                 esac
             done
+            scheme="${url%%://*}"
+            rest="${url#*://}"
+            authority="${rest%%/*}"
+            path="/${rest#*/}"
+            [[ "${rest}" == */* ]] || path="/"
+            if [[ "${scheme}" == https ]]; then
+                host="${authority}"
+                address="${resolve#*:443:}"
+            else
+                address="${authority}"
+            fi
             printf 'curl %s %s\n' "${host}" "${url}" >> "${STUB_LOG}/reads.log"
             [[ -e "${STUB_TOGGLES}/curl-down" ]] && exit 7
             # Each loopback address answers only while it is up: [::1] not while
             # IPv6 is disabled on lo, as on a host that disables it.
-            case "${url}" in
-                http://\[::1\]*)
-                    [[ -e "${STUB_TOGGLES}/ipv6-unreachable" ]] && { echo "curl: (7) Failed to connect to ::1 port 80: Connection refused" >&2; exit 7; }
-                    [[ "$(cat "${STUB_FS}/proc/sys/net/ipv6/conf/lo/disable_ipv6" 2>/dev/null)" == 1 ]] && { echo "curl: (7) Failed to connect to ::1 port 80: Network is unreachable" >&2; exit 7; }
+            case "${address}" in
+                "[::1]")
+                    [[ -e "${STUB_TOGGLES}/ipv6-unreachable" ]] && { echo "curl: (7) Failed to connect to ::1: Connection refused" >&2; exit 7; }
+                    [[ "$(cat "${STUB_FS}/proc/sys/net/ipv6/conf/lo/disable_ipv6" 2>/dev/null)" == 1 ]] && { echo "curl: (7) Failed to connect to ::1: Network is unreachable" >&2; exit 7; }
                     ;;
-                http://127.0.0.1*)
-                    [[ -e "${STUB_TOGGLES}/ipv4-unreachable" ]] && { echo "curl: (7) Failed to connect to 127.0.0.1 port 80: Connection refused" >&2; exit 7; }
+                127.0.0.1)
+                    [[ -e "${STUB_TOGGLES}/ipv4-unreachable" ]] && { echo "curl: (7) Failed to connect to 127.0.0.1: Connection refused" >&2; exit 7; }
                     ;;
             esac
-            rest="${url#http://}"
-            path="/${rest#*/}"
             webroot="${STUB_FS}/var/www/html"
+            live="${STUB_STATE}/live-public"
             respond() {
                 printf 'HTTP/1.1 %s Stub\r\n' "$1" > "${headers}"
                 [[ -z "$2" ]] || printf 'Retry-After: %s\r\n' "$2" >> "${headers}"
                 [[ -z "$4" ]] || printf 'Location: %s\r\n' "$4" >> "${headers}"
+                [[ -z "${5:-}" ]] || printf 'Cache-Control: %s\r\n' "$5" >> "${headers}"
                 printf '\r\n' >> "${headers}"
                 printf '%s' "$3" > "${out}"
                 printf '%s' "$1"
             }
+            # The internal site: the application, through its PHP-FPM pool, once deployed.
+            if [[ "${host}" == *.internal ]]; then
+                if [[ -e "${STUB_TOGGLES}/app-down" ]]; then respond 502 "" "Bad Gateway"
+                elif [[ -f "${STUB_FS}/home/www/rateguru/production/tits-guru/current/public/index.php" ]]; then respond 200 "" "RateGuru"
+                else respond 404 "" "not found"; fi
+                exit 0
+            fi
             # During a reload's overlap the first connection reaches a new
             # worker, and every one after it an old worker.
-            live="${STUB_STATE}/live-public"
             if [[ -f "${STUB_STATE}/overlap-until" ]] && (( ${EPOCHREALTIME/./} < $(cat "${STUB_STATE}/overlap-until") )); then
                 if [[ -e "${STUB_STATE}/overlap-served" ]]; then live="${STUB_STATE}/stale-public"; else touch "${STUB_STATE}/overlap-served"; fi
             fi
             ours=false
-            if [[ -f "${live}" ]]; then
+            if [[ -f "${live}" ]] && { [[ "${scheme}" != https ]] || grep -q 'listen 443 ssl;' "${live}"; }; then
                 for name in $(sed -n 's/^ *server_name \(.*\);$/\1/p' "${live}"); do
                     [[ "${name}" != "${host}" ]] || ours=true
                 done
                 [[ ! -e "${STUB_TOGGLES}/public-takes-every-name" ]] || ours=true
+                [[ "${scheme}" != https || ! -e "${STUB_TOGGLES}/https-takes-every-name" ]] || ours=true
+            fi
+            # HTTPS: the public site with the certificate of its lineage — which a
+            # verifying client checks as a browser would — or the site that serves
+            # the name, or the default server.
+            if [[ "${scheme}" == https ]]; then
+                if [[ "${ours}" != true ]]; then
+                    case "${host}" in
+                        *.staging.myprojects.pp.ua) respond 401 "" "401 ${host}" ;;
+                        *) respond 401 "" "401 the default server" ;;
+                    esac
+                    exit 0
+                fi
+                if [[ "${insecure}" != true ]]; then
+                    card="$(grep -m 1 -o 'rateguru-test-certificate .*' "${STUB_FS}/etc/letsencrypt/live/${host}/fullchain.pem" 2>/dev/null || true)"
+                    field() { sed -n "s/.* $1=\([^ ]*\).*/\1/p" <<<" ${card}"; }
+                    if [[ -e "${STUB_TOGGLES}/https-untrusted" || -z "${card}" || "$(field trusted)" != yes || "$(field days)" -le 0 || ",$(field names)," != *",${host},"* ]]; then
+                        echo "curl: (60) SSL certificate problem" >&2
+                        exit 60
+                    fi
+                fi
+                if grep -q 'fastcgi_pass' "${live}"; then
+                    [[ -e "${STUB_TOGGLES}/app-down" ]] && { respond 502 "" "Bad Gateway"; exit 0; }
+                    respond 200 "" "RateGuru"
+                else
+                    respond 503 3600 $'Service Unavailable\n' "" no-store
+                fi
+                exit 0
             fi
             if [[ "${ours}" == true ]]; then
                 if [[ "${path}" =~ ^/\.well-known/acme-challenge/[A-Za-z0-9_-]+$ ]]; then
                     if [[ -f "${webroot}${path}" ]]; then respond 200 "" "$(cat "${webroot}${path}")"; else respond 404 "" "not found"; fi
                 elif [[ "${path}" == /.well-known/acme-challenge/* ]]; then
                     respond 404 "" "not found"
+                elif grep -q 'return 301 https://' "${live}"; then
+                    respond 301 "" "" "https://${host}${path}"
                 else
                     respond 503 3600 $'Service Unavailable\n'
                 fi
@@ -11877,6 +11941,10 @@ function publicHttpHost(array $options = []): array
     foreach (publicHttpStubs() as $name => $body) {
         writeExecutable($scratch.'/bin/'.$name, $body);
     }
+    // The certificate judge's openssl: the inbound mail TLS tests' own, which
+    // judges a test certificate by what it says of itself.
+    writeExecutable($scratch.'/bin/openssl', mailInboundStubs()['openssl']);
+    file_put_contents($scratch.'/trust.pem', "the trusted certificate authorities\n");
 
     file_put_contents($scratch.'/installed-registry.json', $options['registry'] ?? File::get(base_path('infrastructure/config/deployment-targets.json')));
     publicHttpIpv6(['fs' => $fs], $options['ipv6'] ?? 'available');
@@ -11912,6 +11980,9 @@ function publicHttpHost(array $options = []): array
             'RATEGURU_PUBLICHTTP_FILE_GROUP' => $group,
             'RATEGURU_PUBLICHTTP_PROBE_WAIT' => '1',
             'RATEGURU_PUBLICHTTP_RELOAD_OVERLAP' => '0',
+            'RATEGURU_PUBLICHTTPS_OPENSSL_BIN' => $scratch.'/bin/openssl',
+            'RATEGURU_PUBLICHTTPS_TRUST_STORE' => $scratch.'/trust.pem',
+            'RATEGURU_PUBLICHTTPS_HOOK_PATH' => (string) getenv('PATH'),
             'STUB_FS' => $fs,
             'STUB_STATE' => $scratch.'/state',
             'STUB_LOG' => $scratch.'/log',
@@ -12041,4 +12112,204 @@ function publicHttpInstalled(array $host): void
 function publicHttpCleanup(array $host): void
 {
     removeScratchDir($host['scratch']);
+}
+
+/*
+ * --- The public HTTPS site: tls-ready, and public-active at GO LIVE -----------
+ *
+ * The same simulated host, with Certbot's lineage of tits.guru laid out as
+ * Certbot lays it out (mailInboundCertbotLineage, its test certificates and
+ * openssl), Certbot's deploy hook directory beside the inbound mail
+ * listener's own hook, and — for GO LIVE — a deployed release and the target's
+ * PHP-FPM socket. Real Nginx and real certificates are proved by
+ * tests/Support/real-nginx/scenario.sh.
+ */
+
+/** The public site's renewal hook on the simulated host, and the inbound mail listener's. */
+const PUBLIC_HTTPS_HOOK = '/etc/letsencrypt/renewal-hooks/deploy/rateguru-public-https-tits-guru';
+const PUBLIC_HTTPS_MAIL_HOOK = '/etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls';
+
+/**
+ * Certbot's lineage of tits.guru on HOST: VERSION of the pair, the certificate
+ * CARD describes (mailInboundTestCertificate), its key unless KEY says
+ * otherwise, the renewal configuration through the webroot, Certbot's deploy
+ * hook directory, and the inbound mail listener's hook in it.
+ */
+function publicHttpsLineage(array $host, array $card = [], ?string $key = null, int $version = 1): void
+{
+    mailInboundCertbotLineage($host, $version, $card + ['names' => 'tits.guru'], $key, 'tits.guru');
+
+    $hooks = $host['fs'].'/etc/letsencrypt/renewal-hooks/deploy';
+    @mkdir($hooks, 0o755, true);
+    chmod($host['fs'].'/etc/letsencrypt/renewal-hooks', 0o755);
+    if (! file_exists($host['fs'].PUBLIC_HTTPS_MAIL_HOOK)) {
+        writeExecutable($host['fs'].PUBLIC_HTTPS_MAIL_HOOK, "#!/bin/bash\n# the inbound mail listener's own renewal hook\nexit 0\n");
+    }
+}
+
+/**
+ * prepare-public-https --MODE --target TARGET on HOST, with ARGUMENTS after.
+ *
+ * @param  array<string, string|null>  $env  null removes a variable
+ * @return array{0: int, 1: string}
+ */
+function publicHttpsRun(array $host, string $mode, array $env = [], string $target = 'tits-guru', array $arguments = []): array
+{
+    $environment = array_filter([...$host['env'], ...$env], static fn (?string $value): bool => $value !== null);
+
+    $process = proc_open(
+        ['bash', infraScript('prepare-public-https'), "--{$mode}", '--target', $target, ...$arguments],
+        [1 => ['pipe', 'w'], 2 => ['redirect', 1]],
+        $pipes,
+        $host['scratch'],
+        $environment,
+    );
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/** The one machine-readable result of an HTTPS run, or null. @return array<string, mixed>|null */
+function publicHttpsResult(string $output): ?array
+{
+    preg_match_all('/^RATEGURU_PUBLIC_HTTPS_RESULT=(.*)$/m', $output, $matches);
+    expect($matches[1])->toHaveCount(1, "expected exactly one result line:\n{$output}");
+
+    return json_decode($matches[1][0], true);
+}
+
+/** The public site's STATE render for tits-guru, as prepare-public-https renders it. */
+function publicHttpsRender(string $state): string
+{
+    static $renders = [];
+
+    return $renders[$state] ??= publicHttpBash(<<<BASH
+        set -Eeuo pipefail
+        source infrastructure/scripts/prepare-public-https
+        TARGET_ID=tits-guru
+        MODE=check
+        load_target
+        load_https_target
+        render_https_site {$state}
+        BASH);
+}
+
+/** HOST in http-acme-ready, as Prepare tits.guru public HTTP leaves it, with the lineage in place. */
+function publicHttpsReady(array $host): void
+{
+    publicHttpsLineage($host);
+    publicHttpInstalled($host);
+}
+
+/** HOST in tls-ready, as --apply leaves it. */
+function publicHttpsTlsReady(array $host): void
+{
+    publicHttpsReady($host);
+    [$exit, $output] = publicHttpsRun($host, 'apply');
+    expect($exit)->toBe(0, $output);
+    publicHttpResetLogs($host);
+}
+
+/**
+ * The production release deployed on HOST, as GO LIVE needs it: a release with
+ * public/index.php and artisan behind current, and the target's PHP-FPM socket.
+ */
+function publicHttpsDeployed(array $host): void
+{
+    $root = $host['fs'].'/home/www/rateguru/production/tits-guru';
+    @mkdir($root.'/releases/20261012000000/public', 0o755, true);
+    file_put_contents($root.'/releases/20261012000000/public/index.php', "<?php\n");
+    file_put_contents($root.'/releases/20261012000000/artisan', "#!/usr/bin/env php\n");
+    @unlink($root.'/current');
+    symlink($root.'/releases/20261012000000', $root.'/current');
+
+    // A unix socket's path is short on some systems: bound from beside it.
+    @mkdir($host['fs'].'/run/php', 0o755, true);
+    $cwd = getcwd();
+    chdir($host['fs'].'/run/php');
+    @unlink('rateguru-tits-guru.sock');
+    $server = stream_socket_server('unix://rateguru-tits-guru.sock');
+    chdir($cwd);
+    expect($server)->not->toBeFalse('could not create the PHP-FPM socket stand-in');
+    fclose($server);
+}
+
+/**
+ * The registries of a target that has gone live: tits-guru lifecycle=active in
+ * a trusted registry and in the host's own, and a validator that accepts it.
+ *
+ * @return array<string, string>
+ */
+function publicHttpsActiveTarget(array $host): array
+{
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
+    $registry['targets']['tits-guru']['lifecycle'] = 'active';
+    $json = json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+
+    file_put_contents($host['scratch'].'/trusted-active-registry.json', $json);
+    file_put_contents($host['scratch'].'/installed-registry.json', $json);
+    writeExecutable($host['scratch'].'/bin/targets', "#!/bin/bash\n# the registry validator, for a registry whose active allowlist has grown\n[[ \"\$1\" == validate ]] && echo \"target registry is valid: \$3\"\n");
+
+    return [
+        'RATEGURU_PUBLICHTTP_REGISTRY' => $host['scratch'].'/trusted-active-registry.json',
+        'RATEGURU_PUBLICHTTP_TARGETS_CLI' => $host['scratch'].'/bin/targets',
+    ];
+}
+
+/**
+ * Run the installed renewal hook on HOST as Certbot runs it after renewing the
+ * lineage whose live directory is RENEWED.
+ *
+ * @return array{0: int, 1: string}
+ */
+function publicHttpsHook(array $host, string $renewed): array
+{
+    $process = proc_open(['bash', $host['fs'].PUBLIC_HTTPS_HOOK], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $host['scratch'], [
+        'PATH' => (string) getenv('PATH'),
+        'RENEWED_LINEAGE' => $renewed,
+        'STUB_FS' => $host['fs'], 'STUB_STATE' => $host['state'], 'STUB_LOG' => $host['log'], 'STUB_TOGGLES' => $host['toggles'],
+    ]);
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/** What identifies a file on HOST, without reading it: rewritten, it changes. */
+function publicHttpsIdentity(array $host, string $path): string
+{
+    clearstatcache();
+    $file = $host['fs'].$path;
+
+    return file_exists($file) ? fileinode($file).':'.filemtime($file).':'.substr(sprintf('%o', fileperms($file)), -4).':'.hash_file('sha256', $file) : 'absent';
+}
+
+/**
+ * Certbot's tree on HOST — every certificate, link, renewal configuration and
+ * hook but the public site's own — as content hash, link target or directory.
+ *
+ * @return array<string, string>
+ */
+function publicHttpsCertbotTree(array $host): array
+{
+    $tree = [];
+    $root = $host['fs'].'/etc/letsencrypt';
+
+    if (! is_dir($root)) {
+        return $tree;
+    }
+
+    $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+    foreach ($entries as $entry) {
+        $path = substr($entry->getPathname(), strlen($host['fs']));
+        if ($path === PUBLIC_HTTPS_HOOK) {
+            continue;
+        }
+        $tree[$path] = $entry->isLink() ? 'link:'.readlink($entry->getPathname()) : ($entry->isDir() ? 'dir' : hash_file('sha256', $entry->getPathname()));
+    }
+
+    ksort($tree);
+
+    return $tree;
 }
