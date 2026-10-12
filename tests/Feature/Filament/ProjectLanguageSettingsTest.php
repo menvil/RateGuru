@@ -10,7 +10,8 @@ use Livewire\Livewire;
  * Which languages the project offers is set on the Languages page
  * (LanguagesPageTest) and nowhere on Project Settings. The default is English
  * by system policy and set nowhere. Translations are edited in Translation
- * Center, for every installed language, offered or not.
+ * Center, for every installed language but English, the reference, offered
+ * or not.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
