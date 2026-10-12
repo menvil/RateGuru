@@ -206,8 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Categories, Tags, Rating groups and Project settings are migrated:
-their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Categories, Tags, Rating groups and Project settings are
+migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -248,7 +248,7 @@ their content is Admin v2 too.
   migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
-  and Save changes there. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -270,9 +270,9 @@ These are the current migration state, not changes to the target design:
   user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
   settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
   than a partial imitation.
-- **Operational counts** (posts pending, comments reported, reports open, missing translations, media critical)
-  are not shown. The shell draws a badge whenever a navigation item provides one, but adds no count queries of
-  its own; each count arrives with the migration of its screen.
+- **Operational counts** (comments reported, reports open, media critical) are not shown yet; Posts shows its
+  pending count (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
+  queries of its own; each count arrives with the migration of its screen, from its resource.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
   admin page, so the item has no badge for now rather than a full completeness read per page or a counter kept
@@ -319,7 +319,10 @@ These are the current migration state, not changes to the target design:
   value”) · segmented control · active filter chips (28 high, radius 8, sunken, removable) · result count on the
   right (13 tertiary, “3 posts match”).
 - **Bulk bar (TBL-03):** min 52, sunken, under the toolbar; “3 selected”, one primary sm action with the eligible
-  count (“Approve selected (2)”), a note about skipped rows, “Clear selection” on the right.
+  count (“Approve selected (2)”), a note about skipped rows, “Clear selection” on the right. In production it is
+  `x-admin.ui.bulk-bar`: the count a status region, the actions its slot, unavailable while none of the selected
+  rows qualifies. A selection never outlives the list it was made on: another tab, search, filter or page clears
+  it.
 - **Row actions (TBL-04):** the one or two most used actions for the row's status inline as secondary sm buttons;
   everything else in an ellipsis menu (ghost sm). Menus are 248–272 wide, radius 12, padding 6; items carry a 16
   icon, a 14px label and an optional 12px hint. Unavailable actions stay visible, disabled, with the reason as a
@@ -395,6 +398,11 @@ In production the locked identifier, the number stepper and the switch are Blade
 - **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
   state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
   `wire:model` and `x-model` (`x-modelable`).
+- **`x-admin.ui.checkbox` (FRM-07):** a real `input type="checkbox"` under the drawn box, so the keyboard, a form,
+  `wire:model` and `x-model` reach it; named by its label, which `hide-label` keeps for assistive technology only
+  (a row's selection box); `mixed` is the input's indeterminate state, which a select-all box keeps live itself.
+- **Preset chips (FRM-03):** `x-admin.ui.textarea` takes `presets`, texts offered above the field; choosing one
+  fills the field as typing would and marks the chip chosen (`aria-pressed`) while the field holds it.
 
 The segmented control, the filter dropdown and the combobox are Blade components, each with the keyboard
 behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
@@ -470,7 +478,8 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   in the Livewire runtime) moves focus inside, keeps it there and returns it to the trigger on close; the rest of
   the page is hidden from assistive technology and does not scroll. When the trigger has left the page by then —
   its row filtered away by the change it confirmed — focus goes to the page's heading. Both sit on
-  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light),
+  `x-admin.ui.overlay`, the layer that holds this shared behaviour; besides them only the Posts image viewer
+  is drawn on it. The dialog has the `default` (light),
   `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
   blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
   acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
@@ -972,10 +981,55 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 - **Access:** project settings are an administrator's (`manage-project-settings`); every write goes through
   `SaveProjectSettingsAction`, which refuses translations and the offered languages.
 
+## Moderation
+
+### Posts
+
+Posts (`ListPosts`) is drawn entirely in Admin v2: the moderation queue and every other post, a tab at a time,
+searched, narrowed and read 25 at a time on the server (`ModerationPostsQuery`). The resource keeps the route, the
+navigation item — with the pending count, warning — the policy and global search, whose results open the post
+in the list by its id.
+
+- **Header band:** “Posts wait here before publishing while their author isn’t trusted or hasn’t confirmed their
+  email. Everyone else publishes at once.” Stats: Waiting, Oldest waiting (“3 h 12 min”) and Reported. The top
+  bar says when the list was read and has Refresh, which reads it again with skeleton rows meanwhile (TBL-06).
+- **Tabs (NAV-03):** All · Pending · Published · Hidden · Reported (reported, or flagged for review after their
+  reports were dismissed) · Deleted by author, each with its count; links with an address (`?status=hidden`).
+  Pending opens first and reads oldest first; every other tab newest first.
+- **Toolbar (TBL-02):** the search over the title, the author's username and the post's id (“#4821”); Category
+  and Sort (Oldest first · Newest first · Most reported) as filter dropdowns (FRM-10); the category as a removable
+  chip; “n posts”, or “n posts match” while filtered.
+- **Table (TBL-01):** the selection box (FRM-07); the thumbnail — the smallest variant — which opens the original;
+  the title, a link to the public post while it is published, over “#id · category”; the author with whether they
+  publish at once (Trusted, Not trusted, Email not confirmed) and how many posts they have, a link to their user
+  page for whoever may manage them; the status (STS-01) with its note — Restorable, the rejection reason,
+  Retained for audit, Retained internally; the reports (STS-02); when it came in, and “Waiting 3 h 12 min” on a
+  pending post, in the due colour after two hours.
+- **Row actions (TBL-04):** Approve and Reject on a pending post, Hide on a published one, Restore on a hidden
+  one; a finalized removal shows “Final” and nothing else. The menu: Open public post, Open original image, View
+  author, and for an administrator Finalize removal — on a hidden post (“Irreversible”), unavailable on a
+  published one (“Hide the post first”).
+- **Approve** publishes at once, with no confirmation and no Undo: approving notifies the author and the
+  author's followers. **Restore** is immediate, with Undo, which hides the post again.
+- **Confirmations (OVL-01):** Reject is light — an optional reason; Hide is firm — a required reason, for one post
+  or for every published one selected, with Undo after it; Finalize removal is irreversible — the danger callout,
+  what happens, a required internal reason and the acknowledgement checkbox, with the danger confirm. Reasons are
+  up to 500 characters, at least 3 when given; the chips are the reasons visitors report with (Spam, Offensive,
+  Fake, Copyright, Wrong category). The confirm button waits for what is required, and each dialog says it is
+  recorded in the moderation log.
+- **Bulk bar (TBL-03):** “n selected”, Approve selected (n) and Hide selected (n) with the posts each applies to,
+  and how many selected posts neither applies to.
+- **Image viewer:** the original over a darker scrim, with its size in pixels, type, file size and disk, and Open
+  original; Escape, the scrim and Close dismiss it.
+- **A post that changed meanwhile** — moderated by someone else since the list was drawn — is not acted on; the
+  toast says so, and the list shows it as it is now. A post the list does not hold is never acted on.
+- **Access:** posts are moderated by moderators and administrators; finalizing is an administrator's. Every change
+  goes through its moderation action, which checks the moderator, locks the post and writes the moderation log.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Categories, Tags, Rating groups and Project settings also at
-  768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Categories, Tags, Rating groups and Project settings
+  also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1047,6 +1101,18 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 | Unconfigured sign-in provider | turning it on is refused in a dialog: the server has no key | it can be on; its row says Not configured with the keys it needs, and its buttons stay hidden until they are set | switching a provider on is the project's decision, and setting the keys is the server's; either can come first |
 | Setting text limits and counters | site name 40, tagline 60, description 200, each field counted | the limits the translations of each text are held to; a counter on the multi-line fields, `maxlength` on single-line ones | one limit for a text and its translations; a single-line field stops at its limit as it is typed |
 | Installation preset | “Preset” over the name; compared with every setting | “Installation preset”; the site's identity is not compared | the preset is applied once at installation, and the site's name and copy are the project's own |
+| Posts author trust | New, Regular or Trusted | Trusted, Not trusted or Email not confirmed | the application knows trust as a threshold, and a post waits when its author is below it or has not confirmed their email |
+| Posts header text | “Posts from new and regular users wait here before publishing. Trusted users skip the queue.” | “Posts wait here before publishing while their author isn’t trusted or hasn’t confirmed their email. Everyone else publishes at once.” | it states the rule the application applies |
+| Post ids | “P-48213” | “#48213”, and the search finds “#48213” or “48213” | the id as stored |
+| Restore window | “Restorable until 16 Oct”, 14 days after hiding | “Restorable”, until the removal is finalized | nothing closes the window but finalizing |
+| Approve Undo | Undo after approving, alone or selected | none | approving notifies the author and the author's followers; Hide takes a post back down |
+| Reject and Hide reasons | “Shared with the author”; the author is notified of a rejection | “Stored in the moderation log.” | neither is sent to the author |
+| Moderation reason chips | Not a pet, Spam or advertising, Animal sale, Graphic content, Duplicate, Low quality | Spam, Offensive, Fake, Copyright, Wrong category | the reasons visitors report with, for a project about anything |
+| Finalize removal | on hidden, rejected and author-deleted posts | on hidden posts only, by an administrator | FinalizePostRemovalAction finalizes a hidden post only |
+| View author | opens Users filtered to the author | opens the author's user page, for whoever may manage them | the person is what was asked about |
+| Original image | a placeholder lightbox | the original, with its size, type, file size and disk | the file is there to show |
+| Posts empty queue | “New submissions appear here automatically.” | “New submissions appear here when you refresh.” | the list is read on load and on Refresh |
+| Posts grid | `44px 56px minmax(200px,1fr) 160px 140px 80px 120px 192px`, 992 | Author 176 and Created 136, 1024 | the trust words and “Waiting 3 h 12 min” fit without wrapping |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
@@ -1086,10 +1152,10 @@ built.
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all |
-| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–06, FRM-08, FRM-10, FRM-11 |
+| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–08, FRM-10, FRM-11 |
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
-| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03; TBL-04 as a live, reusable component |
+| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all; TBL-03 and TBL-04 as live, reusable components |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
 | Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
 

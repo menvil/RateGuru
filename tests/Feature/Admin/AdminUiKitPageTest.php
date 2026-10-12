@@ -312,6 +312,25 @@ it('shows the locked identifier, the number stepper and the switch live, from th
         ->toContain('id="kit-switch-row"');
 });
 
+it('shows the checkbox and the bulk bar live, from their components', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-07'))
+        ->toContain('Blade component · x-admin.ui.checkbox')
+        ->toContain('class="rg-admin-checkbox__input"')
+        ->toContain('x-model="picked"')
+        ->toContain('x-init="$el.indeterminate = true"')
+        ->and(adminUiKitSpecimen($html, 'TBL-03'))
+        ->toContain('Blade component · x-admin.ui.bulk-bar')
+        ->toContain('3 selected')
+        ->toContain('Approve selected (2)')
+        ->toContain('Clear selection')
+        ->and(adminUiKitSpecimen($html, 'FRM-03'))
+        ->toContain('class="rg-admin-preset"');
+});
+
 it('shows the row menu live, an unavailable item kept with its reason', function () {
     $html = $this->actingAs(User::factory()->admin()->create())
         ->get(ADMIN_UI_KIT_URL)

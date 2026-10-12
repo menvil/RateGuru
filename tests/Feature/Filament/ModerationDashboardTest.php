@@ -158,15 +158,15 @@ it('opens each moderation widget\'s list on exactly the records the widget count
     $reportedComment = Comment::factory()->create(['reports_count' => 3, 'status' => CommentStatus::Visible]);
     $cleanComment = Comment::factory()->create(['reports_count' => 0, 'status' => CommentStatus::Visible]);
 
-    Livewire::withQueryParams(moderationWidgetLinkQuery(PendingPostsWidget::class))
-        ->test(ListPosts::class)
-        ->assertCanSeeTableRecords([$pending])
-        ->assertCanNotSeeTableRecords([$reported, $flagged, $clean]);
+    $listed = fn (string $widget): array => array_column(Livewire::withQueryParams(moderationWidgetLinkQuery($widget))->test(ListPosts::class)->viewData('rows'), 'id');
 
-    Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedPostsWidget::class))
-        ->test(ListPosts::class)
-        ->assertCanSeeTableRecords([$reported, $flagged])
-        ->assertCanNotSeeTableRecords([$pending, $clean]);
+    $pendingList = $listed(PendingPostsWidget::class);
+    $reportedList = $listed(ReportedPostsWidget::class);
+
+    expect($pendingList)->toContain($pending->id)
+        ->and(array_intersect($pendingList, [$reported->id, $flagged->id, $clean->id]))->toBe([])
+        ->and($reportedList)->toContain($reported->id, $flagged->id)
+        ->and(array_intersect($reportedList, [$pending->id, $clean->id]))->toBe([]);
 
     Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))
         ->test(ListComments::class)

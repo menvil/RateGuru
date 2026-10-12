@@ -1004,6 +1004,36 @@
             box-shadow var(--rg-admin-transition-fast);
     }
 
+    /* Preset chips over a textarea: 28 high, radius 8, the chosen one with an ink border. */
+    .rg-admin-field__presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-preset {
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-preset:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-preset[aria-pressed='true'] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
     .rg-admin-textarea--compact {
         min-height: 42px;
         padding-block: 9px;
@@ -1673,13 +1703,70 @@
         line-height: 1;
     }
 
+    /* FRM-07 · Checkbox: 18×18, radius 5; ink fill with a 12px white check, a minus while mixed */
     .rg-admin-checkbox {
+        position: relative;
+        display: inline-flex;
+        align-items: flex-start;
+        gap: 10px;
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        cursor: pointer;
+    }
+
+    /* The real input, over its picture: what the pointer and the keyboard reach. */
+    .rg-admin-checkbox__input {
+        position: absolute;
+        top: 1px;
+        left: 0;
         width: 18px;
         height: 18px;
         margin: 0;
+        opacity: 0;
+        cursor: inherit;
+    }
+
+    .rg-admin-checkbox__box {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
         border: 1px solid var(--rg-admin-border-strong);
         border-radius: var(--rg-admin-radius-xs);
-        accent-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-inverse);
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            border-color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-checkbox__check,
+    .rg-admin-checkbox__minus {
+        display: none;
+    }
+
+    .rg-admin-checkbox__input:checked + .rg-admin-checkbox__box,
+    .rg-admin-checkbox__input:indeterminate + .rg-admin-checkbox__box {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-checkbox__input:checked:not(:indeterminate) + .rg-admin-checkbox__box .rg-admin-checkbox__check,
+    .rg-admin-checkbox__input:indeterminate + .rg-admin-checkbox__box .rg-admin-checkbox__minus {
+        display: block;
+    }
+
+    .rg-admin-checkbox__input:focus-visible + .rg-admin-checkbox__box {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-checkbox--disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     /* TBL-02 · Table toolbar */
@@ -1703,6 +1790,40 @@
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* TBL-03 · Bulk bar: under the toolbar while rows are selected */
+    .rg-admin-bulk-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        min-height: 52px;
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-bulk-bar__count {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-bulk-bar__divider {
+        width: 1px;
+        height: 16px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-bulk-bar__note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-bulk-bar__clear {
+        margin-left: auto;
     }
 
     /* FRM-10 · Active filter chip */
@@ -4022,6 +4143,156 @@
 
     .rg-admin-settings__page-meta--due {
         color: var(--rg-admin-status-due-fg);
+    }
+
+    /* Posts (ListPosts): the thumbnail, the title and author cells, Final, and the image viewer */
+    .rg-admin-posts__thumb {
+        overflow: hidden;
+        padding: 0;
+        cursor: zoom-in;
+    }
+
+    .rg-admin-posts__thumb:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-posts__thumb-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-admin-posts__title {
+        display: flex;
+        min-width: 0;
+        max-width: 100%;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-posts__title-text,
+    .rg-admin-posts__ellipsis {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-posts__ellipsis {
+        display: block;
+    }
+
+    /* A post its author deleted, or whose removal is final, reads as one. */
+    .rg-admin-posts__title--muted {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-posts__person {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-posts__author {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-decoration: none;
+    }
+
+    .rg-admin-posts__author--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-posts__nowrap {
+        white-space: nowrap;
+    }
+
+    .rg-admin-posts__final {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 6px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-posts__skeleton-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    /* When the list was read, and Refresh, in the top bar. */
+    .rg-admin-topbar__meta-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    /* The original image, centred over a darker scrim than a dialog's. */
+    .rg-admin-viewer-layer {
+        align-items: center;
+        padding: 40px var(--rg-admin-space-4);
+        background: var(--rg-admin-scrim-viewer);
+    }
+
+    .rg-admin-viewer {
+        overflow: hidden;
+        width: 760px;
+        max-width: 100%;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-viewer:focus {
+        outline: none;
+    }
+
+    .rg-admin-viewer__image {
+        display: grid;
+        place-items: center;
+        height: min(500px, 70vh);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-viewer__image img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .rg-admin-viewer__footer {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 14px var(--rg-admin-space-4) 14px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-viewer__text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-viewer__title {
+        overflow: hidden;
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-viewer__meta {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
     }
 
     /* Languages screen (LanguagesPage): its table cells and its missing-translations drawer */

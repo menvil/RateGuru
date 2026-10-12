@@ -6,6 +6,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
@@ -86,6 +87,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::editorActions('Save changes', null, 'discard-project-settings', 'save-project-settings'),
                 scopes: ProjectSettingsPage::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.posts.topbar', ['at' => now()->format('H:i')])->render(),
+                scopes: ListPosts::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

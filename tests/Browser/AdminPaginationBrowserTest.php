@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Post;
+use App\Models\Comment;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
@@ -25,10 +25,11 @@ function perPageSelect(mixed $page): array
 
 it('draws the records-per-page chooser without a frame or a focus ring, when clicked and after a value is picked', function () {
     actingAs(User::factory()->admin()->create());
-    Post::factory()->count(30)->published()->create();
+    Comment::factory()->count(30)->create();
     $select = '.fi-pagination-records-per-page-select:not(.fi-compact) select';
 
-    $page = resizeAndSettle(visit('/admin/posts'), 1440, 900);
+    // A list still drawn by Filament's table, whose pagination this styles.
+    $page = resizeAndSettle(visit('/admin/comments'), 1440, 900);
     $page->click($select);
 
     // A mouse click is what puts the ring on a select — it matches

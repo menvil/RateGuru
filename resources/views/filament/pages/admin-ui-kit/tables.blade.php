@@ -45,7 +45,7 @@
             <div class="rg-admin-table__grid" role="table" aria-label="Posts" style="{{ $columns }}">
                 <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                     <div class="rg-admin-table__cell" role="columnheader">
-                        <input type="checkbox" class="rg-admin-checkbox" aria-label="Select all posts" />
+                        <x-admin.ui.checkbox label="Select every post on this page" hide-label id="kit-table-select-page" :mixed="true" />
                     </div>
                     <div class="rg-admin-table__cell" role="columnheader">Image</div>
                     <div class="rg-admin-table__cell" role="columnheader">Title</div>
@@ -59,7 +59,7 @@
                 @foreach ($rows as $row)
                     <div @class(['rg-admin-table__row', 'rg-admin-table__row--selected' => $row['selected']]) role="row">
                         <div class="rg-admin-table__cell" role="cell">
-                            <input type="checkbox" class="rg-admin-checkbox" aria-label="Select {{ $row['title'] }}" @checked($row['selected']) />
+                            <x-admin.ui.checkbox :label="'Select '.$row['title']" hide-label :id="'kit-table-select-'.$loop->index" :checked="$row['selected']" />
                         </div>
                         <div class="rg-admin-table__cell" role="cell">
                             <span class="rg-admin-table__thumb"><x-admin.ui.icon name="image" :size="18" /></span>
@@ -131,6 +131,15 @@
             <x-admin.ui.search-field class="rg-admin-toolbar__search" placeholder="Search language or locale code" name="kit-toolbar-languages" />
             <span class="rg-admin-toolbar__count">4 of 4 installed</span>
         </div>
+    </div>
+@endcomponent
+
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['TBL-03']])
+    <div class="rg-admin-table">
+        <x-admin.ui.bulk-bar :count="3" note="1 selected post is neither pending nor published and will be skipped" clear="$dispatch('rg-admin-toast', { message: 'Selection cleared', tone: 'info' })">
+            <x-admin.ui.button size="sm" variant="primary" icon="check">Approve selected (2)</x-admin.ui.button>
+            <x-admin.ui.button size="sm" icon="eye-off" disabled>Hide selected</x-admin.ui.button>
+        </x-admin.ui.bulk-bar>
     </div>
 @endcomponent
 

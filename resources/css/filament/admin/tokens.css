@@ -177,6 +177,7 @@
     --rg-admin-shadow-popover: 0 16px 40px -8px rgb(14 18 27 / 0.14), 0 2px 6px rgb(14 18 27 / 0.04);
     --rg-admin-scrim-drawer: rgb(14 18 27 / 0.2);
     --rg-admin-scrim-dialog: rgb(14 18 27 / 0.28);
+    --rg-admin-scrim-viewer: rgb(14 18 27 / 0.56);
     --rg-admin-toast-icon-success: var(--rg-admin-green-500);
     --rg-admin-toast-icon-error: var(--rg-admin-red-300);
     --rg-admin-toast-icon-info: var(--rg-admin-gray-400);

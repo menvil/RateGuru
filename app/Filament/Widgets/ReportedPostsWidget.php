@@ -29,13 +29,7 @@ class ReportedPostsWidget extends StatsOverviewWidget
                     ->count(),
             )
                 ->description('Posts requiring moderation attention')
-                ->url(PostResource::getUrl('index', [
-                    'filters' => [
-                        'reported' => [
-                            'isActive' => true,
-                        ],
-                    ],
-                ])),
+                ->url(PostResource::getUrl('index', ['status' => 'reported'])),
         ];
     }
 }

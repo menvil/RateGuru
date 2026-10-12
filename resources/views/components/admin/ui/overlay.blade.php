@@ -1,6 +1,7 @@
 {{--
     The layer under the confirmation dialog (OVL-01) and the drawer (OVL-02):
-    what both do the same way, so neither is used on its own.
+    what both do the same way, so neither is used on its own. The Posts screen
+    draws its image viewer on it too.
 
     It is open for as long as it is rendered. dismiss() — Escape, the scrim,
     the close button, a Cancel — hides it at once and dispatches `dismiss` for

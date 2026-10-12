@@ -38,10 +38,12 @@
         <x-admin.ui.textarea
             label="Moderation reason"
             name="kit-reason"
+            id="kit-reason"
             :required="true"
             :limit="500"
+            :presets="['Spam', 'Offensive', 'Fake', 'Copyright']"
             placeholder="Describe why this action is necessary…"
-            hint="Shared with the author and stored in the moderation log."
+            hint="Stored in the moderation log."
         />
         <x-admin.ui.textarea
             label="Group description"
@@ -150,6 +152,30 @@
                 <x-admin.ui.switch layout="row" label="Show saved posts" id="kit-switch-row-off" on-hint="People can save posts to a private list." off-hint="People can save posts to a private list." />
             </x-admin.ui.card>
             <span class="rg-admin-kit__caption" x-text="`row layout · google = ${google}`">row layout · google = true</span>
+        </div>
+    </div>
+@endcomponent
+
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-07']])
+    <div class="rg-admin-kit__row" x-data="{ picked: ['2'] }">
+        <div class="rg-admin-kit__item">
+            <div class="rg-admin-kit__stack">
+                <x-admin.ui.checkbox label="Select Luna howling along" id="kit-checkbox-1" value="1" x-model="picked" />
+                <x-admin.ui.checkbox label="Select Pepper the cockatiel" id="kit-checkbox-2" value="2" :checked="true" x-model="picked" />
+            </div>
+            <span class="rg-admin-kit__caption" x-text="`live · picked = [${picked.join(', ')}]`">live · picked = [2]</span>
+        </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.checkbox label="Select every post on this page" id="kit-checkbox-mixed" :mixed="true" />
+            <span class="rg-admin-kit__caption">mixed</span>
+        </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.checkbox label="I understand this post can no longer be restored." id="kit-checkbox-acknowledge" />
+            <span class="rg-admin-kit__caption">acknowledgement</span>
+        </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.checkbox label="Select a post" id="kit-checkbox-disabled" disabled />
+            <span class="rg-admin-kit__caption">disabled</span>
         </div>
     </div>
 @endcomponent
