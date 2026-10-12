@@ -101,7 +101,7 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is next.
+**Status: in progress** — AI suggestions are done: 5A, the translation engine, 5B, interactive AI suggestions, 5C, background and bulk generation, and of 5D, 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page. Budgets, limits and provider policies, and the workflow of step 6, are deferred. The translation cutover, step 7, is done.
 
 In separate steps:
 
@@ -177,12 +177,14 @@ In separate steps:
        what each call sent and what came back, for reviewing translation quality from Recent provider calls — it
        would keep texts, which telemetry deliberately does not, so it needs its own decision first.
 6. **Workflow** — review states, if the product needs them. **Status: deferred.**
-7. **Translation cutover. Status: next.** In one change, in the editors as they are: Categories, Tags, Rating
+7. **Translation cutover. Status: done.** In one change, in the editors as they are: Categories, Tags, Rating
   groups and options, Project settings and Static pages stop editing every language. Their per-language tabs go
   and each keeps its English reference content, with no note in their place: Translation Center is where
   translations are edited, and the navigation already leads there. No data moves: the stored translations stay
   where they are, and Translation Center already edits them, so it becomes the single admin editor for DB-owned
-  translated content at once. Translation Center keeps listing what visitors can see, as it does now: the
+  translated content at once. Saving an editor never touches a translation: the settings page holds none, and
+  `SaveProjectSettingsAction` refuses them and takes a static page's English alone, merging it, under the row's
+  lock, with the other languages as stored — so one saved in Translation Center while the page was open is kept. Translation Center keeps listing what visitors can see, as it does now: the
   translations of inactive and archived content are kept as they are, edited nowhere while it is off, and come
   back into Translation Center with it. The translation status the prototype shows on these screens (locale
   chips, STS-05, and missing counts) arrives with their Admin v2 migration below.

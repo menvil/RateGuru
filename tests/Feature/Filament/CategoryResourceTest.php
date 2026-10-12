@@ -23,7 +23,7 @@ it('allows only admins to access category management', function () {
         ->assertForbidden();
 });
 
-it('creates a localized category with navigation settings', function () {
+it('creates a category with navigation settings', function () {
     $admin = User::factory()->admin()->create();
     $this->actingAs($admin);
 
@@ -31,11 +31,6 @@ it('creates a localized category with navigation settings', function () {
         ->fillForm([
             'name' => 'Desserts',
             'slug' => 'desserts',
-            'name_translations' => [
-                'en' => 'Desserts',
-                'ru' => 'Десерты',
-                'bg' => 'Десерти',
-            ],
             'sort_order' => 20,
             'is_active' => true,
         ])
@@ -45,7 +40,6 @@ it('creates a localized category with navigation settings', function () {
     $category = Category::query()->where('slug', 'desserts')->firstOrFail();
 
     expect($category->name)->toBe('Desserts')
-        ->and($category->name_translations['ru'])->toBe('Десерты')
         ->and($category->sort_order)->toBe(20)
         ->and($category->is_active)->toBeTrue();
 });

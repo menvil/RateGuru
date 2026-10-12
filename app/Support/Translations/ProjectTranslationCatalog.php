@@ -41,10 +41,10 @@ final class ProjectTranslationCatalog
     private const REFERENCE = TranslatableField::REFERENCE_LOCALE;
 
     /**
-     * Every translated field of every section with the limits its editor
-     * enforces: maximum length in characters, and whether it takes more than
-     * one line. The editors that still translate in place hold the same
-     * limits; a test keeps them equal.
+     * Every translated field of every section with the limits its English
+     * field's editor enforces: maximum length in characters, and whether it
+     * takes more than one line. A translation is held to the limits of the
+     * English it translates; a test keeps them equal.
      *
      * @var array<string, array<string, array{0: int, 1: bool}>>
      */
@@ -192,8 +192,8 @@ final class ProjectTranslationCatalog
     /**
      * Writes one language's text of one unit where the unit lives, touching
      * that language's entry and nothing else: the row is locked and read
-     * again, so a translation saved meanwhile — in another language, or by
-     * the editor that still translates in place — is kept. Blank text removes
+     * again, so a translation saved meanwhile — in another language, or the
+     * English an editor saved — is kept. Blank text removes
      * the language's entry, so the language is missing again; a translation
      * map left empty is stored as null.
      *

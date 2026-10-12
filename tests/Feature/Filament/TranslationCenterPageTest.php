@@ -702,20 +702,19 @@ it('reads the context of one unit on its own with sixty languages installed', fu
 
 // One storage, two editors -----------------------------------------------------------
 
-it('saves where the old editor reads, and shows what the old editor saved', function () {
+it('keeps what it saved when the content\'s own editor saves its English', function () {
     [$target] = twoTranslatedLocales();
     $category = untranslatedCategory();
     $unit = "categories:{$category->id}:name";
 
-    translationCenter($target)->call('save', $unit, $target, 'Из Translation Center');
+    translationCenter($target)->call('save', $unit, $target, 'From Translation Center');
 
     Livewire::test(EditCategory::class, ['record' => $category->getRouteKey()])
-        ->assertSet("data.name_translations.{$target}", 'Из Translation Center')
-        ->set("data.name_translations.{$target}", 'Из старого редактора')
+        ->set('data.name', 'Renamed in English')
         ->call('save')
         ->assertHasNoErrors();
 
-    expect(translationRow(translationCenter($target), $unit))->toContain('value="Из старого редактора"');
+    expect(translationRow(translationCenter($target), $unit))->toContain('value="From Translation Center"')->toContain('Renamed in English');
 });
 
 // Reading ----------------------------------------------------------------------------

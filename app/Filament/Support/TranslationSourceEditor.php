@@ -11,8 +11,8 @@ use App\Support\Translations\ProjectTranslationUnit;
 
 /**
  * The editor that holds a piece of project content's English text — Edit
- * source, wherever a translation is shown. Until the translation cutover the
- * same editors also still translate in place.
+ * source, wherever a translation is shown. It edits English only; the
+ * translations are Translation Center's.
  */
 final class TranslationSourceEditor
 {

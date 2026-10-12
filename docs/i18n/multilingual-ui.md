@@ -29,7 +29,7 @@ The flag is chosen per language rather than derived from the code: a language is
 | Default | `config('locales.default')` | English, by system policy: what a visitor gets when nothing else applies; always enabled, never disabled, not a project setting |
 | System fallback | `config('locales.fallback')` | the catalog Laravel falls back to for a missing line; English too, never used to choose a visitor's language |
 
-A disabled locale remains installed and its DB/content translations may still be edited in admin: every translation editor (project settings, static pages, categories, tags, rating groups and options) lists all installed languages, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones.
+A disabled locale remains installed and its DB/content translations may still be edited in admin: Translation Center, the one editor of project-content translations, lists every installed language but English, the reference translations are made from, while the public switcher, the account language setting, `POST /locale` and the locale middleware only accept enabled ones. The editors of project settings, static pages, categories, tags, rating groups and options edit the English reference only.
 
 `enabled_by_default` (per installed language, in `config/locales.php`) is bootstrap policy only: it decides what a project offers besides English while `enabled_locales` is `NULL`. A language a release adds is `false`, so installing it never offers it to an existing project.
 
