@@ -34,10 +34,6 @@ it('does not allow normal user to access post resource index', function () {
         ->assertForbidden();
 });
 
-it('uses the Post model', function () {
-    expect(PostResource::getModel())->toBe(Post::class);
-});
-
 it('renders in the Moderation section of the admin navigation', function () {
     expect(PostResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(PostResource::getNavigationSort())->toBe(10);

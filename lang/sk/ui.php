@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderátor',
         'open_in_admin' => 'Otvoriť v administrácii',
-        'approve' => 'Schváliť',
-        'reject' => 'Zamietnuť',
         'hide' => 'Skryť príspevok',
         'restore' => 'Obnoviť',
         'hide_confirm_title' => 'Skryť tento príspevok?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potvrdiť skrytie',
         'reason' => 'Dôvod',
         'reason_placeholder' => 'Nepovinná poznámka moderátora...',
-        'approved' => 'Príspevok bol schválený.',
         'hidden' => 'Príspevok bol skrytý.',
-        'rejected' => 'Príspevok bol zamietnutý.',
         'restored' => 'Príspevok bol obnovený.',
         'not_allowed' => 'Nemáš oprávnenie moderovať príspevky.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Vytvoriť príspevok',
         'submitting' => 'Nahráva sa...',
         'success_pending' => 'Tvoj príspevok bol odoslaný a zobrazí sa po schválení moderátorom.',
+        'success_published' => 'Tvoj príspevok bol zverejnený.',
         'error_generic' => 'Pri vytváraní príspevku sa niečo pokazilo.',
         'error_invalid_image' => 'Tento obrázok sa nepodarilo spracovať. Skús iný súbor.',
         'selected_image_alt' => 'Náhľad vybraného obrázka',

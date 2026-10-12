@@ -1,9 +1,5 @@
 <?php
 
-it('mobile UX documentation file exists', function () {
-    expect(file_exists(base_path('docs/mobile/mobile-ux-guidelines.md')))->toBeTrue();
-});
-
 it('mobile UX doc describes overflow prevention strategy', function () {
     $content = file_get_contents(base_path('docs/mobile/mobile-ux-guidelines.md'));
 

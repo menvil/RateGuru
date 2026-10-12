@@ -35,10 +35,6 @@ it('does not allow normal user to access report resource index', function () {
         ->assertForbidden();
 });
 
-it('uses the Report model', function () {
-    expect(ReportResource::getModel())->toBe(Report::class);
-});
-
 it('renders in the Moderation section of the admin navigation', function () {
     expect(ReportResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(ReportResource::getNavigationSort())->toBe(30);

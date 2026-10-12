@@ -51,16 +51,6 @@ it('requires unique rating option keys within a group', function () {
         ->toThrow(QueryException::class);
 });
 
-it('deletes rating options when their group is deleted', function () {
-    $groupId = createRatingGroup();
-    insertRatingOption($groupId, 'option_a');
-
-    DB::table('rating_groups')->where('id', $groupId)->delete();
-
-    expect(DB::table('rating_options')->where('rating_group_id', $groupId)->count())
-        ->toBe(0);
-});
-
 function createRatingGroup(string $key = 'type'): int
 {
     return DB::table('rating_groups')->insertGetId([

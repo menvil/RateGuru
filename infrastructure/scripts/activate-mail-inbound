@@ -79,6 +79,13 @@
 # and nothing else. Under the host's infrastructure lock, once inbound mail is
 # installed. --verify then judges that access too, when it is installed.
 #
+# --install-tls installs, through install-mail-inbound-tls, the public
+# listener's certificate: the pair Certbot already holds for the target's MX
+# host, copied into place, and the Certbot deploy hook that copies every
+# renewal of it and reloads Postfix. Under the host's infrastructure lock, in
+# any inbound state — the certificate comes before the activation, which
+# judges it. Nothing is issued, and no listener, route or rule changes.
+#
 # --health is read-only and takes no lock, for a schedule: whether the store
 # takes mail right now — the store verifies and its gate admits mail — and
 # whether accepted inbound mail waits in the shared queue, with the count and
@@ -227,6 +234,7 @@ Usage:
   activate-mail-inbound --health   --target TARGET
   activate-mail-inbound --rollback --target TARGET
   activate-mail-inbound --install-monitor --target TARGET --monitor-public-key KEY
+  activate-mail-inbound --install-tls --target TARGET
   activate-mail-inbound --help
 
   --check     Read-only (root): whether --apply would activate, would be a
@@ -250,6 +258,12 @@ Usage:
               whose one ed25519 key KEY runs the inbound mail monitor, as
               postfix, and nothing else. Installed once, after the activation;
               run again to replace the key.
+  --install-tls
+              Root. The public listener's certificate: the pair Certbot
+              already holds for the target's MX host copied into place, and
+              the Certbot deploy hook that copies every renewal of it and
+              reloads Postfix. Nothing is issued; a no-op when both are
+              already in place.
 
 The trusted bundle decides everything else; there is nothing to override but
 the monitor's public key, which only the operator has.
@@ -1431,6 +1445,53 @@ run_install_monitor() {
     exit 1
 }
 
+# tls_footprint — what identifies the installed pair and the deploy hook on
+# disk, without reading either: equal before and after, nothing changed.
+tls_footprint() {
+    local path
+    for path in "${MAIL_INBOUND_TLS_CERT}" "${MAIL_INBOUND_TLS_KEY}" /etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls; do
+        stat -c '%n %i %Y %s %a %U %G' -- "$(physical "${path}")" 2>/dev/null || printf '%s absent\n' "${path}"
+    done
+}
+
+# run_install_tls — the public listener's certificate: install-mail-inbound-tls
+# from this bundle copies the pair Certbot holds for the target's MX host into
+# place and installs the deploy hook that keeps it current. The host's inbound
+# state is reported, never required nor changed: the certificate comes first.
+run_install_tls() {
+    local before
+    require_tools flock stat
+    acquire_host_lock
+    load_request
+
+    COUNT_FAIL=0
+    read_host_state
+    case "${PUBLIC_STATE}" in
+        disabled) recorded_host_state ;;
+        enabled)  HOST_STATE=installed-enabled ;;
+        *)        die "the gateway's recorded inbound state is corrupt — nothing was changed" ;;
+    esac
+
+    before="$(tls_footprint)"
+    if ! run_child "install-mail-inbound-tls --apply" "$(bundle_script install-mail-inbound-tls)" --apply --target "${TARGET_ID}"; then
+        bad "the inbound TLS certificate could not be installed (above)"
+    fi
+    [[ "$(tls_footprint)" == "${before}" ]] || CHANGED=true
+
+    if (( COUNT_FAIL == 0 )); then
+        if [[ "${CHANGED}" == true ]]; then
+            log "TLS: INSTALLED — the certificate Certbot holds is in place, and every renewal of it reaches the listener"
+        else
+            log "TLS: ALREADY INSTALLED — the certificate Certbot holds and its renewal hook were already in place; nothing changed"
+        fi
+        result_line pass
+        return 0
+    fi
+    log "TLS: NOT INSTALLED (${COUNT_FAIL} problem(s) above)"
+    result_line fail
+    exit 1
+}
+
 run_rollback() {
     require_tools flock sha256sum od
     acquire_host_lock
@@ -1480,7 +1541,7 @@ run_rollback() {
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify|--health|--rollback|--install-monitor)
+            --check|--apply|--verify|--health|--rollback|--install-monitor|--install-tls)
                 [[ -z "${MODE}" ]] || die "mode given more than once"
                 MODE="${1#--}"
                 shift
@@ -1508,7 +1569,7 @@ main() {
         esac
     done
 
-    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify, --health, --rollback or --install-monitor"; }
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply, --verify, --health, --rollback, --install-monitor or --install-tls"; }
     if [[ "${MODE}" == install-monitor ]]; then
         [[ -n "${MONITOR_PUBLIC_KEY}" ]] || die "--install-monitor requires --monitor-public-key"
     else
@@ -1534,6 +1595,7 @@ main() {
         health)   run_health ;;
         rollback) run_rollback ;;
         install-monitor) run_install_monitor ;;
+        install-tls) run_install_tls ;;
     esac
 }
 

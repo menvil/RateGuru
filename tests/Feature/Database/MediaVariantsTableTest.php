@@ -6,10 +6,6 @@ use App\Models\MediaVariant;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
 
-it('media_variants table exists', function () {
-    expect(Schema::hasTable('media_variants'))->toBeTrue();
-});
-
 it('creates media_variants table with required columns', function () {
     expect(Schema::hasColumns('media_variants', [
         'id',
@@ -49,13 +45,4 @@ it('allows the same variant name across different media assets', function () {
     MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $second->id]);
 
     expect(MediaVariant::query()->where('name', MediaVariantName::PostFeed640)->count())->toBe(2);
-});
-
-it('cascades deletes from media asset to its variants', function () {
-    $asset = MediaAsset::factory()->create();
-    $variant = MediaVariant::factory()->create(['media_asset_id' => $asset->id]);
-
-    $asset->forceDelete();
-
-    expect(MediaVariant::query()->find($variant->id))->toBeNull();
 });

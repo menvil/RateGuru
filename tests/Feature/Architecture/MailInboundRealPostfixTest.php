@@ -115,5 +115,14 @@ it('never leaves its namespaces, writes the host\'s Postfix, or touches its serv
     foreach ($commands[2] as $index => $arguments) {
         expect($arguments)->toStartWith('-c "${CFG}"', "{$commands[1][$index]} runs without this run's configuration");
     }
-    expect($code)->not->toContain('systemctl')->not->toContain('service postfix');
+    // The certificate's deploy hook asks systemd about Postfix: here a stand-in
+    // under WORK answers from this run's Postfix and logs what it was asked, and
+    // nothing ever asks the host's own systemd.
+    $standIn = ['"${WORK}/bin/systemctl"', '"${WORK}/systemctl.log"'];
+    expect(str_replace($standIn, '', $code))->not->toContain('systemctl')->not->toContain('service postfix');
+    preg_match('/^cat > "\$\{WORK\}\/bin\/systemctl" <<EOF\n(.*?)\nEOF$/ms', File::get(base_path('tests/Support/real-postfix/scenario.sh')), $body);
+    expect($body[1] ?? '')
+        ->toContain('is-active) postfix -c "${CFG}" status')
+        ->toContain('reload) [[ "\$2" == postfix@-.service ]] && postfix -c "${CFG}" reload')
+        ->toContain('*) exit 1 ;;');
 });

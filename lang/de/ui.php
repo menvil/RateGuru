@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Im Adminbereich öffnen',
-        'approve' => 'Freigeben',
-        'reject' => 'Ablehnen',
         'hide' => 'Beitrag ausblenden',
         'restore' => 'Wiederherstellen',
         'hide_confirm_title' => 'Diesen Beitrag ausblenden?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Ausblenden bestätigen',
         'reason' => 'Grund',
         'reason_placeholder' => 'Optionale Moderationsnotiz...',
-        'approved' => 'Beitrag freigegeben.',
         'hidden' => 'Beitrag ausgeblendet.',
-        'rejected' => 'Beitrag abgelehnt.',
         'restored' => 'Beitrag wiederhergestellt.',
         'not_allowed' => 'Du darfst keine Beiträge moderieren.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Beitrag erstellen',
         'submitting' => 'Wird hochgeladen...',
         'success_pending' => 'Dein Beitrag wurde eingereicht und erscheint nach der Moderation.',
+        'success_published' => 'Dein Beitrag wurde veröffentlicht.',
         'error_generic' => 'Beim Erstellen deines Beitrags ist ein Fehler aufgetreten.',
         'error_invalid_image' => 'Dieses Bild konnte nicht verarbeitet werden. Bitte versuche es mit einer anderen Datei.',
         'selected_image_alt' => 'Vorschau des ausgewählten Bildes',

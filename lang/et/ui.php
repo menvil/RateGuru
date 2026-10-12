@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderaator',
         'open_in_admin' => 'Ava halduspaneelis',
-        'approve' => 'Kinnita',
-        'reject' => 'Lükka tagasi',
         'hide' => 'Peida postitus',
         'restore' => 'Taasta',
         'hide_confirm_title' => 'Kas peita see postitus?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Kinnita peitmine',
         'reason' => 'Põhjus',
         'reason_placeholder' => 'Valikuline modereerimismärkus...',
-        'approved' => 'Postitus kinnitatud.',
         'hidden' => 'Postitus peidetud.',
-        'rejected' => 'Postitus tagasi lükatud.',
         'restored' => 'Postitus taastatud.',
         'not_allowed' => 'Sul pole lubatud postitusi modereerida.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Loo postitus',
         'submitting' => 'Üleslaadimine...',
         'success_pending' => 'Sinu postitus on esitatud ja ilmub pärast modereerimist.',
+        'success_published' => 'Sinu postitus on avaldatud.',
         'error_generic' => 'Postituse loomisel tekkis viga.',
         'error_invalid_image' => 'Seda pilti ei õnnestunud töödelda. Proovi mõnda teist faili.',
         'selected_image_alt' => 'Valitud pildi eelvaade',

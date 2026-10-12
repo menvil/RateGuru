@@ -35,6 +35,9 @@ function importSubsystemPhpFiles(): array
     return $files;
 }
 
+/** A raw curl_*() call. The CURLOPT_* constants a transport may name are not calls. */
+const IMPORT_RAW_CURL_CALL_PATTERN = '/\bcurl_[a-z_]+\s*\(/i';
+
 it('scans at least the files this guard is meant to protect, so the scan itself is not silently empty', function () {
     $files = importSubsystemPhpFiles();
 
@@ -65,7 +68,7 @@ it('never calls file_get_contents, fopen, or a raw curl_ function anywhere in th
                 ->toBeFalse("Found fopen( in {$relative}");
         }
 
-        expect($source)->not->toMatch('/\bcurl_[a-z_]+\s*\(/i', "Found a raw curl_*() call in {$relative}");
+        expect($source)->not->toMatch(IMPORT_RAW_CURL_CALL_PATTERN, "Found a raw curl_*() call in {$relative}");
     }
 });
 
@@ -113,12 +116,10 @@ it('proves the raw curl_ regex actually catches a real call and does not false-p
     // pattern above (escaping, character class, anchoring) ever made it
     // stop matching real curl_*() calls, the main guard test would keep
     // passing for the wrong reason -- silently ineffective rather than
-    // failing loudly. Same exact pattern, asserted against both cases
-    // directly.
-    $pattern = '/\bcurl_[a-z_]+\s*\(/i';
-
-    expect(preg_match($pattern, 'curl_init($url);'))->toBe(1)
-        ->and(preg_match($pattern, '$ch = curl_exec($handle);'))->toBe(1)
-        ->and(preg_match($pattern, 'CURLOPT_RESOLVE => [$entry],'))->toBe(0)
-        ->and(preg_match($pattern, 'CURLOPT_SSL_VERIFYPEER'))->toBe(0);
+    // failing loudly. Both tests read the one pattern constant, so this
+    // checks the pattern the guard actually uses.
+    expect(preg_match(IMPORT_RAW_CURL_CALL_PATTERN, 'curl_init($url);'))->toBe(1)
+        ->and(preg_match(IMPORT_RAW_CURL_CALL_PATTERN, '$ch = curl_exec($handle);'))->toBe(1)
+        ->and(preg_match(IMPORT_RAW_CURL_CALL_PATTERN, 'CURLOPT_RESOLVE => [$entry],'))->toBe(0)
+        ->and(preg_match(IMPORT_RAW_CURL_CALL_PATTERN, 'CURLOPT_SSL_VERIFYPEER'))->toBe(0);
 });

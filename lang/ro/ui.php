@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Deschide în administrare',
-        'approve' => 'Aprobă',
-        'reject' => 'Respinge',
         'hide' => 'Ascunde postarea',
         'restore' => 'Restaurează',
         'hide_confirm_title' => 'Ascunzi această postare?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Confirmă ascunderea',
         'reason' => 'Motiv',
         'reason_placeholder' => 'Notă de moderare opțională…',
-        'approved' => 'Postare aprobată.',
         'hidden' => 'Postare ascunsă.',
-        'rejected' => 'Postare respinsă.',
         'restored' => 'Postare restaurată.',
         'not_allowed' => 'Nu ai permisiunea de a modera postări.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Creează postarea',
         'submitting' => 'Se încarcă…',
         'success_pending' => 'Postarea ta a fost trimisă și va apărea după moderare.',
+        'success_published' => 'Postarea ta a fost publicată.',
         'error_generic' => 'A apărut o eroare la crearea postării.',
         'error_invalid_image' => 'Această imagine nu a putut fi procesată. Încearcă un alt fișier.',
         'selected_image_alt' => 'Previzualizarea imaginii selectate',

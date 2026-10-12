@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Hap në panelin e administrimit',
-        'approve' => 'Mirato',
-        'reject' => 'Refuzo',
         'hide' => 'Fshih postimin',
         'restore' => 'Rikthe',
         'hide_confirm_title' => 'Ta fsheh këtë postim?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Konfirmo fshehjen',
         'reason' => 'Arsyeja',
         'reason_placeholder' => 'Shënim moderimi opsional…',
-        'approved' => 'Postimi u miratua.',
         'hidden' => 'Postimi u fsheh.',
-        'rejected' => 'Postimi u refuzua.',
         'restored' => 'Postimi u rikthye.',
         'not_allowed' => 'Nuk të lejohet të moderosh postime.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Krijo postimin',
         'submitting' => 'Po ngarkohet…',
         'success_pending' => 'Postimi yt u dërgua dhe do të shfaqet pas moderimit.',
+        'success_published' => 'Postimi yt u publikua.',
         'error_generic' => 'Diçka shkoi keq gjatë krijimit të postimit.',
         'error_invalid_image' => 'Ky imazh nuk mund të përpunohej. Provo një skedar tjetër.',
         'selected_image_alt' => 'Parapamja e imazhit të zgjedhur',

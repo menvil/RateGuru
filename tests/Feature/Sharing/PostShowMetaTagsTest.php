@@ -20,6 +20,7 @@ it('renders complete opengraph and twitter metadata on post show', function () {
 
     $this->get(route('posts.show', $post))
         ->assertOk()
+        ->assertSee('<meta property="og:type" content="article">', false)
         ->assertSee('<meta property="og:title" content="OG Test Post">', false)
         ->assertSee('<meta property="og:site_name" content="RateGuru Community">', false)
         ->assertSee('<meta property="og:locale" content="en_US">', false)

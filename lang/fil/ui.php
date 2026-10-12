@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Buksan sa admin',
-        'approve' => 'Aprubahan',
-        'reject' => 'Tanggihan',
         'hide' => 'Itago ang post',
         'restore' => 'I-restore',
         'hide_confirm_title' => 'Itago ang post na ito?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Kumpirmahin ang pagtatago',
         'reason' => 'Dahilan',
         'reason_placeholder' => 'Opsyonal na tala sa moderation...',
-        'approved' => 'Naaprubahan ang post.',
         'hidden' => 'Naitago ang post.',
-        'rejected' => 'Tinanggihan ang post.',
         'restored' => 'Na-restore ang post.',
         'not_allowed' => 'Hindi ka pinapayagang mag-moderate ng mga post.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Gumawa ng post',
         'submitting' => 'Ina-upload...',
         'success_pending' => 'Naisumite na ang iyong post at lalabas ito pagkatapos ng moderation.',
+        'success_published' => 'Na-publish na ang iyong post.',
         'error_generic' => 'Nagkaproblema habang ginagawa ang iyong post.',
         'error_invalid_image' => 'Hindi maproseso ang larawang ito. Sumubok ng ibang file.',
         'selected_image_alt' => 'Preview ng napiling larawan',

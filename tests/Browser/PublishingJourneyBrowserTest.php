@@ -7,6 +7,7 @@ use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\ImportTransportResponse;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\URL;
 use Tests\Browser\Support\ImageFixtures;
 
 use function Pest\Laravel\actingAs;
@@ -21,16 +22,17 @@ afterEach(function () {
     ImageFixtures::cleanup();
 });
 
-it('lets a newcomer sign up from the upload button and post a picture by its address straight into the feed', function () {
+it('holds a newcomer\'s post for a moderator until they confirm their email, then publishes the next one straight into the feed', function () {
     // Stored where the browser test server serves files from, so the picture
     // the application makes of the upload actually loads in the feed.
     config(['media.disks.public' => ImageFixtures::disk()]);
 
-    // The server fetches the picture through the import pipeline; only the
+    // The server fetches each picture through the import pipeline; only the
     // network under it is scripted. The address is in the reserved .test
     // zone, so the browser's own preview of it never reaches anyone.
     bindFakeHostResolver(['images.rateguru.test' => ['93.184.216.34']]);
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
         new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
     ]));
 
@@ -45,6 +47,8 @@ it('lets a newcomer sign up from the upload button and post a picture by its add
         ->type('@auth-modal-register-password', 'password')
         ->type('@auth-modal-register-password-confirmation', 'password');
 
+    // Until the address is confirmed, a post waits for a moderator, and its
+    // author is told so.
     submitAndWaitForNewPage($page, '@auth-modal-register-submit')
         ->assertPresent('@header-auth-actions')
         ->click('@open-upload-button')
@@ -53,20 +57,45 @@ it('lets a newcomer sign up from the upload button and post a picture by its add
         ->type('#title', 'My very first dish')
         ->click('[data-testid="upload-form"] button[type="submit"]')
         ->assertMissing('@upload-modal')
-        ->assertSeeIn('@post-card-title', 'My very first dish');
+        ->assertSeeIn('@toast-container', 'will appear after moderation')
+        ->assertDontSee('My very first dish');
+
+    $newcomer = User::query()->where('email', 'nadia@rateguru.test')->sole();
+
+    expect(Post::query()->where('title', 'My very first dish')->sole()->status)->toBe(PostStatus::Pending);
+
+    // The link from the confirmation email, opened in the same browser, where
+    // the newcomer is signed in. Once it is, the next post goes straight into
+    // the feed.
+    $page->navigate(URL::temporarySignedRoute('verification.verify', now()->addHour(), [
+        'id' => $newcomer->id,
+        'hash' => sha1($newcomer->getEmailForVerification()),
+    ]));
+
+    expect($newcomer->fresh()->hasVerifiedEmail())->toBeTrue();
+
+    $page->navigate(route('feed'))
+        ->click('@open-upload-button')
+        ->click('@image-tab-url')
+        ->type('@upload-image-url-input', 'https://images.rateguru.test/second-dish.jpg')
+        ->type('#title', 'My second dish')
+        ->click('[data-testid="upload-form"] button[type="submit"]')
+        ->assertMissing('@upload-modal')
+        ->assertSeeIn('@toast-container', 'Your post has been published.')
+        ->assertSeeIn('@post-card-title', 'My second dish');
 
     // The picture went through import, normalisation and storage, and the
     // card shows what came out.
     waitForScript($page, '(() => { const img = document.querySelector(\'[data-testid="post-card"] img\'); return img !== null && img.complete && img.naturalWidth > 0; })()');
 
-    $post = Post::query()->where('title', 'My very first dish')->sole();
+    $post = Post::query()->where('title', 'My second dish')->sole();
 
-    expect($post->user->email)->toBe('nadia@rateguru.test')
+    expect($post->user->is($newcomer))->toBeTrue()
         ->and($post->status)->toBe(PostStatus::Published);
 
     // Its author can open it, but not vote for it.
-    visit(route('posts.show', $post))
-        ->assertSee('My very first dish')
+    $page->navigate(route('posts.show', $post))
+        ->assertSee('My second dish')
         ->assertAttribute("@post-upvote-button-{$post->id}", 'disabled', '');
 });
 

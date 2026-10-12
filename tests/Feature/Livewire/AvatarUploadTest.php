@@ -74,7 +74,8 @@ it('rejects oversized avatar upload', function () {
 
     $user = User::factory()->create();
 
-    $file = UploadedFile::fake()->image('avatar.jpg', 5000, 5000)->size(6000);
+    // The rule checks the reported file size, never the pixel dimensions.
+    $file = UploadedFile::fake()->image('avatar.jpg')->size(6000);
 
     Livewire::actingAs($user)
         ->test(EditProfileForm::class)

@@ -22,7 +22,9 @@ it('renders alpine copy to clipboard behavior', function () {
     expect($html)
         ->toContain('x-data')
         ->toContain('copyToClipboard')
-        ->toContain('navigator.clipboard');
+        ->toContain('navigator.clipboard')
+        // The fallback for contexts without the async clipboard API.
+        ->toContain('execCommand');
 });
 
 it('shows check icon inside button when copied, not a paragraph below', function () {

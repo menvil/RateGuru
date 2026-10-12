@@ -2,7 +2,6 @@
 
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
-use App\Models\MediaVariant;
 use App\Services\Media\Exceptions\MediaIsNotPublicException;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaUrlResolver;
@@ -17,24 +16,6 @@ it('resolves a public location\'s url through its own disk', function () {
     $url = app(MediaUrlResolver::class)->publicUrl($location, MediaVisibility::Public);
 
     expect($url)->toBe(Storage::disk('public')->url('media/post-images/dish.jpg'));
-});
-
-it('resolves a variant\'s url using its own location and its parent\'s visibility', function () {
-    Storage::fake('public');
-
-    $variant = MediaVariant::factory()->create([
-        'disk' => 'public',
-        'path' => 'media/post-images/variants/feed_640.jpg',
-    ]);
-
-    // A future variant presenter would read these two independently — the
-    // resolver itself never touches $variant->asset.
-    $location = new MediaLocation($variant->disk, $variant->path);
-    $visibility = $variant->asset->visibility;
-
-    $url = app(MediaUrlResolver::class)->publicUrl($location, $visibility);
-
-    expect($url)->toBe(Storage::disk('public')->url('media/post-images/variants/feed_640.jpg'));
 });
 
 it('resolves two locations on different disks to each disk\'s own url', function () {

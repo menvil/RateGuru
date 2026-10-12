@@ -2,7 +2,6 @@
 
 use App\Models\Category;
 use App\Models\ProjectSettings;
-use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DefaultCategorySeeder;
 use Illuminate\Database\QueryException;
 
@@ -18,12 +17,6 @@ it('seeds default categories idempotently', function () {
     $this->seed(DefaultCategorySeeder::class);
 
     expect(Category::query()->count())->toBe(3);
-});
-
-it('includes default categories in the database seeder', function () {
-    $this->seed(DatabaseSeeder::class);
-
-    expect(Category::query()->active()->count())->toBe(3);
 });
 
 it('does not overwrite categories from an installation preset', function () {

@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Modérateur',
         'open_in_admin' => 'Ouvrir dans l\'administration',
-        'approve' => 'Approuver',
-        'reject' => 'Rejeter',
         'hide' => 'Masquer la publication',
         'restore' => 'Restaurer',
         'hide_confirm_title' => 'Masquer cette publication ?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Confirmer le masquage',
         'reason' => 'Motif',
         'reason_placeholder' => 'Note de modération facultative…',
-        'approved' => 'Publication approuvée.',
         'hidden' => 'Publication masquée.',
-        'rejected' => 'Publication rejetée.',
         'restored' => 'Publication restaurée.',
         'not_allowed' => 'Vous n\'êtes pas autorisé à modérer les publications.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Créer la publication',
         'submitting' => 'Mise en ligne…',
         'success_pending' => 'Votre publication a été envoyée et apparaîtra après modération.',
+        'success_published' => 'Votre publication a été publiée.',
         'error_generic' => 'Une erreur s\'est produite lors de la création de votre publication.',
         'error_invalid_image' => 'Cette image n\'a pas pu être traitée. Veuillez essayer avec un autre fichier.',
         'selected_image_alt' => 'Aperçu de l\'image sélectionnée',

@@ -16,6 +16,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\Media\GeneratedMediaVariant;
+use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Import\Dns\HostResolver;
@@ -559,7 +561,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -963,6 +965,68 @@ function variantSpec(
     ?string $outputMimeType = null,
 ): MediaVariantSpecification {
     return new MediaVariantSpecification($name, $maxWidth, $maxHeight, $mode, $quality, $outputMimeType);
+}
+
+/**
+ * An ImageVariantProcessor test double that never decodes, resizes or
+ * encodes anything: it records the name of every spec it is asked to
+ * generate and returns a few placeholder bytes sized to the spec's bounds.
+ * Shared by the MediaVariantGenerator, GenerateMediaVariantsJob and
+ * media:generate-variants tests that check which variants get generated,
+ * skipped or regenerated, not what their pixels look like — real GD output
+ * is covered by GdImageVariantProcessorTest and by the end-to-end tests
+ * each of those files keeps on the real processor. The master is never
+ * read, so a test using this double can store any bytes as the master.
+ * Pass $failOnceFor to make the first request for that variant throw.
+ */
+final class RecordingImageVariantProcessor implements ImageVariantProcessor
+{
+    /** @var list<string> */
+    public array $invoked = [];
+
+    public function __construct(private ?MediaVariantName $failOnceFor = null) {}
+
+    public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
+    {
+        $this->invoked[] = $specification->name->value;
+
+        if ($specification->name === $this->failOnceFor) {
+            $this->failOnceFor = null;
+
+            throw new RuntimeException("Simulated {$specification->name->value} generation failure.");
+        }
+
+        $outputMimeType = $specification->outputMimeType ?? $mimeType;
+        $bytes = "{$specification->name->value}-bytes";
+
+        return new GeneratedMediaVariant(
+            bytes: $bytes,
+            mimeType: $outputMimeType,
+            extension: match ($outputMimeType) {
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+            },
+            byteSize: strlen($bytes),
+            width: $specification->maxWidth,
+            height: $specification->maxHeight,
+        );
+    }
+}
+
+/**
+ * Binds a RecordingImageVariantProcessor in place of the real GD processor
+ * and returns it, so the test can read back which specs were requested.
+ * Bind it before resolving MediaVariantGenerator (or running the job or
+ * command): the writer takes the processor in its constructor.
+ */
+function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = null): RecordingImageVariantProcessor
+{
+    $processor = new RecordingImageVariantProcessor($failOnceFor);
+
+    app()->instance(ImageVariantProcessor::class, $processor);
+
+    return $processor;
 }
 
 /**
@@ -2756,12 +2820,21 @@ function mailGatewayHost(array $options = []): array
             STUB,
         'systemctl' => <<<'STUB'
             #!/bin/bash
+            # Run in an environment of its own, as Certbot runs its hooks, it finds the
+            # simulated host beside itself.
+            here="$(cd "$(dirname "$0")/.." && pwd)"
+            : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
             S="${STUB_STATE}"
             case "$1" in
-                is-enabled|show) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log" ;;
+                is-enabled|is-active|show) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/reads.log" ;;
                 *) printf 'systemctl %s\n' "$*" >> "${STUB_LOG}/mutations.log" ;;
             esac
             case "$1" in
+                is-active)
+                    unit="${@: -1}"
+                    if [[ -e "${S}/${unit}.active" ]]; then [[ "$2" == --quiet ]] || echo active; exit 0; fi
+                    [[ "$2" == --quiet ]] || echo inactive
+                    exit 3 ;;
                 is-enabled)
                     [[ -e "${S}/units-exist" ]] || { echo "Failed to get unit file state for $2" >&2; exit 1; }
                     if [[ -e "${S}/$2.enabled" ]]; then echo enabled; exit 0; fi
@@ -4057,7 +4130,7 @@ function mailInboundJson(array $arguments, array $documents = []): array
 function mailInboundBundleScripts(): array
 {
     return [
-        'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
+        'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
         'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
@@ -4187,20 +4260,95 @@ function mailInboundStubs(): array
                     echo 1 > "${STUB_STATE}/nonlocal-bind" ;;
             esac
             STUB,
-        // openssl's verdicts on the simulated certificate, decided by toggles.
+        // openssl's verdicts on the simulated certificate: what the certificate
+        // a test wrote says of itself (mailInboundTestCertificate) — its names,
+        // its days left, whether it chains to a trusted authority, the key it
+        // belongs to — or, for one that says nothing, the toggles. A toggle
+        // refuses either.
         'openssl' => <<<'STUB'
             #!/bin/bash
+            # Run in an environment of its own, as Certbot runs its hooks, it finds the
+            # simulated host beside itself.
+            here="$(cd "$(dirname "$0")/.." && pwd)"
+            : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
+            input="" previous=""
+            for argument in "$@"; do
+                [[ "${previous}" == -in ]] && input="${argument}"
+                previous="${argument}"
+            done
+            [[ "$1" == verify ]] && input="${@: -1}"
+            card="$(grep -m 1 -o 'rateguru-test-certificate .*' "${input}" 2>/dev/null || true)"
+            field() { sed -n "s/.* $1=\([^ ]*\).*/\1/p" <<<" ${card}"; }
             case "$1 $*" in
-                *-checkend*) [[ -e "${STUB_TOGGLES}/tls-expiring" ]] && exit 1; exit 0 ;;
-                verify*) [[ -e "${STUB_TOGGLES}/tls-untrusted" ]] && exit 2; echo "fullchain.pem: OK"; exit 0 ;;
+                *-checkend*)
+                    [[ -e "${STUB_TOGGLES}/tls-expiring" ]] && exit 1
+                    [[ -z "${card}" ]] || (( $(field days) * 86400 > ${@: -1} )) || exit 1
+                    exit 0 ;;
+                verify*)
+                    [[ -e "${STUB_TOGGLES}/tls-untrusted" ]] && exit 2
+                    [[ -z "${card}" || "$(field trusted)" == yes ]] || { echo "error 20 at 0 depth lookup: unable to get local issuer certificate" >&2; exit 2; }
+                    echo "fullchain.pem: OK"; exit 0 ;;
                 *-checkhost*)
                     name="${@: -1}"
-                    if [[ -e "${STUB_TOGGLES}/tls-wrong-name" ]]; then echo "Hostname ${name} does NOT match certificate"; else echo "Hostname ${name} does match certificate"; fi
+                    if [[ -e "${STUB_TOGGLES}/tls-wrong-name" ]] || { [[ -n "${card}" ]] && [[ ",$(field names)," != *",${name},"* ]]; }; then
+                        echo "Hostname ${name} does NOT match certificate"
+                    else
+                        echo "Hostname ${name} does match certificate"
+                    fi
                     exit 0 ;;
-                *-pubkey*) echo "PUBLIC KEY A" ;;
-                pkey*) [[ -e "${STUB_TOGGLES}/tls-key-mismatch" ]] && echo "PUBLIC KEY B" || echo "PUBLIC KEY A" ;;
+                *-pubkey*) [[ -n "${card}" ]] && echo "PUBLIC KEY $(field key)" || echo "PUBLIC KEY A" ;;
+                pkey*)
+                    id="$(sed -n 's/^rateguru-test-key id=\([^ ]*\).*/\1/p' "${input}" 2>/dev/null)"
+                    if [[ -n "${id}" ]]; then echo "PUBLIC KEY ${id}"
+                    elif [[ -e "${STUB_TOGGLES}/tls-key-mismatch" ]]; then echo "PUBLIC KEY B"
+                    else echo "PUBLIC KEY A"; fi ;;
+                "x509 x509 -in ${input} -noout") grep -q -- '-----BEGIN CERTIFICATE-----' "${input}" 2>/dev/null || exit 1 ;;
             esac
             exit 0
+            STUB,
+        // Certbot is installed, and never run: anything asked of it is logged,
+        // and refused.
+        'certbot' => <<<'STUB'
+            #!/bin/bash
+            # Run in an environment of its own, as Certbot runs its hooks, it finds the
+            # simulated host beside itself.
+            here="$(cd "$(dirname "$0")/.." && pwd)"
+            : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
+            printf 'certbot %s\n' "$*" >> "${STUB_LOG}/mutations.log"
+            exit 1
+            STUB,
+        // install(1) and mv(1) as the deploy hook runs them — the real ones,
+        // unless a toggle says otherwise: every install fails; the move of the
+        // staged certificate into place fails (never a move of the previous pair
+        // back); or, right after the staged key has been moved into place, the
+        // hook itself is killed outright (tls-mv-kill) or terminated (tls-mv-term).
+        'tls-install' => <<<'STUB'
+            #!/bin/bash
+            # Run in an environment of its own, as Certbot runs its hooks, it finds the
+            # simulated host beside itself.
+            here="$(cd "$(dirname "$0")/.." && pwd)"
+            : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
+            [[ -e "${STUB_TOGGLES}/tls-install-fail" && "$1" != -d ]] && { echo "install: simulated failure" >&2; exit 1; }
+            exec install "$@"
+            STUB,
+        'tls-mv' => <<<'STUB'
+            #!/bin/bash
+            # Run in an environment of its own, as Certbot runs its hooks, it finds the
+            # simulated host beside itself.
+            here="$(cd "$(dirname "$0")/.." && pwd)"
+            : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
+            from="${@: -2:1}"
+            if [[ -e "${STUB_TOGGLES}/tls-mv-fail" && "${from}" == */.tls-incoming.*/fullchain.pem ]]; then
+                echo "mv: simulated failure" >&2
+                exit 1
+            fi
+            mv "$@"
+            status=$?
+            if [[ "${from}" == */.tls-incoming.*/privkey.pem ]]; then
+                [[ -e "${STUB_TOGGLES}/tls-mv-kill" ]] && kill -KILL "${PPID}"
+                [[ -e "${STUB_TOGGLES}/tls-mv-term" ]] && kill -TERM "${PPID}"
+            fi
+            exit "${status}"
             STUB,
         'ip' => <<<'STUB'
             #!/bin/bash
@@ -4287,6 +4435,190 @@ function mailInboundMonitorRun(array $host, array $arguments = []): array
     $line = collect(preg_split('/\R/', $output))->first(static fn (string $line): bool => str_starts_with($line, 'RATEGURU_MAIL_INBOUND_MONITOR_RESULT='));
 
     return [$status, $output, $line === null ? null : json_decode(substr($line, strlen('RATEGURU_MAIL_INBOUND_MONITOR_RESULT=')), true)];
+}
+
+/** What stands in for private key material: no output may ever contain it. */
+const MAIL_TLS_KEY_SECRET = 'PRIVATE-KEY-MATERIAL-that-is-never-printed';
+
+/**
+ * A certificate for the simulated openssl, which judges it by what it says of
+ * itself: CARD's names (comma-separated), days left, whether it chains to a
+ * trusted authority, and the key it belongs to.
+ */
+function mailInboundTestCertificate(array $card = []): string
+{
+    $card += ['names' => 'mx1.tits.guru', 'days' => 89, 'trusted' => 'yes', 'key' => 'k1', 'serial' => 1];
+
+    return "-----BEGIN CERTIFICATE-----\nrateguru-test-certificate names={$card['names']} days={$card['days']} trusted={$card['trusted']} key={$card['key']} serial={$card['serial']}\n-----END CERTIFICATE-----\n"
+        ."-----BEGIN CERTIFICATE-----\nan intermediate certificate\n-----END CERTIFICATE-----\n";
+}
+
+/** A private key for the simulated openssl: its public half is named ID. */
+function mailInboundTestKey(string $id = 'k1'): string
+{
+    return "-----BEGIN PRIVATE KEY-----\nrateguru-test-key id={$id}\n".MAIL_TLS_KEY_SECRET."-{$id}\n-----END PRIVATE KEY-----\n";
+}
+
+/**
+ * Certbot's lineage NAME on HOST, as Certbot lays it out: VERSION of the pair
+ * in archive/ — the certificate CARD describes (mailInboundTestCertificate;
+ * its key k<VERSION> unless CARD names one), the private key KEY (the
+ * certificate's own unless given), 0600 — live/ linking to it, relatively,
+ * the renewal configuration and Certbot's timer enabled. A later VERSION is a
+ * renewal: the live links move to it and the earlier files stay.
+ */
+function mailInboundCertbotLineage(array $host, int $version = 1, array $card = [], ?string $key = null, string $name = 'mx1.tits.guru'): void
+{
+    $root = $host['fs'].'/etc/letsencrypt';
+
+    foreach (['', '/live', '/archive', "/live/{$name}", "/archive/{$name}", '/renewal'] as $directory) {
+        @mkdir($root.$directory, 0o755, true);
+    }
+    chmod($root.'/live', 0o700);
+    chmod($root.'/archive', 0o700);
+
+    $card += ['key' => 'k'.$version, 'serial' => $version];
+    $files = [
+        'cert' => mailInboundTestCertificate($card),
+        'chain' => "-----BEGIN CERTIFICATE-----\nan intermediate certificate\n-----END CERTIFICATE-----\n",
+        'fullchain' => mailInboundTestCertificate($card),
+        'privkey' => mailInboundTestKey($key ?? $card['key']),
+    ];
+
+    foreach ($files as $part => $content) {
+        $archived = "{$root}/archive/{$name}/{$part}{$version}.pem";
+        file_put_contents($archived, $content);
+        chmod($archived, $part === 'privkey' ? 0o600 : 0o644);
+
+        $live = "{$root}/live/{$name}/{$part}.pem";
+        @unlink($live);
+        symlink("../../archive/{$name}/{$part}{$version}.pem", $live);
+    }
+
+    file_put_contents("{$root}/renewal/{$name}.conf", implode("\n", [
+        'version = 5.0.0',
+        "archive_dir = /etc/letsencrypt/archive/{$name}",
+        "cert = /etc/letsencrypt/live/{$name}/cert.pem",
+        "privkey = /etc/letsencrypt/live/{$name}/privkey.pem",
+        "chain = /etc/letsencrypt/live/{$name}/chain.pem",
+        "fullchain = /etc/letsencrypt/live/{$name}/fullchain.pem",
+        '',
+        '[renewalparams]',
+        'authenticator = webroot',
+        'webroot_path = /var/www/html,',
+        '',
+    ]));
+
+    touch($host['state'].'/units-exist');
+    touch($host['state'].'/certbot.timer.enabled');
+}
+
+/**
+ * Run the installed deploy hook on HOST as Certbot runs it after renewing the
+ * lineage whose live directory is RENEWED: RENEWED_LINEAGE in an environment
+ * of its own. With ARGUMENTS, one of its read-only modes instead.
+ *
+ * @return array{0: int, 1: string}
+ */
+function mailInboundDeployHook(array $host, ?string $renewed = null, array $arguments = []): array
+{
+    $hook = $host['fs'].'/etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls';
+    $env = ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'RENEWED_LINEAGE' => $renewed ?? $host['fs'].'/etc/letsencrypt/live/mx1.tits.guru', 'RENEWED_DOMAINS' => 'mx1.tits.guru'];
+    $process = proc_open(['bash', $hook, ...$arguments], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $host['scratch'], $env);
+    $output = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $output];
+}
+
+/**
+ * Certbot renews mx1.tits.guru on HOST: VERSION of the pair (as
+ * mailInboundCertbotLineage), then the deploy hook.
+ *
+ * @return array{0: int, 1: string}
+ */
+function mailInboundCertbotRenewal(array $host, int $version, array $card = [], ?string $key = null): array
+{
+    mailInboundCertbotLineage($host, $version, $card, $key);
+
+    return mailInboundDeployHook($host);
+}
+
+/** Where install-mail-inbound-tls installs Certbot's deploy hook, and the pair it installs. */
+const MAIL_TLS_HOOK = '/etc/letsencrypt/renewal-hooks/deploy/rateguru-mail-inbound-tls';
+const MAIL_TLS_CERT = '/etc/rateguru-mail-inbound/tls/fullchain.pem';
+const MAIL_TLS_KEY = '/etc/rateguru-mail-inbound/tls/privkey.pem';
+
+/** install-mail-inbound-tls --MODE --target tits-guru on HOST. @return array{0: int, 1: string} */
+function mailInboundTlsRun(array $host, string $mode, array $env = []): array
+{
+    return mailInboundHostRun($host, 'install-mail-inbound-tls', ["--{$mode}", '--target', 'tits-guru'], $env);
+}
+
+/** The archived file of VERSION of the lineage's PART, as Certbot keeps it. */
+function mailInboundTlsArchived(array $host, string $part, int $version): string
+{
+    return (string) file_get_contents($host['fs']."/etc/letsencrypt/archive/mx1.tits.guru/{$part}{$version}.pem");
+}
+
+/** What identifies an installed file on disk, without reading it: rewritten, it changes. */
+function mailInboundTlsIdentity(array $host, string $path): string
+{
+    clearstatcache();
+    $file = $host['fs'].$path;
+
+    return is_link($file) ? 'link' : (file_exists($file) ? fileinode($file).':'.filemtime($file).':'.substr(sprintf('%o', fileperms($file)), -4) : 'absent');
+}
+
+/** PATH's permission bits on HOST, as four octal digits. */
+function mailInboundTlsMode(array $host, string $path): string
+{
+    clearstatcache();
+
+    return substr(sprintf('%o', fileperms($host['fs'].$path)), -4);
+}
+
+/** Every request made of systemd that could change anything: the mutations log's systemctl lines. */
+function mailInboundTlsSystemdRequests(array $host): array
+{
+    return array_values(array_filter(
+        preg_split('/\R/', mailInboundLog($host, 'mutations.log')),
+        static fn (string $line): bool => str_starts_with($line, 'systemctl '),
+    ));
+}
+
+/** Empty HOST's logs, so a test sees what one run alone asked for. */
+function mailInboundTlsResetLogs(array $host): void
+{
+    foreach (['mutations.log', 'reads.log'] as $name) {
+        file_put_contents($host['log'].'/'.$name, '');
+    }
+}
+
+/** The installed pair is exactly VERSION of the lineage: the same bytes, regular files, 0644 and 0600. */
+function mailInboundTlsExpectInstalled(array $host, int $version): void
+{
+    foreach ([MAIL_TLS_CERT => ['fullchain', '0644'], MAIL_TLS_KEY => ['privkey', '0600']] as $path => [$part, $mode]) {
+        expect(is_link($host['fs'].$path))->toBeFalse("{$path} is a link");
+        expect(is_file($host['fs'].$path))->toBeTrue("{$path} is not a regular file");
+        expect(mailInboundFile($host, $path))->toBe(mailInboundTlsArchived($host, $part, $version), "{$path} is not version {$version} of the lineage");
+        expect(mailInboundTlsMode($host, $path))->toBe($mode, "{$path} has the wrong mode");
+    }
+}
+
+/** The one staging directory — the journal — the deploy hook left beside the installed pair. */
+function mailInboundTlsJournal(array $host): string
+{
+    $journals = glob($host['fs'].'/etc/rateguru-mail-inbound/.tls-incoming.*', GLOB_NOSORT) ?: [];
+    expect($journals)->toHaveCount(1);
+
+    return $journals[0];
+}
+
+/** No staging directory of the deploy hook's is left beside the installed pair. */
+function mailInboundTlsNoStaging(array $host): void
+{
+    expect(glob($host['fs'].'/etc/rateguru-mail-inbound/.tls-incoming.*', GLOB_NOSORT) ?: [])->toBe([]);
 }
 
 /**
@@ -4441,6 +4773,20 @@ function mailInboundHostBuilt(array $options): array
         $env["RATEGURU_MAILINBOUNDACTIVATE_{$tool}_BIN"] = $scratch.'/bin/'.$name;
     }
     $env['RATEGURU_MAILINBOUNDACTIVATE_MOUNTINFO'] = $state.'/mountinfo';
+
+    // The TLS installer, and what the deploy hook it renders runs: the hook
+    // finds every other program on the PATH this suite runs with.
+    $env += [
+        'RATEGURU_MAILINBOUNDTLS_EUID' => '0',
+        'RATEGURU_MAILINBOUNDTLS_FS_ROOT' => $fs,
+        'RATEGURU_MAILINBOUNDTLS_FILE_OWNER' => $me,
+        'RATEGURU_MAILINBOUNDTLS_FILE_GROUP' => $group,
+        'RATEGURU_MAILINBOUNDTLS_TRUST_STORE' => $scratch.'/trust.pem',
+        'RATEGURU_MAILINBOUNDTLS_HOOK_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+    ];
+    foreach (['CERTBOT' => 'certbot', 'OPENSSL' => 'openssl', 'SYSTEMCTL' => 'systemctl', 'INSTALL' => 'tls-install', 'MV' => 'tls-mv'] as $tool => $name) {
+        $env["RATEGURU_MAILINBOUNDTLS_{$tool}_BIN"] = $scratch.'/bin/'.$name;
+    }
 
     // The monitor's installer, and what the monitor it renders runs.
     $env += [
@@ -7938,6 +8284,9 @@ function trustedToolingRefs(): array
         // installation of the monitor access that check uses.
         'check-tits-guru-inbound-mail-health.yml' => 'main',
         'install-tits-guru-inbound-mail-monitor.yml' => 'main',
+        // and the installation of its public listener's certificate, from the
+        // Certbot lineage on the host, with the hook that keeps it renewed.
+        'install-tits-guru-inbound-mail-tls.yml' => 'main',
         'prepare-production-host.yml' => 'main',
         'repair-production.yml' => 'main',
         'restore-production.yml' => 'main',

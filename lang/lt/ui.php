@@ -171,8 +171,6 @@ return [
     'moderation' => [
         'badge' => 'Moderatorius',
         'open_in_admin' => 'Atidaryti administravimo skydelyje',
-        'approve' => 'Patvirtinti',
-        'reject' => 'Atmesti',
         'hide' => 'Slėpti įrašą',
         'restore' => 'Atkurti',
         'hide_confirm_title' => 'Paslėpti šį įrašą?',
@@ -180,9 +178,7 @@ return [
         'confirm_hide' => 'Patvirtinti slėpimą',
         'reason' => 'Priežastis',
         'reason_placeholder' => 'Moderavimo pastaba (neprivaloma)...',
-        'approved' => 'Įrašas patvirtintas.',
         'hidden' => 'Įrašas paslėptas.',
-        'rejected' => 'Įrašas atmestas.',
         'restored' => 'Įrašas atkurtas.',
         'not_allowed' => 'Jums neleidžiama moderuoti įrašų.',
         'errors' => [
@@ -277,6 +273,7 @@ return [
         'submit' => 'Sukurti įrašą',
         'submitting' => 'Įkeliama...',
         'success_pending' => 'Jūsų įrašas pateiktas ir bus parodytas po moderavimo.',
+        'success_published' => 'Jūsų įrašas paskelbtas.',
         'error_generic' => 'Kuriant įrašą įvyko klaida.',
         'error_invalid_image' => 'Nepavyko apdoroti šio paveikslėlio. Pabandykite kitą failą.',
         'selected_image_alt' => 'Pasirinkto paveikslėlio peržiūra',

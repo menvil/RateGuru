@@ -11,16 +11,17 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 
 beforeEach(function () {
     Storage::fake('public');
 });
 
 it('writes the variant file and row for a first-time generation', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
 
     $variant = app(MediaVariantWriter::class)->write($asset, $bytes, $spec);
@@ -36,10 +37,10 @@ it('writes the variant file and row for a first-time generation', function () {
 });
 
 it('is idempotent across repeated writes for the same asset and spec', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
     $writer = app(MediaVariantWriter::class);
 
@@ -52,10 +53,10 @@ it('is idempotent across repeated writes for the same asset and spec', function 
 });
 
 it('deletes the just-written file when the database upsert fails on a first-time write', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
     $exception = null;
 
@@ -79,10 +80,10 @@ it('deletes the just-written file when the database upsert fails on a first-time
 });
 
 it('preserves the existing working file when the database upsert fails on regeneration', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
     $writer = app(MediaVariantWriter::class);
 
@@ -112,10 +113,10 @@ it('preserves the existing working file when the database upsert fails on regene
 });
 
 it('reports a cleanup failure but still propagates the original database exception', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
 
     $mediaStorage = Mockery::mock(MediaStorage::class);
@@ -162,11 +163,16 @@ it('reports a cleanup failure but still propagates the original database excepti
  */
 it('serializes the whole write lifecycle behind a lock keyed by asset and variant name', function () {
     config(['media.variant_lock.wait_seconds' => 1]);
+    // Lock::block() retries every 250 ms until wait_seconds has passed on
+    // Carbon's clock. Faking the sleep and advancing Carbon with it runs the
+    // same retries without the real second of waiting; a plain Sleep::fake()
+    // would leave Carbon behind and spin on the lock for that second instead.
+    Sleep::fake(syncWithCarbon: true);
 
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
     $expectedPath = 'posts/2026/08/master/post_feed_640.jpg';
 
@@ -214,10 +220,10 @@ it('serializes the whole write lifecycle behind a lock keyed by asset and varian
 });
 
 it('does not delete the file when another row already claims its exact disk and path', function () {
-    $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    $bytes = jpegMarkerBytes(2400, 1600);
+    $bytes = jpegMarkerBytes(960, 640);
     $spec = variantSpec();
     $expectedPath = 'posts/2026/08/master/post_feed_640.jpg';
 

@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Người kiểm duyệt',
         'open_in_admin' => 'Mở trong trang quản trị',
-        'approve' => 'Duyệt',
-        'reject' => 'Từ chối',
         'hide' => 'Ẩn bài đăng',
         'restore' => 'Khôi phục',
         'hide_confirm_title' => 'Ẩn bài đăng này?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Xác nhận ẩn',
         'reason' => 'Lý do',
         'reason_placeholder' => 'Ghi chú kiểm duyệt (không bắt buộc)...',
-        'approved' => 'Đã duyệt bài đăng.',
         'hidden' => 'Đã ẩn bài đăng.',
-        'rejected' => 'Đã từ chối bài đăng.',
         'restored' => 'Đã khôi phục bài đăng.',
         'not_allowed' => 'Bạn không có quyền kiểm duyệt bài đăng.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Tạo bài đăng',
         'submitting' => 'Đang tải lên...',
         'success_pending' => 'Bài đăng của bạn đã được gửi và sẽ hiển thị sau khi được kiểm duyệt.',
+        'success_published' => 'Bài đăng của bạn đã được đăng.',
         'error_generic' => 'Đã xảy ra lỗi khi tạo bài đăng của bạn.',
         'error_invalid_image' => 'Không thể xử lý hình ảnh này. Vui lòng thử tệp khác.',
         'selected_image_alt' => 'Xem trước hình ảnh đã chọn',

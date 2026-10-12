@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Otvori u admin panelu',
-        'approve' => 'Odobri',
-        'reject' => 'Odbij',
         'hide' => 'Sakrij objavu',
         'restore' => 'Vrati',
         'hide_confirm_title' => 'Sakriti ovu objavu?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potvrdi skrivanje',
         'reason' => 'Razlog',
         'reason_placeholder' => 'Opciona napomena za moderaciju...',
-        'approved' => 'Objava je odobrena.',
         'hidden' => 'Objava je sakrivena.',
-        'rejected' => 'Objava je odbijena.',
         'restored' => 'Objava je vraćena.',
         'not_allowed' => 'Nije ti dozvoljeno da moderišeš objave.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Napravi objavu',
         'submitting' => 'Otpremanje...',
         'success_pending' => 'Tvoja objava je poslata i pojaviće se nakon moderacije.',
+        'success_published' => 'Tvoja objava je objavljena.',
         'error_generic' => 'Došlo je do greške pri pravljenju objave.',
         'error_invalid_image' => 'Ovu sliku nije moguće obraditi. Pokušaj s drugim fajlom.',
         'selected_image_alt' => 'Pregled izabrane slike',

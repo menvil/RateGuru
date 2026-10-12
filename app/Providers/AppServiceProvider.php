@@ -26,6 +26,7 @@ use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Theme\ThemeManager;
+use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
@@ -58,6 +59,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(HostResolver::class, DnsHostResolver::class);
         $this->app->singleton(ImportHttpTransport::class, PinnedImportHttpTransport::class);
+
+        // A singleton, so a provider call is recorded once however often its
+        // result is handed to the recorder within a request or a worker.
+        $this->app->singleton(TranslationAiCallRecorder::class);
     }
 
     /**

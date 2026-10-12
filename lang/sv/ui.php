@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Öppna i adminpanelen',
-        'approve' => 'Godkänn',
-        'reject' => 'Avvisa',
         'hide' => 'Dölj inlägg',
         'restore' => 'Återställ',
         'hide_confirm_title' => 'Dölja det här inlägget?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Bekräfta döljning',
         'reason' => 'Anledning',
         'reason_placeholder' => 'Valfri moderationsanteckning...',
-        'approved' => 'Inlägget har godkänts.',
         'hidden' => 'Inlägget har dolts.',
-        'rejected' => 'Inlägget har avvisats.',
         'restored' => 'Inlägget har återställts.',
         'not_allowed' => 'Du har inte behörighet att moderera inlägg.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Skapa inlägg',
         'submitting' => 'Laddar upp...',
         'success_pending' => 'Ditt inlägg har skickats in och visas efter granskning.',
+        'success_published' => 'Ditt inlägg har publicerats.',
         'error_generic' => 'Något gick fel när ditt inlägg skulle skapas.',
         'error_invalid_image' => 'Bilden kunde inte bearbetas. Prova en annan fil.',
         'selected_image_alt' => 'Förhandsvisning av vald bild',

@@ -1,14 +1,7 @@
 <?php
 
 use App\Models\User;
-use App\Policies\ProjectSettingsPolicy;
 use Illuminate\Support\Facades\Gate;
-
-it('registers project settings management as a global gate ability', function () {
-    $policy = app(ProjectSettingsPolicy::class);
-
-    expect(method_exists($policy, 'manage'))->toBeTrue();
-});
 
 it('allows only administrators to manage project settings', function () {
     $admin = User::factory()->admin()->create();

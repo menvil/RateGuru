@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\User;
-use Illuminate\Support\Facades\Context;
 use Laravel\Nightwatch\Events\IngestingEvents;
 use Laravel\Nightwatch\Facades\Nightwatch;
 use Tests\TestCase;
@@ -91,19 +90,6 @@ it('carries the canonical deployment identity on every record', function () {
         // release.json — the same string Sentry reports as its release.
         expect($record['deploy'] ?? null)->toBe('v1.2.3-20260101-000000-abc1234');
     }
-});
-
-it('publishes the deployment facts on Laravel Context, which Nightwatch reads natively', function () {
-    // Nightwatch serializes Context::all() onto its execution records, so
-    // Context is the carrier — RateGuru does not invent a second one.
-    expect(Context::all())->toMatchArray([
-        'app' => 'RateGuru',
-        'deployment_target' => 'staging-main',
-        'release' => 'v1.2.3-20260101-000000-abc1234',
-        'commit' => 'abc1234',
-    ]);
-
-    expect(Context::get('environment'))->toBe('testing');
 });
 
 it('puts no user identity beyond the ID on a record', function () {

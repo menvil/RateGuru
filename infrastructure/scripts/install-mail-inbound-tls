@@ -1,0 +1,957 @@
+#!/usr/bin/env bash
+#
+# install-mail-inbound-tls — the public inbound listener's certificate, taken
+# from the Certbot lineage that already holds it, and kept current every time
+# Certbot renews it.
+#
+#   install-mail-inbound-tls --check  --target TARGET   read-only (root): may --apply proceed, and what would change
+#   install-mail-inbound-tls --apply  --target TARGET   install the pair and the renewal hook (root)
+#   install-mail-inbound-tls --verify --target TARGET   read-only (root): installed, current, and as reviewed
+#
+# THE SOURCE. Certbot's lineage for the target's MX host — for tits-guru,
+# /etc/letsencrypt/live/mx1.tits.guru — issued beforehand by the operator, as
+# infrastructure/runbooks/mail-inbound.md says. This installer issues nothing,
+# never runs Certbot and installs no program: without Certbot, its renewal
+# configuration for that name, and the lineage, it refuses.
+#
+# THE TARGET. The pair install-mail-inbound --tls-check judges and the public
+# listener serves: /etc/rateguru-mail-inbound/tls/fullchain.pem (root:root
+# 0644) and privkey.pem (root:root 0600), regular files, never links.
+#
+# THE RENEWAL. A deploy hook of Certbot's own, rendered from this bundle and
+# installed root-owned in /etc/letsencrypt/renewal-hooks/deploy/: nothing in it
+# points back at a checkout. Certbot runs every deploy hook after every
+# certificate it renews; this one acts on exactly one lineage, and on any
+# other does nothing at all. For that one it judges the renewed pair — every
+# path of it inside Certbot's own root-owned tree, every MX host name covered,
+# at least 14 days left, a chain to a trusted authority, the key matching —
+# stages it next to the installed pair, moves it into place, reads it back,
+# and puts the previous pair back on any failure. Then, and only when Postfix
+# runs, it reloads Postfix: never a stop, never a restart.
+#
+# --apply installs the hook, then runs it exactly as Certbot will, so the
+# first pair is copied by the same code every renewal runs.
+#
+# NEVER: a Postfix file, a listener, a route, the queue, OpenDKIM, Nginx, the
+# site's certificates, the firewall or DNS. The private key is copied by
+# install(1) and judged through its public half; no byte of it is printed.
+#
+# Repository tooling: run as root from a trusted bundle by activate-mail-inbound
+# --install-tls, never installed on a host and never run by host bootstrap.
+#
+# Test overrides: the RATEGURU_MAILINBOUNDTLS_* variables below are honoured
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true. The hook is rendered with
+# what they decide and reads none of them itself.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+# --- Test override gate -------------------------------------------------------
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_MAILINBOUNDTLS_EUID "${EUID}")"
+FS_ROOT="$(gated_default RATEGURU_MAILINBOUNDTLS_FS_ROOT '')"
+
+CERTBOT_BIN="$(gated_default RATEGURU_MAILINBOUNDTLS_CERTBOT_BIN certbot)"
+
+# What the rendered hook runs by absolute path, and the PATH it sets for the
+# rest: Certbot runs its hooks in its own environment, which a snap or a
+# virtualenv may have put programs of its own first in.
+OPENSSL_BIN="$(gated_default RATEGURU_MAILINBOUNDTLS_OPENSSL_BIN /usr/bin/openssl)"
+SYSTEMCTL_BIN="$(gated_default RATEGURU_MAILINBOUNDTLS_SYSTEMCTL_BIN /usr/bin/systemctl)"
+INSTALL_BIN="$(gated_default RATEGURU_MAILINBOUNDTLS_INSTALL_BIN /usr/bin/install)"
+MV_BIN="$(gated_default RATEGURU_MAILINBOUNDTLS_MV_BIN /usr/bin/mv)"
+HOOK_PATH="$(gated_default RATEGURU_MAILINBOUNDTLS_HOOK_PATH /usr/sbin:/usr/bin:/sbin:/bin)"
+
+# The system's trusted certificate authorities, as install-mail-inbound judges.
+TRUST_STORE="$(gated_default RATEGURU_MAILINBOUNDTLS_TRUST_STORE /etc/ssl/certs/ca-certificates.crt)"
+
+# Who owns what Certbot keeps and what is installed: root, on a host.
+FILE_OWNER="$(gated_default RATEGURU_MAILINBOUNDTLS_FILE_OWNER root)"
+FILE_GROUP="$(gated_default RATEGURU_MAILINBOUNDTLS_FILE_GROUP root)"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/mail-inbound-host"
+
+LETSENCRYPT="/etc/letsencrypt"
+HOOK_DIR="${LETSENCRYPT}/renewal-hooks/deploy"
+HOOK_FILE="${HOOK_DIR}/rateguru-mail-inbound-tls"
+TLS_MIN_DAYS=14
+
+# The Certbot renewal timers a host may run: reported, never required.
+RENEWAL_TIMERS=(certbot.timer snap.certbot.renew.timer)
+
+# --- Output -------------------------------------------------------------------
+
+MODE=""
+TARGET_ID=""
+CERT_NAME=""
+MX_NAMES=()
+WORK=""
+COUNT_PASS=0
+COUNT_FAIL=0
+COUNT_DRIFT=0
+
+fail() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+action() {
+    printf '[apply] %s\n' "$*"
+}
+
+item() {
+    local status="$1" name="$2" detail="$3"
+    printf '  %-8s %-48s %s\n' "${status}" "${name}" "${detail}"
+    case "${status}" in
+        PASS) COUNT_PASS=$((COUNT_PASS + 1)) ;;
+        FAIL) COUNT_FAIL=$((COUNT_FAIL + 1)) ;;
+        DRIFT|MISSING) COUNT_DRIFT=$((COUNT_DRIFT + 1)) ;;
+    esac
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  install-mail-inbound-tls --check  --target TARGET
+  install-mail-inbound-tls --apply  --target TARGET
+  install-mail-inbound-tls --verify --target TARGET
+
+The public inbound listener's certificate, copied from the Certbot lineage of
+the target's MX host, and a Certbot deploy hook that copies every renewal of
+it into place and reloads Postfix. It issues nothing and runs no Certbot
+command.
+USAGE
+}
+
+physical() {
+    printf '%s%s\n' "${FS_ROOT}" "$1"
+}
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] || fail "--${MODE} must run as root: the private key is root's"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || fail "required tool not found: ${tool}"
+    done
+}
+
+# --- The plan -----------------------------------------------------------------
+
+# load_names — the target's MX host, which names its Certbot lineage, and every
+# MX host name of the inbound plan, which the certificate must cover.
+load_names() {
+    local plan receiver name
+    [[ -x "${SCRIPT_DIR}/mail-inbound" ]] \
+        || fail "the inbound mail CLI is not executable: ${SCRIPT_DIR}/mail-inbound — run from a full repository bundle"
+    plan="$("${SCRIPT_DIR}/mail-inbound" render-plan 2>/dev/null)" \
+        || fail "mail-inbound render-plan refused the trusted bundle's inbound contract — nothing was changed"
+    receiver="$("${SCRIPT_DIR}/mail-inbound" render-receiver 2>/dev/null)" \
+        || fail "mail-inbound render-receiver refused the trusted bundle's inbound contract — nothing was changed"
+
+    CERT_NAME="$(jq -r --arg t "${TARGET_ID}" 'first(.targets[] | select(.target == $t) | .mx_hostname) // empty' <<<"${plan}")"
+    [[ -n "${CERT_NAME}" ]] \
+        || fail "${TARGET_ID} is not a target the trusted bundle's inbound plan receives mail for — nothing was changed"
+
+    MX_NAMES=()
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] || MX_NAMES+=("${name}")
+    done < <(jq -r '.mx_hostnames[]' <<<"${receiver}")
+
+    (( ${#MX_NAMES[@]} > 0 )) \
+        || fail "the inbound plan names no MX host the certificate must cover — nothing was changed"
+    for name in "${CERT_NAME}" "${MX_NAMES[@]}"; do
+        [[ "${name}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] \
+            || fail "the inbound plan names an MX host that is not a host name: ${name} — nothing was changed"
+    done
+}
+
+# --- The hook -----------------------------------------------------------------
+
+# render_hook — the deploy hook, self-contained: the paths and names this
+# bundle decides, and the one implementation of judging and installing a pair,
+# which the first installation runs as well as every renewal.
+render_hook() {
+    local name
+
+    cat <<'EOF'
+#!/bin/bash
+# RateGuru inbound mail TLS — a Certbot deploy hook, rendered by
+# install-mail-inbound-tls from a trusted bundle. Do not edit it: the next
+# install-mail-inbound-tls --apply replaces it, and --verify reports any change.
+#
+# Certbot runs every deploy hook after every certificate it renews, with
+# RENEWED_LINEAGE naming that certificate's live directory. This one acts on
+# exactly one lineage, LINEAGE below, and does nothing at all for any other.
+# For that one: every path of the renewed pair must lie inside Certbot's own
+# tree, owned by FILE_OWNER and writable by no one else; the certificate must
+# cover every name in NAMES, have at least MIN_DAYS left, chain to a trusted
+# authority and match its key. Then it is staged next to TARGET_DIR, judged
+# again there, and moved in — regular files, the key 0600 — read back, and the
+# previous pair is put back on any failure, so a mixed pair is never left.
+# Postfix, when it runs, is reloaded; it is never stopped or restarted. No byte
+# of the private key is printed.
+#
+#   (no argument)  as Certbot runs it: RENEWED_LINEAGE decides
+#   --check        read-only: may the pair Certbot holds be served
+#   --verify       read-only: is the installed pair exactly that pair, as reviewed
+set -Euo pipefail
+umask 077
+
+EOF
+    printf 'PATH=%q\n' "${HOOK_PATH}"
+    printf 'LETSENCRYPT=%q\n' "$(physical "${LETSENCRYPT}")"
+    printf 'LINEAGE=%q\n' "$(physical "${LETSENCRYPT}/live/${CERT_NAME}")"
+    printf 'ARCHIVE=%q\n' "$(physical "${LETSENCRYPT}/archive/${CERT_NAME}")"
+    printf 'TARGET_PARENT=%q\n' "$(physical "$(dirname "${MAIL_INBOUND_TLS_DIR}")")"
+    printf 'TARGET_DIR=%q\n' "$(physical "${MAIL_INBOUND_TLS_DIR}")"
+    printf 'NAMES=('
+    for name in "${MX_NAMES[@]}"; do
+        printf ' %q' "${name}"
+    done
+    printf ' )\n'
+    printf 'MIN_DAYS=%q\n' "${TLS_MIN_DAYS}"
+    printf 'TRUST_STORE=%q\n' "${TRUST_STORE}"
+    printf 'OPENSSL=%q\n' "${OPENSSL_BIN}"
+    printf 'SYSTEMCTL=%q\n' "${SYSTEMCTL_BIN}"
+    printf 'INSTALL=%q\n' "${INSTALL_BIN}"
+    printf 'MV=%q\n' "${MV_BIN}"
+    printf 'POSTFIX_UNIT=%q\n' "${MAIL_INBOUND_POSTFIX_UNIT}"
+    printf 'FILE_OWNER=%q\n' "${FILE_OWNER}"
+    printf 'FILE_GROUP=%q\n' "${FILE_GROUP}"
+    cat <<'EOF'
+
+PROBLEMS=0
+CRITICAL=false
+CHANGED=false
+RECOVERED=false
+WORK=""
+
+say() { printf 'rateguru inbound TLS: %s\n' "$*"; }
+problem() { printf 'rateguru inbound TLS: FAIL %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
+critical() { printf 'rateguru inbound TLS: CRITICAL %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); CRITICAL=true; }
+
+# THE JOURNAL. Every installation stages its pair in a directory of its own
+# beside TARGET_DIR, TARGET_PARENT/.tls-incoming.*. Before the installed pair
+# is touched, a verified copy of it goes into that directory's previous/, and
+# its state file records — written whole, renamed into place, synced —
+# phase=swapping and, for each file, its SHA-256 or "absent". From then on
+# that copy is the only way back, so a directory in that phase is never
+# removed until the copy has been verified, put back and read back: by this
+# run on its way out, whatever ends it, or — when it was killed outright — by
+# the next one, before anything else. A copy that cannot be verified or put
+# back is CRITICAL: it is kept, nothing is reloaded, and the hook exits 2.
+
+# journal_phase DIR — the phase DIR's state file records; nothing when it has none.
+journal_phase() {
+    sed -n 's/^phase=//p' "$1/state" 2>/dev/null | head -n 1
+}
+
+# journal_record DIR NAME — what DIR's journal recorded for NAME: a SHA-256, or "absent".
+journal_record() {
+    awk -v name="$2" '$1 == name { print $2; exit }' "$1/state" 2>/dev/null
+}
+
+digest() {
+    sha256sum < "$1" | cut -d ' ' -f 1
+}
+
+# restore_journal DIR — the installed pair exactly as DIR's journal recorded it:
+# each copy verified against its recorded SHA-256 before anything is put back,
+# put back by a rename, and the result read back. Only then may DIR go; when
+# that does not hold, the failure is CRITICAL and DIR is left as it is.
+restore_journal() {
+    local dir="$1" name recorded
+    if ! secure_path "${TARGET_DIR}" directory; then
+        critical "${TARGET_DIR} is not a real directory of ${FILE_OWNER}'s that no one else may write — the previous pair is kept in ${dir}, and nothing was put back"
+        return 1
+    fi
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        [[ "${recorded}" != absent ]] || continue
+        if [[ ! "${recorded}" =~ ^[0-9a-f]{64}$ || -L "${dir}/previous/${name}" || ! -f "${dir}/previous/${name}" ]] \
+            || [[ "$(digest "${dir}/previous/${name}")" != "${recorded}" ]]
+        then
+            critical "the copy of the previous ${name} in ${dir} does not match its journal — it is kept, and nothing was put back. Inspect ${dir} as root before anything else"
+            return 1
+        fi
+    done
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        if [[ "${recorded}" == absent ]]; then
+            rm -f -- "${TARGET_DIR:?}/${name:?}"
+        else
+            cp -p -- "${dir}/previous/${name}" "${dir}/restoring.${name}" \
+                && "${MV}" -f -T -- "${dir}/restoring.${name}" "${TARGET_DIR}/${name}"
+        fi
+    done
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        if [[ "${recorded}" == absent ]]; then
+            [[ ! -e "${TARGET_DIR}/${name}" && ! -L "${TARGET_DIR}/${name}" ]] && continue
+        elif [[ -f "${TARGET_DIR}/${name}" && ! -L "${TARGET_DIR}/${name}" ]] && [[ "$(digest "${TARGET_DIR}/${name}")" == "${recorded}" ]]; then
+            continue
+        fi
+        critical "the previous pair could not be put back intact — its copy is kept in ${dir}/previous. Put it back by hand as root, then run install-mail-inbound-tls --apply"
+        return 1
+    done
+    if [[ "$(journal_record "${dir}" privkey.pem)" == absent && "$(journal_record "${dir}" fullchain.pem)" == absent ]]; then
+        say "no pair was installed before, and none is left half in place, verified"
+    else
+        say "the pair that was installed before is back in place, verified"
+    fi
+}
+
+# cleanup — whatever ends this run: a staging directory goes, unless it holds
+# the only copy of a pair being replaced; then that pair is put back first,
+# and when it cannot be, the directory stays.
+cleanup() {
+    [[ -n "${WORK}" && -d "${WORK}" ]] || return 0
+    if [[ "$(journal_phase "${WORK}")" == swapping ]]; then
+        say "stopped while the pair was being replaced — putting the previous pair back"
+        restore_journal "${WORK}" || return 0
+    fi
+    rm -rf -- "${WORK:?}"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# secure_path PATH KIND — a real KIND (directory | file), not a link, owned by
+# FILE_OWNER, that no one else may write.
+secure_path() {
+    local path="$1" kind="$2" meta
+    [[ ! -L "${path}" ]] || return 1
+    case "${kind}" in
+        directory) [[ -d "${path}" ]] || return 1 ;;
+        file)      [[ -f "${path}" ]] || return 1 ;;
+    esac
+    meta="$(stat -c '%U %a' -- "${path}" 2>/dev/null)" || return 1
+    [[ "${meta% *}" == "${FILE_OWNER}" ]] && (( (8#${meta#* } & 8#022) == 0 ))
+}
+
+# source_file NAME — the live file NAME resolved, when it is a regular file
+# directly inside ARCHIVE that only FILE_OWNER may write.
+source_file() {
+    local resolved archive
+    resolved="$(readlink -f -- "${LINEAGE}/$1" 2>/dev/null)" || return 1
+    archive="$(readlink -f -- "${ARCHIVE}" 2>/dev/null)" || return 1
+    [[ -n "${resolved}" && "$(dirname -- "${resolved}")" == "${archive}" ]] || return 1
+    secure_path "${resolved}" file || return 1
+    printf '%s\n' "${resolved}"
+}
+
+# public_key_digest FILE cert|key — the SHA-256 of the public half of a
+# certificate or of a private key: the key itself never leaves openssl.
+public_key_digest() {
+    if [[ "$2" == cert ]]; then
+        "${OPENSSL}" x509 -in "$1" -noout -pubkey 2>/dev/null | sha256sum | cut -d ' ' -f 1
+    else
+        "${OPENSSL}" pkey -in "$1" -pubout -passin pass: 2>/dev/null </dev/null | sha256sum | cut -d ' ' -f 1
+    fi
+}
+
+# pair_problems CERT KEY — why the pair may not be served, a line each;
+# nothing when it may.
+pair_problems() {
+    local cert="$1" key="$2" name cert_key key_key nothing
+    nothing="$(printf '' | sha256sum | cut -d ' ' -f 1)"
+    if ! "${OPENSSL}" x509 -in "${cert}" -noout >/dev/null 2>&1; then
+        printf 'it holds no certificate\n'
+        return 0
+    fi
+    "${OPENSSL}" x509 -in "${cert}" -noout -checkend "$(( MIN_DAYS * 86400 ))" >/dev/null 2>&1 \
+        || printf 'the certificate has expired, or expires within %s days\n' "${MIN_DAYS}"
+    for name in "${NAMES[@]}"; do
+        [[ "$("${OPENSSL}" x509 -in "${cert}" -noout -checkhost "${name}" 2>/dev/null)" == *' does match certificate'* ]] \
+            || printf 'the certificate does not cover %s\n' "${name}"
+    done
+    "${OPENSSL}" verify -CAfile "${TRUST_STORE}" -untrusted "${cert}" "${cert}" >/dev/null 2>&1 \
+        || printf 'the certificate does not chain to a trusted certificate authority\n'
+    cert_key="$(public_key_digest "${cert}" cert)"
+    key_key="$(public_key_digest "${key}" key)"
+    [[ -n "${cert_key}" && "${cert_key}" != "${nothing}" && "${cert_key}" == "${key_key}" ]] \
+        || printf 'the private key does not belong to the certificate\n'
+}
+
+# judge_source — the pair Certbot holds, judged; SOURCE_CERT and SOURCE_KEY
+# name it when it may be served.
+SOURCE_CERT=""
+SOURCE_KEY=""
+judge_source() {
+    local dir problems line
+    for dir in "${LETSENCRYPT}" "${LETSENCRYPT}/live" "${LETSENCRYPT}/archive" "${LINEAGE}" "${ARCHIVE}"; do
+        secure_path "${dir}" directory \
+            || problem "${dir} is not a real directory of ${FILE_OWNER}'s that no one else may write — nothing in it is trusted"
+    done
+    (( PROBLEMS == 0 )) || return 1
+
+    SOURCE_CERT="$(source_file fullchain.pem)" \
+        || { problem "${LINEAGE}/fullchain.pem does not lead to a regular file of ${FILE_OWNER}'s directly in ${ARCHIVE} that no one else may write"; return 1; }
+    SOURCE_KEY="$(source_file privkey.pem)" \
+        || { problem "${LINEAGE}/privkey.pem does not lead to a regular file of ${FILE_OWNER}'s directly in ${ARCHIVE} that no one else may write"; return 1; }
+    (( (8#$(stat -c '%a' -- "${SOURCE_KEY}") & 8#004) == 0 )) \
+        || { problem "${SOURCE_KEY} is readable by everyone — that private key is not trusted"; return 1; }
+
+    problems="$(pair_problems "${SOURCE_CERT}" "${SOURCE_KEY}")"
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] || problem "${LINEAGE}: ${line}"
+    done <<<"${problems}"
+    (( PROBLEMS == 0 ))
+}
+
+# target_secure — TARGET_PARENT and TARGET_DIR are real directories of
+# FILE_OWNER's that no one else may write: a pair found through anything else
+# is not trusted, however right its files look.
+target_secure() {
+    secure_path "${TARGET_PARENT}" directory && secure_path "${TARGET_DIR}" directory
+}
+
+# target_matches — the installed pair is exactly the source pair: in secure
+# directories, regular files, FILE_OWNER:FILE_GROUP 0644 and 0600, the same bytes.
+target_matches() {
+    local cert="${TARGET_DIR}/fullchain.pem" key="${TARGET_DIR}/privkey.pem"
+    target_secure || return 1
+    [[ -f "${cert}" && ! -L "${cert}" && -f "${key}" && ! -L "${key}" ]] || return 1
+    [[ "$(stat -c '%U:%G %a' -- "${cert}")" == "${FILE_OWNER}:${FILE_GROUP} 644" ]] || return 1
+    [[ "$(stat -c '%U:%G %a' -- "${key}")" == "${FILE_OWNER}:${FILE_GROUP} 600" ]] || return 1
+    cmp -s -- "${SOURCE_CERT}" "${cert}" && cmp -s -- "${SOURCE_KEY}" "${key}"
+}
+
+# prepare_target — TARGET_PARENT, created when absent and never re-owned or
+# re-moded when present, locked for this run; then every installation a killed
+# run left unfinished is put right, before anything else.
+prepare_target() {
+    local journal
+    if [[ ! -e "${TARGET_PARENT}" && ! -L "${TARGET_PARENT}" ]]; then
+        "${INSTALL}" -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 -- "${TARGET_PARENT}" \
+            || { problem "${TARGET_PARENT} could not be created — nothing was changed"; return 1; }
+    fi
+    if ! secure_path "${TARGET_PARENT}" directory; then
+        problem "${TARGET_PARENT} is not a real directory of ${FILE_OWNER}'s that no one else may write — nothing is written into it"
+        return 1
+    fi
+
+    # One at a time: a renewal and an installation never interleave.
+    exec 9<"${TARGET_PARENT}"
+    flock -w 300 9 || { problem "another installation of the pair holds ${TARGET_PARENT} — nothing was changed"; return 1; }
+
+    for journal in "${TARGET_PARENT}"/.tls-incoming.*; do
+        [[ -e "${journal}" || -L "${journal}" ]] || continue
+        if [[ -L "${journal}" || ! -d "${journal}" ]]; then
+            critical "${journal} is not a staging directory of this hook's — it is left alone; remove it by hand"
+            return 1
+        fi
+        if [[ "$(journal_phase "${journal}")" == swapping ]]; then
+            say "an earlier installation was stopped while the pair was being replaced — putting back the pair it kept"
+            restore_journal "${journal}" || return 1
+            RECOVERED=true
+        fi
+        rm -rf -- "${journal:?}"
+    done
+}
+
+# journal_begin — the installed pair copied into WORK/previous and verified,
+# and phase=swapping recorded beside it, durably, before the pair is touched.
+journal_begin() {
+    local name record=""
+    mkdir -m 0700 -- "${WORK}/previous" || return 1
+    for name in privkey.pem fullchain.pem; do
+        if [[ -f "${TARGET_DIR}/${name}" ]]; then
+            cp -p -- "${TARGET_DIR}/${name}" "${WORK}/previous/${name}" || return 1
+            cmp -s -- "${TARGET_DIR}/${name}" "${WORK}/previous/${name}" || return 1
+            record+="${name} $(digest "${WORK}/previous/${name}")"$'\n'
+        else
+            record+="${name} absent"$'\n'
+        fi
+    done
+    printf 'phase=swapping\n%s' "${record}" > "${WORK}/state.new" || return 1
+    sync || return 1
+    mv -f -T -- "${WORK}/state.new" "${WORK}/state" || return 1
+    sync || return 1
+}
+
+# install_pair — the source pair into TARGET_DIR: staged next to it and judged
+# there, the installed pair kept in the journal, moved in key first, read back,
+# and the kept pair put back on any failure. CHANGED says whether it changed.
+install_pair() {
+    local name
+
+    if [[ -e "${TARGET_DIR}" || -L "${TARGET_DIR}" ]] && ! secure_path "${TARGET_DIR}" directory; then
+        problem "${TARGET_DIR} is not a real directory of ${FILE_OWNER}'s that no one else may write — nothing is written into it"
+        return 1
+    fi
+    for name in fullchain.pem privkey.pem; do
+        if [[ -L "${TARGET_DIR}/${name}" ]] || { [[ -e "${TARGET_DIR}/${name}" ]] && [[ ! -f "${TARGET_DIR}/${name}" ]]; }; then
+            problem "${TARGET_DIR}/${name} is not a regular file — nothing was changed; remove it, then install again"
+            return 1
+        fi
+    done
+    if target_matches; then
+        say "the installed pair is already the certificate Certbot holds — nothing to change"
+        return 0
+    fi
+
+    if [[ ! -e "${TARGET_DIR}" ]]; then
+        "${INSTALL}" -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 -- "${TARGET_DIR}" \
+            || { problem "${TARGET_DIR} could not be created — nothing was changed"; return 1; }
+    fi
+    WORK="$(mktemp -d "${TARGET_PARENT}/.tls-incoming.XXXXXX")" \
+        || { problem "no staging directory could be made in ${TARGET_PARENT} — nothing was changed"; return 1; }
+
+    # Staged on the same file system, and judged where it stands.
+    if ! "${INSTALL}" -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0600 -- "${SOURCE_KEY}" "${WORK}/privkey.pem" \
+        || ! "${INSTALL}" -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0644 -- "${SOURCE_CERT}" "${WORK}/fullchain.pem" \
+        || ! cmp -s -- "${SOURCE_KEY}" "${WORK}/privkey.pem" \
+        || ! cmp -s -- "${SOURCE_CERT}" "${WORK}/fullchain.pem" \
+        || [[ -n "$(pair_problems "${WORK}/fullchain.pem" "${WORK}/privkey.pem")" ]]
+    then
+        problem "the pair could not be staged intact — the installed pair is unchanged"
+        return 1
+    fi
+
+    if ! journal_begin; then
+        problem "the installed pair could not be kept aside — it is unchanged"
+        return 1
+    fi
+
+    if ! "${MV}" -f -T -- "${WORK}/privkey.pem" "${TARGET_DIR}/privkey.pem" \
+        || ! "${MV}" -f -T -- "${WORK}/fullchain.pem" "${TARGET_DIR}/fullchain.pem" \
+        || ! target_matches \
+        || [[ -n "$(pair_problems "${TARGET_DIR}/fullchain.pem" "${TARGET_DIR}/privkey.pem")" ]]
+    then
+        problem "the pair could not be put in place intact"
+        # Put back and verified, the staging directory goes; when it cannot
+        # be, it stays — with the only copy of the previous pair in it.
+        if restore_journal "${WORK}"; then
+            rm -rf -- "${WORK:?}"
+        fi
+        WORK=""
+        return 1
+    fi
+
+    rm -rf -- "${WORK:?}"
+    WORK=""
+    CHANGED=true
+    say "installed the certificate for ${NAMES[*]} into ${TARGET_DIR}"
+}
+
+# verify_target — read-only: where the installed pair is, whether an
+# installation was left unfinished, and whether the pair is exactly the source.
+verify_target() {
+    local dir journal secure=true
+    for dir in "${TARGET_PARENT}" "${TARGET_DIR}"; do
+        secure_path "${dir}" directory \
+            || { problem "${dir} is not a real directory of ${FILE_OWNER}'s that no one else may write — the pair in it is not trusted"; secure=false; }
+    done
+    [[ "${secure}" == true ]] || return 1
+
+    for journal in "${TARGET_PARENT}"/.tls-incoming.*; do
+        if [[ -d "${journal}" && ! -L "${journal}" && "$(journal_phase "${journal}")" == swapping ]]; then
+            problem "an installation was stopped while the pair was being replaced — ${journal} keeps the previous pair; install-mail-inbound-tls --apply, or the next renewal, puts it back"
+        fi
+    done
+
+    if target_matches && [[ -z "$(pair_problems "${TARGET_DIR}/fullchain.pem" "${TARGET_DIR}/privkey.pem")" ]]; then
+        say "${TARGET_DIR} holds exactly the certificate Certbot holds, as reviewed"
+    else
+        problem "${TARGET_DIR} does not hold exactly the certificate Certbot holds, as regular files ${FILE_OWNER}:${FILE_GROUP} 0644 and 0600"
+    fi
+}
+
+# reload_postfix — Postfix reads the new pair, when it runs: a reload, never a
+# start, a stop or a restart.
+reload_postfix() {
+    if ! "${SYSTEMCTL}" is-active --quiet "${POSTFIX_UNIT}"; then
+        say "Postfix is not running — nothing was reloaded; it reads the new pair when it starts"
+        return 0
+    fi
+    if "${SYSTEMCTL}" reload "${POSTFIX_UNIT}"; then
+        say "reloaded ${POSTFIX_UNIT}: it serves the new pair"
+        return 0
+    fi
+    problem "${POSTFIX_UNIT} did not reload — the new pair is in place and is served once Postfix reloads"
+    return 1
+}
+
+main() {
+    case "${1:-}" in
+        --check)
+            judge_source && say "the certificate Certbot holds for ${NAMES[*]} may be served"
+            ;;
+        --verify)
+            judge_source && verify_target
+            ;;
+        "")
+            # Certbot's call: any other certificate is none of this hook's business.
+            [[ "${RENEWED_LINEAGE:-}" == "${LINEAGE}" ]] || exit 0
+            say "Certbot renewed ${LINEAGE}"
+            # An installation a killed run left unfinished is put right first,
+            # whatever Certbot holds now; then the renewed pair, if it may be served.
+            if prepare_target && judge_source; then
+                install_pair || true
+            fi
+            if [[ "${CRITICAL}" == false ]] && [[ "${CHANGED}" == true || "${RECOVERED}" == true ]]; then
+                reload_postfix || true
+            fi
+            ;;
+        *)
+            printf 'rateguru inbound TLS: unknown argument: %s\n' "$1" >&2
+            exit 64
+            ;;
+    esac
+    [[ "${CRITICAL}" == false ]] || exit 2
+    (( PROBLEMS == 0 ))
+}
+
+main "$@"
+EOF
+}
+
+# --- State --------------------------------------------------------------------
+
+render_all() {
+    WORK="$(mktemp -d)"
+    trap 'rm -rf -- "${WORK}"' EXIT
+    render_hook > "${WORK}/hook"
+}
+
+# hook_state — PASS, MISSING or DRIFT: the installed hook against the render.
+hook_state() {
+    local path
+    path="$(physical "${HOOK_FILE}")"
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf 'MISSING\n'
+    elif [[ -L "${path}" || ! -f "${path}" ]] || ! cmp -s -- "${WORK}/hook" "${path}" \
+        || [[ "$(stat -c '%U:%G %a' -- "${path}" 2>/dev/null)" != "${FILE_OWNER}:${FILE_GROUP} 755" ]]
+    then
+        printf 'DRIFT\n'
+    else
+        printf 'PASS\n'
+    fi
+}
+
+# secure_directory PATH — a real directory of FILE_OWNER's no one else may write.
+secure_directory() {
+    local meta
+    [[ -d "$1" && ! -L "$1" ]] || return 1
+    meta="$(stat -c '%U %a' -- "$1" 2>/dev/null)" || return 1
+    [[ "${meta% *}" == "${FILE_OWNER}" ]] && (( (8#${meta#* } & 8#022) == 0 ))
+}
+
+# pair_state — PASS, MISSING or DRIFT: the installed pair against the pair
+# Certbot holds, judged by the hook's own --verify.
+pair_state() {
+    local cert key
+    cert="$(physical "${MAIL_INBOUND_TLS_CERT}")"
+    key="$(physical "${MAIL_INBOUND_TLS_KEY}")"
+    if [[ ! -e "${cert}" && ! -L "${cert}" && ! -e "${key}" && ! -L "${key}" ]]; then
+        printf 'MISSING\n'
+    elif env -i "PATH=${HOOK_PATH}" bash "${WORK}/hook" --verify >/dev/null 2>&1; then
+        printf 'PASS\n'
+    else
+        printf 'DRIFT\n'
+    fi
+}
+
+# run_logged LABEL COMMAND... — COMMAND's report, indented, and its status.
+run_logged() {
+    local label="$1" output status=0 line
+    shift
+    output="$("$@" 2>&1 </dev/null)" || status=$?
+    printf '  ---- %s (exit %s)\n' "${label}" "${status}"
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] || printf '       | %s\n' "${line}"
+    done <<<"${output}"
+    return "${status}"
+}
+
+# run_hook FILE [--check | --verify] — the hook as Certbot runs it: a clean
+# environment, and RENEWED_LINEAGE naming the lineage when no mode is given.
+run_hook() {
+    local hook="$1" mode="${2:-}"
+    if [[ -n "${mode}" ]]; then
+        run_logged "${HOOK_FILE##*/} ${mode}" env -i "PATH=${HOOK_PATH}" bash "${hook}" "${mode}"
+    else
+        run_logged "${HOOK_FILE##*/}, as Certbot runs it after renewing ${CERT_NAME}" \
+            env -i "PATH=${HOOK_PATH}" "RENEWED_LINEAGE=$(physical "${LETSENCRYPT}/live/${CERT_NAME}")" bash "${hook}"
+    fi
+}
+
+report_certbot() {
+    local renewal timer found=""
+
+    if command -v "${CERTBOT_BIN}" >/dev/null 2>&1; then
+        item PASS certbot "installed — it renews the certificate; this installer never runs it"
+    else
+        item FAIL certbot "not installed — renewal is Certbot's, and this installer installs no program"
+    fi
+
+    renewal="$(physical "${LETSENCRYPT}/renewal/${CERT_NAME}.conf")"
+    if [[ -f "${renewal}" && ! -L "${renewal}" ]]; then
+        item PASS "renewal:${CERT_NAME}" "Certbot renews the lineage ${CERT_NAME}"
+    else
+        item FAIL "renewal:${CERT_NAME}" "Certbot holds no renewal configuration for ${CERT_NAME} — issue it first, as infrastructure/runbooks/mail-inbound.md says"
+    fi
+
+    for timer in "${RENEWAL_TIMERS[@]}"; do
+        if [[ "$("${SYSTEMCTL_BIN}" is-enabled "${timer}" 2>/dev/null || true)" == enabled ]]; then
+            found="${timer}"
+            break
+        fi
+    done
+    if [[ -n "${found}" ]]; then
+        printf '  %-8s %-48s %s\n' INFO "timer" "${found} is enabled: Certbot renews on its own"
+    else
+        printf '  %-8s %-48s %s\n' WARN "timer" "neither ${RENEWAL_TIMERS[*]} is enabled — find out how Certbot renews on this host"
+    fi
+}
+
+report_hook() {
+    local dir
+    for dir in "${LETSENCRYPT}/renewal-hooks" "${HOOK_DIR}"; do
+        if [[ ! -e "$(physical "${dir}")" ]]; then
+            item MISSING "dir:${dir}" "absent — --apply creates it, root's, 0755"
+        elif secure_directory "$(physical "${dir}")"; then
+            item PASS "dir:${dir}" "${FILE_OWNER}'s, writable by no one else"
+        else
+            item FAIL "dir:${dir}" "not a real directory of ${FILE_OWNER}'s that no one else may write — a hook in it is not trusted"
+        fi
+    done
+
+    case "$(hook_state)" in
+        PASS)    item PASS "file:${HOOK_FILE}" "exactly what this bundle renders, ${FILE_OWNER}'s, 0755" ;;
+        MISSING) item MISSING "file:${HOOK_FILE}" "absent — renewals would not reach the listener; --apply installs it" ;;
+        *)       item DRIFT "file:${HOOK_FILE}" "not what this bundle renders — --apply replaces it" ;;
+    esac
+}
+
+summary() {
+    printf 'SUMMARY  pass=%d fail=%d drift=%d\n' "${COUNT_PASS}" "${COUNT_FAIL}" "${COUNT_DRIFT}"
+}
+
+# --- Modes --------------------------------------------------------------------
+
+run_check() {
+    require_root
+    require_tools jq cmp stat readlink sha256sum
+    load_names
+    render_all
+    printf 'install-mail-inbound-tls --check (read-only): the lineage %s, for %s\n' "${CERT_NAME}" "${MX_NAMES[*]}"
+
+    report_certbot
+    report_hook
+    if run_hook "${WORK}/hook" --check; then
+        item PASS "source:${LETSENCRYPT}/live/${CERT_NAME}" "the certificate Certbot holds may be served"
+        case "$(pair_state)" in
+            PASS)    item PASS "pair:${MAIL_INBOUND_TLS_DIR}" "already exactly that certificate" ;;
+            MISSING) item MISSING "pair:${MAIL_INBOUND_TLS_DIR}" "absent — --apply copies it there" ;;
+            *)       item DRIFT "pair:${MAIL_INBOUND_TLS_DIR}" "not exactly that certificate, as reviewed — --apply replaces it" ;;
+        esac
+    else
+        item FAIL "source:${LETSENCRYPT}/live/${CERT_NAME}" "may not be served (above) — --apply would change nothing"
+    fi
+
+    summary
+    (( COUNT_FAIL == 0 ))
+}
+
+run_verify() {
+    require_root
+    require_tools jq cmp stat readlink sha256sum
+    [[ -n "${CERT_NAME}" ]] || load_names
+    [[ -n "${WORK}" ]] || render_all
+    printf 'install-mail-inbound-tls --verify (read-only): the lineage %s, for %s\n' "${CERT_NAME}" "${MX_NAMES[*]}"
+
+    report_certbot
+    report_hook
+    if [[ "$(hook_state)" == PASS ]]; then
+        if run_hook "$(physical "${HOOK_FILE}")" --verify; then
+            item PASS "pair:${MAIL_INBOUND_TLS_DIR}" "exactly the certificate Certbot holds, as reviewed"
+        else
+            item FAIL "pair:${MAIL_INBOUND_TLS_DIR}" "not the certificate Certbot holds, or not as reviewed (above)"
+        fi
+    fi
+
+    # The listener's own judge, as the activation runs it: unweakened.
+    if run_logged "install-mail-inbound --tls-check" "${SCRIPT_DIR}/install-mail-inbound" --tls-check; then
+        item PASS "tls-check" "install-mail-inbound --tls-check: the installed pair serves every MX host name"
+    else
+        item FAIL "tls-check" "install-mail-inbound --tls-check refuses the installed pair (above)"
+    fi
+
+    summary
+    (( COUNT_FAIL + COUNT_DRIFT == 0 ))
+}
+
+# The deploy hook as this run found it — "absent", or "kept": a copy in WORK, a
+# link kept as a link — put back should the pair not install.
+HOOK_BEFORE=""
+
+save_hook() {
+    local hook
+    hook="$(physical "${HOOK_FILE}")"
+    if [[ ! -e "${hook}" && ! -L "${hook}" ]]; then
+        HOOK_BEFORE=absent
+    elif cp -P -p -- "${hook}" "${WORK}/hook-before"; then
+        HOOK_BEFORE=kept
+    else
+        fail "the deploy hook ${HOOK_FILE} could not be kept aside — nothing was changed"
+    fi
+}
+
+# stage_beside_hook — an empty file beside the deploy hook, to be renamed over
+# it. Its name ends in "~", and Certbot runs no hook whose name does.
+stage_beside_hook() {
+    mktemp --suffix='~' "$(dirname -- "$(physical "${HOOK_FILE}")")/.rateguru-mail-inbound-tls.XXXXXX"
+}
+
+# install_hook — the rendered hook into Certbot's deploy hooks: written beside
+# it, then renamed over it, so Certbot never runs half a hook.
+install_hook() {
+    local hook dir staged parent
+    hook="$(physical "${HOOK_FILE}")"
+    dir="$(dirname -- "${hook}")"
+
+    # Certbot's own directories: created when absent, never re-owned or re-moded.
+    for parent in "$(dirname -- "${dir}")" "${dir}"; do
+        [[ -e "${parent}" || -L "${parent}" ]] || install -d -m 0755 -o "${FILE_OWNER}" -g "${FILE_GROUP}" -- "${parent}"
+        secure_directory "${parent}" \
+            || fail "${parent#"${FS_ROOT}"} is not a real directory of ${FILE_OWNER}'s that no one else may write — the hook was not installed"
+    done
+
+    staged="$(stage_beside_hook)"
+    if ! { cp -- "${WORK}/hook" "${staged}" \
+        && chown "${FILE_OWNER}:${FILE_GROUP}" -- "${staged}" \
+        && chmod 0755 -- "${staged}" \
+        && mv -f -T -- "${staged}" "${hook}"; }
+    then
+        rm -f -- "${staged:?}"
+        fail "the deploy hook could not be installed — the pair was not touched"
+    fi
+}
+
+# restore_hook — the deploy hook exactly as this run found it: gone again when
+# there was none, or the kept copy renamed back over it and read back.
+restore_hook() {
+    local hook staged
+    hook="$(physical "${HOOK_FILE}")"
+    if [[ "${HOOK_BEFORE}" == absent ]]; then
+        if rm -f -- "${hook:?}" && [[ ! -e "${hook}" && ! -L "${hook}" ]]; then
+            action "no deploy hook is left installed: there was none before this run"
+            return 0
+        fi
+    elif staged="$(stage_beside_hook)" \
+        && cp -P -p --remove-destination -- "${WORK}/hook-before" "${staged}" \
+        && mv -f -T -- "${staged}" "${hook}"
+    then
+        if { [[ -L "${WORK}/hook-before" ]] && [[ -L "${hook}" && "$(readlink -- "${hook}")" == "$(readlink -- "${WORK}/hook-before")" ]]; } \
+            || { [[ ! -L "${WORK}/hook-before" ]] && [[ -f "${hook}" && ! -L "${hook}" ]] && cmp -s -- "${WORK}/hook-before" "${hook}"; }
+        then
+            action "the deploy hook installed before this run is back in place"
+            return 0
+        fi
+    fi
+    printf 'CRITICAL: the deploy hook %s could not be returned to what it was before this run\n' "${HOOK_FILE}" >&2
+    return 1
+}
+
+run_apply() {
+    local replaced=false
+    require_root
+    require_tools jq cmp stat readlink sha256sum install mktemp
+    load_names
+    render_all
+    printf 'install-mail-inbound-tls --apply: the lineage %s, for %s\n' "${CERT_NAME}" "${MX_NAMES[*]}"
+
+    report_certbot
+    (( COUNT_FAIL == 0 )) || fail "Certbot holds no renewing lineage for ${CERT_NAME} (above) — nothing was changed"
+
+    action "judging the certificate Certbot holds, before anything changes"
+    run_hook "${WORK}/hook" --check \
+        || fail "the certificate Certbot holds for ${CERT_NAME} may not be served (above) — nothing was changed"
+
+    if [[ "$(hook_state)" == PASS ]]; then
+        action "the deploy hook ${HOOK_FILE} is already as rendered"
+    else
+        save_hook
+        action "installing the deploy hook ${HOOK_FILE}"
+        install_hook
+        replaced=true
+    fi
+
+    # The pair and the hook land together: when the pair does not install,
+    # the hook this run installed does not stay either.
+    action "installing the pair as Certbot's renewal will: the hook, with RENEWED_LINEAGE=${LETSENCRYPT}/live/${CERT_NAME}"
+    if ! run_hook "$(physical "${HOOK_FILE}")"; then
+        if [[ "${replaced}" == true ]] && ! restore_hook; then
+            fail "the pair could not be installed (above), and the deploy hook ${HOOK_FILE} is not what it was before — inspect it, then run --apply again"
+        fi
+        fail "the pair could not be installed (above) — the deploy hook is as it was before this run"
+    fi
+
+    COUNT_PASS=0
+    COUNT_FAIL=0
+    COUNT_DRIFT=0
+    run_verify || fail "the inbound TLS pair does not verify after --apply (above)"
+    action "apply complete — ${MAIL_INBOUND_TLS_DIR} holds the certificate Certbot holds for ${CERT_NAME}, and every renewal of it reaches the listener"
+}
+
+# --- Entry point --------------------------------------------------------------
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ -z "${MODE}" ]] || { usage >&2; fail "mode given more than once"; }
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" && $# -ge 2 && -n "${2:-}" ]] || { usage >&2; fail "--target needs one value"; }
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                fail "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; fail "one of --check, --apply or --verify is required"; }
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "--${MODE} needs --target with a valid target ID"
+
+    case "${MODE}" in
+        check)  run_check ;;
+        apply)  run_apply ;;
+        verify) run_verify ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

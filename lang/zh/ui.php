@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => '版主',
         'open_in_admin' => '在后台打开',
-        'approve' => '通过',
-        'reject' => '拒绝',
         'hide' => '隐藏帖子',
         'restore' => '恢复',
         'hide_confirm_title' => '要隐藏此帖子吗？',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => '确认隐藏',
         'reason' => '原因',
         'reason_placeholder' => '审核备注（可选）...',
-        'approved' => '帖子已通过审核。',
         'hidden' => '帖子已隐藏。',
-        'rejected' => '帖子已被拒绝。',
         'restored' => '帖子已恢复。',
         'not_allowed' => '您无权审核帖子。',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => '创建帖子',
         'submitting' => '上传中...',
         'success_pending' => '您的帖子已提交，审核通过后将会显示。',
+        'success_published' => '您的帖子已发布。',
         'error_generic' => '创建帖子时出错了。',
         'error_invalid_image' => '无法处理此图片，请尝试其他文件。',
         'selected_image_alt' => '所选图片预览',

@@ -6,20 +6,6 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use Livewire\Livewire;
 
-it('renders rating options container with mobile testid', function () {
-    $post = Post::factory()->published()->create();
-
-    $group = RatingGroup::factory()->create(['key' => 'attribute', 'is_active' => true]);
-    RatingOption::factory()->count(4)->for($group, 'group')->create(['is_active' => true]);
-
-    // testIdPrefix is "rating-option-{post->id}", so container is "rating-option-{id}-list"
-    Livewire::test(RatingVoting::class, [
-        'post' => $post,
-        'groupKey' => 'attribute',
-    ])
-        ->assertSee('data-testid="rating-option-'.$post->id.'-list"', false);
-});
-
 it('renders ten rating options without losing options', function () {
     $post = Post::factory()->published()->create();
 

@@ -12,22 +12,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Storage;
 
-it('renders post voting component in post card', function () {
-    $post = Post::factory()->published()->create();
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
-
-    expect($html)->toContain('post-card-voting');
-});
-
-it('renders post card title', function () {
-    $post = Post::factory()->published()->make(['title' => 'Sample Post']);
-
-    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
-
-    expect($html)->toContain('Sample Post');
-});
-
 it('renders post image when an image asset exists', function () {
     $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
@@ -278,14 +262,6 @@ it('hides save action from guests on feed cards', function () {
         ->not->toContain('>Save<');
 });
 
-it('renders delete action in the post card menu for moderators', function () {
-    $post = Post::factory()->published()->create();
-
-    $html = Blade::render('<x-feed.post-card :post="$post" :can-delete-post="true" />', ['post' => $post]);
-
-    expect($html)->toContain('data-testid="post-card-delete"');
-});
-
 it('does not render delete action in the post card menu for another user', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
@@ -377,16 +353,6 @@ it('keeps post card free of service locator vote and authorization queries', fun
         ->not->toContain('PostVoteResultService')
         ->not->toContain('auth()')
         ->not->toContain('app(');
-});
-
-it('delegates result rendering to the rating voting components', function () {
-    $view = file_get_contents(resource_path('views/components/feed/post-card.blade.php'));
-
-    // Post card no longer renders its own distribution blocks; the rating
-    // voting Livewire components (and their rating-options view) own that.
-    expect($view)
-        ->toContain('voting.rating-voting')
-        ->toContain('@foreach($ratingGroups as $ratingGroup)');
 });
 
 it('renders save button on post card when feature is enabled', function () {

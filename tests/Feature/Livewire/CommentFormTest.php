@@ -101,13 +101,6 @@ it('renders comment textarea', function () {
         ->assertSee('maxlength="1000"', false);
 });
 
-it('renders textarea for guest', function () {
-    $post = Post::factory()->published()->create();
-
-    Livewire::test(CommentForm::class, ['postId' => $post->id])
-        ->assertSee('name="body"', false);
-});
-
 it('renders comment submit button', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

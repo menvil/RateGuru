@@ -2214,7 +2214,13 @@ Slices, in order:
    `main` only, the two that change the host behind a typed confirmation
    judged before any secret; Verify production infrastructure gains a Mail
    inbound group. A CI job runs the rendered configuration on a real Postfix
-   in a network namespace with only loopback. *Not done here:* the real-host
+   in a network namespace with only loopback. The listener's certificate is
+   the one Certbot holds on the host for `mx1.tits.guru`, issued over HTTP-01
+   through the existing port-80 webroot: Install tits.guru inbound mail TLS
+   (`scripts/install-mail-inbound-tls`, behind a typed confirmation) judges
+   it, copies it into place, and installs a Certbot deploy hook of its own
+   that does the same for every renewal of that one lineage and reloads
+   Postfix, never restarting it. *Not done here:* the real-host
    activation, the A and MX records the operator publishes afterwards in the
    runbook's order, and the external message that accepts it — 8.4B.5.2 is
    not accepted until a message from outside is stored.

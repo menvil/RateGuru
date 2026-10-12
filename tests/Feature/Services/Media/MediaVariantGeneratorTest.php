@@ -5,7 +5,6 @@ use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Services\Media\Exceptions\MediaStorageException;
-use App\Services\Media\GdImageVariantProcessor;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaLocation;
@@ -144,11 +143,12 @@ it('generates every applicable variant, including open graph, for a post image a
 });
 
 it('only generates the requested variant when a filter is given', function () {
+    bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
 
     app(MediaVariantGenerator::class)->generateAll($asset, MediaVariantName::OpenGraph);
 
@@ -186,10 +186,11 @@ it('generates only the avatar variant that fits without upscaling', function () 
 });
 
 it('skips a soft-deleted asset', function () {
+    bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
     $asset->delete();
 
     expect($asset->trashed())->toBeTrue();
@@ -221,10 +222,11 @@ it('skips a non-raster mime type such as svg', function () {
 });
 
 it('is idempotent: rerunning generateAll does not create duplicate rows', function () {
+    bindRecordingImageVariantProcessor();
     $asset = MediaAsset::factory()->postImage()->dimensions(2400, 1600)->create([
         'path' => 'posts/2026/08/master.jpg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
 
     $generator = app(MediaVariantGenerator::class);
     $generator->generateAll($asset);
@@ -238,44 +240,22 @@ it('preserves already-succeeded variants and invokes generation only for the mis
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
 
-    // The real GdImageVariantProcessor generates real variants for every
-    // spec except open_graph (registry order: it's last), which fails on
-    // its first attempt only — exercising the task's own "run 1: feed
-    // succeeds, OG fails; run 2: feed untouched, OG succeeds" scenario
-    // without needing to mock the writer or the registry itself. Also
-    // records every spec name it's actually asked to generate, so the
-    // retry can be checked against invocation, not just against row ids
-    // (same ids alone wouldn't prove the writer/processor were skipped —
-    // MediaVariantWriter's updateOrCreate() would leave ids unchanged even
-    // if every spec were blindly regenerated on retry).
-    $trackingProcessor = new class implements ImageVariantProcessor
-    {
-        /** @var list<string> */
-        public array $invoked = [];
-
-        private bool $openGraphHasFailedOnce = false;
-
-        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
-        {
-            $this->invoked[] = $specification->name->value;
-
-            if ($specification->name === MediaVariantName::OpenGraph && ! $this->openGraphHasFailedOnce) {
-                $this->openGraphHasFailedOnce = true;
-
-                throw new RuntimeException('Simulated open graph generation failure.');
-            }
-
-            return app(GdImageVariantProcessor::class)->generate($masterBytes, $mimeType, $specification);
-        }
-    };
-
-    $this->app->instance(ImageVariantProcessor::class, $trackingProcessor);
+    // Every spec succeeds except open_graph (registry order: it's last),
+    // which fails on its first attempt only — exercising the task's own
+    // "run 1: feed succeeds, OG fails; run 2: feed untouched, OG succeeds"
+    // scenario without needing to mock the writer or the registry itself.
+    // The processor also records every spec name it's actually asked to
+    // generate, so the retry can be checked against invocation, not just
+    // against row ids (same ids alone wouldn't prove the writer/processor
+    // were skipped — MediaVariantWriter's updateOrCreate() would leave ids
+    // unchanged even if every spec were blindly regenerated on retry).
+    $trackingProcessor = bindRecordingImageVariantProcessor(failOnceFor: MediaVariantName::OpenGraph);
     $generator = app()->make(MediaVariantGenerator::class);
 
     expect(fn () => $generator->generateAll($asset))
-        ->toThrow(RuntimeException::class, 'Simulated open graph generation failure.');
+        ->toThrow(RuntimeException::class, 'Simulated open_graph generation failure.');
 
     expect($trackingProcessor->invoked)->toBe(['post_feed_640', 'post_feed_1280', 'post_detail_1920', 'open_graph']);
 
@@ -308,22 +288,11 @@ it('does not invoke the processor or open the master stream at all when every ap
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
 
+    $processor = bindRecordingImageVariantProcessor();
     app(MediaVariantGenerator::class)->generateAll($asset);
-
-    $countingProcessor = new class implements ImageVariantProcessor
-    {
-        public int $calls = 0;
-
-        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
-        {
-            $this->calls++;
-
-            return app(GdImageVariantProcessor::class)->generate($masterBytes, $mimeType, $specification);
-        }
-    };
-    $this->app->instance(ImageVariantProcessor::class, $countingProcessor);
+    $processor->invoked = [];
 
     // Not merely "the processor was never called" — the master file must
     // never even be opened when nothing needs it, which the skip check
@@ -335,7 +304,7 @@ it('does not invoke the processor or open the master stream at all when every ap
 
     app()->make(MediaVariantGenerator::class)->generateAll($asset->fresh());
 
-    expect($countingProcessor->calls)->toBe(0)
+    expect($processor->invoked)->toBe([])
         ->and($readStreamSpy->readStreamCalls)->toBe(0);
 });
 
@@ -344,24 +313,12 @@ it('regenerates every applicable spec when force is true, even though nothing is
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    storeMasterBytesFor($asset, 'master-bytes');
 
+    $processor = bindRecordingImageVariantProcessor();
     app(MediaVariantGenerator::class)->generateAll($asset);
     $beforeForce = MediaVariant::query()->pluck('id', 'name')->all();
-
-    $countingProcessor = new class implements ImageVariantProcessor
-    {
-        /** @var list<string> */
-        public array $invoked = [];
-
-        public function generate(string $masterBytes, string $mimeType, MediaVariantSpecification $specification): GeneratedMediaVariant
-        {
-            $this->invoked[] = $specification->name->value;
-
-            return app(GdImageVariantProcessor::class)->generate($masterBytes, $mimeType, $specification);
-        }
-    };
-    $this->app->instance(ImageVariantProcessor::class, $countingProcessor);
+    $processor->invoked = [];
 
     app()->make(MediaVariantGenerator::class)->generateAll($asset->fresh(), force: true);
 
@@ -369,7 +326,7 @@ it('regenerates every applicable spec when force is true, even though nothing is
     // every applicable spec is genuinely re-invoked, not merely left alone
     // (which would produce the exact same ids/count too, so that alone
     // wouldn't prove force did anything).
-    expect(collect($countingProcessor->invoked)->sort()->values()->all())
+    expect(collect($processor->invoked)->sort()->values()->all())
         ->toBe(['open_graph', 'post_detail_1920', 'post_feed_1280', 'post_feed_640']);
 
     $afterForce = MediaVariant::query()->pluck('id', 'name')->all();
@@ -431,7 +388,11 @@ it('logs a failure with the variant name and asset id, without leaking image byt
         'path' => 'posts/2026/08/master.jpg',
         'mime_type' => 'image/jpeg',
     ]);
-    storeMasterBytesFor($asset, jpegMarkerBytes(2400, 1600));
+    // Text, not a JPEG: the failing processor never decodes the master,
+    // and unlike raw JPEG bytes (on which json_encode() returns false),
+    // text survives the json_encode() below, so a leak into the log
+    // context would actually trip the checks.
+    storeMasterBytesFor($asset, str_repeat('master-bytes', 100));
 
     $failingProcessor = new class implements ImageVariantProcessor
     {
@@ -451,7 +412,7 @@ it('logs a failure with the variant name and asset id, without leaking image byt
                 && $context['media_asset_id'] === $asset->id
                 && $context['variant'] === MediaVariantName::PostFeed640->value
                 && $context['exception_class'] === RuntimeException::class
-                && ! str_contains($json, 'jpegMarkerBytes')
+                && ! str_contains($json, 'master-bytes')
                 && strlen($json) < 500; // no serialized image bytes hiding in the context
         });
 

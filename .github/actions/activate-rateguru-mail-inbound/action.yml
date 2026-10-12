@@ -20,7 +20,9 @@ description: >-
 # inbound store and RateGuru's own firewall rule, and nothing else; verify
 # changes nothing; install-monitor installs the automatic health check's
 # read-only account, its one key, its sudoers rule and the monitor, and
-# nothing of Postfix. None of them publishes DNS, reads or prints a received
+# nothing of Postfix; install-tls copies the certificate Certbot already holds
+# on the host into the listener's place, installs Certbot's deploy hook for
+# its renewals, and at most reloads Postfix. None of them publishes DNS, reads or prints a received
 # message, stops Postfix, or touches the outbound routes, OpenDKIM or a queued
 # message but the proof's own probe. No secret but the bootstrap credential is
 # read.
@@ -37,8 +39,8 @@ inputs:
   operation:
     required: true
     description: >-
-      apply, verify, rollback or install-monitor, fixed by the calling
-      workflow. Never an operator's choice: each operation has a workflow of
+      apply, verify, rollback, install-monitor or install-tls, fixed by the
+      calling workflow. Never an operator's choice: each operation has a workflow of
       its own.
 
   deployment-target:
@@ -87,7 +89,7 @@ outputs:
     value: ${{ steps.inbound.outputs.status }}
 
   state:
-    description: "not-installed, installed-disabled, installed-enabled (install-monitor), enabled-verified or drift"
+    description: "not-installed, installed-disabled, installed-enabled (install-monitor, install-tls), enabled-verified or drift"
     value: ${{ steps.inbound.outputs.state }}
 
 runs:
@@ -109,9 +111,9 @@ runs:
         set -Eeuo pipefail
 
         case "${OPERATION}" in
-          apply|verify|rollback|install-monitor) ;;
+          apply|verify|rollback|install-monitor|install-tls) ;;
           *)
-            echo "Invalid operation: ${OPERATION} (expected apply, verify, rollback or install-monitor)" >&2
+            echo "Invalid operation: ${OPERATION} (expected apply, verify, rollback, install-monitor or install-tls)" >&2
             exit 1
             ;;
         esac
@@ -225,7 +227,7 @@ runs:
 
     # Only infrastructure/ — the activation resolves every owner it runs beneath
     # it. No application code, and no material of any kind: the TLS certificate
-    # and key are already on the host.
+    # and key are already on the host, Certbot's, and never leave it.
     - name: Package trusted infrastructure bundle
       shell: bash
       run: |
@@ -236,6 +238,7 @@ runs:
         test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/activate-mail-inbound"
         test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound"
         test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound-monitor"
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound-tls"
         test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/smtp-submission"
         test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/public-smtp-port"
         test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/mail-inbound-host"
@@ -376,7 +379,8 @@ runs:
         # flag a boolean, and a pass that means what its mode promises — an
         # activation that left public SMTP enabled and verified, a rollback
         # that left it disabled, a verify that found a consistent state, a
-        # monitor installed on a host that has inbound mail.
+        # monitor installed on a host that has inbound mail, a certificate
+        # installed in whatever inbound state the host is in.
         jq -e --arg target "${DEPLOYMENT_TARGET}" --arg mode "${OPERATION}" '
           type == "object"
           and .target == $target
@@ -394,7 +398,8 @@ runs:
                or ($mode == "apply" and .requested and .state == "enabled-verified" and .public_smtp == "enabled" and (.rolled_back | not))
                or ($mode == "rollback" and .public_smtp == "disabled" and (.state | IN("installed-disabled", "not-installed")))
                or ($mode == "verify" and (.state | IN("not-installed", "installed-disabled", "enabled-verified")))
-               or ($mode == "install-monitor" and (.state | IN("installed-disabled", "installed-enabled"))))
+               or ($mode == "install-monitor" and (.state | IN("installed-disabled", "installed-enabled")))
+               or ($mode == "install-tls" and (.state | IN("not-installed", "installed-disabled", "installed-enabled"))))
         ' <<<"${json}" >/dev/null || {
           echo "The machine-readable result is not an inbound result for ${DEPLOYMENT_TARGET} (${OPERATION}): ${json}" >&2
           exit 1
@@ -429,7 +434,7 @@ runs:
             (if .status == "critical" then
                "**CRITICAL:** public SMTP could not be returned to disabled and proved closed. Inspect the host now: install-mail-gateway --verify, what listens on TCP 25, and the firewall rule commented rateguru-mail-inbound. The mail gateway was not stopped."
              elif .mode == "apply" and .status == "pass" then
-               "The host's mail gateway accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
+               "The mail gateway of the host accepts mail on \(.address):25 for exactly the reviewed recipients. Next, in order: confirm the provider firewall allows inbound TCP 25 to \(.address); publish the A record of each MX host, then the MX records (the job log lists them); verify public DNS; send one real message from an outside mailbox to support. No DNS was published by this run."
              elif .mode == "apply" and .rolled_back then
                "The activation failed and public SMTP was returned to disabled: nothing listens on TCP 25."
              elif .mode == "apply" then
@@ -438,8 +443,10 @@ runs:
                "Public SMTP is closed: nothing listens on TCP 25, and RateGuru'"'"'s firewall rule is gone. Stored mail is kept. **Check the published MX records** of every target in the inbound plan: while they name this host, senders find a closed port."
              elif .mode == "verify" and .status == "pass" then
                "The host is in a consistent state: \(.state). The outbound gateway verifies."
+             elif .mode == "install-tls" and .status == "pass" then
+               "The certificate Certbot holds for the MX host is in place for the public listener, and the Certbot deploy hook installed with it copies every renewal of it into place and reloads the mail gateway. Public SMTP was not changed. Next: the TLS checks in infrastructure/runbooks/mail-inbound.md, \"TLS for mx1.tits.guru\"."
              elif .mode == "install-monitor" and .status == "pass" then
-               "The automatic health check's read-only access is installed: one key, which runs the read-only inbound mail monitor and nothing else. Next: its private half into the production-tits-guru-monitor Environment — infrastructure/runbooks/mail-inbound.md, \"The automatic monitor\"."
+               "The read-only access of the automatic health check is installed: one key, which runs the read-only inbound mail monitor and nothing else. Next: its private half into the production-tits-guru-monitor Environment — infrastructure/runbooks/mail-inbound.md, \"The automatic monitor\"."
              else
                "The host is not in a consistent state. The complete report is in the job log."
              end),

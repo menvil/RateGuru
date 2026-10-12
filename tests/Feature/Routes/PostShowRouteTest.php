@@ -6,13 +6,6 @@ use App\Models\User;
 use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Support\Facades\Storage;
 
-it('has posts show route', function () {
-    $post = Post::factory()->published()->create();
-
-    $this->get(route('posts.show', $post))
-        ->assertOk();
-});
-
 it('renders post voting component on post show page', function () {
     $this->seed(DefaultRatingConfigurationSeeder::class);
 
@@ -39,17 +32,26 @@ it('renders published post show page', function () {
         ->assertSee('Creamy pasta with pepper');
 });
 
-it('renders post hero image', function () {
+it('renders the post hero image uncropped, with a contained fullscreen view', function () {
     $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
         'title' => 'Dish',
     ]);
 
-    $this->get(route('posts.show', $post))
+    $html = $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee(Storage::disk('public')->url('posts/1/dish.jpg'))
         ->assertSee('alt="Dish"', false)
         ->assertSee('data-testid="post-show-image-open"', false)
-        ->assertSee('data-testid="post-fullscreen-image"', false);
+        ->assertSee('data-testid="post-fullscreen-image"', false)
+        ->getContent();
+
+    expect($html)
+        ->toContain('posts/1/dish.jpg')
+        ->toContain('object-contain')
+        ->not->toContain('aspect-[16/10]')
+        ->not->toContain('object-cover')
+        // Capped at 80vh, and at the room the viewer measured below the app header.
+        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]');
 });
 
 it('renders post show content in feed card order', function () {
@@ -84,36 +86,6 @@ it('renders hero image placeholder when image is missing', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('Image preview');
-});
-
-it('does not crop the standalone hero image to a fixed aspect ratio', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
-        'title' => 'Dish',
-    ]);
-
-    $response = $this->get(route('posts.show', $post))->assertOk();
-    $html = $response->getContent();
-
-    expect($html)
-        ->toContain('posts/1/dish.jpg')
-        ->toContain('object-contain')
-        ->not->toContain('aspect-[16/10]')
-        ->not->toContain('object-cover');
-});
-
-it('renders the standalone fullscreen image with contain behavior', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
-        'title' => 'Dish',
-    ]);
-
-    $response = $this->get(route('posts.show', $post))->assertOk();
-    $html = $response->getContent();
-
-    expect($html)
-        ->toContain('data-testid="post-fullscreen-image"')
-        // Capped at 80vh, and at the room the viewer measured below the app header.
-        ->toContain('max-h-[min(80vh,calc(var(--rg-modal-height,100dvh)-3rem-var(--rg-modal-chrome,5.75rem)))]')
-        ->toContain('object-contain');
 });
 
 it('resolves standalone author avatar via the resolved avatar accessor', function () {
@@ -200,24 +172,6 @@ it('renders seo title for post page', function () {
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('<title>Sample Post · '.config('app.name', 'RateGuru').'</title>', false);
-});
-
-it('renders open graph metadata for post page', function () {
-    $post = Post::factory()->published()->withImage(path: 'posts/1/dish.jpg')->create([
-        'title' => 'Sample Post',
-        'description' => 'Creamy pasta with pepper',
-    ]);
-
-    $this->get(route('posts.show', $post))
-        ->assertOk()
-        ->assertSee('property="og:title"', false)
-        ->assertSee('content="Sample Post"', false)
-        ->assertSee('property="og:site_name"', false)
-        ->assertSee('property="og:description"', false)
-        ->assertSee('Creamy pasta with pepper', false)
-        ->assertSee('property="og:type"', false)
-        ->assertSee('property="og:url"', false)
-        ->assertSee('property="og:image"', false);
 });
 
 it('does not show hidden post to guest', function () {

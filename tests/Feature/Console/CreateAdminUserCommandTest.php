@@ -9,16 +9,6 @@ afterEach(function () {
     putenv('ADMIN_PASSWORD');
 });
 
-it('has admin user creation command', function () {
-    putenv('ADMIN_PASSWORD=secret-password');
-
-    $this->artisan('rateguru:admin:create', [
-        '--email' => 'admin@example.test',
-        '--username' => 'admin',
-        '--name' => 'Admin User',
-    ])->assertExitCode(0);
-});
-
 it('creates admin user from command options', function () {
     putenv('ADMIN_PASSWORD=secret-password');
 

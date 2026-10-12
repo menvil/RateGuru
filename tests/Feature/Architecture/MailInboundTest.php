@@ -1392,7 +1392,7 @@ it('carries every requirement the future receiver is held to, and the runbook st
     expect($documented[1])->toBe($requirements);
 });
 
-it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation, the monitor and the infrastructure verifier', function () {
+it('is repository tooling, reached only by the gateway that renders its rules, the store, the activation, the monitor, the certificate installer and the infrastructure verifier', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-inbound');
     expect(requiredCliManifestNames())->not->toContain('mail-inbound');
 
@@ -1415,6 +1415,7 @@ it('is repository tooling, reached only by the gateway that renders its rules, t
         'infrastructure/scripts/install-mail-gateway',
         'infrastructure/scripts/install-mail-inbound',
         'infrastructure/scripts/install-mail-inbound-monitor',
+        'infrastructure/scripts/install-mail-inbound-tls',
         'infrastructure/scripts/verify-infrastructure',
     ]);
 

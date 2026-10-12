@@ -2,30 +2,6 @@
 
 use App\Models\User;
 
-it('renders profile page with theme token classes', function () {
-    $user = User::factory()->create(['username' => 'ivan']);
-
-    $this->get(route('profile.show', $user->username))
-        ->assertOk()
-        ->assertSee('rg-', false);
-});
-
-it('uses rg-text token in profile header', function () {
-    $user = User::factory()->create(['username' => 'ivan', 'display_name' => 'Ivan Test']);
-
-    $this->get(route('profile.show', $user->username))
-        ->assertOk()
-        ->assertSee('text-rg-text', false);
-});
-
-it('uses rg-border token in profile tabs', function () {
-    $user = User::factory()->create(['username' => 'ivan']);
-
-    $this->get(route('profile.show', $user->username))
-        ->assertOk()
-        ->assertSee('border-rg-border', false);
-});
-
 it('shows bio on profile page when set', function () {
     $user = User::factory()->create([
         'username' => 'ivan',

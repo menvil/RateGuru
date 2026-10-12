@@ -13,26 +13,6 @@
                     </a>
                 @endif
 
-                @if ($this->canApprove)
-                    <button
-                        type="button"
-                        wire:click="approve"
-                        data-testid="moderation-approve"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                    >
-                        {{ __('ui.moderation.approve') }}
-                    </button>
-
-                    <button
-                        type="button"
-                        wire:click="reject"
-                        data-testid="moderation-reject"
-                        class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
-                    >
-                        {{ __('ui.moderation.reject') }}
-                    </button>
-                @endif
-
                 @if ($this->canHide)
                     <button
                         type="button"
@@ -137,25 +117,6 @@
             </div>
 
             <div class="mt-2 flex flex-wrap gap-2">
-                @if ($this->canApprove)
-                    <x-ui.button
-                        type="button"
-                        wire:click="approve"
-                        data-testid="moderation-approve"
-                    >
-                        {{ __('ui.moderation.approve') }}
-                    </x-ui.button>
-
-                    <x-ui.button
-                        type="button"
-                        variant="danger"
-                        wire:click="reject"
-                        data-testid="moderation-reject"
-                    >
-                        {{ __('ui.moderation.reject') }}
-                    </x-ui.button>
-                @endif
-
                 @if ($this->canHide)
                     <x-ui.button
                         type="button"

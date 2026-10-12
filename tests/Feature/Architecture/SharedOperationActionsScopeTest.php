@@ -125,6 +125,9 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'check-tits-guru-inbound-mail-health.yml',
         'schedule-tits-guru-inbound-mail-health.yml',
         'install-tits-guru-inbound-mail-monitor.yml',
+        // and the installation of its listener's certificate, with the
+        // Certbot deploy hook that keeps it renewed.
+        'install-tits-guru-inbound-mail-tls.yml',
         // tits-guru's outbound mail: its guarded activation, the rollback of
         // that activation while it is planned, and the first real delivery.
         'activate-tits-guru-mail.yml',
@@ -560,6 +563,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         // key's one read-only program — and waits in a group of its own, so
         // its schedule never displaces an operator's pending run.
         'install-tits-guru-inbound-mail-monitor.yml:install' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Installing the listener's certificate writes root's files and may
+        // reload Postfix on that machine: the same domain.
+        'install-tits-guru-inbound-mail-tls.yml:install' => ['tits-guru', 'rateguru-staging-deployment'],
     ];
 
     $found = [];

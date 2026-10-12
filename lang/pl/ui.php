@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Otwórz w panelu administracyjnym',
-        'approve' => 'Zatwierdź',
-        'reject' => 'Odrzuć',
         'hide' => 'Ukryj post',
         'restore' => 'Przywróć',
         'hide_confirm_title' => 'Ukryć ten post?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potwierdź ukrycie',
         'reason' => 'Powód',
         'reason_placeholder' => 'Opcjonalna notatka moderacyjna...',
-        'approved' => 'Post zatwierdzony.',
         'hidden' => 'Post ukryty.',
-        'rejected' => 'Post odrzucony.',
         'restored' => 'Post przywrócony.',
         'not_allowed' => 'Nie masz uprawnień do moderowania postów.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Utwórz post',
         'submitting' => 'Przesyłanie...',
         'success_pending' => 'Twój post został wysłany i pojawi się po moderacji.',
+        'success_published' => 'Twój post został opublikowany.',
         'error_generic' => 'Coś poszło nie tak podczas tworzenia posta.',
         'error_invalid_image' => 'Nie udało się przetworzyć tego obrazu. Spróbuj użyć innego pliku.',
         'selected_image_alt' => 'Podgląd wybranego obrazu',

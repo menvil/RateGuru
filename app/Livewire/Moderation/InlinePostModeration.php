@@ -2,9 +2,7 @@
 
 namespace App\Livewire\Moderation;
 
-use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Moderation\HidePostAction;
-use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
@@ -47,19 +45,6 @@ final class InlinePostModeration extends Component
     }
 
     #[Computed]
-    public function canApprove(): bool
-    {
-        return $this->canModerate()
-            && $this->post()->status === PostStatus::Pending;
-    }
-
-    #[Computed]
-    public function canReject(): bool
-    {
-        return $this->canApprove();
-    }
-
-    #[Computed]
     public function canHide(): bool
     {
         return $this->canModerate()
@@ -73,20 +58,6 @@ final class InlinePostModeration extends Component
             && $this->post()->status === PostStatus::Hidden;
     }
 
-    public function approve(ApprovePostAction $approvePostAction): void
-    {
-        $this->runModerationAction(function () use ($approvePostAction): void {
-            $approvePostAction->handle(
-                moderator: auth()->user(),
-                post: $this->post(),
-                reason: $this->normalizedReason(),
-            );
-
-            $this->success = __('ui.moderation.approved');
-            $this->dispatch('post-moderated', postId: $this->postId, action: 'approved');
-        });
-    }
-
     public function hide(HidePostAction $hidePostAction): void
     {
         $this->runModerationAction(function () use ($hidePostAction): void {
@@ -98,20 +69,6 @@ final class InlinePostModeration extends Component
 
             $this->success = __('ui.moderation.hidden');
             $this->dispatch('post-moderated', postId: $this->postId, action: 'hidden');
-        });
-    }
-
-    public function reject(RejectPostAction $rejectPostAction): void
-    {
-        $this->runModerationAction(function () use ($rejectPostAction): void {
-            $rejectPostAction->handle(
-                moderator: auth()->user(),
-                post: $this->post(),
-                reason: $this->normalizedReason(),
-            );
-
-            $this->success = __('ui.moderation.rejected');
-            $this->dispatch('post-moderated', postId: $this->postId, action: 'rejected');
         });
     }
 

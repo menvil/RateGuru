@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderatore',
         'open_in_admin' => 'Apri nell\'area di amministrazione',
-        'approve' => 'Approva',
-        'reject' => 'Rifiuta',
         'hide' => 'Nascondi post',
         'restore' => 'Ripristina',
         'hide_confirm_title' => 'Nascondere questo post?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Conferma e nascondi',
         'reason' => 'Motivo',
         'reason_placeholder' => 'Nota di moderazione facoltativa...',
-        'approved' => 'Post approvato.',
         'hidden' => 'Post nascosto.',
-        'rejected' => 'Post rifiutato.',
         'restored' => 'Post ripristinato.',
         'not_allowed' => 'Non sei autorizzato a moderare i post.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Crea post',
         'submitting' => 'Caricamento in corso...',
         'success_pending' => 'Il tuo post è stato inviato e apparirà dopo la moderazione.',
+        'success_published' => 'Il tuo post è stato pubblicato.',
         'error_generic' => 'Si è verificato un errore durante la creazione del tuo post.',
         'error_invalid_image' => 'Non è stato possibile elaborare questa immagine. Prova con un file diverso.',
         'selected_image_alt' => 'Anteprima dell\'immagine selezionata',

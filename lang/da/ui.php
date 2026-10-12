@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Åbn i administration',
-        'approve' => 'Godkend',
-        'reject' => 'Afvis',
         'hide' => 'Skjul opslag',
         'restore' => 'Gendan',
         'hide_confirm_title' => 'Skjul dette opslag?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Bekræft skjul',
         'reason' => 'Årsag',
         'reason_placeholder' => 'Valgfri moderationsnote...',
-        'approved' => 'Opslaget er godkendt.',
         'hidden' => 'Opslaget er skjult.',
-        'rejected' => 'Opslaget er afvist.',
         'restored' => 'Opslaget er gendannet.',
         'not_allowed' => 'Du har ikke tilladelse til at moderere opslag.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Opret opslag',
         'submitting' => 'Uploader...',
         'success_pending' => 'Dit opslag er indsendt og vises efter moderering.',
+        'success_published' => 'Dit opslag er udgivet.',
         'error_generic' => 'Noget gik galt under oprettelsen af dit opslag.',
         'error_invalid_image' => 'Billedet kunne ikke behandles. Prøv en anden fil.',
         'selected_image_alt' => 'Forhåndsvisning af valgt billede',

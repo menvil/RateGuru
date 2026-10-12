@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Open in admin',
-        'approve' => 'Approve',
-        'reject' => 'Reject',
         'hide' => 'Hide post',
         'restore' => 'Restore',
         'hide_confirm_title' => 'Hide this post?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Confirm hide',
         'reason' => 'Reason',
         'reason_placeholder' => 'Optional moderation note...',
-        'approved' => 'Post approved.',
         'hidden' => 'Post hidden.',
-        'rejected' => 'Post rejected.',
         'restored' => 'Post restored.',
         'not_allowed' => 'You are not allowed to moderate posts.',
         'errors' => [
@@ -275,6 +271,7 @@ return [
         'submit' => 'Create post',
         'submitting' => 'Uploading...',
         'success_pending' => 'Your post has been submitted and will appear after moderation.',
+        'success_published' => 'Your post has been published.',
         'error_generic' => 'Something went wrong while creating your post.',
         'error_invalid_image' => 'This image could not be processed. Please try a different file.',
         'selected_image_alt' => 'Selected image preview',

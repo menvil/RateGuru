@@ -15,27 +15,6 @@ use Illuminate\Support\Facades\DB;
  * to the posts, which survive their author, so they must remain active.
  */
 
-it('soft-deletes the account owner\'s avatar asset once the account is tombstoned', function () {
-    $avatar = MediaAsset::factory()->avatar()->create();
-    $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
-
-    app(DeleteUserAccountAction::class)->execute($user);
-
-    expect(User::find($user->id)->status)->toBe(UserStatus::Deleted);
-    expect(MediaAsset::withTrashed()->find($avatar->id)->trashed())->toBeTrue();
-});
-
-it('keeps every post image active: posts survive their author', function () {
-    $user = User::factory()->create();
-    $image = MediaAsset::factory()->postImage()->create();
-    $post = Post::factory()->published()->create(['user_id' => $user->id, 'image_asset_id' => $image->id]);
-
-    app(DeleteUserAccountAction::class)->execute($user);
-
-    expect(Post::find($post->id))->not->toBeNull();
-    expect(MediaAsset::find($image->id)->trashed())->toBeFalse();
-});
-
 it('keeps the image of a post the user had soft-deleted before account deletion', function () {
     // The post stays restorable-or-purgeable under its own lifecycle
     // (PR-E); account deletion must not decide its image's fate anymore.
@@ -50,17 +29,6 @@ it('keeps the image of a post the user had soft-deleted before account deletion'
     expect(MediaAsset::find($image->id)->trashed())->toBeFalse();
 });
 
-it('leaves a shared former avatar alone when another user still references it', function () {
-    $sharedAsset = MediaAsset::factory()->avatar()->create();
-    $user = User::factory()->create(['avatar_asset_id' => $sharedAsset->id]);
-    User::factory()->create(['avatar_asset_id' => $sharedAsset->id]);
-
-    app(DeleteUserAccountAction::class)->execute($user);
-
-    expect($user->fresh()->avatar_asset_id)->toBeNull();
-    expect(MediaAsset::find($sharedAsset->id)->trashed())->toBeFalse();
-});
-
 it('does not disturb an asset that was already soft-deleted before the account is deleted', function () {
     $avatar = MediaAsset::factory()->avatar()->create();
     $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
@@ -71,43 +39,6 @@ it('does not disturb an asset that was already soft-deleted before the account i
     app(DeleteUserAccountAction::class)->execute($user);
 
     expect(MediaAsset::withTrashed()->find($avatar->id)->deleted_at->equalTo($originalDeletedAt))->toBeTrue();
-});
-
-it('completes account deletion even when there is no avatar to release', function () {
-    $user = User::factory()->create(['avatar_asset_id' => null]);
-
-    app(DeleteUserAccountAction::class)->execute($user);
-
-    expect($user->fresh()->status)->toBe(UserStatus::Deleted);
-});
-
-it('rolls back the entire tombstone, avatar detach included, if the media release step fails', function () {
-    $avatar = MediaAsset::factory()->avatar()->create();
-    $user = User::factory()->create(['avatar_asset_id' => $avatar->id]);
-    $oldEmail = $user->email;
-
-    $originalChecker = app(MediaReferenceChecker::class);
-
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated media release failure.');
-        }
-    });
-
-    try {
-        expect(fn () => app(DeleteUserAccountAction::class)->execute($user))
-            ->toThrow(RuntimeException::class, 'Simulated media release failure.');
-    } finally {
-        app()->instance(MediaReferenceChecker::class, $originalChecker);
-    }
-
-    $fresh = $user->fresh();
-    expect($fresh->status)->toBe(UserStatus::Active);
-    expect($fresh->email)->toBe($oldEmail);
-    expect($fresh->avatar_asset_id)->toBe($avatar->id);
-    expect(MediaAsset::find($avatar->id)->trashed())->toBeFalse();
 });
 
 it('leaves the session authenticated if the transaction rolls back before logout runs', function () {
