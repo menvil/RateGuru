@@ -2,19 +2,20 @@
 
 namespace App\Filament\Resources\Categories;
 
-use App\Filament\Resources\Categories\Pages\CreateCategory;
-use App\Filament\Resources\Categories\Pages\EditCategory;
-use App\Filament\Resources\Categories\Pages\ListCategories;
-use App\Filament\Resources\Categories\Schemas\CategoryForm;
-use App\Filament\Resources\Categories\Tables\CategoriesTable;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Category;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Categories: one Admin v2 screen (ManageCategories) that lists them and
+ * creates and edits each in a drawer. The resource keeps the route, the
+ * navigation item, the policy checks and global search, whose results open
+ * the category in that drawer.
+ */
 class CategoryResource extends Resource
 {
     protected static ?string $model = Category::class;
@@ -32,22 +33,15 @@ class CategoryResource extends Resource
         return AdminNavigationGroup::CONTENT;
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return CategoryForm::configure($schema);
-    }
-
-    public static function table(Table $table): Table
-    {
-        return CategoriesTable::configure($table);
-    }
-
     public static function getPages(): array
     {
         return [
-            'index' => ListCategories::route('/'),
-            'create' => CreateCategory::route('/create'),
-            'edit' => EditCategory::route('/{record}/edit'),
+            'index' => ManageCategories::route('/'),
         ];
+    }
+
+    public static function getGlobalSearchResultUrl(Model $record): ?string
+    {
+        return static::canEdit($record) ? ManageCategories::getUrl(['edit' => $record->getKey()]) : null;
     }
 }

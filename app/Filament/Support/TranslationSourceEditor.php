@@ -3,9 +3,9 @@
 namespace App\Filament\Support;
 
 use App\Filament\Pages\ProjectSettingsPage;
-use App\Filament\Resources\Categories\CategoryResource;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
-use App\Filament\Resources\Tags\TagResource;
+use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationUnit;
 
@@ -20,8 +20,9 @@ final class TranslationSourceEditor
     {
         return match ($unit->section) {
             ProjectContentSection::ProjectSettings, ProjectContentSection::StaticPages => ProjectSettingsPage::getUrl(),
-            ProjectContentSection::Categories => CategoryResource::getUrl('edit', ['record' => $unit->recordId]),
-            ProjectContentSection::Tags => TagResource::getUrl('edit', ['record' => $unit->recordId]),
+            // Categories and tags are edited in their list's drawer.
+            ProjectContentSection::Categories => ManageCategories::getUrl(['edit' => $unit->recordId]),
+            ProjectContentSection::Tags => ManageTags::getUrl(['edit' => $unit->recordId]),
             ProjectContentSection::RatingGroups => RatingGroupResource::getUrl('edit', ['record' => $unit->recordId]),
             // Options are edited on their group's page.
             ProjectContentSection::RatingOptions => RatingGroupResource::getUrl('edit', ['record' => $unit->parentId]),

@@ -31,7 +31,8 @@ admin works, and every screen is either fully v1 or fully v2.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
   the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its two fixes live in the theme.
 - The live developer UI kit, local and testing only, lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
-  NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01.
+  NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01. Later screens add the elements they need
+  under their reference IDs.
 - No existing screen, navigation item, translation form or database table changes.
 
 ### Phase 2 — Admin v2 shell and navigation
@@ -204,14 +205,30 @@ translation status that links into Translation Center. The moderation screens fo
 
 | Order | Section | Kit elements it brings |
 |---|---|---|
-| 1 | Categories and Tags | FRM-04 locked identifier, TBL-04 row menu popover (FRM-10 filter dropdown is built) |
-| 2 | Rating groups and the group editor | STS-04 range slots, FRM-05 number stepper |
+| 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
+| 2 | Rating groups and the group editor | STS-04 range slots (FRM-05 number stepper is built) |
 | 3 | Project settings and Static pages | — |
-| 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built by then) |
+| 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
 | 5 | Comments | — |
 | 6 | Reports | DOM-02 report chain, the docked 448 panel |
-| 7 | Users and user edit | FRM-06 switch, FRM-09 radio cards (FRM-08 segmented control is built) |
+| 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
 | 8 | Media diagnostics | — |
+
+**Categories and Tags. Status: done.** Each is one screen drawn entirely in Admin v2 (`ManageCategories`,
+`ManageTags`), as the contract's [Content](design-contract.md#content) section describes: the header band with its
+figures and Open Translation Center, the table with each record's locale chips and missing count over the offered
+languages, the browser's search with Create “…” when it finds nothing, the row menu, and a drawer that creates and
+edits — the slug generated from the name and locked once saved, Change slug with its warning, and for categories
+the sort order and Active. Categories activate and deactivate from the menu with Undo; both delete only what no
+post holds, and otherwise say why. The resources keep their routes, navigation, policies and global search, whose
+results — like Edit source in Translation Center and Languages — open the record's drawer (`?edit=`). Moderators
+curate tags as before; deleting and translating stay an administrator's. The kit elements it needed — FRM-04,
+FRM-05 and FRM-06 earlier than this table first planned — are live in `/admin/dev/ui-kit`.
+
+**Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
+keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is
+designed, the row menu shows Merge into… unavailable with “Not available yet”, and a tag posts still carry is
+explained rather than offered a merge.
 
 Each migration also brings its navigation item's operational count (see the contract's
 [Transitional omissions](design-contract.md#transitional-omissions)).

@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Models\ProjectSettings;
 
 /*
@@ -202,7 +203,7 @@ it('opens the context of one item in the drawer, read only, and closes it back t
         ->toContain('Single line')
         ->toContain('Птици')
         ->toContain('Edit source')
-        ->and($page->script("document.querySelector('.rg-admin-drawer__footer a').getAttribute('href')"))->toBe(route('filament.admin.resources.categories.edit', ['record' => $this->birds]))
+        ->and($page->script("document.querySelector('.rg-admin-drawer__footer a').getAttribute('href')"))->toBe(ManageCategories::getUrl(['edit' => $this->birds->id]))
         ->and($page->script("Math.round(document.querySelector('.rg-admin-drawer').getBoundingClientRect().width)"))->toBe(448)
         ->and($page->script("!! document.activeElement.closest('.rg-admin-drawer')"))->toBeTrue();
 

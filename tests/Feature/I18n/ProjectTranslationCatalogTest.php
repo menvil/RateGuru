@@ -1,11 +1,11 @@
 <?php
 
 use App\Filament\Pages\ProjectSettingsPage;
-use App\Filament\Resources\Categories\Schemas\CategoryForm;
+use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
 use App\Filament\Resources\RatingGroups\Schemas\RatingGroupForm;
-use App\Filament\Resources\Tags\Schemas\TagForm;
+use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -310,8 +310,6 @@ it('holds every translation to the limits of the English field it translates', f
     $optionsManager = Livewire::test(OptionsRelationManager::class, ['ownerRecord' => $group, 'pageClass' => EditRatingGroup::class])->instance();
 
     $settings = formFieldLimitsOf($settingsPage->form(Schema::make($settingsPage)));
-    $category = formFieldLimitsOf(CategoryForm::configure(Schema::make($groupPage)));
-    $tag = formFieldLimitsOf(TagForm::configure(Schema::make($groupPage)));
     $group = formFieldLimitsOf(RatingGroupForm::configure(Schema::make($groupPage)));
     $option = formFieldLimitsOf($optionsManager->form(Schema::make($optionsManager)));
 
@@ -323,9 +321,18 @@ it('holds every translation to the limits of the English field it translates', f
         expect($settings["data.static_pages.about.en.{$field}"] ?? $settings["static_pages.about.en.{$field}"])->toBe($limits, $field);
     }
 
-    expect($category['name'])->toBe($fields['categories']['name'])
-        ->and($tag['name'])->toBe($fields['tags']['name'])
-        ->and($group['label'])->toBe($fields['rating_groups']['label'])
+    // Categories and tags are named in a drawer: a name one character over the limit is refused, one at it saved.
+    foreach (['categories' => ManageCategories::class, 'tags' => ManageTags::class] as $section => $drawer) {
+        [$limit, $multiline] = $fields[$section]['name'];
+
+        expect($multiline)->toBeFalse();
+
+        Livewire::test($drawer)->call('create')
+            ->set('draftName', str_repeat('n', $limit + 1))->set('draftSlug', "{$section}-limit")->call('save')->assertHasErrors(['draftName' => 'max'])
+            ->set('draftName', str_repeat('n', $limit))->call('save')->assertHasNoErrors();
+    }
+
+    expect($group['label'])->toBe($fields['rating_groups']['label'])
         ->and($group['description'])->toBe($fields['rating_groups']['description'])
         ->and($option['label'])->toBe($fields['rating_options']['label'])
         ->and($option['description'])->toBe($fields['rating_options']['description']);

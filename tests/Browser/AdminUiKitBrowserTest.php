@@ -67,7 +67,7 @@ it('opens each confirmation level, keeps focus inside and returns it to the open
 
     expect(adminUiKitOverlays($page))->toMatchArray(['dialog' => false, 'scrollLocked' => false])
         ->and($page->script("document.activeElement === document.querySelector('{$opener}')"))->toBeTrue();
-})->with(['light', 'warning', 'blocked']);
+})->with(['light', 'warning', 'blocked', 'danger']);
 
 it('confirms a specimen without leaving anything behind', function () {
     $page = adminUiKitAt('OVL-01', 'Alpine.$data(document.querySelector("[data-kit-dialog]")).dialog === null');
@@ -119,6 +119,20 @@ it('shows a real toast, which Dismiss removes', function () {
     waitForScript($page, adminUiKitToastCount(), 0);
 
     expect(adminUiKitOverlays($page)['toasts'])->toBe([]);
+});
+
+it('takes a toast away with its Undo, which dispatches the event the screen listens for', function () {
+    $page = adminUiKitAt('FBK-01', 'Array.isArray(Alpine.$data(document.querySelector(".rg-admin-toast-stack")).toasts)');
+
+    $page->click('[data-kit-toast="undo"]');
+    waitForScript($page, adminUiKitToastCount(), 1);
+
+    expect($page->script("document.querySelector('.rg-admin-toast-stack .rg-admin-toast__action')?.textContent.trim()"))->toBe('Undo');
+
+    $page->click('.rg-admin-toast-stack .rg-admin-toast__action');
+
+    // The Undo toast is gone; the kit's listener answers with a toast of its own.
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast-stack .rg-admin-toast__text')].map((toast) => toast.textContent.trim()).join('|')", 'Dogs is active again');
 });
 
 it('announces an error assertively and the rest politely, once each', function () {

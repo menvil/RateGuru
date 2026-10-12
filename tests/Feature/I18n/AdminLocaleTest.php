@@ -1,7 +1,7 @@
 <?php
 
-use App\Filament\Resources\Tags\Pages\CreateTag;
-use App\Filament\Resources\Tags\TagResource;
+use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
+use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -64,7 +64,7 @@ it('renders the admin panel in English for any account or site language', functi
     siteDefaultsTo($locale);
 
     $this->actingAs(panelAdmin($locale))
-        ->get(TagResource::getUrl('create'))
+        ->get(RatingGroupResource::getUrl('create'))
         ->assertOk()
         ->assertSee('lang="en"', false)
         ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'));
@@ -79,12 +79,12 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     siteDefaultsTo($locale);
     $this->actingAs(panelAdmin($locale));
 
-    $html = $this->get(TagResource::getUrl('create'))->assertOk()->getContent();
+    $html = $this->get(RatingGroupResource::getUrl('create'))->assertOk()->getContent();
 
     $response = $this->withHeaders(['X-Livewire' => '1'])
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
-                'snapshot' => adminPageSnapshot($html, CreateTag::class),
+                'snapshot' => adminPageSnapshot($html, CreateRatingGroup::class),
                 'updates' => [],
                 'calls' => [['path' => '', 'method' => '$refresh', 'params' => []]],
             ]],
@@ -122,7 +122,7 @@ it('leaves the public language untouched after working in the panel', function (
         ->get(route('feed'))
         ->assertSee('lang="'.$locale.'"', false);
 
-    $this->get(TagResource::getUrl('create'))
+    $this->get(RatingGroupResource::getUrl('create'))
         ->assertOk()
         ->assertSee('lang="en"', false);
 

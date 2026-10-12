@@ -62,6 +62,74 @@
     </div>
 @endcomponent
 
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-04']])
+    {{-- Live in the browser only: Change slug unlocks the second specimen, and nothing is saved. --}}
+    <div class="rg-admin-kit__grid rg-admin-kit__grid--wide" style="gap: 24px">
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.locked-identifier
+                label="Slug"
+                id="kit-slug-generated"
+                value="guinea-pigs"
+                generated="Generated from name"
+                hint="Stable URL identifier. Fixed once the category is saved."
+            />
+            <span class="rg-admin-kit__caption">create · follows the name until typed</span>
+        </div>
+        <div class="rg-admin-kit__item" x-data="{ unlocked: false }">
+            <div x-show="! unlocked">
+                <x-admin.ui.locked-identifier label="Slug" id="kit-slug-locked" value="small-pets" locked hint="Stable URL identifier used in feed links and filters.">
+                    <x-slot:unlock x-on:click="unlocked = true" data-kit-unlock>Change slug</x-slot:unlock>
+                </x-admin.ui.locked-identifier>
+            </div>
+            <div x-cloak x-show="unlocked">
+                <x-admin.ui.locked-identifier
+                    label="Slug"
+                    id="kit-slug-unlocked"
+                    value="small-pets"
+                    hint="Stable URL identifier used in feed links and filters."
+                    warning="Changing the slug breaks existing links to this category. Only do this to fix a mistake."
+                />
+            </div>
+            <span class="rg-admin-kit__caption" x-text="unlocked ? 'edit · unlocked, with the warning' : 'edit · locked'">edit · locked</span>
+        </div>
+    </div>
+@endcomponent
+
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-05']])
+    <div class="rg-admin-kit__row" x-data="{ sort: '4' }">
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.number-stepper label="Sort order" id="kit-stepper" value="4" :min="0" :max="99" hint="Lower numbers appear first." x-model="sort" />
+            <span class="rg-admin-kit__caption" x-text="`live · sort = ${sort}`">live · sort = 4</span>
+        </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.number-stepper label="Minimum options" id="kit-stepper-error" value="7" :min="1" error="The minimum can’t be more than the 5 active options." />
+            <span class="rg-admin-kit__caption">error</span>
+        </div>
+    </div>
+@endcomponent
+
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-06']])
+    <div class="rg-admin-kit__row" x-data="{ active: true }">
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.switch
+                label="Active"
+                id="kit-switch"
+                :checked="true"
+                on="Shown to visitors"
+                off="Hidden from visitors"
+                on-hint="Listed in navigation and the upload form."
+                off-hint="Existing posts keep it. New posts can’t use it."
+                x-model="active"
+            />
+            <span class="rg-admin-kit__caption" x-text="`live · active = ${active}`">live · active = true</span>
+        </div>
+        <div class="rg-admin-kit__item">
+            <x-admin.ui.switch label="Sign in with Google" id="kit-switch-disabled" on="On" off="Off" off-hint="Not configured: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET." disabled />
+            <span class="rg-admin-kit__caption">disabled · the hint says why</span>
+        </div>
+    </div>
+@endcomponent
+
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['FRM-08']])
     <div class="rg-admin-kit__row" x-data="{ mode: 'missing', theme: 'system' }">
         <div class="rg-admin-kit__item">

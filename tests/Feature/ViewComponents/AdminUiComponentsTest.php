@@ -292,11 +292,12 @@ it('gives each confirmation tone its own circle and icon', function (string $ton
 })->with([
     'default' => ['default', '<path d="M12 16v-4"/>'],
     'warning' => ['warning', '<line x1="12" x2="12" y1="8" y2="12"/>'],
+    'danger' => ['danger', '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'],
 ]);
 
 it('rejects a confirmation tone it does not have', function () {
-    $this->blade('<x-admin.ui.confirm-dialog tone="danger" title="Sure?">Body.</x-admin.ui.confirm-dialog>');
-})->throws(ViewException::class, 'Unknown admin dialog tone [danger]');
+    $this->blade('<x-admin.ui.confirm-dialog tone="info" title="Sure?">Body.</x-admin.ui.confirm-dialog>');
+})->throws(ViewException::class, 'Unknown admin dialog tone [info]');
 
 it('puts a dialog\'s details and footnote where the slots say, and a blocked one needs no confirm', function () {
     $view = (string) $this->blade(<<<'BLADE'
@@ -371,6 +372,18 @@ it('raises a toast from a browser event, keeps three at most, and lets each be d
         ->toContain('wire:ignore');
 
     expect((string) $this->blade('<x-admin.ui.toast-stack :duration="300" />'))->toContain(': 300');
+});
+
+it('offers Undo on a toast as a browser event the screen listens for, which takes the toast away', function () {
+    $view = (string) $this->blade('<x-admin.ui.toast-stack />');
+
+    expect($view)
+        // Only a label and an event make an action; anything else raises a plain toast.
+        ->toContain("typeof detail?.action?.label === 'string' && typeof detail?.action?.event === 'string' && detail.action.event !== ''")
+        ->toContain('<template x-if="toast.action">')
+        ->toMatch('/<button type="button" class="rg-admin-toast__action" x-text="toast.action.label" x-on:click="act\(toast\)"><\/button>/')
+        ->toContain('this.$dispatch(toast.action.event, toast.action.params)')
+        ->toMatch('/act\(toast\) \{[^}]*this\.remove\(toast\.id\)/');
 });
 
 it('lays both overlays on one layer that dismisses, hides and finds focus a home', function () {
@@ -543,4 +556,129 @@ it('says a paged list is empty, and refuses a paginator that does not know its t
     expect($empty)->toContain('No calls')->not->toContain('newest first')
         ->and(fn () => (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" />', ['paginator' => new Paginator([], 25)]))
         ->toThrow(ViewException::class, 'Admin pagination needs a length-aware paginator.');
+});
+
+it('draws a row menu as a menu button over a menu fixed to the window', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.row-menu id="row-4-actions" label="More actions for Dogs">
+            <x-admin.ui.menu-item icon="eye-off" hint="Hide from navigation and uploads" wire:click="deactivate(4)">Deactivate</x-admin.ui.menu-item>
+            <x-admin.ui.menu-item icon="languages" href="/admin/translation-center">Translate</x-admin.ui.menu-item>
+            <div class="rg-admin-menu__separator" role="separator"></div>
+            <x-admin.ui.menu-item icon="trash-2" tone="danger" hint="Unused" wire:click="askToDelete(4)">Delete</x-admin.ui.menu-item>
+        </x-admin.ui.row-menu>
+        BLADE);
+
+    expect($view)
+        ->toMatch('/<button\s+type="button"\s+id="row-4-actions"[^>]*aria-label="More actions for Dogs"[^>]*title="More actions for Dogs"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-controls="row-4-actions-menu"/')
+        ->toMatch('/id="row-4-actions-menu"\s+role="menu"\s+aria-labelledby="row-4-actions"/')
+        ->toContain('class="rg-admin-menu rg-admin-row-menu__menu"')
+        // Opened from the keyboard on the first item, or the last with Up.
+        ->toContain('x-on:keydown.arrow-down.prevent="show()"')
+        ->toContain('x-on:keydown.arrow-up.prevent="show(true)"')
+        ->toContain('x-on:keydown.home.prevent="items()[0]?.focus({ preventScroll: true })"')
+        ->toContain('x-on:keydown.end.prevent="items().at(-1)?.focus({ preventScroll: true })"')
+        ->toContain('x-on:keydown.escape.prevent.stop="close(true)"')
+        ->toContain('x-on:keydown.tab="close(false)"')
+        ->toContain('x-on:click.outside="close(false)"')
+        // Shown, placed and focused at once: hidden until it opens, never on the next frame.
+        ->toMatch('/role="menu"[^>]*hidden/')
+        ->toContain('this.$refs.menu.hidden = false')
+        // A scroll that moves its button, or a resize, closes it, so it never floats away from its row.
+        ->toContain('this.onScroll = () => this.position() !== this.anchor && this.close(false)')
+        ->toContain("window.addEventListener('scroll', this.onScroll, true)")
+        ->toContain("window.addEventListener('resize', this.onResize)")
+        ->toMatch('/<button type="button" role="menuitem" tabindex="-1" class="rg-admin-menu__item" wire:click="deactivate\(4\)">/')
+        ->toMatch('/<a href="\/admin\/translation-center" role="menuitem" tabindex="-1" class="rg-admin-menu__item">/')
+        ->toContain('<span class="rg-admin-menu__hint">Hide from navigation and uploads</span>')
+        ->toContain('class="rg-admin-menu__item rg-admin-menu__item--danger"');
+});
+
+it('keeps an unavailable menu item in the menu with its reason, doing nothing', function () {
+    $view = (string) $this->blade('<x-admin.ui.menu-item icon="merge" hint="Not available yet" wire:click="merge(4)" disabled>Merge into…</x-admin.ui.menu-item>');
+
+    expect($view)
+        ->toContain('role="menuitem"')
+        ->toContain('aria-disabled="true"')
+        ->toContain('rg-admin-menu__item--disabled')
+        ->toContain('<span class="rg-admin-menu__hint">Not available yet</span>')
+        ->not->toContain('wire:click');
+});
+
+it('rejects a menu item tone it does not have', function () {
+    $this->blade('<x-admin.ui.menu-item tone="warning">Archive</x-admin.ui.menu-item>');
+})->throws(ViewException::class, 'Unknown admin menu item tone [warning]');
+
+it('generates an identifier, then locks it with a way to unlock it', function () {
+    $generated = (string) $this->blade('<x-admin.ui.locked-identifier label="Slug" id="slug" value="guinea-pigs" generated="Generated from name" hint="Fixed once saved." wire:model.blur="draftSlug" />');
+
+    expect($generated)
+        ->toContain('<label for="slug" class="rg-admin-label">Slug</label>')
+        ->toContain('<span class="rg-admin-identifier__chip">Generated from name</span>')
+        ->toContain('wire:model.blur="draftSlug"')
+        ->toContain('aria-describedby="slug-hint"')
+        ->toContain('spellcheck="false"')
+        ->not->toContain('readonly')
+        ->not->toContain('Locked');
+
+    $locked = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.locked-identifier label="Slug" id="slug" value="dogs" locked hint="Used in feed links.">
+            <x-slot:unlock wire:click="unlockSlug">Change slug</x-slot:unlock>
+        </x-admin.ui.locked-identifier>
+        BLADE);
+
+    expect($locked)
+        ->toContain('rg-admin-identifier__frame--locked')
+        ->toContain('readonly')
+        ->toMatch('/rg-admin-identifier__locked">\s*<svg[^>]*>.*<\/svg>\s*Locked/s')
+        ->toContain('<button type="button" class="rg-admin-identifier__unlock" wire:click="unlockSlug">Change slug</button>')
+        ->not->toContain('Generated from name');
+});
+
+it('says what changing an unlocked identifier breaks, tied to the field', function () {
+    $view = (string) $this->blade('<x-admin.ui.locked-identifier label="Slug" id="slug" value="puppies" error="This slug is already used." warning="Feed links filtered by “dogs” stop working once you save." />');
+
+    expect($view)
+        ->toContain('aria-invalid="true"')
+        ->toContain('aria-describedby="slug-error slug-warning"')
+        ->toContain('id="slug-warning"')
+        ->toContain('rg-admin-notice--warning')
+        ->toContain('Feed links filtered by “dogs” stop working once you save.');
+});
+
+it('steps a number with buttons named after the field, within its bounds', function () {
+    $view = (string) $this->blade('<x-admin.ui.number-stepper label="Sort order" id="sort" value="3" :min="0" :max="999" hint="Lower numbers appear first." wire:model="draftSortOrder" />');
+
+    expect($view)
+        ->toContain('<label for="sort" class="rg-admin-label">Sort order</label>')
+        ->toContain('aria-label="Decrease sort order"')
+        ->toContain('aria-label="Increase sort order"')
+        ->toContain('inputmode="numeric"')
+        ->toContain('wire:model="draftSortOrder"')
+        ->toContain('aria-describedby="sort-hint"')
+        ->toContain('min: 0')
+        ->toContain('max: 999')
+        // A step is seen as typing is.
+        ->toContain("input.dispatchEvent(new Event('input', { bubbles: true }))");
+});
+
+it('draws a switch as a real button with role switch, its state in words and a hint for each state', function () {
+    $view = (string) $this->blade('<x-admin.ui.switch label="Active" id="active" :checked="true" on="Shown to visitors" off="Hidden from visitors" on-hint="Listed in navigation." off-hint="Existing posts keep it." wire:model="draftActive" />');
+
+    expect($view)
+        ->toContain('<label for="active" class="rg-admin-label">Active</label>')
+        ->toMatch('/<button\s+type="button"\s+id="active"\s+role="switch"\s+class="rg-admin-switch"\s+aria-checked="true"/')
+        ->toContain('x-modelable="checked"')
+        ->toContain('wire:model="draftActive"')
+        ->toContain('aria-describedby="active-hint"')
+        ->toContain('Shown to visitors')
+        ->toContain('Listed in navigation.');
+
+    expect((string) $this->blade('<x-admin.ui.switch label="Active" id="active" disabled />'))
+        ->toMatch('/role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
+});
+
+it('shows a note of its own beside a text field\'s label', function () {
+    expect((string) $this->blade('<x-admin.ui.text-field label="Name" tag="English · reference" :required="true" />'))
+        ->toContain('<span class="rg-admin-field__tag">English · reference</span>')
+        ->not->toContain('>Required<');
 });

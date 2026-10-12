@@ -155,24 +155,19 @@
             <span class="rg-admin-kit__caption">removal finalized</span>
         </div>
 
-        <div class="rg-admin-menu">
-            <div class="rg-admin-menu__item">
-                <x-admin.ui.icon name="arrow-up-right" />
-                <span class="rg-admin-menu__text">Open public post</span>
+        {{-- Live: opens from the mouse or the keyboard; choosing an item changes nothing. --}}
+        <div class="rg-admin-kit__stack" style="gap: 6px">
+            <div class="rg-admin-kit__wrap">
+                <x-admin.ui.button size="sm">Edit</x-admin.ui.button>
+                <x-admin.ui.row-menu id="kit-row-menu" :label="'More actions for Rabbits & rodents'">
+                    <x-admin.ui.menu-item icon="eye-off" hint="Hide from navigation and uploads">Deactivate</x-admin.ui.menu-item>
+                    <x-admin.ui.menu-item icon="merge" hint="Not available yet" disabled>Merge into…</x-admin.ui.menu-item>
+                    <x-admin.ui.menu-item icon="languages" href="#TBL-04">Translate</x-admin.ui.menu-item>
+                    <div class="rg-admin-menu__separator" role="separator"></div>
+                    <x-admin.ui.menu-item icon="trash-2" tone="danger" hint="Has posts · deactivate instead">Delete</x-admin.ui.menu-item>
+                </x-admin.ui.row-menu>
             </div>
-            <div class="rg-admin-menu__item">
-                <x-admin.ui.icon name="user" />
-                <span class="rg-admin-menu__text">View author</span>
-            </div>
-            <div class="rg-admin-menu__separator" aria-hidden="true"></div>
-            <div class="rg-admin-menu__item rg-admin-menu__item--disabled">
-                <x-admin.ui.icon name="trash-2" />
-                <span class="rg-admin-menu__text">Finalize removal<span class="rg-admin-menu__hint">Unavailable · hide the post first</span></span>
-            </div>
-            <div class="rg-admin-menu__item rg-admin-menu__item--danger">
-                <x-admin.ui.icon name="ban" />
-                <span class="rg-admin-menu__text">Ban author<span class="rg-admin-menu__hint">Reversible with Restore access</span></span>
-            </div>
+            <span class="rg-admin-kit__caption">live · Edit inline, the rest in the menu</span>
         </div>
     </div>
 @endcomponent

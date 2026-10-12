@@ -11,6 +11,7 @@
         ['light', 'Light', 'A consequence worth a second look · Enable a language', 'default', 'globe'],
         ['warning', 'Warning', 'A risk to accept, with a way out · Enable with content missing', 'warning', 'globe'],
         ['blocked', 'Blocked', 'Explains why and offers the alternative · no confirm', 'warning', 'circle-alert'],
+        ['danger', 'Danger', 'A deletion that cannot be taken back · Delete an unused category', 'danger', 'trash-2'],
     ];
 @endphp
 
@@ -47,6 +48,25 @@
                     <x-admin.ui.button x-on:click="dialog = null">Review missing</x-admin.ui.button>
                     <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
                     <x-admin.ui.button variant="primary" x-on:click="dialog = null">Enable anyway</x-admin.ui.button>
+                </x-slot:actions>
+            </x-admin.ui.confirm-dialog>
+        </template>
+
+        <template x-if="dialog === 'danger'">
+            <x-admin.ui.confirm-dialog id="kit-dialog-danger" tone="danger" icon="trash-2" title="Delete Exotic?" x-on:dismiss="dialog = null">
+                <p>No posts use this category. Its stored translations are deleted with it.</p>
+                <x-slot:details>
+                    <div class="rg-admin-dialog-subject">
+                        <span class="rg-admin-dialog-subject__icon" aria-hidden="true"><x-admin.ui.icon name="folder" :size="16" /></span>
+                        <span class="rg-admin-dialog-subject__text">
+                            <span class="rg-admin-dialog-subject__title">Exotic</span>
+                            <span class="rg-admin-dialog-subject__meta">exotic · 0 posts</span>
+                        </span>
+                    </div>
+                </x-slot:details>
+                <x-slot:actions>
+                    <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
+                    <x-admin.ui.button variant="danger" x-on:click="dialog = null">Delete category</x-admin.ui.button>
                 </x-slot:actions>
             </x-admin.ui.confirm-dialog>
         </template>
@@ -107,6 +127,13 @@
             <x-admin.ui.button x-on:click="$dispatch('rg-admin-toast', { message: '3 posts approved and published', tone: 'success' })" data-kit-toast="success">Show success toast</x-admin.ui.button>
             <x-admin.ui.button x-on:click="$dispatch('rg-admin-toast', { message: 'PurgeMediaAsset failed again: asset is still referenced', tone: 'error' })" data-kit-toast="error">Show error toast</x-admin.ui.button>
             <x-admin.ui.button x-on:click="$dispatch('rg-admin-toast', { message: 'Regeneration dispatched for A-209452', tone: 'info' })" data-kit-toast="info">Show info toast</x-admin.ui.button>
+            {{-- Undo dispatches the kit's own event, which answers with another toast and changes nothing. --}}
+            <x-admin.ui.button
+                x-data
+                x-on:rg-admin-kit-undo.window="$dispatch('rg-admin-toast', { message: 'Dogs is active again' })"
+                x-on:click="$dispatch('rg-admin-toast', { message: 'Dogs deactivated', action: { label: 'Undo', event: 'rg-admin-kit-undo', params: {} } })"
+                data-kit-toast="undo"
+            >Show toast with Undo</x-admin.ui.button>
         </div>
 
         <div class="rg-admin-kit__stack" style="align-items: flex-start; gap: 8px">
