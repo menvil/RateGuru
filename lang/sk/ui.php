@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderátor',
         'open_in_admin' => 'Otvoriť v administrácii',
-        'approve' => 'Schváliť',
-        'reject' => 'Zamietnuť',
         'hide' => 'Skryť príspevok',
         'restore' => 'Obnoviť',
         'hide_confirm_title' => 'Skryť tento príspevok?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potvrdiť skrytie',
         'reason' => 'Dôvod',
         'reason_placeholder' => 'Nepovinná poznámka moderátora...',
-        'approved' => 'Príspevok bol schválený.',
         'hidden' => 'Príspevok bol skrytý.',
-        'rejected' => 'Príspevok bol zamietnutý.',
         'restored' => 'Príspevok bol obnovený.',
         'not_allowed' => 'Nemáš oprávnenie moderovať príspevky.',
         'errors' => [

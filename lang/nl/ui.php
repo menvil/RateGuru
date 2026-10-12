@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Openen in beheer',
-        'approve' => 'Goedkeuren',
-        'reject' => 'Afwijzen',
         'hide' => 'Bericht verbergen',
         'restore' => 'Herstellen',
         'hide_confirm_title' => 'Dit bericht verbergen?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Verbergen bevestigen',
         'reason' => 'Reden',
         'reason_placeholder' => 'Optionele moderatienotitie...',
-        'approved' => 'Bericht goedgekeurd.',
         'hidden' => 'Bericht verborgen.',
-        'rejected' => 'Bericht afgewezen.',
         'restored' => 'Bericht hersteld.',
         'not_allowed' => 'Je mag geen berichten modereren.',
         'errors' => [

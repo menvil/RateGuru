@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Buksan sa admin',
-        'approve' => 'Aprubahan',
-        'reject' => 'Tanggihan',
         'hide' => 'Itago ang post',
         'restore' => 'I-restore',
         'hide_confirm_title' => 'Itago ang post na ito?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Kumpirmahin ang pagtatago',
         'reason' => 'Dahilan',
         'reason_placeholder' => 'Opsyonal na tala sa moderation...',
-        'approved' => 'Naaprubahan ang post.',
         'hidden' => 'Naitago ang post.',
-        'rejected' => 'Tinanggihan ang post.',
         'restored' => 'Na-restore ang post.',
         'not_allowed' => 'Hindi ka pinapayagang mag-moderate ng mga post.',
         'errors' => [

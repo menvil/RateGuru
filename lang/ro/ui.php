@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Deschide în administrare',
-        'approve' => 'Aprobă',
-        'reject' => 'Respinge',
         'hide' => 'Ascunde postarea',
         'restore' => 'Restaurează',
         'hide_confirm_title' => 'Ascunzi această postare?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Confirmă ascunderea',
         'reason' => 'Motiv',
         'reason_placeholder' => 'Notă de moderare opțională…',
-        'approved' => 'Postare aprobată.',
         'hidden' => 'Postare ascunsă.',
-        'rejected' => 'Postare respinsă.',
         'restored' => 'Postare restaurată.',
         'not_allowed' => 'Nu ai permisiunea de a modera postări.',
         'errors' => [

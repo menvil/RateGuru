@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Otwórz w panelu administracyjnym',
-        'approve' => 'Zatwierdź',
-        'reject' => 'Odrzuć',
         'hide' => 'Ukryj post',
         'restore' => 'Przywróć',
         'hide_confirm_title' => 'Ukryć ten post?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potwierdź ukrycie',
         'reason' => 'Powód',
         'reason_placeholder' => 'Opcjonalna notatka moderacyjna...',
-        'approved' => 'Post zatwierdzony.',
         'hidden' => 'Post ukryty.',
-        'rejected' => 'Post odrzucony.',
         'restored' => 'Post przywrócony.',
         'not_allowed' => 'Nie masz uprawnień do moderowania postów.',
         'errors' => [

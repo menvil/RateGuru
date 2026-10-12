@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Odpri v skrbništvu',
-        'approve' => 'Odobri',
-        'reject' => 'Zavrni',
         'hide' => 'Skrij objavo',
         'restore' => 'Obnovi',
         'hide_confirm_title' => 'Želiš skriti to objavo?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Potrdi skritje',
         'reason' => 'Razlog',
         'reason_placeholder' => 'Neobvezna opomba moderatorja …',
-        'approved' => 'Objava je odobrena.',
         'hidden' => 'Objava je skrita.',
-        'rejected' => 'Objava je zavrnjena.',
         'restored' => 'Objava je obnovljena.',
         'not_allowed' => 'Nimaš dovoljenja za moderiranje objav.',
         'errors' => [

@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderator',
         'open_in_admin' => 'Im Adminbereich öffnen',
-        'approve' => 'Freigeben',
-        'reject' => 'Ablehnen',
         'hide' => 'Beitrag ausblenden',
         'restore' => 'Wiederherstellen',
         'hide_confirm_title' => 'Diesen Beitrag ausblenden?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Ausblenden bestätigen',
         'reason' => 'Grund',
         'reason_placeholder' => 'Optionale Moderationsnotiz...',
-        'approved' => 'Beitrag freigegeben.',
         'hidden' => 'Beitrag ausgeblendet.',
-        'rejected' => 'Beitrag abgelehnt.',
         'restored' => 'Beitrag wiederhergestellt.',
         'not_allowed' => 'Du darfst keine Beiträge moderieren.',
         'errors' => [

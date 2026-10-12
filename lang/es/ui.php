@@ -169,8 +169,6 @@ return [
     'moderation' => [
         'badge' => 'Moderador',
         'open_in_admin' => 'Abrir en el panel de administración',
-        'approve' => 'Aprobar',
-        'reject' => 'Rechazar',
         'hide' => 'Ocultar publicación',
         'restore' => 'Restaurar',
         'hide_confirm_title' => '¿Ocultar esta publicación?',
@@ -178,9 +176,7 @@ return [
         'confirm_hide' => 'Sí, ocultar',
         'reason' => 'Motivo',
         'reason_placeholder' => 'Nota de moderación opcional...',
-        'approved' => 'Publicación aprobada.',
         'hidden' => 'Publicación ocultada.',
-        'rejected' => 'Publicación rechazada.',
         'restored' => 'Publicación restaurada.',
         'not_allowed' => 'No tienes permiso para moderar publicaciones.',
         'errors' => [
