@@ -1,0 +1,34 @@
+tests/Feature/Architecture/PublicHttpTest.php
+  s_3481294084957b::t_babf65880abb06 138,141-144,720-866
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_f41b704bde4af2 21-23,1659-1662,2424-2436
+tests/Feature/Architecture/PublicHttpWorkflowTest.php
+  s_3481294084957b::t_ea0af573ffea0e 264-267
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_f41b704bde4af2 9-18,168,182-205,251,347-350,368-371
+tests/Pest.php
+  s_3481294084957b::t_622e89df6cc04f 11746-11756,11807,11836,11922-11949
+  s_3481294084957b::t_babf65880abb06 11798
+infrastructure/scripts/prepare-public-http
+  s_3481294084957b::t_70bb2ef6928456 60-67,95,163-170,195-196,271-272,276-277,1039-1098,1182,1234,1512
+.github/actions/prepare-rateguru-public-http/action.yml
+  s_3481294084957b::t_57df4d466bec7a 356,382
+tests/Support/real-nginx/scenario.sh
+  s_3481294084957b::t_40efa8d6b1c432 44-48,515-583
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8eeceda6b0e12c43ed3dfd1ac37d642e61f6c6e0",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
