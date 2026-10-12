@@ -240,15 +240,101 @@ EOF
     cat <<'EOF'
 
 PROBLEMS=0
+CRITICAL=false
+CHANGED=false
+RECOVERED=false
 WORK=""
 
 say() { printf 'rateguru inbound TLS: %s\n' "$*"; }
 problem() { printf 'rateguru inbound TLS: FAIL %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
+critical() { printf 'rateguru inbound TLS: CRITICAL %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); CRITICAL=true; }
 
+# THE JOURNAL. Every installation stages its pair in a directory of its own
+# beside TARGET_DIR, TARGET_PARENT/.tls-incoming.*. Before the installed pair
+# is touched, a verified copy of it goes into that directory's previous/, and
+# its state file records — written whole, renamed into place, synced —
+# phase=swapping and, for each file, its SHA-256 or "absent". From then on
+# that copy is the only way back, so a directory in that phase is never
+# removed until the copy has been verified, put back and read back: by this
+# run on its way out, whatever ends it, or — when it was killed outright — by
+# the next one, before anything else. A copy that cannot be verified or put
+# back is CRITICAL: it is kept, nothing is reloaded, and the hook exits 2.
+
+# journal_phase DIR — the phase DIR's state file records; nothing when it has none.
+journal_phase() {
+    sed -n 's/^phase=//p' "$1/state" 2>/dev/null | head -n 1
+}
+
+# journal_record DIR NAME — what DIR's journal recorded for NAME: a SHA-256, or "absent".
+journal_record() {
+    awk -v name="$2" '$1 == name { print $2; exit }' "$1/state" 2>/dev/null
+}
+
+digest() {
+    sha256sum < "$1" | cut -d ' ' -f 1
+}
+
+# restore_journal DIR — the installed pair exactly as DIR's journal recorded it:
+# each copy verified against its recorded SHA-256 before anything is put back,
+# put back by a rename, and the result read back. Only then may DIR go; when
+# that does not hold, the failure is CRITICAL and DIR is left as it is.
+restore_journal() {
+    local dir="$1" name recorded
+    if ! secure_path "${TARGET_DIR}" directory; then
+        critical "${TARGET_DIR} is not a real directory of ${FILE_OWNER}'s that no one else may write — the previous pair is kept in ${dir}, and nothing was put back"
+        return 1
+    fi
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        [[ "${recorded}" != absent ]] || continue
+        if [[ ! "${recorded}" =~ ^[0-9a-f]{64}$ || -L "${dir}/previous/${name}" || ! -f "${dir}/previous/${name}" ]] \
+            || [[ "$(digest "${dir}/previous/${name}")" != "${recorded}" ]]
+        then
+            critical "the copy of the previous ${name} in ${dir} does not match its journal — it is kept, and nothing was put back. Inspect ${dir} as root before anything else"
+            return 1
+        fi
+    done
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        if [[ "${recorded}" == absent ]]; then
+            rm -f -- "${TARGET_DIR:?}/${name:?}"
+        else
+            cp -p -- "${dir}/previous/${name}" "${dir}/restoring.${name}" \
+                && "${MV}" -f -T -- "${dir}/restoring.${name}" "${TARGET_DIR}/${name}"
+        fi
+    done
+    for name in privkey.pem fullchain.pem; do
+        recorded="$(journal_record "${dir}" "${name}")"
+        if [[ "${recorded}" == absent ]]; then
+            [[ ! -e "${TARGET_DIR}/${name}" && ! -L "${TARGET_DIR}/${name}" ]] && continue
+        elif [[ -f "${TARGET_DIR}/${name}" && ! -L "${TARGET_DIR}/${name}" ]] && [[ "$(digest "${TARGET_DIR}/${name}")" == "${recorded}" ]]; then
+            continue
+        fi
+        critical "the previous pair could not be put back intact — its copy is kept in ${dir}/previous. Put it back by hand as root, then run install-mail-inbound-tls --apply"
+        return 1
+    done
+    if [[ "$(journal_record "${dir}" privkey.pem)" == absent && "$(journal_record "${dir}" fullchain.pem)" == absent ]]; then
+        say "no pair was installed before, and none is left half in place, verified"
+    else
+        say "the pair that was installed before is back in place, verified"
+    fi
+}
+
+# cleanup — whatever ends this run: a staging directory goes, unless it holds
+# the only copy of a pair being replaced; then that pair is put back first,
+# and when it cannot be, the directory stays.
 cleanup() {
-    [[ -z "${WORK}" ]] || rm -rf -- "${WORK}"
+    [[ -n "${WORK}" && -d "${WORK}" ]] || return 0
+    if [[ "$(journal_phase "${WORK}")" == swapping ]]; then
+        say "stopped while the pair was being replaced — putting the previous pair back"
+        restore_journal "${WORK}" || return 0
+    fi
+    rm -rf -- "${WORK:?}"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # secure_path PATH KIND — a real KIND (directory | file), not a link, owned by
 # FILE_OWNER, that no one else may write.
@@ -333,43 +419,29 @@ judge_source() {
     (( PROBLEMS == 0 ))
 }
 
-# target_matches — the installed pair is exactly the source pair: regular
-# files, FILE_OWNER:FILE_GROUP 0644 and 0600, the same bytes.
+# target_secure — TARGET_PARENT and TARGET_DIR are real directories of
+# FILE_OWNER's that no one else may write: a pair found through anything else
+# is not trusted, however right its files look.
+target_secure() {
+    secure_path "${TARGET_PARENT}" directory && secure_path "${TARGET_DIR}" directory
+}
+
+# target_matches — the installed pair is exactly the source pair: in secure
+# directories, regular files, FILE_OWNER:FILE_GROUP 0644 and 0600, the same bytes.
 target_matches() {
     local cert="${TARGET_DIR}/fullchain.pem" key="${TARGET_DIR}/privkey.pem"
+    target_secure || return 1
     [[ -f "${cert}" && ! -L "${cert}" && -f "${key}" && ! -L "${key}" ]] || return 1
     [[ "$(stat -c '%U:%G %a' -- "${cert}")" == "${FILE_OWNER}:${FILE_GROUP} 644" ]] || return 1
     [[ "$(stat -c '%U:%G %a' -- "${key}")" == "${FILE_OWNER}:${FILE_GROUP} 600" ]] || return 1
     cmp -s -- "${SOURCE_CERT}" "${cert}" && cmp -s -- "${SOURCE_KEY}" "${key}"
 }
 
-# restore — the target exactly as it was before: each file that was there
-# back in place, each that was not removed. Never a mixed pair.
-restore() {
-    local name restored=true
-    for name in privkey.pem fullchain.pem; do
-        if [[ -f "${WORK}/previous/${name}" ]]; then
-            "${MV}" -f -T -- "${WORK}/previous/${name}" "${TARGET_DIR}/${name}" || restored=false
-        else
-            rm -f -- "${TARGET_DIR}/${name}" || restored=false
-        fi
-    done
-    if [[ "${restored}" == true ]]; then
-        say "the pair that was installed before is back in place, unchanged"
-        return 0
-    fi
-    problem "CRITICAL: the previous pair could not be put back — run install-mail-inbound-tls --apply before Postfix next reloads"
-    return 1
-}
-
-# install_pair — the source pair into TARGET_DIR: staged next to it and judged
-# there, moved in key first, read back, and rolled back on any failure.
-# CHANGED says whether the installed pair changed.
-CHANGED=false
-install_pair() {
-    local stale name
-
-    # Created when absent; never re-owned or re-moded when present.
+# prepare_target — TARGET_PARENT, created when absent and never re-owned or
+# re-moded when present, locked for this run; then every installation a killed
+# run left unfinished is put right, before anything else.
+prepare_target() {
+    local journal
     if [[ ! -e "${TARGET_PARENT}" && ! -L "${TARGET_PARENT}" ]]; then
         "${INSTALL}" -d -o "${FILE_OWNER}" -g "${FILE_GROUP}" -m 0755 -- "${TARGET_PARENT}" \
             || { problem "${TARGET_PARENT} could not be created — nothing was changed"; return 1; }
@@ -383,9 +455,46 @@ install_pair() {
     exec 9<"${TARGET_PARENT}"
     flock -w 300 9 || { problem "another installation of the pair holds ${TARGET_PARENT} — nothing was changed"; return 1; }
 
-    for stale in "${TARGET_PARENT}"/.tls-incoming.*; do
-        [[ ! -e "${stale}" ]] || rm -rf -- "${stale}"
+    for journal in "${TARGET_PARENT}"/.tls-incoming.*; do
+        [[ -e "${journal}" || -L "${journal}" ]] || continue
+        if [[ -L "${journal}" || ! -d "${journal}" ]]; then
+            critical "${journal} is not a staging directory of this hook's — it is left alone; remove it by hand"
+            return 1
+        fi
+        if [[ "$(journal_phase "${journal}")" == swapping ]]; then
+            say "an earlier installation was stopped while the pair was being replaced — putting back the pair it kept"
+            restore_journal "${journal}" || return 1
+            RECOVERED=true
+        fi
+        rm -rf -- "${journal:?}"
     done
+}
+
+# journal_begin — the installed pair copied into WORK/previous and verified,
+# and phase=swapping recorded beside it, durably, before the pair is touched.
+journal_begin() {
+    local name record=""
+    mkdir -m 0700 -- "${WORK}/previous" || return 1
+    for name in privkey.pem fullchain.pem; do
+        if [[ -f "${TARGET_DIR}/${name}" ]]; then
+            cp -p -- "${TARGET_DIR}/${name}" "${WORK}/previous/${name}" || return 1
+            cmp -s -- "${TARGET_DIR}/${name}" "${WORK}/previous/${name}" || return 1
+            record+="${name} $(digest "${WORK}/previous/${name}")"$'\n'
+        else
+            record+="${name} absent"$'\n'
+        fi
+    done
+    printf 'phase=swapping\n%s' "${record}" > "${WORK}/state.new" || return 1
+    sync || return 1
+    mv -f -T -- "${WORK}/state.new" "${WORK}/state" || return 1
+    sync || return 1
+}
+
+# install_pair — the source pair into TARGET_DIR: staged next to it and judged
+# there, the installed pair kept in the journal, moved in key first, read back,
+# and the kept pair put back on any failure. CHANGED says whether it changed.
+install_pair() {
+    local name
 
     if [[ -e "${TARGET_DIR}" || -L "${TARGET_DIR}" ]] && ! secure_path "${TARGET_DIR}" directory; then
         problem "${TARGET_DIR} is not a real directory of ${FILE_OWNER}'s that no one else may write — nothing is written into it"
@@ -420,17 +529,10 @@ install_pair() {
         return 1
     fi
 
-    # What is installed now, kept until the new pair is proved in place.
-    if ! mkdir -m 0700 -- "${WORK}/previous"; then
+    if ! journal_begin; then
         problem "the installed pair could not be kept aside — it is unchanged"
         return 1
     fi
-    for name in privkey.pem fullchain.pem; do
-        if [[ -f "${TARGET_DIR}/${name}" ]] && ! cp -p -- "${TARGET_DIR}/${name}" "${WORK}/previous/${name}"; then
-            problem "the installed ${name} could not be kept aside — the installed pair is unchanged"
-            return 1
-        fi
-    done
 
     if ! "${MV}" -f -T -- "${WORK}/privkey.pem" "${TARGET_DIR}/privkey.pem" \
         || ! "${MV}" -f -T -- "${WORK}/fullchain.pem" "${TARGET_DIR}/fullchain.pem" \
@@ -438,12 +540,42 @@ install_pair() {
         || [[ -n "$(pair_problems "${TARGET_DIR}/fullchain.pem" "${TARGET_DIR}/privkey.pem")" ]]
     then
         problem "the pair could not be put in place intact"
-        restore || true
+        # Put back and verified, the staging directory goes; when it cannot
+        # be, it stays — with the only copy of the previous pair in it.
+        if restore_journal "${WORK}"; then
+            rm -rf -- "${WORK:?}"
+        fi
+        WORK=""
         return 1
     fi
 
+    rm -rf -- "${WORK:?}"
+    WORK=""
     CHANGED=true
     say "installed the certificate for ${NAMES[*]} into ${TARGET_DIR}"
+}
+
+# verify_target — read-only: where the installed pair is, whether an
+# installation was left unfinished, and whether the pair is exactly the source.
+verify_target() {
+    local dir journal secure=true
+    for dir in "${TARGET_PARENT}" "${TARGET_DIR}"; do
+        secure_path "${dir}" directory \
+            || { problem "${dir} is not a real directory of ${FILE_OWNER}'s that no one else may write — the pair in it is not trusted"; secure=false; }
+    done
+    [[ "${secure}" == true ]] || return 1
+
+    for journal in "${TARGET_PARENT}"/.tls-incoming.*; do
+        if [[ -d "${journal}" && ! -L "${journal}" && "$(journal_phase "${journal}")" == swapping ]]; then
+            problem "an installation was stopped while the pair was being replaced — ${journal} keeps the previous pair; install-mail-inbound-tls --apply, or the next renewal, puts it back"
+        fi
+    done
+
+    if target_matches && [[ -z "$(pair_problems "${TARGET_DIR}/fullchain.pem" "${TARGET_DIR}/privkey.pem")" ]]; then
+        say "${TARGET_DIR} holds exactly the certificate Certbot holds, as reviewed"
+    else
+        problem "${TARGET_DIR} does not hold exactly the certificate Certbot holds, as regular files ${FILE_OWNER}:${FILE_GROUP} 0644 and 0600"
+    fi
 }
 
 # reload_postfix — Postfix reads the new pair, when it runs: a reload, never a
@@ -467,19 +599,18 @@ main() {
             judge_source && say "the certificate Certbot holds for ${NAMES[*]} may be served"
             ;;
         --verify)
-            if judge_source; then
-                if target_matches && [[ -z "$(pair_problems "${TARGET_DIR}/fullchain.pem" "${TARGET_DIR}/privkey.pem")" ]]; then
-                    say "${TARGET_DIR} holds exactly the certificate Certbot holds, as reviewed"
-                else
-                    problem "${TARGET_DIR} does not hold exactly the certificate Certbot holds, as regular files ${FILE_OWNER}:${FILE_GROUP} 0644 and 0600"
-                fi
-            fi
+            judge_source && verify_target
             ;;
         "")
             # Certbot's call: any other certificate is none of this hook's business.
             [[ "${RENEWED_LINEAGE:-}" == "${LINEAGE}" ]] || exit 0
             say "Certbot renewed ${LINEAGE}"
-            if judge_source && install_pair && [[ "${CHANGED}" == true ]]; then
+            # An installation a killed run left unfinished is put right first,
+            # whatever Certbot holds now; then the renewed pair, if it may be served.
+            if prepare_target && judge_source; then
+                install_pair || true
+            fi
+            if [[ "${CRITICAL}" == false ]] && [[ "${CHANGED}" == true || "${RECOVERED}" == true ]]; then
                 reload_postfix || true
             fi
             ;;
@@ -488,6 +619,7 @@ main() {
             exit 64
             ;;
     esac
+    [[ "${CRITICAL}" == false ]] || exit 2
     (( PROBLEMS == 0 ))
 }
 
@@ -671,6 +803,28 @@ run_verify() {
     (( COUNT_FAIL + COUNT_DRIFT == 0 ))
 }
 
+# The deploy hook as this run found it — "absent", or "kept": a copy in WORK, a
+# link kept as a link — put back should the pair not install.
+HOOK_BEFORE=""
+
+save_hook() {
+    local hook
+    hook="$(physical "${HOOK_FILE}")"
+    if [[ ! -e "${hook}" && ! -L "${hook}" ]]; then
+        HOOK_BEFORE=absent
+    elif cp -P -p -- "${hook}" "${WORK}/hook-before"; then
+        HOOK_BEFORE=kept
+    else
+        fail "the deploy hook ${HOOK_FILE} could not be kept aside — nothing was changed"
+    fi
+}
+
+# stage_beside_hook — an empty file beside the deploy hook, to be renamed over
+# it. Its name ends in "~", and Certbot runs no hook whose name does.
+stage_beside_hook() {
+    mktemp --suffix='~' "$(dirname -- "$(physical "${HOOK_FILE}")")/.rateguru-mail-inbound-tls.XXXXXX"
+}
+
 # install_hook — the rendered hook into Certbot's deploy hooks: written beside
 # it, then renamed over it, so Certbot never runs half a hook.
 install_hook() {
@@ -685,18 +839,44 @@ install_hook() {
             || fail "${parent#"${FS_ROOT}"} is not a real directory of ${FILE_OWNER}'s that no one else may write — the hook was not installed"
     done
 
-    staged="$(mktemp "${dir}/.rateguru-mail-inbound-tls.XXXXXX")"
+    staged="$(stage_beside_hook)"
     if ! { cp -- "${WORK}/hook" "${staged}" \
         && chown "${FILE_OWNER}:${FILE_GROUP}" -- "${staged}" \
         && chmod 0755 -- "${staged}" \
         && mv -f -T -- "${staged}" "${hook}"; }
     then
-        rm -f -- "${staged}"
+        rm -f -- "${staged:?}"
         fail "the deploy hook could not be installed — the pair was not touched"
     fi
 }
 
+# restore_hook — the deploy hook exactly as this run found it: gone again when
+# there was none, or the kept copy renamed back over it and read back.
+restore_hook() {
+    local hook staged
+    hook="$(physical "${HOOK_FILE}")"
+    if [[ "${HOOK_BEFORE}" == absent ]]; then
+        if rm -f -- "${hook:?}" && [[ ! -e "${hook}" && ! -L "${hook}" ]]; then
+            action "no deploy hook is left installed: there was none before this run"
+            return 0
+        fi
+    elif staged="$(stage_beside_hook)" \
+        && cp -P -p --remove-destination -- "${WORK}/hook-before" "${staged}" \
+        && mv -f -T -- "${staged}" "${hook}"
+    then
+        if { [[ -L "${WORK}/hook-before" ]] && [[ -L "${hook}" && "$(readlink -- "${hook}")" == "$(readlink -- "${WORK}/hook-before")" ]]; } \
+            || { [[ ! -L "${WORK}/hook-before" ]] && [[ -f "${hook}" && ! -L "${hook}" ]] && cmp -s -- "${WORK}/hook-before" "${hook}"; }
+        then
+            action "the deploy hook installed before this run is back in place"
+            return 0
+        fi
+    fi
+    printf 'CRITICAL: the deploy hook %s could not be returned to what it was before this run\n' "${HOOK_FILE}" >&2
+    return 1
+}
+
 run_apply() {
+    local replaced=false
     require_root
     require_tools jq cmp stat readlink sha256sum install mktemp
     load_names
@@ -713,13 +893,21 @@ run_apply() {
     if [[ "$(hook_state)" == PASS ]]; then
         action "the deploy hook ${HOOK_FILE} is already as rendered"
     else
+        save_hook
         action "installing the deploy hook ${HOOK_FILE}"
         install_hook
+        replaced=true
     fi
 
+    # The pair and the hook land together: when the pair does not install,
+    # the hook this run installed does not stay either.
     action "installing the pair as Certbot's renewal will: the hook, with RENEWED_LINEAGE=${LETSENCRYPT}/live/${CERT_NAME}"
-    run_hook "$(physical "${HOOK_FILE}")" \
-        || fail "the pair could not be installed (above) — the hook is in place, and the pair installed before, if any, is unchanged"
+    if ! run_hook "$(physical "${HOOK_FILE}")"; then
+        if [[ "${replaced}" == true ]] && ! restore_hook; then
+            fail "the pair could not be installed (above), and the deploy hook ${HOOK_FILE} is not what it was before — inspect it, then run --apply again"
+        fi
+        fail "the pair could not be installed (above) — the deploy hook is as it was before this run"
+    fi
 
     COUNT_PASS=0
     COUNT_FAIL=0

@@ -626,9 +626,12 @@ tits-guru` under the host's infrastructure lock. That runs
    pair is copied by the same code as every renewal: staged in
    `/etc/rateguru-mail-inbound/.tls-incoming.*`, judged there, moved in, read
    back; on any failure the pair installed before is put back, and never is a
-   mixed pair left. Postfix, when it runs, is reloaded.
+   mixed pair left. Postfix, when it runs, is reloaded. If the pair does not
+   install, the hook this run installed does not stay either: the hook that
+   was there before — or none — is put back.
 5. `install-mail-inbound-tls --verify` — the hook as rendered, the pair
-   exactly the one Certbot holds, as regular files root:root 0644 and 0600 —
+   exactly the one Certbot holds, as regular files root:root 0644 and 0600, in
+   real root-owned directories no one else may write —
    and `install-mail-inbound --tls-check`, the listener's own judge, unchanged.
 
 Run again, it changes nothing and reloads nothing. No certificate or key ever
@@ -652,6 +655,18 @@ certbot.timer ─► certbot renew ─► HTTP-01 through the existing Nginx on 
                     │
                     └─ any other certificate renewed: the hook exits at once, changes nothing
 ```
+
+**A run stopped halfway.** Before the installed pair is touched, the hook
+keeps a verified copy of it in its staging directory and records there —
+synced to disk — that the pair is being replaced, with each file's SHA-256.
+Terminated, it puts that copy back on its way out; killed outright, or with
+the host going down, the next run — Install tits.guru inbound mail TLS or
+Certbot's next renewal — puts it back first, whatever Certbot holds by then,
+and only then goes on. The copy is put back only once it matches what was
+recorded, and the result is read back; when either fails, the hook says
+CRITICAL, exits 2, keeps the copy where it is and reloads nothing, and
+`install-mail-inbound-tls --verify` reports the unfinished installation until
+it is put right.
 
 A renewal the hook could not install leaves the previous pair serving; it fails
 `install-mail-inbound --tls-check` once that pair is within 14 days of expiry,

@@ -239,6 +239,96 @@ describe('what the target must be', function () {
     ]);
 });
 
+describe('a correct pair in the wrong place', function () {
+    it('fails --verify when the pair is found through a directory that is a link or that others may write', function (Closure $tamper, string $reported) {
+        expect(mailInboundTlsRun($this->host, 'apply')[0])->toBe(0);
+        $tamper($this->host);
+
+        [$status, $output] = mailInboundTlsRun($this->host, 'verify');
+
+        expect($status)->toBe(1, $output);
+        expect($output)
+            ->toContain($reported.' is not a real directory of')
+            ->toContain('FAIL     pair:/etc/rateguru-mail-inbound/tls');
+        // Its files are right: the listener's own judge, which looks at them
+        // alone, passes — only the directories tell.
+        expect($output)->toContain('TLS READY: a certificate for mx1.tits.guru');
+        expect(mailInboundDeployHook($this->host, null, ['--verify'])[0])->toBe(1);
+    })->with([
+        'the pair\'s directory is a link' => [function (array $host) {
+            rename($host['fs'].'/etc/rateguru-mail-inbound/tls', $host['scratch'].'/tls-elsewhere');
+            symlink($host['scratch'].'/tls-elsewhere', $host['fs'].'/etc/rateguru-mail-inbound/tls');
+        }, '/etc/rateguru-mail-inbound/tls'],
+        'the pair\'s directory may be written by anyone' => [fn (array $host) => chmod($host['fs'].'/etc/rateguru-mail-inbound/tls', 0o777), '/etc/rateguru-mail-inbound/tls'],
+        'the pair\'s directory may be written by its group' => [fn (array $host) => chmod($host['fs'].'/etc/rateguru-mail-inbound/tls', 0o775), '/etc/rateguru-mail-inbound/tls'],
+        'its parent is a link' => [function (array $host) {
+            rename($host['fs'].'/etc/rateguru-mail-inbound', $host['scratch'].'/parent-elsewhere');
+            symlink($host['scratch'].'/parent-elsewhere', $host['fs'].'/etc/rateguru-mail-inbound');
+        }, '/etc/rateguru-mail-inbound'],
+        'its parent may be written by anyone' => [fn (array $host) => chmod($host['fs'].'/etc/rateguru-mail-inbound', 0o777), '/etc/rateguru-mail-inbound'],
+    ]);
+});
+
+describe('the hook and the pair land together', function () {
+    it('leaves the deploy hook as it found it when the pair does not install', function (?string $before) {
+        $hook = $this->host['fs'].MAIL_TLS_HOOK;
+        $deploy = dirname($hook);
+        if ($before !== null) {
+            @mkdir($deploy, 0o755, true);
+            file_put_contents($hook, $before);
+            chmod($hook, 0o755);
+        }
+        $hooks = provisionTreeSnapshot($this->host['fs'].'/etc/letsencrypt/renewal-hooks');
+        touch($this->host['toggles'].'/tls-install-fail');
+
+        [$status, $output] = mailInboundTlsRun($this->host, 'apply');
+
+        expect($status)->not->toBe(0, $output);
+        expect($output)
+            ->toContain('[apply] installing the deploy hook '.MAIL_TLS_HOOK)
+            ->toContain('the pair could not be staged intact')
+            ->toContain('the pair could not be installed (above) — the deploy hook is as it was before this run');
+        if ($before === null) {
+            expect($output)->toContain('no deploy hook is left installed: there was none before this run');
+            expect(file_exists($hook) || is_link($hook))->toBeFalse();
+            expect(array_values(array_diff(scandir($deploy), ['.', '..'])))->toBe([]);
+        } else {
+            expect($output)->toContain('the deploy hook installed before this run is back in place');
+            expect(File::get($hook))->toBe($before);
+            expect(mailInboundTlsMode($this->host, MAIL_TLS_HOOK))->toBe('0755');
+            expect(provisionTreeSnapshot($this->host['fs'].'/etc/letsencrypt/renewal-hooks'))->toBe($hooks);
+        }
+        expect(file_exists($this->host['fs'].MAIL_TLS_KEY) || file_exists($this->host['fs'].MAIL_TLS_CERT))->toBeFalse();
+    })->with([
+        'no hook before' => [null],
+        'another version of it before' => ["#!/bin/bash\n# an earlier render of this hook\nexit 0\n"],
+    ]);
+
+    it('recovers a first installation killed between the key and the certificate, with no hook left behind meanwhile', function () {
+        touch($this->host['toggles'].'/tls-mv-kill');
+
+        [$status, $output] = mailInboundTlsRun($this->host, 'apply');
+
+        expect($status)->not->toBe(0, $output);
+        expect($output)->toContain('no deploy hook is left installed: there was none before this run');
+        expect(file_exists($this->host['fs'].MAIL_TLS_HOOK))->toBeFalse();
+        // The killed run's key, alone: there was no pair before it.
+        expect(mailInboundFile($this->host, MAIL_TLS_KEY))->toBe(mailInboundTlsArchived($this->host, 'privkey', 1));
+        expect(file_exists($this->host['fs'].MAIL_TLS_CERT))->toBeFalse();
+        expect(File::get(mailInboundTlsJournal($this->host).'/state'))->toBe("phase=swapping\nprivkey.pem absent\nfullchain.pem absent\n");
+
+        unlink($this->host['toggles'].'/tls-mv-kill');
+        [$status, $output] = mailInboundTlsRun($this->host, 'apply');
+
+        expect($status)->toBe(0, $output);
+        expect($output)
+            ->toContain('putting back the pair it kept')
+            ->toContain('no pair was installed before, and none is left half in place, verified');
+        mailInboundTlsExpectInstalled($this->host, 1);
+        mailInboundTlsNoStaging($this->host);
+    });
+});
+
 it('never prints a byte of the private key, whatever happens', function () {
     $outputs = [];
     $outputs[] = mailInboundTlsRun($this->host, 'check')[1];

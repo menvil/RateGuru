@@ -4318,8 +4318,10 @@ function mailInboundStubs(): array
             exit 1
             STUB,
         // install(1) and mv(1) as the deploy hook runs them — the real ones,
-        // unless a toggle makes them fail: every install, or the move of the
-        // new certificate into place (never the move of the previous one back).
+        // unless a toggle says otherwise: every install fails; the move of the
+        // staged certificate into place fails (never a move of the previous pair
+        // back); or, right after the staged key has been moved into place, the
+        // hook itself is killed outright (tls-mv-kill) or terminated (tls-mv-term).
         'tls-install' => <<<'STUB'
             #!/bin/bash
             # Run in an environment of its own, as Certbot runs its hooks, it finds the
@@ -4335,11 +4337,18 @@ function mailInboundStubs(): array
             # simulated host beside itself.
             here="$(cd "$(dirname "$0")/.." && pwd)"
             : "${STUB_STATE:=${here}/state}" "${STUB_LOG:=${here}/log}" "${STUB_TOGGLES:=${here}/toggles}" "${STUB_FS:=${here}/fs}"
-            if [[ -e "${STUB_TOGGLES}/tls-mv-fail" && "${@: -1}" == */fullchain.pem && "${@: -2:1}" != */previous/* ]]; then
+            from="${@: -2:1}"
+            if [[ -e "${STUB_TOGGLES}/tls-mv-fail" && "${from}" == */.tls-incoming.*/fullchain.pem ]]; then
                 echo "mv: simulated failure" >&2
                 exit 1
             fi
-            exec mv "$@"
+            mv "$@"
+            status=$?
+            if [[ "${from}" == */.tls-incoming.*/privkey.pem ]]; then
+                [[ -e "${STUB_TOGGLES}/tls-mv-kill" ]] && kill -KILL "${PPID}"
+                [[ -e "${STUB_TOGGLES}/tls-mv-term" ]] && kill -TERM "${PPID}"
+            fi
+            exit "${status}"
             STUB,
         'ip' => <<<'STUB'
             #!/bin/bash
@@ -4595,6 +4604,15 @@ function mailInboundTlsExpectInstalled(array $host, int $version): void
         expect(mailInboundFile($host, $path))->toBe(mailInboundTlsArchived($host, $part, $version), "{$path} is not version {$version} of the lineage");
         expect(mailInboundTlsMode($host, $path))->toBe($mode, "{$path} has the wrong mode");
     }
+}
+
+/** The one staging directory — the journal — the deploy hook left beside the installed pair. */
+function mailInboundTlsJournal(array $host): string
+{
+    $journals = glob($host['fs'].'/etc/rateguru-mail-inbound/.tls-incoming.*', GLOB_NOSORT) ?: [];
+    expect($journals)->toHaveCount(1);
+
+    return $journals[0];
 }
 
 /** No staging directory of the deploy hook's is left beside the installed pair. */

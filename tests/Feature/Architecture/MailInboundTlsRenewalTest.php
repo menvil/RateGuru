@@ -106,7 +106,7 @@ it('puts the previous pair back when the new one cannot be put in place, never l
     expect($status)->toBe(1, $output);
     expect($output)
         ->toContain('the pair could not be put in place intact')
-        ->toContain('the pair that was installed before is back in place, unchanged');
+        ->toContain('the pair that was installed before is back in place, verified');
     // The key had already been moved in when the certificate failed: it is version 1 again.
     mailInboundTlsExpectInstalled($this->host, 1);
     expect(mailInboundTlsSystemdRequests($this->host))->toBe([]);
@@ -152,4 +152,95 @@ it('never restarts Postfix when the reload fails', function () {
     expect($output)->toContain('postfix@-.service did not reload — the new pair is in place and is served once Postfix reloads');
     expect(mailInboundTlsSystemdRequests($this->host))->toBe(['systemctl reload postfix@-.service']);
     mailInboundTlsExpectInstalled($this->host, 2);
+});
+
+it('survives being killed between the key and the certificate: the next run puts the kept pair back, verified, then installs', function () {
+    touch($this->host['toggles'].'/tls-mv-kill');
+
+    [$status, $output] = mailInboundCertbotRenewal($this->host, 2);
+
+    // Killed outright after the first move: the renewed key beside the old
+    // certificate, and the journal holding the only copy of the old pair.
+    expect($status)->not->toBe(0, $output);
+    expect(mailInboundFile($this->host, MAIL_TLS_KEY))->toBe(mailInboundTlsArchived($this->host, 'privkey', 2));
+    expect(mailInboundFile($this->host, MAIL_TLS_CERT))->toBe(mailInboundTlsArchived($this->host, 'fullchain', 1));
+    $journal = mailInboundTlsJournal($this->host);
+    expect(File::get($journal.'/state'))->toStartWith("phase=swapping\n");
+    expect(File::get($journal.'/previous/privkey.pem'))->toBe(mailInboundTlsArchived($this->host, 'privkey', 1));
+    expect(File::get($journal.'/previous/fullchain.pem'))->toBe(mailInboundTlsArchived($this->host, 'fullchain', 1));
+    expect(mailInboundTlsSystemdRequests($this->host))->toBe([]);
+
+    [$status, $output] = mailInboundTlsRun($this->host, 'verify');
+    expect($status)->toBe(1, $output);
+    expect($output)->toContain('an installation was stopped while the pair was being replaced');
+
+    unlink($this->host['toggles'].'/tls-mv-kill');
+    mailInboundTlsResetLogs($this->host);
+    [$status, $output] = mailInboundDeployHook($this->host);
+
+    expect($status)->toBe(0, $output);
+    expect($output)
+        ->toContain('an earlier installation was stopped while the pair was being replaced — putting back the pair it kept')
+        ->toContain('the pair that was installed before is back in place, verified')
+        ->toContain('installed the certificate for mx1.tits.guru');
+    expect(strpos($output, 'back in place, verified'))->toBeLessThan(strpos($output, 'installed the certificate'));
+    mailInboundTlsExpectInstalled($this->host, 2);
+    mailInboundTlsNoStaging($this->host);
+    expect(mailInboundTlsSystemdRequests($this->host))->toBe(['systemctl reload postfix@-.service']);
+});
+
+it('puts the kept pair back after a kill even when the pair Certbot holds now may not be served', function () {
+    touch($this->host['toggles'].'/tls-mv-kill');
+    expect(mailInboundCertbotRenewal($this->host, 2)[0])->not->toBe(0);
+    unlink($this->host['toggles'].'/tls-mv-kill');
+    mailInboundTlsResetLogs($this->host);
+
+    [$status, $output] = mailInboundCertbotRenewal($this->host, 3, ['names' => 'mail.example.org']);
+
+    expect($status)->toBe(1, $output);
+    expect($output)
+        ->toContain('the pair that was installed before is back in place, verified')
+        ->toContain('the certificate does not cover mx1.tits.guru');
+    mailInboundTlsExpectInstalled($this->host, 1);
+    mailInboundTlsNoStaging($this->host);
+    // Postfix reads the pair put back: processes started while it was mixed go.
+    expect(mailInboundTlsSystemdRequests($this->host))->toBe(['systemctl reload postfix@-.service']);
+});
+
+it('keeps the kept pair, reloads nothing and says CRITICAL when that copy cannot be verified', function (string $file) {
+    touch($this->host['toggles'].'/tls-mv-kill');
+    expect(mailInboundCertbotRenewal($this->host, 2)[0])->not->toBe(0);
+    unlink($this->host['toggles'].'/tls-mv-kill');
+    $journal = mailInboundTlsJournal($this->host);
+    file_put_contents($journal.'/previous/'.$file, "altered\n", FILE_APPEND);
+    $before = provisionTreeSnapshot($this->host['fs'].'/etc/rateguru-mail-inbound');
+    mailInboundTlsResetLogs($this->host);
+
+    [$status, $output] = mailInboundDeployHook($this->host);
+
+    expect($status)->toBe(2, $output);
+    expect($output)->toContain("CRITICAL the copy of the previous {$file} in {$journal} does not match its journal — it is kept, and nothing was put back");
+    // Neither the journal nor the installed files were touched, and nothing was reloaded.
+    expect(provisionTreeSnapshot($this->host['fs'].'/etc/rateguru-mail-inbound'))->toBe($before);
+    expect(mailInboundTlsSystemdRequests($this->host))->toBe([]);
+
+    // The installer refuses as well, and keeps it as well.
+    [$status, $output] = mailInboundTlsRun($this->host, 'apply');
+    expect($status)->not->toBe(0, $output);
+    expect($output)->toContain('CRITICAL the copy of the previous');
+    expect(provisionTreeSnapshot($this->host['fs'].'/etc/rateguru-mail-inbound'))->toBe($before);
+})->with(['privkey.pem', 'fullchain.pem']);
+
+it('puts the previous pair back itself when it is terminated between the key and the certificate', function () {
+    touch($this->host['toggles'].'/tls-mv-term');
+
+    [$status, $output] = mailInboundCertbotRenewal($this->host, 2);
+
+    expect($status)->toBe(143, $output);
+    expect($output)
+        ->toContain('stopped while the pair was being replaced — putting the previous pair back')
+        ->toContain('the pair that was installed before is back in place, verified');
+    mailInboundTlsExpectInstalled($this->host, 1);
+    mailInboundTlsNoStaging($this->host);
+    expect(mailInboundTlsSystemdRequests($this->host))->toBe([]);
 });
