@@ -199,6 +199,20 @@ it('narrows the history to a model from the combobox, and back to every model', 
 
     $page->click('#rg-admin-translation-ai-model-trigger');
     waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-translation-ai-model-popover')).display !== 'none'");
+
+    // The list opens over the page, not cut off by the filter it hangs from, and its options are not set in a table's mono.
+    expect($page->script(<<<'JS'
+        (() => {
+            const option = document.querySelector('[role="option"][data-value="gpt-5-luna-2026-05-01"]')
+            const box = option.getBoundingClientRect()
+
+            return {
+                reachable: document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest('[role="option"]') === option,
+                font: getComputedStyle(document.querySelector('[role="option"][data-value=""] .rg-admin-combobox__option-label')).fontFamily.includes('mono'),
+            }
+        })()
+    JS))->toBe(['reachable' => true, 'font' => false]);
+
     $page->click('[role="option"][data-value="gpt-5-luna-2026-05-01"]');
     waitForScript($page, "new URLSearchParams(location.search).get('model')", 'gpt-5-luna-2026-05-01');
     waitForScript($page, "document.querySelector('#rg-admin-translation-ai-model-trigger .rg-admin-combobox__value')?.textContent.trim()", 'gpt-5-luna-2026-05-01');

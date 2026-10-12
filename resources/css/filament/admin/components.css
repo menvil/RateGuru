@@ -3933,6 +3933,12 @@
         max-width: 100%;
     }
 
+    /* The filter sits at the band's right edge, so its list opens leftwards and stays on screen. */
+    .rg-admin-translation-ai__model .rg-admin-combobox__popover {
+        right: 0;
+        left: auto;
+    }
+
     .rg-admin-translation-ai__refresh {
         display: flex;
         flex-wrap: wrap;
@@ -4354,7 +4360,7 @@
         white-space: nowrap;
     }
 
-    .rg-admin-translation-ai__model {
+    .rg-admin-translation-ai__call-model {
         max-width: 100%;
         overflow: hidden;
         font-family: var(--rg-admin-font-mono);

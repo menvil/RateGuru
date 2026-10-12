@@ -96,12 +96,6 @@ function translationAiCall(string $at, array $attributes = []): TranslationAiPro
     return TranslationAiProviderCall::factory()->create(['completed_at' => CarbonImmutable::parse($at, 'UTC'), ...$attributes]);
 }
 
-function failedTranslationAiCall(string $at, TranslationErrorCode $code, ?int $httpStatus = null, array $attributes = []): TranslationAiProviderCall
-{
-    return TranslationAiProviderCall::factory()->state(['item_count' => $attributes['item_count'] ?? 1])->failedWith($code, $httpStatus)
-        ->create(['completed_at' => CarbonImmutable::parse($at, 'UTC'), ...$attributes]);
-}
-
 beforeEach(function () {
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-12 10:00:00', 'UTC'));
     config(['translation.providers.openai.api_key' => 'test-key', 'translation.providers.openai.model' => 'gpt-6-luna']);
@@ -376,6 +370,18 @@ it('tells a burst that is over from an ongoing one, and only an ongoing one is s
         ->and(translationAiText($ongoing, "//section[@aria-labelledby='rg-admin-translation-ai-failures']//*[contains(@class, 'rg-admin-notice')]"))
         ->toBe('Systemic issue: provider_timeout since 09:50 UTC and still failing — 5 failed calls in this series.')
         ->and(translationAiText($ongoing, "//section[@aria-labelledby='rg-admin-translation-ai-failures']//header"))->toContain('Systemic issue');
+});
+
+it('calls the burst that ended last the latest, whichever code had more failures', function () {
+    foreach (range(0, 6) as $minute) {
+        failedTranslationAiCall('2026-10-09 10:0'.$minute.':00', TranslationErrorCode::AuthenticationFailed, 401);
+    }
+    foreach (range(0, 4) as $minute) {
+        failedTranslationAiCall('2026-10-11 15:0'.$minute.':00', TranslationErrorCode::RateLimited, 429);
+    }
+
+    expect(translationAiText(translationAiScreen(), "//section[@aria-labelledby='rg-admin-translation-ai-failures']//*[contains(@class, 'rg-admin-notice')]"))
+        ->toBe('No systemic issue now. The latest burst: 5 rate_limited failures in 4 min, yesterday 15:00 UTC; none since.');
 });
 
 // =============================================================================

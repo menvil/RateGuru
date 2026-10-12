@@ -28,15 +28,16 @@
     $last = $paginator->lastPage();
     $pages = array_values(array_unique(array_filter([1, $current - 1, $current, $current + 1, $last], fn (int $page): bool => $page >= 1 && $page <= $last)));
     sort($pages);
-    // The range from the page and its size, so it reads the same whether or not the page's items are loaded.
-    $first = min($paginator->total(), ($current - 1) * $paginator->perPage() + 1);
-    $range = $paginator->total() === 0
+    // The range from the page and its size, so it reads the same whether or not the page's items are loaded;
+    // a page past the last one holds nothing, so it says so rather than claim a range.
+    $empty = $paginator->total() === 0 || $current > $last;
+    $range = $empty
         ? 'No '.$noun
-        : number_format($first).'–'.number_format(min($paginator->total(), $current * $paginator->perPage())).' of '.number_format($paginator->total()).' '.$noun;
+        : number_format(($current - 1) * $paginator->perPage() + 1).'–'.number_format(min($paginator->total(), $current * $paginator->perPage())).' of '.number_format($paginator->total()).' '.$noun;
 @endphp
 
 <nav {{ $attributes->class(['rg-admin-pagination']) }} aria-label="{{ $label }}">
-    <span class="rg-admin-pagination__range">{{ $range }}@if ($note !== null && $paginator->total() > 0) · {{ $note }}@endif</span>
+    <span class="rg-admin-pagination__range">{{ $range }}@if ($note !== null && ! $empty) · {{ $note }}@endif</span>
     <ul class="rg-admin-pagination__pages">
         <li>
             @if ($action !== null)

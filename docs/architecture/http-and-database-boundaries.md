@@ -68,7 +68,9 @@ The reviewed boundaries are:
 - `MatchedUsersQuery` for literal LIKE searches.
 - `RatingVoteCountsQuery` for grouped rating counts.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
-  call's status, and the UTC hour or day a call falls in, written per engine.
+  call's status, and the UTC hour or day a call falls in, written per engine;
+  and, per provider and model, the calls inside a period counted beside the
+  latest `completed_at` of all its calls.
 
 Literal LIKE searches use `LikePattern` and an explicit SQL `ESCAPE` clause so
 user-supplied `%` and `_` characters are not interpreted as wildcards.

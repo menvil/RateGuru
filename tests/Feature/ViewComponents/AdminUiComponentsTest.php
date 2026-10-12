@@ -527,6 +527,16 @@ it('pages a list on the server through a Livewire method, with a note after the 
         ->not->toContain('href=');
 });
 
+it('says a page past the last one holds nothing, rather than claim a range', function () {
+    $html = (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" noun="calls" note="newest first" action="goToCallsPage" />', ['paginator' => new LengthAwarePaginator([], 30, 25, 5)]);
+
+    expect($html)->toContain('<span class="rg-admin-pagination__range">No calls')
+        ->not->toContain('30–30')
+        ->not->toContain('newest first')
+        // The pages that exist stay offered, so the list can be reached again.
+        ->toContain('wire:click="goToCallsPage(2)"');
+});
+
 it('says a paged list is empty, and refuses a paginator that does not know its total', function () {
     $empty = (string) $this->blade('<x-admin.ui.pagination :paginator="$paginator" noun="calls" note="newest first" />', ['paginator' => new LengthAwarePaginator([], 0, 25, 1)]);
 

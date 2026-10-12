@@ -54,7 +54,7 @@
                             </span>
                         </div>
                         <div class="rg-admin-table__cell rg-admin-table__cell--padded rg-admin-translation-ai__stack" role="cell">
-                            <span class="rg-admin-translation-ai__model" title="{{ $call['model'] }}">{{ $call['model'] }}</span>
+                            <span class="rg-admin-translation-ai__call-model" title="{{ $call['model'] }}">{{ $call['model'] }}</span>
                             <span class="rg-admin-table__meta">{{ $call['provider'] }}</span>
                         </div>
                         <div class="rg-admin-table__cell rg-admin-table__cell--padded rg-admin-translation-ai__stack" role="cell">

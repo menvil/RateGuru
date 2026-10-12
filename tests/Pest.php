@@ -15,6 +15,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
+use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
@@ -40,6 +41,7 @@ use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -11528,4 +11530,14 @@ function translationGenerationPlan(string $locale, int $chunks = 2, int $itemsPe
     }
 
     return new ProjectTranslationGenerationPlan($locale, TranslationDataClassification::PublicContent->value, [], 'openai', 50, 60_000, $requests, []);
+}
+
+/**
+ * A provider call recorded as failed with $code at $at, UTC — one item unless
+ * the attributes say otherwise, and an HTTP status when the failure had one.
+ */
+function failedTranslationAiCall(string $at, TranslationErrorCode $code, ?int $httpStatus = null, array $attributes = []): TranslationAiProviderCall
+{
+    return TranslationAiProviderCall::factory()->state(['item_count' => $attributes['item_count'] ?? 1])->failedWith($code, $httpStatus)
+        ->create(['completed_at' => CarbonImmutable::parse($at, 'UTC'), ...$attributes]);
 }

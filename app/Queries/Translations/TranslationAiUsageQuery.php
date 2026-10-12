@@ -40,8 +40,10 @@ use LogicException;
  *
  * Aggregate queries over translation_ai_provider_calls, the same on
  * PostgreSQL, MariaDB and SQLite, and everything in UTC. The aggregates are
- * conditional sums and a time bucket Eloquent has no expression for: the raw
- * SQL is this class's own, and every value in it is bound. Read-only.
+ * conditional sums and a time bucket Eloquent has no expression for, and, for
+ * models(), each provider and model's calls counted only inside a period
+ * beside the MAX(completed_at) of all its calls: the raw SQL is this class's
+ * own, and every value in it is bound. Read-only.
  */
 final class TranslationAiUsageQuery implements RawSqlPersistenceBoundary, StablePaginationBoundary
 {

@@ -413,6 +413,8 @@ final class TranslationAiDiagnostics
         $failedItems = array_sum($itemErrors);
         $ongoing = array_values(array_filter($series, fn (TranslationAiFailureSeries $entry): bool => $entry->pattern === TranslationAiFailurePattern::Ongoing));
         $bursts = array_values(array_filter($series, fn (TranslationAiFailureSeries $entry): bool => $entry->pattern === TranslationAiFailurePattern::Burst));
+        // The latest burst is the one that ended last, whichever code had the most failures.
+        usort($bursts, fn (TranslationAiFailureSeries $a, TranslationAiFailureSeries $b): int => ($b->seriesEndedAt?->getTimestamp() ?? 0) <=> ($a->seriesEndedAt?->getTimestamp() ?? 0));
         $failedCalls = array_sum(array_map(fn (TranslationAiFailureSeries $entry): int => $entry->calls, $series));
 
         $rows = array_map(function (string $code) use ($series, $itemErrors, $now): array {

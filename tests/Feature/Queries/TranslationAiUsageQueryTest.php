@@ -266,11 +266,6 @@ it('reads one page of calls, never the whole period', function () {
 // Failures in series
 // =============================================================================
 
-function failedAiCallAt(string $at, TranslationErrorCode $code): TranslationAiProviderCall
-{
-    return TranslationAiProviderCall::factory()->state(['item_count' => 1])->failedWith($code)->create(['completed_at' => CarbonImmutable::parse($at, 'UTC')]);
-}
-
 /** @return array<string, TranslationAiFailureSeries> */
 function failureSeriesOn(string $day, string $now): array
 {
@@ -280,13 +275,13 @@ function failureSeriesOn(string $day, string $now): array
 }
 
 it('tells isolated failures from a burst, and a burst from one still going on, most frequent first', function () {
-    failedAiCallAt('2026-11-01 08:00:00', TranslationErrorCode::RateLimited);
-    failedAiCallAt('2026-11-01 11:00:00', TranslationErrorCode::RateLimited);
+    failedTranslationAiCall('2026-11-01 08:00:00', TranslationErrorCode::RateLimited);
+    failedTranslationAiCall('2026-11-01 11:00:00', TranslationErrorCode::RateLimited);
     foreach (['10:00:00', '10:02:00', '10:04:00', '10:06:00', '10:08:00', '12:00:00'] as $at) {
-        failedAiCallAt("2026-11-01 {$at}", TranslationErrorCode::AuthenticationFailed);
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::AuthenticationFailed);
     }
     foreach (['14:49:00', '14:51:00', '14:53:00', '14:55:00', '14:58:00'] as $at) {
-        failedAiCallAt("2026-11-01 {$at}", TranslationErrorCode::ProviderUnavailable);
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderUnavailable);
     }
 
     $series = translationAiUsage()->failureSeries(translationAiPeriod('2026-11-01', '2026-11-02'), CarbonImmutable::parse('2026-11-01 15:00:00', 'UTC'));
@@ -308,7 +303,7 @@ it('tells isolated failures from a burst, and a burst from one still going on, m
 
 it('needs five failed calls of one code within ten minutes for a series', function (array $times, TranslationAiFailurePattern $pattern) {
     foreach ($times as $at) {
-        failedAiCallAt("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
     }
 
     expect(failureSeriesOn('2026-11-01', '2026-11-01 23:00:00')['provider_timeout']->pattern)->toBe($pattern);
@@ -320,7 +315,7 @@ it('needs five failed calls of one code within ten minutes for a series', functi
 
 it('counts one series for windows that overlap, however long it goes on', function () {
     foreach (range(0, 6) as $step) {
-        failedAiCallAt(CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC')->addMinutes(2 * $step)->toDateTimeString(), TranslationErrorCode::ProviderTimeout);
+        failedTranslationAiCall(CarbonImmutable::parse('2026-11-01 10:00:00', 'UTC')->addMinutes(2 * $step)->toDateTimeString(), TranslationErrorCode::ProviderTimeout);
     }
 
     $series = failureSeriesOn('2026-11-01', '2026-11-01 23:00:00')['provider_timeout'];
@@ -330,7 +325,7 @@ it('counts one series for windows that overlap, however long it goes on', functi
 
 it('calls a series ongoing while it reaches into the last fifteen minutes', function (string $now, TranslationAiFailurePattern $pattern) {
     foreach (['10:00:00', '10:01:00', '10:02:00', '10:03:00', '10:04:00'] as $at) {
-        failedAiCallAt("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
+        failedTranslationAiCall("2026-11-01 {$at}", TranslationErrorCode::ProviderTimeout);
     }
 
     expect(failureSeriesOn('2026-11-01', $now)['provider_timeout']->pattern)->toBe($pattern);
@@ -377,8 +372,8 @@ it('finds the latest call that succeeded or failed with the codes asked about, p
         ->and($atOf(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(filters: ['models' => ['gpt-6-luna-2026-09-01']]), TranslationErrorCode::AuthenticationFailed)))->toBe('14:00')
         ->and(translationAiUsage()->latestSuccessOrFailure(translationAiPeriod('2026-12-01', '2026-12-02'), TranslationErrorCode::AuthenticationFailed))->toBeNull();
 
-    failedAiCallAt('2026-10-01 21:00:00', TranslationErrorCode::AuthenticationFailed);
-    failedAiCallAt('2026-10-01 22:00:00', TranslationErrorCode::ProviderTimeout);
+    failedTranslationAiCall('2026-10-01 21:00:00', TranslationErrorCode::AuthenticationFailed);
+    failedTranslationAiCall('2026-10-01 22:00:00', TranslationErrorCode::ProviderTimeout);
 
     $latest = translationAiUsage()->latestSuccessOrFailure(translationAiPeriod(), TranslationErrorCode::AuthenticationFailed);
 
