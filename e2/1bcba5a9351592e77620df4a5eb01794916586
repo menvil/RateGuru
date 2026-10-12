@@ -1,0 +1,36 @@
+tests/Feature/I18n/TranslatableFieldTest.php
+  s_7d2d8843838027::t_6f35e7218ccaaf 154-166
+app/Actions/Settings/ApplyProjectPresetAction.php
+  s_7d2d8843838027::t_450acab505f94e 238
+  s_7d2d8843838027::t_8038bd5f56d78f 17
+docs/i18n/multilingual-ui.md
+  s_7d2d8843838027::t_1362af8037fdd9 127-131
+tests/Feature/Database/EnglishTranslationEntriesMigrationTest.php
+  s_7d2d8843838027::t_372e606978931b 1-71
+app/Support/Settings/PresetSettingsBuilder.php
+  s_7d2d8843838027::t_14fcd9ddab1822 5-6
+  s_7d2d8843838027::t_450acab505f94e 39-40
+app/Support/Translations/TranslatableField.php
+  s_7d2d8843838027::t_450acab505f94e 31-33,41-45,50-65
+database/migrations/2026_10_13_100000_drop_english_from_translation_columns.php
+  s_7d2d8843838027::t_372e606978931b 1-84
+database/seeders/DefaultCategorySeeder.php
+  s_7d2d8843838027::t_14fcd9ddab1822 7
+  s_7d2d8843838027::t_450acab505f94e 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e21bcba5a9351592e77620df4a5eb01794916586",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
