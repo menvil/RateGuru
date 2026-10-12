@@ -57,6 +57,18 @@
 # asked, on 127.0.0.1 and [::1]: the public hostnames answer as above, and the
 # MX host names and an unlisted name answer exactly as they did before.
 #
+# OWNERSHIP. This script owns the public site in two states only —
+# not-prepared and http-acme-ready — and only as its exact render: a regular
+# file, root:root 0644, byte for byte what it renders, and the link to it. The
+# first line alone is not ownership. When the site moves on to HTTPS, the
+# installer of that state takes the same file over in place; from then on a
+# file that still begins with this script's first line but says anything else
+# is foreign, and --apply and --rollback refuse it — no file written or
+# removed, no link created or removed, no reload — rather than return the site
+# to HTTP or delete it. A content difference is resolved by a reviewed change,
+# never by running this script again. Its own pieces left incomplete — the
+# exact render without its link — are still completed or removed.
+#
 # TRANSACTION. --apply and --rollback hold the host's infrastructure lock,
 # re-judge everything under it, validate with nginx -t before the one reload
 # (systemctl reload nginx — never a restart, never a stop), and verify after
@@ -73,7 +85,8 @@
 # Every run whose mode and target were understood ends with exactly one line
 # RATEGURU_PUBLIC_HTTP_RESULT={target, mode, status, state, site, hostnames,
 # lifecycle, changed, reloaded, rolled_back}; status is pass, fail or critical,
-# and state not-prepared, http-acme-ready, drift or unknown.
+# and state not-prepared, http-acme-ready, drift (its own pieces incomplete),
+# foreign (something at its paths it does not own) or unknown.
 #
 # Repository tooling: run as root from a trusted bundle by its workflows, never
 # installed on a host.
@@ -206,12 +219,14 @@ Usage:
   --apply     Root. Install the public site of a planned production target —
               ACME HTTP-01 from /var/www/html, 503 for everything else — validate,
               reload Nginx and prove it; any failure puts the previous state back.
-              A no-op when the site is in place and answering.
-  --verify    Read-only (root): not-prepared, http-acme-ready or drift, as the
-              files say and as the host's own Nginx answers.
+              A no-op when the site is in place and answering. Refuses a public
+              site file that is not exactly its render.
+  --verify    Read-only (root): not-prepared, http-acme-ready, drift or
+              foreign, as the files say and as the host's own Nginx answers.
   --rollback  Root. Remove the public site's file and link, validate, reload
               Nginx and prove it; any failure puts the site back. A no-op when
-              there is nothing to remove.
+              there is nothing to remove. Refuses a public site file that is not
+              exactly its render — an HTTPS site above all.
 
 The trusted bundle's registry decides the site and its hostnames; there is
 nothing to override.
@@ -473,19 +488,15 @@ real_root_directory() {
     (( (8#${mode} & 8#022) == 0 ))
 }
 
-# drifted NAME DETAIL — the public site's own file, not as rendered: what
-# --apply replaces and --rollback removes, and what --verify reports as drift.
-drifted() {
-    case "${MODE}" in
-        verify)   item DRIFT "$1" "$2" ;;
-        rollback) item REMOVE "$1" "$2 — removed by this rollback" ;;
-        *)        item UPDATE "$1" "$2 — replaced by --apply" ;;
-    esac
-}
-
 # public_file_state — absent | ours | foreign:<why>
+#
+# Ours is exactly the render as this script installs it: a regular file,
+# FILE_OWNER:FILE_GROUP 0644, byte for byte. The first line is not enough: the
+# HTTPS installer takes the site over in place, and a file that begins like
+# this script's but says anything else is no longer this script's to rewrite
+# or remove.
 public_file_state() {
-    local phys
+    local phys identity
     phys="$(physical "${PUBLIC_FILE}")"
 
     if [[ -L "${phys}" ]]; then
@@ -496,8 +507,19 @@ public_file_state() {
         printf 'foreign:not a regular file\n'
     elif [[ "$(head -n 1 -- "${phys}" 2>/dev/null)" != "${OWNER_MARKER}" ]]; then
         printf 'foreign:it does not begin with this script'"'"'s own first line\n'
+    elif ! cmp -s -- "${phys}" "${WORK}/candidate"; then
+        if grep -Eq '^[[:space:]]*(listen[[:space:]][^;#]*\b443\b|ssl_certificate)' "${phys}"; then
+            printf 'foreign:it holds an HTTPS configuration (a 443 listener or a certificate) — the public site has passed to the HTTPS installer, and this script never returns it to HTTP or removes it\n'
+        else
+            printf 'foreign:it begins with this script'"'"'s first line but is not its render — this script rewrites or removes only its exact render; resolve the difference by a reviewed change\n'
+        fi
     else
-        printf 'ours\n'
+        identity="$(file_identity "${phys}")"
+        if [[ "${identity}" != "${FILE_OWNER}:${FILE_GROUP}:644" ]]; then
+            printf 'foreign:its render, but %s, not %s:%s 644 — resolve the difference by a reviewed change\n' "${identity}" "${FILE_OWNER}" "${FILE_GROUP}"
+        else
+            printf 'ours\n'
+        fi
     fi
 }
 
@@ -535,15 +557,18 @@ other_links_to_public_file() {
     done
 }
 
-# static_state — what the files say: not-prepared, http-acme-ready or drift.
+# static_state — what the files say: not-prepared, http-acme-ready, drift (its
+# own pieces incomplete) or foreign (something at its paths it does not own).
 static_state() {
     local file link
     file="$(public_file_state)"
     link="$(public_link_state)"
 
-    if [[ "${file}" == absent && "${link}" == absent ]]; then
+    if [[ "${file}" == foreign:* || "${link}" == foreign:* ]]; then
+        printf 'foreign\n'
+    elif [[ "${file}" == absent && "${link}" == absent ]]; then
         printf 'not-prepared\n'
-    elif [[ "${file}" == ours && "${link}" == ours ]] && cmp -s -- "$(physical "${PUBLIC_FILE}")" "${WORK}/candidate"; then
+    elif [[ "${file}" == ours && "${link}" == ours ]]; then
         printf 'http-acme-ready\n'
     else
         printf 'drift\n'
@@ -993,24 +1018,13 @@ report_nginx() {
 }
 
 report_public_paths() {
-    local state line identity
+    local state line
 
     state="$(public_file_state)"
     case "${state}" in
-        absent)
-            item PASS "file:${PUBLIC_FILE}" "absent" ;;
-        ours)
-            identity="$(file_identity "$(physical "${PUBLIC_FILE}")")"
-            if [[ "${identity}" != "${FILE_OWNER}:${FILE_GROUP}:644" ]]; then
-                drifted "file:${PUBLIC_FILE}" "this script's, but ${identity}, not ${FILE_OWNER}:${FILE_GROUP} 644"
-            elif cmp -s -- "$(physical "${PUBLIC_FILE}")" "${WORK}/candidate"; then
-                item PASS "file:${PUBLIC_FILE}" "this script's, exactly the render, ${FILE_OWNER}:${FILE_GROUP} 644"
-            else
-                drifted "file:${PUBLIC_FILE}" "this script's, but not the render of the trusted bundle"
-            fi
-            ;;
-        *)
-            item CONFLICT "file:${PUBLIC_FILE}" "${state#foreign:} — not this script's, and never overwritten or removed by it" ;;
+        absent) item PASS "file:${PUBLIC_FILE}" "absent" ;;
+        ours)   item PASS "file:${PUBLIC_FILE}" "this script's, exactly the render, ${FILE_OWNER}:${FILE_GROUP} 644" ;;
+        *)      item CONFLICT "file:${PUBLIC_FILE}" "${state#foreign:} — not this script's, and never overwritten or removed by it" ;;
     esac
 
     state="$(public_link_state)"
@@ -1128,10 +1142,11 @@ report_plan() {
     case "${HOST_STATE}" in
         http-acme-ready)
             printf '  %-8s %s\n' NO-OP "the public site is in place: --apply writes nothing, and reloads Nginx only if it does not answer as the site says" ;;
+        foreign)
+            printf '  %-8s %s\n' REFUSE "something at the public site's paths is not this script's: --apply and --rollback change no file or link and reload nothing" ;;
         not-prepared|drift)
-            if [[ "$(public_file_state)" == absent ]] || ! cmp -s -- "$(physical "${PUBLIC_FILE}")" "${WORK}/candidate"; then
-                printf '  %-8s %s\n' WRITE "${PUBLIC_FILE} (${FILE_OWNER}:${FILE_GROUP} 0644), the render below"
-            fi
+            [[ "$(public_file_state)" != absent ]] \
+                || printf '  %-8s %s\n' WRITE "${PUBLIC_FILE} (${FILE_OWNER}:${FILE_GROUP} 0644), the render below"
             [[ "$(public_link_state)" == ours ]] \
                 || printf '  %-8s %s\n' LINK "${PUBLIC_LINK} -> ${PUBLIC_FILE}"
             printf '  %-8s %s\n' TEST "nginx -t, and the candidate's routing judged again before any reload"
@@ -1181,8 +1196,10 @@ run_verify() {
             judge_public_answers ours ;;
         not-prepared)
             judge_public_answers absent ;;
+        foreign)
+            item CONFLICT "state" "the public site is not this script's — never returned to HTTP or removed by it" ;;
         *)
-            item DRIFT "state" "the public site's file or link is not as this script installs it — --apply converges it, --rollback removes it" ;;
+            item DRIFT "state" "the public site's own file or link is missing — --apply completes it, --rollback removes it" ;;
     esac
     judge_unchanged_names "$(probe_unchanged_names)"
 
@@ -1357,8 +1374,9 @@ run_apply() {
     BEFORE_SNAPSHOT="$(nginx_snapshot)"
     open_transaction
 
-    if ! cmp -s -- "$(physical "${PUBLIC_FILE}")" "${WORK}/candidate" 2>/dev/null \
-        || [[ "$(file_identity "$(physical "${PUBLIC_FILE}")")" != "${FILE_OWNER}:${FILE_GROUP}:644" ]]; then
+    # The preflight refused anything at these paths that is not this script's
+    # own: the file is either absent, or exactly the render, and never rewritten.
+    if [[ "$(public_file_state)" == absent ]]; then
         install_public_file
         CHANGED=true
     fi

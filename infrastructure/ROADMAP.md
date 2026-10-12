@@ -2441,6 +2441,14 @@ Slices, in order:
      one `systemctl reload nginx`, and puts the previous state back on any
      failure, saying CRITICAL when it cannot prove that. A second `--apply` or
      `--rollback` is a no-op.
+   - **Owns two states and its exact render, nothing more.** It owns only
+     `not-prepared` and `http-acme-ready`, and the file only when it is exactly
+     the render. A file that keeps its first line but says anything else is
+     `foreign`: an HTTPS configuration above all, and a hand edit too. Both
+     `--apply` and `--rollback` refuse it with no write, no link change and no
+     reload. When 8.5.3 moves the site to HTTPS, its installer takes the public
+     site over, and the workflows of 8.5.1 can neither return it to HTTP nor
+     remove it.
    - **Workflows.** Prepare, Verify and Rollback tits.guru public HTTP: from
      `main` only, in `production-tits-guru` with the bootstrap credential, the
      two mutating ones behind `PREPARE tits-guru public HTTP` and
@@ -2459,13 +2467,17 @@ Slices, in order:
    inbound SMTP** pass, and `certbot renew --dry-run --cert-name
    mx1.tits.guru` still succeeds.
 
-   **8.5.2 HTTPS for `tits.guru` — next.**
+   **8.5.2 The certificate for `tits.guru` — next, after 8.5.1 is accepted.**
    - The DNS A record of `tits.guru` is checked and published if needed.
    - The real certificate is issued by Certbot over the webroot, rehearsed
      with `--dry-run` first.
-   - The next change installs it safely, with its renewal, and adds the
-     mechanism that activates the public site: `tls-ready` here, and
-     `public-active` only at GO LIVE (8.7).
+
+   **8.5.3 HTTPS for `tits.guru` — planned.**
+   - The certificate installed safely, with its renewal.
+   - The HTTPS installer takes the public site over (`tls-ready`), while the
+     target may still be `planned`.
+   - The mechanism that activates the public site, used for `public-active`
+     only at GO LIVE (8.7).
 
    The order is in
    [`runbooks/public-site.md`](runbooks/public-site.md#the-order-after-this-change).

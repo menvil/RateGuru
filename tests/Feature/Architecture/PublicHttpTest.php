@@ -29,6 +29,43 @@ function publicHttpRegistryWith(callable $change): string
     return json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
 }
 
+/**
+ * The public site as the HTTPS installer will leave it: this script's first
+ * line kept, the rest another state's — a redirect on port 80, and a 443
+ * listener with its certificate.
+ */
+function publicHttpTakenOverByHttps(): string
+{
+    return strtok(publicHttpRender(), "\n")."\n".<<<'NGINX'
+        # The HTTPS state of the public site, installed by its own installer.
+        server {
+            listen 80;
+            listen [::]:80;
+            server_name tits.guru;
+
+            location ~ ^/\.well-known/acme-challenge/[A-Za-z0-9_-]+$ {
+                root /var/www/html;
+            }
+
+            location / {
+                return 301 https://$host$request_uri;
+            }
+        }
+
+        server {
+            listen 443 ssl;
+            listen [::]:443 ssl;
+            server_name tits.guru;
+
+            ssl_certificate /etc/letsencrypt/live/tits.guru/fullchain.pem;
+            ssl_certificate_key /etc/letsencrypt/live/tits.guru/privkey.pem;
+
+            return 503;
+        }
+
+        NGINX;
+}
+
 /** A registry in the scratch directory, for RATEGURU_PUBLICHTTP_REGISTRY. */
 function publicHttpTrustedRegistry(array $host, string $json): string
 {
@@ -152,19 +189,73 @@ it('reloads, and writes nothing, when the site is in place but Nginx never loade
     expect($output)->not->toContain('[apply] wrote');
 });
 
-it('converges its own file when it is not the render, and nothing else', function () {
+it('restores the missing link of its exact file, and writes no file', function () {
     publicHttpInstalled($this->host);
-    file_put_contents($this->host['fs'].PUBLIC_HTTP_FILE, str_replace('Retry-After 3600', 'Retry-After 60', publicHttpRender()));
-    $before = publicHttpTree($this->host);
-
-    [$exit, $output] = publicHttpRun($this->host, 'check');
-    expect($exit)->toBe(0, $output);
-    expect($output)->toContain('UPDATE   file:'.PUBLIC_HTTP_FILE." this script's, but not the render of the trusted bundle — replaced by --apply");
+    unlink($this->host['fs'].PUBLIC_HTTP_LINK);
+    clearstatcache();
+    $inode = fileinode($this->host['fs'].PUBLIC_HTTP_FILE);
 
     [$exit, $output] = publicHttpRun($this->host, 'apply');
+
     expect($exit)->toBe(0, $output);
-    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpRender());
-    expect(publicHttpTree($this->host))->toBe($before);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => 'http-acme-ready', 'changed' => true, 'reloaded' => true]);
+    expect($output)->toContain('[apply] linked '.PUBLIC_HTTP_LINK)->not->toContain('[apply] wrote');
+    expect(readlink($this->host['fs'].PUBLIC_HTTP_LINK))->toBe(PUBLIC_HTTP_FILE);
+    clearstatcache();
+    expect(fileinode($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($inode);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
+});
+
+it('refuses a public site that begins as its own but is not its render: no file, link or reload changes, in any mode', function (callable $arrange, string $reported) {
+    publicHttpInstalled($this->host);
+    $arrange($this->host);
+    $file = $this->host['fs'].PUBLIC_HTTP_FILE;
+    $site = static function () use ($file): array {
+        clearstatcache();
+
+        return [file_get_contents($file), fileinode($file), substr(sprintf('%o', fileperms($file)), -4), readlink(str_replace(PUBLIC_HTTP_FILE, PUBLIC_HTTP_LINK, $file))];
+    };
+    $kept = $site();
+    $tree = publicHttpTree($this->host);
+    $loaded = file_get_contents($this->host['state'].'/live-public');
+
+    foreach (['apply' => 'APPLY: REFUSED', 'rollback' => 'ROLLBACK: REFUSED', 'check' => 'CHECK: FAIL', 'verify' => 'VERIFY: FAIL'] as $mode => $verdict) {
+        [$exit, $output] = publicHttpRun($this->host, $mode);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('CONFLICT file:'.PUBLIC_HTTP_FILE.' '.$reported)->toContain($verdict);
+        expect(publicHttpResult($output))->toMatchArray(['mode' => $mode, 'status' => 'fail', 'state' => 'foreign', 'changed' => false, 'reloaded' => false, 'rolled_back' => false]);
+        expect($site())->toBe($kept, "--{$mode} changed the public site");
+    }
+
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+    expect(publicHttpTree($this->host))->toBe($tree);
+    expect(file_get_contents($this->host['state'].'/live-public'))->toBe($loaded);
+})->with([
+    'the HTTPS site that took it over' => [function (array $host): void {
+        file_put_contents($host['fs'].PUBLIC_HTTP_FILE, publicHttpTakenOverByHttps());
+    }, 'it holds an HTTPS configuration (a 443 listener or a certificate) — the public site has passed to the HTTPS installer, and this script never returns it to HTTP or removes it'],
+    'an HTTP site changed by hand' => [function (array $host): void {
+        file_put_contents($host['fs'].PUBLIC_HTTP_FILE, str_replace('Retry-After 3600', 'Retry-After 60', publicHttpRender()));
+    }, "it begins with this script's first line but is not its render — this script rewrites or removes only its exact render; resolve the difference by a reviewed change"],
+    'its render with another mode' => [function (array $host): void {
+        chmod($host['fs'].PUBLIC_HTTP_FILE, 0o600);
+    }, 'its render, but '],
+]);
+
+it('keeps the HTTPS site that took the public site over, whole, through a refused apply and rollback', function () {
+    publicHttpInstalled($this->host);
+    file_put_contents($this->host['fs'].PUBLIC_HTTP_FILE, publicHttpTakenOverByHttps());
+
+    publicHttpRun($this->host, 'apply');
+    publicHttpRun($this->host, 'rollback');
+
+    $site = file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE);
+    expect($site)->toBe(publicHttpTakenOverByHttps())
+        ->toContain("    listen 443 ssl;\n")
+        ->toContain('ssl_certificate /etc/letsencrypt/live/tits.guru/fullchain.pem;');
+    expect(readlink($this->host['fs'].PUBLIC_HTTP_LINK))->toBe(PUBLIC_HTTP_FILE);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
 });
 
 it('refuses staging, an unknown target and a malformed target, changing nothing', function (string $target, string $message) {
@@ -370,18 +461,21 @@ it('puts the previous state back when nginx -t refuses the candidate, without a 
     expect(publicHttpTree($this->host))->toBe($before);
 });
 
-it('puts its own previous file back, byte for byte, when the change fails', function () {
+it('puts back exactly what was there — its own file, unlinked — when the change fails', function () {
     publicHttpInstalled($this->host);
-    $older = str_replace('Retry-After 3600', 'Retry-After 60', publicHttpRender());
-    file_put_contents($this->host['fs'].PUBLIC_HTTP_FILE, $older);
+    unlink($this->host['fs'].PUBLIC_HTTP_LINK);
+    clearstatcache();
+    $inode = fileinode($this->host['fs'].PUBLIC_HTTP_FILE);
     publicHttpToggle($this->host, 'reload-fail-once');
 
     [$exit, $output] = publicHttpRun($this->host, 'apply');
 
     expect($exit)->toBe(1, $output);
     expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'rolled_back' => true, 'state' => 'drift']);
-    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($older);
-    expect(readlink($this->host['fs'].PUBLIC_HTTP_LINK))->toBe(PUBLIC_HTTP_FILE);
+    clearstatcache();
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpRender());
+    expect(fileinode($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($inode);
+    expect(is_link($this->host['fs'].PUBLIC_HTTP_LINK))->toBeFalse();
 });
 
 it('puts the previous state back and reloads it when the reload fails', function () {
@@ -497,30 +591,30 @@ it('verifies without changing anything, before the site exists and once it is in
     expect(publicHttpTree($this->host))->toBe($before);
 });
 
-it('verifies drift as a failure: an edited file, a missing link, a stale Nginx', function (callable $arrange, string $reported) {
+it('verifies anything but its two states as a failure: an edited file, a missing link, a stale Nginx', function (callable $arrange, string $reported, string $state) {
     publicHttpInstalled($this->host);
     $arrange($this->host);
 
     [$exit, $output] = publicHttpRun($this->host, 'verify');
 
     expect($exit)->toBe(1, $output);
-    expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'state' => 'drift']);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'fail', 'state' => $state]);
     expect($output)->toContain($reported);
     expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
 })->with([
     'an edited file' => [function (array $host): void {
         file_put_contents($host['fs'].PUBLIC_HTTP_FILE, publicHttpRender()."# edited on the host\n");
-    }, 'DRIFT    file:'.PUBLIC_HTTP_FILE." this script's, but not the render of the trusted bundle"],
+    }, 'CONFLICT file:'.PUBLIC_HTTP_FILE." it begins with this script's first line but is not its render", 'foreign'],
     'a missing link' => [function (array $host): void {
         unlink($host['fs'].PUBLIC_HTTP_LINK);
-    }, 'DRIFT    state'],
+    }, "DRIFT    state                                        the public site's own file or link is missing", 'drift'],
     'a default_server added to it' => [function (array $host): void {
         file_put_contents($host['fs'].PUBLIC_HTTP_FILE, str_replace('listen 80;', 'listen 80 default_server;', publicHttpRender()));
         file_put_contents($host['fs'].'/etc/nginx/sites-available/default', str_replace(' default_server;', ';', PUBLIC_HTTP_DEFAULT_SITE));
-    }, 'FAIL     nginx:public-site'],
+    }, 'FAIL     nginx:public-site', 'foreign'],
     'Nginx not serving it' => [function (array $host): void {
         unlink($host['state'].'/live-public');
-    }, 'FAIL     answer:tits.guru@127.0.0.1                   / answered HTTP 200, not the public site\'s 503'],
+    }, 'FAIL     answer:tits.guru@127.0.0.1                   / answered HTTP 200, not the public site\'s 503', 'drift'],
 ]);
 
 it('refuses, and verifies as a failure, a target that is not planned on either registry', function (string $variable, string $reported) {

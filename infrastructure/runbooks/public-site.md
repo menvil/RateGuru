@@ -16,11 +16,17 @@ not assume it names the VPS.
 |-------|--------------------------------------|-------------------|-------------|
 | `not-prepared` | Nothing of its own: the request falls to the host's default server. | The starting state, and **Rollback tits.guru public HTTP**. | Yes |
 | `http-acme-ready` | Port 80 only: `/.well-known/acme-challenge/<token>` from `/var/www/html`, and `503 Service Unavailable` with `Retry-After: 3600` for everything else. | **Prepare tits.guru public HTTP**. | Yes — in the repository; not yet run on the host |
-| `tls-ready` | The certificate for `tits.guru` installed and HTTPS prepared, still without the application. | The next change. | **No** |
+| `tls-ready` | The certificate for `tits.guru` installed and HTTPS prepared, still without the application. | The HTTPS installer (8.5.3), which takes the public site over. | **No** |
 | `public-active` | The application, over HTTPS. | GO LIVE (8.7) only. | **No** |
 
-`prepare-public-http --verify` reports `not-prepared`, `http-acme-ready` or
-`drift`. It does not know the last two states, and nothing here claims them.
+`prepare-public-http` manages the first two states and no others.
+`--verify` reports one of these:
+- `not-prepared` or `http-acme-ready`;
+- `drift` — its own pieces are incomplete, for example its exact file without
+  the link;
+- `foreign` — something at its paths is not its own.
+
+It does not know `tls-ready` or `public-active`, and nothing here claims them.
 
 ## Two sites, two owners
 
@@ -33,13 +39,55 @@ A production target has two independent Nginx sites:
 
 The public site has its own file, `/etc/nginx/sites-available/rateguru-tits-guru-public`,
 and its own link, `/etc/nginx/sites-enabled/rateguru-tits-guru-public`.
-`prepare-public-http` writes and removes those two paths and nothing else. The
-file's first line marks it as the script's own; a file at that path without it
-is never overwritten or removed.
+`prepare-public-http` writes and removes those two paths and nothing else, and
+only under the ownership rules below.
 
 The internal renderer still has no notion of a public hostname, a TLS listener
 or a certificate. The old `infrastructure/config/nginx/rateguru-production` is
 not used for either site.
+
+## Who owns the public site, and when it changes hands
+
+`prepare-public-http` owns the public site only as **its exact render**. That
+means:
+- a regular file, `root:root 0644`;
+- byte for byte what the trusted bundle renders;
+- the link to it.
+
+The first line marks the file, but it is **not** ownership on its own.
+Anything else at those paths is `foreign`, and both `--apply` and `--rollback`
+refuse it. That covers:
+- a file that keeps that first line but says anything else;
+- the render with another owner or mode;
+- a link, a directory;
+- a link that leads elsewhere.
+
+On a refusal the script:
+- writes and removes no file;
+- creates and removes no link;
+- does not reload Nginx;
+- says why;
+- reports `foreign`, which `--verify` reports as a failure.
+
+Its own pieces left incomplete are still handled. If the exact render is in
+place without its link, `--apply` adds the link and `--rollback` removes the
+file.
+
+**When the site moves to HTTPS**, the HTTPS installer (8.5.3) takes the public
+site over: the same file and link, its own configuration in them. From then
+on:
+- **Prepare tits.guru public HTTP cannot return the site to HTTP**: `--apply`
+  refuses the file, whatever its first line says;
+- **Rollback tits.guru public HTTP cannot remove it**: `--rollback` refuses it,
+  and the link stays.
+
+Taking the site back out of HTTPS is the HTTPS installer's own rollback, not
+this one. A file with a 443 listener or a certificate is reported as passed to
+the HTTPS installer.
+
+**A content difference is never resolved by running Prepare again.** That
+includes a hand edit, and a render this script changed in a later revision.
+It is resolved by a reviewed change that says what the file should become.
 
 ## What the public site answers, in `http-acme-ready`
 
@@ -162,8 +210,10 @@ write, every site it keeps, and the exact render.
 
 1. Every check, run again, and the answers of `mx1.tits.guru` and of an unlisted
    name recorded.
-2. The file is written beside its place and moved into it (`root:root 0644`,
-   never through a link). Then the link is created.
+2. When there is no file, the render is written beside its place and moved into
+   it (`root:root 0644`, never through a link). An existing file is never
+   rewritten: it is either exactly the render, or the run was refused at
+   step 1. Then the link is created, if it is missing.
 3. `nginx -t`, and the candidate's routing judged again. Nothing has been
    reloaded yet.
 4. `systemctl reload nginx` — never a restart, a stop or a start.
@@ -187,10 +237,12 @@ them, it reloads once.
 - the internal site still the one `install-bootstrap-services` renders;
 - the target still `planned` on both registries.
 
-It passes in `not-prepared` and `http-acme-ready`, and fails on `drift`.
+It passes in `not-prepared` and `http-acme-ready`, and fails on `drift` and
+`foreign`.
 
 **`--rollback`**, under the lock, removes the link and the file — only when the
-file is the script's own — then runs `nginx -t`, reloads, and proves:
+file is exactly its render, never a site the HTTPS installer has taken over —
+then runs `nginx -t`, reloads, and proves:
 - `tits.guru` is no longer answered by the public site;
 - `mx1.tits.guru` and an unlisted name answer as before.
 
@@ -220,8 +272,8 @@ Run again, it is a no-op.
    (`213.199.41.241`). It is checked independently, not assumed:
    `dig +short @1.1.1.1 tits.guru A` and `dig +short @8.8.8.8 tits.guru A`
    must both answer it.
-7. The real certificate, through the webroot. Rehearse it first; the dry run
-   saves nothing:
+7. 8.5.2 — the real certificate, through the webroot. Rehearse it first; the
+   dry run saves nothing:
 
    ```bash
    sudo certbot certonly --webroot --webroot-path /var/www/html \
@@ -232,9 +284,12 @@ Run again, it is a no-op.
 
    No `--nginx` plugin: it edits sites and would rewrite the public site behind
    its owner's back.
-8. The next change: HTTPS for `tits.guru` — the certificate installed safely,
-   its renewal, and the mechanism that activates the public site (`tls-ready`,
-   then `public-active`).
+8. 8.5.3 — the next change: HTTPS for `tits.guru`:
+   - the certificate installed safely, with its renewal;
+   - the HTTPS installer taking the public site over (`tls-ready`), after which
+     the workflows here refuse it;
+   - the mechanism that activates the public site (`public-active`, at GO
+     LIVE).
 9. Phase 8.6 — the real production deploy and the recovery checks.
 10. Phase 8.7 — the site opened for good.
 
@@ -257,7 +312,11 @@ Run again, it is a no-op.
   - every routing check, including the load-order hazard;
   - `nginx -t`, reload and post-reload failures, and the CRITICAL path;
   - the no-op `--apply` and `--rollback`, `--verify` on every state, the host
-    lock, and the root gate.
+    lock, and the root gate;
+  - the hand-off. A file that keeps the first line but holds an HTTPS
+    configuration, or a hand-edited HTTP site, or the render with another mode,
+    is refused by `--apply`, `--rollback`, `--check` and `--verify`. Each
+    refusal leaves the file, the link and Nginx as they were.
 - `tests/Feature/Architecture/PublicHttpWorkflowTest.php` covers the three
   workflows and the action: the gate, the confirmation, the Environment, the
   result judging and the cleanup.
@@ -266,6 +325,10 @@ Run again, it is a no-op.
   - the package's default site;
   - the internal site as `install-bootstrap-services` renders it;
   - the committed staging and mail capture sites.
+
+  It also takes the site over with a real HTTPS configuration (a 443 listener
+  and a certificate). `--apply` and `--rollback` refuse it, nothing is
+  reloaded, and 443 keeps answering.
 
   It is CI's **Public HTTP on a real Nginx** job. It has passed on Ubuntu
   22.04 (Nginx 1.18, as on the host) and on Ubuntu 24.04 (Nginx 1.24).

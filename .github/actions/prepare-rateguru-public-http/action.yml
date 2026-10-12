@@ -75,7 +75,7 @@ outputs:
     value: ${{ steps.public.outputs.status }}
 
   state:
-    description: "not-prepared, http-acme-ready, drift or unknown"
+    description: "not-prepared, http-acme-ready, drift, foreign or unknown"
     value: ${{ steps.public.outputs.state }}
 
 runs:
@@ -348,7 +348,7 @@ runs:
           and .target == $target
           and .mode == $mode
           and (.status == "pass" or .status == "fail" or .status == "critical")
-          and (.state | IN("not-prepared", "http-acme-ready", "drift", "unknown"))
+          and (.state | IN("not-prepared", "http-acme-ready", "drift", "foreign", "unknown"))
           and (.site == null or (.site | type == "string" and test("^[a-z0-9][a-z0-9_-]*-public$")))
           and (.hostnames | type == "array" and all(type == "string"))
           and (.lifecycle == null or (.lifecycle | type == "string"))
@@ -385,6 +385,8 @@ runs:
             "",
             (if .status == "critical" then
                "**CRITICAL:** the change failed and the previous state of the public site could not be proved. Inspect the host now: nginx -t, the file and link of the public site, and what 127.0.0.1:80 answers for every hostname. Nginx was not stopped."
+             elif .state == "foreign" then
+               "Refused: the public site on the host is not the one this operation installs — the HTTPS installer may have taken it over, or it was changed. No file or link was changed and Nginx was not reloaded; the reason is in the job log. A difference is resolved by a reviewed change, never by running this again."
              elif .mode == "apply" and .status == "pass" then
                "http-acme-ready: the public hostnames answer the ACME HTTP-01 challenge from /var/www/html, and 503 with Retry-After for everything else. The application is not reachable and the target stays planned; the MX host answers exactly as before. No certificate was issued and no DNS was changed. Next, in order: check the HTTP-01 route of the public hostnames and of the MX host, check the public DNS of the public hostnames, then issue the certificate with Certbot over the webroot — infrastructure/runbooks/public-site.md."
              elif .rolled_back then

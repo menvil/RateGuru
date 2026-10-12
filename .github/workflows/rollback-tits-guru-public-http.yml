@@ -9,7 +9,9 @@ name: Rollback tits.guru public HTTP
 # mx1.tits.guru and every unlisted name answer as before; any failure puts the
 # site back. The internal site, every other site, the webroot, every
 # certificate, DNS and the firewall are never touched. Run again, it changes
-# nothing.
+# nothing. It removes only the exact render it installs: a public site the
+# HTTPS installer has taken over is refused, file and link kept, nothing
+# reloaded — taking HTTPS back is that installer's own rollback.
 on:
   workflow_dispatch:
     inputs:

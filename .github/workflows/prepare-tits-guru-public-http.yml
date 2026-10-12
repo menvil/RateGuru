@@ -11,7 +11,9 @@ name: Prepare tits.guru public HTTP
 # from the loaded configuration and from what the host's own Nginx answers,
 # that mx1.tits.guru keeps the HTTP-01 route its mail certificate renews over;
 # after the reload it proves it again, and any failure puts the previous state
-# back. Run again, it changes nothing.
+# back. Run again, it changes nothing. It never rewrites a public site file
+# that is not exactly its render — above all one the HTTPS installer has taken
+# over: it refuses, changing no file or link and reloading nothing.
 #
 # No certificate is issued and no TLS listener, redirect or application is
 # opened: tits-guru stays lifecycle=planned. DNS, the firewall, Postfix and

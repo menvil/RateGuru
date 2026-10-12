@@ -30,6 +30,9 @@
 #   * every other file under /etc/nginx is byte-identical afterwards, and the
 #     internal site, staging and the mail capture sites answer as before;
 #   * a second --apply and --verify write nothing and reload nothing;
+#   * once an HTTPS configuration has taken the public site over, keeping its
+#     first line, --apply and --rollback refuse it: the file, the link and the
+#     443 listener stay as they are, and nothing is reloaded;
 #   * nginx -t failing on the candidate, or the reload failing, puts the
 #     previous state back and Nginx answers as before;
 #   * the order of the sites: with no explicit default_server, --check refuses
@@ -327,6 +330,68 @@ run_public_http check
 result_is "--check passes on the public site" 0 '.status == "pass" and .state == "http-acme-ready"'
 expect "the no-op, verify and check reloaded nothing" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
 expect "the no-op rewrote nothing" "$(stat -c '%i:%Y' "${PUBLIC_FILE}")" "${IDENTITY}"
+
+# --- The HTTPS installer takes the site over ------------------------------------------------
+
+# The next state's installer keeps the public site's file and link, and its
+# first line, and puts an HTTPS configuration in them. From then on this script
+# refuses both ways: nothing written, nothing removed, nothing reloaded.
+cp -p "${PUBLIC_FILE}" "${WORK}/public-http-render"
+{
+    head -n 1 "${WORK}/public-http-render"
+    cat <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${PUBLIC_HOST};
+
+    location ~ ^/\.well-known/acme-challenge/[A-Za-z0-9_-]+\$ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${PUBLIC_HOST};
+
+    ssl_certificate ${WORK}/certs/fullchain.pem;
+    ssl_certificate_key ${WORK}/certs/privkey.pem;
+
+    default_type text/plain;
+    return 200 "https stand-in\n";
+}
+EOF
+} >"${PUBLIC_FILE}"
+nginx -t >/dev/null 2>&1 && nginx -s reload 2>/dev/null
+sleep 1
+
+https_answer() {
+    curl --silent --insecure --noproxy '*' --max-time 5 --resolve "${PUBLIC_HOST}:443:127.0.0.1" "https://${PUBLIC_HOST}/" 2>/dev/null || true
+}
+
+HTTPS_SITE="$(sha256sum <"${PUBLIC_FILE}")"
+expect "the HTTPS site that took the public site over answers on 443" "$(https_answer)" "https stand-in"
+: >"${WORK}/systemctl.log"
+for mode in apply rollback; do
+    run_public_http "${mode}"
+    result_is "--${mode} refuses the HTTPS site that took the public site over" 1 '.status == "fail" and .state == "foreign" and (.changed | not) and (.reloaded | not) and (.rolled_back | not)'
+    expect "--${mode} left the HTTPS site's file as it was" "$(sha256sum <"${PUBLIC_FILE}")" "${HTTPS_SITE}"
+    expect "--${mode} left its link" "$(readlink "${PUBLIC_LINK}")" "${PUBLIC_FILE}"
+done
+expect "neither reloaded Nginx" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
+expect "the HTTPS site still answers on 443" "$(https_answer)" "https stand-in"
+expect_mx "with the HTTPS site in place"
+master_kept "the HTTPS takeover"
+
+# Back to the HTTP state, for the rest of the scenario.
+cp -p "${WORK}/public-http-render" "${PUBLIC_FILE}"
+nginx -s reload 2>/dev/null
+sleep 1
 
 # --- Rollback -------------------------------------------------------------------------------
 
