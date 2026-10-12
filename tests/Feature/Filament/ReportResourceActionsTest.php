@@ -149,7 +149,7 @@ it('lets an administrator ban the author of the reported content, leaving the re
         ->call('askToBan')
         ->assertSet('confirming', 'ban')
         ->assertSeeHtml('Ban cheap_pet_meds?')
-        ->assertSeeHtml('They are signed out everywhere and can’t sign in.')
+        ->assertSeeHtml('can no longer take part: no new posts, comments, votes, reports or follows.')
         ->call('confirm')
         ->assertDispatched('rg-admin-toast', message: 'cheap_pet_meds banned. Report #'.$report->id.' is still open.');
 

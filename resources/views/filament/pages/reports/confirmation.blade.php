@@ -29,7 +29,7 @@
     @if ($hiding)
         <p>The {{ \Illuminate\Support\Str::lower($target['kind']) }} is hidden from visitors. Report #{{ $detail['id'] }} stays open, and you still resolve or ignore it.</p>
     @else
-        <p>{{ $target['kind'] === 'Person' ? 'They lose' : 'The author of the reported '.\Illuminate\Support\Str::lower($target['kind']).' loses' }} access to their account.</p>
+        <p>{{ $target['kind'] === 'Person' ? 'They' : 'The author of the reported '.\Illuminate\Support\Str::lower($target['kind']) }} can no longer take part: no new posts, comments, votes, reports or follows.</p>
     @endif
 
     <x-slot:details>
@@ -47,7 +47,7 @@
                     <h3 class="rg-admin-section-label__text">What happens</h3>
                 </div>
                 <ul class="rg-admin-dialog-facts">
-                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="log-out" :size="16" />They are signed out everywhere and can’t sign in.</li>
+                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="log-in" :size="16" />They can still sign in, browse and manage their account.</li>
                     <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="files" :size="16" />Their posts and comments stay as they are. Moderate them separately.</li>
                     <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="rotate-ccw" :size="16" />Reversible later with Restore access on their user page.</li>
                 </ul>

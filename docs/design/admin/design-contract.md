@@ -1190,6 +1190,7 @@ resource keeps the route, the navigation item — with the open reports, warning
 | Report order | oldest first in every tab | Open oldest first; Resolved, Ignored and All newest first | the queue waits oldest first, and a closed report is looked up by when it came in |
 | Hide target reasons | “Shared with the author.”; pet-specific chips | “Stored in the moderation log.”; the reasons visitors report with | a hide's reason is not sent to the author |
 | Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
+| What a ban does | “Signs them out everywhere and blocks sign-in.” | “They can still sign in, browse and manage their account.”, and no new posts, comments, votes, reports or follows | a ban stops participation and never locks anyone out of their account (docs/architecture/user-lifecycle.md) |
 | Reports empty queue | “New reports appear here as they arrive.” | “New reports appear here when you open the page again.” | the list is read on load |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
