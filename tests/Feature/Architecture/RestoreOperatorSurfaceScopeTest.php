@@ -33,6 +33,9 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         // The one-time installation of the health check's read-only monitor
         // access, guarded by MailInboundHealthWorkflowTest.
         'install-tits-guru-inbound-mail-monitor.yml',
+        // The installation of the inbound listener's certificate and its
+        // renewal hook, guarded by MailInboundTlsTest.
+        'install-tits-guru-inbound-mail-tls.yml',
         'label-review-bot-prs.yml',
         'prepare-production-host.yml',
         'prepare-staging-host.yml',

@@ -47,6 +47,11 @@
 #   * the shared queue: the inbound listeners refuse new mail below their own
 #     queue floor while the submission listeners still accept;
 #   * no backscatter: a bounce to a forged sender has no route off the host;
+#   * the listener's certificate: install-mail-inbound-tls takes it from a
+#     Certbot lineage laid out as Certbot lays it out, and the listener serves
+#     it; a renewal of that lineage, through the deploy hook the installer put
+#     in place, makes the listener serve the renewed certificate, by a reload
+#     of the same master process;
 #   * a reload to the disabled state closes TCP 25 without restarting Postfix,
 #     and the submission listeners keep working.
 #
@@ -189,13 +194,67 @@ PY
 python3 "${WORK}/bin/milter.py" & MILTER_PID=$!
 python3 "${WORK}/bin/sink.py" "${WORK}/captured" & SINK_PID=$!
 
-# A certificate for the MX host, from a CA of this run.
-openssl req -x509 -newkey rsa:2048 -nodes -keyout "${WORK}/tls/ca.key" -out "${WORK}/tls/ca.pem" -days 2 -subj "/CN=scenario CA" 2>/dev/null
-openssl req -newkey rsa:2048 -nodes -keyout "${WORK}/tls/privkey.pem" -out "${WORK}/tls/mx.csr" -subj "/CN=mx1.tits.guru" 2>/dev/null
+# The listener's certificate, as on a host: a Certbot lineage for the MX host —
+# here issued by a CA of this run — and the real install-mail-inbound-tls,
+# which copies it into place and installs its deploy hook, under ROOT. systemd
+# is a stand-in that asks this run's Postfix, and logs what it was asked.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "${WORK}/tls/ca.key" -out "${WORK}/tls/ca.pem" -days 30 -subj "/CN=scenario CA" 2>/dev/null
 printf 'subjectAltName=DNS:mx1.tits.guru\n' > "${WORK}/tls/ext.cnf"
-openssl x509 -req -in "${WORK}/tls/mx.csr" -CA "${WORK}/tls/ca.pem" -CAkey "${WORK}/tls/ca.key" -CAcreateserial \
-    -out "${WORK}/tls/fullchain.pem" -days 2 -extfile "${WORK}/tls/ext.cnf" 2>/dev/null
-chmod 0600 "${WORK}/tls/privkey.pem"
+ROOT="${WORK}/root"
+LE="${ROOT}/etc/letsencrypt"
+TLS_DIR="${ROOT}/etc/rateguru-mail-inbound/tls"
+install -d -m 0755 "${ROOT}" "${ROOT}/etc" "${LE}" "${LE}/renewal"
+install -d -m 0700 "${LE}/live" "${LE}/archive" "${LE}/live/mx1.tits.guru" "${LE}/archive/mx1.tits.guru"
+printf '[renewalparams]\nauthenticator = webroot\nwebroot_path = /var/www/html,\n' > "${LE}/renewal/mx1.tits.guru.conf"
+
+# issue VERSION — what Certbot does when it issues or renews the lineage: a new
+# key and certificate as VERSION in archive/, and the live links moved to it.
+issue() {
+    local archive="${LE}/archive/mx1.tits.guru" version="$1" part
+    openssl req -newkey rsa:2048 -nodes -keyout "${archive}/privkey${version}.pem" -out "${WORK}/tls/mx${version}.csr" -subj "/CN=mx1.tits.guru" 2>/dev/null
+    openssl x509 -req -in "${WORK}/tls/mx${version}.csr" -CA "${WORK}/tls/ca.pem" -CAkey "${WORK}/tls/ca.key" -CAcreateserial \
+        -out "${archive}/cert${version}.pem" -days 30 -extfile "${WORK}/tls/ext.cnf" 2>/dev/null
+    cp "${WORK}/tls/ca.pem" "${archive}/chain${version}.pem"
+    cat "${archive}/cert${version}.pem" "${archive}/chain${version}.pem" > "${archive}/fullchain${version}.pem"
+    chmod 0600 "${archive}/privkey${version}.pem"
+    chmod 0644 "${archive}/cert${version}.pem" "${archive}/chain${version}.pem" "${archive}/fullchain${version}.pem"
+    for part in cert chain fullchain privkey; do
+        ln -sfn "../../archive/mx1.tits.guru/${part}${version}.pem" "${LE}/live/mx1.tits.guru/${part}.pem"
+    done
+}
+
+cat > "${WORK}/bin/systemctl" <<EOF
+#!/bin/bash
+printf '%s\\n' "\$*" >> "${WORK}/systemctl.log"
+case "\$1" in
+    is-active) postfix -c "${CFG}" status >/dev/null 2>&1 ;;
+    reload) [[ "\$2" == postfix@-.service ]] && postfix -c "${CFG}" reload >/dev/null 2>&1 ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod 0755 "${WORK}/bin/systemctl"
+
+tls_installer() {
+    env RATEGURU_ALLOW_TEST_OVERRIDES=true \
+        RATEGURU_MAILINBOUNDTLS_FS_ROOT="${ROOT}" RATEGURU_MAILINBOUNDTLS_CERTBOT_BIN=/bin/true \
+        RATEGURU_MAILINBOUNDTLS_SYSTEMCTL_BIN="${WORK}/bin/systemctl" RATEGURU_MAILINBOUNDTLS_TRUST_STORE="${WORK}/tls/ca.pem" \
+        RATEGURU_MAILINBOUND_FS_ROOT="${ROOT}" RATEGURU_MAILINBOUND_TLS_TRUST_STORE="${WORK}/tls/ca.pem" \
+        "${SCRIPTS}/install-mail-inbound-tls" "$@" --target tits-guru
+}
+
+issue 1
+if out="$(tls_installer --apply 2>&1)"; then
+    pass "install-mail-inbound-tls --apply installs the pair Certbot holds, and install-mail-inbound --tls-check passes on it, with the real openssl"
+else
+    fail "install-mail-inbound-tls --apply: ${out//$'\n'/; }"
+fi
+expect "the installed pair is the lineage's, as regular files root:root 0644 and 0600" \
+    "$(stat -c '%F %U:%G %a' "${TLS_DIR}/fullchain.pem" "${TLS_DIR}/privkey.pem" | tr '\n' ';')" "regular file root:root 644;regular file root:root 600;"
+if cmp -s "${TLS_DIR}/privkey.pem" "${LE}/archive/mx1.tits.guru/privkey1.pem" && cmp -s "${TLS_DIR}/fullchain.pem" "${LE}/archive/mx1.tits.guru/fullchain1.pem"; then
+    pass "and holds exactly version 1 of it"
+else
+    fail "the installed pair is not version 1 of the lineage"
+fi
 
 # --- The configuration the gateway renders ------------------------------------------
 
@@ -211,7 +270,7 @@ inbound_input() {
     jq -n --slurpfile r "${WORK}/receiver.json" --arg state "$1" --arg address "${PUBLIC}" \
         --argjson uid "$(id -u nobody)" --argjson gid "$(id -g nobody)" \
         --arg table "${CFG}/rateguru-inbound-recipients.regexp" --arg store "${STORE}" \
-        --arg cert "${WORK}/tls/fullchain.pem" --arg key "${WORK}/tls/privkey.pem" \
+        --arg cert "${TLS_DIR}/fullchain.pem" --arg key "${TLS_DIR}/privkey.pem" \
         --arg gate "${CFG}/rateguru-inbound-store-gate" --argjson store_reserve "${STORE_RESERVE}" \
         --argjson reserve "${2:-null}" '
         $r[0] as $r
@@ -363,6 +422,28 @@ if [[ "${public_ehlo}" == *STARTTLS* ]]; then pass "the public listener offers S
 # ticket arrives after the handshake — twice: verified, and never anything else.
 tls="$({ sleep 2; echo QUIT; } | openssl s_client -starttls smtp -connect "${PUBLIC}:25" -CAfile "${WORK}/tls/ca.pem" -verify_hostname mx1.tits.guru 2>/dev/null || true)"
 if grep -q 'Verify return code: 0 (ok)' <<<"${tls}" && ! grep -q 'Verify return code: [1-9]' <<<"${tls}"; then pass "its certificate verifies for mx1.tits.guru"; else fail "the public listener's certificate does not verify for mx1.tits.guru"; fi
+
+# A renewal, as Certbot performs it: a new version of the lineage, then its
+# deploy hooks, in an environment of their own.
+served() {
+    { sleep 2; echo QUIT; } | openssl s_client -starttls smtp -connect "${PUBLIC}:25" -servername mx1.tits.guru 2>/dev/null \
+        | openssl x509 -noout -fingerprint -sha256 2>/dev/null
+}
+fingerprint() { openssl x509 -in "$1" -noout -fingerprint -sha256; }
+expect "the public listener serves the certificate install-mail-inbound-tls put in place" "$(served)" "$(fingerprint "${LE}/archive/mx1.tits.guru/cert1.pem")"
+issue 2
+: > "${WORK}/systemctl.log"
+if out="$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin RENEWED_LINEAGE="${LE}/live/mx1.tits.guru" "${LE}/renewal-hooks/deploy/rateguru-mail-inbound-tls" 2>&1)"; then
+    pass "the deploy hook installs the renewed pair"
+else
+    fail "the deploy hook: ${out//$'\n'/; }"
+fi
+sleep 2
+expect "after the renewal the public listener serves the renewed certificate" "$(served)" "$(fingerprint "${LE}/archive/mx1.tits.guru/cert2.pem")"
+expect "the hook asked systemd whether Postfix runs, and for a reload — nothing else" "$(tr '\n' ';' < "${WORK}/systemctl.log")" "is-active --quiet postfix@-.service;reload postfix@-.service;"
+expect "the renewal's reload leaves the same master process running" "$(tr -d ' ' < "${WORK}/queue/pid/master.pid")" "${MASTER}"
+if out="$(tls_installer --verify 2>&1)"; then pass "install-mail-inbound-tls --verify passes on the renewed pair"; else fail "install-mail-inbound-tls --verify: ${out//$'\n'/; }"; fi
+
 if [[ "$(smtp 127.0.0.1 2580 | awk '$1 == "CONNECT"')" == *mx1.tits.guru* ]]; then pass "the inbound listeners greet as mx1.tits.guru"; else fail "the inbound listeners greet as another name"; fi
 if [[ "$(smtp 127.0.0.1 2526 | awk '$1 == "CONNECT"')" == *mta1.tits.guru* ]]; then pass "the submission listeners still greet as mta1.tits.guru"; else fail "the submission listeners' name changed"; fi
 

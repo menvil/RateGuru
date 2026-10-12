@@ -5,11 +5,12 @@ use Symfony\Component\Yaml\Yaml;
 
 /**
  * The operator surface of the inbound receiver: Activate, Verify and Rollback
- * tits.guru inbound SMTP, and the one composite action they share.
+ * tits.guru inbound SMTP, Install tits.guru inbound mail TLS, and the one
+ * composite action they share.
  *
- * Each runs from main only, behind the byte-identical main-only gate; the two
- * that change the host also behind a typed confirmation judged in a job that
- * holds no GitHub Environment, before any secret exists. None of them runs on a
+ * Each runs from main only, behind the byte-identical main-only gate; the
+ * three that change the host also behind a typed confirmation judged in a job
+ * that holds no GitHub Environment, before any secret exists. None of them runs on a
  * merge or a schedule, publishes DNS, or shows a received message.
  */
 
@@ -20,6 +21,7 @@ function mailInboundWorkflows(): array
         'activate' => ['file' => 'activate-tits-guru-inbound-smtp.yml', 'name' => 'Activate tits.guru inbound SMTP', 'job' => 'activate', 'operation' => 'apply', 'confirmation' => 'ACTIVATE tits-guru inbound SMTP'],
         'verify' => ['file' => 'verify-tits-guru-inbound-smtp.yml', 'name' => 'Verify tits.guru inbound SMTP', 'job' => 'verify', 'operation' => 'verify', 'confirmation' => null],
         'rollback' => ['file' => 'rollback-tits-guru-inbound-smtp.yml', 'name' => 'Rollback tits.guru inbound SMTP', 'job' => 'rollback', 'operation' => 'rollback', 'confirmation' => 'ROLLBACK tits-guru inbound SMTP'],
+        'tls' => ['file' => 'install-tits-guru-inbound-mail-tls.yml', 'name' => 'Install tits.guru inbound mail TLS', 'job' => 'install', 'operation' => 'install-tls', 'confirmation' => 'INSTALL tits-guru inbound TLS'],
     ];
 }
 
@@ -80,7 +82,11 @@ it('requires the typed confirmation before the Environment, its approval or any 
 
     expect($workflow['on']['workflow_dispatch']['inputs'])->toBe([
         'confirmation' => [
-            'description' => "Type exactly \"{$spec['confirmation']}\" to ".($key === 'activate' ? 'open' : 'close').' public TCP 25 on the production host',
+            'description' => "Type exactly \"{$spec['confirmation']}\" to ".[
+                'activate' => 'open public TCP 25 on the production host',
+                'rollback' => 'close public TCP 25 on the production host',
+                'tls' => "install the inbound listener's certificate on the production host",
+            ][$key],
             'required' => true,
             'default' => '',
             'type' => 'string',
@@ -109,7 +115,7 @@ it('requires the typed confirmation before the Environment, its approval or any 
     foreach (['', strtolower($spec['confirmation']), $spec['confirmation'].' ', 'ACTIVATE tits-guru', str_replace('tits-guru', 'staging-main', $spec['confirmation'])] as $wrong) {
         expect($run($wrong))->not->toBe(0, "accepted \"{$wrong}\"");
     }
-})->with(['activate', 'rollback']);
+})->with(['activate', 'rollback', 'tls']);
 
 it('takes no input in the read-only Verify', function () {
     $workflow = Yaml::parse(File::get(base_path('.github/workflows/verify-tits-guru-inbound-smtp.yml')));
@@ -139,7 +145,7 @@ it('runs exactly activate-mail-inbound in the mode its workflow fixed, judges it
     expect(array_keys($action['inputs']))->toBe(['operation', 'deployment-target', 'monitor-public-key', 'bootstrap-host', 'bootstrap-port', 'bootstrap-user', 'bootstrap-ssh-key', 'bootstrap-known-hosts']);
     expect(array_keys($action['outputs']))->toBe(['status', 'state']);
 
-    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|rollback|install-monitor) ;;");
+    expect($code)->toContain("case \"\${OPERATION}\" in\n          apply|verify|rollback|install-monitor|install-tls) ;;");
     // The monitor's public key reaches the host only for install-monitor, as one argument.
     expect($code)->toContain("if [[ \"\${OPERATION}\" == install-monitor ]]; then\n          remote_command+=(--monitor-public-key \"\${MONITOR_PUBLIC_KEY}\")");
     expect($code)->toMatch('#remote_command=\(\s+\$\{RATEGURU_PRIVILEGED_PREFIX:-\}\s+"\$\{RATEGURU_REMOTE_ROOT\}/infrastructure/scripts/activate-mail-inbound"\s+"--\$\{OPERATION\}"\s+--target "\$\{DEPLOYMENT_TARGET\}"\s+\)#');
@@ -149,6 +155,7 @@ it('runs exactly activate-mail-inbound in the mode its workflow fixed, judges it
         ->toContain('and (.state | IN("not-installed", "installed-disabled", "installed-enabled", "enabled-verified", "drift", "unknown"))')
         ->toContain('or ($mode == "apply" and .requested and .state == "enabled-verified" and .public_smtp == "enabled" and (.rolled_back | not))')
         ->toContain('or ($mode == "rollback" and .public_smtp == "disabled" and (.state | IN("installed-disabled", "not-installed")))')
+        ->toContain('or ($mode == "install-tls" and (.state | IN("not-installed", "installed-disabled", "installed-enabled"))))')
         ->toContain('**Check the published MX records**');
 
     // Nothing of a received message, the DNS or the outbound path.
@@ -181,4 +188,22 @@ it('tells the operator, after a rollback, to check the MX records that still nam
 
     $activate = preg_replace('/\s+/', ' ', preg_replace('/^#\s?/m', '', File::get(base_path('.github/workflows/activate-tits-guru-inbound-smtp.yml'))));
     expect($activate)->toContain('It publishes no DNS');
+});
+
+it('installs the listener\'s certificate from what is already on the host: no certificate, key or Certbot command passes through GitHub', function () {
+    $source = File::get(base_path('.github/workflows/install-tits-guru-inbound-mail-tls.yml'));
+    $workflow = Yaml::parse($source);
+    $code = executableSourceLines($source);
+
+    // One input, the confirmation: no certificate, no key, no path, no domain.
+    expect(array_keys($workflow['on']['workflow_dispatch']['inputs']))->toBe(['confirmation']);
+    foreach (['certbot', 'letsencrypt', '.pem', 'PRIVATE KEY', 'acme', 'scp ', 'upload-artifact', 'download-artifact'] as $forbidden) {
+        expect(str_contains(strtolower($code), strtolower($forbidden)))->toBeFalse("the TLS workflow's steps mention {$forbidden}");
+    }
+
+    // The action uploads infrastructure/ alone, and checks the installer is in it.
+    $action = File::get(base_path('.github/actions/activate-rateguru-mail-inbound/action.yml'));
+    expect($action)
+        ->toContain('test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/install-mail-inbound-tls"')
+        ->toContain("tar --create --gzip --file \"\${bundle_path}\" \\\n          --directory \"\${GITHUB_WORKSPACE}\" infrastructure");
 });
