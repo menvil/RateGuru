@@ -101,7 +101,7 @@ time; the contract's Localization section describes what runs.
 
 ### Phase 5+ — AI suggestions, workflow and the translation cutover
 
-**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, is done, and the Translation AI page is next.
+**Status: in progress** — 5A, the translation engine, 5B, interactive AI suggestions, and 5C, background and bulk generation, are done; 5D, observability, limits and provider policies, is in progress: 5D.1, Translation AI telemetry, and 5D.2, the Translation AI page, are done, and budgets, limits and provider policies are next.
 
 In separate steps:
 
@@ -154,9 +154,25 @@ In separate steps:
        rates or the tokens are unknown. Recording is best effort: a failed write is logged and dropped, and never
        changes, repeats or withholds a translation. `TranslationAiUsageQuery` reads it back for the page — summary,
        errors by code, an hourly or daily timeline, recent calls — and `translations:purge-ai-calls` deletes rows
-       older than 90 days, daily. No page yet.
-     - **Next: the Translation AI page**, built on `TranslationAiUsageQuery`; then budgets, limits and provider
-       policies.
+       older than 90 days, daily.
+     - **5D.2 — Translation AI page. Status: done.** `/admin/translation-ai` (`App\Filament\Pages\TranslationAiPage`),
+       the third item of Localization, is read-only technical monitoring drawn in Admin v2 as in the prototype, for
+       whoever may manage project settings; the contract's Localization section describes it. Provider health is
+       the configuration translations run on now — Not configured, Configured, Healthy or Degraded, from the
+       configuration and the calls of the configured model, never from the model filter. Usage and cost, Failures
+       and issues and Recent provider calls are the history a period (24 hours, 7 or 30 days) and an optional model
+       choose, all from the database through `TranslationAiUsageQuery`, which gained the models recorded, the last
+       success, failed calls in series (Isolated, Burst, Ongoing) and calls with issues; failed calls and failed
+       items are counted apart, and an unknown cost is never $0. Background generations reads the generation of
+       each installed language and the viewer's own through the store's pointers — never a scan — as counts and
+       times only, re-read every few seconds only while one runs; an unreachable store takes that block alone.
+       Configuration and guardrails shows the values configured, Not available for the worker's own timeout, and
+       Not configured for limits and budgets. No provider is asked anything, no setting changes, no table or
+       migration is added, and the engine and Generate missing are unchanged. Kit: NAV-04 is the reusable
+       `x-admin.ui.pagination`, and FRM-11 options can lead with an icon.
+     - **Next: budgets, limits and provider policies** — hourly limits, budgets, and the retry and fallback
+       policies the engine deliberately leaves out. Until they are built, Translation AI shows them as Not
+       configured or None.
 6. **Workflow** — review states, if the product needs them.
 7. **Translation cutover** — Categories, Tags, Rating groups and options, Project settings and Static pages
   stop editing every language and show their English reference content, a translation status (locale chips,
