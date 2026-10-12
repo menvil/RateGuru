@@ -1,0 +1,21 @@
+resources/views/filament/pages/tags/drawer.blade.php
+  s_7d2d8843838027::t_6efa3b4f5bd927 85-86
+tests/Feature/Filament/TagResourceTest.php
+  s_7d2d8843838027::t_6bd1efd27af5f4 140-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fac90b81e149e5b530bdd66d244a3ab52bf941a9",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
