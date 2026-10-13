@@ -1,0 +1,47 @@
+app/Support/Rating/RatingConfigurationManager.php
+  s_7d2d8843838027::t_84ee2a696bbeed 51
+resources/views/filament/pages/rating-group/option-row.blade.php
+  s_7d2d8843838027::t_63567af67017fd 20-21
+app/Actions/Rating/UpdateRatingGroupAction.php
+  s_7d2d8843838027::t_a2c41a2d629222 24-29
+  s_7d2d8843838027::t_07764f52c4262c 42-45,53
+app/Models/RatingGroup.php
+  s_7d2d8843838027::t_4e27e0ab25fbd1 63-80
+app/Actions/Rating/UnarchiveRatingOptionAction.php
+  s_7d2d8843838027::t_07764f52c4262c 29
+app/Filament/Resources/RatingGroups/Pages/ManageRatingGroups.php
+  s_7d2d8843838027::t_07764f52c4262c 169-170,174-175,264
+app/Actions/Rating/ValidateRatingOptionTransitionAction.php
+  s_7d2d8843838027::t_6689e958d2986c 16,18,20
+tests/Feature/Actions/RatingGroupActionsTest.php
+  s_7d2d8843838027::t_466158a01d5319 45-76,123-129
+tests/Feature/Filament/RatingGroupResourceTest.php
+  s_7d2d8843838027::t_466158a01d5319 75-81
+resources/views/filament/pages/rating-group/options.blade.php
+  s_7d2d8843838027::t_bd38d14b1fc6f0 9
+app/Filament/Resources/RatingGroups/Pages/EditRatingGroup.php
+  s_7d2d8843838027::t_1d0aa9dab98307 160
+  s_7d2d8843838027::t_ef11187601c773 551
+  s_7d2d8843838027::t_466158a01d5319 488-489
+app/Actions/Rating/CreateRatingGroupAction.php
+  s_7d2d8843838027::t_a2c41a2d629222 17
+  s_7d2d8843838027::t_07764f52c4262c 31-38
+tests/Feature/Models/RatingModelsTest.php
+  s_7d2d8843838027::t_466158a01d5319 68-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3c09153c60ec431832db714f1c93b802f780ad4e",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
