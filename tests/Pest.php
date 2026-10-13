@@ -5,6 +5,7 @@ use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
+use App\Enums\ReportStatus;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
@@ -14,6 +15,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\Report;
 use App\Models\Tag;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
@@ -7755,7 +7757,16 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
 }
 
 /**
- * The row a moderation list — Posts or Comments — draws for this record, as
+ * A report on this post, comment or person: open, with no message, unless
+ * the attributes say otherwise.
+ */
+function reportOn(Model $target, array $attributes = []): Report
+{
+    return Report::factory()->create(['target_type' => $target::class, 'target_id' => $target->getKey(), 'status' => ReportStatus::Open, 'message' => null, ...$attributes]);
+}
+
+/**
+ * The row a moderation list — Posts, Comments or Reports — draws for this record, as
  * its view data holds it, or null when the list does not show the record.
  *
  * @return array<string, mixed>|null
@@ -7775,6 +7786,35 @@ function visitAdminEditor(string $url, int $width = 1440, int $height = 900): mi
     $page = visit($url)->resize($width, $height);
 
     waitForScript($page, '!! window.Livewire && window.Livewire.all().length > 0');
+
+    return $page;
+}
+
+/**
+ * Opens a report's chain on the Reports screen, wide enough for it to dock
+ * beside the list, and waits until it is there.
+ */
+function openReportChain(int $reportId): mixed
+{
+    $page = visitAdminEditor('/admin/reports?report='.$reportId);
+
+    waitForScript($page, "document.getElementById('rg-admin-report-panel-title')?.textContent.trim()", 'Report #'.$reportId);
+
+    return $page;
+}
+
+/** Confirms the dialog on screen, with this reason when one is given, and waits for it to close. */
+function confirmAdminDialog(mixed $page, ?string $reason = null): mixed
+{
+    waitForScript($page, "document.querySelector('.rg-admin-dialog') !== null");
+
+    if ($reason !== null) {
+        $page->type('#rg-admin-moderation-reason', $reason);
+        waitForScript($page, "! document.querySelector('.rg-admin-dialog .rg-admin-button--primary, .rg-admin-dialog .rg-admin-button--danger').disabled");
+    }
+
+    $page->click('.rg-admin-dialog .rg-admin-button--primary, .rg-admin-dialog .rg-admin-button--danger');
+    waitForScript($page, "document.querySelector('.rg-admin-dialog') === null");
 
     return $page;
 }

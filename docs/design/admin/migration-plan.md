@@ -210,7 +210,7 @@ translation status that links into Translation Center. The moderation screens fo
 | 3 | Project settings and Static pages — **done** | the settings-row layout of FRM-06 and icons on FRM-08 |
 | 4 | Posts — **done** | TBL-03 bulk bar, FRM-07 checkbox, FRM-03 preset chips (TBL-04 row menu is built) |
 | 5 | Comments — **done** | — |
-| 6 | Reports | DOM-02 report chain, the docked 448 panel |
+| 6 | Reports — **done** | DOM-02 report chain, the docked 448 panel |
 | 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
 | 8 | Media diagnostics | — |
 
@@ -263,6 +263,14 @@ Restore at once, both with Undo, and Finalize removal behind the irreversible co
 action; a comment its author deleted listed read-only. The navigation item shows the reported comments still
 visible. The moderation reason, its chips and the acknowledgement are one partial
 (`filament.pages.moderation.reason`) that Posts uses too.
+
+**Reports. Status: done.** One screen (`ListReports`) drawn in Admin v2, as the contract's
+[Reports](design-contract.md#reports) section describes: the reports by status and kind of target, searched on the
+server, 25 a page (`ModerationReportsQuery`, a registered stable pagination boundary), with the open report's
+chain (DOM-02, `x-admin.ui.timeline-item`) docked as the 448 panel where there is room and over the list where
+there is not; J and K step through reports; Resolve and Ignore close one report with Undo and open the next; Hide
+target and Ban author leave it open. One action is new: `ReopenReportAction`, behind Reopen and Undo, which
+clears who closed the report, when and why.
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is

@@ -312,6 +312,18 @@ it('shows the locked identifier, the number stepper and the switch live, from th
         ->toContain('id="kit-switch-row"');
 });
 
+it('shows the report chain live, from its component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'DOM-02'))
+        ->toContain('Blade component · x-admin.ui.timeline-item')
+        ->toContain('Reported as spam')
+        ->toContain('Author · kotofey')
+        ->toContain('rg-admin-timeline-item--danger');
+});
+
 it('shows the checkbox and the bulk bar live, from their components', function () {
     $html = $this->actingAs(User::factory()->admin()->create())
         ->get(ADMIN_UI_KIT_URL)

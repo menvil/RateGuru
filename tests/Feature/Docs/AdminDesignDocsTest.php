@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -297,11 +297,27 @@ it('describes Posts on v2: moderated a tab at a time through the moderation acti
         ->toContain('| Finalize removal |')
         ->toContain('FRM-01–08, FRM-10, FRM-11')
         ->toContain('all; TBL-03 and TBL-04 as live, reusable components')
-        ->toContain('Posts shows its pending count and Comments its reported comments still visible (warning)');
+        ->toContain('Posts shows its pending count, Comments its reported comments still visible and Reports its open reports (warning)');
 
     expect($plan)
         ->toContain('**Posts. Status: done.**')
         ->toContain('a registered stable pagination boundary');
+});
+
+it('describes Reports on v2: the chain docked or over the list, closing apart from acting on the content', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Reports')
+        ->toContain('Reports (`ListReports`) is drawn entirely in Admin v2')
+        ->toContain('**Report chain (DOM-02):**')
+        ->toContain('| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | all; DOM-02 as a live, reusable component (`x-admin.ui.timeline-item`) |')
+        ->toContain('| Report order |');
+
+    expect($plan)
+        ->toContain('**Reports. Status: done.**')
+        ->toContain('`ReopenReportAction`');
 });
 
 it('describes Comments on v2: moderated after the fact, a comment its author deleted kept read-only', function () {

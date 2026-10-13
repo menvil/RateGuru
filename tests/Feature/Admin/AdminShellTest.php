@@ -313,11 +313,11 @@ it('runs no queries of its own to draw the shell, only the counts its destinatio
     Livewire::test(Sidebar::class)->assertOk();
     Livewire::test(Topbar::class)->assertOk();
 
-    // Posts gives its count of posts waiting for review and Comments its count
-    // of reported comments still visible, once per navigation drawn; every
-    // other query would be the shell's own.
+    // Posts gives its count of posts waiting for review, Comments its count
+    // of reported comments still visible and Reports its open reports, once
+    // per navigation drawn; every other query would be the shell's own.
     [$counts, $others] = collect(DB::getQueryLog())->pluck('query')
-        ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments)[`"] where [`"]status[`"] = \?/', $query) === 1);
+        ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1);
 
     expect($counts)->not->toBeEmpty();
 

@@ -714,6 +714,23 @@ it('draws a checkbox as a real input under its picture, named by its label', fun
         ->and((string) $this->blade('<x-admin.ui.checkbox label="Select" disabled />'))->toContain('rg-admin-checkbox--disabled')->toMatch('/<input[^>]*disabled/s');
 });
 
+it('draws a report chain link: its marker, the line to the next, the title and time, and its details', function () {
+    $view = (string) $this->blade('<x-admin.ui.timeline-item icon="flag" title="Reported as spam" time="08:31">Reported by georgi.d</x-admin.ui.timeline-item>');
+
+    expect($view)
+        ->toContain('class="rg-admin-timeline-item"')
+        ->toContain('<span class="rg-admin-timeline-item__line" aria-hidden="true"></span>')
+        ->toContain('<h3 class="rg-admin-timeline-item__title">Reported as spam</h3>')
+        ->toContain('<span class="rg-admin-timeline-item__time">08:31</span>')
+        ->toContain('<div class="rg-admin-timeline-item__body">Reported by georgi.d</div>');
+
+    expect((string) $this->blade('<x-admin.ui.timeline-item initials="KO" title="Author · kotofey" tone="danger" last />'))
+        ->toContain('rg-admin-timeline-item--last rg-admin-timeline-item--danger')
+        ->toContain('<span class="rg-admin-avatar rg-admin-avatar--md" aria-hidden="true">KO</span>')
+        ->not->toContain('rg-admin-timeline-item__line')
+        ->not->toContain('rg-admin-timeline-item__body');
+});
+
 it('draws the bulk bar with its count as a status, its actions, the skipped note and Clear selection', function () {
     $view = (string) $this->blade(<<<'BLADE'
         <x-admin.ui.bulk-bar :count="3" note="1 selected post will be skipped" clear="$wire.clearSelection()">
