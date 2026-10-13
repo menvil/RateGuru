@@ -8,8 +8,9 @@ admin works, and every screen is either fully v1 or fully v2.
 
 - **Incremental.** A screen is migrated in one change and stays usable before and after it.
 - **Additive CSS.** Admin v2 styles apply only through `.rg-admin-*` classes; nothing restyles Filament's `.fi-*`
-  components globally. The theme's only rules for Filament's own components are the two fixes carried over from
-  the old inline stylesheet (pointer cursors, the frameless records-per-page chooser). One side effect is
+  components globally. The theme's only rules for Filament's own components are the pointer cursors carried over
+  from the old inline stylesheet and the hidden Filament sidebar overlay (the frameless records-per-page chooser
+  went with the last Filament table). One side effect is
   intended: the theme compiles Tailwind from the admin's own views, so utilities that v1 views already used but
   Filament's prebuilt stylesheet lacked (for example `space-y-2`, `lg:grid-cols-5`) now render as written.
 - **Filament stays.** Screens keep Filament's routing, authorization and Livewire; v2 replaces what they look
@@ -29,7 +30,7 @@ admin works, and every screen is either fully v1 or fully v2.
 - The two references are filed under `docs/design/admin/reference/original/`.
 - `design-contract.md`, `ui-review-checklist.md` and this plan are written.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
-  the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its two fixes live in the theme.
+  the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its fixes live in the theme.
 - The live developer UI kit, local and testing only, lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
   NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01. Later screens add the elements they need
   under their reference IDs.
@@ -212,7 +213,7 @@ translation status that links into Translation Center. The moderation screens fo
 | 5 | Comments — **done** | — |
 | 6 | Reports — **done** | DOM-02 report chain, the docked 448 panel |
 | 7 | Users and user edit — **done** | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
-| 8 | Media diagnostics | — |
+| 8 | Media diagnostics — **done** | — |
 
 **Categories and Tags. Status: done.** Each is one screen drawn entirely in Admin v2 (`ManageCategories`,
 `ManageTags`), as the contract's [Content](design-contract.md#content) section describes: the header band with its
@@ -279,6 +280,16 @@ boundary); Limit, Shadowban, Ban and Mark trusted after a confirmation that says
 at once, with Undo where it reverses exactly; and a person's page that edits their profile, role, trust and
 password from the top bar through the new `UpdateUserAccountAction`, beside their status, account and moderation
 history. The kit gained the radio cards (FRM-09).
+
+**Media diagnostics. Status: done.** One screen (`MediaDiagnosticsPage`) drawn in Admin v2, as the contract's
+[Media diagnostics](design-contract.md#media-diagnostics) section describes: the library's health in the header
+band, the overview's figures — those counting issues narrowing the list to them — and the last completed audit's
+issues, the most severe first, searched and narrowed on the server, 25 a page (`MediaAuditIssuesQuery`, a
+registered stable pagination boundary); the asset inspector in a drawer; Release, Force regenerate and the
+irreversible Purge behind their confirmations, each checked again by the media lifecycle; the last audit, the runs
+before it and the failed media jobs with Retry and Retry all; Refresh and Run full audit in the top bar. The
+navigation item shows the missing masters of the last completed audit. With it the last Filament table left the
+admin, and the theme's fix for Filament's records-per-page chooser went with it.
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is

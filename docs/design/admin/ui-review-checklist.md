@@ -9,8 +9,8 @@ reference and in `/admin/dev/ui-kit`.
 - [ ] Built from `x-admin.ui.*` components and `.rg-admin-*` primitives only; no `x-ui.*`.
 - [ ] Colour, spacing, radii and shadows come from `--rg-admin-*` tokens; no public `--rg-*` tokens, no Tailwind
       palette classes (`bg-gray-50`, `text-gray-600`, …) in reusable admin components.
-- [ ] No `.fi-*` overrides beyond the two fixes the contract documents (pointer cursors, the frameless
-      records-per-page chooser); screens not being migrated keep their design.
+- [ ] No `.fi-*` overrides beyond the ones the contract documents (pointer cursors, Filament's sidebar overlay
+      hidden); screens not being migrated keep their design.
 - [ ] Anything new is added to the kit under its reference ID in the same change.
 
 ## Foundations [FND-01 – FND-04]

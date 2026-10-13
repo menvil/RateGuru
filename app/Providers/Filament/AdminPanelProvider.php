@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
@@ -104,6 +105,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::editorActions('Save changes', null, 'discard-user', 'save-user'),
                 scopes: EditUser::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.media-diagnostics.topbar', ['at' => now()->format('H:i')])->render(),
+                scopes: MediaDiagnosticsPage::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

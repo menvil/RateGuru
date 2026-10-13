@@ -59,9 +59,9 @@ changes one file.
 
 The admin CSS is additive. Every Admin v2 rule is scoped to a `.rg-admin-*` class; nothing restyles Filament's
 own `.fi-*` components, so the existing screens keep their design until each one is migrated. The theme file
-holds the only rules that touch Filament's own elements, all unlayered: two fixes carried over from the old
-inline stylesheet (pointer cursor on toggles, selects and file pickers; a frameless records-per-page chooser),
-and one that fits Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
+holds the only rules that touch Filament's own elements, all unlayered: a fix carried over from the old inline
+stylesheet (pointer cursor on toggles, selects and file pickers — the frameless records-per-page chooser it
+also carried went with the last Filament table), and one that fits Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
 replaces). Because the theme compiles Tailwind
 from `app/Filament` and `resources/views/filament`, utilities those views already used but Filament's prebuilt
 stylesheet lacked now take effect as written.
@@ -109,7 +109,8 @@ Tertiary text deliberately departs from the reference; see
 | due time | — | `#7A4520` | — | ages past their threshold, “Required”, unsaved counts |
 
 The info tint adds `--rg-admin-status-info-border` `#C9D5EE`, `--rg-admin-status-info-field` `#F4F7FD` (an
-unsaved AI draft's field) and `--rg-admin-status-info-cell` `#FAFBFE` (its cell). Data colours: track
+unsaved AI draft's field) and `--rg-admin-status-info-cell` `#FAFBFE` (its cell). The danger tint adds
+`--rg-admin-status-danger-row` `#FFFBFB`, the faint ground of a critical row (Media diagnostics). Data colours: track
 `#E1E4EB`, progress ink, complete `#21C06C` (only at 100%), missing `#FD8549`, invalid `#E5484D`, running
 `#2D4373`.
 
@@ -207,7 +208,7 @@ This section is the target design from the prototype. Production builds it as de
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
 Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
-Tags, Rating groups and Project settings are migrated: their content is Admin v2 too.
+Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -249,7 +250,8 @@ Tags, Rating groups and Project settings are migrated: their content is Admin v2
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
-  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
+  diagnostics when it was read, Refresh and Run full audit. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -271,9 +273,10 @@ These are the current migration state, not changes to the target design:
   user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
   settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
   than a partial imitation.
-- **Operational counts** (media critical) are not shown yet; Posts shows its pending count, Comments its reported
-  comments still visible and Reports its open reports (warning). The shell draws a badge whenever a navigation item provides one, but adds no count
-  queries of its own; each count arrives with the migration of its screen, from its resource.
+- **Operational counts** arrived with their screens: Posts shows its pending count, Comments its reported comments
+  still visible and Reports its open reports (warning); Media diagnostics the masters the last completed audit
+  found missing (danger), read from that audit's own tally. The shell draws a badge whenever a navigation item
+  provides one, but adds no count queries of its own. Only Translation Center's is still missing, below.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
   admin page, so the item has no badge for now rather than a full completeness read per page or a counter kept
@@ -359,7 +362,7 @@ Grid templates used in the prototype, for reference:
 | Rating groups | `minmax(240px,1fr) 130px 170px 100px 150px 100px 64px 120px` | 1040 |
 | Languages | `minmax(220px,1fr) 90px 150px 180px 190px 110px 130px` | 1060 |
 | Translation Center | `240px minmax(0,1fr) minmax(0,1fr)` | — |
-| Media diagnostics | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px` | 1100 |
+| Media diagnostics | `96px 170px 88px 132px 80px minmax(160px,1fr) 120px 210px` | 1056 |
 | Translation AI recent calls (production) | `96px 172px 180px 96px 52px 116px 92px 72px minmax(200px,1fr)` | 1076 |
 
 ## Forms
@@ -1136,6 +1139,40 @@ page is not theirs to edit.
 - **Access:** moderators see the list; editing an account and every moderation action are an administrator's,
   never on their own account nor another administrator's, and never on a deleted one.
 
+## System
+
+### Media diagnostics
+
+Media diagnostics (`MediaDiagnosticsPage`) is drawn entirely in Admin v2. Every figure comes from aggregate SQL or
+the snapshot the last audit recorded — never a scan of the disks; the one exception is the asset inspector, which
+checks the files of the one asset it shows. The page keeps its route, its navigation item and who may open it
+(`view-media-diagnostics`, administrators).
+
+- **Header band:** the title with the library's health (STS-01: Healthy, Degraded, Critical, Unknown before any
+  audit), when the last audit completed and how many issues it found — or that a full audit is running — and the
+  media disks.
+- **Overview:** ten figures in one card — health with its critical and warning counts, assets, variants, tracked
+  storage, missing masters (Critical), missing variants (Warning), active unreferenced, purgeable, physical orphan
+  candidates and failed media jobs (Failed). A figure that counts issues is a button that narrows the issues to it.
+- **Audit issues (TBL-01, TBL-02):** the issues of the last completed audit, the most severe first, 25 a page
+  (`MediaAuditIssuesQuery`, a registered stable pagination boundary), each kept in its address — searched by asset
+  id or path, narrowed by Severity and Issue type as filter dropdowns with counts. A critical row has the faint
+  danger ground. Each row offers only what can be done about it: Regenerate on a missing variant, Release on an
+  active unreferenced asset, Purge on a purgeable one, and Inspect wherever there is an asset.
+- **Last audit, Audit history, Failed media jobs:** the last run whatever its status — started, completed,
+  duration, status, assets, variants and issues; the five runs before, each with its tally; the failed media jobs,
+  each with its exception, Retry, and Retry all, which dispatches a fresh regeneration rather than the old payload.
+- **Asset inspector (OVL-02):** what the issue means for the asset, its details — kind, what uses it, disk, path,
+  size, dimensions, type, uploaded, lifecycle — and its files, the master and each variant, there or missing.
+  Under the files, Force regenerate all variants for an asset still active; in the footer Copy path, then Release
+  asset, Purge asset or Regenerate missing variants as the issue allows, or “No automatic fix” for a missing master.
+  A confirmation asked for here replaces the drawer.
+- **Confirmations (OVL-01):** Release (warning) and Force regenerate (warning) say what they do; Purge is
+  irreversible — the danger callout, what it deletes and an acknowledgement. Each is checked again when confirmed:
+  an asset something uses again is not released, and only an asset still purgeable is purged.
+- **Top bar (NAV-02):** when the page was read, Refresh, and Run full audit, which dispatches an audit unless one
+  is already running.
+
 ## Responsive rules
 
 - Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
@@ -1244,6 +1281,17 @@ page is not theirs to edit.
 | New password | at least 10 characters; signs other sessions out | the application's password rule; other sessions stay | the rule people's own passwords follow, and saving does not end sessions |
 | Person's page top bar | Cancel and Save changes | Discard and Save changes | as every Admin v2 editor |
 | Users grid | `minmax(200px,1fr) 220px 110px 140px 120px 70px 80px 110px`, 1050 | Trust 150, 1080 | “Not trusted” beside its bar fits without wrapping |
+| Next scheduled audit | “Next scheduled audit Tomorrow 04:00” in the header band | not shown | no audit is scheduled; one runs from the top bar or `media:audit` |
+| Asset ids | “A-208113” | “#208113”, and the search finds “#208113” or “208113” | the id as stored, as the other lists show theirs |
+| Issue type names | Missing master, Missing variant, Unreferenced asset, Purgeable asset, Physical orphan | Missing master file, Missing variant file, Active unreferenced asset, Purgeable asset, Physical orphan candidate, Failed generation job | the issue types the audit records |
+| Asset preview | a 168 high preview at the top of the inspector | none | the inspector checks files, it does not render them |
+| Force regenerate | not in the reference | in the inspector, under the files of an asset still active, after a warning confirmation | the page has always offered replacing an asset's variants from its master |
+| Media diagnostics grid | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px`, 1100 | `96px 170px 88px 132px 80px minmax(160px,1fr) 120px 210px`, 1056 | the variant names as stored (`post_detail_1920`) and “Yesterday 23:39” fit, and the grid fits the card at 1440 |
+| Overview figures | at least 180 wide | at least 160 wide | two figures a row on a phone instead of ten one under another |
+| Purge confirmation | a typed asset id and an acknowledgement; “Recorded in the audit log as …” | the acknowledgement alone; no footnote | the acknowledgement is the irreversible level, as Finalize removal has it; no log records a purge |
+| Release facts | “Checked just now: no post, avatar or static page uses this file.” | “Checked again when you confirm: an asset something uses now is left as it is.” | the references are checked on confirming, not on opening the dialog |
+| Failed job attempts | “attempt 3 of 3” | not shown | the failed job record keeps no attempt count |
+| Run full audit progress | a progress bar while the audit runs | “A full audit is running” in the header band; Refresh reads the outcome | the audit runs in the background and reports no progress |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |

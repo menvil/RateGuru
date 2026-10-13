@@ -22,6 +22,7 @@
     --rg-admin-gray-500: #7a818e;
     --rg-admin-gray-600: #525866;
     --rg-admin-gray-950: #0e121b;
+    --rg-admin-red-25: #fffbfb;
     --rg-admin-red-50: #ffebec;
     --rg-admin-red-300: #ff9aa2;
     --rg-admin-red-500: #e5484d;
@@ -85,6 +86,7 @@
     --rg-admin-status-danger-fg: var(--rg-admin-red-950);
     --rg-admin-status-danger-dot: var(--rg-admin-red-500);
     --rg-admin-status-danger-solid: var(--rg-admin-red-500);
+    --rg-admin-status-danger-row: var(--rg-admin-red-25);
     --rg-admin-status-info-bg: var(--rg-admin-blue-100);
     --rg-admin-status-info-fg: var(--rg-admin-blue-900);
     --rg-admin-status-info-dot: var(--rg-admin-blue-900);

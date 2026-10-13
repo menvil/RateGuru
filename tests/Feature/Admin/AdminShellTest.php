@@ -314,10 +314,12 @@ it('runs no queries of its own to draw the shell, only the counts its destinatio
     Livewire::test(Topbar::class)->assertOk();
 
     // Posts gives its count of posts waiting for review, Comments its count
-    // of reported comments still visible and Reports its open reports, once
-    // per navigation drawn; every other query would be the shell's own.
+    // of reported comments still visible, Reports its open reports and Media
+    // diagnostics the missing masters of the last completed audit, once per
+    // navigation drawn; every other query would be the shell's own.
     [$counts, $others] = collect(DB::getQueryLog())->pluck('query')
-        ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1);
+        ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1
+            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1);
 
     expect($counts)->not->toBeEmpty();
 
