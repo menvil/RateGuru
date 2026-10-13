@@ -127,8 +127,10 @@ gated_default() {
 EFFECTIVE_UID="$(gated_default RATEGURU_PUBLICHTTP_EUID "${EUID}")"
 FS_ROOT="$(gated_default RATEGURU_PUBLICHTTP_FS_ROOT '')"
 
-# The registry every decision is read from: the trusted bundle's own.
+# The registry every decision is read from: the trusted bundle's own, judged by
+# the bundle's own validator.
 TRUSTED_REGISTRY="$(gated_default RATEGURU_PUBLICHTTP_REGISTRY "${REPO_ROOT}/infrastructure/config/deployment-targets.json")"
+TARGETS_CLI="$(gated_default RATEGURU_PUBLICHTTP_TARGETS_CLI "${SCRIPT_DIR}/targets")"
 
 # The registry the host's own operations read, and its one infrastructure lock:
 # the same file prepare-host and every other host-level operation hold.
@@ -383,11 +385,11 @@ public_hostname_problem() {
 load_target() {
     local output target lifecycle_installed name problem
 
-    [[ -x "${SCRIPT_DIR}/targets" ]] \
-        || die "the registry validator is not executable: ${SCRIPT_DIR}/targets — run from a full trusted bundle; nothing was changed"
+    [[ -x "${TARGETS_CLI}" ]] \
+        || die "the registry validator is not executable: ${TARGETS_CLI} — run from a full trusted bundle; nothing was changed"
     [[ -f "${TRUSTED_REGISTRY}" && ! -L "${TRUSTED_REGISTRY}" ]] \
         || die "the trusted bundle has no registry: ${TRUSTED_REGISTRY} — nothing was changed"
-    output="$("${SCRIPT_DIR}/targets" validate --file "${TRUSTED_REGISTRY}" 2>&1)" \
+    output="$("${TARGETS_CLI}" validate --file "${TRUSTED_REGISTRY}" 2>&1)" \
         || die "the trusted bundle's target registry does not validate — nothing was changed"$'\n'"${output}"
 
     jq -e --arg t "${TARGET_ID}" '.targets | has($t)' "${TRUSTED_REGISTRY}" >/dev/null \
@@ -775,7 +777,10 @@ def id: "\(.file)#\(.n)";
         explicit: [$others[] | select(any(.sockets[]; .socket == $s and .default)) | id],
         first: ([$all[] | select(any(.sockets[]; .socket == $s))][0] // null | if . == null then null else id end)
       })),
-    specific: [$others[] | .file as $f | .sockets[] | select(.port == "80" and (.addr | IN("*", "[::]") | not)) | "\($f) \(.socket)"] | unique,
+    specific: (($sockets[0] | capture(":(?<p>[0-9]+)$").p) as $port
+      | [$others[] | .file as $f | .sockets[] | select(.port == $port and (.addr | IN("*", "[::]") | not)) | "\($f) \(.socket)"] | unique),
+    names_on: [$others[] | select(any(.sockets[]; .socket | IN($sockets[]))) | .names[]
+      | select(. != "" and . != "_" and (startswith("~") | not) and (contains("*") | not) and (startswith(".") | not))] | unique,
     claimed: [$names[] as $h | $others[] | . as $srv | .names[] | matches($h) as $m | select($m != null) | {host: $h, server: ($srv | id), name: ., match: $m}],
     routes: [$mx[] as $h | $sockets[] as $s
       | [$all[] | select(any(.sockets[]; .socket == $s))] as $set
@@ -911,10 +916,16 @@ probe() {
         --header "Host: ${host}" "http://${address}${path}" 2>/dev/null)" || code="000"
     [[ "${code}" =~ ^[0-9]{3}$ ]] || code="000"
 
-    retry="$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "retry-after" { value = $2 } END { print value }')"
-    location="$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "location" { value = $2 } END { print value }')"
+    retry="$(header_value "${headers}" retry-after)"
+    location="$(header_value "${headers}" location)"
 
     printf '%s|%s|%s|%s\n' "${code}" "${retry}" "$(sha256sum <"${body}" | cut -c1-64)" "${location}"
+}
+
+# header_value HEADERS NAME — the value of the response header NAME, whole:
+# a Location keeps its scheme.
+header_value() {
+    tr -d '\r' <"$1" | awk -v want="$2" '{ line = $0; name = tolower(line); sub(/:.*/, "", name); if (name == want) { sub(/^[^:]*:[ \t]*/, "", line); value = line } } END { print value }'
 }
 
 # is_ours ANSWER — the public site's own 503.

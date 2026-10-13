@@ -855,8 +855,8 @@ it('creates no subsystem-specific verification workflow beyond the signing accep
     // Verify production infrastructure also runs as its Mail inbound group
     // (MailInboundWorkflowTest guards it), and the read-only third of the
     // public site's Prepare, Verify and Rollback (PublicHttpWorkflowTest
-    // guards it).
-    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml', 'verify-tits-guru-inbound-smtp.yml', 'verify-tits-guru-public-http.yml']);
+    // guards it), and of its HTTPS ones (PublicHttpsWorkflowTest guards it).
+    expect($verify)->toBe(['verify-production-infrastructure.yml', 'verify-production-mail-signing.yml', 'verify-staging-infrastructure.yml', 'verify-tits-guru-https.yml', 'verify-tits-guru-inbound-smtp.yml', 'verify-tits-guru-public-http.yml']);
 
     // The deep primitives stay on the host, and no workflow or action runs
     // them — except that one acceptance, through its own transport, which runs

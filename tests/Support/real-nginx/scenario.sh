@@ -42,10 +42,25 @@
 #   * --rollback removes exactly the site's file and link with one reload, a
 #     failed reload puts them back, and a second --rollback is a no-op;
 #   * Nginx is reloaded only: never started, stopped or restarted;
+#   * HTTPS: with a certificate for tits.guru from a test authority, laid out
+#     as Certbot lays it out, prepare-public-https takes http-acme-ready to
+#     tls-ready — a verified certificate on 443 and 503 with Retry-After and
+#     Cache-Control: no-store, a 301 to HTTPS on 80, ACME still served for both
+#     names, staging's HTTPS sites and the default server for unlisted names
+#     unchanged — and prepare-public-http then refuses the site; a second apply
+#     is a no-op; the renewal hook reloads Nginx for a renewed tits.guru, which
+#     is then served, and does nothing for mx1.tits.guru; GO LIVE is refused for
+#     a planned target; the public-active render passes nginx -t; a live site
+#     serving an untrusted or an expired certificate, with the two registries
+#     disagreeing on its lifecycle, is closed by --deactivate all the same, and
+#     --verify still reports the certificate; a failed nginx -t or reload puts
+#     the previous state back; and --rollback returns the exact
+#     http-acme-ready, keeping the certificate;
 #   * on a host that disables IPv6 — as the production host does: disable_ipv6=1,
 #     no ::1, Nginx still bound to [::]:80 — check, apply, a second apply,
 #     verify and rollback pass on 127.0.0.1 alone, say the [::1] probes are
-#     skipped, and keep the MX host's route.
+#     skipped, and keep the MX host's route — and HTTPS goes to tls-ready and
+#     back the same way.
 #
 # Prints PASS and FAIL lines, and exits non-zero on any FAIL.
 
@@ -169,6 +184,10 @@ if [[ "\$1" == -t && -e "${WORK}/nginx-t-fails-with-public" && -L "${PUBLIC_LINK
     echo "nginx: [emerg] the scenario refuses the candidate" >&2
     exit 1
 fi
+if [[ "\$1" == -t && -e "${WORK}/nginx-t-fails-with-https" ]] && grep -q 'listen 443 ssl;' "${PUBLIC_FILE}" 2>/dev/null; then
+    echo "nginx: [emerg] the scenario refuses the HTTPS candidate" >&2
+    exit 1
+fi
 exec nginx "\$@"
 EOF
 chmod 0755 "${WORK}/bin/systemctl" "${WORK}/bin/nginx"
@@ -184,6 +203,20 @@ run_public_http() {
         RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY="${WORK}/installed-registry.json" \
         "${SCRIPTS}/prepare-public-http" "--${mode}" --target "${TARGET}" 2>&1)" && STATUS=0 || STATUS=$?
     RESULT="$(grep '^RATEGURU_PUBLIC_HTTP_RESULT=' <<<"${OUTPUT}" | sed 's/^RATEGURU_PUBLIC_HTTP_RESULT=//')"
+}
+
+run_public_https() {
+    local mode="$1"
+    shift
+    OUTPUT="$(env RATEGURU_ALLOW_TEST_OVERRIDES=true \
+        RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN="${WORK}/bin/systemctl" \
+        RATEGURU_PUBLICHTTP_NGINX_BIN="${WORK}/bin/nginx" \
+        RATEGURU_PUBLICHTTP_RUN_ROOT="${WORK}/run-rateguru" \
+        RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY="${WORK}/installed-registry.json" \
+        RATEGURU_PUBLICHTTPS_LETSENCRYPT="${WORK}/letsencrypt" \
+        RATEGURU_PUBLICHTTPS_TRUST_STORE="${WORK}/ca/ca.pem" \
+        "${SCRIPTS}/prepare-public-https" "--${mode}" --target "${TARGET}" "$@" 2>&1)" && STATUS=0 || STATUS=$?
+    RESULT="$(grep '^RATEGURU_PUBLIC_HTTPS_RESULT=' <<<"${OUTPUT}" | sed 's/^RATEGURU_PUBLIC_HTTPS_RESULT=//')"
 }
 
 show_output() {
@@ -503,6 +536,247 @@ rm -f /etc/nginx/sites-enabled/claim /etc/nginx/sites-available/claim
 nginx -s reload
 sleep 1
 
+# --- HTTPS: tls-ready -------------------------------------------------------------------------
+
+# A certificate for tits.guru from a test authority, laid out as Certbot lays
+# it out: the archive, the live links into it, the renewal configuration
+# through the webroot, and the deploy hook directory beside the inbound mail
+# listener's own hook. The authority is the only one trusted.
+LE="${WORK}/letsencrypt"
+mkdir -m 0755 "${WORK}/ca" "${LE}" "${LE}/renewal" "${LE}/renewal-hooks" "${LE}/renewal-hooks/deploy"
+mkdir -m 0700 "${LE}/live" "${LE}/archive" "${LE}/live/${PUBLIC_HOST}" "${LE}/archive/${PUBLIC_HOST}"
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=RateGuru scenario authority" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -keyout "${WORK}/ca/ca.key" -out "${WORK}/ca/ca.pem" >/dev/null 2>&1
+# An authority nobody trusts, for a certificate no browser accepts.
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=An untrusted authority" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -keyout "${WORK}/ca/rogue.key" -out "${WORK}/ca/rogue.pem" >/dev/null 2>&1
+
+# issue VERSION [DAYS [AUTHORITY]] — version VERSION of the pair, signed by
+# AUTHORITY (the scenario authority unless named) for DAYS days (60 unless
+# named; -1 has expired already), and the live links moved to it, as a renewal does.
+issue() {
+    local version="$1" days="${2:-60}" authority="${3:-${WORK}/ca/ca}" archive="${LE}/archive/${PUBLIC_HOST}" part
+    openssl req -newkey rsa:2048 -nodes -subj "/CN=${PUBLIC_HOST}" \
+        -keyout "${archive}/privkey${version}.pem" -out "${WORK}/ca/leaf.csr" >/dev/null 2>&1
+    chmod 0600 "${archive}/privkey${version}.pem"
+    printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' "${PUBLIC_HOST}" >"${WORK}/ca/leaf.ext"
+    openssl x509 -req -in "${WORK}/ca/leaf.csr" -CA "${authority}.pem" -CAkey "${authority}.key" -set_serial "100${version}" \
+        -days "${days}" -extfile "${WORK}/ca/leaf.ext" -out "${archive}/cert${version}.pem" >/dev/null 2>&1
+    cp "${authority}.pem" "${archive}/chain${version}.pem"
+    cat "${archive}/cert${version}.pem" "${archive}/chain${version}.pem" >"${archive}/fullchain${version}.pem"
+    for part in cert chain fullchain privkey; do
+        ln -sfn "../../archive/${PUBLIC_HOST}/${part}${version}.pem" "${LE}/live/${PUBLIC_HOST}/${part}.pem"
+    done
+}
+issue 1
+printf '[renewalparams]\nauthenticator = webroot\nwebroot_path = /var/www/html,\n' >"${LE}/renewal/${PUBLIC_HOST}.conf"
+printf '#!/bin/bash\n# the inbound mail listener'"'"'s own renewal hook\nexit 0\n' >"${LE}/renewal-hooks/deploy/rateguru-mail-inbound-tls"
+chmod 0755 "${LE}/renewal-hooks/deploy/rateguru-mail-inbound-tls"
+HOOK="${LE}/renewal-hooks/deploy/rateguru-public-https-${TARGET}"
+
+# https_answer ADDRESS HOST PATH — "STATUS|RETRY-AFTER|CACHE-CONTROL|BODY" over a
+# verified HTTPS connection, the scenario authority alone trusted.
+https_answer() {
+    local headers body code
+    headers="${WORK}/https.headers"
+    body="${WORK}/https.body"
+    code="$(curl --silent --globoff --noproxy '*' --max-time 5 --cacert "${WORK}/ca/ca.pem" --resolve "$2:443:$1" \
+        -o "${body}" -D "${headers}" -w '%{http_code}' "https://$2$3" 2>/dev/null)" || code=000
+    printf '%s|%s|%s|%s\n' "${code}" \
+        "$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "retry-after" { print $2 }')" \
+        "$(tr -d '\r' <"${headers}" | awk -F': *' 'tolower($1) == "cache-control" { print $2 }')" \
+        "$(head -c 200 "${body}" | tr '\n' '~')"
+}
+
+# others_https ADDRESS — what staging's HTTPS sites and a name nobody lists answer.
+others_https() {
+    local name
+    for name in rateguru.staging.myprojects.pp.ua mailpit.staging.myprojects.pp.ua mailtrap.staging.myprojects.pp.ua unlisted.invalid; do
+        printf '%s %s\n' "${name}" "$(curl --silent --insecure --noproxy '*' --max-time 5 --resolve "${name}:443:$1" -o /dev/null -w '%{http_code}' "https://${name}/" 2>/dev/null || echo 000)"
+    done
+}
+
+served_serial() {
+    openssl s_client -connect 127.0.0.1:443 -servername "${PUBLIC_HOST}" </dev/null 2>/dev/null | openssl x509 -noout -serial 2>/dev/null
+}
+
+certbot_tree() {
+    (cd "${LE}" && find . -path "./renewal-hooks/deploy/rateguru-public-https-${TARGET}" -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum)
+}
+
+run_public_http apply
+result_is "HTTPS: the public site starts from http-acme-ready" 0 '.status == "pass" and .state == "http-acme-ready"'
+OTHERS_BEFORE="$(others_https 127.0.0.1; others_https '[::1]')"
+ETC_BEFORE_HTTPS="$(etc_snapshot)"
+CERTBOT_BEFORE="$(certbot_tree)"
+
+run_public_https check
+result_is "HTTPS: --check passes, the certificate valid" 0 '.status == "pass" and .state == "http-acme-ready" and .certificate == "valid"'
+
+: >"${WORK}/systemctl.log"
+run_public_https apply
+result_is "HTTPS: --apply takes the site to tls-ready" 0 '.status == "pass" and .state == "tls-ready" and .certificate == "valid" and .hook == "installed" and .changed and .reloaded'
+master_kept "HTTPS apply"
+expect "HTTPS: apply reloaded Nginx once" "$(grep -c '^reload nginx$' "${WORK}/systemctl.log" || true)" 1
+for address in 127.0.0.1 '[::1]'; do
+    expect "HTTPS: ${PUBLIC_HOST} on ${address}, a verified certificate: / is 503 with Retry-After and no-store" \
+        "$(https_answer "${address}" "${PUBLIC_HOST}" /)" "503|3600|no-store|Service Unavailable~"
+    expect "HTTPS: ${PUBLIC_HOST} on ${address}: /index.php is the same 503" \
+        "$(https_answer "${address}" "${PUBLIC_HOST}" /index.php | cut -d'|' -f1)" 503
+    expect "HTTPS: ${PUBLIC_HOST} on ${address}: HTTP is a 301 to HTTPS" \
+        "$(curl --silent --globoff --noproxy '*' -o /dev/null -w '%{http_code} %{redirect_url}' -H "Host: ${PUBLIC_HOST}" "http://${address}/somewhere?x=1")" \
+        "301 https://${PUBLIC_HOST}/somewhere?x=1"
+    expect "HTTPS: ${PUBLIC_HOST} on ${address}: its challenge token, still from the webroot over HTTP" \
+        "$(answer "${address}" "${PUBLIC_HOST}" "/.well-known/acme-challenge/${TOKEN}")" "200|text/plain||${TOKEN_BODY}"
+done
+expect_mx "HTTPS, tls-ready"
+expect "HTTPS: staging's HTTPS sites and the default server answer as before" "$(others_https 127.0.0.1; others_https '[::1]')" "${OTHERS_BEFORE}"
+expect "HTTPS: every other file under /etc/nginx is unchanged" "$(etc_snapshot)" "${ETC_BEFORE_HTTPS}"
+expect "HTTPS: Certbot's certificates, renewal configuration and the mail hook are unchanged" "$(certbot_tree)" "${CERTBOT_BEFORE}"
+expect "HTTPS: the renewal hook is root's, 0755" "$(stat -c '%U:%a' "${HOOK}")" "root:755"
+
+for mode in apply rollback; do
+    run_public_http "${mode}"
+    if [[ "${STATUS}" == 1 ]] && grep -q 'it holds an HTTPS configuration' <<<"${OUTPUT}"; then
+        pass "HTTPS: prepare-public-http --${mode} refuses the HTTPS site"
+    else
+        fail "HTTPS: prepare-public-http --${mode} did not refuse the HTTPS site (exit ${STATUS})"
+        show_output
+    fi
+done
+
+: >"${WORK}/systemctl.log"
+run_public_https apply
+result_is "HTTPS: a second --apply is a no-op" 0 '.status == "pass" and .state == "tls-ready" and (.changed | not) and (.reloaded | not)'
+run_public_https verify
+result_is "HTTPS: --verify passes on tls-ready" 0 '.status == "pass" and .state == "tls-ready" and .hook == "installed"'
+expect "HTTPS: the no-op and verify reloaded nothing" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
+
+# Certbot renews tits.guru: the hook judges the renewed pair, runs nginx -t and
+# reloads; the renewed certificate is the one served.
+expect "HTTPS: version 1 is served" "$(served_serial)" "serial=03E9"
+issue 2
+: >"${WORK}/systemctl.log"
+hook_output="$(env -i PATH="${WORK}/bin:/usr/sbin:/usr/bin:/sbin:/bin" RENEWED_LINEAGE="${LE}/live/${PUBLIC_HOST}" bash "${HOOK}" 2>&1)" && hook_status=0 || hook_status=$?
+expect "HTTPS: the hook passes for the renewed ${PUBLIC_HOST}" "${hook_status}" 0
+expect "HTTPS: and reloads Nginx once" "$(grep -c '^reload nginx$' "${WORK}/systemctl.log" || true)" 1
+sleep 1
+expect "HTTPS: the renewed certificate is served" "$(served_serial)" "serial=03EA"
+master_kept "HTTPS renewal"
+: >"${WORK}/systemctl.log"
+hook_output="$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin RENEWED_LINEAGE="${LE}/live/${MX_HOST}" bash "${HOOK}" 2>&1)" && hook_status=0 || hook_status=$?
+expect "HTTPS: for a renewal of ${MX_HOST} the hook does nothing" "${hook_status}|${hook_output}|$(wc -l <"${WORK}/systemctl.log")" "0||0"
+
+# GO LIVE: refused for a planned target.
+run_public_https activate --confirm-public
+result_is "HTTPS: GO LIVE is refused for a planned target" 1 '.status == "fail" and .state == "tls-ready" and (.changed | not)'
+
+# The public-active render is valid Nginx: checked in place, without a reload.
+cp -p "${PUBLIC_FILE}" "${WORK}/tls-ready-render"
+render_public_active() {
+    (
+        export RATEGURU_ALLOW_TEST_OVERRIDES=true RATEGURU_PUBLICHTTPS_LETSENCRYPT="${LE}"
+        source "${SCRIPTS}/prepare-public-https"
+        TARGET_ID="${TARGET}"; MODE=check
+        load_target >/dev/null
+        load_https_target
+        render_https_site public-active
+    ) >"${PUBLIC_FILE}"
+}
+render_public_active
+if grep -q 'fastcgi_pass unix:' "${PUBLIC_FILE}" && nginx -t >/dev/null 2>&1; then
+    pass "HTTPS: the public-active render passes nginx -t"
+else
+    fail "HTTPS: the public-active render fails nginx -t: $(nginx -t 2>&1 | head -1)"
+fi
+cp -p "${WORK}/tls-ready-render" "${PUBLIC_FILE}"
+
+# Closing a live site in an emergency: the public-active render loaded, as GO
+# LIVE leaves it (no PHP-FPM answers behind it here, and closing never asks),
+# Certbot's lineage holding a certificate no browser accepts, and the host's
+# own registry saying active while the trusted bundle's says planned.
+# --deactivate closes it all the same, proving the 503 with Host and SNI, and
+# --verify still reports the certificate.
+https_answer_unverified() {
+    local code
+    : >"${WORK}/https.headers"
+    code="$(curl --silent --globoff --noproxy '*' --max-time 5 --insecure --resolve "${PUBLIC_HOST}:443:$1" \
+        -o "${WORK}/https.body" -D "${WORK}/https.headers" -w '%{http_code}' "https://${PUBLIC_HOST}/" 2>/dev/null)" || code=000
+    printf '%s|%s|%s\n' "${code}" \
+        "$(tr -d '\r' <"${WORK}/https.headers" | awk -F': *' 'tolower($1) == "retry-after" { print $2 }')" \
+        "$(tr -d '\r' <"${WORK}/https.headers" | awk -F': *' 'tolower($1) == "cache-control" { print $2 }')"
+}
+cp -p "${WORK}/installed-registry.json" "${WORK}/installed-registry.planned"
+jq --arg t "${TARGET}" '.targets[$t].lifecycle = "active"' "${WORK}/installed-registry.planned" >"${WORK}/installed-registry.json"
+for broken in untrusted expired; do
+    case "${broken}" in
+        untrusted) issue 3 60 "${WORK}/ca/rogue" ;;
+        expired)   issue 4 -1 ;;
+    esac
+    render_public_active
+    "${WORK}/bin/systemctl" reload nginx
+    sleep 1
+    expect "HTTPS: a live site serving an ${broken} certificate no longer verifies" "$(https_answer 127.0.0.1 "${PUBLIC_HOST}" / | cut -d'|' -f1)" 000
+
+    : >"${WORK}/systemctl.log"
+    run_public_https deactivate
+    result_is "HTTPS: --deactivate closes the live site with an ${broken} certificate, the registries disagreeing" 0 \
+        '.status == "pass" and .state == "tls-ready" and .lifecycle == "planned" and .changed and .reloaded and (.rolled_back | not)'
+    expect "HTTPS: it said the registries disagree and went on" "$(grep -c 'WARN     target:lifecycle' <<<"${OUTPUT}" || true)" 1
+    expect "HTTPS: closing reloaded Nginx once" "$(grep -c '^reload nginx$' "${WORK}/systemctl.log" || true)" 1
+    expect "HTTPS: closing never puts public-active back" "$(grep -c 'RESTORED' <<<"${OUTPUT}" || true)" 0
+    for address in 127.0.0.1 '[::1]'; do
+        expect "HTTPS: closed on ${address}: / is 503 with Retry-After and no-store, with Host and SNI ${PUBLIC_HOST}" \
+            "$(https_answer_unverified "${address}")" "503|3600|no-store"
+    done
+    expect_mx "HTTPS, closed with an ${broken} certificate"
+    expect "HTTPS: closed with an ${broken} certificate, staging's HTTPS sites and the default server answer as before" "$(others_https 127.0.0.1; others_https '[::1]')" "${OTHERS_BEFORE}"
+
+    run_public_https verify
+    result_is "HTTPS: --verify still reports the ${broken} certificate" 1 '.status == "fail" and .state == "tls-ready" and .certificate == "invalid"'
+done
+master_kept "HTTPS emergency close"
+
+# Back to a certificate that holds, and both registries planned.
+cp -p "${WORK}/installed-registry.planned" "${WORK}/installed-registry.json"
+issue 5
+"${WORK}/bin/systemctl" reload nginx
+sleep 1
+run_public_https verify
+result_is "HTTPS: with a certificate that holds again, --verify passes on tls-ready" 0 '.status == "pass" and .state == "tls-ready" and .certificate == "valid"'
+
+# A rollback whose reload fails keeps tls-ready.
+touch "${WORK}/reload-fail-once"
+run_public_https rollback
+result_is "HTTPS: a rollback whose reload fails puts tls-ready back" 1 '.status == "fail" and .rolled_back and .state == "tls-ready"'
+expect "HTTPS: after the failed rollback, still the HTTPS 503" "$(https_answer 127.0.0.1 "${PUBLIC_HOST}" / | cut -d'|' -f1)" 503
+
+: >"${WORK}/systemctl.log"
+run_public_https rollback
+result_is "HTTPS: --rollback returns the exact http-acme-ready" 0 '.status == "pass" and .state == "http-acme-ready" and .hook == "absent" and .changed and .reloaded'
+expect "HTTPS: the renewal hook is gone" "$([[ -e "${HOOK}" ]] && echo present || echo absent)" absent
+expect "HTTPS: the certificate is kept" "$([[ -f "${LE}/archive/${PUBLIC_HOST}/privkey2.pem" && -L "${LE}/live/${PUBLIC_HOST}/fullchain.pem" ]] && echo kept || echo gone)" kept
+expect "HTTPS: after rollback, HTTP is the 503 again" "$(answer 127.0.0.1 "${PUBLIC_HOST}" / | cut -d'|' -f1,3)" "503|3600"
+expect "HTTPS: after rollback, staging's HTTPS sites and the default server answer as before" "$(others_https 127.0.0.1; others_https '[::1]')" "${OTHERS_BEFORE}"
+expect_mx "HTTPS, after rollback"
+run_public_http verify
+result_is "HTTPS: prepare-public-http owns and verifies the site again" 0 '.status == "pass" and .state == "http-acme-ready"'
+
+# nginx -t refusing the HTTPS candidate puts http-acme-ready back, unreloaded.
+touch "${WORK}/nginx-t-fails-with-https"
+: >"${WORK}/systemctl.log"
+run_public_https apply
+result_is "HTTPS: nginx -t refusing the candidate restores http-acme-ready" 1 '.status == "fail" and .rolled_back and .state == "http-acme-ready" and .hook == "absent"'
+rm -f "${WORK}/nginx-t-fails-with-https"
+expect "HTTPS: the refused candidate reloaded nothing" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
+expect "HTTPS: and left no hook" "$([[ -e "${HOOK}" ]] && echo present || echo absent)" absent
+master_kept "HTTPS"
+
+run_public_http rollback
+result_is "HTTPS: back to not-prepared for what follows" 0 '.status == "pass" and .state == "not-prepared"'
+
 # --- Never anything but a reload ---------------------------------------------------------------
 
 master_kept "the whole scenario"
@@ -566,6 +840,18 @@ result_is "IPv4-only: a second --apply is a no-op" 0 '.status == "pass" and .sta
 run_public_http verify
 result_is "IPv4-only: --verify passes" 0 '.status == "pass" and .state == "http-acme-ready" and .ipv6_loopback == "disabled"'
 expect "IPv4-only: the no-op and verify reloaded nothing" "$(grep -c '^reload' "${WORK}/systemctl.log" || true)" 0
+
+# HTTPS on the same host: tls-ready on 127.0.0.1 alone, and back.
+run_public_https apply
+result_is "IPv4-only: HTTPS --apply takes the site to tls-ready" 0 '.status == "pass" and .state == "tls-ready" and .ipv6_loopback == "disabled"'
+expect "IPv4-only: HTTPS answers with a verified certificate and the 503" "$(https_answer 127.0.0.1 "${PUBLIC_HOST}" / | cut -d'|' -f1-3)" "503|3600|no-store"
+expect_mx_ipv4 "IPv4-only, tls-ready"
+run_public_https verify
+result_is "IPv4-only: HTTPS --verify passes" 0 '.status == "pass" and .state == "tls-ready" and .ipv6_loopback == "disabled"'
+run_public_https rollback
+result_is "IPv4-only: HTTPS --rollback returns http-acme-ready" 0 '.status == "pass" and .state == "http-acme-ready"'
+: >"${WORK}/systemctl.log"
+
 
 run_public_http rollback
 result_is "IPv4-only: --rollback removes the public site" 0 '.status == "pass" and .state == "not-prepared" and .changed and .reloaded and .ipv6_loopback == "disabled"'
