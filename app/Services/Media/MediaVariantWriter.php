@@ -45,6 +45,12 @@ use Throwable;
  * deleting it would leave nothing; the row's metadata may be transiently
  * stale until a successful retry, which is preferred over destroying a
  * working variant.
+ *
+ * A regeneration can also move a variant: when its format changes, so does
+ * its file extension and with it the path. The previous file then stays the
+ * one the row names until the row is updated, so a DB failure deletes the
+ * new file instead, and a success deletes the previous one, which nothing
+ * claims any more.
  */
 final class MediaVariantWriter
 {
@@ -67,15 +73,16 @@ final class MediaVariantWriter
         return $lock->block(
             (int) config('media.variant_lock.wait_seconds'),
             function () use ($asset, $specification, $generated, $path, $location): MediaVariant {
-                $isFirstWrite = ! MediaVariant::query()
+                $previous = MediaVariant::query()
                     ->where('media_asset_id', $asset->id)
                     ->where('name', $specification->name)
-                    ->exists();
+                    ->first();
+                $moved = $previous !== null && ($previous->disk !== $asset->disk || $previous->path !== $path);
 
                 $this->storage->putContents($location, $generated->bytes, $asset->visibility);
 
                 try {
-                    return MediaVariant::query()->updateOrCreate(
+                    $variant = MediaVariant::query()->updateOrCreate(
                         ['media_asset_id' => $asset->id, 'name' => $specification->name],
                         [
                             'disk' => $asset->disk,
@@ -88,12 +95,18 @@ final class MediaVariantWriter
                         ],
                     );
                 } catch (Throwable $exception) {
-                    if ($isFirstWrite) {
+                    if ($previous === null || $moved) {
                         $this->deleteQuietly($location);
                     }
 
                     throw $exception;
                 }
+
+                if ($moved) {
+                    $this->deleteQuietly(new MediaLocation($previous->disk, $previous->path));
+                }
+
+                return $variant;
             },
         );
     }

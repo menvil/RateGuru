@@ -1,4 +1,13 @@
 @import './theme.css';
+/*
+ * Inter matches the PlateRate reference design, and unlike Instrument Sans it
+ * covers Cyrillic, which the ru/bg/uk locales need. The variable font is one
+ * WOFF2 per script carrying every weight, so 700/800 are real (post titles and
+ * the brand wordmark render as smeared synthetic bold without them), and each
+ * script's unicode-range means a page downloads only the scripts it shows:
+ * Latin alone for English (about 48 KB), Latin and Cyrillic for Russian.
+ */
+@import '@fontsource-variable/inter';
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 
@@ -8,7 +17,7 @@
 @source '../**/*.js';
 
 @theme {
-    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
 
