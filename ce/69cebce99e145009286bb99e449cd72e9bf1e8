@@ -1,0 +1,19 @@
+tests/Pest.php
+  s_9ce0383c8ffad8::t_8c4c04a89165d5 8336-8346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ce69cebce99e145009286bb99e449cd72e9bf1e8",
+  "prompts": {},
+  "sessions": {
+    "s_9ce0383c8ffad8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39b83c43-4723-4381-aade-182a822779a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
