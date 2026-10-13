@@ -8333,6 +8333,17 @@ function trustedToolingRef(string $workflow): string
     return $refs[$name];
 }
 
+/**
+ * A step's `uses:` with its commit SHA replaced by `<sha>`, so a list of the
+ * actions a workflow runs can be compared exactly without naming the commit
+ * Dependabot moves every few weeks. A ref that is not a full SHA (a tag, a
+ * branch) is left as it is, so an unpinned action still fails the comparison.
+ */
+function withoutPinnedSha(string $uses): string
+{
+    return preg_replace('/@[0-9a-f]{40}$/', '@<sha>', $uses);
+}
+
 /*
 |--------------------------------------------------------------------------
 | recover-host harness
