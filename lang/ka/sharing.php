@@ -16,5 +16,7 @@ return [
     'share_via' => 'გაზიარება:',
     'share_unavailable' => 'გაზიარება მიუწვდომელია',
     'copy_failed' => 'ავტომატური კოპირება ვერ მოხერხდა. მონიშნეთ და დააკოპირეთ ხელით.',
+    'picture_copied' => 'სურათი დაკოპირდა. გახსენით :provider და ჩასვით.',
+    'open_provider' => ':provider-ის გახსნა',
     'post_fallback_description' => 'ნახეთ და შეაფასეთ ეს პოსტი საიტზე :siteName.',
 ];

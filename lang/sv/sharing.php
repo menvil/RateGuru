@@ -16,5 +16,7 @@ return [
     'share_via' => 'Dela via',
     'share_unavailable' => 'Delning är inte tillgänglig',
     'copy_failed' => 'Det gick inte att kopiera automatiskt. Markera och kopiera manuellt.',
+    'picture_copied' => 'Bilden är kopierad. Öppna :provider och klistra in den.',
+    'open_provider' => 'Öppna :provider',
     'post_fallback_description' => 'Se och betygsätt det här inlägget på :siteName.',
 ];

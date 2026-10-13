@@ -16,5 +16,7 @@ return [
     'share_via' => 'Udostępnij przez',
     'share_unavailable' => 'Udostępnianie niedostępne',
     'copy_failed' => 'Nie udało się skopiować automatycznie. Zaznacz i skopiuj ręcznie.',
+    'picture_copied' => 'Obraz skopiowany. Otwórz :provider i wklej go.',
+    'open_provider' => 'Otwórz :provider',
     'post_fallback_description' => 'Zobacz i oceń ten post na :siteName.',
 ];

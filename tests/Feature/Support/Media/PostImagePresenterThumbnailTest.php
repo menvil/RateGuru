@@ -22,21 +22,6 @@ function thumbnailOf(Post $post): ?string
     return app(PostImagePresenter::class)->thumbnailUrl($post);
 }
 
-function variantUrl(Post $post, MediaVariantName $name): string
-{
-    return Storage::disk('public')->url($post->imageAsset->variants->firstWhere('name', $name)->path);
-}
-
-/** Puts the files of these variants on disk; a variant row without its file is stale. */
-function storeVariantFiles(Post $post, MediaVariantName ...$names): Post
-{
-    foreach ($names as $name) {
-        Storage::disk('public')->put($post->imageAsset->variants->firstWhere('name', $name)->path, 'image');
-    }
-
-    return $post;
-}
-
 it('uses the smallest generated variant', function () {
     $post = storeVariantFiles(postWithVariants([
         MediaVariantName::PostDetail1920->value => [1920, 1280],

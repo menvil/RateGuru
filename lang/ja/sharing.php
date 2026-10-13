@@ -16,5 +16,7 @@ return [
     'share_via' => '共有方法',
     'share_unavailable' => '共有できません',
     'copy_failed' => '自動でコピーできませんでした。選択して手動でコピーしてください。',
+    'picture_copied' => '画像をコピーしました。:providerを開いて貼り付けてください。',
+    'open_provider' => ':providerを開く',
     'post_fallback_description' => ':siteName でこの投稿を見て、評価しましょう。',
 ];

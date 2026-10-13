@@ -16,5 +16,7 @@ return [
     'share_via' => 'Teilen über',
     'share_unavailable' => 'Teilen nicht verfügbar',
     'copy_failed' => 'Automatisches Kopieren nicht möglich. Bitte markiere den Link und kopiere ihn manuell.',
+    'picture_copied' => 'Bild kopiert. Öffne :provider und füge es ein.',
+    'open_provider' => ':provider öffnen',
     'post_fallback_description' => 'Sieh dir diesen Beitrag auf :siteName an und bewerte ihn.',
 ];

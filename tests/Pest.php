@@ -7940,6 +7940,22 @@ function postWithVariants(array $variantDimensionsByName): Post
         ->load('imageAsset.variants');
 }
 
+/** The public URL of one of a postWithVariants() post's variants. */
+function variantUrl(Post $post, MediaVariantName $name): string
+{
+    return Storage::disk('public')->url($post->imageAsset->variants->firstWhere('name', $name)->path);
+}
+
+/** Puts the files of these variants on disk; a variant row without its file is stale. */
+function storeVariantFiles(Post $post, MediaVariantName ...$names): Post
+{
+    foreach ($names as $name) {
+        Storage::disk('public')->put($post->imageAsset->variants->firstWhere('name', $name)->path, 'image');
+    }
+
+    return $post;
+}
+
 /**
  * Makes the project offer these installed languages through the same action
  * the Languages page uses — so a test cannot set up a state the application

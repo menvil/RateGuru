@@ -16,5 +16,7 @@ return [
     'share_via' => 'Deila með',
     'share_unavailable' => 'Ekki hægt að deila',
     'copy_failed' => 'Ekki tókst að afrita sjálfkrafa. Veldu og afritaðu handvirkt.',
+    'picture_copied' => 'Myndin var afrituð. Opnaðu :provider og límdu hana inn.',
+    'open_provider' => 'Opna :provider',
     'post_fallback_description' => 'Skoðaðu þessa færslu og gefðu henni einkunn á :siteName.',
 ];

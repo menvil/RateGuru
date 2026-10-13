@@ -38,4 +38,19 @@ enum ShareProvider: string
     {
         return $this !== self::Email && in_array($this, self::urlProviders(), true);
     }
+
+    /**
+     * Whether a share button for this provider hands over the post's picture
+     * itself, not only a link that the provider previews from our page.
+     *
+     * The others keep their link. Facebook drops any text a share brings
+     * along, so a picture would reach it without the link back to the post;
+     * its preview of the link carries the picture anyway. A Reddit link post
+     * shows the picture as its thumbnail. A Pinterest pin is made from the
+     * picture already.
+     */
+    public function takesPicture(): bool
+    {
+        return in_array($this, [self::X, self::Telegram, self::WhatsApp, self::Email], true);
+    }
 }

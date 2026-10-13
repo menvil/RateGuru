@@ -2,6 +2,8 @@
     wire:ignore
     {{ $attributes->merge(['class' => 'space-y-4']) }}
     data-testid="share-buttons"
+    x-data="rgSharePicture({ pictureUrl: @js($metadata->pictureUrl), fileName: @js($pictureFileName), title: @js($metadata->title), text: @js($metadata->shareText.' '.$metadata->url) })"
+    x-intersect.once="prepare()"
 >
     {{-- URL input with copy button inside --}}
     @if(isset($enabledProviders['copy_link']))
@@ -36,8 +38,30 @@
                         :provider="$provider"
                         :url="$providerUrls[$provider]"
                         :label="__('sharing.' . $provider)"
+                        :takes-picture="in_array($provider, $pictureProviderKeys, true)"
                     />
                 @endforeach
+            </div>
+
+            {{-- After a picture is copied for an app that is opened by link:
+                 what to do with it, and the link to open. --}}
+            <div
+                x-show="offer"
+                x-cloak
+                role="status"
+                data-testid="share-picture-offer"
+                class="mt-3 flex items-center justify-between gap-3 rounded-rgControl border border-rg-border bg-rg-card2 px-3 py-2"
+            >
+                <p x-show="offer?.message" x-text="offer?.message" class="text-xs text-rg-text2"></p>
+                <a
+                    x-bind:href="offer?.href"
+                    x-text="offer?.open"
+                    x-on:click="offer = null"
+                    target="_blank"
+                    rel="nofollow noopener noreferrer"
+                    data-testid="share-picture-open"
+                    class="ml-auto shrink-0 rounded-rgControl bg-rg-accent px-3 py-1.5 text-xs font-medium text-rg-onAccent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                ></a>
             </div>
         </div>
     @endif
