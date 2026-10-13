@@ -1,0 +1,23 @@
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_3481294084957b::t_4d2956f2a87b30 337,341-342,344-348,355,358-360,364-366,370,372
+  s_3481294084957b::t_8fad7071d88464 367-369,371,373-397
+  s_3481294084957b::t_6edecb6c4d82d0 336,338-340,343,349-354,356-357,361-363
+infrastructure/scripts/prepare-public-https
+  s_3481294084957b::t_430ebf66ca8f36 864-867,869,873,877,880,883,885-891
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "215711202f1874aff729361ae5d17bc0f2a39c4e",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
