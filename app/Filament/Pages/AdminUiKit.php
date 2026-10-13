@@ -85,7 +85,7 @@ final class AdminUiKit extends Page
         return [
             ['key' => 'foundations', 'label' => 'Foundations', 'description' => 'Tokens everything else is built from.', 'ids' => ['FND-01', 'FND-02', 'FND-03', 'FND-04']],
             ['key' => 'actions', 'label' => 'Actions', 'description' => 'Buttons, icon buttons and text actions.', 'ids' => ['ACT-01', 'ACT-02', 'ACT-03']],
-            ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-05']],
+            ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-04', 'STS-05']],
             ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-08', 'FRM-10', 'FRM-11']],
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
@@ -382,6 +382,29 @@ final class AdminUiKit extends Page
                     'The figure is always printed next to the bar; the bar never stands alone.',
                 ],
             ],
+            'STS-04' => [
+                'name' => 'Active range slots',
+                'source' => 'Blade component · x-admin.ui.range-slots',
+                'kind' => 'component',
+                'purpose' => 'How many options of a rating group are active against its allowed minimum and maximum.',
+                'specs' => [
+                    ['Slot', 'table 12×12 r4 · editor 28 h r8, numbered'],
+                    ['Active', 'ink'],
+                    ['Active above max', 'orange-500 (invalid)'],
+                    ['Required, missing', 'red-50 fill · red-950 border'],
+                    ['Allowed, unused', 'white · gray-400 border'],
+                    ['Above maximum', 'gray-100 · hairline'],
+                    ['Count', 'table: one past the widest range, alike for every row · editor: the most any group allows'],
+                    ['A11y', 'one image named “3 active, 2 to 4 allowed”; the screen says it in words beside it'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.range-slots :active="3" :min="2" :max="4" :count="6" />
+                    <x-admin.ui.range-slots size="editor" :active="3" :min="2" :max="4" />
+                    BLADE,
+                'rules' => [
+                    '!Never let the slots stand alone; say the range in words beside them.',
+                ],
+            ],
             'STS-05' => [
                 'name' => 'Locale chips',
                 'source' => 'CSS primitive · .rg-admin-locale-chip',
@@ -492,7 +515,8 @@ final class AdminUiKit extends Page
                 'specs' => [
                     ['Create', 'chip “Generated from name” until the slug is typed'],
                     ['Locked', 'sunken gray-50 · mono 14 gray-600 · read-only, still focusable · lock 12 “Locked”'],
-                    ['Unlock', 'text action “Change slug” beside the label (the unlock slot)'],
+                    ['Unlock', 'text action “Change slug” beside the label (the unlock slot); none for a key fixed after creation'],
+                    ['Lock note', 'lockedNote · “Locked” or “Fixed after creation”'],
                     ['Warning', 'amber notice under the field: what changing it breaks'],
                     ['Prefix', 'optional plain lead-in inside the field, tertiary'],
                     ['Binding', 'attributes go to the input · wire:model.blur="draftSlug"'],

@@ -16,5 +16,7 @@ return [
     'share_via' => 'Deli prek',
     'share_unavailable' => 'Deljenje ni na voljo',
     'copy_failed' => 'Samodejno kopiranje ni uspelo. Označi in kopiraj ročno.',
+    'picture_copied' => 'Slika je kopirana. Odprite :provider in jo prilepite.',
+    'open_provider' => 'Odpri :provider',
     'post_fallback_description' => 'Oglej si in oceni to objavo na :siteName.',
 ];

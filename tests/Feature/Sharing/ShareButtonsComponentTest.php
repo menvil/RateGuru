@@ -1,7 +1,10 @@
 <?php
 
+use App\Enums\MediaVariantName;
 use App\Models\Post;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Js;
 
 beforeEach(function () {
     config(['app.url' => 'https://rateguru.test']);
@@ -98,3 +101,38 @@ it('renders a provider share link as a plain anchor to its escaped share url', f
     'pinterest' => ['pinterest', 'https://pinterest.com/pin/create/button/?url=https%3A%2F%2Frateguru.test%2Fposts%2F1&media=https%3A%2F%2Frateguru.test%2Fimg.jpg&description=A+post'],
     'email' => ['email', 'mailto:?subject=A%20post&body=https%3A%2F%2Frateguru.test%2Fposts%2F1'],
 ]);
+
+it('hands the post\'s picture to the buttons whose apps take one', function () {
+    Storage::fake('public');
+    $post = storeVariantFiles(
+        postWithVariants([MediaVariantName::PostDetail1920->value => [1920, 1280]]),
+        MediaVariantName::PostDetail1920,
+    );
+    $post->update(['title' => 'Sunset over the bay']);
+
+    $page = livewireDom(Blade::render('<x-sharing.share-buttons :post="$post" />', ['post' => $post]));
+    $data = $page->query("//*[@data-testid='share-buttons']/@x-data")->item(0)?->nodeValue;
+
+    expect($data)
+        ->toContain('rgSharePicture')
+        ->toContain('pictureUrl: '.Js::from(variantUrl($post, MediaVariantName::PostDetail1920)))
+        ->toContain('fileName: '.Js::from('sunset-over-the-bay'));
+
+    foreach (['x' => 'X', 'telegram' => 'Telegram', 'whatsapp' => 'WhatsApp', 'email' => 'Email'] as $provider => $label) {
+        expect($page->query("//a[@data-testid='share-{$provider}']/@data-picture-open")->item(0)?->nodeValue)
+            ->toBe("Open {$label}", "share-{$provider}");
+    }
+
+    foreach (['facebook', 'reddit', 'pinterest'] as $provider) {
+        expect($page->query("//a[@data-testid='share-{$provider}']/@data-picture-open")->length)->toBe(0, "share-{$provider}");
+    }
+});
+
+it('leaves every button a plain link for a post without a picture', function () {
+    $post = Post::factory()->published()->create(['image_asset_id' => null]);
+
+    $page = livewireDom(Blade::render('<x-sharing.share-buttons :post="$post" />', ['post' => $post]));
+
+    expect($page->query('//a[@data-picture-open]')->length)->toBe(0)
+        ->and($page->query("//*[@data-testid='share-buttons']/@x-data")->item(0)?->nodeValue)->toContain('pictureUrl: null');
+});

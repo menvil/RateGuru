@@ -16,5 +16,7 @@ return [
     'share_via' => 'แชร์ผ่าน',
     'share_unavailable' => 'ไม่สามารถแชร์ได้',
     'copy_failed' => 'ไม่สามารถคัดลอกโดยอัตโนมัติได้ กรุณาเลือกและคัดลอกด้วยตนเอง',
+    'picture_copied' => 'คัดลอกรูปภาพแล้ว เปิด :provider แล้ววางรูปภาพ',
+    'open_provider' => 'เปิด :provider',
     'post_fallback_description' => 'ดูและให้คะแนนโพสต์นี้บน :siteName',
 ];

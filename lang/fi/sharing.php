@@ -16,5 +16,7 @@ return [
     'share_via' => 'Jaa palvelussa',
     'share_unavailable' => 'Jakaminen ei ole käytettävissä',
     'copy_failed' => 'Automaattinen kopiointi epäonnistui. Valitse ja kopioi teksti itse.',
+    'picture_copied' => 'Kuva kopioitu. Avaa :provider ja liitä se.',
+    'open_provider' => 'Avaa :provider',
     'post_fallback_description' => 'Katso ja arvioi tämä julkaisu palvelussa :siteName.',
 ];

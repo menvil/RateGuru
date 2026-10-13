@@ -206,7 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Categories and Tags are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Categories, Tags and Rating groups are migrated: their content is
+Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -245,7 +246,8 @@ Languages, Translation Center, Translation AI, Categories and Tags are migrated:
   create or edit page the destination is the last step, linked back to its list.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
   migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
-  which asks the page by a browser event to open its drawer. A page without a permanent action, such as Languages,
+  which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
+  the group editor its unsaved state, Discard and Save. A page without a permanent action, such as Languages,
   leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
   (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
@@ -275,9 +277,9 @@ These are the current migration state, not changes to the target design:
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation status on the content editors.** The Rating groups and options, Project settings and Static pages
-  editors edit English only and are still Filament's; the translation status the prototype shows on them (locale
-  chips, missing counts) arrives with their Admin v2 migration, as it did for Categories and Tags.
+- **Translation status on the content editors.** The Project settings and Static pages editors edit English only
+  and are still Filament's; the translation status the prototype shows on them arrives with their Admin v2
+  migration, as it did for Categories, Tags and Rating groups.
 
 ## Page anatomy
 
@@ -434,7 +436,8 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
 - **Progress (STS-03):** one bar, no charts. 6 high in rows, 8 in summaries; ink progress, green only at 100%,
   red for an invalid catalog, info blue while running. The figure is always printed next to it.
 - **Range slots (STS-04):** a rating group's active options against its minimum and maximum (12×12 slots in
-  tables).
+  tables). In production it is `x-admin.ui.range-slots`:
+  one picture named in words (“3 active, 2 to 4 allowed”) that the screen also says beside it, at table or editor size.
 - **Locale chips (STS-05):** 18 high, padding 0 5, radius 5, mono 10/500 uppercase; translated chips white with a
   hairline, missing chips amber; a tooltip names the language and value; “1 missing” follows in the due colour.
 
@@ -863,9 +866,73 @@ confirmation are the one screen's.
   tag, and Translation Center, are an administrator's. Every write goes through its action, which checks the
   policy again.
 
+### Rating groups
+
+Rating groups are drawn entirely in Admin v2 too: the list (`ManageRatingGroups`), a new group
+(`CreateRatingGroup`) and one group with its options (`EditRatingGroup`). The resource keeps the routes, the
+navigation item, the policy and global search, whose results open a group's editor.
+
+- **List header band:** “Voters pick one option in every active group. Each group must keep its number of active
+  options inside its allowed range.” Stats: Active groups, Active options (over active groups) and Votes. Create
+  group in the top bar opens the new group's page.
+- **List table (TBL-01):** groups in the order post pages show them (sort order, then id), no search — the list is
+  short. Label (a link to the editor) with its description; Key in mono; Options — “n active” and the inactive and
+  archived ones; Votes; Active range — the slots (STS-04, one past the widest range for every row alike) and “2–4
+  allowed”, “· at maximum”, or “· needs n more” in the due colour; Active; Sort; Edit and the row menu. A legend
+  of the slot states sits in the card's footer.
+- **List row menu (TBL-04):** Manage options; Deactivate (“Hide from voters, keep the votes”) or Activate (with
+  “Needs n more active options” when its range does not hold them); Translate — Translation Center on the group's
+  first missing label or description, unavailable for an inactive group; and Delete, unavailable (“Groups are
+  kept · deactivate instead”): a group is never deleted, since its votes are the project's results.
+- **Activate and deactivate:** activating a group whose range holds its active options is immediate, with Undo;
+  one whose range does not is a blocked dialog — “Tricks can’t be activated yet”, what it has against its range,
+  what to do (activate or create n more, or lower the minimum when that is allowed) and Open Tricks. Deactivating
+  is a warning confirmation (its votes stay stored) with Undo after it.
+- **Editor header band:** the saved label with its Active or Inactive badge, then the key in mono, the votes and
+  “Shown second on post pages” (its place among the active groups) or “Not shown on post pages”; stats Active
+  options and Allowed range, as saved. A new group reads “New rating group”, inactive.
+- **Save from the top bar (NAV-02):** the settings are a draft; the top bar shows “Unsaved group changes” in the due
+  colour, Discard and Save group (Create group on a new one) while the draft differs from what is saved, compared in
+  the browser against the server's `saved` copy through one Alpine store, since the top bar is a component of its
+  own. Save also waits while the draft's range cannot hold the group's active options and the group would be active.
+- **Group card (LAY-02):** “English reference text.”; Key (FRM-04) — made from the label on create until typed,
+  then “Fixed after creation”, with nothing to unlock it; Label (“English · reference”); Description (FRM-03,
+  counted to its translation limit); Minimum and Maximum active options (FRM-05, 2 to 10) and Sort order; Active
+  (FRM-06), unavailable on a new group, which has no options yet. Minimum, Maximum and Active are sent as they
+  change, so their errors — “3 options are active, fewer than this minimum.”, “3 options are active. Deactivate or
+  archive 1 first.”, “Minimum can’t be higher than the maximum.” — show before Save.
+- **Active options check:** the slots at editor size (STS-04, up to 10) for the draft's range, “3 active · 2–4
+  allowed”, and a notice: valid with room for n more (success), at the maximum (info), or outside the range
+  (warning — saving blocked while the group would be active, otherwise what to do before activating it).
+- **Translations of this group:** each offered language besides English with “Label and description”, “Description
+  missing” or “Label and description missing”, and Open in Translation Center on what is missing — unavailable,
+  with the reason, for an inactive group.
+- **Options card:** “n active · n inactive · n archived” and Create option; at the maximum an info strip says new
+  and unarchived options stay inactive; the table (Label with description · Key · Active, Inactive or Archived ·
+  Sort · Votes · Archived date · Actions) on the sunken ground for archived rows; the footer note that options with
+  votes are archived, not deleted.
+- **Option row menu (TBL-04):** Activate or Deactivate — with “Blocked · minimum is 2” or “Blocked · maximum is 4”
+  in its hint when the range will refuse it — and Archive (“Hide from voters, keep votes”); for an archived option
+  Unarchive (“Returns as inactive”); after a separator Delete unused option (danger, “Never voted on”, or “Has votes
+  · archive instead”).
+- **Option drawer (OVL-02):** “New option in Vibe” / “Edit Goofball”; Label; Key (FRM-04, made from the label on
+  create, fixed after); Description; Sort order; Active (FRM-06) — unavailable, with the reason in an info notice,
+  for an archived option, in a group at its maximum, or for an active option the minimum cannot spare; Archived at,
+  read-only. A new option is active while the group has room.
+- **Option dialogs (OVL-01):** Archive (warning, the option in a subject row, its votes stay); Delete (danger, never
+  voted on, deleted with its translations); “has vote history” — only archived, offering Archive instead; “can’t be
+  deactivated / archived / deleted” at the minimum, with nothing to confirm; and “can’t be activated” at the
+  maximum, offering “Raise maximum to n and activate”, one step under the group's lock, while the group may allow
+  one more (10 at most). Activating and deactivating an option toast with Undo.
+- **The range:** the option actions keep every group's active options inside its range, active or not, as they
+  always have; saving a group's range or making it active is refused when an active group's options would fall
+  outside it. A new group is created inactive.
+- **Access:** rating groups are an administrator's; every write goes through its action, which checks the policy
+  again.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Categories and Tags also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Categories, Tags and Rating groups also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -920,6 +987,18 @@ confirmation are the one screen's.
 | Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
 | Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | OVL-02: one overlay at a time; a dialog opened from a drawer replaces it |
 | Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
+| Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 10 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
+| Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 10 | the limits the content had before the redesign, which its translations are held to |
+| Rating group Delete | a group without votes can be deleted | unavailable: “Groups are kept · deactivate instead” | a group is never deleted; deactivating keeps its votes and its place in results |
+| Rating group and option hints | “Shown as the question above the options on post pages”, “Tooltip on the vote button. Also given to AI translation as context.” | “What the group asks voters about.”, “What a vote for this option means.” | descriptions are not shown on post pages; the hint says what they are |
+| Group card translations note | “English reference text. Translations are managed in Translation Center.” | “English reference text.” | as on Categories and Tags: Translation Center is already the one editor of translations |
+| Group key on create | a read-only key | made from the label until typed (FRM-04), fixed once saved | a new group needs a key, and nobody should have to type one |
+| Active options check outside the range | a danger strip | a warning notice | FBK-02 keeps danger for irreversible dialogs |
+| Option range for inactive groups | blocked only while the group is active | refused for every group | the option actions have always held every group's active options inside its range |
+| New option | inactive by default | active while the group has room for one more | an option is usually made to be voted for; at the maximum it is inactive and says why |
+| Archive Undo | Undo restores an archived option | no Undo: the archive is confirmed, and Unarchive is in the row menu | archiving asks first, so it is not a reversible action that toasts with Undo |
+| Translate on Rating groups | opens Translation Center on the section | on the group's first missing label or description | the record is what was asked about |
+| Create group | the new group's page saves in place | Create group opens the group's editor, where its options are made | options belong to a group that exists |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
@@ -957,7 +1036,7 @@ built.
 |---|---|---|
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
-| Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all but STS-04 |
+| Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all |
 | Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–06, FRM-08, FRM-10, FRM-11 |
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |

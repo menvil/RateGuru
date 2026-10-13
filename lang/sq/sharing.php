@@ -16,5 +16,7 @@ return [
     'share_via' => 'Shpërndaj përmes',
     'share_unavailable' => 'Shpërndarja nuk është e disponueshme',
     'copy_failed' => 'Nuk u kopjua dot automatikisht. Përzgjidhe dhe kopjoje manualisht.',
+    'picture_copied' => 'Fotoja u kopjua. Hapni :provider dhe ngjiteni.',
+    'open_provider' => 'Hap :provider',
     'post_fallback_description' => 'Shiko dhe vlerëso këtë postim në :siteName.',
 ];

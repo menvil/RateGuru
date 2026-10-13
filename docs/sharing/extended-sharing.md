@@ -54,6 +54,25 @@ Ad blockers' social lists hide every link to a provider's share page (`facebook.
 
 `ShareProvider::sharesThroughRedirect()` decides which providers go this way. Email stays a plain `mailto:` link: no blocker hides it.
 
+### X, Telegram, WhatsApp and email get the picture itself
+
+A share link (`x.com/intent/post`, `t.me/share/url`, `wa.me`, `mailto:`) carries text and nothing else. The app sees the picture only as its own preview of our page, if it builds one at all. So for the providers where `ShareProvider::takesPicture()` holds, the button hands over the post's picture as a file. That picture is `PostImagePresenter::shareUrl()`: the whole picture at the detail size, not the Open Graph crop. The text and the link go with it as the caption.
+
+`rgSharePicture` in `resources/js/share.js` fetches the picture once the buttons come into view. A feed renders a share panel for every post, and most are never opened. A click then does one of three things:
+
+- **Share sheet.** With a coarse pointer (a phone), and where `navigator.canShare` accepts the file, the button opens the system share sheet with the picture, captioned with the text and the link. The sheet is where the apps are on a phone.
+- **Clipboard.** Elsewhere, where a page may put a picture on the clipboard, the button copies the picture as PNG. It then shows "Picture copied. Open X and paste it in." with a link that opens the app. A desktop's share sheet rarely lists X or WhatsApp.
+- **Plain link.** Wherever neither works, or the picture isn't fetched yet, the button stays the plain link it always was.
+
+The others keep their link:
+- **Facebook** drops any text a share brings along, so a picture would reach it without the link back to the post. Its preview of the link carries the picture anyway.
+- **Reddit** shows the picture as a link post's thumbnail.
+- **Pinterest** makes the pin from the picture already.
+
+The native share button shares the same picture file when the sheet takes files.
+
+### The redirect's 404s
+
 The redirect only knows posts their own page would show (`PublishedPostDetailsQuery`). It answers 404 for a pending, rejected or hidden post, for a provider switched off in `config/share.php`, and for one without a share page.
 
 ### Native Web Share

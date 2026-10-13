@@ -396,6 +396,98 @@
         background: var(--rg-admin-data-missing);
     }
 
+    /* STS-04 · Active range slots: active options against a group's minimum and maximum */
+    .rg-admin-range-slots {
+        display: flex;
+        gap: 3px;
+    }
+
+    .rg-admin-range-slots__slot {
+        display: block;
+        width: 12px;
+        height: 12px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+    }
+
+    .rg-admin-range-slots__slot--active {
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-range-slots__slot--over {
+        background: var(--rg-admin-orange-500);
+    }
+
+    .rg-admin-range-slots__slot--required {
+        border-color: var(--rg-admin-red-950);
+        background: var(--rg-admin-status-danger-bg);
+    }
+
+    .rg-admin-range-slots__slot--allowed {
+        border-color: var(--rg-admin-gray-400);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-range-slots__slot--outside {
+        border-color: var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-range-slots--editor {
+        gap: 6px;
+    }
+
+    .rg-admin-range-slots__cell {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .rg-admin-range-slots--editor .rg-admin-range-slots__slot {
+        width: 100%;
+        height: 28px;
+        border-radius: var(--rg-admin-radius-item);
+    }
+
+    .rg-admin-range-slots__number {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-range-slots__number--outside {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* What each slot means, under a table of them. */
+    .rg-admin-range-legend {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 16px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-range-legend__item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-range-legend__item .rg-admin-range-slots__slot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+    }
+
     /* STS-05 · Locale chips */
     .rg-admin-locale-chips {
         display: flex;
@@ -3418,6 +3510,157 @@
     /* Pushes Cancel and Save right; Delete, when there is one, stays left. */
     .rg-admin-taxonomy__spacer {
         flex: 1;
+    }
+
+    /* Rating groups (ManageRatingGroups) and the group editor (CreateRatingGroup, EditRatingGroup) */
+    .rg-admin-rating-groups__description {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-rating-groups__figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-rating-groups__range {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-rating-group__title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-rating-group__meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 14px;
+    }
+
+    .rg-admin-rating-group__key {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-rating-group__divider {
+        width: 1px;
+        height: 16px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-rating-group__body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-6);
+    }
+
+    .rg-admin-rating-group__cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-space-6);
+    }
+
+    .rg-admin-rating-group__fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px var(--rg-admin-space-4);
+        padding-block: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-rating-group__wide {
+        grid-column: 1 / -1;
+    }
+
+    @media (max-width: 479.98px) {
+        .rg-admin-rating-group__fields {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-rating-group__check,
+    .rg-admin-rating-group__translations {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-rating-group__languages {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-rating-group__language {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+    }
+
+    .rg-admin-rating-group__language-name {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-rating-group__language-state {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-status-success-fg);
+        text-align: right;
+    }
+
+    .rg-admin-rating-group__language-state--missing {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-rating-group__translate {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-rating-group__options-header {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-4) var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-rating-group__options-title {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-table__row.rg-admin-rating-group__option--archived {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    /* The editor's Save, Discard and unsaved state, in the top bar. */
+    .rg-admin-topbar__editor {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-topbar__unsaved {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-status-due-fg);
+        white-space: nowrap;
     }
 
     /* Languages screen (LanguagesPage): its table cells and its missing-translations drawer */

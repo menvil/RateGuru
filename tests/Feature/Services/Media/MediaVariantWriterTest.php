@@ -112,6 +112,51 @@ it('preserves the existing working file when the database upsert fails on regene
     expect(MediaVariant::query()->count())->toBe(1);
 });
 
+it('moves a variant regenerated in another format and deletes its previous file', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
+        'path' => 'posts/2026/08/master.jpg',
+    ]);
+    $bytes = jpegMarkerBytes(960, 640);
+    $writer = app(MediaVariantWriter::class);
+
+    $writer->write($asset, $bytes, variantSpec());
+    $moved = $writer->write($asset, $bytes, variantSpec(outputMimeType: 'image/webp'));
+
+    expect($moved->path)->toBe('posts/2026/08/master/post_feed_640.webp')
+        ->and($moved->mime_type)->toBe('image/webp')
+        ->and(MediaVariant::query()->count())->toBe(1);
+    Storage::disk('public')->assertExists('posts/2026/08/master/post_feed_640.webp');
+    Storage::disk('public')->assertMissing('posts/2026/08/master/post_feed_640.jpg');
+});
+
+it('keeps the previous file and deletes the new one when moving a variant fails in the database', function () {
+    $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
+        'path' => 'posts/2026/08/master.jpg',
+    ]);
+    $bytes = jpegMarkerBytes(960, 640);
+    $writer = app(MediaVariantWriter::class);
+    $writer->write($asset, $bytes, variantSpec());
+    $exception = null;
+
+    MediaVariant::saving(function (): void {
+        throw new RuntimeException('Simulated move DB failure.');
+    });
+
+    try {
+        $writer->write($asset, $bytes, variantSpec(outputMimeType: 'image/webp'));
+    } catch (RuntimeException $caught) {
+        $exception = $caught;
+    } finally {
+        MediaVariant::flushEventListeners();
+    }
+
+    // The row still names the previous file, so that one must survive.
+    expect($exception?->getMessage())->toBe('Simulated move DB failure.')
+        ->and(MediaVariant::query()->sole()->path)->toBe('posts/2026/08/master/post_feed_640.jpg');
+    Storage::disk('public')->assertExists('posts/2026/08/master/post_feed_640.jpg');
+    Storage::disk('public')->assertMissing('posts/2026/08/master/post_feed_640.webp');
+});
+
 it('reports a cleanup failure but still propagates the original database exception', function () {
     $asset = MediaAsset::factory()->postImage()->dimensions(960, 640)->create([
         'path' => 'posts/2026/08/master.jpg',

@@ -8,7 +8,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property Carbon|null $archived_at when Archive took it away from voters; null while it is not archived
+ */
 class RatingOption extends Model
 {
     use HasFactory;

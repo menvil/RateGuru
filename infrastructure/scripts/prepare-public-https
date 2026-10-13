@@ -1,0 +1,1554 @@
+#!/usr/bin/env bash
+#
+# prepare-public-https — the public site of a production target, from its
+# HTTP-01 state to HTTPS, and at GO LIVE to the public, one known state at a
+# time:
+#
+#   http-acme-ready ──--apply──────▶ tls-ready ──--activate──▶ public-active
+#                   ◀──--rollback───           ◀──--deactivate──
+#
+#   prepare-public-https --check      --target TARGET   read-only (root): may --apply proceed, and what it would change
+#   prepare-public-https --apply      --target TARGET   http-acme-ready → tls-ready (root)
+#   prepare-public-https --verify     --target TARGET   read-only (root): which state the host is in, as Nginx answers it
+#   prepare-public-https --rollback   --target TARGET   tls-ready → http-acme-ready (root)
+#   prepare-public-https --activate   --target TARGET --confirm-public
+#                                                       tls-ready → public-active: GO LIVE (root)
+#   prepare-public-https --deactivate --target TARGET   public-active → tls-ready: closed to the public again (root)
+#
+# THE SITE. The same public site prepare-public-http installs —
+# <site_name>-public, its one file in /etc/nginx/sites-available and its one
+# link in /etc/nginx/sites-enabled — taken over in place. From tls-ready on,
+# its file is no longer prepare-public-http's render, so that script refuses
+# to rewrite or remove it. The internal site is never read or written here.
+#
+#   tls-ready       :80   the ACME HTTP-01 challenge from /var/www/html, and a
+#                         301 to https:// for everything else
+#                   :443  the certificate Certbot holds, through its own live
+#                         links; every request 503 with Retry-After and
+#                         Cache-Control: no-store — no application, no root,
+#                         no Basic Auth, no HSTS
+#   public-active   :80   the same
+#                   :443  the production release through the target's own
+#                         PHP-FPM socket — never staging's
+#
+# Neither is ever a default_server. Before anything is written, the loaded
+# configuration (nginx -T, read by prepare-public-http's own analysis) must
+# keep port 80 as prepare-public-http requires it — an explicit default_server
+# on *:80 and [::]:80, the MX host's route not the public site's — and must
+# not hand the public site any HTTPS name it does not list: the default server
+# of *:443 and [::]:443 and the route of every other HTTPS name stay exactly
+# where they were, and are judged again on the candidate before the reload.
+#
+# THE CERTIFICATE. Certbot's lineage of the first public hostname —
+# /etc/letsencrypt/live/<hostname>/{fullchain,privkey}.pem, Certbot's links into
+# its own archive — judged before anything changes: links leading to regular
+# root-owned files directly in the lineage's archive, every directory root's
+# and writable by no one else, the key readable by no one else, every public
+# hostname covered, at least 14 days left, a chain to a trusted authority, the
+# key matching, and Certbot's renewal configuration for it, by the webroot.
+# This script issues and renews nothing, never runs Certbot, and never prints a
+# byte of the private key: the key is judged through its public half.
+#
+# THE RENEWAL. A Certbot deploy hook of the site's own,
+# /etc/letsencrypt/renewal-hooks/deploy/rateguru-public-https-<target>,
+# rendered from this bundle with the same certificate judge. Certbot runs every
+# deploy hook after every renewal; this one acts on its own lineage only and
+# exits at once for any other — the inbound mail listener's included. For its
+# own it judges the renewed pair, runs nginx -t, and only then reloads Nginx;
+# never a restart, and nothing of the mail gateway.
+#
+# THE TRANSITIONS. --apply and --rollback need the target planned in both
+# registries, --activate needs it active in both, --deactivate any lifecycle
+# in either as long as the host's own registry names the target, and each
+# starts only from its own exact known state: a file that is not one of the
+# three renders is foreign, and refused. Under the host's infrastructure lock
+# each one keeps the previous file and hook, validates with nginx -t before
+# its one reload, and proves the result on the host's own Nginx — the public
+# hostnames over HTTPS with Host and SNI and a verified certificate, both
+# HTTP-01 routes, every other site — on 127.0.0.1, and on [::1] unless the
+# host disables IPv6. --deactivate, and --rollback when a failure puts tls-ready
+# back, prove the closed site by its 503 and never judge the certificate, so an
+# expired or untrusted one never keeps a site open or turns a failed rollback
+# into CRITICAL. Any failure puts the previous file and hook back, validates and
+# reloads again, and proves that; when it cannot be proved, it says CRITICAL
+# and exits 2. Run again with nothing to change, each is a no-op. No
+# certificate is ever removed, and once the site is public-active there is no
+# rollback to HTTP: --deactivate closes it to the public and keeps HTTPS.
+#
+# GO LIVE. --activate opens the application only when the target is active in
+# both registries, a release is deployed, the target's PHP-FPM socket exists
+# and its internal health check answers through it, the certificate holds,
+# and --confirm-public says the operator means it.
+#
+# NEVER: issue, renew or remove a certificate, run Certbot, touch the mail
+# gateway or its certificates, DNS, the firewall, the internal site, another
+# site, PHP-FPM, the release, the registry or the lifecycle.
+#
+# Every run whose mode and target were understood ends with exactly one line
+# RATEGURU_PUBLIC_HTTPS_RESULT={target, mode, status, state, site, hostnames,
+# lifecycle, certificate, certificate_expires, hook, changed, reloaded,
+# rolled_back, ipv6_loopback}; status is pass, fail or critical, and state
+# not-prepared, http-acme-ready, tls-ready, public-active, drift, foreign or
+# unknown.
+#
+# Repository tooling: run as root from a trusted bundle by its workflows, never
+# installed on a host. It builds on prepare-public-http, which it sources from
+# the same bundle: one target loader, one render of the HTTP state, one
+# analysis of the loaded configuration, one set of probes.
+#
+# Test overrides: the RATEGURU_PUBLICHTTPS_* variables below, and
+# prepare-public-http's RATEGURU_PUBLICHTTP_*, are honoured only alongside
+# RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+HTTPS_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
+[[ -r "${HTTPS_SCRIPT_DIR}/prepare-public-http" ]] || {
+    printf 'ERROR: this bundle is incomplete: %s/prepare-public-http is missing — nothing was changed\n' "${HTTPS_SCRIPT_DIR}" >&2
+    exit 1
+}
+
+# shellcheck source=prepare-public-http
+source "${HTTPS_SCRIPT_DIR}/prepare-public-http"
+
+# --- Configuration --------------------------------------------------------------------
+
+OPENSSL_BIN="$(gated_default RATEGURU_PUBLICHTTPS_OPENSSL_BIN /usr/bin/openssl)"
+TRUST_STORE="$(gated_default RATEGURU_PUBLICHTTPS_TRUST_STORE /etc/ssl/certs/ca-certificates.crt)"
+LETSENCRYPT="$(gated_default RATEGURU_PUBLICHTTPS_LETSENCRYPT /etc/letsencrypt)"
+HOOK_PATH="$(gated_default RATEGURU_PUBLICHTTPS_HOOK_PATH /usr/sbin:/usr/bin:/sbin:/bin)"
+
+TLS_MIN_DAYS=14
+HTTPS_SOCKETS=("*:443" "[::]:443")
+
+CERT_NAME=""
+LINEAGE=""
+ARCHIVE=""
+RENEWAL_CONF=""
+HOOK_FILE=""
+APP_ROOT=""
+FPM_SOCKET=""
+HEALTH_URL=""
+HEALTH_HOST=""
+CONFIRM_PUBLIC=false
+
+# What the certificate judge reads: the same names in the installer and in the
+# rendered hook.
+CERT_OPENSSL=""
+CERT_TRUST_STORE=""
+CERT_MIN_DAYS="${TLS_MIN_DAYS}"
+CERT_OWNER=""
+CERT_LETSENCRYPT=""
+CERT_LINEAGE=""
+CERT_ARCHIVE=""
+CERT_NAMES=()
+
+CERTIFICATE="unknown"
+CERTIFICATE_EXPIRES=""
+HOOK_STATE="unknown"
+
+# How the public hostnames' own HTTPS answers are proved: verified, against the
+# trust store as a browser would, in every mode but --deactivate and --rollback.
+# Those prove tls-ready by its 503 with Host and SNI and never wait on the
+# certificate: an expired or untrusted one may be why the site is being closed
+# or rolled back.
+PUBLIC_TRUST=verified
+
+# The open transaction: the site's file and the hook as they were.
+HTTPS_TRANSACTION_OPEN=false
+SAVED_SITE_PRESENT=false
+SAVED_HOOK_PRESENT=false
+PREVIOUS_STATE=""
+BEFORE_HTTPS=""
+BEFORE_HTTPS_FACTS=""
+BEFORE_LETSENCRYPT=""
+
+https_usage() {
+    cat <<'USAGE'
+Usage:
+  prepare-public-https --check      --target TARGET
+  prepare-public-https --apply      --target TARGET
+  prepare-public-https --verify     --target TARGET
+  prepare-public-https --rollback   --target TARGET
+  prepare-public-https --activate   --target TARGET --confirm-public
+  prepare-public-https --deactivate --target TARGET
+  prepare-public-https --help
+
+  --check       Read-only (root): whether --apply may take the public site
+                from http-acme-ready to tls-ready, and what it would write.
+  --apply       Root. http-acme-ready → tls-ready: HTTPS with Certbot's
+                certificate, 503 to everyone, ACME kept on port 80, and the
+                renewal hook. A no-op in tls-ready.
+  --verify      Read-only (root): which state the public site is in, and that
+                the host's own Nginx answers as that state says.
+  --rollback    Root. tls-ready → http-acme-ready. The certificate is kept.
+                Refused once the site is public-active.
+  --activate    Root. GO LIVE: tls-ready → public-active, only for a target
+                active in both registries, deployed and healthy, and only with
+                --confirm-public.
+  --deactivate  Root. public-active → tls-ready: closed to the public again,
+                HTTPS and ACME kept.
+USAGE
+}
+
+https_require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "prepare-public-https --${MODE} must run as root (Nginx's configuration and the certificate are root's)"
+}
+
+# --- The target -------------------------------------------------------------------------
+
+load_https_target() {
+    local target
+    target="$(jq -c --arg t "${TARGET_ID}" '.targets[$t]' "${TRUSTED_REGISTRY}")"
+
+    CERT_NAME="${PUBLIC_HOSTNAMES[0]}"
+    LINEAGE="${LETSENCRYPT}/live/${CERT_NAME}"
+    ARCHIVE="${LETSENCRYPT}/archive/${CERT_NAME}"
+    RENEWAL_CONF="${LETSENCRYPT}/renewal/${CERT_NAME}.conf"
+    HOOK_FILE="${LETSENCRYPT}/renewal-hooks/deploy/rateguru-public-https-${TARGET_ID}"
+
+    APP_ROOT="$(jq -r '.application_root' <<<"${target}")"
+    FPM_SOCKET="$(jq -r '.php_fpm.socket' <<<"${target}")"
+    HEALTH_URL="$(jq -r '.health.url' <<<"${target}")"
+    HEALTH_HOST="$(jq -r '.health.host_header' <<<"${target}")"
+
+    # The values that become configuration text, closed-format, as
+    # install-bootstrap-services asserts them before it renders the internal site.
+    [[ "${APP_ROOT}" =~ ^/home/www/rateguru(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || die "${TARGET_ID}: application_root '${APP_ROOT}' is not a renderable path — nothing was changed"
+    [[ "${FPM_SOCKET}" =~ ^/run/php/[a-z0-9][a-z0-9_-]{0,63}\.sock$ ]] \
+        || die "${TARGET_ID}: php_fpm.socket '${FPM_SOCKET}' is not a renderable pool socket path — nothing was changed"
+    [[ "${HEALTH_URL}" =~ ^http://127\.0\.0\.1(:[0-9]{1,5})?/[A-Za-z0-9/._-]*$ ]] \
+        || die "${TARGET_ID}: health.url '${HEALTH_URL}' is not a loopback URL — nothing was changed"
+    [[ "${LETSENCRYPT}" =~ ^(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]] \
+        || die "the Certbot directory '${LETSENCRYPT}' is not a renderable path — nothing was changed"
+
+    CERT_OPENSSL="${OPENSSL_BIN}"
+    CERT_TRUST_STORE="${TRUST_STORE}"
+    CERT_OWNER="${FILE_OWNER}"
+    CERT_LETSENCRYPT="$(physical "${LETSENCRYPT}")"
+    CERT_LINEAGE="$(physical "${LINEAGE}")"
+    CERT_ARCHIVE="$(physical "${ARCHIVE}")"
+    CERT_NAMES=("${PUBLIC_HOSTNAMES[@]}")
+}
+
+# --- The certificate, judged: in the installer, and in the rendered hook ------------------
+
+# secure_path PATH directory|file — a real one, not a link, CERT_OWNER's, that
+# no one else may write.
+secure_path() {
+    local path="$1" kind="$2" meta
+    [[ ! -L "${path}" ]] || return 1
+    case "${kind}" in
+        directory) [[ -d "${path}" ]] || return 1 ;;
+        file)      [[ -f "${path}" ]] || return 1 ;;
+    esac
+    meta="$(stat -c '%U %a' -- "${path}" 2>/dev/null)" || return 1
+    [[ "${meta% *}" == "${CERT_OWNER}" ]] && (( (8#${meta#* } & 8#022) == 0 ))
+}
+
+# lineage_file NAME — what Certbot's link NAME in the lineage leads to, when it
+# is a link to a regular file directly in the lineage's archive that only
+# CERT_OWNER may write.
+lineage_file() {
+    local link resolved archive
+    link="${CERT_LINEAGE}/$1"
+    [[ -L "${link}" ]] || return 1
+    resolved="$(readlink -f -- "${link}" 2>/dev/null)" || return 1
+    archive="$(readlink -f -- "${CERT_ARCHIVE}" 2>/dev/null)" || return 1
+    [[ -n "${resolved}" && "$(dirname -- "${resolved}")" == "${archive}" ]] || return 1
+    secure_path "${resolved}" file || return 1
+    printf '%s\n' "${resolved}"
+}
+
+# public_key_digest FILE cert|key — the SHA-256 of the public half of a
+# certificate or of a private key: the key itself never leaves openssl.
+public_key_digest() {
+    if [[ "$2" == cert ]]; then
+        "${CERT_OPENSSL}" x509 -in "$1" -noout -pubkey 2>/dev/null | sha256sum | cut -d ' ' -f 1
+    else
+        "${CERT_OPENSSL}" pkey -in "$1" -pubout -passin pass: 2>/dev/null </dev/null | sha256sum | cut -d ' ' -f 1
+    fi
+}
+
+# certificate_problems — why the lineage's pair may not be served, a line each;
+# nothing when it may.
+certificate_problems() {
+    local dir cert key name nothing cert_key key_key
+    for dir in "${CERT_LETSENCRYPT}" "${CERT_LETSENCRYPT}/live" "${CERT_LETSENCRYPT}/archive" "${CERT_LINEAGE}" "${CERT_ARCHIVE}"; do
+        if ! secure_path "${dir}" directory; then
+            printf '%s is not a real directory of %s that no one else may write — nothing in it is trusted\n' "${dir}" "${CERT_OWNER}"
+            return 0
+        fi
+    done
+
+    if ! cert="$(lineage_file fullchain.pem)"; then
+        printf '%s/fullchain.pem is not a link to a regular file of %s directly in %s that no one else may write\n' "${CERT_LINEAGE}" "${CERT_OWNER}" "${CERT_ARCHIVE}"
+        return 0
+    fi
+    if ! key="$(lineage_file privkey.pem)"; then
+        printf '%s/privkey.pem is not a link to a regular file of %s directly in %s that no one else may write\n' "${CERT_LINEAGE}" "${CERT_OWNER}" "${CERT_ARCHIVE}"
+        return 0
+    fi
+    if (( (8#$(stat -c '%a' -- "${key}") & 8#044) != 0 )); then
+        printf 'the private key %s is readable by its group or by everyone — it is not trusted\n' "${key}"
+        return 0
+    fi
+
+    if ! "${CERT_OPENSSL}" x509 -in "${cert}" -noout >/dev/null 2>&1; then
+        printf '%s holds no certificate\n' "${cert}"
+        return 0
+    fi
+    "${CERT_OPENSSL}" x509 -in "${cert}" -noout -checkend "$(( CERT_MIN_DAYS * 86400 ))" >/dev/null 2>&1 \
+        || printf 'the certificate has expired, or expires within %s days\n' "${CERT_MIN_DAYS}"
+    for name in "${CERT_NAMES[@]}"; do
+        [[ "$("${CERT_OPENSSL}" x509 -in "${cert}" -noout -checkhost "${name}" 2>/dev/null)" == *' does match certificate'* ]] \
+            || printf 'the certificate does not cover %s\n' "${name}"
+    done
+    "${CERT_OPENSSL}" verify -CAfile "${CERT_TRUST_STORE}" -untrusted "${cert}" "${cert}" >/dev/null 2>&1 \
+        || printf 'the certificate does not chain to a trusted certificate authority\n'
+
+    nothing="$(printf '' | sha256sum | cut -d ' ' -f 1)"
+    cert_key="$(public_key_digest "${cert}" cert)"
+    key_key="$(public_key_digest "${key}" key)"
+    [[ -n "${cert_key}" && "${cert_key}" != "${nothing}" && "${cert_key}" == "${key_key}" ]] \
+        || printf 'the private key does not belong to the certificate\n'
+}
+
+report_certificate() {
+    local problems line conf
+    section "CERTIFICATE"
+
+    problems="$(certificate_problems)"
+    if [[ -z "${problems}" ]]; then
+        CERTIFICATE=valid
+        CERTIFICATE_EXPIRES="$("${CERT_OPENSSL}" x509 -in "$(lineage_file fullchain.pem)" -noout -enddate 2>/dev/null | sed -n 's/^notAfter=//p' || true)"
+        item PASS "certificate:${CERT_NAME}" "Certbot's links into ${ARCHIVE}, root's; ${CERT_NAMES[*]} covered, a trusted chain, the key matching, at least ${TLS_MIN_DAYS} days left${CERTIFICATE_EXPIRES:+ (until ${CERTIFICATE_EXPIRES})}"
+    else
+        CERTIFICATE=invalid
+        while IFS= read -r line; do
+            [[ -z "${line}" ]] || item FAIL "certificate:${CERT_NAME}" "${line}"
+        done <<<"${problems}"
+    fi
+
+    if secure_path "$(physical "$(dirname -- "${HOOK_FILE}")")" directory; then
+        item PASS "certificate:hooks" "$(dirname -- "${HOOK_FILE}"), Certbot's deploy hook directory, is root's"
+    else
+        item FAIL "certificate:hooks" "$(dirname -- "${HOOK_FILE}") is not Certbot's own root-owned deploy hook directory — this script never creates it"
+    fi
+
+    conf="$(physical "${RENEWAL_CONF}")"
+    if ! secure_path "${conf}" file; then
+        item FAIL "certificate:renewal" "${RENEWAL_CONF} is not a regular file of ${CERT_OWNER}'s that no one else may write — Certbot would not renew it"
+    elif ! grep -Eq '^[[:space:]]*authenticator[[:space:]]*=[[:space:]]*webroot[[:space:]]*$' "${conf}" \
+        || ! grep -Eq "=[[:space:]]*${ACME_WEBROOT}/?,?[[:space:]]*\$" "${conf}"; then
+        item FAIL "certificate:renewal" "${RENEWAL_CONF} does not renew through the webroot ${ACME_WEBROOT} — an authenticator that edits Nginx would rewrite the public site behind its owner's back"
+    else
+        item PASS "certificate:renewal" "${RENEWAL_CONF}: Certbot renews it through the webroot ${ACME_WEBROOT}"
+    fi
+}
+
+# --- The renders ---------------------------------------------------------------------------
+
+# render_https_site tls-ready|public-active
+render_https_site() {
+    local state="$1"
+
+    printf '%s\n' \
+        "${OWNER_MARKER}" \
+        "#" \
+        "# State ${state}: rendered from infrastructure/config/deployment-targets.json" \
+        "# by prepare-public-https, which owns the site from here on. Do not edit it" \
+        "# on the host: --verify compares this file against the render." \
+        "# prepare-public-http does not own it any more and refuses to rewrite or" \
+        "# remove it; prepare-public-https --rollback returns it to HTTP while it is" \
+        "# tls-ready, and never once it is public-active." \
+        "#" \
+        "# Never a default_server, on port 80 or 443: a name this site does not" \
+        "# list keeps reaching the server that answered it before." \
+        "server {" \
+        "    listen 80;" \
+        "    listen [::]:80;" \
+        "" \
+        "    server_name ${PUBLIC_HOSTNAMES[*]};" \
+        "" \
+        "    access_log /var/log/nginx/${PUBLIC_SITE}-access.log;" \
+        "    error_log /var/log/nginx/${PUBLIC_SITE}-error.log;" \
+        "" \
+        "    # A challenge token as an ACME client's webroot writes it: a regular" \
+        "    # file, served as text, never through a link." \
+        "    location ~ ^/\\.well-known/acme-challenge/[A-Za-z0-9_-]+\$ {" \
+        "        root ${ACME_WEBROOT};" \
+        "        disable_symlinks on from=\$document_root;" \
+        "        types { }" \
+        "        default_type text/plain;" \
+        "        try_files \$uri =404;" \
+        "    }" \
+        "" \
+        "    location /.well-known/acme-challenge/ {" \
+        "        return 404;" \
+        "    }" \
+        "" \
+        "    location / {" \
+        "        return 301 https://\$host\$request_uri;" \
+        "    }" \
+        "}" \
+        "" \
+        "server {" \
+        "    listen 443 ssl;" \
+        "    listen [::]:443 ssl;" \
+        "" \
+        "    server_name ${PUBLIC_HOSTNAMES[*]};" \
+        "" \
+        "    access_log /var/log/nginx/${PUBLIC_SITE}-access.log;" \
+        "    error_log /var/log/nginx/${PUBLIC_SITE}-error.log;" \
+        "" \
+        "    # Certbot's own live links: a renewal is served after the next reload," \
+        "    # which the renewal hook rateguru-public-https-${TARGET_ID} makes." \
+        "    ssl_certificate ${LINEAGE}/fullchain.pem;" \
+        "    ssl_certificate_key ${LINEAGE}/privkey.pem;" \
+        "    ssl_protocols TLSv1.2 TLSv1.3;" \
+        "    ssl_prefer_server_ciphers off;" \
+        ""
+
+    if [[ "${state}" == tls-ready ]]; then
+        printf '%s\n' \
+            "    # Not open yet: no root, no application, no Basic Auth, no HSTS." \
+            "    location / {" \
+            "        add_header Retry-After ${RETRY_AFTER} always;" \
+            "        add_header Cache-Control \"no-store\" always;" \
+            "        default_type text/plain;" \
+            "        return 503 \"${UNAVAILABLE_BODY}\\n\";" \
+            "    }" \
+            "}"
+    else
+        printf '%s\n' \
+            "    # Open: the production release, through the target's own PHP-FPM pool." \
+            "    root ${APP_ROOT}/current/public;" \
+            "    index index.php;" \
+            "" \
+            "    client_max_body_size 64m;" \
+            "" \
+            "    location / {" \
+            "        try_files \$uri \$uri/ /index.php?\$query_string;" \
+            "    }" \
+            "" \
+            "    location ~ \\.php\$ {" \
+            "        include snippets/fastcgi-php.conf;" \
+            "" \
+            "        fastcgi_pass unix:${FPM_SOCKET};" \
+            "" \
+            "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;" \
+            "        fastcgi_param DOCUMENT_ROOT \$realpath_root;" \
+            "        fastcgi_param HTTPS on;" \
+            "    }" \
+            "" \
+            "    location ~ /\\.(?!well-known).* {" \
+            "        deny all;" \
+            "    }" \
+            "}"
+    fi
+}
+
+# render_hook — Certbot's deploy hook for the site's own lineage: the same
+# certificate judge, with every path and program this run decided, and nothing
+# that points back at the bundle.
+render_hook() {
+    local nginx systemctl
+    nginx="$(command -v -- "${NGINX_BIN}")"
+    systemctl="$(command -v -- "${SYSTEMCTL_BIN}")"
+
+    printf '%s\n' \
+        "#!/bin/bash" \
+        "# RateGuru public site of ${TARGET_ID} — a Certbot deploy hook, rendered by" \
+        "# prepare-public-https from a trusted bundle. Do not edit it: --apply" \
+        "# replaces it, and --verify reports any change." \
+        "#" \
+        "# Certbot runs it after every certificate it renews. It acts on one lineage," \
+        "# ${LINEAGE}, and on any other does nothing at all. For that one it judges" \
+        "# the renewed pair, runs nginx -t, and only then reloads Nginx: never a" \
+        "# restart, and nothing of the mail gateway." \
+        "" \
+        "set -Eeuo pipefail" \
+        "export PATH=$(printf '%q' "${HOOK_PATH}")" \
+        "" \
+        "CERT_LETSENCRYPT=$(printf '%q' "${CERT_LETSENCRYPT}")" \
+        "CERT_LINEAGE=$(printf '%q' "${CERT_LINEAGE}")" \
+        "CERT_ARCHIVE=$(printf '%q' "${CERT_ARCHIVE}")" \
+        "CERT_NAMES=($(printf '%q ' "${CERT_NAMES[@]}"))" \
+        "CERT_OPENSSL=$(printf '%q' "${CERT_OPENSSL}")" \
+        "CERT_TRUST_STORE=$(printf '%q' "${CERT_TRUST_STORE}")" \
+        "CERT_MIN_DAYS=${CERT_MIN_DAYS}" \
+        "CERT_OWNER=$(printf '%q' "${CERT_OWNER}")" \
+        "HOOK_NGINX=$(printf '%q' "${nginx}")" \
+        "HOOK_SYSTEMCTL=$(printf '%q' "${systemctl}")" \
+        ""
+    declare -f secure_path lineage_file public_key_digest certificate_problems
+    cat <<'HOOK'
+
+say() { printf 'rateguru-public-https: %s\n' "$*"; }
+
+[[ "${RENEWED_LINEAGE:-}" == "${CERT_LINEAGE}" ]] || exit 0
+
+problems="$(certificate_problems)"
+if [[ -n "${problems}" ]]; then
+    say "the renewed certificate of ${CERT_LINEAGE} is refused, and Nginx is not reloaded:"
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] || say "  ${line}"
+    done <<<"${problems}"
+    exit 1
+fi
+
+if ! "${HOOK_SYSTEMCTL}" is-active --quiet nginx; then
+    say "the renewed certificate of ${CERT_LINEAGE} holds; Nginx is not running, so nothing is reloaded"
+    exit 0
+fi
+
+if ! "${HOOK_NGINX}" -t >/dev/null 2>&1; then
+    say "the renewed certificate holds, but nginx -t fails: Nginx is not reloaded"
+    exit 1
+fi
+
+"${HOOK_SYSTEMCTL}" reload nginx || { say "systemctl reload nginx failed"; exit 1; }
+say "the renewed certificate of ${CERT_LINEAGE} holds, nginx -t passed, Nginx reloaded"
+HOOK
+}
+
+# --- Which state the site is in ---------------------------------------------------------------
+
+# site_file_state — absent | http-acme-ready | tls-ready | public-active |
+# foreign:<why>. A state is a file that is exactly one of the three renders —
+# a regular file, FILE_OWNER:FILE_GROUP 0644, byte for byte — and nothing else.
+site_file_state() {
+    local phys identity state
+    phys="$(physical "${PUBLIC_FILE}")"
+
+    if [[ -L "${phys}" ]]; then
+        printf 'foreign:a symbolic link\n'
+        return 0
+    elif [[ ! -e "${phys}" ]]; then
+        printf 'absent\n'
+        return 0
+    elif [[ ! -f "${phys}" ]]; then
+        printf 'foreign:not a regular file\n'
+        return 0
+    fi
+
+    local known
+    state=""
+    for known in http-acme-ready tls-ready public-active; do
+        if cmp -s -- "${phys}" "${WORK}/render-${known}"; then
+            state="${known}"
+            break
+        fi
+    done
+    if [[ -z "${state}" ]]; then
+        printf 'foreign:it is none of the known renders — http-acme-ready, tls-ready or public-active — changed by hand or by another installer; resolve the difference by a reviewed change\n'
+        return 0
+    fi
+
+    identity="$(file_identity "${phys}")"
+    if [[ "${identity}" != "${FILE_OWNER}:${FILE_GROUP}:644" ]]; then
+        printf 'foreign:the %s render, but %s, not %s:%s 644 — resolve the difference by a reviewed change\n' "${state}" "${identity}" "${FILE_OWNER}" "${FILE_GROUP}"
+        return 0
+    fi
+    printf '%s\n' "${state}"
+}
+
+# hook_file_state — absent | ours | foreign:<why>
+hook_file_state() {
+    local phys
+    phys="$(physical "${HOOK_FILE}")"
+
+    if [[ -L "${phys}" ]]; then
+        printf 'foreign:a symbolic link\n'
+    elif [[ ! -e "${phys}" ]]; then
+        printf 'absent\n'
+    elif [[ ! -f "${phys}" ]]; then
+        printf 'foreign:not a regular file\n'
+    elif ! cmp -s -- "${phys}" "${WORK}/render-hook"; then
+        printf 'foreign:it is not the hook this bundle renders\n'
+    elif [[ "$(file_identity "${phys}")" != "${FILE_OWNER}:${FILE_GROUP}:755" ]]; then
+        printf 'foreign:the render, but %s, not %s:%s 755\n' "$(file_identity "${phys}")" "${FILE_OWNER}" "${FILE_GROUP}"
+    else
+        printf 'ours\n'
+    fi
+}
+
+# https_state — what the files say: not-prepared, http-acme-ready, tls-ready,
+# public-active, drift (the site's own link missing) or foreign.
+https_state() {
+    local file link
+    file="$(site_file_state)"
+    link="$(public_link_state)"
+
+    if [[ "${file}" == foreign:* || "${link}" == foreign:* ]]; then
+        printf 'foreign\n'
+    elif [[ "${file}" == absent && "${link}" == absent ]]; then
+        printf 'not-prepared\n'
+    elif [[ "${file}" != absent && "${link}" == ours ]]; then
+        printf '%s\n' "${file}"
+    else
+        printf 'drift\n'
+    fi
+}
+
+report_site() {
+    local file link hook line
+    section "PUBLIC SITE"
+
+    file="$(site_file_state)"
+    case "${file}" in
+        absent)  item PASS "file:${PUBLIC_FILE}" "absent — prepare-public-http has not prepared it" ;;
+        foreign:*) item CONFLICT "file:${PUBLIC_FILE}" "${file#foreign:} — never overwritten or removed by this script" ;;
+        *)       item PASS "file:${PUBLIC_FILE}" "exactly the ${file} render, ${FILE_OWNER}:${FILE_GROUP} 644" ;;
+    esac
+
+    link="$(public_link_state)"
+    case "${link}" in
+        absent) item PASS "link:${PUBLIC_LINK}" "absent" ;;
+        ours)   item PASS "link:${PUBLIC_LINK}" "a link to ${PUBLIC_FILE}" ;;
+        *)      item CONFLICT "link:${PUBLIC_LINK}" "${link#foreign:} — never replaced or removed by this script" ;;
+    esac
+
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] || item CONFLICT "link:${line}" "another link to the public site's file — it would be loaded twice"
+    done < <(other_links_to_public_file)
+
+    hook="$(hook_file_state)"
+    case "${hook}" in
+        absent)    HOOK_STATE=absent; item PASS "hook:${HOOK_FILE}" "absent" ;;
+        ours)      HOOK_STATE=installed; item PASS "hook:${HOOK_FILE}" "the renewal hook as rendered, ${FILE_OWNER}:${FILE_GROUP} 755" ;;
+        *)         HOOK_STATE=foreign; item CONFLICT "hook:${HOOK_FILE}" "${hook#foreign:} — never overwritten or removed by this script" ;;
+    esac
+}
+
+# --- The loaded configuration ---------------------------------------------------------------
+
+FACTS_HTTP=""
+FACTS_HTTPS=""
+
+# read_https_facts — the loaded configuration (nginx -T), read once and judged
+# twice by prepare-public-http's analysis: port 80 with the MX host names, and
+# port 443 with every HTTPS name another site serves.
+read_https_facts() {
+    local names mx http https others
+
+    FACTS_HTTP=""
+    FACTS_HTTPS=""
+    "${NGINX_BIN}" -T >"${WORK}/nginx-T" 2>/dev/null || return 1
+
+    names="$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c .)"
+    mx="$(printf '%s\n' "${MX_HOSTNAMES[@]}" | jq -R 'select(. != "")' | jq -s -c .)"
+    http="$(printf '%s\n' "${PUBLIC_SOCKETS[@]}" | jq -R . | jq -s -c .)"
+    https="$(printf '%s\n' "${HTTPS_SOCKETS[@]}" | jq -R . | jq -s -c .)"
+
+    FACTS_HTTP="$(jq -Rs -c --arg own "${PUBLIC_LINK}" --argjson names "${names}" --argjson mx "${mx}" \
+        --argjson sockets "${http}" "${NGINX_ANALYSIS}" <"${WORK}/nginx-T")" || return 1
+    others="$(jq -Rs -c --arg own "${PUBLIC_LINK}" --argjson names "${names}" --argjson mx '[]' \
+        --argjson sockets "${https}" "${NGINX_ANALYSIS}" <"${WORK}/nginx-T" | jq -c '.names_on')" || return 1
+    FACTS_HTTPS="$(jq -Rs -c --arg own "${PUBLIC_LINK}" --argjson names "${names}" --argjson mx "${others}" \
+        --argjson sockets "${https}" "${NGINX_ANALYSIS}" <"${WORK}/nginx-T")" || return 1
+    rm -f -- "${WORK}/nginx-T"
+}
+
+# https_routes — what must not change: the server answering every MX host name
+# on port 80 and every other HTTPS name on 443, and each socket's default
+# server, explicit or by load order.
+https_routes() {
+    jq -n -c --argjson http "${FACTS_HTTP}" --argjson https "${FACTS_HTTPS}" '{
+        http: [$http.routes[] | {host, socket, server: .served.server}],
+        http_defaults: [$http.defaults[] | {socket, explicit}],
+        https: [$https.routes[] | {host, socket, server: .served.server}],
+        https_defaults: [$https.defaults[] | {socket, server: (.explicit[0] // .first)}]
+    }'
+}
+
+# judge_https_routing STATE — the loaded configuration, judged for the state
+# the files are in: the public site loaded as that state renders it, and never
+# the server of a name it does not list.
+judge_https_routing() {
+    local state="$1" socket line count server
+
+    if [[ -z "${FACTS_HTTP}" || -z "${FACTS_HTTPS}" ]]; then
+        item FAIL "nginx:configuration" "nginx -T could not be read or understood — the routing cannot be proved"
+        return 0
+    fi
+
+    count="$(jq '.loose | length' <<<"${FACTS_HTTP}")"
+    if (( count == 0 )); then
+        item PASS "nginx:fragments" "every listen and server_name is inside a server block of its own file"
+    else
+        item FAIL "nginx:fragments" "$(jq -r '[.loose[] | "\(.directive) in \(.file)"] | join(", ")' <<<"${FACTS_HTTP}") — a fragment included into some server makes its names unknowable"
+    fi
+
+    for socket in "${PUBLIC_SOCKETS[@]}"; do
+        if [[ "$(jq --arg s "${socket}" '[.defaults[] | select(.socket == $s) | .explicit[]] | length' <<<"${FACTS_HTTP}")" == 1 ]]; then
+            item PASS "nginx:default:${socket}" "explicit default_server: $(jq -r --arg s "${socket}" '.defaults[] | select(.socket == $s) | .explicit[0]' <<<"${FACTS_HTTP}")"
+        else
+            item FAIL "nginx:default:${socket}" "no explicit default_server in another site — the server for unlisted names would depend on load order"
+        fi
+    done
+
+    for socket in "${HTTPS_SOCKETS[@]}"; do
+        server="$(jq -r --arg s "${socket}" '.defaults[] | select(.socket == $s) | (.explicit[0] // .first // "")' <<<"${FACTS_HTTPS}")"
+        if [[ -z "${server}" ]]; then
+            item FAIL "nginx:default:${socket}" "no other site listens on ${socket}: the public site would become the default server for every HTTPS name"
+        elif [[ "${server}" == "${PUBLIC_LINK}#"* ]]; then
+            item FAIL "nginx:default:${socket}" "the default server for HTTPS names nobody lists is the public site"
+        else
+            item PASS "nginx:default:${socket}" "the default server for HTTPS names nobody lists is ${server}, not the public site"
+        fi
+    done
+
+    for line in "$(jq -r '.specific[]' <<<"${FACTS_HTTP}")" "$(jq -r '.specific[]' <<<"${FACTS_HTTPS}")"; do
+        [[ -z "${line}" ]] || item FAIL "nginx:addresses" "${line//$'\n'/, } — a listener bound to one address routes it apart, and the loopback probes cannot prove it"
+    done
+
+    count="$(jq '.claimed | length' <<<"${FACTS_HTTP}")"
+    if (( count == 0 )); then
+        item PASS "nginx:names" "no other server claims ${PUBLIC_HOSTNAMES[*]}"
+    else
+        while IFS= read -r line; do
+            item CONFLICT "nginx:names" "${line}"
+        done < <(jq -r '.claimed[] | "\(.server) has server_name \(.name) (\(.match)), which can answer \(.host)"' <<<"${FACTS_HTTP}")
+    fi
+
+    while IFS='|' read -r host socket server; do
+        [[ -n "${host}" ]] || continue
+        if [[ -z "${server}" || "${server}" == "${PUBLIC_LINK}#"* ]]; then
+            item FAIL "route:${host}:${socket}" "answered by ${server:-nothing} — not the server it must be"
+        else
+            item PASS "route:${host}:${socket}" "answered by ${server}, not the public site"
+        fi
+    done < <(jq -r '.routes[] | "\(.host)|\(.socket)|\(.served.server // (if .served.match == "regex" then "a regular expression" else "" end))"' <<<"${FACTS_HTTP}"; jq -r '.routes[] | "\(.host)|\(.socket)|\(.served.server // (if .served.match == "regex" then "a regular expression" else "" end))"' <<<"${FACTS_HTTPS}")
+
+    # The public site, loaded as the state renders it: one server on port 80,
+    # and from tls-ready one more on 443, never a default_server.
+    local expected
+    case "${state}" in
+        http-acme-ready) expected='[["*:80","[::]:80"]]' ;;
+        tls-ready|public-active) expected='[["*:80","[::]:80"],["*:443","[::]:443"]]' ;;
+        *) expected='[]' ;;
+    esac
+    if jq -e --argjson want "${expected}" --argjson names "$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c .)" '
+        ([.ours[].sockets | sort] | sort) == ($want | map(sort) | sort)
+        and all(.ours[]; .names == $names and .defaults == [])' <<<"${FACTS_HTTP}" >/dev/null; then
+        item PASS "nginx:public-site" "loaded as ${state} renders it, never a default_server"
+    else
+        item FAIL "nginx:public-site" "the loaded configuration does not hold the public site as ${state} renders it"
+    fi
+}
+
+# --- The answers of the host's own Nginx ------------------------------------------------------
+
+# https_probe ADDRESS HOST PATH verified|insecure — one HTTPS request to the
+# host's own Nginx, with HOST as both SNI and Host: "STATUS|RETRY_AFTER|
+# CACHE_CONTROL|BODY_SHA256|LOCATION|CURL_EXIT". Verified checks the
+# certificate against the trust store and the name, as a browser would.
+https_probe() {
+    local address="$1" host="$2" path="$3" trust="$4" code exit_status=0 headers body
+    local tls=(--cacert "${TRUST_STORE}")
+    [[ "${trust}" == verified ]] || tls=(--insecure)
+
+    headers="${WORK}/https.headers"
+    body="${WORK}/https.body"
+    : >"${headers}"
+    : >"${body}"
+
+    code="$("${CURL_BIN}" --silent --globoff --noproxy '*' --max-time 5 "${tls[@]}" \
+        --output "${body}" --dump-header "${headers}" --write-out '%{http_code}' \
+        --resolve "${host}:443:${address}" "https://${host}${path}" 2>/dev/null)" || exit_status=$?
+    [[ "${code}" =~ ^[0-9]{3}$ ]] || code="000"
+
+    printf '%s|%s|%s|%s|%s|%s\n' "${code}" \
+        "$(header_value "${headers}" retry-after)" \
+        "$(header_value "${headers}" cache-control)" \
+        "$(sha256sum <"${body}" | cut -c1-64)" \
+        "$(header_value "${headers}" location)" \
+        "${exit_status}"
+}
+
+# is_https_closed ANSWER — the tls-ready site's own 503.
+is_https_closed() {
+    local code retry cache sha location status
+    IFS='|' read -r code retry cache sha location status <<<"$1"
+    [[ "${code}" == 503 && "${retry}" == "${RETRY_AFTER}" && "${cache}" == no-store && "${sha}" == "${OURS_BODY_SHA}" ]]
+}
+
+# probe_https_others — what every HTTPS name another site serves, and a name
+# nobody lists, answers: what the public site must never change.
+probe_https_others() {
+    local address name
+    for address in "${PROBE_ADDRESSES[@]}"; do
+        while IFS= read -r name; do
+            [[ -z "${name}" ]] || printf '%s %s %s\n' "${address}" "${name}" "$(https_probe "${address}" "${name}" / insecure)"
+        done < <(jq -r '.names_on[]' <<<"${FACTS_HTTPS}")
+        printf '%s %s %s\n' "${address}" "unlisted.invalid" "$(https_probe "${address}" rateguru-unlisted-name.invalid / insecure)"
+    done
+}
+
+# judge_answers STATE — the public hostnames, over HTTP and HTTPS, as the host's
+# own Nginx answers them, against what STATE says.
+judge_answers() {
+    local state="$1" address host answer code location exit_status served
+
+    for address in "${PROBE_ADDRESSES[@]}"; do
+        for host in "${PUBLIC_HOSTNAMES[@]}"; do
+            answer="$(probe "${address}" "${host}" "/.well-known/acme-challenge/${PROBE_TOKEN}")"
+            if [[ "${answer%%|*}" == 404 ]]; then
+                item PASS "http:${host}@${address}:acme" "an absent challenge is 404 from ${ACME_WEBROOT} — HTTP-01 stays"
+            else
+                item FAIL "http:${host}@${address}:acme" "an absent challenge answered HTTP ${answer%%|*}, not 404"
+            fi
+
+            case "${state}" in
+                http-acme-ready)
+                    answer="$(probe "${address}" "${host}" /)"
+                    if is_ours "${answer}"; then
+                        item PASS "http:${host}@${address}" "/ is the HTTP state's 503"
+                    else
+                        item FAIL "http:${host}@${address}" "/ answered HTTP ${answer%%|*}, not the HTTP state's 503"
+                    fi
+                    answer="$(https_probe "${address}" "${host}" / insecure)"
+                    if is_https_closed "${answer}"; then
+                        item FAIL "https:${host}@${address}" "still answered by the public site over HTTPS"
+                    else
+                        item PASS "https:${host}@${address}" "not answered by the public site over HTTPS (HTTP ${answer%%|*})"
+                    fi
+                    ;;
+                tls-ready|public-active)
+                    answer="$(probe "${address}" "${host}" /index.php)"
+                    IFS='|' read -r code _ _ location <<<"${answer}"
+                    if [[ "${code}" == 301 && "${location}" == "https://${host}/index.php" ]]; then
+                        item PASS "http:${host}@${address}" "everything but the challenge is a 301 to https://${host}"
+                    else
+                        item FAIL "http:${host}@${address}" "/index.php answered HTTP ${code}${location:+ to ${location}}, not a 301 to https://${host}/index.php"
+                    fi
+
+                    served="a verified certificate"
+                    [[ "${PUBLIC_TRUST}" == verified ]] || served="Host and SNI ${host}, the certificate not judged"
+                    answer="$(https_probe "${address}" "${host}" / "${PUBLIC_TRUST}")"
+                    exit_status="${answer##*|}"
+                    if [[ "${exit_status}" != 0 && "${PUBLIC_TRUST}" == verified ]]; then
+                        item FAIL "https:${host}@${address}" "no verified HTTPS answer (curl exit ${exit_status}) — the certificate served for ${host} does not verify, or nothing answers"
+                    elif [[ "${exit_status}" != 0 ]]; then
+                        item FAIL "https:${host}@${address}" "no HTTPS answer (curl exit ${exit_status}) — nothing answers ${host} on 443"
+                    elif [[ "${state}" == tls-ready ]]; then
+                        if is_https_closed "${answer}"; then
+                            item PASS "https:${host}@${address}" "${served}, and / is 503 with Retry-After ${RETRY_AFTER} and Cache-Control: no-store — nothing of the application"
+                        else
+                            item FAIL "https:${host}@${address}" "/ answered HTTP ${answer%%|*}, not the tls-ready 503"
+                        fi
+                        answer="$(https_probe "${address}" "${host}" /index.php "${PUBLIC_TRUST}")"
+                        if is_https_closed "${answer}"; then
+                            item PASS "https:${host}@${address}:php" "/index.php is the same 503 — no PHP is executed"
+                        else
+                            item FAIL "https:${host}@${address}:php" "/index.php answered HTTP ${answer%%|*}, not the tls-ready 503"
+                        fi
+                    else
+                        code="${answer%%|*}"
+                        if is_https_closed "${answer}" || [[ ! "${code}" =~ ^[23][0-9][0-9]$ ]]; then
+                            item FAIL "https:${host}@${address}" "/ answered HTTP ${code} — not the application"
+                        else
+                            item PASS "https:${host}@${address}" "${served}, and / is HTTP ${code} from the application"
+                        fi
+                    fi
+                    ;;
+            esac
+        done
+    done
+}
+
+# wait_for_state STATE — after a reload, until the first public hostname
+# answers as STATE says on the first probe address, and still does once the
+# reload's overlap is over: the first answer from a new worker says nothing
+# about the next connection, which an old one may still take
+# (prepare-public-http's wait_for_public says why).
+wait_for_state() {
+    local state="$1" deadline answer matched seen=false
+    deadline=$(( SECONDS + PROBE_WAIT ))
+
+    while :; do
+        matched=false
+        case "${state}" in
+            http-acme-ready)
+                answer="$(probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" /)"
+                ! is_ours "${answer}" || matched=true ;;
+            tls-ready)
+                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
+                ! is_https_closed "${answer}" || matched=true ;;
+            public-active)
+                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
+                [[ "${answer##*|}" != 0 ]] || is_https_closed "${answer}" || matched=true ;;
+        esac
+        if [[ "${matched}" == true ]]; then
+            [[ "${seen}" == false ]] || return 0
+            seen=true
+            sleep "${RELOAD_OVERLAP}"
+            continue
+        fi
+        seen=false
+        (( SECONDS < deadline )) || return 1
+        sleep 0.5
+    done
+}
+
+# letsencrypt_snapshot — Certbot's tree, but the site's own hook: proved
+# untouched by every change.
+letsencrypt_snapshot() {
+    local root entry
+    root="$(physical "${LETSENCRYPT}")"
+    [[ -d "${root}" ]] || return 0
+    find "${root}" -mindepth 1 \( -path "$(physical "${HOOK_FILE}")" -prune \) -o -print 2>/dev/null | LC_ALL=C sort \
+        | while IFS= read -r entry; do
+            if [[ -L "${entry}" ]]; then
+                printf '%s link %s\n' "${entry#"${FS_ROOT}"}" "$(readlink -- "${entry}")"
+            elif [[ -f "${entry}" ]]; then
+                printf '%s file %s\n' "${entry#"${FS_ROOT}"}" "$(sha256sum <"${entry}" | cut -c1-64)"
+            else
+                printf '%s %s\n' "${entry#"${FS_ROOT}"}" "$(file_identity "${entry}")"
+            fi
+        done
+}
+
+# --- The lifecycle and, for GO LIVE, the application ---------------------------------------
+
+report_lifecycle() {
+    local want="$1"
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "environment_class=production in the trusted bundle's registry"
+    if [[ "${TARGET_LIFECYCLE}" == "${want}" ]]; then
+        item PASS "target:lifecycle" "lifecycle=${want} in the trusted bundle's registry"
+    else
+        item FAIL "target:lifecycle" "lifecycle=${TARGET_LIFECYCLE} in the trusted bundle's registry — --${MODE} needs ${want}"
+    fi
+    if [[ "${INSTALLED_LIFECYCLE}" == "${want}" ]]; then
+        item PASS "target:installed-registry" "the host's own registry says lifecycle=${want} too"
+    else
+        item FAIL "target:installed-registry" "the host's own registry says lifecycle=${INSTALLED_LIFECYCLE:-nothing} — --${MODE} needs ${want} in both"
+    fi
+}
+
+# report_target_known — the target in any lifecycle: production in the trusted
+# bundle's registry, and named in the host's own. Whether the two registries
+# agree on its lifecycle is reported, never required.
+report_target_known() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "environment_class=production in the trusted bundle's registry"
+    if [[ -z "${INSTALLED_LIFECYCLE}" ]]; then
+        item FAIL "target:installed-registry" "the host's own registry does not name ${TARGET_ID} — this is not a host the target lives on"
+    elif [[ "${INSTALLED_LIFECYCLE}" == "${TARGET_LIFECYCLE}" ]]; then
+        item PASS "target:lifecycle" "lifecycle=${TARGET_LIFECYCLE} in the trusted bundle's registry and in the host's own — --${MODE} takes any"
+    else
+        item WARN "target:lifecycle" "the trusted bundle's registry says lifecycle=${TARGET_LIFECYCLE}, the host's own says ${INSTALLED_LIFECYCLE} — --${MODE} takes any; Verify reports the difference"
+    fi
+}
+
+# report_lifecycle_consistent — any lifecycle, as long as both registries agree.
+report_lifecycle_consistent() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "environment_class=production in the trusted bundle's registry"
+    if [[ "${INSTALLED_LIFECYCLE}" == "${TARGET_LIFECYCLE}" ]]; then
+        item PASS "target:lifecycle" "lifecycle=${TARGET_LIFECYCLE} in the trusted bundle's registry and in the host's own"
+    else
+        item FAIL "target:lifecycle" "the trusted bundle's registry says lifecycle=${TARGET_LIFECYCLE}, the host's own says ${INSTALLED_LIFECYCLE:-nothing}"
+    fi
+}
+
+# report_application — what GO LIVE needs on the host: a deployed release, the
+# target's own PHP-FPM socket, and the internal health check answering through it.
+report_application() {
+    local current release socket answer
+    section "APPLICATION"
+
+    current="$(physical "${APP_ROOT}/current")"
+    if [[ -L "${current}" ]] && release="$(readlink -f -- "${current}")" \
+        && [[ -f "${release}/public/index.php" && -f "${release}/artisan" ]]; then
+        item PASS "application:release" "${APP_ROOT}/current leads to a release with public/index.php"
+    else
+        item FAIL "application:release" "no release is deployed at ${APP_ROOT}/current — GO LIVE comes after the first production deploy"
+    fi
+
+    socket="$(physical "${FPM_SOCKET}")"
+    if [[ -S "${socket}" ]]; then
+        item PASS "application:php-fpm" "${FPM_SOCKET}, the target's own pool, is listening"
+    else
+        item FAIL "application:php-fpm" "${FPM_SOCKET} is not a socket — the target's PHP-FPM pool is not running"
+    fi
+
+    answer="$("${CURL_BIN}" --silent --globoff --noproxy '*' --max-time 10 --output /dev/null --write-out '%{http_code}' \
+        --header "Host: ${HEALTH_HOST}" "${HEALTH_URL}" 2>/dev/null || true)"
+    if [[ "${answer}" =~ ^2[0-9][0-9]$ ]]; then
+        item PASS "application:health" "${HEALTH_URL} for ${HEALTH_HOST} answers HTTP ${answer} through the internal site and PHP-FPM"
+    else
+        item FAIL "application:health" "${HEALTH_URL} for ${HEALTH_HOST} answered HTTP ${answer:-000} — the application is not healthy"
+    fi
+}
+
+# --- Result and exit ---------------------------------------------------------------------------
+
+https_result_line() {
+    local status="$1" hostnames
+
+    [[ "${RESULT_PRINTED}" == false ]] || return 0
+    RESULT_PRINTED=true
+
+    hostnames="$(printf '%s\n' "${PUBLIC_HOSTNAMES[@]}" | jq -R . | jq -s -c 'map(select(. != ""))')"
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --arg state "${HOST_STATE}" --arg site "${PUBLIC_SITE}" --argjson hostnames "${hostnames}" \
+        --arg lifecycle "${TARGET_LIFECYCLE}" --arg certificate "${CERTIFICATE}" \
+        --arg expires "${CERTIFICATE_EXPIRES}" --arg hook "${HOOK_STATE}" \
+        --argjson changed "${CHANGED}" --argjson reloaded "${RELOADED}" --argjson rolled_back "${ROLLED_BACK}" \
+        --arg ipv6_loopback "${IPV6_LOOPBACK}" '
+        {target: $target, mode: $mode, status: $status, state: $state,
+         site: (if $site == "" then null else $site end), hostnames: $hostnames,
+         lifecycle: (if $lifecycle == "" then null else $lifecycle end),
+         certificate: $certificate,
+         certificate_expires: (if $expires == "" then null else $expires end),
+         hook: $hook, changed: $changed, reloaded: $reloaded, rolled_back: $rolled_back,
+         ipv6_loopback: (if $ipv6_loopback == "" then null else $ipv6_loopback end)}' \
+        | sed 's/^/RATEGURU_PUBLIC_HTTPS_RESULT=/'
+}
+
+https_on_exit() {
+    local status=$?
+
+    [[ "${BASHPID}" == "${MAIN_BASHPID}" ]] || return 0
+
+    trap - EXIT
+    trap '' HUP INT PIPE TERM
+    set +e
+
+    if [[ "${HTTPS_TRANSACTION_OPEN}" == true ]]; then
+        HTTPS_TRANSACTION_OPEN=false
+        log "the ${MODE} did not complete (exit ${status}) — putting the public site and its hook back as they were"
+
+        if restore_https_state; then
+            ROLLED_BACK=true
+            CHANGED=false
+            HOST_STATE="$(https_state)"
+            log "RESTORED: the public site is ${PREVIOUS_STATE} again, nginx -t passes, and Nginx answers as before"
+            https_result_line fail
+            status=1
+        else
+            printf 'CRITICAL: the %s of the public site failed AND the return to %s could not be proved. Inspect now: nginx -t, %s, %s and %s, and what 127.0.0.1 answers on ports 80 and 443 for every hostname. Nginx was not stopped and no certificate was touched.\n' \
+                "${MODE}" "${PREVIOUS_STATE}" "${PUBLIC_FILE}" "${PUBLIC_LINK}" "${HOOK_FILE}" >&2
+            log "PUBLIC HTTPS: CRITICAL — the previous state was not proved"
+            HOST_STATE=unknown
+            https_result_line critical
+            status=2
+        fi
+    fi
+
+    if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]]; then
+        https_result_line "$( (( status == 0 )) && echo pass || echo fail)"
+    fi
+
+    [[ -z "${WORK}" ]] || rm -rf -- "${WORK}"
+
+    exit "${status}"
+}
+
+# --- The transaction -----------------------------------------------------------------------------
+
+open_https_transaction() {
+    local site hook
+    site="$(physical "${PUBLIC_FILE}")"
+    hook="$(physical "${HOOK_FILE}")"
+
+    SAVED_SITE_PRESENT=false
+    SAVED_HOOK_PRESENT=false
+    if [[ -f "${site}" ]]; then
+        cp -p -- "${site}" "${WORK}/saved-site"
+        SAVED_SITE_PRESENT=true
+    fi
+    if [[ -f "${hook}" ]]; then
+        cp -p -- "${hook}" "${WORK}/saved-hook"
+        SAVED_HOOK_PRESENT=true
+    fi
+
+    HTTPS_TRANSACTION_OPEN=true
+}
+
+# put_file SOURCE DESTINATION MODE — written beside its place and moved into
+# it: never a partly written file, never through a link.
+put_file() {
+    local source="$1" destination="$2" mode="$3" incoming
+    incoming="$(dirname -- "${destination}")/.$(basename -- "${destination}").rateguru-incoming"
+
+    rm -f -- "${incoming}"
+    install -m "${mode}" -o "${FILE_OWNER}" -g "${FILE_GROUP}" -- "${source}" "${incoming}"
+    mv -fT -- "${incoming}" "${destination}"
+    cmp -s -- "${source}" "${destination}"
+}
+
+restore_https_state() {
+    local site hook ok=true after
+
+    site="$(physical "${PUBLIC_FILE}")"
+    hook="$(physical "${HOOK_FILE}")"
+
+    if [[ "${SAVED_SITE_PRESENT}" == true ]]; then
+        cmp -s -- "${WORK}/saved-site" "${site}" || put_file "${WORK}/saved-site" "${site}" 0644 || ok=false
+    fi
+    if [[ "${SAVED_HOOK_PRESENT}" == true ]]; then
+        cmp -s -- "${WORK}/saved-hook" "${hook}" || put_file "${WORK}/saved-hook" "${hook}" 0755 || ok=false
+    elif [[ -e "${hook}" || -L "${hook}" ]]; then
+        rm -f -- "${hook}" || ok=false
+    fi
+
+    if ! nginx_test; then
+        printf 'restore: nginx -t fails with the previous state put back: %s\n' "$(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ')" >&2
+        return 1
+    fi
+    log "restore: nginx -t passes with the previous state put back"
+
+    if [[ "${RELOADED}" == true ]]; then
+        if ! "${SYSTEMCTL_BIN}" reload nginx >/dev/null 2>&1; then
+            printf 'restore: systemctl reload nginx failed\n' >&2
+            return 1
+        fi
+        log "restore: Nginx reloaded with the previous state"
+        RELOADED=false
+
+        if ! wait_for_state "${PREVIOUS_STATE}"; then
+            printf 'restore: %s does not answer as %s again\n' "${PUBLIC_HOSTNAMES[0]}" "${PREVIOUS_STATE}" >&2
+            ok=false
+        fi
+    fi
+
+    after="$(probe_unchanged_names)"
+    if [[ "${after}" != "${BEFORE_PROBES}" ]]; then
+        printf 'restore: the MX host and unlisted names do not answer as they did before this run\n' >&2
+        ok=false
+    fi
+    after="$(probe_https_others)"
+    if [[ "${after}" != "${BEFORE_HTTPS}" ]]; then
+        printf 'restore: the other HTTPS sites do not answer as they did before this run\n' >&2
+        ok=false
+    fi
+    if [[ "$(nginx_snapshot)" != "${BEFORE_SNAPSHOT}" || "$(letsencrypt_snapshot)" != "${BEFORE_LETSENCRYPT}" ]]; then
+        printf 'restore: a file other than the public site and its hook changed during this run\n' >&2
+        ok=false
+    fi
+
+    [[ "${ok}" == true ]]
+}
+
+# transition FROM TO — the one change: the site's file to TO's render and the
+# hook as TO needs it, nginx -t on the candidate and its routing judged against
+# FROM's, one reload, and the proof. Any failure ends the run; the exit puts
+# FROM back.
+transition() {
+    local from="$1" to="$2" count_before after
+
+    PREVIOUS_STATE="${from}"
+    BEFORE_ROUTES="$(https_routes)"
+    BEFORE_PROBES="$(probe_unchanged_names)"
+    BEFORE_HTTPS="$(probe_https_others)"
+    BEFORE_SNAPSHOT="$(nginx_snapshot)"
+    BEFORE_LETSENCRYPT="$(letsencrypt_snapshot)"
+    open_https_transaction
+
+    section "${MODE^^}"
+    if [[ "${to}" == http-acme-ready ]]; then
+        if [[ "$(hook_file_state)" == ours ]]; then
+            rm -f -- "$(physical "${HOOK_FILE}")"
+            action "removed ${HOOK_FILE}"
+        fi
+    elif [[ "$(hook_file_state)" != ours ]]; then
+        put_file "${WORK}/render-hook" "$(physical "${HOOK_FILE}")" 0755 \
+            || die "the renewal hook does not read back as written"
+        action "installed ${HOOK_FILE}"
+    fi
+
+    if ! cmp -s -- "${WORK}/render-${to}" "$(physical "${PUBLIC_FILE}")"; then
+        put_file "${WORK}/render-${to}" "$(physical "${PUBLIC_FILE}")" 0644 \
+            || die "the public site's file does not read back as written"
+        action "wrote ${PUBLIC_FILE} (${to})"
+    fi
+    CHANGED=true
+
+    nginx_test || die "nginx -t fails with ${to} in place: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ') — no reload was performed"
+    action "nginx -t passes"
+
+    count_before="${COUNT_FAIL}"
+    section "CANDIDATE"
+    read_https_facts || die "the candidate configuration could not be read with nginx -T — no reload was performed"
+    judge_https_routing "${to}"
+    (( COUNT_FAIL == count_before )) || die "the candidate configuration fails the routing checks — no reload was performed"
+    [[ "$(https_routes)" == "${BEFORE_ROUTES}" ]] \
+        || die "with ${to} in place, the server of an MX host, another HTTPS name or a default server would change — no reload was performed"
+    action "the candidate keeps every MX host, every other HTTPS name and every default server where it was"
+
+    section "RELOAD"
+    RELOADED=true
+    "${SYSTEMCTL_BIN}" reload nginx >/dev/null 2>&1 || die "systemctl reload nginx failed"
+    action "Nginx reloaded"
+
+    wait_for_state "${to}" || die "after the reload, ${PUBLIC_HOSTNAMES[0]} does not answer as ${to} within ${PROBE_WAIT}s"
+
+    after="$(probe_unchanged_names)"
+    [[ "${after}" == "${BEFORE_PROBES}" ]] \
+        || die "after the reload, an MX host or an unlisted name answers differently over HTTP than before"
+    after="$(probe_https_others)"
+    [[ "${after}" == "${BEFORE_HTTPS}" ]] \
+        || die "after the reload, another HTTPS site, or a name nobody lists, answers differently than before"
+    action "every MX host, every other HTTPS site and every unlisted name answers exactly as before"
+
+    judge_answers "${to}"
+    (( COUNT_FAIL == count_before )) || die "the public site does not answer as ${to} says"
+
+    [[ "$(nginx_snapshot)" == "${BEFORE_SNAPSHOT}" ]] \
+        || die "a file under ${NGINX_DIR} other than the public site's changed during this run"
+    [[ "$(letsencrypt_snapshot)" == "${BEFORE_LETSENCRYPT}" ]] \
+        || die "a file of Certbot's other than the site's hook changed during this run"
+
+    HTTPS_TRANSACTION_OPEN=false
+    HOST_STATE="${to}"
+    HOOK_STATE="$([[ "${to}" == http-acme-ready ]] && echo absent || echo installed)"
+}
+
+# --- Modes ------------------------------------------------------------------------------------------
+
+begin_https_run() {
+    load_target
+    load_https_target
+    make_work
+
+    render_public_site >"${WORK}/render-http-acme-ready"
+    render_https_site tls-ready >"${WORK}/render-tls-ready"
+    render_https_site public-active >"${WORK}/render-public-active"
+    render_hook >"${WORK}/render-hook"
+    # prepare-public-http's own judges of its HTTP render read it here.
+    cp -- "${WORK}/render-http-acme-ready" "${WORK}/candidate"
+
+    OURS_BODY_SHA="$(printf '%s\n' "${UNAVAILABLE_BODY}" | sha256sum | cut -c1-64)"
+    new_probe_token
+    HOST_STATE="$(https_state)"
+
+    printf 'prepare-public-https --%s --target %s\n' "${MODE}" "${TARGET_ID}"
+    printf '  site %s (%s), hostnames %s, certificate %s, state %s\n' \
+        "${PUBLIC_SITE}" "${PUBLIC_FILE}" "${PUBLIC_HOSTNAMES[*]}" "${LINEAGE}" "${HOST_STATE}"
+}
+
+# https_preflight LIFECYCLE|any required|skipped — every precondition of a
+# change, judged read-only: the lifecycle both registries must say, or any; the
+# certificate required only where the change serves it.
+https_preflight() {
+    if [[ "$1" == any ]]; then
+        report_target_known
+    else
+        report_lifecycle "$1"
+    fi
+    report_nginx
+    report_probe_addresses
+    report_site
+
+    section "NGINX CONFIGURATION"
+    if nginx_test; then
+        item PASS "nginx:test" "nginx -t passes on the configuration as it is"
+    else
+        item FAIL "nginx:test" "nginx -t fails on the configuration as it is: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ')"
+    fi
+    if read_https_facts; then
+        judge_https_routing "${HOST_STATE}"
+    else
+        judge_https_routing unknown
+    fi
+
+    if [[ "$2" == required ]]; then
+        report_certificate
+    fi
+    report_webroot
+    report_internal_site
+}
+
+# require_state STATE... — the change starts only from its own known states.
+require_state() {
+    local allowed=" $* "
+    [[ "${allowed}" == *" ${HOST_STATE} "* ]] && return 0
+
+    case "${HOST_STATE}" in
+        not-prepared)  item FAIL "state" "not-prepared — the public site does not exist yet; Prepare tits.guru public HTTP comes first" ;;
+        public-active) item FAIL "state" "public-active — the site is open to the public; --${MODE} never takes HTTPS from a live site (--deactivate closes it and keeps HTTPS)" ;;
+        foreign)       item FAIL "state" "foreign — something at the public site's paths is not a known render; resolve it by a reviewed change" ;;
+        *)             item FAIL "state" "${HOST_STATE} — --${MODE} starts from ${*} only" ;;
+    esac
+}
+
+refuse_if_failed() {
+    if (( COUNT_FAIL > 0 )); then
+        section "RESULT"
+        log "${MODE^^}: REFUSED — ${COUNT_FAIL} problem(s) before anything changed; nothing was changed"
+        https_result_line fail
+        exit 1
+    fi
+}
+
+record_answers_before() {
+    BEFORE_PROBES="$(probe_unchanged_names)"
+    section "ANSWERS BEFORE"
+    judge_unchanged_names "${BEFORE_PROBES}"
+}
+
+# no_op_if STATE — when the site already answers as STATE, with its hook as
+# STATE needs it, the run changes nothing.
+no_op_if() {
+    local state="$1" count_before="${COUNT_FAIL}"
+    [[ "${HOST_STATE}" == "${state}" ]] || return 1
+    if [[ "${state}" == http-acme-ready ]]; then
+        [[ "$(hook_file_state)" == absent ]] || return 1
+    else
+        [[ "$(hook_file_state)" == ours ]] || return 1
+    fi
+    wait_for_state "${state}" || return 1
+
+    section "ANSWERS"
+    judge_answers "${state}"
+    (( COUNT_FAIL == count_before )) || die "the public site is ${state} but does not answer as it says"
+    section "RESULT"
+    log "${MODE^^}: PASS — no-op: the public site is ${state} and answering; nothing was written and nothing reloaded"
+    https_result_line pass
+    exit 0
+}
+
+run_https_check() {
+    begin_https_run
+    https_preflight planned required
+    require_state http-acme-ready tls-ready
+
+    section "ANSWERS"
+    judge_unchanged_names "$(probe_unchanged_names)"
+    case "${HOST_STATE}" in
+        http-acme-ready|tls-ready|public-active) judge_answers "${HOST_STATE}" ;;
+    esac
+
+    section "PLAN"
+    case "${HOST_STATE}" in
+        tls-ready) printf '  %-8s %s\n' NO-OP "the public site is tls-ready: --apply writes nothing, and installs the renewal hook only if it is missing" ;;
+        *)
+            printf '  %-8s %s\n' WRITE "${PUBLIC_FILE}: the tls-ready render below, in place of the http-acme-ready one"
+            printf '  %-8s %s\n' WRITE "${HOOK_FILE} (${FILE_OWNER}:${FILE_GROUP} 0755): the renewal hook"
+            printf '  %-8s %s\n' TEST "nginx -t, and the candidate's routing on ports 80 and 443 judged again before any reload"
+            printf '  %-8s %s\n' RELOAD "systemctl reload nginx — never a restart or a stop"
+            printf '  %-8s %s\n' PROVE "on ${PROBE_ADDRESSES[*]}: HTTPS with a verified certificate and the 503, the redirect, both HTTP-01 routes, every other site as before"
+            ;;
+    esac
+    printf '  %-8s %s\n' NEVER "a certificate issued, renewed or removed, Certbot run, the internal site, another site, DNS, the mail gateway or the lifecycle"
+    printf '\n  The tls-ready render:\n'
+    sed 's/^/    | /' "${WORK}/render-tls-ready"
+
+    section "RESULT"
+    if (( COUNT_FAIL == 0 )); then
+        log "CHECK: PASS — state ${HOST_STATE}; --apply may proceed"
+        https_result_line pass
+    else
+        log "CHECK: FAIL — ${COUNT_FAIL} problem(s); --apply would refuse before changing anything"
+        https_result_line fail
+        exit 1
+    fi
+}
+
+run_https_verify() {
+    begin_https_run
+    if [[ "${HOST_STATE}" == public-active ]]; then
+        report_lifecycle active
+    else
+        report_lifecycle_consistent
+    fi
+    report_nginx
+    report_probe_addresses
+    report_site
+
+    section "NGINX CONFIGURATION"
+    if nginx_test; then
+        item PASS "nginx:test" "nginx -t passes on the configuration as it is"
+    else
+        item FAIL "nginx:test" "nginx -t fails on the configuration as it is: $(tail -n 2 <<<"${NGINX_TEST_OUTPUT}" | tr '\n' ' ')"
+    fi
+    read_https_facts || true
+    judge_https_routing "${HOST_STATE}"
+
+    case "${HOST_STATE}" in
+        tls-ready|public-active)
+            report_certificate
+            [[ "${HOOK_STATE}" == installed ]] \
+                || item FAIL "hook:${HOOK_FILE}" "${HOST_STATE} needs the renewal hook as rendered — --apply installs it"
+            ;;
+        http-acme-ready)
+            [[ "${HOOK_STATE}" == absent ]] \
+                || item DRIFT "hook:${HOOK_FILE}" "http-acme-ready has no renewal hook — --rollback removes it"
+            ;;
+        drift)   item DRIFT "state" "the public site's link is missing" ;;
+        foreign) item CONFLICT "state" "something at the public site's paths is not a known render" ;;
+    esac
+    report_internal_site
+
+    section "ANSWERS"
+    judge_unchanged_names "$(probe_unchanged_names)"
+    case "${HOST_STATE}" in
+        http-acme-ready|tls-ready|public-active) judge_answers "${HOST_STATE}" ;;
+    esac
+
+    section "RESULT"
+    if (( COUNT_FAIL == 0 )); then
+        log "VERIFY: PASS — state ${HOST_STATE}"
+        https_result_line pass
+    else
+        log "VERIFY: FAIL — ${COUNT_FAIL} problem(s), state ${HOST_STATE}"
+        https_result_line fail
+        exit 1
+    fi
+}
+
+run_https_apply() {
+    acquire_host_lock
+    begin_https_run
+    https_preflight planned required
+    require_state http-acme-ready tls-ready
+    refuse_if_failed
+
+    record_answers_before
+    refuse_if_failed
+    no_op_if tls-ready || true
+
+    transition "${HOST_STATE}" tls-ready
+    section "RESULT"
+    log "APPLY: PASS — tls-ready: ${PUBLIC_HOSTNAMES[*]} answer over HTTPS with a verified certificate and 503 to everyone, ACME stays on port 80, and the renewal hook is in place"
+    https_result_line pass
+}
+
+run_https_rollback() {
+    acquire_host_lock
+    begin_https_run
+    # The certificate may be why the site is rolled back: it is not required,
+    # and tls-ready, if a failure puts it back, is proved by its 503.
+    PUBLIC_TRUST=insecure
+    https_preflight planned skipped
+    require_state tls-ready http-acme-ready
+    refuse_if_failed
+
+    record_answers_before
+    refuse_if_failed
+    no_op_if http-acme-ready || true
+
+    transition "${HOST_STATE}" http-acme-ready
+    section "RESULT"
+    log "ROLLBACK: PASS — http-acme-ready: HTTPS is withdrawn from the public site; the certificate is kept, the renewal hook removed"
+    https_result_line pass
+}
+
+run_https_activate() {
+    acquire_host_lock
+    begin_https_run
+    https_preflight active required
+    require_state tls-ready public-active
+
+    if [[ "${CONFIRM_PUBLIC}" != true ]]; then
+        item FAIL "confirmation" "--activate opens the application to the public, and needs --confirm-public"
+    else
+        item PASS "confirmation" "--confirm-public: the operator opens the site"
+    fi
+    report_application
+    [[ "${HOOK_STATE}" == installed ]] \
+        || item FAIL "hook:${HOOK_FILE}" "the renewal hook is not in place — --apply installs it before GO LIVE"
+    refuse_if_failed
+
+    record_answers_before
+    refuse_if_failed
+    no_op_if public-active || true
+
+    transition "${HOST_STATE}" public-active
+    section "RESULT"
+    log "ACTIVATE: PASS — public-active: ${PUBLIC_HOSTNAMES[*]} serve the application over HTTPS"
+    https_result_line pass
+}
+
+run_https_deactivate() {
+    acquire_host_lock
+    begin_https_run
+    # Closing the site to the public never waits on anything that might be
+    # what went wrong: any lifecycle in either registry, and the certificate
+    # neither required nor trusted — the closed site is proved by its own 503.
+    PUBLIC_TRUST=insecure
+    https_preflight any skipped
+    require_state public-active tls-ready
+    refuse_if_failed
+
+    record_answers_before
+    refuse_if_failed
+    no_op_if tls-ready || true
+
+    transition "${HOST_STATE}" tls-ready
+    section "RESULT"
+    log "DEACTIVATE: PASS — tls-ready: the application is closed to the public again; HTTPS and ACME stay"
+    https_result_line pass
+}
+
+https_main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify|--rollback|--activate|--deactivate)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "--target requires a value"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            --confirm-public)
+                CONFIRM_PUBLIC=true
+                shift
+                ;;
+            -h|--help)
+                https_usage
+                exit 0
+                ;;
+            *)
+                https_usage >&2
+                die "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { https_usage >&2; die "a mode is required: --check, --apply, --verify, --rollback, --activate or --deactivate"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || die "invalid target ID: ${TARGET_ID}"
+    [[ "${CONFIRM_PUBLIC}" == false || "${MODE}" == activate ]] || die "--confirm-public belongs to --activate alone"
+
+    require_tools jq
+    RESULT_READY=true
+    trap https_on_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 141' PIPE
+    trap 'exit 143' TERM
+
+    https_require_root
+    require_tools "${NGINX_BIN}" "${SYSTEMCTL_BIN}" "${CURL_BIN}" "${OPENSSL_BIN}" flock stat sha256sum cmp install mktemp od readlink
+
+    case "${MODE}" in
+        check)      run_https_check ;;
+        apply)      run_https_apply ;;
+        verify)     run_https_verify ;;
+        rollback)   run_https_rollback ;;
+        activate)   run_https_activate ;;
+        deactivate) run_https_deactivate ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    https_main "$@"
+fi

@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\File;
-
 /*
  * Staging is behind a password, except for the bots that build link previews:
  * they fetch a shared page and its picture without credentials, so the vhost
@@ -9,11 +7,6 @@ use Illuminate\Support\Facades\File;
  * keep that opening to the preview bots, so a search engine never gets a
  * staging page to index.
  */
-
-function stagingVhost(): string
-{
-    return File::get(base_path('infrastructure/config/nginx/rateguru-staging'));
-}
 
 /** The vhost's User-Agent pattern, as PCRE the way nginx's ~* applies it. */
 function stagingLinkPreviewBotPattern(): string

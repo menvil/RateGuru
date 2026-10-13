@@ -104,6 +104,37 @@ final class PostImagePresenter
             : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
     }
 
+    /**
+     * The picture a share hands to another app as a file: post_detail_1920
+     * when it is on disk, otherwise the master. The whole picture, unlike the
+     * Open Graph crop, at a size an app takes without complaint, unlike a
+     * 16-megapixel original. Like thumbnailUrl(), it never lazy-loads
+     * `variants`: a caller that did not eager-load them gets the master.
+     */
+    public function shareUrl(Post $post): ?string
+    {
+        $asset = $post->imageAsset;
+
+        if ($asset === null) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
+            return $masterUrl;
+        }
+
+        $detail = $this->firstExistingOnDisk(
+            $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
+            [MediaVariantName::PostDetail1920],
+        );
+
+        return $detail === null
+            ? $masterUrl
+            : $this->resolver->publicUrl(new MediaLocation($detail->disk, $detail->path), $asset->visibility);
+    }
+
     public function responsive(Post $post, PostImageContext $context): ?ResponsiveImage
     {
         $asset = $post->imageAsset;

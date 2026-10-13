@@ -280,7 +280,7 @@ final class ManageTags extends Page
                     'chips' => $chips,
                     'missing' => ContentTranslationStatus::missing($chips),
                     'search' => mb_strtolower("{$tag->name} {$tag->slug}"),
-                    'translate' => $translate ? $status->translateUrl(ProjectContentSection::Tags, $tag->id, 'name', $chips) : null,
+                    'translate' => $translate ? $status->translateUrl(ProjectContentSection::Tags, $tag->id, ['name' => $chips]) : null,
                     'url' => self::getUrl(['edit' => $tag->id]),
                 ]];
             })

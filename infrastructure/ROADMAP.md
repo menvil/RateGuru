@@ -17,10 +17,13 @@ not reorganize unrelated infrastructure.
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
-**NEXT: Phase 8.5 — TLS and real tits.guru public routing.** Its first part,
-8.5.1 (public HTTP and ACME for `tits.guru`), is implemented in the repository.
-Its one run on the host refused safely, changing nothing, because the host
-disables IPv6; that is fixed in the repository. Then 8.6
+**NEXT: Phase 8.5 — TLS and real tits.guru public routing.**
+- 8.5.1, public HTTP and ACME for `tits.guru`, is done on the host.
+- 8.5.2, DNS and the certificate, is done by hand.
+- 8.5.3, HTTPS in the `tls-ready` state, is implemented in the repository and
+  has not run on the host yet: **Prepare tits.guru HTTPS** is next.
+
+Then 8.6
 (production operations acceptance) and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
 period of its own. Bounce and reply processing, the remaining inbound mail work
@@ -1655,11 +1658,13 @@ brand that exists nowhere in this repository — and then exercised for real on
   Unified Monitoring** below. The mail safeguards required before GO LIVE
   stay in 8.6 and 8.7.
 - **Next.** **NEXT: Phase 8.5 — TLS and real tits.guru public routing**, then
-  8.6 and 8.7. 8.5.1, public HTTP and ACME for `tits.guru`, is IMPLEMENTED in
-  the repository. **Prepare tits.guru public HTTP** ran once and refused before
-  changing anything, because the host disables IPv6 (run 38306251547). The
-  installer now supports such a host.
-  The site is not prepared yet.
+  8.6 and 8.7. Where 8.5 stands:
+  - 8.5.1 is done on the host: the public site is `http-acme-ready`.
+  - 8.5.2 is done by the operator: `tits.guru` names the host, and Certbot
+    holds its certificate.
+  - 8.5.3 (HTTPS, `tls-ready`) is IMPLEMENTED in the repository, and
+    **Prepare tits.guru HTTPS** has not run on the host. The application stays
+    closed until 8.7.
 - **Not launched.** `tits-guru` is still `lifecycle=planned`, no application
   release is deployed, and nothing public serves the site. Phase 8 is not
   complete.
@@ -2418,10 +2423,16 @@ Slices, in order:
    The public site is a site of its own, with its own owner, never a change to
    the internal one ([`runbooks/public-site.md`](runbooks/public-site.md)). It
    moves through `not-prepared` → `http-acme-ready` → `tls-ready` →
-   `public-active`, and only the first two exist.
+   `public-active`. The host is in `http-acme-ready`; the repository can take
+   it to `tls-ready`, and `public-active` is used only at GO LIVE (8.7).
 
-   **8.5.1 Public HTTP and ACME for `tits.guru` — IMPLEMENTED in repository,
-   not yet accepted on the host.** The first **Prepare tits.guru public HTTP**,
+   **8.5.1 Public HTTP and ACME for `tits.guru` — DONE on the host, by the
+   operator's report.** Prepare tits.guru public HTTP and Verify tits.guru
+   public HTTP passed, as did Verify tits.guru inbound SMTP. The public site
+   `rateguru-tits-guru-public` is `http-acme-ready`, `tits-guru` stays
+   `lifecycle=planned`, and Laravel is not reachable publicly.
+
+   The run before it,
    [run 38306251547](https://github.com/menvil/RateGuru/actions/runs/38306251547)
    on 2026-10-12, refused before changing anything: `state=not-prepared`,
    `changed=false`, `reloaded=false`. The production host disables IPv6
@@ -2475,28 +2486,92 @@ Slices, in order:
      the load-order hazard the default-server check refuses: a public site
      loaded first does take `mx1.tits.guru`.
    - **Not here.** No certificate for `tits.guru`, no HTTPS, no redirect, no
-     DNS change, and no deploy or activation. **The DNS A record of
-     `tits.guru` has not been checked for this.**
+     DNS change, and no deploy or activation. Those belong to 8.5.2 and 8.5.3.
 
-   *Accepted on the host when:* **Prepare tits.guru public HTTP** reports
-   `http-acme-ready`, **Verify tits.guru public HTTP** and **Verify tits.guru
-   inbound SMTP** pass, and `certbot renew --dry-run --cert-name
-   mx1.tits.guru` still succeeds.
+   **8.5.2 DNS and the certificate for `tits.guru` — DONE, by hand, by the
+   operator's report.**
+   - The DNS A record of `tits.guru` names the production host,
+     `213.199.41.241`.
+   - Certbot issued the certificate over the webroot `/var/www/html`.
+   - It lives at `/etc/letsencrypt/live/tits.guru/fullchain.pem` and
+     `privkey.pem`, Certbot's own links into `/etc/letsencrypt/archive/tits.guru/`.
+   - No certificate is issued again by 8.5.3.
 
-   **8.5.2 The certificate for `tits.guru` — next, after 8.5.1 is accepted.**
-   - The DNS A record of `tits.guru` is checked and published if needed.
-   - The real certificate is issued by Certbot over the webroot, rehearsed
-     with `--dry-run` first.
+   **8.5.3 HTTPS for `tits.guru`, `tls-ready` — IMPLEMENTED in repository, not
+   yet run on the host.**
+   - **The installer.** `infrastructure/scripts/prepare-public-https
+     --check|--apply|--verify|--rollback`, built on prepare-public-http — one
+     target loader, one HTTP render, one analysis of the loaded configuration,
+     one set of probes. It takes over the same public site in place: the same
+     file and link, and no competing virtual host.
+   - **`tls-ready`.** On port 80, ACME from `/var/www/html` and a 301 to HTTPS
+     for everything else. On 443, Certbot's certificate through its live links
+     (TLS 1.2 and 1.3), and every request 503 with `Retry-After` and
+     `Cache-Control: no-store`. There is no application, no root, no Basic
+     Auth and no HSTS, and the site is never a `default_server` on 80 or 443.
+   - **The certificate, judged before any change.** Certbot's links lead into
+     its own archive, and every directory is root's. Every public hostname is
+     covered, the chain is trusted, and the key matches without ever being
+     printed. At least 14 days are left, and Certbot's renewal configuration
+     uses the webroot. The installer never issues, renews or removes a
+     certificate.
+   - **The renewal.** A Certbot deploy hook of its own,
+     `rateguru-public-https-tits-guru`. It acts on `tits.guru`'s lineage only,
+     and does nothing for `mx1.tits.guru` or any other. It judges the renewed
+     pair, runs `nginx -t`, and only then reloads Nginx: never a restart, and
+     nothing of the mail gateway.
+   - **Routing proved.** Port 80 keeps 8.5.1's rules. On 443, the default
+     server for unlisted names, explicit or by load order, and the route of
+     every other HTTPS name stay exactly where they were, on the candidate
+     before the reload and in the answers after it.
+   - **Transactional, from known states only.** Both registries must say
+     `planned`, and the site must be exactly `http-acme-ready` (or already
+     `tls-ready`: a no-op). The run holds the host lock, keeps the previous
+     file and hook, runs `nginx -t`, does one reload, and then proves the
+     result on 127.0.0.1 (and `[::1]` unless IPv6 is disabled):
+     - HTTPS with Host and SNI and a verified certificate;
+     - the redirect;
+     - both HTTP-01 routes;
+     - staging and every other site.
 
-   **8.5.3 HTTPS for `tits.guru` — planned.**
-   - The certificate installed safely, with its renewal.
-   - The HTTPS installer takes the public site over (`tls-ready`), while the
-     target may still be `planned`.
-   - The mechanism that activates the public site, used for `public-active`
-     only at GO LIVE (8.7).
+     A failure puts the previous state back, or says CRITICAL.
+     `--rollback` returns the exact `http-acme-ready`, keeping the
+     certificate. Once the site is `public-active`, there is no rollback.
+   - **GO LIVE, prepared and not run.** `--activate --confirm-public` takes
+     `tls-ready` to `public-active`: the production release through
+     `tits-guru`'s own PHP-FPM socket, never staging's. It needs `active` in
+     both registries, a deployed release, the socket listening, the internal
+     health check answering through it, the certificate holding, and the
+     operator's confirmation. `--deactivate` closes it again to `tls-ready`,
+     keeping HTTPS and ACME, and never waits on the application or the
+     certificate.
+   - **Workflows.** Prepare, Verify and Rollback tits.guru HTTPS; GO LIVE
+     tits.guru; Close tits.guru public site. All run from `main` only, in
+     `production-tits-guru` with the bootstrap credential, the mutating four
+     behind typed confirmations. GO LIVE also needs main's registry to say
+     `tits-guru` is active before the Environment is reached. None runs on a
+     merge.
+   - **Tests.** Simulated-host tests, and the real-Nginx CI scenario with a
+     certificate from a test authority laid out as Certbot lays it out. They
+     cover:
+     - real TLS, the 503, the redirect and both HTTP-01 routes;
+     - staging's HTTPS sites unchanged;
+     - a renewal that is then served, and one for `mx1.tits.guru` ignored;
+     - GO LIVE refused while `planned`;
+     - the `public-active` render passing `nginx -t`;
+     - rollback and failure paths;
+     - the host with IPv6 disabled.
+   - **Not here.** No certificate issued, no DNS change, no deploy, no
+     activation, no lifecycle change. Laravel stays closed until 8.7.
+
+   *Accepted on the host when:* **Prepare tits.guru HTTPS** reports
+   `tls-ready`, **Verify tits.guru HTTPS** and **Verify tits.guru inbound
+   SMTP** pass, `https://tits.guru` answers 503 with a valid certificate from
+   outside, and `certbot renew --dry-run` succeeds for `tits.guru` and
+   `mx1.tits.guru`.
 
    The order is in
-   [`runbooks/public-site.md`](runbooks/public-site.md#the-order-after-this-change).
+   [`runbooks/public-site.md`](runbooks/public-site.md#the-order-from-here).
 6. **8.6 Production operations acceptance.** Everything the launch needs,
    proved before any public traffic. No infrastructure operation performed
    during go-live should be happening for the first time.
@@ -2555,7 +2630,10 @@ Slices, in order:
    they are post-launch work.
 7. **8.7 tits.guru GO LIVE and final acceptance.** The actual first public
    production activation and its final verification, confirmed on the live
-   site:
+   site. The activation is **GO LIVE tits.guru**, prepared in 8.5.3: it needs
+   `tits-guru` active in both registries, a deployed and healthy release and a
+   valid certificate, and **Close tits.guru public site** takes it back to
+   `tls-ready`. The live site must show:
    - the site reachable over HTTPS, and its public checks;
    - public health;
    - basic mail: outbound delivery, and mail to `support@tits.guru` stored;

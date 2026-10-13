@@ -544,9 +544,14 @@ it('adds no rehearsal harness and no host provisioner', function () {
         // MailInboundHealthWorkflowTest.
         'check-tits-guru-inbound-mail-health.yml',
         'ci.yml',
+        // tits-guru's public site over HTTPS: closed to the public again after
+        // GO LIVE, guarded by PublicHttpsWorkflowTest.
+        'close-tits-guru-public-site.yml',
         'configure-tits-guru.yml',
         'coverage.yml',
         'deploy-staging.yml',
+        // GO LIVE of tits.guru, guarded by PublicHttpsWorkflowTest.
+        'go-live-tits-guru.yml',
         // The one-time installation of the health check's read-only monitor
         // access, guarded by MailInboundHealthWorkflowTest.
         'install-tits-guru-inbound-mail-monitor.yml',
@@ -558,6 +563,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'prepare-staging-host.yml',
         // tits-guru's public HTTP site: its preparation, read-only
         // verification and rollback, guarded by PublicHttpWorkflowTest.
+        'prepare-tits-guru-https.yml',
         'prepare-tits-guru-public-http.yml',
         'provision-tits-guru.yml',
         'recover-production.yml',
@@ -569,6 +575,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'restore-staging.yml',
         'rollback-production.yml',
         'rollback-staging.yml',
+        'rollback-tits-guru-https.yml',
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
         'rollback-tits-guru-public-http.yml',
@@ -581,6 +588,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'verify-production-infrastructure.yml',
         'verify-production-mail-signing.yml',
         'verify-staging-infrastructure.yml',
+        'verify-tits-guru-https.yml',
         'verify-tits-guru-inbound-smtp.yml',
         'verify-tits-guru-public-http.yml',
     ]);

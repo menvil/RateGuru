@@ -16,7 +16,7 @@
 >
     <button
         type="button"
-        x-on:click="share"
+        x-on:click="share($data.picture ?? null)"
         title="{{ $buttonLabel }}"
         data-testid="share-native"
         aria-label="{{ $buttonLabel }}"

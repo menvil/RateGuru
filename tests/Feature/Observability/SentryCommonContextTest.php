@@ -2,7 +2,11 @@
 
 use App\Models\User;
 use App\Providers\ObservabilityServiceProvider;
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
+use Sentry\Laravel\EventHandler;
+use Sentry\Laravel\ServiceProvider as SentryServiceProvider;
 use Sentry\Severity;
 use Sentry\State\HubInterface;
 
@@ -29,6 +33,24 @@ function bootObservabilityScope(array $config = []): void
     app()->make(HubInterface::class);
 
     (new ObservabilityServiceProvider(app()))->boot();
+}
+
+/**
+ * Runs the Laravel SDK's own event binding and reports whether it subscribed
+ * to the auth events that put the signed-in user on every event it sends.
+ */
+function sentrySubscribesToAuthEvents(): bool
+{
+    (new class(app()) extends SentryServiceProvider
+    {
+        public function bindEventsNow(): void
+        {
+            $this->bindEvents();
+        }
+    })->bindEventsNow();
+
+    return collect(Event::getRawListeners()[Authenticated::class] ?? [])
+        ->contains(static fn (mixed $listener): bool => is_array($listener) && $listener[0] instanceof EventHandler);
 }
 
 beforeEach(function (): void {
@@ -134,10 +156,21 @@ it('sends no user context at all for an anonymous request', function () {
 it('keeps the SDK from collecting identity on its own', function () {
     // With send_default_pii false the Laravel SDK does not subscribe to auth
     // events, which is exactly why the user ID has to be added deliberately.
-    // If that gate ever moves, this catches it at the vendor boundary.
-    expect(File::get(base_path('vendor/sentry/sentry-laravel/src/Sentry/Laravel/ServiceProvider.php')))
-        ->toContain("if (isset(\$userConfig['send_default_pii']) && \$userConfig['send_default_pii'] !== false) {")
-        ->toContain('$handler->subscribeAuthEvents($dispatcher);');
+    // The SDK binds its own listeners here, against a live client and this
+    // application's config, so wherever the vendor moves that gate, this
+    // catches it opening.
+    fakeSentryTransport();
+
+    expect(sentrySubscribesToAuthEvents())->toBeFalse();
+});
+
+it('sees the SDK subscribe to auth events once it may collect identity', function () {
+    // The control for the test above: the same probe finds the listener as
+    // soon as the SDK is allowed to collect identity, so its silence there
+    // means something.
+    fakeSentryTransport(['sentry.send_default_pii' => true]);
+
+    expect(sentrySubscribesToAuthEvents())->toBeTrue();
 });
 
 it('adds no high-cardinality or sensitive tag', function () {

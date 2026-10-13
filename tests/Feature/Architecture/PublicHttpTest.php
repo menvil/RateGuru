@@ -572,6 +572,24 @@ it('puts the site back when the rollback cannot complete', function (string $tog
     'the reload fails' => ['reload-fail-once', "systemctl reload nginx\nsystemctl reload nginx\n"],
 ]);
 
+it('judges the answers only once the reload has stopped answering from the configuration before it', function (bool $installed, string $mode, string $state, string $answer) {
+    if ($installed) {
+        publicHttpInstalled($this->host);
+    }
+    // For a second after the reload, every connection but the first still
+    // reaches an old worker, as Nginx's own overlap of the two does briefly.
+    file_put_contents($this->host['toggles'].'/reload-overlap', '1000');
+
+    [$exit, $output] = publicHttpRun($this->host, $mode, ['RATEGURU_PUBLICHTTP_RELOAD_OVERLAP' => '1.2']);
+
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpResult($output))->toMatchArray(['status' => 'pass', 'state' => $state, 'changed' => true, 'reloaded' => true, 'rolled_back' => false]);
+    expect($output)->toContain($answer);
+})->with([
+    'apply' => [false, 'apply', 'http-acme-ready', 'PASS     answer:tits.guru@127.0.0.1                   / is 503 with Retry-After 3600'],
+    'rollback' => [true, 'rollback', 'not-prepared', 'PASS     answer:tits.guru@127.0.0.1                   HTTP 200 — not the public site'],
+]);
+
 it('verifies without changing anything, before the site exists and once it is in place', function () {
     $before = publicHttpTree($this->host);
 

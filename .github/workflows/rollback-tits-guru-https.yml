@@ -1,0 +1,155 @@
+name: Rollback tits.guru HTTPS
+
+# The public site of tits-guru's host from tls-ready back to http-acme-ready:
+# infrastructure/scripts/prepare-public-https --rollback --target tits-guru,
+# run from trusted main tooling, after a typed confirmation.
+#
+# The public site's file returns to exactly the render prepare-public-http
+# installs, and the renewal hook is removed; Nginx is validated and reloaded,
+# and the run proves the HTTP state answers again while mx1.tits.guru and every
+# other site answer as before. Certbot's certificate for tits.guru is kept.
+#
+# Refused once the site is public-active: a live site's HTTPS is never taken
+# away by this — Close tits.guru public site returns it to tls-ready instead.
+# Run again, it changes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly "ROLLBACK tits-guru HTTPS" to take HTTPS off the public site of tits.guru on the production host
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# tits-guru shares its physical host with staging today, so this must never run
+# halfway through a mutation of either target, nor while anything else reads
+# that machine: the domain every change to it waits in. It waits rather than
+# cancelling anything. On the host, prepare-public-https holds the host's own
+# infrastructure lock for the whole run.
+concurrency:
+  group: rateguru-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  # --- main-only control-plane gate (begin) ---
+  #
+  # Fail-closed, and deliberately a job of its own with NO `environment:`.
+  #
+  # The production-tits-guru Environment permits `main` and `v*`. `v*` has to be
+  # there, because Release to production runs with `github.ref` at the tag — but
+  # GitHub matches an Environment's allowlist against the ref of the RUN, and a
+  # workflow_dispatch ref may be a tag as well as a branch. So the allowlist
+  # alone would also admit a manual dispatch of THIS workflow from a tag, and
+  # the workflow definition that then ran would be the one at that tag.
+  #
+  # A manual production operation is a main-only operation, so anything else is
+  # refused here, before a single production job starts. Because this job holds
+  # no Environment, a refused run never has those credentials available to it at
+  # all — the job that owns them never begins.
+  #
+  # WHAT THIS IS NOT. It guards against accidental and casual misuse: a tag
+  # selected in the Run workflow dropdown, or the habit of dispatching from
+  # develop, neither of which can reach a production job any more.
+  # It is NOT a boundary against someone who can already create an arbitrary
+  # trusted tag, because they would author this very file at that tag. Who may
+  # create `v*` is a GitHub tag ruleset, which is a separate permission boundary
+  # and the one that actually bounds that case. See
+  # infrastructure/runbooks/deployment-targets.md.
+  validate-ref:
+    name: Refuse any ref but main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require refs/heads/main
+        shell: bash
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${RUN_REF}" != "refs/heads/main" ]]; then
+            echo "A manual production operation runs from main and nowhere else." >&2
+            echo "Dispatched ref: ${RUN_REF}" >&2
+            echo "Re-run with main selected. New application code reaches production only through Release to production, from a v* tag." >&2
+            exit 1
+          fi
+
+          echo "Control plane: ${RUN_REF}"
+  # --- main-only control-plane gate (end) ---
+  validate-confirmation:
+    name: Require the typed confirmation
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref]
+    timeout-minutes: 5
+
+    steps:
+      - name: Require exactly "ROLLBACK tits-guru HTTPS"
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "${CONFIRMATION}" != "ROLLBACK tits-guru HTTPS" ]]; then
+            echo "confirmation must be exactly 'ROLLBACK tits-guru HTTPS' to take HTTPS off the public site of tits.guru on the production host" >&2
+            exit 1
+          fi
+
+          echo "Confirmed: ROLLBACK tits-guru HTTPS"
+
+  rollback:
+    name: Roll back tits-guru's HTTPS
+    runs-on: ubuntu-24.04
+
+    needs: [validate-ref, validate-confirmation]
+
+    # The GitHub Environment holding this target's own credentials. Only this
+    # job, downstream of the main-only gate and the typed confirmation, ever receives them.
+    environment: production-tits-guru
+    timeout-minutes: 20
+
+    steps:
+      # Operational tooling always comes from main, the production control
+      # plane — never from the integration branch.
+      - name: Checkout trusted tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Roll back on the production host
+        id: public
+        uses: ./.github/actions/prepare-rateguru-public-https
+        with:
+          operation: rollback
+          deployment-target: tits-guru
+
+          bootstrap-host: ${{ vars.DEPLOY_HOST }}
+          bootstrap-port: ${{ vars.DEPLOY_PORT }}
+
+          # The privileged bootstrap credential: the configuration of Nginx and
+          # Certbot's tree are root's. Never the deploy key.
+          bootstrap-user: ${{ vars.BOOTSTRAP_USER }}
+          bootstrap-ssh-key: ${{ secrets.BOOTSTRAP_SSH_KEY }}
+          bootstrap-known-hosts: ${{ secrets.BOOTSTRAP_KNOWN_HOSTS }}
+
+      # The action writes the result of every completed run. A run that
+      # produced no result at all says so here, rather than leaving an empty
+      # summary that could be read as nothing wrong.
+      - name: Report an incomplete run
+        if: ${{ always() && steps.public.outputs.status == '' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## tits-guru public HTTPS rollback"
+            echo
+            echo "The rollback did not complete, so there is no result; the reason is in the job log. A change that could not be completed is put back to the state before the run."
+          } >> "${GITHUB_STEP_SUMMARY}"

@@ -16,5 +16,7 @@ return [
     'share_via' => 'Сподели чрез',
     'share_unavailable' => 'Споделянето не е достъпно',
     'copy_failed' => 'Не може да се копира автоматично. Изберете и копирайте ръчно.',
+    'picture_copied' => 'Снимката е копирана. Отворете :provider и я поставете.',
+    'open_provider' => 'Отвори :provider',
     'post_fallback_description' => 'Вижте и оценете този пост в :siteName.',
 ];
