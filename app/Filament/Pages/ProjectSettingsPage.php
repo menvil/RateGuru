@@ -248,8 +248,15 @@ final class ProjectSettingsPage extends Page
 
         $rules['data.default_theme'] = ['required', 'in:system,light,dark'];
         $rules['data.default_sort'] = ['required', 'in:hot,new,top'];
-        $rules['data.feature_flags.*'] = ['boolean'];
-        $rules['data.sign_in_providers.*'] = ['boolean'];
+
+        // Each flag and provider the project has, and nothing a request adds beside them.
+        foreach (array_keys(self::FLAGS) as $flag) {
+            $rules["data.feature_flags.{$flag}"] = ['required', 'boolean'];
+        }
+
+        foreach (SocialProvider::values() as $provider) {
+            $rules["data.sign_in_providers.{$provider}"] = ['required', 'boolean'];
+        }
 
         foreach (self::pageKeys() as $key) {
             foreach (['title', 'content'] as $field) {
@@ -264,14 +271,20 @@ final class ProjectSettingsPage extends Page
 
         $validated = $this->validate($rules, $messages)['data'];
 
-        // Trimmed in the draft too, so what is saved is what the page shows.
+        foreach (['feature_flags', 'sign_in_providers'] as $switches) {
+            $validated[$switches] = array_map(boolval(...), $validated[$switches]);
+        }
+
         foreach ([...array_keys(self::TEXT_FIELDS['identity']), ...array_keys(self::TEXT_FIELDS['labels'])] as $field) {
-            $validated[$field] = $this->data[$field] = is_string($validated[$field] ?? null) ? trim($validated[$field]) : null;
+            $validated[$field] = is_string($validated[$field] ?? null) ? trim($validated[$field]) : null;
         }
 
         app(SaveProjectSettingsAction::class)->handle($validated);
 
-        $this->saved = $this->data;
+        // The draft becomes what was saved, trimmed, so the page shows what is
+        // saved and keeps nothing a request added beside the settings.
+        $this->data = $validated;
+        $this->saved = $validated;
         $this->dispatch('rg-admin-toast', message: 'Project settings saved. Visitors see the changes on their next page load.', tone: 'success');
     }
 

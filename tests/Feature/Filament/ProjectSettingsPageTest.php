@@ -21,6 +21,13 @@ beforeEach(function () {
 
 // One request per test: Filament reads the page's scope, the top bar's actions
 // included, from the request the page was first rendered for.
+it('refuses the page to anyone but an administrator', function (Closure $user) {
+    $this->actingAs($user())->get(ProjectSettingsPage::getUrl())->assertForbidden();
+})->with([
+    'a member' => [fn (): User => User::factory()->create()],
+    'a moderator' => [fn (): User => User::factory()->moderator()->create()],
+]);
+
 it('draws the screen in Admin v2, saving from the top bar', function () {
     ProjectSettings::factory()->create(['site_name' => 'Pawrank']);
 
@@ -61,6 +68,26 @@ it('saves every tab together, and has nothing unsaved after', function () {
     expect($settings)->site_name->toBe('Pawrank')->default_sort->toBe('new')
         ->and($settings->feature_flags['show_comments'])->toBeFalse()
         ->and($settings->static_pages['about']['en']['title'])->toBe('About Pawrank');
+});
+
+it('saves only the flags and providers the project has, leaving out whatever a request adds', function () {
+    ProjectSettings::factory()->create();
+
+    $page = Livewire::test(ProjectSettingsPage::class)
+        ->set('data.feature_flags.forged_flag', true)
+        ->set('data.sign_in_providers.forged_provider', true)
+        ->set('data.forged_setting', 'Forged')
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    $settings = ProjectSettings::query()->sole();
+
+    expect($settings->feature_flags)->toHaveKeys(array_keys(ProjectSettingsPage::FLAGS))->not->toHaveKey('forged_flag')
+        ->and($settings->sign_in_providers)->not->toHaveKey('forged_provider')
+        ->and($page->get('saved'))->not->toHaveKey('forged_setting')
+        ->and($page->get('saved.feature_flags'))->not->toHaveKey('forged_flag')
+        ->and($page->get('data'))->not->toHaveKey('forged_setting')
+        ->and($page->get('data.sign_in_providers'))->not->toHaveKey('forged_provider');
 });
 
 it('puts the saved settings back on Discard', function () {
