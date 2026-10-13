@@ -579,7 +579,6 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
         'rollback-tits-guru-public-http.yml',
-        'schedule-tits-guru-inbound-mail-health.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
         // environment, guarded by VerifyInfrastructureTest — and the live

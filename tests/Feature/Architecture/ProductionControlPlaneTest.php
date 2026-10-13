@@ -288,10 +288,6 @@ it('classifies every operational workflow in the repository', function () {
             'ci.yml',
             'coverage.yml',
             'label-review-bot-prs.yml',
-            // The inbound mail health check's schedule: it holds no secret,
-            // reaches no host and can only dispatch Check tits.guru inbound mail
-            // health on main, which is classified — MailInboundHealthWorkflowTest.
-            'schedule-tits-guru-inbound-mail-health.yml',
             // The application release path, governed by its own rules below.
             'release.yml',
         ], true))

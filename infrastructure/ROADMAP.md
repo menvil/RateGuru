@@ -2279,13 +2279,13 @@ Slices, in order:
    detected long before: `activate-mail-inbound --health` reads each queued
    message's envelope (the listener that accepted it, never its recipient),
    fails as soon as accepted inbound mail waits, and reports it AT RISK OF
-   LOSS after a day. Every six hours, unattended, a schedule dispatches Check
-   tits.guru inbound mail health on main, which runs the same checks on the
-   host through a read-only monitor key of its own — an account whose one key
-   runs the monitor, as postfix, with no argument, and nothing else — from an
-   Environment of its own that needs no approval and admits main alone, and
-   keeps one issue open while it fails; the production Environment, its
-   reviewers and the bootstrap credential are never used by it. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
+   LOSS after a day. Check tits.guru inbound mail health, run on main, runs
+   the same checks on the host through a read-only monitor key of its own —
+   an account whose one key runs the monitor, as postfix, with no argument,
+   and nothing else — from an Environment of its own that needs no approval
+   and admits main alone, and keeps one issue open while it fails; the
+   production Environment, its reviewers and the bootstrap credential are
+   never used by it. `net.ipv4.ip_nonlocal_bind` keeps a missing public address from
    stopping Postfix at boot. The host's state — absent, disabled or
    enabled on one address — is the gateway's own record, moved only by a
    one-use authorization from `scripts/activate-mail-inbound`, each move a
@@ -2317,9 +2317,9 @@ Slices, in order:
    *What its acceptance rests on:* public SMTP that is safe, DNS, TLS, and a
    real message received and stored.
    - **The automatic monitor is not installed and not enabled.** The
-     repository implements it: the monitor, its read-only access, its
-     Environment's rules and the six-hourly schedule. None of it is set up on
-     the host or in GitHub, and the schedule is off. Its setup moves into
+     repository implements it: the monitor, its read-only access and its
+     Environment's rules. None of it is set up on the host or in GitHub, and
+     nothing runs it on a schedule. Its setup moves into
      RateGuru's future unified monitoring (post-launch), and it no longer
      blocks the closure of this slice.
    - **No check in the code was weakened for that.** Activate, Verify and
@@ -2759,13 +2759,13 @@ description above. Phases 9 and 10 keep their numbers.
    - backups.
 
    The inbound mail monitor the repository already holds — the Install
-   tits.guru inbound mail monitor, Check and Schedule workflows, and
-   `install-mail-inbound-monitor` — is **not installed and not enabled**:
+   tits.guru inbound mail monitor and Check workflows, and
+   `install-mail-inbound-monitor` — is **not installed**:
    - its installation has never run, and Verify tits.guru inbound SMTP
      reports the monitor not installed on the host;
    - no `production-tits-guru-monitor` Environment exists;
-   - the schedule is off: `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is not
-     set.
+   - nothing runs the check on a schedule; when it runs unattended is
+     this system's to decide.
 
    Its setup moves into this system. Until then, inbound mail health is
    checked by hand with Verify tits.guru inbound SMTP.
