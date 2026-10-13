@@ -34,6 +34,13 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/MatchedUsersQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Posts\ModerationPostsQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over post titles and author usernames requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/ModerationPostsQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Rating\RatingVoteCountsQuery
                 methods: [selectRaw]
                 reason: 'Grouped vote totals require an efficient COUNT aggregate without hydrating vote rows.'
@@ -77,6 +84,12 @@ parameters:
                 method: recentCalls
                 uniqueOrder: [id]
                 behaviorTests: [tests/Feature/Queries/TranslationAiUsageQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Posts\ModerationPostsQuery
+                method: paginate
+                uniqueOrder: [posts.id]
+                behaviorTests: [tests/Feature/Queries/ModerationPostsQueryTest.php]
                 status: approved
 
 services:

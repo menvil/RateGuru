@@ -12,6 +12,7 @@
     'limit' => null,
     'tone' => 'default',
     'compact' => false,
+    'presets' => [],
 ])
 
 @php
@@ -22,6 +23,10 @@
      *
      * limit is a soft limit: the counter turns red past it, but typing is not
      * cut off, so the error can say how far over the text is.
+     *
+     * presets are texts offered above the field as chips (a moderation
+     * reason, say): choosing one puts it in the field as if it were typed,
+     * and the chip shows as chosen for as long as the field holds it.
      */
     if (! in_array($tone, ['default', 'info', 'changed'], true)) {
         throw new InvalidArgumentException("Unknown admin textarea tone [{$tone}].");
@@ -40,7 +45,20 @@
 <div
     {{ $attributes->only(['class', 'style'])->class(['rg-admin-field']) }}
     {{-- Characters are counted as code points on both sides, as Laravel's max rule counts them. --}}
-    @if ($limit !== null) x-data="{ length: @js($length), limit: @js((int) $limit) }" @endif
+    @if ($limit !== null || $presets !== [])
+        x-data="{
+            length: @js($length),
+            limit: @js((int) $limit),
+            current: @js((string) $value),
+            choose(text) {
+                const field = $el.querySelector('textarea')
+
+                field.value = text
+                field.dispatchEvent(new Event('input', { bubbles: true }))
+                field.focus()
+            },
+        }"
+    @endif
 >
     <div class="rg-admin-field__head">
         <label for="{{ $id }}" class="rg-admin-label">{{ $label }}</label>
@@ -59,6 +77,20 @@
         @endif
     </div>
 
+    @if ($presets !== [])
+        <div class="rg-admin-field__presets" role="group" aria-label="Suggested {{ \Illuminate\Support\Str::lower($label) }}s">
+            @foreach ($presets as $preset)
+                <button
+                    type="button"
+                    class="rg-admin-preset"
+                    aria-pressed="{{ (string) $value === $preset ? 'true' : 'false' }}"
+                    x-bind:aria-pressed="current === @js($preset) ? 'true' : 'false'"
+                    x-on:click="choose(@js($preset))"
+                >{{ $preset }}</button>
+            @endforeach
+        </div>
+    @endif
+
     <textarea
         id="{{ $id }}"
         @if ($name !== null) name="{{ $name }}" @endif
@@ -75,7 +107,7 @@
         @disabled($disabled)
         @if ($error !== null) aria-invalid="true" @endif
         @if ($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif
-        @if ($limit !== null) x-on:input="length = Array.from($event.target.value).length" @endif
+        @if ($limit !== null || $presets !== []) x-on:input="length = Array.from($event.target.value).length; current = $event.target.value" @endif
         {{ $attributes->except(['class', 'style', 'aria-describedby']) }}
     >{{ $value }}</textarea>
 

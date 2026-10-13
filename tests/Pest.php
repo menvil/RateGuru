@@ -7754,6 +7754,17 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
 }
 
 /**
+ * The row the Posts screen draws for this post, as its view data holds it,
+ * or null when the list it is on does not show the post.
+ *
+ * @return array<string, mixed>|null
+ */
+function listedPostRow(Testable $page, Post $post): ?array
+{
+    return collect($page->viewData('rows'))->firstWhere('id', $post->id);
+}
+
+/**
  * Opens an Admin v2 editor — a screen saved from the top bar — at this size,
  * once Livewire, and with it Alpine, has started on it: until then the top
  * bar does not know what is unsaved.

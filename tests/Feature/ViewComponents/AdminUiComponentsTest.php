@@ -700,6 +700,47 @@ it('lays a switch out as a settings row, a note beside its label', function () {
         ->toContain('>Off</span>');
 });
 
+it('draws a checkbox as a real input under its picture, named by its label', function () {
+    $view = (string) $this->blade('<x-admin.ui.checkbox label="Select Luna" hide-label id="luna" value="7" :checked="true" wire:model.live="selected" />');
+
+    expect($view)
+        ->toMatch('/<label class="rg-admin-checkbox">\s*<input\s+type="checkbox"\s+id="luna"\s+class="rg-admin-checkbox__input"\s+checked/')
+        ->toContain('value="7"')
+        ->toContain('wire:model.live="selected"')
+        ->toContain('<span class="rg-admin-checkbox__label rg-admin-sr-only">Select Luna</span>')
+        ->toContain('class="rg-admin-checkbox__box" aria-hidden="true"');
+
+    expect((string) $this->blade('<x-admin.ui.checkbox label="Select all" :mixed="true" />'))->toContain('x-init="$el.indeterminate = true"')
+        ->and((string) $this->blade('<x-admin.ui.checkbox label="Select" disabled />'))->toContain('rg-admin-checkbox--disabled')->toMatch('/<input[^>]*disabled/s');
+});
+
+it('draws the bulk bar with its count as a status, its actions, the skipped note and Clear selection', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.bulk-bar :count="3" note="1 selected post will be skipped" clear="$wire.clearSelection()">
+            <button type="button">Approve selected (2)</button>
+        </x-admin.ui.bulk-bar>
+        BLADE);
+
+    expect($view)
+        ->toContain('class="rg-admin-bulk-bar" role="region" aria-label="Selected rows"')
+        ->toContain('<span class="rg-admin-bulk-bar__count" role="status">3 selected</span>')
+        ->toContain('Approve selected (2)')
+        ->toContain('<span class="rg-admin-bulk-bar__note">1 selected post will be skipped</span>')
+        ->toContain('x-on:click="$wire.clearSelection()"')
+        ->toContain('Clear selection');
+});
+
+it('offers a textarea\'s presets as chips that fill it, the chosen one pressed', function () {
+    $view = (string) $this->blade('<x-admin.ui.textarea label="Moderation reason" id="reason" value="Spam" :presets="[\'Spam\', \'Fake\']" />');
+
+    expect($view)
+        ->toContain('role="group" aria-label="Suggested moderation reasons"')
+        ->toMatch('/class="rg-admin-preset"\s+aria-pressed="true"[^>]*>Spam</s')
+        ->toMatch('/class="rg-admin-preset"\s+aria-pressed="false"[^>]*>Fake</s')
+        ->toContain("x-on:click=\"choose('Spam')\"")
+        ->toContain('current = $event.target.value');
+});
+
 it('refuses a switch layout it does not have', function () {
     $this->blade('<x-admin.ui.switch layout="inline" label="Active" id="active" />');
 })->throws(ViewException::class, 'Unknown admin switch layout [inline].');

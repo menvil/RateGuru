@@ -130,7 +130,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–06, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('| FRM-01–08, FRM-10, FRM-11 |')
         ->toContain('| DOM-01 placement |')
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -281,6 +281,27 @@ it('describes Rating groups on v2: the range kept by every action, saved from th
     expect($plan)
         ->toContain('**Rating groups. Status: done.**')
         ->toContain('a group\'s and an option\'s key are fixed once created, and a group starts inactive');
+});
+
+it('describes Posts on v2: moderated a tab at a time through the moderation actions, approving without Undo', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Posts')
+        ->toContain('Posts (`ListPosts`) is drawn entirely in Admin v2')
+        ->toContain('**Approve** publishes at once, with no confirmation and no Undo')
+        ->toContain('`x-admin.ui.bulk-bar`')
+        ->toContain('`x-admin.ui.checkbox` (FRM-07)')
+        ->toContain('| Approve Undo |')
+        ->toContain('| Finalize removal |')
+        ->toContain('FRM-01–08, FRM-10, FRM-11')
+        ->toContain('all; TBL-03 and TBL-04 as live, reusable components')
+        ->toContain('Posts shows its pending count (warning)');
+
+    expect($plan)
+        ->toContain('**Posts. Status: done.**')
+        ->toContain('a registered stable pagination boundary');
 });
 
 it('describes Project settings on v2: one draft saved from the top bar, the preset compared and never applied', function () {
@@ -319,7 +340,7 @@ it('describes Categories and Tags on v2, and leaves merging tags to be discussed
         ->toContain('| Merge into… |')
         ->toContain('| Category and tag slugs |')
         ->toContain('| Categories and Tags translations note |')
-        ->toContain('TBL-04 as a live, reusable component')
+        ->toContain('TBL-03 and TBL-04 as live, reusable components')
         ->not->toContain('no Undo in the stack yet')
         ->not->toContain('built when the first screen needs them');
 

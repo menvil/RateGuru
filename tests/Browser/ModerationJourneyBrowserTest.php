@@ -107,7 +107,10 @@ it('publishes a held-back post when a moderator approves it in the panel, and te
 
     actingAs(User::factory()->moderator()->create());
 
-    confirmPanelRowAction(visit('/admin/posts'), 'Approve');
+    // Approving publishes at once, without a confirmation.
+    $panel = visit('/admin/posts');
+    $panel->click("#rg-admin-post-{$post->id} button[wire\\:click=\"approve({$post->id})\"]");
+    waitForScript($panel, "document.querySelector('.rg-admin-toast .rg-admin-toast__text')?.textContent.trim()", '“Grandma’s dumplings” approved and published');
 
     expect($post->fresh()->status)->toBe(PostStatus::Published);
 

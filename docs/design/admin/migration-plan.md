@@ -208,7 +208,7 @@ translation status that links into Translation Center. The moderation screens fo
 | 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
 | 2 | Rating groups and the group editor — **done** | STS-04 range slots (FRM-05 number stepper is built) |
 | 3 | Project settings and Static pages — **done** | the settings-row layout of FRM-06 and icons on FRM-08 |
-| 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
+| 4 | Posts — **done** | TBL-03 bulk bar, FRM-07 checkbox, FRM-03 preset chips (TBL-04 row menu is built) |
 | 5 | Comments | — |
 | 6 | Reports | DOM-02 report chain, the docked 448 panel |
 | 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
@@ -246,6 +246,15 @@ static page says which offered languages miss which of its texts and leads to Tr
 there opens a setting or a page on its tab. Pausing uploads, requiring sign-in for everyone and switching off a
 sign-in provider ask first. Static pages are its last tab, edited as plain text, as the public pages show them. The
 top bar of an editor is shared now (`filament.pages.editor.topbar`), and the group editor uses it too.
+
+**Posts. Status: done.** One screen (`ListPosts`) drawn in Admin v2, as the contract's
+[Posts](design-contract.md#posts) section describes: the queue and every other post by tab, searched, narrowed by
+category and ordered on the server, 25 a page (`ModerationPostsQuery`, a registered stable pagination boundary);
+Approve at once, Reject with an optional reason, Hide with a required one and Restore at once — Hide and Restore
+with Undo — and Finalize removal behind the irreversible confirmation, each through its moderation action; rows
+selected to approve or hide together; the original image in a viewer; and Refresh in the top bar. The navigation
+item shows the pending count. The kit gained the bulk bar (TBL-03), the checkbox (FRM-07) and the preset chips of
+the textarea (FRM-03).
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is
