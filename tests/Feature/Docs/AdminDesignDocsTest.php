@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit — **done** |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit — **done** |', '| 8 | Media diagnostics — **done** |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -302,6 +302,24 @@ it('describes Posts on v2: moderated a tab at a time through the moderation acti
     expect($plan)
         ->toContain('**Posts. Status: done.**')
         ->toContain('a registered stable pagination boundary');
+});
+
+it('describes Media diagnostics on v2: figures from the recorded audit, every repair checked again when confirmed', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Media diagnostics')
+        ->toContain('Media diagnostics (`MediaDiagnosticsPage`) is drawn entirely in Admin v2')
+        ->toContain('never a scan of the disks')
+        ->toContain('Media diagnostics the masters the last completed audit found missing (danger)')
+        ->toContain('| Purge confirmation |')
+        ->not->toContain('(media critical) are not shown yet');
+
+    expect($plan)
+        ->toContain('**Media diagnostics. Status: done.**')
+        ->toContain('`MediaAuditIssuesQuery`')
+        ->not->toContain('frameless records-per-page chooser).');
 });
 
 it('describes Users on v2: status only through the moderation actions, said as the lifecycle has it', function () {

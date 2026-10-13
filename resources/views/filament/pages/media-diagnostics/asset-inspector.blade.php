@@ -1,115 +1,78 @@
-@if ($inspection === null)
-    <p class="text-sm text-gray-500">Asset #{{ $assetId }} no longer exists.</p>
-@else
-    @php
-        $asset = $inspection->asset;
-    @endphp
+{{--
+    The asset an issue points to, in the drawer (OVL-02): what the issue
+    means for it, its details and its files — the master and each variant,
+    there or missing, checked on disk now, for this one asset — and what can
+    be done: replace all its variants, under its files, and in the footer
+    regenerate the missing ones, release it, purge it, or nothing automatic
+    for a missing master.
+--}}
+<x-admin.ui.drawer
+    id="rg-admin-media-inspector"
+    :title="'Asset #'.$inspector['assetId']"
+    :subtitle="$inspector['severity']['label'].' · '.$inspector['typeLabel'].($inspector['detected'] !== null ? ' · detected '.$inspector['detected'] : '')"
+    wire:key="media-inspector-{{ $inspector['issueId'] }}"
+    x-on:dismiss="$wire.closeInspector()"
+>
+    @if (! $inspector['exists'])
+        <div class="rg-admin-media__section">
+            <x-admin.ui.inline-notice tone="info">Asset #{{ $inspector['assetId'] }} no longer exists.</x-admin.ui.inline-notice>
+        </div>
+    @else
+        <div class="rg-admin-media__section">
+            <x-admin.ui.inline-notice :tone="$inspector['severity']['tone'] === 'info' ? 'info' : 'warning'">{{ $inspector['explain'] }}</x-admin.ui.inline-notice>
+        </div>
 
-    <div class="space-y-6">
-        <div>
-            <h3 class="text-sm font-semibold mb-2">Master</h3>
-            <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
-                <div><dt class="text-gray-500">ID</dt><dd>{{ $asset->id }}</dd></div>
-                <div><dt class="text-gray-500">Kind</dt><dd>{{ $asset->kind->value }}</dd></div>
-                <div><dt class="text-gray-500">Disk</dt><dd>{{ $asset->disk }}</dd></div>
-                <div class="col-span-2 sm:col-span-1"><dt class="text-gray-500">Path</dt><dd class="break-all">{{ $asset->path }}</dd></div>
-                <div><dt class="text-gray-500">MIME</dt><dd>{{ $asset->mime_type }}</dd></div>
-                <div><dt class="text-gray-500">Dimensions</dt><dd>{{ $asset->width }}×{{ $asset->height }}</dd></div>
-                <div><dt class="text-gray-500">Byte size</dt><dd>{{ number_format($asset->byte_size) }} B</dd></div>
-                <div><dt class="text-gray-500">Visibility</dt><dd>{{ $asset->visibility->value }}</dd></div>
-                <div><dt class="text-gray-500">Created</dt><dd>{{ $asset->created_at->toDayDateTimeString() }}</dd></div>
-                <div><dt class="text-gray-500">Deleted at</dt><dd>{{ $asset->deleted_at?->toDayDateTimeString() ?? '—' }}</dd></div>
-                <div>
-                    <dt class="text-gray-500">Referenced</dt>
-                    <dd><x-filament::badge :color="$inspection->referenced ? 'success' : 'warning'">{{ $inspection->referenced ? 'Yes' : 'No' }}</x-filament::badge></dd>
-                </div>
-                <div>
-                    <dt class="text-gray-500">Physical exists</dt>
-                    <dd><x-filament::badge :color="$inspection->masterExists ? 'success' : 'danger'">{{ $inspection->masterExists ? 'Yes' : 'No' }}</x-filament::badge></dd>
-                </div>
+        <div class="rg-admin-media__section">
+            <div class="rg-admin-section-label"><h3 class="rg-admin-section-label__text">Asset</h3></div>
+            <dl class="rg-admin-detail-list">
+                @foreach ($inspector['details'] as $detail)
+                    <div class="rg-admin-detail-row">
+                        <x-admin.ui.icon :name="$detail['icon']" class="rg-admin-detail-row__icon" />
+                        <dt class="rg-admin-detail-row__label">{{ $detail['label'] }}</dt>
+                        <dd @class(['rg-admin-detail-row__value', 'rg-admin-detail-row__value--mono' => $detail['mono'], 'rg-admin-media__detail']) title="{{ $detail['value'] }}">{{ $detail['value'] }}</dd>
+                    </div>
+                @endforeach
             </dl>
         </div>
 
-        <div>
-            <h3 class="text-sm font-semibold mb-2">Lifecycle</h3>
-            <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
-                <div><dt class="text-gray-500">State</dt><dd>{{ $asset->trashed() ? 'Soft-deleted' : 'Active' }}</dd></div>
-                <div><dt class="text-gray-500">Deleted at</dt><dd>{{ $asset->deleted_at?->toDayDateTimeString() ?? '—' }}</dd></div>
-                <div><dt class="text-gray-500">Purgeable at</dt><dd>{{ $inspection->purgeableAt?->toDayDateTimeString() ?? '—' }}</dd></div>
-                <div><dt class="text-gray-500">Grace expired</dt><dd>{{ $asset->trashed() ? ($inspection->graceExpired ? 'Yes' : 'No') : '—' }}</dd></div>
-                <div><dt class="text-gray-500">Purgeable now</dt><dd>{{ $inspection->purgeable ? 'Yes' : 'No' }}</dd></div>
-            </dl>
-        </div>
-
-        <div>
-            <h3 class="text-sm font-semibold mb-2">Variants ({{ $inspection->variants->count() }})</h3>
-            @if ($inspection->variants->isEmpty())
-                <p class="text-sm text-gray-500">No variants generated yet.</p>
-            @else
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="text-left text-gray-500">
-                                <th class="py-1 pr-4">Name</th>
-                                <th class="py-1 pr-4">Dimensions</th>
-                                <th class="py-1 pr-4">MIME</th>
-                                <th class="py-1 pr-4">Size</th>
-                                <th class="py-1 pr-4">Path</th>
-                                <th class="py-1">Physical exists</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($inspection->variants as $entry)
-                                <tr class="border-t border-gray-100 dark:border-gray-700">
-                                    <td class="py-1 pr-4">{{ $entry['variant']->name->value }}</td>
-                                    <td class="py-1 pr-4">{{ $entry['variant']->width }}×{{ $entry['variant']->height }}</td>
-                                    <td class="py-1 pr-4">{{ $entry['variant']->mime_type }}</td>
-                                    <td class="py-1 pr-4">{{ number_format($entry['variant']->byte_size) }} B</td>
-                                    <td class="py-1 pr-4 break-all">{{ $entry['variant']->path }}</td>
-                                    <td class="py-1">
-                                        <x-filament::badge :color="$entry['exists'] ? 'success' : 'danger'">{{ $entry['exists'] ? 'Yes' : 'No' }}</x-filament::badge>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+        <div class="rg-admin-media__section">
+            <div class="rg-admin-section-label">
+                <h3 class="rg-admin-section-label__text">Files</h3>
+                <span class="rg-admin-section-label__rule" aria-hidden="true"></span>
+                <span class="rg-admin-section-label__trailing">{{ $inspector['filesSummary'] }}</span>
+            </div>
+            <ul class="rg-admin-media__files">
+                @foreach ($inspector['files'] as $file)
+                    <li @class(['rg-admin-media__file', 'rg-admin-media__file--missing' => ! $file['exists']])>
+                        <x-admin.ui.icon :name="$file['exists'] ? 'circle-check' : 'circle-x'" :size="16" :label="$file['exists'] ? 'On disk' : 'Missing'" />
+                        <span class="rg-admin-media__mono">{{ $file['name'] }}</span>
+                        <span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $file['meta'] }}</span>
+                    </li>
+                @endforeach
+            </ul>
+            @if ($inspector['canRegenerate'])
+                <div class="rg-admin-media__files-action">
+                    <x-admin.ui.button size="sm" variant="ghost" icon="refresh-cw" wire:click="askToForceRegenerate({{ $inspector['assetId'] }})">Force regenerate all variants</x-admin.ui.button>
                 </div>
             @endif
         </div>
+    @endif
 
-        <div>
-            <h3 class="text-sm font-semibold mb-2">References</h3>
-            @if ($inspection->referencingPosts->isEmpty() && $inspection->referencingUsers->isEmpty())
-                <p class="text-sm text-gray-500">Nothing references this asset.</p>
-            @else
-                <ul class="text-sm space-y-1">
-                    @foreach ($inspection->referencingPosts as $post)
-                        <li>Post #{{ $post->id }} — {{ $post->title }}{{ $post->trashed() ? ' (soft-deleted)' : '' }}</li>
-                    @endforeach
-                    @foreach ($inspection->referencingUsers as $user)
-                        <li>User #{{ $user->id }} — {{ $user->username }} (avatar)</li>
-                    @endforeach
-                </ul>
-            @endif
-        </div>
-
-        <div class="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <x-filament::button
-                size="sm"
-                color="primary"
-                wire:click="regenerateVariants({{ $asset->id }})"
-            >
-                Regenerate missing variants
-            </x-filament::button>
-            <x-filament::button
-                size="sm"
-                color="danger"
-                outlined
-                wire:click="regenerateVariants({{ $asset->id }}, true)"
-                wire:confirm="Existing generated variants will be replaced. The normalized master will not be modified. Continue?"
-            >
-                Force regenerate variants
-            </x-filament::button>
-        </div>
-    </div>
-@endif
+    <x-slot:footer>
+        @if ($inspector['path'] !== null)
+            <x-admin.ui.button icon="copy" :data-path="$inspector['path']" x-data="{ copied: false }" x-on:click="navigator.clipboard?.writeText($el.dataset.path); copied = true; setTimeout(() => (copied = false), 1500)">
+                <span x-text="copied ? 'Copied' : 'Copy path'">Copy path</span>
+            </x-admin.ui.button>
+        @endif
+        <span class="rg-admin-reports__spacer"></span>
+        @if ($inspector['canRelease'])
+            <x-admin.ui.button variant="primary" wire:click="askToRelease({{ $inspector['assetId'] }})">Release asset</x-admin.ui.button>
+        @elseif ($inspector['canPurge'])
+            <x-admin.ui.button variant="danger" icon="trash-2" wire:click="askToPurge({{ $inspector['assetId'] }})">Purge asset</x-admin.ui.button>
+        @elseif ($inspector['canRegenerate'])
+            <x-admin.ui.button variant="primary" icon="refresh-cw" wire:click="regenerateVariants({{ $inspector['assetId'] }})">Regenerate missing variants</x-admin.ui.button>
+        @elseif ($inspector['exists'])
+            <span class="rg-admin-hint">No automatic fix: a new upload or a backup restore is needed.</span>
+        @endif
+    </x-slot:footer>
+</x-admin.ui.drawer>
