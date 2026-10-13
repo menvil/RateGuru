@@ -209,7 +209,7 @@ translation status that links into Translation Center. The moderation screens fo
 | 2 | Rating groups and the group editor — **done** | STS-04 range slots (FRM-05 number stepper is built) |
 | 3 | Project settings and Static pages — **done** | the settings-row layout of FRM-06 and icons on FRM-08 |
 | 4 | Posts — **done** | TBL-03 bulk bar, FRM-07 checkbox, FRM-03 preset chips (TBL-04 row menu is built) |
-| 5 | Comments | — |
+| 5 | Comments — **done** | — |
 | 6 | Reports | DOM-02 report chain, the docked 448 panel |
 | 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
 | 8 | Media diagnostics | — |
@@ -255,6 +255,14 @@ with Undo — and Finalize removal behind the irreversible confirmation, each th
 selected to approve or hide together; the original image in a viewer; and Refresh in the top bar. The navigation
 item shows the pending count. The kit gained the bulk bar (TBL-03), the checkbox (FRM-07) and the preset chips of
 the textarea (FRM-03).
+
+**Comments. Status: done.** One screen (`ListComments`) drawn in Admin v2, as the contract's
+[Comments](design-contract.md#comments) section describes: every comment by state, searched on the server, 25 a
+page (`ModerationCommentsQuery`, a registered stable pagination boundary); Hide with an optional reason and
+Restore at once, both with Undo, and Finalize removal behind the irreversible confirmation, each through its
+action; a comment its author deleted listed read-only. The navigation item shows the reported comments still
+visible. The moderation reason, its chips and the acknowledgement are one partial
+(`filament.pages.moderation.reason`) that Posts uses too.
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is

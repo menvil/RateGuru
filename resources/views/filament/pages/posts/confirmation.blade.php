@@ -68,28 +68,14 @@
             </div>
         @endif
 
-        <x-admin.ui.textarea
-            :label="$action === 'finalize' ? 'Internal reason' : 'Moderation reason'"
-            id="rg-admin-posts-reason"
-            :value="$reason"
-            :required="$required"
-            :limit="ListPosts::REASON_LIMIT"
-            :presets="$action === 'finalize' ? [] : $reasons"
-            :placeholder="$required ? 'Describe why this is necessary…' : 'Add a note for the moderation log…'"
-            :hint="$action === 'finalize' ? 'Visible to administrators only. Not shared with the author.' : 'Stored in the moderation log.'"
-            :error="$errors->first('reason') ?: null"
-            wire:model="reason"
-            :autofocus="$required"
-        />
-
-        @if ($action === 'finalize')
-            <div>
-                <x-admin.ui.checkbox label="I understand this post can no longer be restored." id="rg-admin-posts-acknowledge" wire:model="acknowledged" :aria-invalid="$errors->has('acknowledged') ? 'true' : null" />
-                @error('acknowledged')
-                    <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" />{{ $message }}</p>
-                @enderror
-            </div>
-        @endif
+        @include('filament.pages.moderation.reason', [
+            'label' => $action === 'finalize' ? 'Internal reason' : 'Moderation reason',
+            'required' => $required,
+            'limit' => ListPosts::REASON_LIMIT,
+            'presets' => $action === 'finalize' ? [] : $reasons,
+            'hint' => $action === 'finalize' ? 'Visible to administrators only. Not shared with the author.' : 'Stored in the moderation log.',
+            'acknowledge' => $action === 'finalize' ? 'I understand this post can no longer be restored.' : null,
+        ])
     </x-slot:details>
 
     <x-slot:footnote>{{ $moderator !== null ? 'Recorded in the moderation log as '.$moderator.'.' : 'Recorded in the moderation log.' }}</x-slot:footnote>

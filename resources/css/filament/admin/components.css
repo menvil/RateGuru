@@ -1687,6 +1687,47 @@
         gap: 10px;
     }
 
+    /* Two lines in a cell, and a name in one — clipped with an ellipsis rather than wrapped. */
+    .rg-admin-table__stack {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-table__ellipsis {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-table__name {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-decoration: none;
+    }
+
+    .rg-admin-table__name--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-table__nowrap {
+        white-space: nowrap;
+    }
+
+    /* A finalized removal in the actions cell: nothing left to do. */
+    .rg-admin-table__final {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 6px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
     .rg-admin-avatar {
         display: inline-flex;
         align-items: center;
@@ -4170,52 +4211,15 @@
         line-height: 20px;
     }
 
-    .rg-admin-posts__title-text,
-    .rg-admin-posts__ellipsis {
+    .rg-admin-posts__title-text {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .rg-admin-posts__ellipsis {
-        display: block;
-    }
-
     /* A post its author deleted, or whose removal is final, reads as one. */
     .rg-admin-posts__title--muted {
         color: var(--rg-admin-text-secondary);
-    }
-
-    .rg-admin-posts__person {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-    }
-
-    .rg-admin-posts__author {
-        color: var(--rg-admin-text-strong);
-        font-size: var(--rg-admin-text-body);
-        line-height: 20px;
-        text-decoration: none;
-    }
-
-    .rg-admin-posts__author--link:hover {
-        text-decoration: underline;
-        text-underline-offset: 3px;
-    }
-
-    .rg-admin-posts__nowrap {
-        white-space: nowrap;
-    }
-
-    .rg-admin-posts__final {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        height: 32px;
-        padding: 0 6px;
-        color: var(--rg-admin-text-tertiary);
-        font-size: var(--rg-admin-text-caption);
     }
 
     .rg-admin-posts__skeleton-stack {
@@ -4293,6 +4297,57 @@
         color: var(--rg-admin-text-tertiary);
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* Comments (ListComments): the text in two lines, its id and read-only note, the post */
+    .rg-admin-comments__search {
+        width: 340px;
+    }
+
+    .rg-admin-comments__text {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-decoration: none;
+        text-wrap: pretty;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    .rg-admin-comments__text--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    /* Hidden, deleted by its author or removed for good: no longer in the thread. */
+    .rg-admin-comments__text--muted {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-comments__meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 2px;
+    }
+
+    .rg-admin-comments__read-only {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-comments__post {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-comments__created {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
     }
 
     /* Languages screen (LanguagesPage): its table cells and its missing-translations drawer */

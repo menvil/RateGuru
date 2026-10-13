@@ -31,7 +31,7 @@ it('offers each status its own actions, and nothing to a post its author deleted
     app(DeletePostAction::class)->handle($owner, $deleted);
 
     $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class);
-    $actions = fn (Post $post): array => array_keys(array_filter(array_intersect_key(listedPostRow($page, $post), array_flip(['approve', 'reject', 'hide', 'restore'])), fn (bool $offered): bool => $offered));
+    $actions = fn (Post $post): array => array_keys(array_filter(array_intersect_key(listedRow($page, $post), array_flip(['approve', 'reject', 'hide', 'restore'])), fn (bool $offered): bool => $offered));
 
     expect($actions($pending))->toBe(['approve', 'reject'])
         ->and($actions($published))->toBe(['hide'])

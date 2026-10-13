@@ -42,6 +42,7 @@ use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
@@ -7754,14 +7755,14 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
 }
 
 /**
- * The row the Posts screen draws for this post, as its view data holds it,
- * or null when the list it is on does not show the post.
+ * The row a moderation list — Posts or Comments — draws for this record, as
+ * its view data holds it, or null when the list does not show the record.
  *
  * @return array<string, mixed>|null
  */
-function listedPostRow(Testable $page, Post $post): ?array
+function listedRow(Testable $page, Model $record): ?array
 {
-    return collect($page->viewData('rows'))->firstWhere('id', $post->id);
+    return collect($page->viewData('rows'))->firstWhere('id', $record->getKey());
 }
 
 /**

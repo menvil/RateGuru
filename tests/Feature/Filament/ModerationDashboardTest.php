@@ -168,8 +168,7 @@ it('opens each moderation widget\'s list on exactly the records the widget count
         ->and($reportedList)->toContain($reported->id, $flagged->id)
         ->and(array_intersect($reportedList, [$pending->id, $clean->id]))->toBe([]);
 
-    Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))
-        ->test(ListComments::class)
-        ->assertCanSeeTableRecords([$reportedComment])
-        ->assertCanNotSeeTableRecords([$cleanComment]);
+    $comments = array_column(Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))->test(ListComments::class)->viewData('rows'), 'id');
+
+    expect($comments)->toContain($reportedComment->id)->not->toContain($cleanComment->id);
 });

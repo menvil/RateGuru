@@ -2,16 +2,21 @@
 
 namespace App\Filament\Resources\Comments;
 
+use App\Enums\CommentStatus;
 use App\Filament\Resources\Comments\Pages\ListComments;
-use App\Filament\Resources\Comments\Tables\CommentsTable;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Comment;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Comments in the admin: one screen, ListComments, drawn in Admin v2. The
+ * resource keeps the route, the navigation item with its count of reported
+ * comments still visible, and global search, whose results open the comment
+ * in that list.
+ */
 class CommentResource extends Resource
 {
     protected static ?string $model = Comment::class;
@@ -29,23 +34,27 @@ class CommentResource extends Resource
         return AdminNavigationGroup::MODERATION;
     }
 
-    public static function table(Table $table): Table
+    /** What waits for a moderator: reported comments still visible, none when there are none. */
+    public static function getNavigationBadge(): ?string
     {
-        return CommentsTable::configure($table);
+        $reported = Comment::query()->where('status', CommentStatus::Visible)->where('reports_count', '>', 0)->count();
+
+        return $reported > 0 ? (string) $reported : null;
     }
 
-    public static function getEloquentQuery(): Builder
+    public static function getNavigationBadgeColor(): string
     {
-        // Eager-load author + post to keep the moderation table free of
-        // N+1 queries when rendering user / post columns.
-        return parent::getEloquentQuery()->with(['user', 'post']);
+        return 'warning';
     }
 
-    public static function getRelations(): array
+    public static function getNavigationBadgeTooltip(): ?string
     {
-        return [
-            //
-        ];
+        return 'Reported comments still visible';
+    }
+
+    public static function getGlobalSearchResultUrl(Model $record): ?string
+    {
+        return ListComments::getUrl(['q' => '#'.$record->getKey()]);
     }
 
     public static function getPages(): array

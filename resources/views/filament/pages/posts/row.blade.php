@@ -44,20 +44,20 @@
         @else
             <div @class(['rg-admin-table__primary', 'rg-admin-posts__title--muted' => $row['muted']])>{{ $row['title'] }}</div>
         @endif
-        <div class="rg-admin-table__meta rg-admin-posts__ellipsis" title="{{ $row['meta'] }}">{{ $row['meta'] }}</div>
+        <div class="rg-admin-table__meta rg-admin-table__ellipsis" title="{{ $row['meta'] }}">{{ $row['meta'] }}</div>
     </div>
 
     <div class="rg-admin-table__cell" role="cell">
         @if ($row['author'] !== null)
             <div class="rg-admin-table__person">
                 <span class="rg-admin-avatar" aria-hidden="true">{{ $row['author']['initials'] }}</span>
-                <div class="rg-admin-posts__person">
+                <div class="rg-admin-table__stack">
                     @if ($row['author']['url'] !== null)
-                        <a href="{{ $row['author']['url'] }}" class="rg-admin-posts__author rg-admin-posts__author--link rg-admin-posts__ellipsis">{{ $row['author']['name'] }}</a>
+                        <a href="{{ $row['author']['url'] }}" class="rg-admin-table__name rg-admin-table__name--link rg-admin-table__ellipsis">{{ $row['author']['name'] }}</a>
                     @else
-                        <span class="rg-admin-posts__author rg-admin-posts__ellipsis">{{ $row['author']['name'] }}</span>
+                        <span class="rg-admin-table__name rg-admin-table__ellipsis">{{ $row['author']['name'] }}</span>
                     @endif
-                    <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-posts__ellipsis" title="{{ $row['author']['meta'] }}">{{ $row['author']['meta'] }}</span>
+                    <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis" title="{{ $row['author']['meta'] }}">{{ $row['author']['meta'] }}</span>
                 </div>
             </div>
         @else
@@ -69,7 +69,7 @@
         <div class="rg-admin-badge-note">
             <x-admin.ui.badge :tone="$row['status']['tone']" :dot="$row['status']['dot']">{{ $row['status']['label'] }}</x-admin.ui.badge>
             @if (filled($row['status']['note']))
-                <span class="rg-admin-badge-note__text rg-admin-posts__ellipsis" title="{{ $row['status']['note'] }}">{{ $row['status']['note'] }}</span>
+                <span class="rg-admin-badge-note__text rg-admin-table__ellipsis" title="{{ $row['status']['note'] }}">{{ $row['status']['note'] }}</span>
             @endif
         </div>
     </div>
@@ -83,9 +83,9 @@
     </div>
 
     <div class="rg-admin-table__cell" role="cell">
-        <div class="rg-admin-posts__nowrap">{{ $row['created'] }}</div>
+        <div class="rg-admin-table__nowrap">{{ $row['created'] }}</div>
         @if ($row['waiting'] !== null)
-            <div @class(['rg-admin-table__meta', 'rg-admin-table__meta--small', 'rg-admin-posts__nowrap', 'rg-admin-table__meta--due' => $row['due']])>{{ $row['waiting'] }}</div>
+            <div @class(['rg-admin-table__meta', 'rg-admin-table__meta--small', 'rg-admin-table__nowrap', 'rg-admin-table__meta--due' => $row['due']])>{{ $row['waiting'] }}</div>
         @endif
     </div>
 
@@ -112,7 +112,7 @@
         @endif
 
         @if ($row['final'])
-            <span class="rg-admin-posts__final" title="Removal finalized. No further actions.">
+            <span class="rg-admin-table__final" title="Removal finalized. No further actions.">
                 <x-admin.ui.icon name="lock" :size="14" />Final
             </span>
         @elseif ($row['menu'])
