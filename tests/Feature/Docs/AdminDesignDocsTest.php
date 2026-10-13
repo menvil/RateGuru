@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -260,6 +260,27 @@ it('records the translation cutover as done, in one change, and the content scre
         ->not->toContain('| 9 | Dashboard |')
         ->and($positions)->not->toContain(false)
         ->and($positions)->toBe(collect($positions)->sort()->values()->all());
+});
+
+it('describes Rating groups on v2: the range kept by every action, saved from the top bar, a group never deleted', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Rating groups')
+        ->toContain('Rating groups are drawn entirely in Admin v2 too: the list (`ManageRatingGroups`), a new group (`CreateRatingGroup`) and one group with its options (`EditRatingGroup`)')
+        ->toContain('Delete, unavailable (“Groups are kept · deactivate instead”): a group is never deleted')
+        ->toContain('**Save from the top bar (NAV-02):**')
+        ->toContain('the option actions keep every group\'s active options inside its range, active or not')
+        ->toContain('“Raise maximum to n and activate”')
+        ->toContain('In production it is `x-admin.ui.range-slots`')
+        ->toContain('| STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all |')
+        ->toContain('| Rating group Delete |')
+        ->toContain('| Option range for inactive groups |');
+
+    expect($plan)
+        ->toContain('**Rating groups. Status: done.**')
+        ->toContain('a group\'s and an option\'s key are fixed once created, and a group starts inactive');
 });
 
 it('describes Categories and Tags on v2, and leaves merging tags to be discussed once every section is', function () {

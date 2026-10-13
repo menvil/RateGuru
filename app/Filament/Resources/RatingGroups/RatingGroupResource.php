@@ -4,18 +4,19 @@ namespace App\Filament\Resources\RatingGroups;
 
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
-use App\Filament\Resources\RatingGroups\Pages\ListRatingGroups;
-use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
-use App\Filament\Resources\RatingGroups\Schemas\RatingGroupForm;
-use App\Filament\Resources\RatingGroups\Tables\RatingGroupsTable;
+use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\RatingGroup;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
 
+/**
+ * Rating groups: Admin v2 screens for the list (ManageRatingGroups), a new
+ * group (CreateRatingGroup) and one group with its options
+ * (EditRatingGroup). The resource keeps the routes, the navigation item, the
+ * policy checks and global search, whose results open a group's editor.
+ */
 class RatingGroupResource extends Resource
 {
     protected static ?string $model = RatingGroup::class;
@@ -38,27 +39,10 @@ class RatingGroupResource extends Resource
         return AdminNavigationGroup::CONTENT;
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return RatingGroupForm::configure($schema);
-    }
-
-    public static function table(Table $table): Table
-    {
-        return RatingGroupsTable::configure($table);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            OptionsRelationManager::class,
-        ];
-    }
-
     public static function getPages(): array
     {
         return [
-            'index' => ListRatingGroups::route('/'),
+            'index' => ManageRatingGroups::route('/'),
             'create' => CreateRatingGroup::route('/create'),
             'edit' => EditRatingGroup::route('/{record}/edit'),
         ];

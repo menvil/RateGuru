@@ -320,3 +320,16 @@ it('shows the row menu live, an unavailable item kept with its reason', function
         ->toMatch('/aria-disabled="true"[^>]*>.*Merge into….*Not available yet/s')
         ->toContain('rg-admin-menu__item--danger');
 });
+
+it('shows the active range slots, at table and editor size, from their component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'STS-04'))
+        ->toContain('Blade component · x-admin.ui.range-slots')
+        ->toContain('rg-admin-range-slots--table')
+        ->toContain('rg-admin-range-slots--editor')
+        ->toContain('rg-admin-range-slots__slot--over')
+        ->toContain('rg-admin-range-slots__slot--required');
+});

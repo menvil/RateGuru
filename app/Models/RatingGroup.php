@@ -12,6 +12,12 @@ class RatingGroup extends Model
 {
     use HasFactory;
 
+    /** The fewest active options any group's range may ask for. */
+    public const FEWEST_OPTIONS = 2;
+
+    /** The most active options any group's range may allow: the vote form stays short. */
+    public const MOST_OPTIONS = 10;
+
     protected $fillable = [
         'key',
         'label',
@@ -53,5 +59,23 @@ class RatingGroup extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /** Whether this many active options sit inside the group's range, as an active group's must. */
+    public function holdsActiveOptions(int $count): bool
+    {
+        return $count >= $this->min_options && $count <= $this->max_options;
+    }
+
+    /** Whether a group with this many active options can take one more without passing its maximum. */
+    public function hasRoomForActiveOption(int $active): bool
+    {
+        return $active < $this->max_options;
+    }
+
+    /** Whether a group with this many active options can lose one without falling under its minimum. */
+    public function canSpareActiveOption(int $active): bool
+    {
+        return $active > $this->min_options;
     }
 }

@@ -3,8 +3,6 @@
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
-use App\Filament\Resources\RatingGroups\RelationManagers\OptionsRelationManager;
-use App\Filament\Resources\RatingGroups\Schemas\RatingGroupForm;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Models\Category;
 use App\Models\ProjectSettings;
@@ -304,14 +302,9 @@ it('holds every translation to the limits of the English field it translates', f
     ProjectSettings::factory()->create();
     $this->actingAs(User::factory()->admin()->create());
     $fields = ProjectTranslationCatalog::FIELDS;
-    $group = RatingGroup::factory()->create();
     $settingsPage = Livewire::test(ProjectSettingsPage::class)->instance();
-    $groupPage = Livewire::test(EditRatingGroup::class, ['record' => $group->id])->instance();
-    $optionsManager = Livewire::test(OptionsRelationManager::class, ['ownerRecord' => $group, 'pageClass' => EditRatingGroup::class])->instance();
 
     $settings = formFieldLimitsOf($settingsPage->form(Schema::make($settingsPage)));
-    $group = formFieldLimitsOf(RatingGroupForm::configure(Schema::make($groupPage)));
-    $option = formFieldLimitsOf($optionsManager->form(Schema::make($optionsManager)));
 
     foreach ($fields['project_settings'] as $field => $limits) {
         expect($settings["data.{$field}"] ?? $settings[$field])->toBe($limits, $field);
@@ -332,10 +325,29 @@ it('holds every translation to the limits of the English field it translates', f
             ->set('draftName', str_repeat('n', $limit))->call('save')->assertHasNoErrors();
     }
 
-    expect($group['label'])->toBe($fields['rating_groups']['label'])
-        ->and($group['description'])->toBe($fields['rating_groups']['description'])
-        ->and($option['label'])->toBe($fields['rating_options']['label'])
-        ->and($option['description'])->toBe($fields['rating_options']['description']);
+    // A rating group's settings and its options' drawer: one character over each limit is refused, the limit itself saved.
+    $group = RatingGroup::factory()->create(['is_active' => false]);
+    $editor = Livewire::test(EditRatingGroup::class, ['record' => $group->id]);
+
+    foreach (['label' => 'draftLabel', 'description' => 'draftDescription'] as $field => $property) {
+        [$limit] = $fields['rating_groups'][$field];
+
+        $editor->set($property, str_repeat('g', $limit + 1))->dispatch('save-rating-group')->assertHasErrors([$property => 'max'])
+            ->set($property, str_repeat('g', $limit))->dispatch('save-rating-group')->assertHasNoErrors();
+    }
+
+    foreach (['label' => 'draftOptionLabel', 'description' => 'draftOptionDescription'] as $field => $property) {
+        [$limit] = $fields['rating_options'][$field];
+
+        $editor->call('createOption')->set('draftOptionLabel', 'Option')->set('draftOptionKey', "limit_{$field}")
+            ->set($property, str_repeat('o', $limit + 1))->call('saveOption')->assertHasErrors([$property => 'max'])
+            ->set($property, str_repeat('o', $limit))->call('saveOption')->assertHasNoErrors();
+    }
+
+    expect($fields['rating_groups']['description'][1])->toBeTrue()
+        ->and($fields['rating_options']['description'][1])->toBeTrue()
+        ->and($fields['rating_groups']['label'][1])->toBeFalse()
+        ->and($fields['rating_options']['label'][1])->toBeFalse();
 });
 
 it('translates the same settings and page fields the repository ships', function () {

@@ -48,7 +48,7 @@ class RatingConfigurationManager
     {
         $activeOptionCount = $group->options()->active()->count();
 
-        if ($activeOptionCount < $group->min_options || $activeOptionCount > $group->max_options) {
+        if (! $group->holdsActiveOptions($activeOptionCount)) {
             throw new InvalidRatingGroupConfigurationException(
                 "Rating group [{$group->key}] has {$activeOptionCount} active options; "
                 ."expected between {$group->min_options} and {$group->max_options}.",

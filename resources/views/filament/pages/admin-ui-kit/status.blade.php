@@ -98,6 +98,21 @@
     </div>
 @endcomponent
 
+@component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['STS-04']])
+    <div class="rg-admin-kit__stack" style="gap: 16px; max-width: 420px">
+        <div class="rg-admin-kit__row" style="align-items: flex-start; gap: 32px">
+            @foreach ([['at maximum', 4, 2, 4], ['needs 1 more', 1, 2, 4], ['too many', 5, 3, 4]] as [$caption, $active, $min, $max])
+                <div class="rg-admin-kit__item rg-admin-rating-groups__range">
+                    <x-admin.ui.range-slots :active="$active" :min="$min" :max="$max" :count="6" />
+                    <span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $min }}–{{ $max }} allowed · {{ $caption }}</span>
+                </div>
+            @endforeach
+        </div>
+        <x-admin.ui.range-slots size="editor" :active="3" :min="2" :max="4" />
+        <span class="rg-admin-kit__caption">table · editor</span>
+    </div>
+@endcomponent
+
 @component('filament.pages.admin-ui-kit.spec', ['spec' => $specs['STS-05']])
     <div class="rg-admin-kit__stack" style="gap: 4px">
         <span class="rg-admin-table__primary">Rabbits &amp; rodents</span>

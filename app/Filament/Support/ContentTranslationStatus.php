@@ -79,16 +79,29 @@ final class ContentTranslationStatus
 
     /**
      * Translation Center on one record's text: in the first offered language
-     * it is missing from, or the first offered one when none is missing, its
-     * section chosen. Translation Center finds the unit for itself and shows
-     * it whatever its other filters say.
+     * one of its fields is missing from — the first such field — or its first
+     * field in the first offered language when none is missing, its section
+     * chosen. Translation Center finds the unit for itself and shows it
+     * whatever its other filters say.
      *
-     * @param  list<Chip>  $chips
+     * @param  array<string, list<Chip>>  $fields  each translated field's chips, in the order to look at them
      */
-    public function translateUrl(ProjectContentSection $section, int $recordId, string $field, array $chips): string
+    public function translateUrl(ProjectContentSection $section, int $recordId, array $fields): string
     {
-        $missing = array_values(array_filter($chips, fn (array $chip): bool => $chip['value'] === null));
-        $locale = ($missing[0] ?? $chips[0] ?? null)['code'] ?? null;
+        $codes = array_keys($this->languages());
+        $field = array_key_first($fields);
+        $locale = $codes[0] ?? null;
+
+        foreach ($codes as $code) {
+            foreach ($fields as $name => $chips) {
+                $chip = collect($chips)->firstWhere('code', $code);
+
+                if ($chip !== null && $chip['value'] === null) {
+                    [$locale, $field] = [$code, $name];
+                    break 2;
+                }
+            }
+        }
 
         return TranslationCenterPage::getUrl(array_filter([
             'locale' => $locale,
