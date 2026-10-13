@@ -1,0 +1,23 @@
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_7d2d8843838027::t_cc6bb9597512a5 24-30,73-90
+app/Filament/Pages/ProjectSettingsPage.php
+  s_7d2d8843838027::t_596ce4dd90629e 252-259
+  s_7d2d8843838027::t_ce6d13c96f5b02 251
+  s_7d2d8843838027::t_e8c9c78851c91a 274-277,279,284-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ee144b70e644d96ba3481e5e7b538931b5eb1a5",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
