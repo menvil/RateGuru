@@ -14,7 +14,6 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Carbon;
 
@@ -158,11 +157,7 @@ final class ModerationReportsQuery implements RawSqlPersistenceBoundary, StableP
             ->with([
                 'reporter',
                 'resolver',
-                'target' => function (Relation $target): void {
-                    if (! $target instanceof MorphTo) {
-                        return;
-                    }
-
+                'target' => function (MorphTo $target): void {
                     $target->constrain([
                         Post::class => fn (Builder $post) => $post->withoutGlobalScope(SoftDeletingScope::class)->with(['user', 'category']),
                         Comment::class => fn (Builder $comment) => $comment->withoutGlobalScope(SoftDeletingScope::class)->with(['user', 'post' => fn ($post) => $post->withoutGlobalScope(SoftDeletingScope::class)]),
