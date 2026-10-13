@@ -1,0 +1,123 @@
+tests/Feature/Filament/PostResourceTest.php
+  s_7d2d8843838027::t_c18f9658e9b867 6,8,12,14,17-40,42-46,48,50,53-54,56,59-63,65-70,73-77,79-81,84-87,89-93,95-96,99-103,105,107-109,111,113-116,119-120,122-123,126-134,136,138,142-143,145-149,151-153,156,158-159,162-163,166-169,171-173,176,179-181,183,185-195,197-203,205,207-212,215-216,218-223
+  s_7d2d8843838027::t_354e123b203761 139-140,144
+docs/design/admin/design-contract.md
+  s_7d2d8843838027::t_6bc484ee2f7013 209-210,251,275,322-325,401-405,481-482,984-1028,1031-1032,1104-1115,1155,1158
+  s_7d2d8843838027::t_204ced7c60ec3a 273-274
+app/Filament/Widgets/PendingPostsWidget.php
+  s_7d2d8843838027::t_b8d8fd3da63a9f 30
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_7d2d8843838027::t_371b4c759c230d 703-743
+tests/Feature/Filament/PostResourceBulkActionsTest.php
+  s_7d2d8843838027::t_d9d7ee1c336d53 9-16,18-19,22-30,33,36-43,46-48,50-54,56-57,60-61,63,65-73,75-76,78,80,83-84,87-89
+resources/views/filament/pages/posts.blade.php
+  s_7d2d8843838027::t_c4fdf0e567c00d 1-11,13-19,26-63,68-94,139-140,145-146,165-175
+  s_7d2d8843838027::t_273bdc4a0f099f 12
+  s_7d2d8843838027::t_73ea3d7df27ac7 20-25,95-116,164
+  s_7d2d8843838027::t_df4f1fd9e3c6bf 64-67
+  s_7d2d8843838027::t_4a1f9fbe4ed73f 117-138,141-144,147-163
+resources/views/filament/pages/posts/topbar.blade.php
+  s_7d2d8843838027::t_b81ef421652166 1-9
+tests/Browser/AdminPostsBrowserTest.php
+  s_7d2d8843838027::t_3c4e42f3a88b37 1-131,134,136-138
+  s_7d2d8843838027::t_7cc1445b54aee7 132-133,135
+tests/Browser/ModerationJourneyBrowserTest.php
+  s_7d2d8843838027::t_79ea09e26f7275 110-113
+tests/Feature/Admin/AdminShellTest.php
+  s_7d2d8843838027::t_823c2e20497f3e 307,316-318,321,324
+  s_7d2d8843838027::t_582ab2a6386536 319
+resources/css/filament/admin/tokens.css
+  s_7d2d8843838027::t_47d802fe27d4bd 180
+resources/views/components/admin/ui/bulk-bar.blade.php
+  s_7d2d8843838027::t_9bc8b33c161feb 1-25
+docs/design/admin/migration-plan.md
+  s_7d2d8843838027::t_6bc484ee2f7013 211,250-257
+app/Filament/Pages/AdminUiKit.php
+  s_7d2d8843838027::t_4249862cbf72c9 89,92,498,506,508-509,512-514,601-620,931-951
+resources/views/components/admin/ui/checkbox.blade.php
+  s_7d2d8843838027::t_f01dde3a5961c5 1-41
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_7d2d8843838027::t_630890bdd01b2d 133,343
+  s_7d2d8843838027::t_de1f7a7be71787 248,286-304
+resources/views/filament/pages/posts/confirmation.blade.php
+  s_7d2d8843838027::t_b15cd977d12184 1-22,29-102,104-106
+  s_7d2d8843838027::t_60480591e4943c 23-28,103
+resources/views/filament/pages/posts/row.blade.php
+  s_7d2d8843838027::t_898061f6225291 1-46,48-55,57-59,61-117,119-140
+  s_7d2d8843838027::t_df4f1fd9e3c6bf 47,60
+  s_7d2d8843838027::t_823c2e20497f3e 56
+  s_7d2d8843838027::t_94042de9d71b59 118
+tools/phpstan/architecture.neon
+  s_7d2d8843838027::t_b22e6ac6cf4c79 37-42
+  s_7d2d8843838027::t_ceadc2e34dd908 88-93
+tests/Feature/Queries/ModerationPostsQueryTest.php
+  s_7d2d8843838027::t_16d75cef1ab56c 1-105
+resources/views/components/admin/ui/overlay.blade.php
+  s_7d2d8843838027::t_a5e2f01000c980 3-4
+resources/css/filament/admin/components.css
+  s_7d2d8843838027::t_a5026057aaa6ed 1007-1036,1706,1708-1722,1726-1736,1739-1769,1795-1826
+  s_7d2d8843838027::t_47d802fe27d4bd 4148-4201,4203-4220,4234-4297
+  s_7d2d8843838027::t_823c2e20497f3e 4202
+  s_7d2d8843838027::t_73ea3d7df27ac7 4221-4226
+  s_7d2d8843838027::t_5f736926cfd264 4227-4233
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_7d2d8843838027::t_aea76a60dc6eb7 5-15,17-31,33-44,46-64,67-90,92-145,147-157,159-401,411-417,419-423,425-435,438-671,673-677
+  s_7d2d8843838027::t_0d361a2bb71855 91,158,678
+  s_7d2d8843838027::t_73ea3d7df27ac7 146
+  s_7d2d8843838027::t_94042de9d71b59 402-410,418,424,436-437
+tests/Feature/Filament/PostResourceActionsTest.php
+  s_7d2d8843838027::t_c626bf31a1e289 3,5,8,13-22,25-26,28-31,33-34,36-39,41,44-45,48-50,52-53,55-56,59-83,85,87-90,92-93,95-96,98,101-102,104-106,110,112,115,119-125,128-131,133-134,136,139,143,145
+resources/views/components/admin/ui/icon.blade.php
+  s_7d2d8843838027::t_9028602c66b7c9 89-90
+app/Providers/Filament/AdminPanelProvider.php
+  s_7d2d8843838027::t_316bbeca40fce6 9,91-94
+composer.json
+  s_7d2d8843838027::t_ceadc2e34dd908 82
+  s_7d2d8843838027::t_b22e6ac6cf4c79 83
+app/Queries/Posts/ModerationPostsQuery.php
+  s_7d2d8843838027::t_2bf4ddd3165ed2 3,6-7,9,11-13,16,18-27,30-31,33-51,53-60,62-71,77,79-86,88-90,92-93,95-112,129-188
+  s_7d2d8843838027::t_b9de5d0cc8a8aa 5,28
+  s_7d2d8843838027::t_ceadc2e34dd908 61,72-76,113-128
+tests/Feature/Filament/ModerationDashboardTest.php
+  s_7d2d8843838027::t_7909ec5cd81f7a 161
+  s_7d2d8843838027::t_6047bce880bb7c 163-169
+tests/Feature/Filament/ModerationFinalizeUiTest.php
+  s_7d2d8843838027::t_f324b60c0dc7b2 21-22,25-31,34-42,48-57,69,76-82,92,99-104
+resources/views/filament/pages/posts/viewer.blade.php
+  s_7d2d8843838027::t_d5dfe3a6f7f5c0 1,6-9,11-31
+  s_7d2d8843838027::t_316bbeca40fce6 2-5
+  s_7d2d8843838027::t_47d802fe27d4bd 10
+tests/Browser/AdminPaginationBrowserTest.php
+  s_7d2d8843838027::t_79ea09e26f7275 3,28,31-32
+app/Filament/Widgets/ReportedPostsWidget.php
+  s_7d2d8843838027::t_b8d8fd3da63a9f 32
+app/Filament/Resources/Posts/PostResource.php
+  s_7d2d8843838027::t_d6853fd8a6faa4 5,13,16-20,38-39,41-43,46,48-52,56-58
+  s_7d2d8843838027::t_59e6f3c20c529d 53
+resources/views/components/admin/ui/textarea.blade.php
+  s_7d2d8843838027::t_d021c1a0da2a4c 15,26-29,48-61,80-93,110
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_7d2d8843838027::t_4249862cbf72c9 41,44,46,159-178
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_7d2d8843838027::t_371b4c759c230d 315-333
+tests/Pest.php
+  s_7d2d8843838027::t_30a1a43ce85dd0 7753-7762
+resources/views/filament/pages/admin-ui-kit/tables.blade.php
+  s_7d2d8843838027::t_4249862cbf72c9 48,62,137-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c4c8eee78c3f7938485294d71e645a73a16609d1",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
