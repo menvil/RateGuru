@@ -1,0 +1,24 @@
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_343b87d832ee4e 38,493-496
+  s_3481294084957b::t_ba263b263a24be 663-665
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_3481294084957b::t_ffac3512258622 324-346
+infrastructure/scripts/prepare-public-https
+  s_3481294084957b::t_343b87d832ee4e 69-72,152-155,1433-1435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2fabcf9afd67b2a10c31a5edbce6637629567357",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
