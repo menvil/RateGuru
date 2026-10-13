@@ -153,10 +153,10 @@ it('takes its tooling from the production control plane and its logic from the s
 
     // Exactly the shared action plus the pinned checkout: no second
     // provisioning implementation, and nothing that builds or deploys.
-    $uses = collect(data_get($workflow, 'jobs.provision.steps'))->pluck('uses')->filter()->values()->all();
+    $uses = collect(data_get($workflow, 'jobs.provision.steps'))->pluck('uses')->filter()->map(withoutPinnedSha(...))->values()->all();
 
     expect($uses)->toBe([
-        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        'actions/checkout@<sha>',
         './.github/actions/provision-rateguru-target',
     ]);
 });

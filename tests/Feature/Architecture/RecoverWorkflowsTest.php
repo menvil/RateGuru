@@ -1923,6 +1923,7 @@ it('creates no second implementation of anything it uses', function (
 
     $uses = collect($workflow['jobs'])
         ->flatMap(static fn (array $job): array => collect(data_get($job, 'steps', []))->pluck('uses')->filter()->all())
+        ->map(withoutPinnedSha(...))
         ->unique()
         ->sort()
         ->values()
@@ -1938,8 +1939,8 @@ it('creates no second implementation of anything it uses', function (
         './.github/actions/record-rateguru-deployment',
         './.github/actions/recover-rateguru-host',
         './.github/actions/recovery-host-preflight',
-        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
-        'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+        'actions/checkout@<sha>',
+        'actions/download-artifact@<sha>',
     ]);
 
     foreach ([
