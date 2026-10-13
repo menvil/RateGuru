@@ -1,0 +1,138 @@
+app/Actions/Rating/ActivateRatingOptionRaisingMaximumAction.php
+  s_7d2d8843838027::t_9fcfb5ac2e267a 1-57
+resources/views/filament/pages/rating-group/option-row.blade.php
+  s_7d2d8843838027::t_0ffd745a104398 1-78
+app/Filament/Resources/Concerns/EditsRatingGroupSettings.php
+  s_7d2d8843838027::t_12234eb19f7610 1-186
+resources/views/filament/pages/rating-groups.blade.php
+  s_7d2d8843838027::t_49ae8797e00274 51
+  s_7d2d8843838027::t_3fcd8ce3208251 1-50,52-73
+resources/views/filament/pages/rating-groups/topbar.blade.php
+  s_7d2d8843838027::t_4d1265a9bd2904 1-2
+tests/Feature/Filament/RatingGroupResourceTest.php
+  s_7d2d8843838027::t_2515e8db951afe 3,5,7,9-10,14-34,36-40,43-50,52-72,75-82,84-87,90-103,106-107,109-112,115-137,140-146,148-150,152-159,161
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_7d2d8843838027::t_859b1f75092fd3 685-719
+app/Actions/Rating/CreateRatingGroupAction.php
+  s_7d2d8843838027::t_bafd37e83111d8 3,5,7-9,11,13-21,23-38
+app/Models/RatingGroup.php
+  s_7d2d8843838027::t_8fc66da1127f15 15-20
+app/Filament/Resources/Categories/Pages/ManageCategories.php
+  s_7d2d8843838027::t_02b32f1a5408e7 349
+app/Filament/Resources/RatingGroups/RatingGroupResource.php
+  s_7d2d8843838027::t_243dec31eb80a1 7,14-19,45
+app/Providers/Filament/AdminPanelProvider.php
+  s_7d2d8843838027::t_4d1265a9bd2904 8-11,69-82
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_7d2d8843838027::t_f47939f43a1005 248,265-283
+tests/Feature/Filament/EnglishReferenceEditorsTest.php
+  s_7d2d8843838027::t_bcc3906785a38c 57-59,62-72,125-134
+  s_7d2d8843838027::t_a49c84fd05f4b5 60-61
+tests/Feature/Filament/RatingGroupEditorTest.php
+  s_7d2d8843838027::t_4adf77368931a2 34-36,41-47,49
+  s_7d2d8843838027::t_9593cf050b0a99 1-33,37-40,48,50-204
+resources/views/filament/pages/rating-groups/row.blade.php
+  s_7d2d8843838027::t_1ebab5e7ff1786 1-48,50-84
+  s_7d2d8843838027::t_49ae8797e00274 49
+resources/views/components/admin/ui/locked-identifier.blade.php
+  s_7d2d8843838027::t_478d9dd49ae68a 8,23-24,45
+resources/views/filament/pages/rating-group/confirmation.blade.php
+  s_7d2d8843838027::t_2854063345945a 19
+  s_7d2d8843838027::t_5de47c1447832f 1-18,20-106
+resources/views/components/admin/ui/range-slots.blade.php
+  s_7d2d8843838027::t_4008d84a021730 1-4,6-27,29-54
+  s_7d2d8843838027::t_49ae8797e00274 5,28
+app/Filament/Resources/Tags/Pages/ManageTags.php
+  s_7d2d8843838027::t_02b32f1a5408e7 283
+resources/views/filament/pages/admin-ui-kit/forms.blade.php
+  s_7d2d8843838027::t_ccb6953b90b708 95-98
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_7d2d8843838027::t_859b1f75092fd3 323-335
+resources/views/filament/pages/rating-groups/legend.blade.php
+  s_7d2d8843838027::t_3fcd8ce3208251 1-7
+resources/css/filament/admin/components.css
+  s_7d2d8843838027::t_97c1d82fadb762 3515-3665
+  s_7d2d8843838027::t_c9112930fb3a33 399-490
+app/Filament/Resources/RatingGroups/Pages/CreateRatingGroup.php
+  s_7d2d8843838027::t_0c31784845b53c 5-6,8-14,16-23,25-26,28-128
+tests/Feature/Filament/RatingGroupOptionsTest.php
+  s_7d2d8843838027::t_44d950f70d0601 9,40
+  s_7d2d8843838027::t_2854063345945a 201
+  s_7d2d8843838027::t_23e0789cfdf0e3 1-8,10-39,41-200,202-260
+resources/views/filament/pages/rating-groups/confirmation.blade.php
+  s_7d2d8843838027::t_8fc66da1127f15 46-47,52-53
+  s_7d2d8843838027::t_1ebab5e7ff1786 1-45,48-51,54-66
+resources/views/filament/pages/rating-group/script.blade.php
+  s_7d2d8843838027::t_3b44ff0f4e5735 1-32
+app/Filament/Resources/RatingGroups/Pages/EditRatingGroup.php
+  s_7d2d8843838027::t_523a426a88eab1 5-14,16-26,28-43,45-46,48-480,482-709
+  s_7d2d8843838027::t_b420199e060cf1 481
+resources/views/filament/pages/admin-ui-kit/status.blade.php
+  s_7d2d8843838027::t_ccb6953b90b708 101-115
+resources/views/filament/pages/rating-group.blade.php
+  s_7d2d8843838027::t_3b44ff0f4e5735 1-77
+resources/views/filament/pages/rating-group/option-drawer.blade.php
+  s_7d2d8843838027::t_31a4dfae0690cf 1-129
+resources/views/filament/pages/rating-group/check.blade.php
+  s_7d2d8843838027::t_2e55100ca09ec9 1-36
+app/Actions/Rating/UnarchiveRatingOptionAction.php
+  s_7d2d8843838027::t_bafd37e83111d8 3,5-9,11,13,15-20,22-28,30
+  s_7d2d8843838027::t_5ead03f711e8b4 29
+tests/Feature/I18n/AdminLocaleTest.php
+  s_7d2d8843838027::t_e17a4dfc5fd90d 3-4,67,82,87,100,125
+resources/views/filament/pages/rating-group/translations.blade.php
+  s_7d2d8843838027::t_2e55100ca09ec9 1-35
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_7d2d8843838027::t_e17a4dfc5fd90d 4,278
+app/Filament/Support/ContentTranslationStatus.php
+  s_7d2d8843838027::t_02b32f1a5408e7 82-85,87,89,91-104
+app/Actions/Rating/UpdateRatingGroupAction.php
+  s_7d2d8843838027::t_bafd37e83111d8 3,5-10,12,14-31,33-58
+app/Filament/Pages/AdminUiKit.php
+  s_7d2d8843838027::t_ccb6953b90b708 88,385-407,518-519
+tests/Browser/AdminRatingGroupsBrowserTest.php
+  s_7d2d8843838027::t_5d7e8e0d5e01c7 1-19,21-24,26-89,92-96,98-110,112-120,122,124,126-167
+  s_7d2d8843838027::t_5711977951c4f1 20,25
+  s_7d2d8843838027::t_0fb8ab2b7134f6 90-91,97,111,121,123,125
+app/Filament/Resources/RatingGroups/Pages/ManageRatingGroups.php
+  s_7d2d8843838027::t_49ae8797e00274 173
+  s_7d2d8843838027::t_fe4c9d16cef9b6 172
+  s_7d2d8843838027::t_e9d5d3b785a674 3-5,7-8,11-14,16-17,19-32,34-45,47-54,56,59-65,67-171,174-182,185,187-190,193-196,198-205,207-225,228-295
+resources/views/filament/pages/rating-group/options.blade.php
+  s_7d2d8843838027::t_0ffd745a104398 1-52
+resources/views/filament/pages/rating-group/topbar.blade.php
+  s_7d2d8843838027::t_4d1265a9bd2904 1-12
+tests/Feature/Actions/RatingGroupActionsTest.php
+  s_7d2d8843838027::t_2854063345945a 3-7,11,13-17,19-20,22,24,26-29,32-42,45-58,60-69,72-74,76,78-83,85,87-88,91-97,99-102,104-107,110-119
+  s_7d2d8843838027::t_e0974530fb7bc9 103,108-109
+resources/views/components/admin/ui/icon.blade.php
+  s_7d2d8843838027::t_abf99e03074bb0 41,64-66
+tests/Feature/I18n/ProjectTranslationCatalogTest.php
+  s_7d2d8843838027::t_dad8954b97fd98 328-350
+app/Models/RatingOption.php
+  s_7d2d8843838027::t_8f369525a39bd7 11,13-15
+docs/design/admin/design-contract.md
+  s_7d2d8843838027::t_1fe14ea81d5ebe 209-210,249-250,280-282,869-932,935,990-1001,1039
+  s_7d2d8843838027::t_839f94a11ace09 439-440
+docs/design/admin/migration-plan.md
+  s_7d2d8843838027::t_839f94a11ace09 209,228-238
+resources/views/filament/pages/rating-group/settings.blade.php
+  s_7d2d8843838027::t_ffa0ffd5a98883 1-68,70-130
+  s_7d2d8843838027::t_31a4dfae0690cf 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "23f459d2606bc5ba46412d8e96681343ecb6c943",
+  "prompts": {},
+  "sessions": {
+    "s_7d2d8843838027": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6e92466-25f6-4919-96cb-80842a2514c9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
