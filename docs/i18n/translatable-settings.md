@@ -35,16 +35,14 @@ Resolution (via `TranslatableField::resolve()`):
 
 ## Admin UI
 
-- **ProjectSettings**: Translations section with locale tabs (English / Русский / Български)
-- **RatingGroup form**: Translations section with locale tabs
-- **Options relation manager**: Translations section with locale tabs
+Project settings, Rating groups and their options edit the base (English) value only. Each editor says which
+offered languages miss which of its texts and leads to **Translation Center** (Admin → Localization), the one
+editor of translations.
 
 ## Editing translations
 
-1. Go to Admin → Project Settings (or Rating Groups)
-2. Expand the Translations section
-3. Click the locale tab
-4. Fill in the translated value
-5. Save
+1. Open Translation Center, or follow Translate from the editor of the text
+2. Choose the language and the section
+3. Type the translation and save it
 
-Leaving a field blank means the base value will be shown for that locale.
+Leaving a translation empty means the base value is shown in that language.

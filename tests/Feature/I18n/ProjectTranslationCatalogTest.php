@@ -15,10 +15,6 @@ use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use App\Support\Translations\ProjectTranslationUnit;
 use App\Support\Translations\RepositoryTranslations;
-use Filament\Forms\Components\Field;
-use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
@@ -284,35 +280,25 @@ it('finds nothing for an id that names nothing the catalog lists', function (Clo
 
 // Limits -------------------------------------------------------------------------
 
-/**
- * The text fields of a form, by state path within the form: the maximum
- * length each enforces and whether it is a textarea.
- *
- * @return array<string, array{0: ?int, 1: bool}>
- */
-function formFieldLimitsOf(Schema $form): array
-{
-    return collect($form->getFlatFields(withHidden: true))
-        ->filter(fn (Field $field): bool => $field instanceof TextInput || $field instanceof Textarea)
-        ->map(fn (TextInput|Textarea $field): array => [$field->getMaxLength(), $field instanceof Textarea])
-        ->all();
-}
-
 it('holds every translation to the limits of the English field it translates', function () {
     ProjectSettings::factory()->create();
     $this->actingAs(User::factory()->admin()->create());
     $fields = ProjectTranslationCatalog::FIELDS;
-    $settingsPage = Livewire::test(ProjectSettingsPage::class)->instance();
+    // The project settings and static pages: one character over each limit is refused, the limit itself saved.
+    $settings = Livewire::test(ProjectSettingsPage::class);
 
-    $settings = formFieldLimitsOf($settingsPage->form(Schema::make($settingsPage)));
-
-    foreach ($fields['project_settings'] as $field => $limits) {
-        expect($settings["data.{$field}"] ?? $settings[$field])->toBe($limits, $field);
+    foreach ($fields['project_settings'] as $field => [$limit]) {
+        $settings->set("data.{$field}", str_repeat('s', $limit + 1))->call('save')->assertHasErrors(["data.{$field}" => 'max'])
+            ->set("data.{$field}", str_repeat('s', $limit))->call('save')->assertHasNoErrors();
     }
 
-    foreach ($fields['static_pages'] as $field => $limits) {
-        expect($settings["data.static_pages.about.en.{$field}"] ?? $settings["static_pages.about.en.{$field}"])->toBe($limits, $field);
+    foreach ($fields['static_pages'] as $field => [$limit]) {
+        $settings->set("data.static_pages.about.en.{$field}", str_repeat('p', $limit + 1))->call('save')->assertHasErrors(["data.static_pages.about.en.{$field}" => 'max'])
+            ->set("data.static_pages.about.en.{$field}", str_repeat('p', $limit))->call('save')->assertHasNoErrors();
     }
+
+    expect($fields['project_settings']['site_description'][1])->toBeTrue()
+        ->and($fields['static_pages']['content'][1])->toBeTrue();
 
     // Categories and tags are named in a drawer: a name one character over the limit is refused, one at it saved.
     foreach (['categories' => ManageCategories::class, 'tags' => ManageTags::class] as $section => $drawer) {

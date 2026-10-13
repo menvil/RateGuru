@@ -573,6 +573,7 @@ final class AdminUiKit extends Page
                     ['Disabled', '50% opacity · really disabled · the hint gives the reason'],
                     ['A11y', 'a button with role="switch" and aria-checked, named by its label'],
                     ['Binding', 'wire:model or x-model on the component (x-modelable)'],
+                    ['Row layout', 'layout="row" · label, note and hint left · state and switch right · hairline between rows in a flush card'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.switch
@@ -588,6 +589,7 @@ final class AdminUiKit extends Page
                     BLADE,
                 'rules' => [
                     'A switch applies when its form is saved; one that removes access asks first when turned off.',
+                    'A list of settings — feature flags, sign-in providers — is a flush card of rows (layout="row"), a note slot beside each label for a badge or a remark.',
                 ],
             ],
             'FRM-08' => [
@@ -601,6 +603,7 @@ final class AdminUiKit extends Page
                     ['Checked', 'white · shadow-xs · 500 ink · aria-checked'],
                     ['Keyboard', 'Tab reaches the checked option · arrows, Home and End choose'],
                     ['Binding', 'x-model on the component (x-modelable)'],
+                    ['Icons', 'optional · icons="value => icon" · 15 before the label · gap 6'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.segmented

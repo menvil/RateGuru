@@ -206,8 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Categories, Tags and Rating groups are migrated: their content is
-Admin v2 too.
+Languages, Translation Center, Translation AI, Categories, Tags, Rating groups and Project settings are migrated:
+their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -247,8 +247,10 @@ Admin v2 too.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
   migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
-  the group editor its unsaved state, Discard and Save. A page without a permanent action, such as Languages,
-  leaves it empty.
+  the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
+  and Save changes there. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
+  Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
   (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
   centres on the main column at every width. A page raises a toast with a browser event; see
@@ -277,9 +279,6 @@ These are the current migration state, not changes to the target design:
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation status on the content editors.** The Project settings and Static pages editors edit English only
-  and are still Filament's; the translation status the prototype shows on them arrives with their Admin v2
-  migration, as it did for Categories, Tags and Rating groups.
 
 ## Page anatomy
 
@@ -930,9 +929,53 @@ navigation item, the policy and global search, whose results open a group's edit
 - **Access:** rating groups are an administrator's; every write goes through its action, which checks the policy
   again.
 
+### Project settings
+
+Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs — Site identity,
+Object labels, Defaults, Feature flags, Sign-in providers and Static pages — saved together from the top bar
+through `SaveProjectSettingsAction`. Static pages are its last tab; they have no screen of their own.
+
+- **Header band:** “Project settings”, the saved site name and host, and “English is the reference language”;
+  beside it the installation preset.
+- **Installation preset:** a button naming the preset applied at installation, with “Matches preset” (success,
+  dot) or “Customized · n” (warning) as the draft is typed, or “Not applied”. Its panel says when the preset
+  was applied, or that none was, and that presets are applied once from the server; it lists each setting the preset controls that the
+  draft differs from — “Preset “Pet” → now “Critter”” — with Revert, which puts the preset's value back in the
+  draft. Nothing here applies a preset: that is `php artisan rateguru:setup`. The site's identity is the project's
+  own and is not compared.
+- **Tabs (NAV-03):** links, so a tab has an address (`?tab=features`, `?tab=pages&page=terms`), switched in place.
+  Edit source in Translation Center opens a setting or a static page on its tab. What is typed on one tab stays in
+  the draft while another is open.
+- **Save from the top bar (NAV-02):** “n unsaved changes” in the due colour, Discard and Save changes, counted in
+  the browser — every changed setting and every changed static page field — against the server's `saved` copy.
+  Save validates every tab; a refused field shows its error on its tab, and a warning notice above the tabs names
+  the tabs that hold one (“Some settings can’t be saved yet: Object labels and Static pages.”). Saved: “Project
+  settings saved. Visitors see the changes on their next page load.”
+- **Site identity and Object labels (LAY-02):** each English text (FRM-02, the description FRM-03 counted to its
+  translation limit) with what it is used for and “Differs from preset · “…”” while it does; in the card's sunken
+  footer which offered languages miss which texts — “Translations: Русский complete · Български missing the
+  description.” — and Translate into Translation Center on the first missing one. Beside the card, “Where visitors
+  see it”: the site header, the feed's title and count and a post's links drawn from the draft as it is typed.
+- **Defaults:** Default theme (System, Light, Dark) and Default sort (Hot, New, Top), each a segmented control
+  (FRM-08) with an icon per option and what the chosen one means under it.
+- **Feature flags:** one settings row each (FRM-06, `layout="row"`) in a flush card: what it does, On or Off,
+  “Differs from preset” while it does. Switching off Allow user uploads (“Pause all uploads?”) or Allow guest
+  viewing (“Require sign-in for everyone?”) asks first (OVL-01, warning); the others switch at once. Every switch
+  applies when the settings are saved, as the dialogs' footnote says.
+- **Sign-in providers:** “Email and password sign-in is always on.” and one row per provider — Configured or Not
+  configured (with the server keys it needs), how many accounts sign in with it, Enabled or Off. Switching one off
+  asks first: its buttons are hidden and its sign-ins refused, the accounts stay linked, and people who only ever
+  signed in with it are shown on the login page how to set a password.
+- **Static pages:** the list — each page's title, “n translations missing” or “Translated”, “· edited” while its
+  draft differs — and the open page: its path, View page, the English Title and Content (FRM-03, “Plain text.
+  Line breaks are kept.”), and its translations in the footer with Translate.
+- **Access:** project settings are an administrator's (`manage-project-settings`); every write goes through
+  `SaveProjectSettingsAction`, which refuses translations and the offered languages.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Categories, Tags and Rating groups also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Categories, Tags, Rating groups and Project settings also at
+  768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -999,6 +1042,12 @@ navigation item, the policy and global search, whose results open a group's edit
 | Archive Undo | Undo restores an archived option | no Undo: the archive is confirmed, and Unarchive is in the row menu | archiving asks first, so it is not a reversible action that toasts with Undo |
 | Translate on Rating groups | opens Translation Center on the section | on the group's first missing label or description | the record is what was asked about |
 | Create group | the new group's page saves in place | Create group opens the group's editor, where its options are made | options belong to a group that exists |
+| Static page content | a rich text editor (headings, bold, italic, lists) | a plain textarea: “Plain text. Line breaks are kept.” | the public pages show the content as plain text with its line breaks; markup typed here would be shown as typed |
+| Static page “last edited” | “last edited 12 Sep 2026 by Daria Kovaleva” | the page's path only | nothing records who changed a static page, or when |
+| Unconfigured sign-in provider | turning it on is refused in a dialog: the server has no key | it can be on; its row says Not configured with the keys it needs, and its buttons stay hidden until they are set | switching a provider on is the project's decision, and setting the keys is the server's; either can come first |
+| Setting text limits and counters | site name 40, tagline 60, description 200, each field counted | the limits the translations of each text are held to; a counter on the multi-line fields, `maxlength` on single-line ones | one limit for a text and its translations; a single-line field stops at its limit as it is typed |
+| Installation preset | “Preset” over the name; compared with every setting | “Installation preset”; the site's identity is not compared | the preset is applied once at installation, and the site's name and copy are the project's own |
+| Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |

@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -281,6 +281,24 @@ it('describes Rating groups on v2: the range kept by every action, saved from th
     expect($plan)
         ->toContain('**Rating groups. Status: done.**')
         ->toContain('a group\'s and an option\'s key are fixed once created, and a group starts inactive');
+});
+
+it('describes Project settings on v2: one draft saved from the top bar, the preset compared and never applied', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Project settings')
+        ->toContain('Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs')
+        ->toContain('Nothing here applies a preset: that is `php artisan rateguru:setup`.')
+        ->toContain('The editors share one top bar (`filament.pages.editor.topbar`)')
+        ->toContain('| Static page content |')
+        ->toContain('| Unconfigured sign-in provider |')
+        ->not->toContain('**Translation status on the content editors.**');
+
+    expect($plan)
+        ->toContain('**Project settings. Status: done.**')
+        ->toContain('never applied from the page');
 });
 
 it('describes Categories and Tags on v2, and leaves merging tags to be discussed once every section is', function () {

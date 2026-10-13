@@ -207,7 +207,7 @@ translation status that links into Translation Center. The moderation screens fo
 |---|---|---|
 | 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
 | 2 | Rating groups and the group editor — **done** | STS-04 range slots (FRM-05 number stepper is built) |
-| 3 | Project settings and Static pages | — |
+| 3 | Project settings and Static pages — **done** | the settings-row layout of FRM-06 and icons on FRM-08 |
 | 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
 | 5 | Comments | — |
 | 6 | Reports | DOM-02 report chain, the docked 448 panel |
@@ -236,6 +236,16 @@ option needs it. The new actions keep the range: `CreateRatingGroupAction` creat
 `UnarchiveRatingOptionAction` and `ActivateRatingOptionRaisingMaximumAction`. Two changes of behaviour the
 prototype asks for: a group's and an option's key are fixed once created, and a group starts inactive. A group is
 still never deleted.
+
+**Project settings. Status: done.** One screen (`ProjectSettingsPage`) drawn in Admin v2, as the contract's
+[Project settings](design-contract.md#project-settings) section describes: six tabs with addresses of their own —
+Site identity, Object labels, Defaults, Feature flags, Sign-in providers and Static pages — over one draft saved
+together from the top bar, which counts its unsaved changes. The installation preset is shown and compared with the
+draft as it is typed, a setting reverted to it in one press, and never applied from the page. Each card and each
+static page says which offered languages miss which of its texts and leads to Translation Center; Edit source
+there opens a setting or a page on its tab. Pausing uploads, requiring sign-in for everyone and switching off a
+sign-in provider ask first. Static pages are its last tab, edited as plain text, as the public pages show them. The
+top bar of an editor is shared now (`filament.pages.editor.topbar`), and the group editor uses it too.
 
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is

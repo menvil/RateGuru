@@ -417,6 +417,13 @@ it('draws a segmented control as a radio group with one checked option, reachabl
         ->and($html)->toMatch('/aria-checked="true"\s+tabindex="0"[^>]*>\s*<span class="rg-admin-segmented__label" data-label="All">/');
 });
 
+it('leads each segmented option with the icon it is given', function () {
+    $html = (string) $this->blade('<x-admin.ui.segmented label="Sort" :options="[\'hot\' => \'Hot\', \'new\' => \'New\']" :icons="[\'hot\' => \'flame\']" value="hot" />');
+
+    expect($html)->toMatch('/<svg[^>]*>.*?<\/svg>\s*(<!--.*?-->\s*)*<span class="rg-admin-segmented__label" data-label="Hot">/s')
+        ->and(substr_count($html, '<svg'))->toBe(1);
+});
+
 it('checks the first option of a segmented control whose value is none of them', function () {
     $html = (string) $this->blade('<x-admin.ui.segmented label="Show" :options="[\'missing\' => \'Missing only\', \'all\' => \'All\']" value="everything" />');
 
@@ -676,6 +683,26 @@ it('draws a switch as a real button with role switch, its state in words and a h
     expect((string) $this->blade('<x-admin.ui.switch label="Active" id="active" disabled />'))
         ->toMatch('/role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
 });
+
+it('lays a switch out as a settings row, a note beside its label', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.switch layout="row" label="Sign in with Google" id="google" :checked="false" on="Enabled" on-hint="Accounts: 3." off-hint="Accounts: 3." wire:model.live="data.google">
+            <x-slot:note><span class="note">Configured</span></x-slot:note>
+        </x-admin.ui.switch>
+        BLADE);
+
+    expect($view)
+        ->toContain('class="rg-admin-switch-row"')
+        ->toMatch('/<label for="google" class="rg-admin-switch-row__label">Sign in with Google<\/label>\s*<span class="note">Configured<\/span>/')
+        ->toMatch('/<button\s+type="button"\s+id="google"\s+role="switch"\s+class="rg-admin-switch"\s+aria-checked="false"/')
+        ->toContain('aria-describedby="google-hint"')
+        ->toContain('wire:model.live="data.google"')
+        ->toContain('>Off</span>');
+});
+
+it('refuses a switch layout it does not have', function () {
+    $this->blade('<x-admin.ui.switch layout="inline" label="Active" id="active" />');
+})->throws(ViewException::class, 'Unknown admin switch layout [inline].');
 
 it('shows a note of its own beside a text field\'s label', function () {
     expect((string) $this->blade('<x-admin.ui.text-field label="Name" tag="English · reference" :required="true" />'))

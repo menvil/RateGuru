@@ -70,31 +70,28 @@ it('offers no translation field in any editor, for any language', function () {
             ->and(array_filter($fields, fn (string $id): bool => ! preg_match('/-(key|label|description|min|max|sort)$/', $id)))->toBe([], "the {$editor} editor has a field besides the English ones");
     }
 
-    $editors = [
-        'project settings' => [Livewire::test(ProjectSettingsPage::class), ['site_name', 'site_tagline', 'site_description', 'object_singular_name', 'object_plural_name', 'upload_cta_label', 'feed_title']],
-    ];
+    // Project settings and static pages: the draft is English, and the screen draws no field for another language.
+    $settings = Livewire::test(ProjectSettingsPage::class);
 
-    foreach ($editors as $editor => [$page, $fields]) {
-        foreach (supportedLocales() as $locale) {
-            foreach ($fields as $field) {
-                $page->assertFormFieldDoesNotExist("{$field}_translations.{$locale}");
-            }
+    foreach (['identity', 'labels', 'pages'] as $tab) {
+        $html = $settings->set('tab', $tab)->html();
+
+        foreach (translatedLocales() as $locale) {
+            expect($html)->not->toContain(".{$locale}.title", "the settings editor draws a {$locale} field")
+                ->not->toMatch('/wire:model[^=]*="[^"]*_translations/');
         }
-
-        expect($page->html())->not->toContain('>Translations<', "the {$editor} editor still has a Translations section");
     }
 });
 
 it('edits each static page in English only', function () {
-    $settings = Livewire::test(ProjectSettingsPage::class);
+    $settings = Livewire::withQueryParams(['tab' => 'pages'])->test(ProjectSettingsPage::class);
 
     foreach (array_keys(config('static-pages.defaults')) as $page) {
-        $settings->assertFormFieldExists("static_pages.{$page}.en.title")
-            ->assertFormFieldExists("static_pages.{$page}.en.content");
+        $html = $settings->set('page', $page)->html();
 
-        foreach (translatedLocales() as $locale) {
-            $settings->assertFormFieldDoesNotExist("static_pages.{$page}.{$locale}.title");
-        }
+        expect($html)->toContain("wire:model=\"data.static_pages.{$page}.en.title\"")
+            ->toContain("wire:model=\"data.static_pages.{$page}.en.content\"")
+            ->and(array_keys($settings->get("data.static_pages.{$page}")))->toBe(['en']);
     }
 });
 

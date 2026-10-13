@@ -7754,6 +7754,42 @@ function resizeAndSettle(mixed $page, int $width, int $height): mixed
 }
 
 /**
+ * Opens an Admin v2 editor — a screen saved from the top bar — at this size,
+ * once Livewire, and with it Alpine, has started on it: until then the top
+ * bar does not know what is unsaved.
+ */
+function visitAdminEditor(string $url, int $width = 1440, int $height = 900): mixed
+{
+    $page = visit($url)->resize($width, $height);
+
+    waitForScript($page, '!! window.Livewire && window.Livewire.all().length > 0');
+
+    return $page;
+}
+
+/**
+ * What the top bar of an Admin v2 editor says now: whether it shows unsaved
+ * changes, and whether Discard and Save can be pressed.
+ *
+ * @return array{unsaved: bool, discard: bool, save: bool}
+ */
+function adminEditorTopBar(mixed $page): array
+{
+    return $page->script(<<<'JS'
+        (() => {
+            const bar = document.querySelector('.rg-admin-topbar__editor')
+            const [discard, save] = bar.querySelectorAll('button')
+
+            return {
+                unsaved: getComputedStyle(bar.querySelector('.rg-admin-topbar__unsaved')).display !== 'none',
+                discard: ! discard.disabled,
+                save: ! save.disabled,
+            }
+        })()
+    JS);
+}
+
+/**
  * The languages the product offers, read from config/locales.php — the one
  * place a language is declared. A test reads its languages from here, or from
  * representativeLocales(), rather than spelling out a list, so declaring a

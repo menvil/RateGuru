@@ -9,6 +9,7 @@ it('renders the static pages in project settings', function () {
     $admin = User::factory()->admin()->create();
 
     Livewire::actingAs($admin)
+        ->withQueryParams(['tab' => 'pages'])
         ->test(ProjectSettingsPage::class)
         ->assertSee('Static pages')
         ->assertSee('About')
