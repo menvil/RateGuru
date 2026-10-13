@@ -86,6 +86,14 @@ window.rgSharePicture = function ({ pictureUrl, fileName, title, text }) {
             }
         },
 
+        // Hides the offer once its link has been followed. Not from the click
+        // itself: Alpine applies the change before the browser follows the
+        // link, and a link whose href has just been emptied opens this page
+        // again instead of the app.
+        dismissOffer() {
+            setTimeout(() => { this.offer = null; });
+        },
+
         // What the link would have done, when handing over the picture
         // failed; a browser that no longer counts this as the user's click
         // blocks the new tab, so the link is offered to click instead.

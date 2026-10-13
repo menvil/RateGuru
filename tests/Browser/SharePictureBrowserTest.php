@@ -52,6 +52,31 @@ it('copies the picture and offers to open X, where the page can put a picture on
         ->and($page->script('document.querySelector(\'[data-testid="share-picture-open"]\').href'))->toBe(route('posts.share', ['post' => $post, 'provider' => 'x']));
 });
 
+it('opens X from the offer, not the page the offer is on', function () {
+    $post = sharedPicturePost();
+
+    $page = visit(route('posts.show', $post))->resize(1440, 1000);
+    $page->script(<<<'JS'
+        Object.defineProperty(navigator.clipboard, 'write', { configurable: true, value: async () => {} });
+        // The link as the browser follows it, after the page's own click
+        // handler has run; kept in this tab instead of opening another.
+        const link = document.querySelector('[data-testid="share-picture-open"]');
+        link.addEventListener('click', (event) => {
+            window.followed = link.getAttribute('href');
+            event.preventDefault();
+        });
+    JS);
+
+    openSharePanelWithPicture($page, 'data.clipboardPicture !== null');
+    $page->click('[data-testid="share-x"]:visible');
+    $page->click('[data-testid="share-picture-open"]:visible');
+    waitForScript($page, 'window.followed !== undefined');
+
+    expect($page->script('window.followed'))->toBe(route('posts.share', ['post' => $post, 'provider' => 'x']));
+
+    waitForScript($page, 'document.querySelector(\'[data-testid="share-picture-offer"]\').offsetParent === null');
+});
+
 it('hands the picture to the share sheet, captioned with the post\'s link, where the sheet is where the apps are', function () {
     $post = sharedPicturePost();
 

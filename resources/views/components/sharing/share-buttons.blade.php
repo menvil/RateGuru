@@ -56,7 +56,7 @@
                 <a
                     x-bind:href="offer?.href"
                     x-text="offer?.open"
-                    x-on:click="offer = null"
+                    x-on:click="dismissOffer()"
                     target="_blank"
                     rel="nofollow noopener noreferrer"
                     data-testid="share-picture-open"
