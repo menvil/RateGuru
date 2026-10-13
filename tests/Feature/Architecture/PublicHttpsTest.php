@@ -321,6 +321,29 @@ it('puts http-acme-ready back, hook and all, when the change fails', function (s
     'the site takes other HTTPS names after the reload' => ['https-takes-every-name', 'answers differently', "systemctl reload nginx\nsystemctl reload nginx\n"],
 ]);
 
+it('puts tls-ready back after a failed rollback, and proves it by its 503 whatever the certificate', function (array $card) {
+    publicHttpsTlsReady($this->host);
+    // The certificate no browser accepts may be why the site is being rolled back.
+    publicHttpsLineage($this->host, $card, null, 2);
+    publicHttpToggle($this->host, 'reload-fail-once');
+
+    [$exit, $output] = publicHttpsRun($this->host, 'rollback');
+
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'fail', 'state' => 'tls-ready', 'rolled_back' => true, 'changed' => false]);
+    expect($output)->toContain('RESTORED: the public site is tls-ready again')->not->toContain('CRITICAL');
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('tls-ready'));
+    expect(file_exists($this->host['fs'].PUBLIC_HTTPS_HOOK))->toBeTrue();
+
+    // Run again, the rollback itself never needed the certificate.
+    [$exit, $output] = publicHttpsRun($this->host, 'rollback');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'pass', 'state' => 'http-acme-ready']);
+})->with([
+    'expired' => [['days' => 0]],
+    'untrusted' => [['trusted' => 'no']],
+]);
+
 it('says CRITICAL, and exits 2, when http-acme-ready cannot be proved back', function () {
     publicHttpsReady($this->host);
     publicHttpToggle($this->host, 'reload-fail');

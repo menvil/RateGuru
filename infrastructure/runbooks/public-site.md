@@ -35,7 +35,7 @@ turns IPv6 on.
 | State | What the host serves for `tits.guru` | How it is reached | Implemented |
 |-------|--------------------------------------|-------------------|-------------|
 | `not-prepared` | Nothing of its own: the request falls to the host's default server. | The starting state, and **Rollback tits.guru public HTTP**. | Yes |
-| `http-acme-ready` | Port 80 only: `/.well-known/acme-challenge/<token>` from `/var/www/html`, and `503 Service Unavailable` with `Retry-After: 3600` for everything else. | **Prepare tits.guru public HTTP**. | Yes — in the repository; not yet run on the host |
+| `http-acme-ready` | Port 80 only: `/.well-known/acme-challenge/<token>` from `/var/www/html`, and `503 Service Unavailable` with `Retry-After: 3600` for everything else. | **Prepare tits.guru public HTTP**. | Yes — run on the production host (8.5.1); the host is in this state today |
 | `tls-ready` | Port 80: the ACME challenge from `/var/www/html`, and a 301 to HTTPS for everything else. Port 443: Certbot's certificate, and `503` with `Retry-After: 3600` and `Cache-Control: no-store` for everything. | **Prepare tits.guru HTTPS** (`prepare-public-https --apply`), which takes the public site over; and **Close tits.guru public site**. | Yes — in the repository (8.5.3); not yet run on the host |
 | `public-active` | Port 80 as in `tls-ready`. Port 443: the production application, through `tits-guru`'s own PHP-FPM pool. | **GO LIVE tits.guru** (`--activate`), at 8.7 only. | Prepared in the repository and refused while the target is `planned`; never run |
 
@@ -490,7 +490,10 @@ nothing and reloads nothing.
 
 **`--rollback`** returns the exact `http-acme-ready` render and removes the
 hook. Certbot's certificate, its links and its renewal configuration are kept.
-`prepare-public-http` owns the site again, and its `--verify` passes.
+`prepare-public-http` owns the site again, and its `--verify` passes. If the
+rollback fails and `tls-ready` is put back, that is proved by its 503 with
+Host and SNI, never by the certificate: a bad certificate, which may be why the
+site is rolled back, does not turn a failed rollback into CRITICAL.
 
 ### GO LIVE: `public-active`, only at 8.7
 
@@ -657,7 +660,9 @@ After this change is merged:
   - the renders, `tls-ready` and `public-active`;
   - the move to `tls-ready`, its no-op, and the hand-off that
     `prepare-public-http` then refuses;
-  - the rollback, which keeps every certificate;
+  - the rollback, which keeps every certificate, and a failed rollback with an
+    expired or untrusted certificate, which puts `tls-ready` back without
+    CRITICAL;
   - every certificate refusal: none, expired or expiring, another name,
     untrusted, another key, a copied file, a link out of the archive, a
     key its group or anyone can read, a writable archive, no renewal

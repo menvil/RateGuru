@@ -66,9 +66,10 @@
 # its one reload, and proves the result on the host's own Nginx — the public
 # hostnames over HTTPS with Host and SNI and a verified certificate, both
 # HTTP-01 routes, every other site — on 127.0.0.1, and on [::1] unless the
-# host disables IPv6. --deactivate alone proves the closed site by its 503 and
-# never judges the certificate, so an expired or untrusted one never keeps a
-# site open. Any failure puts the previous file and hook back, validates and
+# host disables IPv6. --deactivate, and --rollback when a failure puts tls-ready
+# back, prove the closed site by its 503 and never judge the certificate, so an
+# expired or untrusted one never keeps a site open or turns a failed rollback
+# into CRITICAL. Any failure puts the previous file and hook back, validates and
 # reloads again, and proves that; when it cannot be proved, it says CRITICAL
 # and exits 2. Run again with nothing to change, each is a no-op. No
 # certificate is ever removed, and once the site is public-active there is no
@@ -148,9 +149,10 @@ CERTIFICATE_EXPIRES=""
 HOOK_STATE="unknown"
 
 # How the public hostnames' own HTTPS answers are proved: verified, against the
-# trust store as a browser would, in every mode but --deactivate. Closing the
-# site proves its 503 with Host and SNI and never waits on the certificate: an
-# expired or untrusted one may be why it is being closed.
+# trust store as a browser would, in every mode but --deactivate and --rollback.
+# Those prove tls-ready by its 503 with Host and SNI and never wait on the
+# certificate: an expired or untrusted one may be why the site is being closed
+# or rolled back.
 PUBLIC_TRUST=verified
 
 # The open transaction: the site's file and the hook as they were.
@@ -1428,6 +1430,9 @@ run_https_apply() {
 run_https_rollback() {
     acquire_host_lock
     begin_https_run
+    # The certificate may be why the site is rolled back: it is not required,
+    # and tls-ready, if a failure puts it back, is proved by its 503.
+    PUBLIC_TRUST=insecure
     https_preflight planned skipped
     require_state tls-ready http-acme-ready
     refuse_if_failed
