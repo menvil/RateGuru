@@ -1750,6 +1750,13 @@
         font-size: var(--rg-admin-text-micro);
     }
 
+    .rg-admin-avatar--lg {
+        width: 48px;
+        height: 48px;
+        color: var(--rg-admin-gray-600);
+        font-size: 16px;
+    }
+
     /* FRM-07 · Checkbox: 18×18, radius 5; ink fill with a 12px white check, a minus while mixed */
     .rg-admin-checkbox {
         position: relative;
@@ -1973,6 +1980,81 @@
         font-weight: var(--rg-admin-weight-medium);
         user-select: none;
         pointer-events: none;
+    }
+
+    /* FRM-09 · Radio cards: exclusive choices that each need a line of explanation */
+    .rg-admin-radio-cards {
+        display: grid;
+        grid-template-columns: repeat(var(--rg-admin-radio-cards-columns, 2), minmax(0, 1fr));
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-radio-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-radio-card:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-radio-card[aria-checked='true'] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-radio-card:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-radio-card__head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        width: 100%;
+    }
+
+    .rg-admin-radio-card__ring {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-radio-card[aria-checked='true'] .rg-admin-radio-card__ring {
+        border: 5px solid var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-radio-card__label {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-radio-card__help {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    @media (max-width: 479px) {
+        .rg-admin-radio-cards {
+            grid-template-columns: minmax(0, 1fr);
+        }
     }
 
     /* FRM-10 · Filter dropdown: “Field: value” and a menu of values */
@@ -4728,6 +4810,175 @@
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
         font-weight: var(--rg-admin-weight-medium);
+    }
+
+    /* Users (ListUsers) and a person's page (EditUser) */
+    .rg-admin-users__username {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-users__email {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-users__role {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-body);
+    }
+
+    /* Trust as a two-step bar and its word: both steps filled, in green, once trusted. */
+    .rg-admin-users__trust {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-users__trust--trusted {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-users__trust-bar {
+        display: inline-flex;
+        gap: 2px;
+        width: 36px;
+    }
+
+    .rg-admin-users__trust-bar > span {
+        flex: 1;
+        height: 6px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-users__trust-bar > span:first-child {
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-users__trust--trusted .rg-admin-users__trust-bar > span {
+        background: var(--rg-admin-green-500);
+    }
+
+    .rg-admin-menu__caption {
+        margin: 0;
+        padding: 6px 10px 8px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-user__header {
+        align-items: center;
+    }
+
+    .rg-admin-user__identity {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-user__title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-user__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 6px;
+    }
+
+    .rg-admin-user__columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-space-4);
+        max-width: 1320px;
+    }
+
+    .rg-admin-user__main {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-user__side {
+        width: 100%;
+        max-width: 520px;
+        min-width: 0;
+    }
+
+    .rg-admin-user__fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px var(--rg-admin-space-4);
+    }
+
+    .rg-admin-user__wide {
+        grid-column: 1 / -1;
+    }
+
+    .rg-admin-user__role {
+        align-self: flex-start;
+    }
+
+    .rg-admin-user__stack {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+    }
+
+    .rg-admin-user__password {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+        max-width: 440px;
+    }
+
+    .rg-admin-user__password .rg-admin-field {
+        flex: 1;
+    }
+
+    /* Level with the field, under its label. */
+    .rg-admin-user__reveal {
+        margin-top: 28px;
+    }
+
+    .rg-admin-user__section + .rg-admin-user__section {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-user__status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-user__section .rg-admin-reports__message,
+    .rg-admin-user__section .rg-admin-reports__actions {
+        margin-top: 10px;
+    }
+
+    .rg-admin-user__lock {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        margin: 10px 0 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-user__history {
+        margin-top: 14px;
     }
 
     /* Languages screen (LanguagesPage): its table cells and its missing-translations drawer */

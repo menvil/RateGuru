@@ -312,6 +312,17 @@ it('shows the locked identifier, the number stepper and the switch live, from th
         ->toContain('id="kit-switch-row"');
 });
 
+it('shows the radio cards live, from their component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-09'))
+        ->toContain('Blade component · x-admin.ui.radio-cards')
+        ->toContain('role="radiogroup"')
+        ->toContain('x-model="trust"');
+});
+
 it('shows the report chain live, from its component', function () {
     $html = $this->actingAs(User::factory()->admin()->create())
         ->get(ADMIN_UI_KIT_URL)

@@ -23,7 +23,7 @@ class SuspiciousUsersWidget extends StatsOverviewWidget
         return [
             Stat::make('Suspicious users', $this->getSuspiciousUsersCount())
                 ->description('Users with reported content or shadowban status')
-                ->url(UserResource::getUrl('index')),
+                ->url(UserResource::getUrl('index', ['suspicious' => 1])),
         ];
     }
 

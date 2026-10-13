@@ -130,7 +130,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–08, FRM-10, FRM-11 |')
+        ->toContain('FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |')
         ->toContain('| DOM-01 placement |')
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
@@ -245,7 +245,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit — **done** |', '| 8 | Media diagnostics |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -295,13 +295,29 @@ it('describes Posts on v2: moderated a tab at a time through the moderation acti
         ->toContain('`x-admin.ui.checkbox` (FRM-07)')
         ->toContain('| Approve Undo |')
         ->toContain('| Finalize removal |')
-        ->toContain('FRM-01–08, FRM-10, FRM-11')
+        ->toContain('FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |')
         ->toContain('all; TBL-03 and TBL-04 as live, reusable components')
         ->toContain('Posts shows its pending count, Comments its reported comments still visible and Reports its open reports (warning)');
 
     expect($plan)
         ->toContain('**Posts. Status: done.**')
         ->toContain('a registered stable pagination boundary');
+});
+
+it('describes Users on v2: status only through the moderation actions, said as the lifecycle has it', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Users')
+        ->toContain('Users (`ListUsers`) and a person\'s page (`EditUser`) are drawn entirely in Admin v2')
+        ->toContain('never a locked account')
+        ->toContain('| What Limit and Shadowban do |')
+        ->toContain('`x-admin.ui.radio-cards`');
+
+    expect($plan)
+        ->toContain('**Users. Status: done.**')
+        ->toContain('`UpdateUserAccountAction`');
 });
 
 it('describes Reports on v2: the chain docked or over the list, closing apart from acting on the content', function () {

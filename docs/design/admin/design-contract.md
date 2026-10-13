@@ -206,8 +206,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Posts, Comments, Reports, Categories, Tags, Rating groups and
-Project settings are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
+Tags, Rating groups and Project settings are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -249,7 +249,7 @@ Project settings are migrated: their content is Admin v2 too.
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
-  step through reports (J, K). The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -382,7 +382,9 @@ Grid templates used in the prototype, for reference:
 - **Checkbox (FRM-07):** 18×18, radius 5; ink fill with a 12px white check (stroke 3); a minus for mixed.
 - **Segmented control (FRM-08):** gray-100 track with hairline, padding 3, radius 10; segments 32 (28 compact),
   radius 8; the active one white with shadow-xs and 500. For two to four exclusive options.
-- **Radio cards (FRM-09):** padding 12, radius 12; selected with an ink border, sunken fill and a 5px ink ring.
+- **Radio cards (FRM-09):** padding 12, radius 12; selected with an ink border, sunken fill and a 5px ink ring. In
+  production `x-admin.ui.radio-cards`: a radiogroup as the segmented control is, each card a label and a line of
+  explanation, the choice exposed to `wire:model` and `x-model`.
 - **Filter dropdown (FRM-10):** popover radius 12, padding 6, 200–240 wide; items 36 high, radius 8, check on the
   selected one, optional count.
 - **Searchable combobox (FRM-11):** 52-high trigger, radius 12, border gray-300, overline plus value; a 420-wide
@@ -1093,10 +1095,51 @@ resource keeps the route, the navigation item — with the open reports, warning
 - **Access:** reports are processed by moderators and administrators; banning is an administrator's. Every change
   goes through its action.
 
+### Users
+
+Users (`ListUsers`) and a person's page (`EditUser`) are drawn entirely in Admin v2. The list reads everyone with an
+account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the moderation actions,
+which go through their actions and log themselves. The resource keeps the routes, the navigation item, who may edit
+whom (`UserPolicy::manage`) and global search, whose results open the person's page — or the list on them where the
+page is not theirs to edit.
+
+- **List header band:** “Status changes only through moderation actions. Trust decides whether a person’s posts
+  skip review.” Stats: Total, Restricted (limited, banned, shadowbanned) and Staff.
+- **Tabs (NAV-03):** All · Active · Limited · Banned · Shadowbanned · Deleted · Trusted (active and at the trusted
+  level), newest accounts first.
+- **Toolbar (TBL-02):** the search over the username, the name and the email address; Role as a filter dropdown;
+  the Role and Suspicious chips — Suspicious, as the dashboard's Suspicious users opens the list
+  (`?suspicious=1`): shadowbanned, or with reported posts or comments.
+- **Table (TBL-01):** the avatar, the username — a link to the person's page for whoever may edit it — the name
+  and when they joined; the email address (“Removed on deletion” for a deleted account); the role, staff as an
+  outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
+  reports on their posts and comments (STS-02); Edit and the row menu.
+- **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
+  on them), then Mark trusted, Restore access, Limit, Shadowban and Ban as their status allows — each unavailable
+  one kept with why: “This is your account”, “Administrators can’t be sanctioned”, “Administrators only”, “Already
+  trusted”, “Restore access first”.
+- **Moderation (OVL-01):** Limit (warning), Shadowban and Ban (danger) say what they do as the lifecycle has it —
+  no new posts, comments, votes, reports or follows, the content kept, never a locked account — with an optional
+  reason; Mark trusted (light) has no reason to give. A sanction on an active person toasts with Undo, which
+  restores access; Restore access is immediate and toasts with Undo, which applies the sanction again. The same
+  actions and dialogs are on the person's page.
+- **A person's page — header band:** the avatar, the username and status, the name and when they joined; stats
+  Posts, Comments and Reports (on their content).
+- **The draft (NAV-02):** Profile — Name, Username (“Public as @name”), Email (a new address has to be confirmed
+  again); Role & trust — Role as a segmented control (FRM-08) with what it allows, Trust as radio cards (FRM-09):
+  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The top bar counts the
+  unsaved changes; a change of role is asked about first (warning). Saved through `UpdateUserAccountAction`.
+- **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
+  that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
+  joined, posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
+  comments, newest first, then when the account was created.
+- **Access:** moderators see the list; editing an account and every moderation action are an administrator's,
+  never on their own account nor another administrator's, and never on a deleted one.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Categories, Tags, Rating groups
-  and Project settings also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
+  groups and Project settings also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1192,6 +1235,15 @@ resource keeps the route, the navigation item — with the open reports, warning
 | Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
 | What a ban does | “Signs them out everywhere and blocks sign-in.” | “They can still sign in, browse and manage their account.”, and no new posts, comments, votes, reports or follows | a ban stops participation and never locks anyone out of their account (docs/architecture/user-lifecycle.md) |
 | Reports empty queue | “New reports appear here as they arrive.” | “New reports appear here when you open the page again.” | the list is read on load |
+| Trust levels | New, Regular and Trusted, with upload caps | Not trusted and Trusted | trust is one threshold: at or above it a person's posts publish at once, once their email is confirmed; nothing caps uploads |
+| What Limit and Shadowban do | Limit: posts reviewed, uploads capped; Shadowban: activity visible only to them, not notified | both stop new posts, comments, votes, reports and follows, and keep the content visible | the lifecycle as it is (docs/architecture/user-lifecycle.md): no viewer-dependent visibility exists |
+| Sanctioning staff | “Change the role to User first” | moderators can be sanctioned; administrators can’t, and nobody their own account | UserPolicy as it is |
+| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person's page |
+| Sanction Undo | Undo after any sanction | Undo from an active account only | restoring access returns someone to Active, not to the sanction they had before |
+| Last active | “Last active Today 08:15” | not shown | nothing records when someone was last active |
+| New password | at least 10 characters; signs other sessions out | the application's password rule; other sessions stay | the rule people's own passwords follow, and saving does not end sessions |
+| Person's page top bar | Cancel and Save changes | Discard and Save changes | as every Admin v2 editor |
+| Users grid | `minmax(200px,1fr) 220px 110px 140px 120px 70px 80px 110px`, 1050 | Trust 150, 1080 | “Not trusted” beside its bar fits without wrapping |
 | Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
@@ -1231,7 +1283,7 @@ built.
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all |
-| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–08, FRM-10, FRM-11 |
+| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
 | Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all; TBL-03 and TBL-04 as live, reusable components |

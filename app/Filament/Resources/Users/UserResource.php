@@ -2,23 +2,22 @@
 
 namespace App\Filament\Resources\Users;
 
-use App\Enums\UserRole;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
-use App\Filament\Resources\Users\Tables\UsersTable;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\User;
 use BackedEnum;
-use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Hash;
 
+/**
+ * People in the admin: the list (ListUsers) and a person's own page
+ * (EditUser), both drawn in Admin v2. The resource keeps the routes, the
+ * navigation item, who may edit whom, and global search, whose results open
+ * the person's page, or the list on them where the page is not theirs to
+ * edit.
+ */
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
@@ -36,76 +35,17 @@ class UserResource extends Resource
         return AdminNavigationGroup::MODERATION;
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('name')
-                ->label('Name')
-                ->required()
-                ->maxLength(255),
-            TextInput::make('username')
-                ->label('Username')
-                ->maxLength(255)
-                ->unique(ignoreRecord: true),
-            TextInput::make('email')
-                ->label('Email')
-                ->email()
-                ->required()
-                ->maxLength(255)
-                ->unique(ignoreRecord: true),
-            Select::make('role')
-                ->label('Role')
-                ->options([
-                    UserRole::User->value => 'User',
-                    UserRole::Moderator->value => 'Moderator',
-                    UserRole::Admin->value => 'Admin',
-                ])
-                ->required(),
-            // Lifecycle status is deliberately read-only here: transitions
-            // happen only through the explicit moderation actions
-            // (Limit / Ban / Shadowban / Restore access), which lock both
-            // participants, validate the transition matrix and write a
-            // ModerationLog. A raw select would bypass all of that.
-            Placeholder::make('status')
-                ->label('Status')
-                ->content(fn (?User $record): string => $record === null ? '—' : ucfirst($record->status->value))
-                ->helperText('Changed only via the moderation actions on the users list.'),
-            TextInput::make('trust_level')
-                ->label('Trust level')
-                ->integer()
-                ->minValue(0)
-                ->maxValue(255)
-                ->required()
-                ->helperText('Trusted users publish immediately. Lower this below the trusted threshold to send new posts to moderation.'),
-            TextInput::make('password')
-                ->label('New password')
-                ->password()
-                ->revealable()
-                ->formatStateUsing(fn (): ?string => null)
-                ->dehydrated(fn (?string $state): bool => filled($state))
-                ->dehydrateStateUsing(fn (string $state): string => Hash::make($state))
-                ->minLength(8)
-                ->maxLength(255)
-                ->helperText('Leave blank to keep the current password.'),
-        ]);
-    }
-
-    public static function table(Table $table): Table
-    {
-        return UsersTable::configure($table);
-    }
-
     public static function canEdit(Model $record): bool
     {
         return $record instanceof User
             && auth()->user()?->can('manage', $record) === true;
     }
 
-    public static function getRelations(): array
+    public static function getGlobalSearchResultUrl(Model $record): ?string
     {
-        return [
-            //
-        ];
+        return static::canEdit($record)
+            ? EditUser::getUrl(['record' => $record])
+            : ListUsers::getUrl(['q' => $record->getAttribute('username')]);
     }
 
     public static function getPages(): array

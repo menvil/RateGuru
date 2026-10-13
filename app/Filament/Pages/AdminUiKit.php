@@ -86,7 +86,7 @@ final class AdminUiKit extends Page
             ['key' => 'foundations', 'label' => 'Foundations', 'description' => 'Tokens everything else is built from.', 'ids' => ['FND-01', 'FND-02', 'FND-03', 'FND-04']],
             ['key' => 'actions', 'label' => 'Actions', 'description' => 'Buttons, icon buttons and text actions.', 'ids' => ['ACT-01', 'ACT-02', 'ACT-03']],
             ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-04', 'STS-05']],
-            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-07', 'FRM-08', 'FRM-10', 'FRM-11']],
+            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-07', 'FRM-08', 'FRM-09', 'FRM-10', 'FRM-11']],
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
             ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-03', 'TBL-04', 'TBL-05', 'TBL-06']],
@@ -642,6 +642,33 @@ final class AdminUiKit extends Page
                 'rules' => [
                     'Two to four options; a longer list belongs in a filter dropdown.',
                     '!Never tell the checked option by colour alone.',
+                ],
+            ],
+            'FRM-09' => [
+                'name' => 'Radio cards',
+                'source' => 'Blade component · x-admin.ui.radio-cards',
+                'kind' => 'component',
+                'purpose' => 'Two to four exclusive choices that each need a line of explanation: a person’s trust.',
+                'specs' => [
+                    ['Card', 'padding 12 · radius 12 · hairline · side by side, one per row on a phone'],
+                    ['Chosen', 'ink border · sunken fill · 5px ink ring'],
+                    ['Content', '16 ring and 14/500 label · 12 secondary explanation under it'],
+                    ['Keyboard', 'Tab reaches the chosen card · arrows, Home and End choose'],
+                    ['Binding', 'wire:model or x-model on the component (x-modelable)'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.radio-cards
+                        label="Trust"
+                        :options="[
+                            'reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits for moderation.'],
+                            'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once.'],
+                        ]"
+                        :value="$trust"
+                        wire:model="trust"
+                    />
+                    BLADE,
+                'rules' => [
+                    'Use radio cards where each choice needs explaining; a segmented control where the labels say it all.',
                 ],
             ],
             'FRM-10' => [
