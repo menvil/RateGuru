@@ -333,6 +333,68 @@ it('says CRITICAL, and exits 2, when http-acme-ready cannot be proved back', fun
     expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpRender());
 });
 
+it('ends its wait only past the reload\'s overlap: the connection after it reaches the new configuration, not an old worker', function (callable $arrange, string $state) {
+    $arrange($this->host);
+    file_put_contents($this->host['fs'].PUBLIC_HTTP_FILE, $state === 'http-acme-ready' ? publicHttpRender() : publicHttpsRender($state));
+    // For a second after the reload, every connection but the first still
+    // reaches an old worker.
+    file_put_contents($this->host['toggles'].'/reload-overlap', '1000');
+
+    $next = publicHttpBash(<<<'BASH'
+        set -Eeuo pipefail
+        source infrastructure/scripts/prepare-public-https
+        TARGET_ID=tits-guru
+        MODE=verify
+        begin_https_run >/dev/null
+        "${SYSTEMCTL_BIN}" reload nginx
+        wait_for_state "${STATE}"
+        case "${STATE}" in
+            http-acme-ready) is_ours "$(probe 127.0.0.1 tits.guru /)" && echo new || echo old ;;
+            tls-ready) is_https_closed "$(https_probe 127.0.0.1 tits.guru / verified)" && echo new || echo old ;;
+            public-active) is_https_closed "$(https_probe 127.0.0.1 tits.guru / verified)" && echo old || echo new ;;
+        esac
+        rm -rf -- "${WORK}"
+        BASH, [...$this->host['env'], 'STATE' => $state, 'RATEGURU_PUBLICHTTP_RELOAD_OVERLAP' => '1.2']);
+
+    expect($next)->toBe("new\n");
+})->with([
+    'to tls-ready' => [fn (array $host) => publicHttpsReady($host), 'tls-ready'],
+    'back to http-acme-ready' => [fn (array $host) => publicHttpsTlsReady($host), 'http-acme-ready'],
+    'to public-active' => [fn (array $host) => publicHttpsTlsReady($host), 'public-active'],
+]);
+
+it('passes every change through a reload\'s overlap', function (callable $arrange, string $mode, string $state) {
+    $env = $arrange($this->host);
+    // For a second after the reload, every connection but the first still
+    // reaches an old worker, as Nginx's own overlap of the two does briefly.
+    file_put_contents($this->host['toggles'].'/reload-overlap', '1000');
+
+    [$exit, $output] = publicHttpsRun($this->host, $mode, [...$env, 'RATEGURU_PUBLICHTTP_RELOAD_OVERLAP' => '1.2']);
+
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'pass', 'state' => $state, 'changed' => true, 'reloaded' => true, 'rolled_back' => false]);
+})->with([
+    'apply' => [function (array $host): array {
+        publicHttpsReady($host);
+
+        return [];
+    }, 'apply', 'tls-ready'],
+    'rollback' => [function (array $host): array {
+        publicHttpsTlsReady($host);
+
+        return [];
+    }, 'rollback', 'http-acme-ready'],
+    'deactivate' => [function (array $host): array {
+        publicHttpsTlsReady($host);
+        $env = publicHttpsActiveTarget($host);
+        publicHttpsDeployed($host);
+        [$exit, $output] = publicHttpsRun($host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+        expect($exit)->toBe(0, $output);
+
+        return $env;
+    }, 'deactivate', 'tls-ready'],
+]);
+
 it('verifies each state read-only, and a drifted hook or site as a failure', function () {
     publicHttpsReady($this->host);
 

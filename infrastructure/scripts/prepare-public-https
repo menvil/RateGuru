@@ -861,23 +861,34 @@ judge_answers() {
 }
 
 # wait_for_state STATE — after a reload, until the first public hostname
-# answers as STATE says on the first probe address.
+# answers as STATE says on the first probe address, and still does once the
+# reload's overlap is over: the first answer from a new worker says nothing
+# about the next connection, which an old one may still take
+# (prepare-public-http's wait_for_public says why).
 wait_for_state() {
-    local state="$1" deadline answer
+    local state="$1" deadline answer matched seen=false
     deadline=$(( SECONDS + PROBE_WAIT ))
 
     while :; do
+        matched=false
         case "${state}" in
             http-acme-ready)
                 answer="$(probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" /)"
-                is_ours "${answer}" && return 0 ;;
+                ! is_ours "${answer}" || matched=true ;;
             tls-ready)
                 answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
-                is_https_closed "${answer}" && return 0 ;;
+                ! is_https_closed "${answer}" || matched=true ;;
             public-active)
                 answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
-                [[ "${answer##*|}" == 0 ]] && ! is_https_closed "${answer}" && return 0 ;;
+                [[ "${answer##*|}" != 0 ]] || is_https_closed "${answer}" || matched=true ;;
         esac
+        if [[ "${matched}" == true ]]; then
+            [[ "${seen}" == false ]] || return 0
+            seen=true
+            sleep "${RELOAD_OVERLAP}"
+            continue
+        fi
+        seen=false
         (( SECONDS < deadline )) || return 1
         sleep 0.5
     done
