@@ -65,6 +65,14 @@ it('filters and orders active rating options', function () {
         ->toBe([$first->id, $second->id]);
 });
 
+it('measures active options against a rating group\'s range', function () {
+    $group = new RatingGroup(['min_options' => 3, 'max_options' => 5]);
+
+    expect(array_map($group->holdsActiveOptions(...), [2, 3, 5, 6]))->toBe([false, true, true, false])
+        ->and(array_map($group->hasRoomForActiveOption(...), [4, 5]))->toBe([true, false])
+        ->and(array_map($group->canSpareActiveOption(...), [3, 4]))->toBe([false, true]);
+});
+
 it('casts rating configuration state', function () {
     $group = RatingGroup::factory()->create(['is_active' => true]);
     $option = RatingOption::factory()->for($group, 'group')->create([

@@ -13,12 +13,11 @@ final class ValidateRatingOptionTransitionAction
             return;
         }
 
-        $projectedCount = $group->options()->active()->count() + ($willBeActive ? 1 : -1);
+        $active = $group->options()->active()->count();
 
-        $violatesMaximum = $willBeActive && $projectedCount > $group->max_options;
-        $violatesMinimum = ! $willBeActive && $projectedCount < $group->min_options;
+        $allowed = $willBeActive ? $group->hasRoomForActiveOption($active) : $group->canSpareActiveOption($active);
 
-        if ($violatesMaximum || $violatesMinimum) {
+        if (! $allowed) {
             throw new InvalidRatingGroupConfigurationException(
                 "Rating group [{$group->key}] must keep between "
                 ."{$group->min_options} and {$group->max_options} active options.",

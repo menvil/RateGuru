@@ -17,8 +17,8 @@
     };
 
     $toggleHint = match (true) {
-        $option['active'] && $active - 1 < $group->min_options => 'Blocked · minimum is '.$group->min_options,
-        ! $option['active'] && $active + 1 > $group->max_options => 'Blocked · maximum is '.$group->max_options,
+        $option['active'] && ! $group->canSpareActiveOption($active) => 'Blocked · minimum is '.$group->min_options,
+        ! $option['active'] && ! $group->hasRoomForActiveOption($active) => 'Blocked · maximum is '.$group->max_options,
         default => null,
     };
 @endphp

@@ -157,7 +157,7 @@ final class EditRatingGroup extends Page
         $this->optionKeyGenerated = true;
         $this->draftOptionSort = min(self::MAX_SORT_ORDER, (int) $group->options()->max('sort_order') + 1);
         // Active when the group has room for one more, as an option usually is.
-        $this->draftOptionActive = $this->activeCount() < $group->max_options;
+        $this->draftOptionActive = $group->hasRoomForActiveOption($this->activeCount());
     }
 
     public function editOption(mixed $id = null): void
@@ -485,8 +485,8 @@ final class EditRatingGroup extends Page
 
         return match (true) {
             $option?->archived_at !== null => 'Archived options stay inactive. Unarchive it from the options table first.',
-            ($option === null || ! $option->is_active) && $active >= $group->max_options => "{$group->label} already has {$active} of {$group->max_options} active options. This option stays inactive until another is deactivated or the maximum is raised.",
-            $option !== null && $option->is_active && $active <= $group->min_options => "{$group->label} needs at least {$group->min_options} active options, so this one can’t be turned off right now.",
+            ($option === null || ! $option->is_active) && ! $group->hasRoomForActiveOption($active) => "{$group->label} already has {$active} of {$group->max_options} active options. This option stays inactive until another is deactivated or the maximum is raised.",
+            $option !== null && $option->is_active && ! $group->canSpareActiveOption($active) => "{$group->label} needs at least {$group->min_options} active options, so this one can’t be turned off right now.",
             default => null,
         };
     }
@@ -548,7 +548,7 @@ final class EditRatingGroup extends Page
     /** Whether taking this option out of the active ones would leave the group under its minimum. */
     private function cannotSpare(RatingOption $option): bool
     {
-        return $option->is_active && $this->activeCount() - 1 < $this->group()->min_options;
+        return $option->is_active && ! $this->group()->canSpareActiveOption($this->activeCount());
     }
 
     /** Refuses the draft's range when it cannot hold the group's active options, field by field. */

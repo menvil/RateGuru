@@ -166,11 +166,13 @@ final class ManageRatingGroups extends Page
         $rows = $this->groups();
         $active = array_filter($rows, fn (array $row): bool => $row['active']);
         $status = app(ContentTranslationStatus::class);
+        // One slot past the widest range or the most active options, up to the most any range allows.
+        $slots = min(RatingGroup::MOST_OPTIONS, max([RatingGroup::FEWEST_OPTIONS, ...array_map(fn (array $row): int => max($row['max'], $row['activeOptions']), $rows)]) + 1);
 
         return [
             'rows' => $rows,
-            // One slot past the widest range or the most active options, as one width for every row.
-            'slotCount' => min(RatingGroup::MOST_OPTIONS, max([RatingGroup::FEWEST_OPTIONS, ...array_map(fn (array $row): int => max($row['max'], $row['activeOptions']), $rows)]) + 1),
+            // One width for every row: wider still for a group with more active options than that.
+            'slotCount' => max([$slots, ...array_column($rows, 'activeOptions')]),
             'stats' => [
                 'groups' => count($active),
                 'options' => array_sum(array_column($active, 'activeOptions')),
@@ -259,7 +261,7 @@ final class ManageRatingGroups extends Page
                     'archivedOptions' => (int) $group->getAttribute('archived_options_count'),
                     'min' => $group->min_options,
                     'max' => $group->max_options,
-                    'valid' => $active >= $group->min_options && $active <= $group->max_options,
+                    'valid' => $group->holdsActiveOptions($active),
                     // Translation Center lists the groups visitors can see: an inactive one waits until it is active again.
                     'translate' => $translate && $group->is_active ? $status->translateUrl(ProjectContentSection::RatingGroups, $group->id, $fields) : null,
                     'url' => EditRatingGroup::getUrl(['record' => $group->id]),

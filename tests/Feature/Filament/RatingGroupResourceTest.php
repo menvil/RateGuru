@@ -72,6 +72,13 @@ it('lists every group in the order post pages show them, its options by state, i
         ->assertSeeHtml('aria-label="1 active, 2 to 4 allowed"');
 });
 
+it('keeps every row\'s slots one width, widened for a group with more active options than any range allows', function () {
+    ratingGroupWith(2, ['min_options' => 2, 'max_options' => 4]);
+    ratingGroupWith(RatingGroup::MOST_OPTIONS + 2, ['max_options' => RatingGroup::MOST_OPTIONS]);
+
+    expect(Livewire::test(ManageRatingGroups::class)->viewData('slotCount'))->toBe(RatingGroup::MOST_OPTIONS + 2);
+});
+
 it('activates a group whose range holds its options, with Undo', function () {
     $group = ratingGroupWith(2, ['label' => 'Vibe', 'is_active' => false, 'min_options' => 2, 'max_options' => 4]);
 

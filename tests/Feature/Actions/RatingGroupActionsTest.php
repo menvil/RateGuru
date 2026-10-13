@@ -42,6 +42,38 @@ it('authorizes creating and changing groups inside the actions', function () {
         ->and($group->fresh()->label)->not->toBe('Blocked');
 });
 
+it('authorizes unarchiving an option and raising the maximum inside the actions', function () {
+    $moderator = User::factory()->moderator()->create();
+    $group = rangedGroup(4, max: 4);
+    $archived = RatingOption::factory()->for($group, 'group')->create(['is_active' => false, 'archived_at' => now()]);
+    $inactive = RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
+
+    expect(fn () => app(UnarchiveRatingOptionAction::class)->handle($moderator, $archived))
+        ->toThrow(AuthorizationException::class)
+        ->and(fn () => app(ActivateRatingOptionRaisingMaximumAction::class)->handle($moderator, $inactive))
+        ->toThrow(AuthorizationException::class);
+
+    expect($archived->fresh()->archived_at)->not->toBeNull()
+        ->and($inactive->fresh()->is_active)->toBeFalse()
+        ->and($group->fresh()->max_options)->toBe(4);
+});
+
+it('refuses a range outside what any group allows, creating or changing a group', function (int $min, int $max) {
+    $admin = User::factory()->admin()->create();
+    $group = rangedGroup(2, isActive: false);
+
+    expect(fn () => app(CreateRatingGroupAction::class)->handle($admin, ['key' => 'out_of_range', 'label' => 'Out of range', 'min_options' => $min, 'max_options' => $max]))
+        ->toThrow(InvalidRatingGroupConfigurationException::class)
+        ->and(fn () => app(UpdateRatingGroupAction::class)->handle($admin, $group, ['min_options' => $min, 'max_options' => $max]))
+        ->toThrow(InvalidRatingGroupConfigurationException::class);
+
+    expect(RatingGroup::query()->where('key', 'out_of_range')->exists())->toBeFalse()
+        ->and($group->fresh())->min_options->toBe(2)->max_options->toBe(4);
+})->with([
+    'a minimum under the fewest' => [RatingGroup::FEWEST_OPTIONS - 1, 4],
+    'a maximum over the most' => [2, RatingGroup::MOST_OPTIONS + 1],
+]);
+
 it('refuses a range that leaves an active group\'s options outside it, and keeps the group as it was', function (array $change) {
     $group = rangedGroup(3, min: 2, max: 4);
 
@@ -86,6 +118,15 @@ it('unarchives an option inactive, leaving the group\'s active options as they w
 
     expect($option->fresh())->archived_at->toBeNull()->is_active->toBeFalse()
         ->and($group->options()->active()->count())->toBe(2);
+});
+
+it('unarchives an option inactive even when it was stored active', function () {
+    $group = rangedGroup(4, max: 4);
+    $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => true, 'archived_at' => now()]);
+
+    app(UnarchiveRatingOptionAction::class)->handle(User::factory()->admin()->create(), $option);
+
+    expect($option->fresh())->archived_at->toBeNull()->is_active->toBeFalse();
 });
 
 it('raises a full group\'s maximum by one to activate an option, together', function () {

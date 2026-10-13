@@ -6,7 +6,7 @@
      * info strip says new options are created inactive.
      */
     $columns = '--rg-admin-table-columns: minmax(220px, 1fr) 150px 110px 60px 100px 130px 120px; --rg-admin-table-min-width: 900px';
-    $atMaximum = $active >= $group->max_options;
+    $atMaximum = ! $group->hasRoomForActiveOption($active);
 @endphp
 
 <x-admin.ui.card flush>

@@ -14,7 +14,7 @@ final class CreateRatingGroupAction
      * A rating group in English, with nothing translated yet. It starts with
      * no options, so it starts inactive: an active group has to offer voters
      * between its minimum and maximum of active options, and an empty one
-     * offers none.
+     * offers none. Its range stays within what any group allows.
      *
      * @param  array<string, mixed>  $data
      */
@@ -28,7 +28,14 @@ final class CreateRatingGroupAction
             throw new InvalidRatingGroupConfigurationException('A new rating group has no options yet, so it cannot start active.');
         }
 
-        if ((int) ($data['min_options'] ?? 0) > (int) ($data['max_options'] ?? 0)) {
+        $min = (int) ($data['min_options'] ?? 0);
+        $max = (int) ($data['max_options'] ?? 0);
+
+        if ($min < RatingGroup::FEWEST_OPTIONS || $max > RatingGroup::MOST_OPTIONS) {
+            throw new InvalidRatingGroupConfigurationException('A rating group\'s range of active options must lie between '.RatingGroup::FEWEST_OPTIONS.' and '.RatingGroup::MOST_OPTIONS.'.');
+        }
+
+        if ($min > $max) {
             throw new InvalidRatingGroupConfigurationException('A rating group\'s minimum of active options cannot be higher than its maximum.');
         }
 

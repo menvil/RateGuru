@@ -26,7 +26,7 @@ final class UnarchiveRatingOptionAction
         $this->mutationLock->run($option->rating_group_id, function (RatingGroup $group) use ($option): void {
             $locked = $group->options()->lockForUpdate()->find($option->getKey());
 
-            $locked?->update(['archived_at' => null]);
+            $locked?->update(['archived_at' => null, 'is_active' => false]);
         });
     }
 }

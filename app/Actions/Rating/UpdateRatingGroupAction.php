@@ -21,10 +21,12 @@ final class UpdateRatingGroupAction
      * post page and whether voters see it. Its translations are Translation
      * Center's and are never touched here.
      *
-     * Under the group's lock, so the options counted are the options it has:
-     * an active group must keep between its minimum and maximum of active
-     * options, as the option actions keep it, and a change to the range or to
-     * whether the group is active is refused when it would leave it outside.
+     * The range stays within what any group allows, its minimum no higher
+     * than its maximum. Under the group's lock, so the options counted are
+     * the options it has: an active group must keep between its minimum and
+     * maximum of active options, as the option actions keep it, and a change
+     * to the range or to whether the group is active is refused when it would
+     * leave it outside.
      *
      * @param  array<string, mixed>  $data
      */
@@ -37,6 +39,10 @@ final class UpdateRatingGroupAction
         return $this->mutationLock->run($group->getKey(), function (RatingGroup $locked) use ($data): RatingGroup {
             $locked->fill(Arr::only($data, self::FIELDS));
 
+            if ($locked->min_options < RatingGroup::FEWEST_OPTIONS || $locked->max_options > RatingGroup::MOST_OPTIONS) {
+                throw new InvalidRatingGroupConfigurationException('A rating group\'s range of active options must lie between '.RatingGroup::FEWEST_OPTIONS.' and '.RatingGroup::MOST_OPTIONS.'.');
+            }
+
             if ($locked->min_options > $locked->max_options) {
                 throw new InvalidRatingGroupConfigurationException('A rating group\'s minimum of active options cannot be higher than its maximum.');
             }
@@ -44,7 +50,7 @@ final class UpdateRatingGroupAction
             if ($locked->is_active) {
                 $active = $locked->options()->active()->count();
 
-                if ($active < $locked->min_options || $active > $locked->max_options) {
+                if (! $locked->holdsActiveOptions($active)) {
                     throw new InvalidRatingGroupConfigurationException(
                         "Rating group [{$locked->key}] has {$active} active options; "
                         ."an active group needs between {$locked->min_options} and {$locked->max_options}.",

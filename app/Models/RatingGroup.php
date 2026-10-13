@@ -60,4 +60,22 @@ class RatingGroup extends Model
     {
         return $query->where('is_active', true);
     }
+
+    /** Whether this many active options sit inside the group's range, as an active group's must. */
+    public function holdsActiveOptions(int $count): bool
+    {
+        return $count >= $this->min_options && $count <= $this->max_options;
+    }
+
+    /** Whether a group with this many active options can take one more without passing its maximum. */
+    public function hasRoomForActiveOption(int $active): bool
+    {
+        return $active < $this->max_options;
+    }
+
+    /** Whether a group with this many active options can lose one without falling under its minimum. */
+    public function canSpareActiveOption(int $active): bool
+    {
+        return $active > $this->min_options;
+    }
 }
