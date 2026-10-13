@@ -11745,6 +11745,13 @@ function publicHttpStubs(): array
                     [[ "$2" == nginx ]] || exit 1
                     [[ -e "${STUB_TOGGLES}/reload-fail" ]] && exit 1
                     if [[ -e "${STUB_TOGGLES}/reload-fail-once" ]]; then rm -f "${STUB_TOGGLES}/reload-fail-once"; exit 1; fi
+                    # For the toggle's milliseconds the configuration before
+                    # this reload keeps answering too, as old workers do.
+                    if [[ -e "${STUB_TOGGLES}/reload-overlap" ]]; then
+                        rm -f "${STUB_STATE}/stale-public" "${STUB_STATE}/overlap-served"
+                        [[ ! -f "${STUB_STATE}/live-public" ]] || cp "${STUB_STATE}/live-public" "${STUB_STATE}/stale-public"
+                        printf '%s\n' "$(( ${EPOCHREALTIME/./} + $(cat "${STUB_TOGGLES}/reload-overlap") * 1000 ))" > "${STUB_STATE}/overlap-until"
+                    fi
                     link="${STUB_FS}/etc/nginx/sites-enabled/rateguru-tits-guru-public"
                     if [[ -L "${link}" && -f "${STUB_FS}$(readlink "${link}")" ]]; then
                         cp "${STUB_FS}$(readlink "${link}")" "${STUB_STATE}/live-public"
@@ -11798,9 +11805,15 @@ function publicHttpStubs(): array
                 printf '%s' "$3" > "${out}"
                 printf '%s' "$1"
             }
+            # During a reload's overlap the first connection reaches a new
+            # worker, and every one after it an old worker.
+            live="${STUB_STATE}/live-public"
+            if [[ -f "${STUB_STATE}/overlap-until" ]] && (( ${EPOCHREALTIME/./} < $(cat "${STUB_STATE}/overlap-until") )); then
+                if [[ -e "${STUB_STATE}/overlap-served" ]]; then live="${STUB_STATE}/stale-public"; else touch "${STUB_STATE}/overlap-served"; fi
+            fi
             ours=false
-            if [[ -f "${STUB_STATE}/live-public" ]]; then
-                for name in $(sed -n 's/^ *server_name \(.*\);$/\1/p' "${STUB_STATE}/live-public"); do
+            if [[ -f "${live}" ]]; then
+                for name in $(sed -n 's/^ *server_name \(.*\);$/\1/p' "${live}"); do
                     [[ "${name}" != "${host}" ]] || ours=true
                 done
                 [[ ! -e "${STUB_TOGGLES}/public-takes-every-name" ]] || ours=true
@@ -11898,6 +11911,7 @@ function publicHttpHost(array $options = []): array
             'RATEGURU_PUBLICHTTP_FILE_OWNER' => $owner,
             'RATEGURU_PUBLICHTTP_FILE_GROUP' => $group,
             'RATEGURU_PUBLICHTTP_PROBE_WAIT' => '1',
+            'RATEGURU_PUBLICHTTP_RELOAD_OVERLAP' => '0',
             'STUB_FS' => $fs,
             'STUB_STATE' => $scratch.'/state',
             'STUB_LOG' => $scratch.'/log',
