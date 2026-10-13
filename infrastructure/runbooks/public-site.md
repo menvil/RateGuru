@@ -374,7 +374,7 @@ server {
 |-------|-------------------|
 | `/etc/letsencrypt`, `live`, `archive`, `live/tits.guru`, `archive/tits.guru`: real directories, root's, writable by no one else | a tree someone else could swap a key into |
 | `live/tits.guru/fullchain.pem` and `privkey.pem` are links to regular root-owned files directly in `archive/tits.guru/` | a copied file, or a link out of Certbot's archive |
-| the private key readable by no one but root | a leaked key |
+| the private key readable by root alone — neither its group nor anyone else; Certbot writes it `0600` | a leaked key |
 | every public hostname covered (`openssl x509 -checkhost`) | the wrong certificate |
 | a chain to the system's trusted authorities (`openssl verify`) | a self-signed or broken chain |
 | the key matches the certificate, compared through its public half | a mismatched pair; the key is never printed |
@@ -459,7 +459,7 @@ Every changing mode shares one transaction:
    | `--apply` | `http-acme-ready` | `planned` |
    | `--rollback` | `tls-ready` | `planned` |
    | `--activate` | `tls-ready` | `active` |
-   | `--deactivate` | `public-active` | any |
+   | `--deactivate` | `public-active` | any, and the two may differ; the host's registry must name the target |
 
    Anything else is refused before a change. `--rollback` and `--deactivate`
    never wait on the certificate, and `--deactivate` never waits on the
@@ -473,7 +473,8 @@ Every changing mode shares one transaction:
 6. It proves the result on `127.0.0.1`, and on `[::1]` unless the host
    disables IPv6:
    - the public hostnames over HTTPS, with Host and SNI and a certificate
-     verified against the system's authorities;
+     verified against the system's authorities — except for `--deactivate`,
+     which proves the closed site by its 503 alone;
    - the 301 on port 80;
    - the HTTP-01 challenge of `tits.guru` (404 for an absent token) and of
      `mx1.tits.guru`;
@@ -515,6 +516,22 @@ certificate, and that ACME and every other site are unchanged.
 503 again, while HTTPS, the certificate, the redirect and ACME stay. Once a
 site is `public-active`, `--apply` and `--rollback` refuse it: nothing removes
 a live site's HTTPS by accident.
+
+Closing is the emergency exit, so it waits on nothing that might be what went
+wrong:
+- **The certificate.** It is neither judged nor trusted. The closed site is
+  proved by its own answer: `503` with `Retry-After: 3600` and
+  `Cache-Control: no-store`, requested with the public hostname as Host and
+  SNI. An expired or untrusted certificate therefore never keeps the site
+  open, and never puts `public-active` back. **Verify tits.guru HTTPS** still
+  reports it, and fails until Certbot has a valid one.
+- **The lifecycle.** Any lifecycle, and the two registries may disagree. The
+  target must still be production in the trusted bundle's registry and be
+  named in the host's own; the site's file must be exactly a known render; and
+  the routing on 80 and 443 is judged as for every other change.
+- **What still stops it.** `nginx -t` failing, a reload failing, or the 503 not
+  answering after the reload. These are failures to install the closed
+  configuration, and the transaction puts `public-active` back.
 
 Today `tits-guru` is `planned`, so **GO LIVE tits.guru is refused**, by its
 workflow before the Environment, and on the host.
@@ -643,8 +660,8 @@ After this change is merged:
   - the rollback, which keeps every certificate;
   - every certificate refusal: none, expired or expiring, another name,
     untrusted, another key, a copied file, a link out of the archive, a
-    readable key, a writable archive, no renewal configuration, a renewal that
-    edits Nginx, no hook directory;
+    key its group or anyone can read, a writable archive, no renewal
+    configuration, a renewal that edits Nginx, no hook directory;
   - the 443 default-server refusal;
   - `nginx -t`, reload and post-reload failures, and CRITICAL;
   - the renewal hook: `tits.guru` reloaded after `nginx -t`, `mx1.tits.guru`
@@ -653,6 +670,9 @@ After this change is merged:
     release, PHP-FPM, health or certificate; once all hold, it goes live and
     closes again, and `--rollback` and `--apply` are refused while it is
     public;
+  - closing a live site with the application down, with an expired or
+    untrusted certificate (which `--verify` still reports), and with the two
+    registries disagreeing on the lifecycle;
   - IPv6 disabled.
 - `tests/Feature/Architecture/PublicHttpsWorkflowTest.php` covers the five
   workflows and their action:

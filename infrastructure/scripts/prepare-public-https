@@ -58,18 +58,21 @@
 # never a restart, and nothing of the mail gateway.
 #
 # THE TRANSITIONS. --apply and --rollback need the target planned in both
-# registries, --activate needs it active in both, and each starts only from
-# its own exact known state: a file that is not one of the three renders is
-# foreign, and refused. Under the host's infrastructure lock each one keeps the
-# previous file and hook, validates with nginx -t before its one reload, and
-# proves the result on the host's own Nginx — the public hostnames over HTTPS
-# with Host and SNI and a verified certificate, both HTTP-01 routes, every
-# other site — on 127.0.0.1, and on [::1] unless the host disables IPv6. Any
-# failure puts the previous file and hook back, validates and reloads again,
-# and proves that; when it cannot be proved, it says CRITICAL and exits 2. Run
-# again with nothing to change, each is a no-op. No certificate is ever
-# removed, and once the site is public-active there is no rollback to HTTP:
-# --deactivate closes it to the public and keeps HTTPS.
+# registries, --activate needs it active in both, --deactivate any lifecycle
+# in either as long as the host's own registry names the target, and each
+# starts only from its own exact known state: a file that is not one of the
+# three renders is foreign, and refused. Under the host's infrastructure lock
+# each one keeps the previous file and hook, validates with nginx -t before
+# its one reload, and proves the result on the host's own Nginx — the public
+# hostnames over HTTPS with Host and SNI and a verified certificate, both
+# HTTP-01 routes, every other site — on 127.0.0.1, and on [::1] unless the
+# host disables IPv6. --deactivate alone proves the closed site by its 503 and
+# never judges the certificate, so an expired or untrusted one never keeps a
+# site open. Any failure puts the previous file and hook back, validates and
+# reloads again, and proves that; when it cannot be proved, it says CRITICAL
+# and exits 2. Run again with nothing to change, each is a no-op. No
+# certificate is ever removed, and once the site is public-active there is no
+# rollback to HTTP: --deactivate closes it to the public and keeps HTTPS.
 #
 # GO LIVE. --activate opens the application only when the target is active in
 # both registries, a release is deployed, the target's PHP-FPM socket exists
@@ -143,6 +146,12 @@ CERT_NAMES=()
 CERTIFICATE="unknown"
 CERTIFICATE_EXPIRES=""
 HOOK_STATE="unknown"
+
+# How the public hostnames' own HTTPS answers are proved: verified, against the
+# trust store as a browser would, in every mode but --deactivate. Closing the
+# site proves its 503 with Host and SNI and never waits on the certificate: an
+# expired or untrusted one may be why it is being closed.
+PUBLIC_TRUST=verified
 
 # The open transaction: the site's file and the hook as they were.
 HTTPS_TRANSACTION_OPEN=false
@@ -281,8 +290,8 @@ certificate_problems() {
         printf '%s/privkey.pem is not a link to a regular file of %s directly in %s that no one else may write\n' "${CERT_LINEAGE}" "${CERT_OWNER}" "${CERT_ARCHIVE}"
         return 0
     fi
-    if (( (8#$(stat -c '%a' -- "${key}") & 8#004) != 0 )); then
-        printf 'the private key %s is readable by everyone — it is not trusted\n' "${key}"
+    if (( (8#$(stat -c '%a' -- "${key}") & 8#044) != 0 )); then
+        printf 'the private key %s is readable by its group or by everyone — it is not trusted\n' "${key}"
         return 0
     fi
 
@@ -782,7 +791,7 @@ probe_https_others() {
 # judge_answers STATE — the public hostnames, over HTTP and HTTPS, as the host's
 # own Nginx answers them, against what STATE says.
 judge_answers() {
-    local state="$1" address host answer code location exit_status
+    local state="$1" address host answer code location exit_status served
 
     for address in "${PROBE_ADDRESSES[@]}"; do
         for host in "${PUBLIC_HOSTNAMES[@]}"; do
@@ -817,17 +826,21 @@ judge_answers() {
                         item FAIL "http:${host}@${address}" "/index.php answered HTTP ${code}${location:+ to ${location}}, not a 301 to https://${host}/index.php"
                     fi
 
-                    answer="$(https_probe "${address}" "${host}" / verified)"
+                    served="a verified certificate"
+                    [[ "${PUBLIC_TRUST}" == verified ]] || served="Host and SNI ${host}, the certificate not judged"
+                    answer="$(https_probe "${address}" "${host}" / "${PUBLIC_TRUST}")"
                     exit_status="${answer##*|}"
-                    if [[ "${exit_status}" != 0 ]]; then
+                    if [[ "${exit_status}" != 0 && "${PUBLIC_TRUST}" == verified ]]; then
                         item FAIL "https:${host}@${address}" "no verified HTTPS answer (curl exit ${exit_status}) — the certificate served for ${host} does not verify, or nothing answers"
+                    elif [[ "${exit_status}" != 0 ]]; then
+                        item FAIL "https:${host}@${address}" "no HTTPS answer (curl exit ${exit_status}) — nothing answers ${host} on 443"
                     elif [[ "${state}" == tls-ready ]]; then
                         if is_https_closed "${answer}"; then
-                            item PASS "https:${host}@${address}" "a verified certificate, and / is 503 with Retry-After ${RETRY_AFTER} and Cache-Control: no-store — nothing of the application"
+                            item PASS "https:${host}@${address}" "${served}, and / is 503 with Retry-After ${RETRY_AFTER} and Cache-Control: no-store — nothing of the application"
                         else
                             item FAIL "https:${host}@${address}" "/ answered HTTP ${answer%%|*}, not the tls-ready 503"
                         fi
-                        answer="$(https_probe "${address}" "${host}" /index.php verified)"
+                        answer="$(https_probe "${address}" "${host}" /index.php "${PUBLIC_TRUST}")"
                         if is_https_closed "${answer}"; then
                             item PASS "https:${host}@${address}:php" "/index.php is the same 503 — no PHP is executed"
                         else
@@ -838,7 +851,7 @@ judge_answers() {
                         if is_https_closed "${answer}" || [[ ! "${code}" =~ ^[23][0-9][0-9]$ ]]; then
                             item FAIL "https:${host}@${address}" "/ answered HTTP ${code} — not the application"
                         else
-                            item PASS "https:${host}@${address}" "a verified certificate, and / is HTTP ${code} from the application"
+                            item PASS "https:${host}@${address}" "${served}, and / is HTTP ${code} from the application"
                         fi
                     fi
                     ;;
@@ -859,10 +872,10 @@ wait_for_state() {
                 answer="$(probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" /)"
                 is_ours "${answer}" && return 0 ;;
             tls-ready)
-                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / verified)"
+                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
                 is_https_closed "${answer}" && return 0 ;;
             public-active)
-                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / verified)"
+                answer="$(https_probe "${PROBE_ADDRESSES[0]}" "${PUBLIC_HOSTNAMES[0]}" / "${PUBLIC_TRUST}")"
                 [[ "${answer##*|}" == 0 ]] && ! is_https_closed "${answer}" && return 0 ;;
         esac
         (( SECONDS < deadline )) || return 1
@@ -904,6 +917,22 @@ report_lifecycle() {
         item PASS "target:installed-registry" "the host's own registry says lifecycle=${want} too"
     else
         item FAIL "target:installed-registry" "the host's own registry says lifecycle=${INSTALLED_LIFECYCLE:-nothing} — --${MODE} needs ${want} in both"
+    fi
+}
+
+# report_target_known — the target in any lifecycle: production in the trusted
+# bundle's registry, and named in the host's own. Whether the two registries
+# agree on its lifecycle is reported, never required.
+report_target_known() {
+    section "TARGET"
+
+    item PASS "target:${TARGET_ID}" "environment_class=production in the trusted bundle's registry"
+    if [[ -z "${INSTALLED_LIFECYCLE}" ]]; then
+        item FAIL "target:installed-registry" "the host's own registry does not name ${TARGET_ID} — this is not a host the target lives on"
+    elif [[ "${INSTALLED_LIFECYCLE}" == "${TARGET_LIFECYCLE}" ]]; then
+        item PASS "target:lifecycle" "lifecycle=${TARGET_LIFECYCLE} in the trusted bundle's registry and in the host's own — --${MODE} takes any"
+    else
+        item WARN "target:lifecycle" "the trusted bundle's registry says lifecycle=${TARGET_LIFECYCLE}, the host's own says ${INSTALLED_LIFECYCLE} — --${MODE} takes any; Verify reports the difference"
     fi
 }
 
@@ -1198,11 +1227,12 @@ begin_https_run() {
         "${PUBLIC_SITE}" "${PUBLIC_FILE}" "${PUBLIC_HOSTNAMES[*]}" "${LINEAGE}" "${HOST_STATE}"
 }
 
-# https_preflight LIFECYCLE required|any — every precondition of a change,
-# judged read-only; the certificate required only where the change serves it.
+# https_preflight LIFECYCLE|any required|skipped — every precondition of a
+# change, judged read-only: the lifecycle both registries must say, or any; the
+# certificate required only where the change serves it.
 https_preflight() {
     if [[ "$1" == any ]]; then
-        report_lifecycle_consistent
+        report_target_known
     else
         report_lifecycle "$1"
     fi
@@ -1431,7 +1461,9 @@ run_https_deactivate() {
     acquire_host_lock
     begin_https_run
     # Closing the site to the public never waits on anything that might be
-    # what went wrong: any lifecycle, and the certificate not required.
+    # what went wrong: any lifecycle in either registry, and the certificate
+    # neither required nor trusted — the closed site is proved by its own 503.
+    PUBLIC_TRUST=insecure
     https_preflight any skipped
     require_state public-active tls-ready
     refuse_if_failed

@@ -224,7 +224,10 @@ it('refuses a certificate it cannot serve, changing nothing', function (callable
     }, '/etc/letsencrypt/live/tits.guru/privkey.pem is not a link to a regular file'],
     'a key everyone can read' => [function (array $host): void {
         chmod($host['fs'].'/etc/letsencrypt/archive/tits.guru/privkey1.pem', 0o644);
-    }, 'is readable by everyone — it is not trusted'],
+    }, 'is readable by its group or by everyone — it is not trusted'],
+    'a key its group can read' => [function (array $host): void {
+        chmod($host['fs'].'/etc/letsencrypt/archive/tits.guru/privkey1.pem', 0o640);
+    }, 'is readable by its group or by everyone — it is not trusted'],
     'an archive others may write' => [function (array $host): void {
         chmod($host['fs'].'/etc/letsencrypt/archive/tits.guru', 0o777);
     }, 'is not a real directory of'],
@@ -239,6 +242,29 @@ it('refuses a certificate it cannot serve, changing nothing', function (callable
         exec('rm -rf '.escapeshellarg($host['fs'].'/etc/letsencrypt/renewal-hooks'));
     }, 'FAIL     certificate:hooks'],
 ]);
+
+it('serves the key as Certbot writes it, 0600, and refuses a renewed key its group can read — in the installer and the renewal hook alike', function () {
+    publicHttpsTlsReady($this->host);
+    expect(fileperms($this->host['fs'].'/etc/letsencrypt/archive/tits.guru/privkey1.pem') & 0o777)->toBe(0o600);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'verify');
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'pass', 'certificate' => 'valid']);
+
+    // Certbot renews, and the renewed key is left readable by its group.
+    publicHttpsLineage($this->host, [], null, 2);
+    chmod($this->host['fs'].'/etc/letsencrypt/archive/tits.guru/privkey2.pem', 0o640);
+    publicHttpResetLogs($this->host);
+
+    [$exit, $output] = publicHttpsHook($this->host, $this->host['fs'].'/etc/letsencrypt/live/tits.guru');
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain('is refused, and Nginx is not reloaded')->toContain('is readable by its group or by everyone — it is not trusted');
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+
+    [$exit, $output] = publicHttpsRun($this->host, 'verify');
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'fail', 'certificate' => 'invalid']);
+});
 
 it('starts only from http-acme-ready: not before Prepare tits.guru public HTTP, and never from a site it does not know', function (callable $arrange, string $reported) {
     publicHttpsLineage($this->host);
@@ -460,7 +486,7 @@ it('goes live, and closes again: public-active through PHP-FPM, then back to tls
     expect(publicHttpsResult($output))->toMatchArray(['mode' => 'deactivate', 'status' => 'pass', 'state' => 'tls-ready', 'hook' => 'installed', 'changed' => true, 'reloaded' => true]);
     expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('tls-ready'));
     expect(file_exists($this->host['fs'].PUBLIC_HTTPS_HOOK))->toBeTrue();
-    expect($output)->toContain('PASS     https:tits.guru@127.0.0.1                    a verified certificate, and / is 503');
+    expect($output)->toContain('PASS     https:tits.guru@127.0.0.1                    Host and SNI tits.guru, the certificate not judged, and / is 503');
     expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
 });
 
@@ -477,6 +503,124 @@ it('closes a live site even when what it needed to go live no longer holds', fun
     expect($exit)->toBe(0, $output);
     expect(publicHttpsResult($output))->toMatchArray(['state' => 'tls-ready']);
 });
+
+it('closes a live site whose certificate no longer verifies — and --verify still reports the certificate', function (array $card, string $reported) {
+    publicHttpsTlsReady($this->host);
+    $env = publicHttpsActiveTarget($this->host);
+    publicHttpsDeployed($this->host);
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(0, $output);
+
+    // Certbot's lineage now holds a certificate no browser accepts, and Nginx serves it.
+    publicHttpsLineage($this->host, $card, null, 2);
+    publicHttpResetLogs($this->host);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['mode' => 'deactivate', 'status' => 'pass', 'state' => 'tls-ready', 'changed' => true, 'reloaded' => true, 'rolled_back' => false]);
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('tls-ready'));
+    expect($output)
+        ->toContain('PASS     https:tits.guru@127.0.0.1                    Host and SNI tits.guru, the certificate not judged, and / is 503 with Retry-After 3600 and Cache-Control: no-store')
+        ->toContain('PASS     https:tits.guru@127.0.0.1:php')
+        ->not->toContain('RESTORED');
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
+
+    // Closed again, and the certificate is still reported.
+    [$exit, $output] = publicHttpsRun($this->host, 'verify', $env);
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'fail', 'state' => 'tls-ready', 'certificate' => 'invalid']);
+    expect($output)->toContain($reported)->toContain('no verified HTTPS answer (curl exit 60)');
+})->with([
+    'expired' => [['days' => 0], 'the certificate has expired, or expires within 14 days'],
+    'untrusted' => [['trusted' => 'no'], 'the certificate does not chain to a trusted certificate authority'],
+]);
+
+it('still puts public-active back when the closed site cannot be put in place, whatever the certificate', function (string $toggle, string $reported) {
+    publicHttpsTlsReady($this->host);
+    $env = publicHttpsActiveTarget($this->host);
+    publicHttpsDeployed($this->host);
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(0, $output);
+
+    publicHttpsLineage($this->host, ['days' => 0], null, 2);
+    publicHttpToggle($this->host, $toggle);
+    publicHttpResetLogs($this->host);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+    expect($exit)->toBe(1, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['status' => 'fail', 'state' => 'public-active', 'rolled_back' => true, 'changed' => false]);
+    expect($output)->toContain($reported)->toContain('RESTORED: the public site is public-active again');
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('public-active'));
+})->with([
+    'the reload fails' => ['reload-fail-once', 'systemctl reload nginx failed'],
+    'other HTTPS names answer differently after the reload' => ['https-takes-every-name', 'answers differently'],
+]);
+
+it('closes a live site whatever the two registries say of its lifecycle — and --verify reports the difference', function (callable $arrange, string $trusted, string $installed) {
+    publicHttpsTlsReady($this->host);
+    $env = publicHttpsActiveTarget($this->host);
+    publicHttpsDeployed($this->host);
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(0, $output);
+
+    $env = $arrange($this->host, $env);
+    publicHttpResetLogs($this->host);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['mode' => 'deactivate', 'status' => 'pass', 'state' => 'tls-ready', 'lifecycle' => $trusted, 'changed' => true, 'rolled_back' => false]);
+    expect($output)->toContain("WARN     target:lifecycle                             the trusted bundle's registry says lifecycle={$trusted}, the host's own says {$installed} — --deactivate takes any");
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('tls-ready'));
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe("systemctl reload nginx\n");
+
+    [$exit, $output] = publicHttpsRun($this->host, 'verify', $env);
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain("FAIL     target:lifecycle                             the trusted bundle's registry says lifecycle={$trusted}, the host's own says {$installed}");
+})->with([
+    'the host\'s own registry still planned' => [function (array $host, array $env): array {
+        file_put_contents($host['scratch'].'/installed-registry.json', File::get(base_path('infrastructure/config/deployment-targets.json')));
+
+        return $env;
+    }, 'active', 'planned'],
+    'the trusted bundle back to planned' => [fn (array $host, array $env): array => [], 'planned', 'active'],
+    'the trusted bundle saying disabled' => [function (array $host, array $env): array {
+        $registry = json_decode(File::get($env['RATEGURU_PUBLICHTTP_REGISTRY']), true);
+        $registry['targets']['tits-guru']['lifecycle'] = 'disabled';
+        file_put_contents($env['RATEGURU_PUBLICHTTP_REGISTRY'], json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+        return $env;
+    }, 'disabled', 'active'],
+]);
+
+it('still refuses to close what it cannot prove is this target\'s live site', function (callable $arrange, string $reported) {
+    publicHttpsTlsReady($this->host);
+    $env = publicHttpsActiveTarget($this->host);
+    publicHttpsDeployed($this->host);
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(0, $output);
+
+    $arrange($this->host);
+    $tree = publicHttpTree($this->host);
+    $site = file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE);
+    publicHttpResetLogs($this->host);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain($reported)->toContain('DEACTIVATE: REFUSED');
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($site);
+    expect(publicHttpTree($this->host))->toBe($tree);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+})->with([
+    'the host\'s own registry does not name the target' => [function (array $host): void {
+        $path = $host['scratch'].'/installed-registry.json';
+        $registry = json_decode(File::get($path), true);
+        unset($registry['targets']['tits-guru']);
+        file_put_contents($path, json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    }, "FAIL     target:installed-registry                    the host's own registry does not name tits-guru"],
+    'a hand-edited live site' => [function (array $host): void {
+        file_put_contents($host['fs'].PUBLIC_HTTP_FILE, publicHttpsRender('public-active')."# edited\n");
+    }, 'it is none of the known renders'],
+]);
 
 it('keeps --confirm-public for --activate alone, and runs as root only', function () {
     publicHttpsReady($this->host);

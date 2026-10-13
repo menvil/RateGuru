@@ -7,9 +7,11 @@ name: Close tits.guru public site
 # Everyone gets the 503 again, while HTTPS with Certbot's certificate, the
 # redirect and the ACME challenge stay; the run proves it, and that every other
 # site answers as before, and any failure puts public-active back. It waits on
-# nothing that might be what went wrong: any lifecycle, and the application
-# and the certificate not required. Run again, it changes nothing. Nothing here
-# runs on a merge or a schedule.
+# nothing that might be what went wrong: any lifecycle, the two registries
+# need not agree, the application is not required, and the certificate is
+# neither required nor trusted (the closed site is proved by its 503 with Host
+# and SNI). Run again, it changes nothing. Nothing here runs on a merge or a
+# schedule.
 on:
   workflow_dispatch:
     inputs:

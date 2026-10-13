@@ -50,9 +50,12 @@
 #     unchanged — and prepare-public-http then refuses the site; a second apply
 #     is a no-op; the renewal hook reloads Nginx for a renewed tits.guru, which
 #     is then served, and does nothing for mx1.tits.guru; GO LIVE is refused for
-#     a planned target; the public-active render passes nginx -t; a failed
-#     nginx -t or reload puts the previous state back; and --rollback returns
-#     the exact http-acme-ready, keeping the certificate;
+#     a planned target; the public-active render passes nginx -t; a live site
+#     serving an untrusted or an expired certificate, with the two registries
+#     disagreeing on its lifecycle, is closed by --deactivate all the same, and
+#     --verify still reports the certificate; a failed nginx -t or reload puts
+#     the previous state back; and --rollback returns the exact
+#     http-acme-ready, keeping the certificate;
 #   * on a host that disables IPv6 — as the production host does: disable_ipv6=1,
 #     no ::1, Nginx still bound to [::]:80 — check, apply, a second apply,
 #     verify and rollback pass on 127.0.0.1 alone, say the [::1] probes are
@@ -545,17 +548,23 @@ mkdir -m 0700 "${LE}/live" "${LE}/archive" "${LE}/live/${PUBLIC_HOST}" "${LE}/ar
 openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=RateGuru scenario authority" \
     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
     -keyout "${WORK}/ca/ca.key" -out "${WORK}/ca/ca.pem" >/dev/null 2>&1
+# An authority nobody trusts, for a certificate no browser accepts.
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=An untrusted authority" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -keyout "${WORK}/ca/rogue.key" -out "${WORK}/ca/rogue.pem" >/dev/null 2>&1
 
-# issue VERSION — version VERSION of the pair, and the live links moved to it, as a renewal does.
+# issue VERSION [DAYS [AUTHORITY]] — version VERSION of the pair, signed by
+# AUTHORITY (the scenario authority unless named) for DAYS days (60 unless
+# named; -1 has expired already), and the live links moved to it, as a renewal does.
 issue() {
-    local version="$1" archive="${LE}/archive/${PUBLIC_HOST}" part
+    local version="$1" days="${2:-60}" authority="${3:-${WORK}/ca/ca}" archive="${LE}/archive/${PUBLIC_HOST}" part
     openssl req -newkey rsa:2048 -nodes -subj "/CN=${PUBLIC_HOST}" \
         -keyout "${archive}/privkey${version}.pem" -out "${WORK}/ca/leaf.csr" >/dev/null 2>&1
     chmod 0600 "${archive}/privkey${version}.pem"
     printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' "${PUBLIC_HOST}" >"${WORK}/ca/leaf.ext"
-    openssl x509 -req -in "${WORK}/ca/leaf.csr" -CA "${WORK}/ca/ca.pem" -CAkey "${WORK}/ca/ca.key" -set_serial "100${version}" \
-        -days 60 -extfile "${WORK}/ca/leaf.ext" -out "${archive}/cert${version}.pem" >/dev/null 2>&1
-    cp "${WORK}/ca/ca.pem" "${archive}/chain${version}.pem"
+    openssl x509 -req -in "${WORK}/ca/leaf.csr" -CA "${authority}.pem" -CAkey "${authority}.key" -set_serial "100${version}" \
+        -days "${days}" -extfile "${WORK}/ca/leaf.ext" -out "${archive}/cert${version}.pem" >/dev/null 2>&1
+    cp "${authority}.pem" "${archive}/chain${version}.pem"
     cat "${archive}/cert${version}.pem" "${archive}/chain${version}.pem" >"${archive}/fullchain${version}.pem"
     for part in cert chain fullchain privkey; do
         ln -sfn "../../archive/${PUBLIC_HOST}/${part}${version}.pem" "${LE}/live/${PUBLIC_HOST}/${part}.pem"
@@ -666,20 +675,77 @@ result_is "HTTPS: GO LIVE is refused for a planned target" 1 '.status == "fail" 
 
 # The public-active render is valid Nginx: checked in place, without a reload.
 cp -p "${PUBLIC_FILE}" "${WORK}/tls-ready-render"
-(
-    export RATEGURU_ALLOW_TEST_OVERRIDES=true RATEGURU_PUBLICHTTPS_LETSENCRYPT="${LE}"
-    source "${SCRIPTS}/prepare-public-https"
-    TARGET_ID="${TARGET}"; MODE=check
-    load_target >/dev/null
-    load_https_target
-    render_https_site public-active
-) >"${PUBLIC_FILE}"
+render_public_active() {
+    (
+        export RATEGURU_ALLOW_TEST_OVERRIDES=true RATEGURU_PUBLICHTTPS_LETSENCRYPT="${LE}"
+        source "${SCRIPTS}/prepare-public-https"
+        TARGET_ID="${TARGET}"; MODE=check
+        load_target >/dev/null
+        load_https_target
+        render_https_site public-active
+    ) >"${PUBLIC_FILE}"
+}
+render_public_active
 if grep -q 'fastcgi_pass unix:' "${PUBLIC_FILE}" && nginx -t >/dev/null 2>&1; then
     pass "HTTPS: the public-active render passes nginx -t"
 else
     fail "HTTPS: the public-active render fails nginx -t: $(nginx -t 2>&1 | head -1)"
 fi
 cp -p "${WORK}/tls-ready-render" "${PUBLIC_FILE}"
+
+# Closing a live site in an emergency: the public-active render loaded, as GO
+# LIVE leaves it (no PHP-FPM answers behind it here, and closing never asks),
+# Certbot's lineage holding a certificate no browser accepts, and the host's
+# own registry saying active while the trusted bundle's says planned.
+# --deactivate closes it all the same, proving the 503 with Host and SNI, and
+# --verify still reports the certificate.
+https_answer_unverified() {
+    local code
+    : >"${WORK}/https.headers"
+    code="$(curl --silent --globoff --noproxy '*' --max-time 5 --insecure --resolve "${PUBLIC_HOST}:443:$1" \
+        -o "${WORK}/https.body" -D "${WORK}/https.headers" -w '%{http_code}' "https://${PUBLIC_HOST}/" 2>/dev/null)" || code=000
+    printf '%s|%s|%s\n' "${code}" \
+        "$(tr -d '\r' <"${WORK}/https.headers" | awk -F': *' 'tolower($1) == "retry-after" { print $2 }')" \
+        "$(tr -d '\r' <"${WORK}/https.headers" | awk -F': *' 'tolower($1) == "cache-control" { print $2 }')"
+}
+cp -p "${WORK}/installed-registry.json" "${WORK}/installed-registry.planned"
+jq --arg t "${TARGET}" '.targets[$t].lifecycle = "active"' "${WORK}/installed-registry.planned" >"${WORK}/installed-registry.json"
+for broken in untrusted expired; do
+    case "${broken}" in
+        untrusted) issue 3 60 "${WORK}/ca/rogue" ;;
+        expired)   issue 4 -1 ;;
+    esac
+    render_public_active
+    "${WORK}/bin/systemctl" reload nginx
+    sleep 1
+    expect "HTTPS: a live site serving an ${broken} certificate no longer verifies" "$(https_answer 127.0.0.1 "${PUBLIC_HOST}" / | cut -d'|' -f1)" 000
+
+    : >"${WORK}/systemctl.log"
+    run_public_https deactivate
+    result_is "HTTPS: --deactivate closes the live site with an ${broken} certificate, the registries disagreeing" 0 \
+        '.status == "pass" and .state == "tls-ready" and .lifecycle == "planned" and .changed and .reloaded and (.rolled_back | not)'
+    expect "HTTPS: it said the registries disagree and went on" "$(grep -c 'WARN     target:lifecycle' <<<"${OUTPUT}" || true)" 1
+    expect "HTTPS: closing reloaded Nginx once" "$(grep -c '^reload nginx$' "${WORK}/systemctl.log" || true)" 1
+    expect "HTTPS: closing never puts public-active back" "$(grep -c 'RESTORED' <<<"${OUTPUT}" || true)" 0
+    for address in 127.0.0.1 '[::1]'; do
+        expect "HTTPS: closed on ${address}: / is 503 with Retry-After and no-store, with Host and SNI ${PUBLIC_HOST}" \
+            "$(https_answer_unverified "${address}")" "503|3600|no-store"
+    done
+    expect_mx "HTTPS, closed with an ${broken} certificate"
+    expect "HTTPS: closed with an ${broken} certificate, staging's HTTPS sites and the default server answer as before" "$(others_https 127.0.0.1; others_https '[::1]')" "${OTHERS_BEFORE}"
+
+    run_public_https verify
+    result_is "HTTPS: --verify still reports the ${broken} certificate" 1 '.status == "fail" and .state == "tls-ready" and .certificate == "invalid"'
+done
+master_kept "HTTPS emergency close"
+
+# Back to a certificate that holds, and both registries planned.
+cp -p "${WORK}/installed-registry.planned" "${WORK}/installed-registry.json"
+issue 5
+"${WORK}/bin/systemctl" reload nginx
+sleep 1
+run_public_https verify
+result_is "HTTPS: with a certificate that holds again, --verify passes on tls-ready" 0 '.status == "pass" and .state == "tls-ready" and .certificate == "valid"'
 
 # A rollback whose reload fails keeps tls-ready.
 touch "${WORK}/reload-fail-once"
