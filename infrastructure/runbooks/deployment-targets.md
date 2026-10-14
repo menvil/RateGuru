@@ -774,12 +774,42 @@ target:
 - staging's backups, its namespace and its B2 prefix are never touched by any
   of it.
 
-**One gap this does not close.** The host lock serializes host-global
-operations against each other, not against a target's own deploy, rollback or
-restore (see `infrastructure/scripts/common`). Until the shared/exclusive model
-lands, never start **Prepare**, **Repair**, **Provision** or **Configure** of
-either target while a deployment, rollback or restore of either target is
-running.
+**Host-level and target operations never overlap.** Both targets share one
+machine, and one lock file on it, `/home/www/rateguru/run/host-infrastructure.lock`,
+in two modes (`infrastructure/scripts/common`):
+
+- **Exclusive** — the operations that change what every target depends on:
+  **Prepare**, **Repair**, **Provision**, **Configure**, every other change to
+  the public site (its HTTP and HTTPS preparation and rollback, GO LIVE) and
+  the mail activations. They run one at a time.
+- **Shared** — every operation on one target: deploy, rollback, cleanup,
+  `restore-target` and `recover-host` (`--apply`, `--resume`), and the backup
+  family the cron runs (`backup-cycle`, `backup`, `restore-test`,
+  `offsite-backup`, `offsite-retention`, `offsite-restore-test`,
+  `fetch-backup`). They run side by side: a staging deployment and a production
+  backup never wait for each other.
+- **Closing the public site** (Close tits.guru public site) holds the machine
+  shared and the site exclusively, so a deployment or a backup in flight never
+  delays it; a host-level operation still does.
+
+Whichever starts first wins, and the other is **refused before it changes
+anything** — nothing ever waits on the lock:
+
+- *Prepare (or Repair, …) refused* with "a target operation is running on this
+  host": a deployment, rollback, restore or backup of either target is in
+  flight. Wait for it to finish and run it again.
+- *A deployment, rollback or restore refused* with "a host-level operation is
+  changing this host's shared infrastructure": wait for that operation and run
+  it again.
+- *A nightly backup or weekly restore test refused* the same way: its cron log
+  records the refusal, and the next scheduled run takes it. Avoid starting a
+  host-level operation in the minutes before a target's scheduled backup
+  (`config/backup-schedules.json`).
+
+The lock is released by the kernel when the operation ends — successfully, on
+a refusal, or killed — so there is never a stale lock to delete. Read-only
+modes (`--verify`, `--check`, `--inspect`, the Verify workflows) take nothing
+and always run.
 
 #### The order after the merge
 

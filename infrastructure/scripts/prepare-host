@@ -642,13 +642,25 @@ gate_data_operation_locks() {
     # cannot source `common` — it runs before the operational bundle is
     # installed — so it opens the same path itself rather than growing a copy
     # of the bundle it is about to install.
+    #
+    # EXCLUSIVELY. Every target operation — a deployment, rollback, cleanup,
+    # restore, recovery or backup of ANY target on this machine — holds the
+    # same file shared for its whole run (`common`), so this refuses while one
+    # is in flight, and each of them refuses while this holds it.
     local host_lock="${OPERATIONAL_RUN_ROOT}/host-infrastructure.lock"
 
     exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${host_lock}" \
         || fail "could not open ${host_lock} to claim this host's shared infrastructure"
 
-    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
-        || fail "another operation is already mutating this host's shared infrastructure (${host_lock}); nothing was changed. Targets share one machine, so host-level operations run one at a time"
+    if ! flock -n -x "${HOST_INFRASTRUCTURE_LOCK_FD}"; then
+        # Taking it shared only succeeds when every holder is a target
+        # operation; the refusal exits, and exiting releases it.
+        if flock -n -s "${HOST_INFRASTRUCTURE_LOCK_FD}"; then
+            fail "a target operation is running on this host — a deployment, rollback, cleanup, restore, recovery or backup holds ${host_lock} shared; nothing was changed. Preparation changes what every target depends on, so it waits until no target operation is in flight"
+        fi
+
+        fail "another operation is already mutating this host's shared infrastructure (${host_lock}); nothing was changed. Targets share one machine, so host-level operations run one at a time"
+    fi
 
     command -v jq >/dev/null 2>&1 || return 0
 

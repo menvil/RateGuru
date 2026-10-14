@@ -133,6 +133,9 @@ function restoreTestOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => restoreTestOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => restoreTestOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => restoreTestOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => restoreTestOpsTargetsCli(),

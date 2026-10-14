@@ -364,6 +364,13 @@ step() {
 # No backup-namespace lock is taken: a recovering host runs no backup cron for
 # a target that has never been deployed on it, and taking a lock this operation
 # does not need would be one more thing to deadlock on.
+#
+# Before both, in --apply and --resume, the machine's host-infrastructure lock,
+# SHARED (common): a recovery never runs while a host-level operation converges
+# the machine under it, and none can start until it has finished. Prepare Host
+# is never run from inside a recovery; what recover-host asks of it is
+# --verify, which takes nothing. --check, --inspect and --verify are read-only
+# and take none of it.
 
 acquire_recovery_operation_lock() {
     install -d -o root -g root -m 0700 "${RUN_ROOT}"
@@ -1940,6 +1947,7 @@ perform_recovery() {
     OPERATION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     step "acquire recovery operation lock"
+    share_host_infrastructure_lock "recover-host --apply"
     acquire_recovery_operation_lock
 
     step "validate the prepared, empty replacement host"
@@ -2450,6 +2458,7 @@ perform_inspect() {
 # deployment installed the exact commit the backup names.
 perform_resume() {
     step "acquire recovery operation lock"
+    share_host_infrastructure_lock "recover-host --resume"
     acquire_recovery_operation_lock
 
     step "load operation state"

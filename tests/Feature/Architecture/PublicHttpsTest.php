@@ -625,6 +625,59 @@ it('closes a live site even when what it needed to go live no longer holds', fun
     expect(publicHttpsResult($output))->toMatchArray(['state' => 'tls-ready']);
 });
 
+it('closes a live site while a target operation holds the machine, never while a host-level operation or another site change does', function () {
+    // Closing takes the machine SHARED and the site exclusively: a deployment,
+    // restore or backup in flight — possibly what went wrong — does not hold
+    // the close back, while a host-level operation and a second change to the
+    // same site still do. Every other public-site mode takes the machine
+    // exclusively, like every other host-level operation.
+    publicHttpsTlsReady($this->host);
+    $env = publicHttpsActiveTarget($this->host);
+    publicHttpsDeployed($this->host);
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(0, $output);
+    publicHttpResetLogs($this->host);
+
+    $machine = fopen($this->host['run'].'/host-infrastructure.lock', 'c');
+    $site = fopen($this->host['run'].'/public-site.lock', 'c');
+
+    try {
+        // A host-level operation holds the machine.
+        expect(flock($machine, LOCK_EX | LOCK_NB))->toBeTrue();
+        [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain("a host-level operation is changing this host's shared infrastructure");
+        flock($machine, LOCK_UN);
+
+        // Another change to the public site is running.
+        expect(flock($site, LOCK_EX | LOCK_NB))->toBeTrue();
+        [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('another change to the public site is already running');
+        flock($site, LOCK_UN);
+
+        expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('public-active'));
+        expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+
+        // A target operation holds it shared: every other mode is refused,
+        // naming it, and closing goes through.
+        expect(flock($machine, LOCK_SH | LOCK_NB))->toBeTrue();
+        [$exit, $output] = publicHttpsRun($this->host, 'rollback', $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('a target operation is running on this host');
+
+        [$exit, $output] = publicHttpsRun($this->host, 'deactivate', $env);
+        expect($exit)->toBe(0, $output);
+        expect(publicHttpsResult($output))->toMatchArray(['mode' => 'deactivate', 'status' => 'pass', 'state' => 'tls-ready']);
+        expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe(publicHttpsRender('tls-ready'));
+    } finally {
+        flock($machine, LOCK_UN);
+        flock($site, LOCK_UN);
+        fclose($machine);
+        fclose($site);
+    }
+});
+
 it('closes a live site whose certificate no longer verifies — and --verify still reports the certificate', function (array $card, string $reported) {
     publicHttpsTlsReady($this->host);
     $env = publicHttpsActiveTarget($this->host);

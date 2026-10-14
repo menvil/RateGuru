@@ -1474,7 +1474,12 @@ run_https_activate() {
 }
 
 run_https_deactivate() {
-    acquire_host_lock
+    # The machine SHARED, the site exclusively. Closing rewrites this one
+    # site's file and reloads Nginx, and no target operation reads either, so a
+    # deployment, restore or backup in flight — possibly the very thing that
+    # went wrong — does not hold the close back. A host-level operation still
+    # refuses it, and it refuses them.
+    acquire_host_lock shared
     begin_https_run
     # Closing the site to the public never waits on anything that might be
     # what went wrong: any lifecycle in either registry, and the certificate

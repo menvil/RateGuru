@@ -137,6 +137,8 @@ TARGETS_CLI="$(gated_default RATEGURU_PUBLICHTTP_TARGETS_CLI "${SCRIPT_DIR}/targ
 INSTALLED_REGISTRY="$(gated_default RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY /home/www/rateguru/config/deployment-targets.json)"
 RUN_ROOT="$(gated_default RATEGURU_PUBLICHTTP_RUN_ROOT /home/www/rateguru/run)"
 HOST_LOCK_NAME="host-infrastructure.lock"
+# The public site's own lock, held by every change to it beside the machine's.
+SITE_LOCK_NAME="public-site.lock"
 
 NGINX_BIN="$(gated_default RATEGURU_PUBLICHTTP_NGINX_BIN nginx)"
 SYSTEMCTL_BIN="$(gated_default RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN systemctl)"
@@ -195,6 +197,7 @@ OWNER_MARKER=""
 WORK=""
 MAIN_BASHPID="${BASHPID}"
 HOST_LOCK_FD=""
+SITE_LOCK_FD=""
 
 RESULT_READY=false
 RESULT_PRINTED=false
@@ -343,8 +346,18 @@ require_tools() {
     done
 }
 
+# acquire_host_lock [shared] — this machine's infrastructure lock for the whole
+# run, then the public site's own. Never waits; a refusal names what holds it.
+#
+# EXCLUSIVE by default, the mode of every host-level operation (`common`):
+# Nginx is the machine's, and a reload carries every site on it. It therefore
+# refuses while a target operation — a deployment, rollback, cleanup, restore,
+# recovery or backup — holds the file shared, and they refuse while it is held.
+#
+# SHARED is prepare-public-https --deactivate's alone: see the reason there.
+# The site lock is what still keeps two changes to the public site apart.
 acquire_host_lock() {
-    local path="${RUN_ROOT}/${HOST_LOCK_NAME}"
+    local mode="${1:-exclusive}" path="${RUN_ROOT}/${HOST_LOCK_NAME}"
 
     [[ -d "${RUN_ROOT}" ]] \
         || die "the operational lock directory does not exist: ${RUN_ROOT} — this host has not been bootstrapped; nothing was changed"
@@ -352,8 +365,26 @@ acquire_host_lock() {
     exec {HOST_LOCK_FD}>>"${path}" \
         || die "could not open ${path} to claim this host's shared infrastructure; nothing was changed"
 
-    flock -n "${HOST_LOCK_FD}" \
-        || die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed"
+    if [[ "${mode}" == shared ]]; then
+        flock -n -s "${HOST_LOCK_FD}" \
+            || die "a host-level operation is changing this host's shared infrastructure (${path}); nothing was changed. Run it again once that operation has finished"
+    elif ! flock -n -x "${HOST_LOCK_FD}"; then
+        # Shared only succeeds when every holder is a target operation; the
+        # refusal exits, and exiting releases it.
+        if flock -n -s "${HOST_LOCK_FD}"; then
+            die "a target operation is running on this host — a deployment, rollback, cleanup, restore, recovery or backup holds ${path} shared; nothing was changed. Run it again once no target operation is in flight"
+        fi
+
+        die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed"
+    fi
+
+    local site_lock="${RUN_ROOT}/${SITE_LOCK_NAME}"
+
+    exec {SITE_LOCK_FD}>>"${site_lock}" \
+        || die "could not open ${site_lock} to claim the public site; nothing was changed"
+
+    flock -n -x "${SITE_LOCK_FD}" \
+        || die "another change to the public site is already running (${site_lock}); nothing was changed"
 }
 
 make_work() {

@@ -638,6 +638,19 @@ it('confines every restore concern in the shared library to its own sections', f
     // and no value from the file it reads ever reaches its output.
     $contractSection = mb_substr($common, $contractStart, $contractEnd - $contractStart);
 
+    // And the host lock's other half, where it has always lived. The target's
+    // deployment lock takes the machine SHARED before its own file, so every
+    // deploy, rollback, cleanup and recovery holds it through the one function
+    // they all call. That call is a line of the lock concern, written inside
+    // acquire_deployment_lock rather than moving the function into the lock
+    // section, and it is the only thing that may change there.
+    $deploymentLockShare = 'share_host_infrastructure_lock "$(basename -- "${0}")"';
+
+    preg_match('/^acquire_deployment_lock\(\) \{\n.*?\n\}\n/ms', $common, $deploymentLock);
+
+    expect($deploymentLock)->not->toBe([], 'common must still define acquire_deployment_lock');
+    expect(sourceCodeLines(explode("\n", $deploymentLock[0])))->toContain($deploymentLockShare);
+
     // Every line of CODE this branch added to common belongs to one of them.
     // Comments are excluded deliberately: `common` carries prose all over it,
     // and rewording a comment somewhere else in the file is not a restore
@@ -649,6 +662,7 @@ it('confines every restore concern in the shared library to its own sections', f
             || str_contains($gatesSection, $line)
             || str_contains($lockSection, $line)
             || str_contains($contractSection, $line)
+            || $line === $deploymentLockShare
         )->toBeTrue("a line of code was added to common outside its delimited sections: {$line}");
     }
 
@@ -714,8 +728,18 @@ it('confines every restore concern in the shared library to its own sections', f
             ? mb_substr($base, $baseFormatStart, $baseFormatEnd - $baseFormatStart)
             : '';
 
+        // The host lock's own base text, where it exists: the lock may be
+        // rewritten within its section — as it was when it gained its shared
+        // mode — exactly as an added line may land there.
+        $baseLockStart = mb_strpos($base, '# --- host infrastructure lock (begin) ---');
+        $baseLockEnd = mb_strpos($base, '# --- host infrastructure lock (end) ---');
+
+        $baseLockSection = ($baseLockStart !== false && $baseLockEnd !== false && $baseLockEnd > $baseLockStart)
+            ? mb_substr($base, $baseLockStart, $baseLockEnd - $baseLockStart)
+            : '';
+
         foreach (sourceCodeLines($diff['removed']) as $line) {
-            expect(str_contains($baseFormatSection, $line) || str_contains($baseSections, $line))
+            expect(str_contains($baseFormatSection, $line) || str_contains($baseSections, $line) || str_contains($baseLockSection, $line))
                 ->toBeTrue("a line of code was removed from common outside its delimited sections: {$line}");
         }
     } else {

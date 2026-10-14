@@ -1739,3 +1739,307 @@ it('verifies an ordinary preparation without demanding a hold, and reports one w
         prepCleanup($scratch);
     }
 });
+
+// =============================================================================
+// The machine's lock against target operations, proved concurrently
+// =============================================================================
+//
+// Prepare converges what every target on the machine depends on, so it holds
+// host-infrastructure.lock EXCLUSIVELY; every deployment, rollback, cleanup,
+// restore, recovery and backup holds the same file SHARED for its whole run.
+// Each test below runs two real operations at once: one stopped inside its
+// locked region (a held run, tests/Pest.php), the other started against it.
+// Both point at one scratch "machine" directory, the stand-in for
+// /home/www/rateguru/run — nothing here touches the host.
+
+/** A scratch copy of the committed registry: both targets are active in it. */
+function prepActiveRegistryFixture(string $scratch): string
+{
+    $path = $scratch.'/deployment-targets.active.json';
+
+    copy(base_path('infrastructure/config/deployment-targets.json'), $path);
+
+    return $path;
+}
+
+/**
+ * Prepare Host for $target against the scratch machine, optionally held at its
+ * first child (the runtime installer), which runs after the lock is taken.
+ *
+ * @return array<string, string>
+ */
+function prepMachineFixture(string $scratch, string $machine, ?string $gate = null): array
+{
+    $env = prepFixture($scratch, [
+        'registry' => prepActiveRegistryFixture($scratch),
+        'env' => ['RATEGURU_PREPAREHOST_RUN_ROOT' => $machine],
+    ]);
+
+    if ($gate !== null) {
+        $env['RATEGURU_PREPAREHOST_RUNTIME_INSTALLER_BIN'] = heldRunGateStub($scratch.'/bin/runtime-gate', $gate, $scratch.'/bin/runtime');
+    }
+
+    return $env;
+}
+
+/** Makes the scratch machine directory both operations lock in. */
+function prepMachineDir(string $scratch): string
+{
+    $machine = $scratch.'/machine';
+
+    expect(@mkdir($machine, 0o755, true))->toBeTrue("could not create {$machine}");
+
+    return $machine;
+}
+
+it('refuses Prepare while another target is being deployed, before any slice runs', function () {
+    $scratch = prepScratchDir();
+    $deployScratch = deployOpsScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        $gate = $scratch.'/deploy-gate';
+        $deployment = deployOpsFullDeployment($deployScratch, envOverrides: [
+            'RATEGURU_HOST_LOCK_ROOT' => $machine,
+            'RATEGURU_HEALTH_CHECK_BIN' => heldRunGateStub($deployScratch.'/bin/health-check-gate', $gate),
+        ]);
+        $deploy = heldRunStart(['bash', $deployment['harness']], $deployment['env'], $gate);
+        heldRunAwait($deploy);
+
+        // The deployment is past its switch and holding the machine shared.
+        expect(hostInfrastructureLockState($machine))->toBe('shared');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine));
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('a target operation is running on this host')
+            ->toContain('nothing was changed');
+
+        // Refused at the lock: no slice ran, so nothing shared was converged
+        // underneath the deployment.
+        expect(prepLog($scratch, 'children'))->toBe([]);
+        expect(prepLog($scratch, 'mutations'))->toBe([]);
+
+        // The deployment never noticed, and finishes exactly as it would alone.
+        [$deployExit, $deployOutput] = heldRunRelease($deploy);
+
+        expect($deployExit)->toBe(0, $deployOutput);
+        expect($deployOutput)->toContain('parity-target deployed successfully');
+        expect(readlink($deployment['fixture']['root'].'/current'))
+            ->toBe($deployment['fixture']['root'].'/releases/'.$deployment['releaseId']);
+
+        // Released on completion, and the refused Prepare left nothing held.
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine));
+
+        expect($exit)->toBe(0, $output);
+    } finally {
+        deployOpsCleanup($deployScratch);
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses a deployment while Prepare is running, before it extracts or records anything', function () {
+    $scratch = prepScratchDir();
+    $deployScratch = deployOpsScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        $gate = $scratch.'/prepare-gate';
+        $prepare = heldRunStart(['bash', prepScript(), '--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine, $gate), $gate);
+        heldRunAwait($prepare);
+
+        expect(hostInfrastructureLockState($machine))->toBe('exclusive');
+
+        $deployment = deployOpsFullDeployment($deployScratch, envOverrides: ['RATEGURU_HOST_LOCK_ROOT' => $machine]);
+        $root = $deployment['fixture']['root'];
+
+        [$exit, $output] = deployOpsExec($deployment['harness'], $deployment['env']);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('a host-level operation is changing this host')
+            ->toContain('changed nothing');
+
+        // Nothing partial: no release, no staging directory, no history, no link.
+        expect(glob($root.'/releases/*') ?: [])->toBe([]);
+        expect(glob($root.'/releases/.*.tmp-*') ?: [])->toBe([]);
+        expect(deployOpsHistory($root))->toBe([]);
+        expect(is_link($root.'/current'))->toBeFalse();
+        expect(File::exists($deployScratch.'/systemctl.log'))->toBeFalse();
+
+        [$prepareExit, $prepareOutput] = heldRunRelease($prepare);
+
+        expect($prepareExit)->toBe(0, $prepareOutput);
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+
+        // The same deployment, once the machine is free, deploys.
+        [$exit, $output] = deployOpsExec($deployment['harness'], $deployment['env']);
+
+        expect($exit)->toBe(0, $output);
+        expect(readlink($root.'/current'))->toBe($root.'/releases/'.$deployment['releaseId']);
+    } finally {
+        deployOpsCleanup($deployScratch);
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses Prepare for one target while another target is being restored', function () {
+    $scratch = prepScratchDir();
+    $restoreScratch = restoreScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        restoreTargetFixture($restoreScratch);
+
+        // Held at its emergency backup: past the machine lock, the restore and
+        // deployment locks, and the quiesce — a restore genuinely in flight.
+        $gate = $scratch.'/restore-gate';
+        [$command, $env] = restoreTargetCommand($restoreScratch, [
+            '--apply', '--target', 'parity-target', '--source', 'local', '--backup', '20260115-120000',
+        ], [
+            'RATEGURU_HOST_LOCK_ROOT' => $machine,
+            'RATEGURU_RESTORE_BACKUP_BIN' => heldRunGateStub($restoreScratch.'/bin/backup-gate', $gate, $restoreScratch.'/bin/backup-stub'),
+        ]);
+        $restore = heldRunStart($command, $env, $gate);
+        heldRunAwait($restore);
+
+        expect(hostInfrastructureLockState($machine))->toBe('shared');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], prepMachineFixture($scratch, $machine));
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('a target operation is running on this host');
+        expect(prepLog($scratch, 'children'))->toBe([]);
+        expect(prepLog($scratch, 'mutations'))->toBe([]);
+
+        [$restoreExit, $restoreOutput] = heldRunRelease($restore);
+
+        expect($restoreExit)->toBe(0, $restoreOutput);
+        expect(restoreTargetHistory($restoreScratch))->not->toBe([]);
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+    } finally {
+        removeScratchDir($restoreScratch);
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses a restore while Prepare is running, before it creates a workspace', function () {
+    $scratch = prepScratchDir();
+    $restoreScratch = restoreScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        restoreTargetFixture($restoreScratch);
+
+        $gate = $scratch.'/prepare-gate';
+        $prepare = heldRunStart(['bash', prepScript(), '--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine, $gate), $gate);
+        heldRunAwait($prepare);
+
+        $result = restoreTargetApply($restoreScratch, ['RATEGURU_HOST_LOCK_ROOT' => $machine]);
+
+        expect($result['exit'])->toBe(1, $result['output']);
+        expect($result['output'])->toContain('a host-level operation is changing this host');
+
+        // Nothing partial: no operation workspace, no guard, no history, and
+        // the runtime it would have quiesced is still up.
+        expect(glob($restoreScratch.'/run/restores/*/*') ?: [])->toBe([]);
+        expect(File::exists(restoreGuardFile($restoreScratch)))->toBeFalse();
+        expect(restoreTargetHistory($restoreScratch))->toBe([]);
+        expect(restoreTargetMaintenanceActive($restoreScratch))->toBeFalse();
+
+        [$prepareExit, $prepareOutput] = heldRunRelease($prepare);
+
+        expect($prepareExit)->toBe(0, $prepareOutput);
+    } finally {
+        removeScratchDir($restoreScratch);
+        prepCleanup($scratch);
+    }
+});
+
+it('runs host-level operations one at a time: a second Prepare is refused while the first runs', function () {
+    $scratch = prepScratchDir();
+    $second = prepScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        $gate = $scratch.'/prepare-gate';
+        $prepare = heldRunStart(['bash', prepScript(), '--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine, $gate), $gate);
+        heldRunAwait($prepare);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], prepMachineFixture($second, $machine));
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain("another operation is already mutating this host's shared infrastructure");
+        expect(prepLog($second, 'children'))->toBe([]);
+        expect(prepLog($second, 'mutations'))->toBe([]);
+
+        [$prepareExit, $prepareOutput] = heldRunRelease($prepare);
+
+        expect($prepareExit)->toBe(0, $prepareOutput);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], prepMachineFixture($second, $machine));
+
+        expect($exit)->toBe(0, $output);
+    } finally {
+        prepCleanup($second);
+        prepCleanup($scratch);
+    }
+});
+
+it('releases the machine when a deployment is killed, once the last process holding it is gone', function () {
+    $scratch = prepScratchDir();
+    $deployScratch = deployOpsScratchDir();
+    $machine = prepMachineDir($scratch);
+
+    try {
+        $gate = $scratch.'/deploy-gate';
+        $deployment = deployOpsFullDeployment($deployScratch, envOverrides: [
+            'RATEGURU_HOST_LOCK_ROOT' => $machine,
+            'RATEGURU_HEALTH_CHECK_BIN' => heldRunGateStub($deployScratch.'/bin/health-check-gate', $gate),
+        ]);
+        $deploy = heldRunStart(['bash', $deployment['harness']], $deployment['env'], $gate);
+        heldRunAwait($deploy);
+
+        // SIGKILL: no trap, no handler, nothing of the script runs again.
+        proc_terminate($deploy['process'], 9);
+        heldRunFinish($deploy);
+
+        // Its child inherited the descriptor and is still running the
+        // deployment's work, so the machine is still — correctly — held.
+        expect(hostInfrastructureLockState($machine))->toBe('shared');
+
+        [$exit] = prepRun(['--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine));
+
+        expect($exit)->toBe(1);
+        expect(prepLog($scratch, 'mutations'))->toBe([]);
+
+        // The kernel releases it with the last descriptor: no stale lock, no
+        // cleanup step, nothing for an operator to delete.
+        posix_kill(heldRunGatePid($deploy), 9);
+
+        $deadline = microtime(true) + 10;
+        while (hostInfrastructureLockState($machine) !== 'free' && microtime(true) < $deadline) {
+            usleep(20_000);
+        }
+
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'tits-guru'], prepMachineFixture($scratch, $machine));
+
+        expect($exit)->toBe(0, $output);
+    } finally {
+        deployOpsCleanup($deployScratch);
+        prepCleanup($scratch);
+    }
+});
+
+it('takes the machine exclusively, and tells a target operation apart from another host-level one', function () {
+    $source = executableSourceLines(prepSource());
+
+    expect($source)
+        ->toContain('flock -n -x "${HOST_INFRASTRUCTURE_LOCK_FD}"')
+        ->toContain('flock -n -s "${HOST_INFRASTRUCTURE_LOCK_FD}"');
+});

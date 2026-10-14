@@ -455,7 +455,13 @@ what the mode promises before the job summary shows the state, the
 certificate, the hook and what changed.
 
 Every changing mode shares one transaction:
-1. It holds the host's lock and judges everything again under it.
+1. It holds the host's lock and judges everything again under it. Every mode
+   but `--deactivate` holds it exclusively, like every other host-level
+   operation, so it refuses while a deployment, restore or backup of any
+   target is running. `--deactivate` holds it shared: closing the site never
+   waits on a deployment or a backup in flight, only on a host-level
+   operation. Each also holds the site's own lock, `public-site.lock`, so two
+   changes to the site never run at once.
 2. It starts from its own exact known state:
 
    | Mode | Starts from | Lifecycle, in both registries |
@@ -691,6 +697,9 @@ After this change is merged:
   - closing a live site with the application down, with an expired or
     untrusted certificate (which `--verify` still reports), and with the two
     registries disagreeing on the lifecycle;
+  - closing it while a target operation holds the host's lock shared, and
+    refused while a host-level operation or another change to the site holds
+    its lock;
   - IPv6 disabled.
 - `tests/Feature/Architecture/PublicHttpsWorkflowTest.php` covers the five
   workflows and their action:

@@ -361,8 +361,17 @@ acquire_host_lock() {
     exec {HOST_LOCK_FD}>>"${path}" \
         || die "could not open ${path} to claim this host's shared infrastructure; nothing was changed"
 
-    flock -n "${HOST_LOCK_FD}" \
-        || die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed"
+    if ! flock -n -x "${HOST_LOCK_FD}"; then
+        # Exclusive, the mode of every host-level operation (`common`). Shared
+        # only succeeds when every holder is a target operation — a
+        # deployment, rollback, cleanup, restore, recovery or backup; the
+        # refusal exits, and exiting releases it.
+        if flock -n -s "${HOST_LOCK_FD}"; then
+            die "a target operation is running on this host — a deployment, rollback, cleanup, restore, recovery or backup holds ${path} shared; nothing was changed. Run it again once no target operation is in flight"
+        fi
+
+        die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed"
+    fi
 }
 
 # --- Children: the authoritative owners --------------------------------------------------

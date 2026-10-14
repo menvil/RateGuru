@@ -6033,6 +6033,9 @@ function infraScriptEnv(string $scratch, string $registryPath, string $targetsPa
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => infraScript('common'),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         // The patched copy: restore-common's own workspace/history creation
         // uses `install -o root -g root`, which needs real root. Only that is
         // rewritten; every line of logic under test is byte-identical.
@@ -6377,6 +6380,21 @@ function restoreTargetFixture(string $scratch, array $options = []): array
  */
 function restoreTargetRun(string $scratch, array $arguments, array $envOverrides = []): array
 {
+    [$command, $env] = restoreTargetCommand($scratch, $arguments, $envOverrides);
+
+    [$exit, $output] = runInfraScript($command[1], array_slice($command, 2), $env);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+/**
+ * The command and environment restoreTargetRun runs, built but not run, so a
+ * concurrency test can start the same restore in the background.
+ *
+ * @return array{0: list<string>, 1: array<string, string>}
+ */
+function restoreTargetCommand(string $scratch, array $arguments, array $envOverrides = []): array
+{
     [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
 
     $env = infraScriptEnv($scratch, $registryPath, $targetsPath, array_merge(
@@ -6391,9 +6409,7 @@ function restoreTargetRun(string $scratch, array $arguments, array $envOverrides
         $envOverrides,
     ));
 
-    [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'restore-target'), $arguments, $env);
-
-    return ['exit' => $exit, 'output' => $output];
+    return [array_merge(['bash', patchedInfraScript($scratch, 'restore-target')], $arguments), $env];
 }
 
 function restoreTargetApply(string $scratch, array $envOverrides = []): array
@@ -9969,9 +9985,7 @@ function deployOpsExec(string $scriptPath, array $env): array
  */
 function deployOpsRunHarness(string $scratch, string $body, array $env = []): array
 {
-    $script = "set -Eeuo pipefail\n".'source '.escapeshellarg(deployOpsScript())."\n".$body."\n";
-    $harnessPath = $scratch.'/harness.sh';
-    file_put_contents($harnessPath, $script);
+    $harnessPath = deployOpsWriteHarness($scratch, $body);
 
     $defaultEnv = [
         'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
@@ -9979,6 +9993,15 @@ function deployOpsRunHarness(string $scratch, string $body, array $env = []): ar
     ];
 
     return deployOpsExec($harnessPath, array_merge($defaultEnv, $env));
+}
+
+/** Writes the harness deployOpsRunHarness runs, and returns its path. */
+function deployOpsWriteHarness(string $scratch, string $body): string
+{
+    $harnessPath = $scratch.'/harness.sh';
+    file_put_contents($harnessPath, "set -Eeuo pipefail\n".'source '.escapeshellarg(deployOpsScript())."\n".$body."\n");
+
+    return $harnessPath;
 }
 
 /**
@@ -9992,6 +10015,9 @@ function deployOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => deployOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => deployOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => deployOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => deployOpsTargetsCli(),
@@ -10506,6 +10532,31 @@ function deployOpsCurrentGroup(): string
  */
 function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null): array
 {
+    $deployment = deployOpsFullDeployment($scratch, $failHealthCheck, $artifact);
+
+    [$exit, $output] = deployOpsExec($deployment['harness'], $deployment['env']);
+
+    return [
+        'exit' => $exit,
+        'output' => $output,
+        'fixture' => $deployment['fixture'],
+        'healthCheckLog' => $deployment['healthCheckLog'],
+        'verifyCliLog' => $deployment['verifyCliLog'],
+        'releaseId' => $deployment['releaseId'],
+    ];
+}
+
+/**
+ * Everything deployOpsRunFullDeployment runs, built but not run: the harness,
+ * its environment, and what it deploys. A concurrency test starts it in the
+ * background instead (heldRunStart), with $envOverrides pointing it at a shared
+ * lock root and a gated health check.
+ *
+ * @param  array<string, string>  $envOverrides
+ * @return array{harness: string, env: array<string, string>, fixture: array<string, mixed>, healthCheckLog: string, verifyCliLog: string, releaseId: string}
+ */
+function deployOpsFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null, array $envOverrides = []): array
+{
     $fixture = deployOpsBuildFixture($scratch);
 
     if ($artifact !== null) {
@@ -10526,23 +10577,22 @@ function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = fa
 
     $releaseId = 'v1.0.0-2026010'.random_int(1, 9).'-000000-abc'.random_int(1000, 9999);
 
-    $env = deployOpsBaseEnv($scratch, [
+    $env = deployOpsBaseEnv($scratch, array_merge([
         'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
         'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
         'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
-    ]);
+    ], $envOverrides));
 
-    [$exit, $output] = deployOpsRunHarness(
+    $harness = deployOpsWriteHarness(
         $scratch,
         "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
-        $env,
     );
 
     return [
-        'exit' => $exit,
-        'output' => $output,
+        'harness' => $harness,
+        'env' => $env,
         'fixture' => $fixture,
         'healthCheckLog' => $healthCheckLog,
         'verifyCliLog' => $verifyCliLog,
@@ -10563,6 +10613,144 @@ function deployOpsHistory(string $root): array
         fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
         array_values(array_filter(explode("\n", $raw))),
     );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Held runs: a real operation stopped inside its locked region
+|--------------------------------------------------------------------------
+|
+| A lock is only proved by two operations that are genuinely in flight at the
+| same time. A held run is a real operational script started in the
+| background, whose stub child — reached only after the operation has taken
+| its locks — announces itself and then waits to be released. While it waits,
+| a second real operation is run against it; then the first is released and
+| must finish exactly as it would have alone.
+|
+| The gate is a path prefix: "<gate>.reached" holds the stub's PID once it is
+| reached, and "<gate>.release" lets it go. The wait is bounded, so a test that
+| forgets to release a gate fails instead of hanging the suite.
+*/
+
+/**
+ * A stub that announces it has been reached, waits for its release, then
+ * execs $then with its own arguments — or exits 0 when there is none.
+ */
+function heldRunGateStub(string $path, string $gate, ?string $then = null): string
+{
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'printf "%s\n" "$$" > '.escapeshellarg($gate.'.reached.tmp')."\n"
+        .'mv '.escapeshellarg($gate.'.reached.tmp').' '.escapeshellarg($gate.'.reached')."\n"
+        .'for _ in $(seq 1 1200); do'."\n"
+        .'    [[ -e '.escapeshellarg($gate.'.release').' ]] && break'."\n"
+        .'    sleep 0.05'."\n"
+        .'done'."\n"
+        .'[[ -e '.escapeshellarg($gate.'.release').' ]] || { echo "held-run gate never released: '.$gate.'" >&2; exit 1; }'."\n"
+        .($then === null ? "exit 0\n" : 'exec '.escapeshellarg($then).' "$@"'."\n"));
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * Starts $command in the background with exactly $env, its output going to a
+ * file beside the gate.
+ *
+ * @param  list<string>  $command
+ * @param  array<string, string>  $env
+ * @return array{process: resource, output: string, gate: string}
+ */
+function heldRunStart(array $command, array $env, string $gate): array
+{
+    $output = $gate.'.out';
+    $process = proc_open($command, [1 => ['file', $output, 'w'], 2 => ['redirect', 1]], $pipes, null, $env);
+
+    expect($process)->not->toBeFalse('could not start the held run');
+
+    return ['process' => $process, 'output' => $output, 'gate' => $gate];
+}
+
+/**
+ * Waits until the run has reached its gate — inside every lock it takes — or
+ * fails with its output if it ended first.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ */
+function heldRunAwait(array $run, float $timeout = 60.0): void
+{
+    $deadline = microtime(true) + $timeout;
+
+    while (! is_file($run['gate'].'.reached')) {
+        if (! proc_get_status($run['process'])['running']) {
+            throw new RuntimeException("the held run ended before it reached its gate:\n".(string) @file_get_contents($run['output']));
+        }
+
+        if (microtime(true) > $deadline) {
+            proc_terminate($run['process'], 9);
+
+            throw new RuntimeException("the held run did not reach its gate within {$timeout}s:\n".(string) @file_get_contents($run['output']));
+        }
+
+        usleep(20_000);
+    }
+}
+
+/**
+ * Releases the gate and waits for the run to finish.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ * @return array{0: int, 1: string}
+ */
+function heldRunRelease(array $run, float $timeout = 120.0): array
+{
+    touch($run['gate'].'.release');
+
+    return heldRunFinish($run, $timeout);
+}
+
+/**
+ * Waits for the run to end on its own. The exit code is read from the first
+ * status that reports it stopped: once PHP has seen that, proc_close can no
+ * longer report it.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ * @return array{0: int, 1: string}
+ */
+function heldRunFinish(array $run, float $timeout = 120.0): array
+{
+    $deadline = microtime(true) + $timeout;
+
+    while (($status = proc_get_status($run['process']))['running']) {
+        if (microtime(true) > $deadline) {
+            proc_terminate($run['process'], 9);
+
+            throw new RuntimeException("the held run did not finish within {$timeout}s:\n".(string) @file_get_contents($run['output']));
+        }
+
+        usleep(20_000);
+    }
+
+    proc_close($run['process']);
+
+    return [$status['exitcode'], (string) @file_get_contents($run['output'])];
+}
+
+/** The PID of the gate stub a held run is waiting in. */
+function heldRunGatePid(array $run): int
+{
+    return (int) trim((string) file_get_contents($run['gate'].'.reached'));
+}
+
+/**
+ * What the host-infrastructure lock in $root would grant right now, asked from
+ * a separate process with non-blocking flock: 'free' (exclusive is available),
+ * 'shared' (only shared holders) or 'exclusive' (an exclusive holder).
+ */
+function hostInfrastructureLockState(string $root): string
+{
+    $probe = 'exec 9>>"$1"; if flock -n -x 9; then echo free; elif flock -n -s 9; then echo shared; else echo exclusive; fi';
+
+    return trim((string) shell_exec('bash -c '.escapeshellarg($probe).' _ '.escapeshellarg($root.'/host-infrastructure.lock')));
 }
 
 /*

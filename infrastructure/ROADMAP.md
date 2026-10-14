@@ -2657,11 +2657,20 @@ Slices, in order:
      DNS, public Nginx, Certbot, Postfix or OpenDKIM change, no GO LIVE.
      Merges into `develop` and `main` deploy nothing: production deploys only
      from a `v*` tag, through Release to production.
-   - **Open, and not closed by this change.** The host lock does not
-     serialize a host-global operation against a target's deploy, rollback or
-     restore (`scripts/common`). It was meant to land before the activation.
-     Until it does, the procedure closes it: no Prepare, Repair, Provision or
-     Configure while any target is being deployed, rolled back or restored.
+   - **Host-level and target operations never overlap.**
+     `host-infrastructure.lock` now has two modes (`scripts/common`). The
+     host-level operations — Prepare, Repair, Provision, Configure, the
+     public-site changes and the mail activations — take it exclusively and
+     run one at a time. Every operation on one target — deploy, rollback,
+     cleanup, restore, recovery and the backup family — holds it shared for
+     its whole run, so two targets' operations still run side by side while
+     no host-level operation can converge the machine underneath either.
+     Closing the public site holds it shared, plus the site's own lock, so a
+     deployment in flight never delays it. Every acquisition is non-blocking
+     and taken before the operation's own lock: a conflict is refused before
+     anything changes, nothing waits, and nothing can deadlock. Proved by
+     real operations run at the same time (`HostInfrastructureLockTest`,
+     `PrepareHostOrchestratorTest`).
 
    *Applied when, in this order* (the steps and what to do on a failure are
    in
