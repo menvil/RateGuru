@@ -91,9 +91,10 @@ stray positional argument all fail with a clear error before anything else
 runs. `TARGET` is resolved exclusively through
 `/home/www/rateguru/bin/common`'s `target_*` helpers — never by reading the
 registry JSON directly — so only a target with `lifecycle=active` can ever
-be changed or verified. `tits-guru` (`lifecycle=planned`) is rejected before
-any filesystem or ACL access, the same as every other target-aware command
-in this repository.
+be changed or verified. A planned or disabled target is rejected before any
+filesystem or ACL access, the same as every other target-aware command in this
+repository, and the installer proves after every apply and verify that each
+target the registry does not hold active is still rejected.
 
 **All three modes require root.** `--check` and `--verify` both use `runuser`
 to test filesystem access as the target's runtime user and as `www-data` — an
@@ -254,9 +255,9 @@ is new.
   directories.
 - Nginx configuration is never read or modified by this installer — the fix
   is entirely filesystem-side.
-- `tits-guru` (or any other `lifecycle=planned` target) can never be changed
-  or verified; `require_active_target` rejects it before any filesystem or
-  ACL access.
+- A `lifecycle=planned` or `disabled` target can never be changed or
+  verified; `require_active_target` rejects it before any filesystem or ACL
+  access.
 - The verification canary is created with a real `mktemp` template, never
   `mktemp -u` followed by a separate write — there is no window in which a
   pre-existing or concurrently planted symlink at the chosen name could be

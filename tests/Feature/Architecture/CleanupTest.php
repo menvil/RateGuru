@@ -47,7 +47,7 @@ function cleanupOpsTargetsCli(): string
 
 function cleanupOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function cleanupOpsDeploymentConfPath(): string
@@ -293,11 +293,7 @@ function cleanupOpsRawCandidates(string $output): array
  */
 function cleanupOpsParityRegistry(string $scratch, string $applicationRoot, int $releaseRetention = 3): array
 {
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(cleanupOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(cleanupOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

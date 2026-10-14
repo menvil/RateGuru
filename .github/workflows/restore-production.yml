@@ -11,15 +11,13 @@ name: Restore tits.guru
 # staging" and "Restore tits.guru" are two buttons whose names say what they
 # do, sharing one implementation underneath.
 #
-# tits-guru is still lifecycle=planned. Its infrastructure now exists, but
-# lifecycle is permission to OPERATE a target rather than a description of how
-# much of it exists. That gate lives in
-# the target registry and is enforced server-side by the wrapper and by
-# restore-target itself, so this workflow fails closed on a real run until
-# production is provisioned and activated in a later phase. Nothing here
-# weakens it, this workflow does not activate anything, and the production
-# GitHub Environment's own protection rules stay authoritative on top of the
-# confirmation below.
+# tits-guru is lifecycle=active: lifecycle is permission to OPERATE a target,
+# and that gate lives in the target registry, enforced server-side by the
+# wrapper and by restore-target itself. A live restore also needs a deployed
+# target and a backup, so before the first production release restore-target
+# refuses it without touching anything. Nothing here weakens either gate, this
+# workflow does not activate anything, and the production GitHub Environment's
+# own protection rules stay authoritative on top of the confirmation below.
 #
 # This workflow is policy and orchestration only. Every mechanism it uses
 # already exists and is used unchanged:

@@ -58,7 +58,7 @@ function backupOpsTargetsCli(): string
 
 function backupOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function backupOpsDeploymentConfPath(): string
@@ -330,11 +330,7 @@ function backupOpsParityRegistry(string $scratch, array $fixture, int $localRete
     $account = backupOpsCurrentAccount();
     $group = backupOpsCurrentGroup();
 
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(backupOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(backupOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',
@@ -1097,6 +1093,38 @@ it('copies .env and release metadata into the backup', function () {
             'release' => $result['fixture']['release'],
             'source_sha' => FIXTURE_SOURCE_SHA,
         ]);
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+});
+
+it('refuses the nightly backup of an active target before its first release, and leaves every namespace as it was', function () {
+    // An activated target the first night after its activation: active,
+    // prepared, and never deployed. Its scheduled backup refuses before a byte
+    // is dumped; another target's namespace on the same host is untouched.
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $backupBase = $scratch.'/backups-'.uniqid('', true);
+        @mkdir($backupBase.'/staging/20260101-020000', 0o755, true);
+        file_put_contents($backupBase.'/staging/20260101-020000/manifest.json', "{\"staging\": \"untouched\"}\n");
+
+        $result = backupOpsRunFullBackup($scratch, backupBase: $backupBase, reshapeFixture: function (array $fixture): void {
+            unlink($fixture['root'].'/current');
+        });
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('release.json is missing');
+        expect(trim(File::get($result['pgDumpLog'])))->toBe('', 'nothing may be dumped for a target with no release');
+
+        // Its own namespace holds no backup and no temporary directory.
+        expect(glob($backupBase.'/parity/*'))->toBe([]);
+        expect(glob($backupBase.'/parity/.*.tmp'))->toBe([]);
+
+        // Every other namespace is exactly as it was.
+        expect(array_map('basename', glob($backupBase.'/*', GLOB_ONLYDIR)))->toBe(['parity', 'staging']);
+        expect(glob($backupBase.'/staging/*'))->toBe([$backupBase.'/staging/20260101-020000']);
+        expect(File::get($backupBase.'/staging/20260101-020000/manifest.json'))->toBe("{\"staging\": \"untouched\"}\n");
     } finally {
         backupOpsCleanup($scratch);
     }

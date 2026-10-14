@@ -44,7 +44,7 @@ function offsiteBackupOpsTargetsCli(): string
 
 function offsiteBackupOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function offsiteBackupOpsDeploymentConfPath(): string
@@ -207,11 +207,7 @@ function offsiteBackupOpsParityRegistry(string $scratch, string $backupNamespace
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
 
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(offsiteBackupOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(offsiteBackupOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

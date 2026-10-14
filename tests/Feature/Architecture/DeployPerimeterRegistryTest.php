@@ -26,16 +26,34 @@ it('renders exactly what the committed perimeter says, from the registry alone',
         ->toBe(File::get(base_path('infrastructure/config/sudoers/rateguru-deploy')));
 });
 
-it('grants nothing to tits-guru while it is planned', function () {
-    $rendered = perimeterRender(perimeterRegistry());
+it('grants each active target\'s deploy user the four wrappers in a rule of its own, and nobody else', function () {
+    // The committed file, which is what actually gets installed: staging's
+    // grant exactly as it was, and tits-guru's beside it — two rules, each
+    // naming one account, so no account is granted through another's.
+    $committed = File::get(base_path('infrastructure/config/sudoers/rateguru-deploy'));
 
-    expect($rendered)
+    $rule = static fn (string $account): string => "Defaults:{$account} !requiretty\n\n"
+        ."{$account} ALL=(root) NOPASSWD: \\\n"
+        ."    /usr/local/sbin/rateguru-deploy, \\\n"
+        ."    /usr/local/sbin/rateguru-rollback, \\\n"
+        ."    /usr/local/sbin/rateguru-cleanup, \\\n"
+        ."    /usr/local/sbin/rateguru-restore\n";
+
+    expect($committed)->toBe($rule('deploy-rateguru-staging')."\n".$rule('deploy-rateguru-tits-guru'));
+
+    // Exactly two accounts are named, as the subject of a rule and nowhere else.
+    preg_match_all('/^(\S+) ALL=/m', $committed, $subjects);
+    expect($subjects[1])->toBe(['deploy-rateguru-staging', 'deploy-rateguru-tits-guru']);
+    expect(substr_count($committed, 'deploy-rateguru-'))->toBe(4);
+});
+
+it('grants nothing to tits-guru while it is planned', function () {
+    $registry = perimeterRegistry();
+    $registry['targets']['tits-guru']['lifecycle'] = 'planned';
+
+    expect(perimeterRender($registry))
         ->toContain('deploy-rateguru-staging')
         ->not->toContain('deploy-rateguru-tits-guru');
-
-    // And the committed file, which is what actually gets installed.
-    expect(File::get(base_path('infrastructure/config/sudoers/rateguru-deploy')))
-        ->not->toContain('tits-guru');
 });
 
 it('includes that same deploy user the moment the registry says the target is active', function () {
@@ -44,9 +62,14 @@ it('includes that same deploy user the moment the registry says the target is ac
     // value, and a perimeter that now covers the brand — with no code path
     // anywhere naming it.
     $registry = perimeterRegistry();
-    $registry['targets']['tits-guru']['lifecycle'] = 'active';
+    $registry['targets']['tits-guru']['lifecycle'] = 'planned';
+    $planned = perimeterRender($registry);
 
+    $registry['targets']['tits-guru']['lifecycle'] = 'active';
     $rendered = perimeterRender($registry);
+
+    // Staging's rule is untouched by it, byte for byte.
+    expect($rendered)->toStartWith($planned);
 
     expect($rendered)
         ->toContain('Defaults:deploy-rateguru-tits-guru !requiretty')

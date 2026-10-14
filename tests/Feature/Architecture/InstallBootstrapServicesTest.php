@@ -1107,8 +1107,8 @@ function bsvcMultiTargetRepo(string $scratch, array $options = []): array
     @mkdir($repo, 0o755, true);
     rename($repo.'-infra-tmp', $repo.'/infrastructure');
 
-    // Two active targets, different code groups; tits-guru stays planned.
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    // Two active targets, different code groups; tits-guru planned.
+    $registry = committedRegistryWithLifecycles(['tits-guru' => 'planned']);
     $second = $registry['targets']['staging-main'];
     $second['id'] = 'staging-second';
     $second['application_root'] = '/home/www/rateguru/second';
@@ -1136,24 +1136,10 @@ function bsvcMultiTargetRepo(string $scratch, array $options = []): array
         json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
     );
 
-    // The validator allows exactly one active target by name; widen it for
-    // this fixture only.
+    // The validator allows only its reviewed targets to be active; widen it
+    // to this fixture's two for this fixture only.
     $targets = $repo.'/infrastructure/scripts/targets';
-    file_put_contents($targets, str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST_MULTI=(staging-main staging-second)',
-        File::get($targets),
-    ));
-    file_put_contents($targets, str_replace(
-        '[[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]',
-        '! printf \'%s\\n\' "${ACTIVE_ALLOWLIST_MULTI[@]}" | grep -Fxq "${target_id}"',
-        File::get($targets),
-    ));
-    file_put_contents($targets, str_replace(
-        'lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST}',
-        'lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST_MULTI[*]}',
-        File::get($targets),
-    ));
+    file_put_contents($targets, targetsSourceAllowingActive(File::get($targets), 'staging-main', 'staging-second'));
 
     // Committed service sources for the second target, derived from the
     // first so every registry/config consistency check still applies.
@@ -1187,6 +1173,8 @@ it('requires www-data in every active target code group, on a real two-active-ta
             'nginxWorkers' => ['4101' => ['33', '5010']],
         ]);
         [$script] = bsvcMultiTargetRepo($scratch);
+        // The scratch checkout's own registry, not the fixture default.
+        unset($env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY']);
 
         // The second target's group exists in the group database.
         file_put_contents($scratch.'/fs/etc-group', file_get_contents($scratch.'/fs/etc-group')
@@ -1222,6 +1210,8 @@ it('passes on the two-active-target registry once workers carry both code groups
             'nginxWorkers' => ['4101' => ['33', '5010', '5020'], '4102' => ['33', '5010', '5020']],
         ]);
         [$script] = bsvcMultiTargetRepo($scratch);
+        // The scratch checkout's own registry, not the fixture default.
+        unset($env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY']);
 
         file_put_contents($scratch.'/fs/etc-group', file_get_contents($scratch.'/fs/etc-group')
             ."rateguru-second:x:5002:\nrateguru-second-code:x:5020:rateguru-second,www-data\n");
@@ -1290,6 +1280,8 @@ it('--apply on a real two-active-target host performs exactly one validated ngin
             'nginxFreshWorkerGids' => '33 5010 5020',
         ]);
         [$script] = bsvcMultiTargetRepo($scratch);
+        // The scratch checkout's own registry, not the fixture default.
+        unset($env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY']);
         bsvcAddSecondTargetHostState($scratch);
 
         $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
@@ -1336,6 +1328,8 @@ it('--apply on a converged two-active-target host reloads nginx zero times', fun
             'nginxFreshWorkerGids' => '33 5010 5020',
         ]);
         [$script] = bsvcMultiTargetRepo($scratch);
+        // The scratch checkout's own registry, not the fixture default.
+        unset($env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY']);
         bsvcAddSecondTargetHostState($scratch);
 
         $descriptors = [1 => ['pipe', 'w'], 2 => ['redirect', 1]];
@@ -1767,6 +1761,8 @@ it('mutates only the named target on a real two-active-target host', function ()
         [$script] = bsvcMultiTargetRepo($scratch);
 
         $env = bsvcFixture($scratch, ['profile' => 'compliant']);
+        // The scratch checkout's own registry, not the fixture default.
+        unset($env['RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY']);
         bsvcAddSecondTargetHostState($scratch);
 
         // Drift scoped to the SELECTED target, so the run has something real
@@ -2250,7 +2246,7 @@ it('refuses to configure a target that is not a planned production one', functio
         $options = [];
 
         if ($registryOverrides !== []) {
-            $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+            $registry = preActivationRegistry();
 
             foreach ($registryOverrides as $key => $value) {
                 $registry['targets'][$target][$key] = $value;
@@ -2357,7 +2353,7 @@ it('names the lifecycle a refused target actually has, rather than assuming plan
  *
  * @return array<string, string> logical family => rendered bytes
  */
-function bsvcRenderTarget(string $scratch, string $registryPath, string $targetId): array
+function bsvcRenderTarget(string $scratch, string $registryPath, string $targetId, bool $provisioning = true): array
 {
     $harness = $scratch.'/render-harness-'.uniqid('', true).'.sh';
 
@@ -2372,8 +2368,10 @@ function bsvcRenderTarget(string $scratch, string $registryPath, string $targetI
         // the render root with it.
         'trap cleanup_render_root EXIT',
         'SOURCE_REGISTRY='.escapeshellarg($registryPath),
-        'TARGET_SCOPE='.escapeshellarg($targetId),
-        'PROVISIONING=true',
+        // Provisioning renders the one planned target it is authorized for;
+        // host mode renders every active target, the way Prepare Host runs it.
+        'TARGET_SCOPE='.escapeshellarg($provisioning ? $targetId : ''),
+        'PROVISIONING='.($provisioning ? 'true' : 'false'),
         'MODE=check',
         'load_source_contract',
         'for family in NGINX FPM SUPERVISOR CRON; do',
@@ -2412,11 +2410,28 @@ function bsvcRenderTarget(string $scratch, string $registryPath, string $targetI
     return $rendered;
 }
 
+it('renders the activated tits-guru byte for byte as its provisioning did, so its activation rewrites none of its service files', function () {
+    // Provisioned while planned, under --provisioning; converged once active,
+    // in host mode, the way Prepare tits.guru host runs it. The four files must
+    // be identical, or the first Prepare after the activation would rewrite and
+    // reload a configured target's services.
+    $scratch = bsvcScratchDir();
+
+    try {
+        $provisioned = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
+        $activated = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru', provisioning: false);
+
+        expect($activated)->toBe($provisioned);
+    } finally {
+        bsvcCleanup($scratch);
+    }
+});
+
 it('renders a production target deterministically, from the registry and nothing else', function () {
     $scratch = bsvcScratchDir();
 
     try {
-        $registry = base_path('infrastructure/config/deployment-targets.json');
+        $registry = preActivationRegistryPath();
 
         $first = bsvcRenderTarget($scratch, $registry, 'tits-guru');
         $second = bsvcRenderTarget($scratch, $registry, 'tits-guru');
@@ -2452,7 +2467,7 @@ it('renders a queue program that is safe for supervisord to load before the firs
     $scratch = bsvcScratchDir();
 
     try {
-        $rendered = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru');
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
         $supervisor = $rendered['SUPERVISOR'];
         $root = '/home/www/rateguru/production/tits-guru';
 
@@ -2497,7 +2512,7 @@ it('never renders a public hostname, a TLS listener or a certificate path', func
     $scratch = bsvcScratchDir();
 
     try {
-        $rendered = bsvcRenderTarget($scratch, base_path('infrastructure/config/deployment-targets.json'), 'tits-guru');
+        $rendered = bsvcRenderTarget($scratch, preActivationRegistryPath(), 'tits-guru');
 
         // The registry declares a public hostname for this target, and the
         // renderer has no notion of one: that is what keeps provisioning from

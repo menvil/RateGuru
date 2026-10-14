@@ -192,7 +192,12 @@ exec nginx "\$@"
 EOF
 chmod 0755 "${WORK}/bin/systemctl" "${WORK}/bin/nginx"
 : >"${WORK}/systemctl.log"
-cp "${REGISTRY}" "${WORK}/installed-registry.json"
+# The public site is walked through the states a target passes through while
+# it is planned, so both registries are the committed one with tits-guru as it
+# was then: planned.
+TRUSTED_REGISTRY="${WORK}/trusted-registry.json"
+jq --arg t "${TARGET}" '.targets[$t].lifecycle = "planned"' "${REGISTRY}" >"${TRUSTED_REGISTRY}"
+cp "${TRUSTED_REGISTRY}" "${WORK}/installed-registry.json"
 
 run_public_http() {
     local mode="$1"
@@ -200,6 +205,7 @@ run_public_http() {
         RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN="${WORK}/bin/systemctl" \
         RATEGURU_PUBLICHTTP_NGINX_BIN="${WORK}/bin/nginx" \
         RATEGURU_PUBLICHTTP_RUN_ROOT="${WORK}/run-rateguru" \
+        RATEGURU_PUBLICHTTP_REGISTRY="${TRUSTED_REGISTRY}" \
         RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY="${WORK}/installed-registry.json" \
         "${SCRIPTS}/prepare-public-http" "--${mode}" --target "${TARGET}" 2>&1)" && STATUS=0 || STATUS=$?
     RESULT="$(grep '^RATEGURU_PUBLIC_HTTP_RESULT=' <<<"${OUTPUT}" | sed 's/^RATEGURU_PUBLIC_HTTP_RESULT=//')"
@@ -212,6 +218,7 @@ run_public_https() {
         RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN="${WORK}/bin/systemctl" \
         RATEGURU_PUBLICHTTP_NGINX_BIN="${WORK}/bin/nginx" \
         RATEGURU_PUBLICHTTP_RUN_ROOT="${WORK}/run-rateguru" \
+        RATEGURU_PUBLICHTTP_REGISTRY="${TRUSTED_REGISTRY}" \
         RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY="${WORK}/installed-registry.json" \
         RATEGURU_PUBLICHTTPS_LETSENCRYPT="${WORK}/letsencrypt" \
         RATEGURU_PUBLICHTTPS_TRUST_STORE="${WORK}/ca/ca.pem" \

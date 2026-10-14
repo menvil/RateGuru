@@ -139,7 +139,7 @@ and takes noticeable time — all of them read-only).
 
 `bootstrap-host` never creates `.env`, `authorized_keys`, `rclone.conf`,
 TLS private keys/certificates, htpasswd files or database passwords — and
-never provisions databases/roles or planned targets (`tits-guru` stays
+never provisions databases/roles or planned targets (a planned target stays
 untouched). When a child requires external material, the child's own
 failure is surfaced and the bootstrap is safely re-runnable after the
 operator supplies it. The documented supply points are in

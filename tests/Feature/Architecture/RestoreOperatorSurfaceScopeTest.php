@@ -451,7 +451,9 @@ it('keeps the restore operator surface free of Recover Host', function () {
 it('activates no production target, provisions nothing and changes no DNS', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    // tits-guru's activation was a reviewed registry change of its own, not
+    // anything this surface does.
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     foreach (operationalFiles() as $path) {
         $source = File::get($path);
@@ -504,15 +506,15 @@ it('keeps the operator surface out of the primitives that swap the data', functi
     }
 
     // The configuration stays diff-bounded, because nothing on the restore side
-    // ever has a legitimate reason to change a cron entry, the queue program or
-    // the registry.
+    // ever has a legitimate reason to change a cron entry or the queue program.
+    // The registry and the backup cron rendered from it are not on the list:
+    // a target's activation changes both, and that no restore path writes the
+    // registry is asserted by RestoreWorkflowsTest.
     $changed = branchChangedCodeFiles();
 
     foreach ([
-        'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
-        'infrastructure/config/deployment-targets.json',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);
     }

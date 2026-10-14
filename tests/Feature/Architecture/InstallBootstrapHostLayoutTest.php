@@ -472,9 +472,11 @@ function hostLayoutFixture(string $scratch, array $options = []): array
     file_put_contents($fs.'/etc-passwd', $options['passwd'] ?? $passwd);
     file_put_contents($fs.'/etc-group', $options['group'] ?? $group);
 
+    // The host as these tests model it unless told otherwise: staging-main
+    // active, tits-guru planned.
     file_put_contents(
         $fs.'/deployment-targets.json',
-        $options['registry'] ?? File::get(base_path('infrastructure/config/deployment-targets.json')),
+        $options['registry'] ?? File::get(preActivationRegistryPath()),
     );
 
     hostLayoutWriteStubs($scratch);
@@ -511,13 +513,14 @@ function hostLayoutFixture(string $scratch, array $options = []): array
 }
 
 /**
- * A committed-registry variant with one active-target field replaced.
+ * A variant of the fixture registry (preActivationRegistry()) with one
+ * active-target field replaced.
  *
  * @param  array<string, mixed>  $overrides  dot-free key => value for staging-main
  */
 function hostLayoutRegistryWith(array $overrides): string
 {
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    $registry = preActivationRegistry();
 
     foreach ($overrides as $key => $value) {
         $registry['targets']['staging-main'][$key] = $value;
@@ -527,13 +530,14 @@ function hostLayoutRegistryWith(array $overrides): string
 }
 
 /**
- * A committed-registry variant with one field replaced on a NAMED target.
+ * A variant of the fixture registry (preActivationRegistry()) with one field
+ * replaced on a NAMED target.
  *
  * @param  array<string, mixed>  $overrides  dot-free key => value
  */
 function hostLayoutRegistryWithOn(string $targetId, array $overrides): string
 {
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    $registry = preActivationRegistry();
 
     foreach ($overrides as $key => $value) {
         $registry['targets'][$targetId][$key] = $value;

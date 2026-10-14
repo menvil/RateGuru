@@ -153,6 +153,9 @@ function configureFixture(string $scratch, array $options = []): array
         'RATEGURU_CONFIGURE_PROVISION_BIN' => $scratch.'/bin/provision-target',
         'RATEGURU_CONFIGURE_PREREQUISITES_BIN' => $scratch.'/bin/install-target-prerequisites',
         'RATEGURU_CONFIGURE_DATABASE_BIN' => $scratch.'/bin/install-target-database',
+        // Configure is the operation of a planned production target: tits-guru
+        // as it was until its activation.
+        'RATEGURU_CONFIGURE_TRUSTED_REGISTRY' => $options['registry'] ?? preActivationRegistryPath(),
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
         'STUB_SHARED_ENV' => $scratch.'/home/www/rateguru/production/tits-guru/shared/.env',
@@ -205,6 +208,25 @@ it('configures a planned production target and refuses every other shape', funct
     'an active target' => ['staging-main', 'lifecycle=active'],
     'an unknown target' => ['no-such-target', 'unknown target'],
 ]);
+
+it('refuses tits-guru now that the committed registry has activated it: an active target is prepared, never configured', function () {
+    $scratch = configureScratchDir();
+
+    try {
+        [$exit, $output] = configureRun(
+            ['--apply', '--target', 'tits-guru'],
+            configureFixture($scratch, ['registry' => base_path('infrastructure/config/deployment-targets.json')]),
+        );
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('target tits-guru has lifecycle=active');
+
+        // Refused before a single child ran, so nothing configured was touched.
+        expect(configureLog($scratch))->toBe('');
+    } finally {
+        configureCleanup($scratch);
+    }
+});
 
 it('never writes the registry, so a configured target is still planned', function () {
     // The whole reason this is not "activate": configuring gives a target

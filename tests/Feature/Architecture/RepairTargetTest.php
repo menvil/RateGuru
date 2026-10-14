@@ -229,7 +229,9 @@ function repairFixture(string $scratch, array $options = []): array
 
     touch($scratch.'/cron.d/rateguru-staging-scheduler');
 
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    // tits-guru as it was before its activation, so a planned target is there
+    // to refuse.
+    $registry = preActivationRegistry();
     $registry['targets']['staging-main']['application_root'] = repairTargetRoot($scratch);
 
     foreach ($options['registry'] ?? [] as $key => $value) {
@@ -444,9 +446,8 @@ it('refuses an unknown target and a planned target', function () {
         expect($unknownExit)->not->toBe(0);
         expect($unknownOutput)->toContain('unknown target: not-a-target');
 
-        // tits-guru stays lifecycle=planned. A repair converges the
-        // infrastructure of a target that is already live; it never activates
-        // or provisions one.
+        // A planned tits-guru. A repair converges the infrastructure of a
+        // target that is already live; it never activates or provisions one.
         [$plannedExit, $plannedOutput] = repairRun(['--apply', '--target', 'tits-guru'], $env);
         expect($plannedExit)->not->toBe(0);
         expect($plannedOutput)->toContain('lifecycle=planned, not active');

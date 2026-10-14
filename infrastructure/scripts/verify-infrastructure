@@ -55,6 +55,13 @@
 # configure-target instead, and its live-target contract and application are
 # DEFERRED, not invoked.
 #
+# An active target before its first release is prepared, and nothing more: its
+# `current` is truly absent. Its preparation contract is judged in full, and
+# its live-target contract and application are DEFERRED, because both describe
+# a deployed release and the first deployment is a separate operation. A
+# `current` that exists in any other form — a dangling link, a file — is not
+# that state: it is judged in full, and fails there.
+#
 # THE VERDICTS, per item, and per GROUP — the worst item decides a group:
 #
 #   PASS / FAIL  a check the current state requires. Any FAIL fails the run.
@@ -307,6 +314,7 @@ child_verdict() {
 
 ENVIRONMENT_CLASS=""
 LIFECYCLE=""
+APPLICATION_ROOT=""
 DELIVERY_MODE=""
 DIRECT_ENABLED=""
 
@@ -322,6 +330,7 @@ resolve_target() {
 
     ENVIRONMENT_CLASS="$(jq -r '.environment_class' <<<"${target_json}")"
     LIFECYCLE="$(jq -r '.lifecycle' <<<"${target_json}")"
+    APPLICATION_ROOT="$(jq -r '.application_root' <<<"${target_json}")"
 
     # The delivery mode from the one judge of routing policy, and whether the
     # host enables direct delivery from its reviewed contract. An unreadable
@@ -354,6 +363,15 @@ require_bundle() {
         [[ -f "${child}" && -x "${child}" ]] \
             || fail "the trusted bundle is incomplete: ${child} is missing or not executable — nothing was verified"
     done
+}
+
+# undeployed — an active target whose `current` is truly absent: no release has
+# ever been deployed to it. Anything at that path, a dangling link included, is
+# a deployment to judge rather than the absence of one.
+undeployed() {
+    local current="${FS_ROOT}${APPLICATION_ROOT}/current"
+
+    [[ "${LIFECYCLE}" == active ]] && [[ ! -e "${current}" ]] && [[ ! -L "${current}" ]]
 }
 
 # --- The host and the target's lifecycle contract ---------------------------------------
@@ -399,6 +417,11 @@ report_host_inventory() {
 
 verify_live_target() {
     group live-target "Live target contract"
+
+    if undeployed; then
+        item DEFERRED "repair-target" "${TARGET_ID} is active and has no release yet (${APPLICATION_ROOT}/current is absent); Repair is the contract of a deployed target, and the first deployment is a separate operation — not invoked"
+        return 0
+    fi
 
     case "${LIFECYCLE}" in
         active)
@@ -624,6 +647,11 @@ verify_mail_inbound() {
 verify_application() {
     group application "Application"
 
+    if undeployed; then
+        item DEFERRED "health-check" "${TARGET_ID} is active and has no release yet (${APPLICATION_ROOT}/current is absent): there is no application to answer until the first deployment — not invoked"
+        return 0
+    fi
+
     case "${LIFECYCLE}" in
         active)
             run_child "${HEALTH_CHECK}" --target "${TARGET_ID}"
@@ -717,6 +745,10 @@ main() {
     if [[ "${status}" == pass && "${LIFECYCLE}" == planned ]]; then
         printf 'PASS means the CURRENT reviewed planned state is correct. It does NOT mean %s is live.\n' \
             "$([[ "${ENVIRONMENT_CLASS}" == production ]] && echo production || echo "${TARGET_ID}")"
+    fi
+
+    if [[ "${status}" == pass ]] && undeployed; then
+        printf 'PASS means %s is prepared for its first deployment. It does NOT mean it is deployed or live.\n' "${TARGET_ID}"
     fi
 
     printf '%s%s\n' "${RESULT_PREFIX}" "$(jq -cn \

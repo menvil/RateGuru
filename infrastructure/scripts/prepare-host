@@ -457,10 +457,9 @@ require_children_executable() {
 # refused BEFORE any target-specific mutation rather than after one.
 #
 # That ordering is what stops host-global bootstrap from becoming a loophole
-# for silently provisioning a planned production target: `prepare-host --apply
-# --target tits-guru` refuses while tits-guru remains lifecycle=planned, and
-# refuses before a single RateGuru identity, directory, secret or database
-# exists for it.
+# for silently provisioning a planned production target: `prepare-host --apply`
+# refuses a target while it remains lifecycle=planned, and refuses before a
+# single RateGuru identity, directory, secret or database exists for it.
 #
 # One wrinkle, handled explicitly rather than papered over: reading a JSON
 # registry needs `jq`, and a clean Ubuntu image has none — it arrives with the

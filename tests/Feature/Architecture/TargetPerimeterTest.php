@@ -520,6 +520,8 @@ it('rejects a planned target before any child execution', function () {
             BASH, perimeterBaseEnv([
             'SUDO_USER' => '',
             'RATEGURU_DEPLOY_BIN' => $stubBin,
+            // tits-guru as it was before its activation.
+            'RATEGURU_TARGET_REGISTRY_FILE' => preActivationRegistryPath(),
         ]));
 
         expect($exit)->not->toBe(0);
@@ -529,6 +531,57 @@ it('rejects a planned target before any child execution', function () {
         perimeterCleanup($scratch);
     }
 });
+
+it('keeps each active target\'s deploy user to its own target, through every wrapper', function (string $wrapper, string $binVariable, array $operation) {
+    // The committed registry: staging-main and tits-guru both active, each with
+    // its own deploy user. The sudoers rule lets both run every wrapper; the
+    // wrapper's caller authorization is what keeps each to its own target.
+    $scratch = perimeterScratchDir();
+    $stubLog = $scratch.'/stub.log';
+    $stubBin = $scratch.'/bin/stub-underlying';
+    perimeterWriteStubBin($stubBin, $stubLog);
+
+    $run = function (string $caller, string $target) use ($wrapper, $binVariable, $operation, $scratch, $stubBin): array {
+        $arguments = implode(' ', array_map('escapeshellarg', ['--target', $target, ...$operation]));
+
+        return perimeterRunHarness($wrapper, $scratch, "require_root() { :; }\nmain {$arguments}", perimeterBaseEnv([
+            'SUDO_USER' => $caller,
+            $binVariable => $stubBin,
+        ]));
+    };
+
+    try {
+        foreach ([
+            ['deploy-rateguru-staging', 'tits-guru'],
+            ['deploy-rateguru-tits-guru', 'staging-main'],
+        ] as [$caller, $target]) {
+            [$exit, $output] = $run($caller, $target);
+
+            expect($exit)->not->toBe(0, "{$caller} reached {$target} through {$wrapper}");
+            expect($output)->toContain("deploy user {$caller} is not authorized for target {$target}");
+            expect(perimeterReadStubLog($stubLog))->toBe('', 'the underlying binary must never be invoked for another target\'s deploy user');
+        }
+
+        // Each reaches its own, with --target prepended exactly once.
+        foreach ([
+            ['deploy-rateguru-tits-guru', 'tits-guru'],
+            ['deploy-rateguru-staging', 'staging-main'],
+        ] as [$caller, $target]) {
+            @unlink($stubLog);
+            [$exit, $output] = $run($caller, $target);
+
+            expect($exit)->toBe(0, $output);
+            expect(perimeterReadStubLog($stubLog))->toContain("[--target] [{$target}]");
+        }
+    } finally {
+        perimeterCleanup($scratch);
+    }
+})->with([
+    'rateguru-deploy' => ['rateguru-deploy', 'RATEGURU_DEPLOY_BIN', []],
+    'rateguru-rollback' => ['rateguru-rollback', 'RATEGURU_ROLLBACK_BIN', []],
+    'rateguru-cleanup' => ['rateguru-cleanup', 'RATEGURU_CLEANUP_BIN', []],
+    'rateguru-restore' => ['rateguru-restore', 'RATEGURU_RESTORE_TARGET_BIN', ['--inspect', '--operation', '19700101-000000-000000']],
+]);
 
 // =============================================================================
 // Wrappers: exec into the underlying operation
@@ -727,15 +780,19 @@ it('provides a syntactically valid candidate sudoers file', function () {
     expect($exit)->toBe(0, "visudo -cf failed:\n".implode("\n", $output));
 });
 
-it('grants the staging deploy user access to the three generic wrappers only', function () {
+it('grants each active target\'s deploy user access to the generic wrappers only', function () {
     $source = File::get(base_path('infrastructure/config/sudoers/rateguru-deploy'));
 
     expect($source)
         ->toContain('deploy-rateguru-staging ALL=(root) NOPASSWD:')
+        ->toContain('deploy-rateguru-tits-guru ALL=(root) NOPASSWD:')
         ->toContain('/usr/local/sbin/rateguru-deploy')
         ->toContain('/usr/local/sbin/rateguru-rollback')
-        ->toContain('/usr/local/sbin/rateguru-cleanup')
-        ->not->toContain('deploy-rateguru-tits-guru');
+        ->toContain('/usr/local/sbin/rateguru-cleanup');
+
+    // Two rules, two accounts, and nothing else named.
+    preg_match_all('/^(\S+) ALL=\(root\) NOPASSWD:/m', $source, $rules);
+    expect($rules[1])->toBe(['deploy-rateguru-staging', 'deploy-rateguru-tits-guru']);
 });
 
 it('never grants access through any legacy per-environment sudoers rule', function () {
@@ -756,7 +813,7 @@ it('never grants access through any legacy per-environment sudoers rule', functi
 // Backup cron
 // =============================================================================
 
-it('keeps cron schedules and log paths unchanged while switching all three jobs to --target staging-main', function () {
+it('keeps staging\'s cron schedules and log paths unchanged, beside tits-guru\'s three jobs', function () {
     $source = File::get(base_path('infrastructure/config/cron/rateguru-backups'));
 
     expect($source)
@@ -765,12 +822,14 @@ it('keeps cron schedules and log paths unchanged while switching all three jobs 
         ->toContain('40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1')
         ->not->toContain('--environment');
 
-    // Exactly three operational (schedule-prefixed) lines.
+    // Exactly three operational (schedule-prefixed) lines per active target.
     $operationalLines = array_values(array_filter(
         preg_split('/\R/', $source),
         fn (string $line): bool => (bool) preg_match('/^[0-9*]+[[:space:]]/', $line),
     ));
-    expect($operationalLines)->toHaveCount(3);
+    expect($operationalLines)->toHaveCount(6);
+    expect(array_filter($operationalLines, fn (string $line): bool => str_contains($line, '--target staging-main ')))->toHaveCount(3);
+    expect(array_filter($operationalLines, fn (string $line): bool => str_contains($line, '--target tits-guru ')))->toHaveCount(3);
 });
 
 it('documents the real five-step nightly pipeline in the cron comment', function () {

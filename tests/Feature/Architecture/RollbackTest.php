@@ -48,7 +48,7 @@ function rollbackOpsTargetsCli(): string
 
 function rollbackOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function rollbackOpsDeploymentConfPath(): string
@@ -325,11 +325,7 @@ function rollbackOpsParityRegistry(string $scratch, array $fixture): array
     // See DeployTest.php's own deployOpsParityRegistry() for why each of
     // these four constraints is relaxed in this throwaway, test-only copy of
     // the committed `targets` validator.
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(rollbackOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(rollbackOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

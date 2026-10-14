@@ -440,16 +440,15 @@ protection regardless.
 
 ## Repair tits.guru
 
-`tits-guru` is `lifecycle=planned`; its infrastructure exists, but a planned
-target may not be operated. The action refuses a
-non-active target before it uploads anything, and `repair-target` refuses it
-again server-side, so a real run of `repair-production.yml` fails closed today.
-
-It exists now to prove that production will be repaired by exactly the same
-mechanism once production is provisioned and activated, rather than by a
-production-shaped procedure invented under pressure during an incident. Nothing
-in it weakens that gate, nothing in it edits the registry, and the production
-GitHub Environment's own protection rules stay authoritative on top of the typed
+`tits-guru` is `lifecycle=active`, so production is repaired by exactly the
+mechanism staging is, rather than by a production-shaped procedure invented
+under pressure during an incident. The action refuses a non-active target
+before it uploads anything, and `repair-target` refuses it again server-side.
+Repair is the contract of a deployed target: until `tits-guru`'s first
+release, `repair-target` refuses it as a target with no canonical deployed
+release, and Verify production infrastructure defers it. Nothing in it weakens
+either gate, nothing in it edits the registry, and the production GitHub
+Environment's own protection rules stay authoritative on top of the typed
 confirmation.
 
 ## Failure behaviour

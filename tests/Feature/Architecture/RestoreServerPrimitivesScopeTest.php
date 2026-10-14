@@ -297,7 +297,9 @@ it('keeps Recover Host a separate operation that the restore primitives never be
 it('activates no production target and changes no DNS', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    // tits-guru's activation was a reviewed registry change of its own, not
+    // anything this surface does.
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     foreach (operationalFiles() as $path) {
         $source = File::get($path);
@@ -333,11 +335,16 @@ it('leaves the host-global backup services untouched', function () {
     // The cron entries and the Supervisor program are host-global services a
     // restore holds aside and puts back; none of them is redefined.
     //
+    // The backup cron has left this list: it is rendered from the registry, so
+    // it changes when a target's lifecycle does — it gained tits-guru's jobs
+    // on its activation. That it is exactly the render, and still only the
+    // three backup jobs of each active target, is asserted in
+    // BackupCronPerimeterTest.
+    //
     // toContain is variadic in Pest, so a second "message" argument is read as
     // another needle and the negation passes on any file — the diagnostic
     // belongs in a comment, not in the call.
     foreach ([
-        'infrastructure/config/cron/rateguru-backups',
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
     ] as $untouched) {

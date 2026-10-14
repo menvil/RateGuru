@@ -1015,7 +1015,7 @@ it('gates on the same lifecycle values the committed registry actually declares'
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
     expect($registry['targets']['staging-main']['lifecycle'])->toBe('active');
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     // And `active` is the only value prepare-host accepts, however it is
     // spelled.

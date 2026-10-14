@@ -1115,8 +1115,11 @@ require_provisionable_target() {
 # restore-style operations take only their own target's lock and never this one.
 # Closing that needs a shared/exclusive model — target-only mutators taking this
 # lock shared, host-global mutators taking it exclusively — which is a separate
-# change with its own audit of every target mutation, and must land before
-# tits-guru is activated.
+# change with its own audit of every target mutation. It was meant to land
+# before tits-guru's activation and has not: tits-guru is active without it.
+# Until it lands, the gap is closed by procedure alone — a host-global operation
+# is never started while a deployment, rollback or restore of either target is
+# running (runbooks/deployment-targets.md) — and nothing here enforces that.
 HOST_INFRASTRUCTURE_LOCK_NAME="host-infrastructure.lock"
 
 HOST_INFRASTRUCTURE_LOCK_FD=""

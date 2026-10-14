@@ -42,7 +42,7 @@ function backupCycleTargetsCli(): string
 
 function backupCycleRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function backupCycleDeploymentConfPath(): string
@@ -172,11 +172,7 @@ function backupCycleParityRegistry(string $scratch, string $backupNamespace = 'p
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
 
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(backupCycleTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(backupCycleTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

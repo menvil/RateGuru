@@ -441,6 +441,42 @@ it('verifies each state read-only, and a drifted hook or site as a failure', fun
     expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
 });
 
+it('keeps the site closed when tits-guru is activated: Verify passes in tls-ready, and only GO LIVE could open it', function () {
+    // The site was taken to tls-ready while tits-guru was planned. Then the
+    // reviewed activation reaches both registries — the bundle's, and the
+    // host's own through Prepare tits.guru host — and nothing else changes.
+    publicHttpsTlsReady($this->host);
+    $site = file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE);
+    publicHttpResetLogs($this->host);
+
+    $env = publicHttpsActiveTarget($this->host);
+
+    [$exit, $output] = publicHttpsRun($this->host, 'verify', $env);
+    expect($exit)->toBe(0, $output);
+    expect(publicHttpsResult($output))->toMatchArray(['mode' => 'verify', 'status' => 'pass', 'state' => 'tls-ready', 'changed' => false, 'certificate' => 'valid']);
+    expect($output)->toContain("lifecycle=active in the trusted bundle's registry and in the host's own");
+
+    // Still the closed site: every request on 443 is answered 503.
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($site)->toBe(publicHttpsRender('tls-ready'));
+    expect($site)->toContain('return 503');
+
+    // The planned-only operations refuse an active target, changing nothing.
+    foreach (['apply', 'rollback'] as $mode) {
+        [$exit, $output] = publicHttpsRun($this->host, $mode, $env);
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('--'.$mode.' needs planned');
+    }
+
+    // GO LIVE still needs a deployed release behind its typed confirmation:
+    // with none, it refuses and the site stays closed.
+    [$exit, $output] = publicHttpsRun($this->host, 'activate', $env, 'tits-guru', ['--confirm-public']);
+    expect($exit)->toBe(1, $output);
+    expect($output)->toContain('ACTIVATE: REFUSED');
+
+    expect(file_get_contents($this->host['fs'].PUBLIC_HTTP_FILE))->toBe($site);
+    expect(publicHttpLog($this->host, 'mutations.log'))->toBe('');
+});
+
 it('renews: the hook judges the renewed tits.guru pair, runs nginx -t and only then reloads, and leaves every other lineage alone', function () {
     publicHttpsTlsReady($this->host);
     $lineage = $this->host['fs'].'/etc/letsencrypt/live/tits.guru';
@@ -539,7 +575,7 @@ it('refuses GO LIVE until everything it needs holds', function (callable $arrang
         publicHttpsLineage($host, ['days' => 5], null, 2);
     }, ['--confirm-public'], 'the certificate has expired, or expires within 14 days'],
     'the host still planned' => [function (array $host): void {
-        file_put_contents($host['scratch'].'/installed-registry.json', File::get(base_path('infrastructure/config/deployment-targets.json')));
+        file_put_contents($host['scratch'].'/installed-registry.json', File::get(preActivationRegistryPath()));
     }, ['--confirm-public'], 'the host\'s own registry says lifecycle=planned — --activate needs active in both'],
 ]);
 
@@ -663,7 +699,7 @@ it('closes a live site whatever the two registries say of its lifecycle — and 
     expect($output)->toContain("FAIL     target:lifecycle                             the trusted bundle's registry says lifecycle={$trusted}, the host's own says {$installed}");
 })->with([
     'the host\'s own registry still planned' => [function (array $host, array $env): array {
-        file_put_contents($host['scratch'].'/installed-registry.json', File::get(base_path('infrastructure/config/deployment-targets.json')));
+        file_put_contents($host['scratch'].'/installed-registry.json', File::get(preActivationRegistryPath()));
 
         return $env;
     }, 'active', 'planned'],

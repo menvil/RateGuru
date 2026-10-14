@@ -68,24 +68,50 @@ it('commits exactly what the registry and the reviewed schedules render', functi
         ->toBe(File::get(base_path('infrastructure/config/cron/rateguru-backups')));
 });
 
-it('schedules staging alone while tits-guru is planned, with its schedules and log paths unchanged', function () {
+it('schedules both active targets at their reviewed times, staging\'s jobs and log paths unchanged', function () {
     foreach ([
         'render' => backupCronRender(perimeterRegistry()),
         'committed' => File::get(base_path('infrastructure/config/cron/rateguru-backups')),
     ] as $which => $cron) {
-        expect(cronOperationalLines($cron))->toBe(backupCronStagingLines(), "{$which} cron");
-
-        // Not one runnable line for the planned target, in any form.
-        foreach (cronOperationalLines($cron) as $line) {
-            expect($line)->not->toContain('tits-guru');
-        }
+        expect(cronOperationalLines($cron))
+            ->toBe([...backupCronStagingLines(), ...backupCronProductionLines()], "{$which} cron");
     }
 });
 
-it('leaves the real tits-guru planned', function () {
-    // This change makes production backups READY to schedule. Scheduling them
-    // is the reviewed activation, which is not this change.
-    expect(perimeterRegistry()['targets']['tits-guru']['lifecycle'])->toBe('planned');
+it('schedules each target\'s jobs into its own namespace\'s logs, with no line shared and no minute shared', function () {
+    $lines = cronOperationalLines(File::get(base_path('infrastructure/config/cron/rateguru-backups')));
+
+    $staging = array_values(array_filter($lines, fn (string $line): bool => str_contains($line, '--target staging-main ')));
+    $production = array_values(array_filter($lines, fn (string $line): bool => str_contains($line, '--target tits-guru ')));
+
+    // Every line runs exactly one target's job, and each target writes only
+    // to its own namespace's logs: staging's never names production, and the
+    // other way round.
+    expect(count($staging) + count($production))->toBe(count($lines));
+
+    foreach ($staging as $line) {
+        expect($line)->toContain('/var/log/rateguru/staging-')->not->toContain('tits-guru');
+    }
+
+    foreach ($production as $line) {
+        expect($line)->toContain('/var/log/rateguru/tits-guru-')->not->toContain('staging');
+    }
+
+    // No two jobs start in the same minute of the same day.
+    $starts = array_map(fn (string $line): string => implode(' ', array_slice(explode(' ', $line), 0, 5)), $lines);
+    expect(array_unique($starts))->toHaveCount(count($starts));
+});
+
+it('keeps scheduling a planned tits-guru nothing', function () {
+    // The rule the activation relies on, still enforced the other way round: a
+    // planned target has its schedule reviewed, and no runnable line.
+    $cron = backupCronRender(backupCronWithLifecycle('tits-guru', 'planned'));
+
+    expect(cronOperationalLines($cron))->toBe(backupCronStagingLines());
+
+    foreach (cronOperationalLines($cron) as $line) {
+        expect($line)->not->toContain('tits-guru');
+    }
 });
 
 // --- activation ---------------------------------------------------------------
@@ -235,7 +261,7 @@ it('refuses an active target that has no reviewed schedule', function () {
     expect($output)->toContain('target tits-guru is lifecycle=active but has no reviewed backup schedule');
 
     // While it is planned, an unreviewed schedule is simply not needed yet.
-    [$plannedExit, $plannedOutput] = perimeterRun('render_backup_cron_candidate', perimeterRegistry(), $schedules);
+    [$plannedExit, $plannedOutput] = perimeterRun('render_backup_cron_candidate', backupCronWithLifecycle('tits-guru', 'planned'), $schedules);
 
     expect($plannedExit)->toBe(0, $plannedOutput);
     expect(cronOperationalLines($plannedOutput))->toBe(backupCronStagingLines());
@@ -332,7 +358,10 @@ it('refuses a namespace that is not safe to put in a root cron line', function (
 ]);
 
 it('refuses a registry with no active target rather than installing a cron that runs nothing', function () {
-    $registry = backupCronWithLifecycle('staging-main', 'planned');
+    $registry = backupCronChanged(perimeterRegistry(), [
+        'targets.staging-main.lifecycle' => 'planned',
+        'targets.tits-guru.lifecycle' => 'planned',
+    ]);
 
     [$exit, $output] = perimeterRun('render_backup_cron_candidate', $registry);
 

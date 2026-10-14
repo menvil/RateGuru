@@ -342,10 +342,10 @@ it('grants the restricted deploy account the wrapper and never the binary behind
         expect($sudoers)->not->toContain($forbidden);
     }
 
-    // Still staging-only: tits-guru stays lifecycle=planned and its deploy
-    // user gains nothing here.
+    // Each active target's own deploy user, and no other identity: the
+    // wrapper then keeps each to its own target.
     expect($sudoers)->toContain('deploy-rateguru-staging')
-        ->not->toContain('deploy-rateguru-tits-guru')
+        ->toContain('deploy-rateguru-tits-guru')
         ->not->toContain('deploy-rateguru-production');
 });
 

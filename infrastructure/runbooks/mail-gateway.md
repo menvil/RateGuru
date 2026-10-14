@@ -14,7 +14,7 @@ transport works and reaches a host only through the guarded activation.
 | Gateway on the staging host | **Installed and accepted** — Postfix 3.6.4, configuration exactly the reviewed render, verified on the real host |
 | Real-host acceptance (`verify-mail-gateway --e2e`) | **Passed** on the real staging host — see [Real-host acceptance](#real-host-acceptance) |
 | Staging application mail | **Through the gateway**: the host's `shared/.env` says `MAIL_PORT=2525` (Laravel → gateway → Mailpit → Mailtrap Local) |
-| `tits-guru` — committed policy | `lifecycle=planned`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |
+| `tits-guru` — committed policy | `lifecycle=active`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |
 | `tits-guru` — real host | **Outbound**, activated on 2026-10-08 through `activate-mail-outbound`: its listener signs each message and delivers it through `rateguru-outbound-tits-guru` to the recipient domain's MX, and the recorded applied policy is outbound |
 | DKIM signing of `tits-guru`'s listener | **Accepted on the shared host**: its listener hands each message to the host's DKIM signer before it is queued — see [Signing](#signing-held-mail-is-signed-and-still-held) and [`mail-signing.md`](mail-signing.md) |
 | Direct outbound transport (`delivery_mode=outbound`, `outbound.kind=direct`) | **Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08: the committed `config/mail-outbound.json` enables direct delivery as `mta1.tits.guru`, and the host rendered the route when `activate-mail-outbound` crossed the activation boundary |

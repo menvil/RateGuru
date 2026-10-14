@@ -5,16 +5,13 @@ name: Recover tits.guru host
 # recover-host — a different fixed identity, a different concurrency domain,
 # and one extra gate.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
-# Its infrastructure exists, but a planned target may not be operated.
-# The validation job below reads that lifecycle out of the
+# tits-guru is lifecycle=active, so it is recovered by exactly the mechanism
+# staging is. The validation job below reads that lifecycle out of the
 # committed target registry, in a job that holds no GitHub Environment, so a
-# real run of this workflow fails closed before production approval is
+# target that is not active fails closed before production approval is
 # requested, before a production secret is loaded and before any connection is
-# opened to anything. It exists now to prove that production will be recovered
-# by exactly the same mechanism once the production launch activates and
-# provisions the target, rather than by a production-shaped procedure invented
-# under pressure on the worst day of the year.
+# opened to anything. A recovery restores a backup, and production has none
+# before its first release and its first real backup cycle.
 #
 # Nothing here weakens that gate, nothing here edits the registry, and the
 # production-tits-guru GitHub Environment's own protection rules stay authoritative on
