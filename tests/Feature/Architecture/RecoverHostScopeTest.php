@@ -731,10 +731,27 @@ it('leaves every accepted operational surface it does not extend untouched', fun
     // what recovery needs of it is not that it is frozen but that it still
     // names no recovery account and still only ever takes capability away,
     // which is asserted directly below.
+    //
+    // The deploy sudoers rule has left it too: it is the registry's render, so
+    // it changes when a target is activated. What recovery needs of it is that
+    // it grants the four generic wrappers to deploy users and nothing to a
+    // recovery, which is asserted directly below.
     foreach (['infrastructure/config/wrappers', 'infrastructure/config/sudoers'] as $directory) {
         foreach ($changed as $path) {
+            if ($path === 'infrastructure/config/sudoers/rateguru-deploy') {
+                continue;
+            }
+
             expect($path)->not->toStartWith($directory.'/');
         }
+    }
+
+    $deploySudoers = File::get(base_path('infrastructure/config/sudoers/rateguru-deploy'));
+    preg_match_all('#/usr/local/sbin/([a-z-]+)#', $deploySudoers, $granted);
+    expect(array_values(array_unique($granted[1])))->toBe(['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore']);
+    preg_match_all('/^(\S+) ALL=/m', $deploySudoers, $accounts);
+    foreach ($accounts[1] as $account) {
+        expect($account)->toStartWith('deploy-rateguru-')->not->toContain('recover');
     }
 
     $ssh = File::get(base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'));
