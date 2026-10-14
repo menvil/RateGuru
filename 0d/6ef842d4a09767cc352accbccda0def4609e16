@@ -1,0 +1,236 @@
+infrastructure/runbooks/recover-host.md
+  s_3481294084957b::t_c15258e05f2412 749-753
+.github/workflows/recover-production.yml
+  s_3481294084957b::t_65c3c5e2f2232c 8-9,11,13-14
+tests/Feature/Architecture/InstallTargetDatabaseTest.php
+  s_3481294084957b::t_74a736ac0317f5 120-122
+tests/Feature/Architecture/MailOutboundActivationTest.php
+  s_3481294084957b::t_49d6e19328ddaf 527-529
+  s_3481294084957b::t_151e15ffb1a5e9 99-100,103
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_7e3011776e9b63 15-16
+  s_3481294084957b::t_d0b4a6a56bebcc 11,26-28,30-32
+  s_3481294084957b::t_c15258e05f2412 543-551,597-599
+tests/Feature/Architecture/OffsiteRetentionTest.php
+  s_3481294084957b::t_e6d32ce6baa834 39
+  s_3481294084957b::t_d41d870fe8cf3a 260
+.github/workflows/repair-production.yml
+  s_3481294084957b::t_65c3c5e2f2232c 7-12,14-15
+tests/Feature/Architecture/InstallTargetOperationsTest.php
+  s_3481294084957b::t_a52bfe4d64e65f 4199-4200,4203-4205,4208-4209
+  s_3481294084957b::t_d14b6917ba2b10 3165
+  s_3481294084957b::t_a03533998ea4e5 235,504,551,598,1013-1016,1732,1902,1907,1910,1919,1924,1927,1937,1976,1981,1984,1993,1998,2001,2011,2052,2057,2060,2069,2074,2077,2128,2133,2136,2145,2150,2153,2206,2211,2214,2223,2228,2231,2277,2282,2285,2294,2299,2302,2315,2357,2362,2365,2374,2379,2382,2428,2433,2436,2445,2450,2453,2499,2504,2507,2516,2521,2524,2576,2581,2584,2593,2598,2601,2610,2615,2618
+  s_3481294084957b::t_7a5d51a2456ab1 304-309,481-486,536-539,583-586,630-635,673-678,716-721,759-764,802-807,845-850,890-893
+  s_3481294084957b::t_7e0fc6ecd8321a 1289-1290
+  s_3481294084957b::t_b7332556dd1cd0 3144-3164,3166-3176
+tests/Feature/Architecture/DeploymentObservabilityScopeTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 332,335,337-338,340
+infrastructure/scripts/install-target-operations
+  s_3481294084957b::t_5d290714f8c0b0 82-86,522,688-707,709-718,729-731,1146,1203-1257,1259-1269,1282-1285,1304-1308,1326-1330,1348-1351,1360-1363,1382-1385,1394-1397,1406-1409,1427-1430,1489-1491,1494-1495,1502-1503,1527,1529,1531,1533,1535,1537,1539,1541,1543,1545,1547,2059-2060,2065-2066,2071-2072,2077-2078,2083-2084,2089-2090,2095-2096,2101-2102,2107-2108,2113-2114,2119-2120
+  s_3481294084957b::t_4c31a91c56390f 1487
+  s_3481294084957b::t_24f470e51b2f4a 1441
+  s_3481294084957b::t_966df8502656e1 1301-1303,1323-1325,1344-1347,1378-1381,1423-1426,1433,1510,1817
+infrastructure/scripts/prepare-host
+  s_3481294084957b::t_d8502bbb349afc 460-462
+tests/Feature/Architecture/RestoreTest.php
+  s_3481294084957b::t_d41d870fe8cf3a 252
+  s_3481294084957b::t_e6d32ce6baa834 43
+infrastructure/config/deployment-targets.json
+  s_3481294084957b::t_44815f0226f7d1 51
+tests/Feature/Architecture/RollbackTest.php
+  s_3481294084957b::t_e6d32ce6baa834 51
+  s_3481294084957b::t_d41d870fe8cf3a 328
+tests/Feature/Architecture/ConfigureTargetTest.php
+  s_3481294084957b::t_6b616bcc41474e 156-158
+  s_3481294084957b::t_7737e926586416 212-230
+tests/Feature/Architecture/OffsiteRestoreTest.php
+  s_3481294084957b::t_d41d870fe8cf3a 266
+  s_3481294084957b::t_e6d32ce6baa834 45
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_b0a3dd2db9caa0 20-29,1649,1662-1673,2413,2429-2430,2503-2506,2583-2679
+tests/Feature/Architecture/InfrastructureBaselineTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 23-27
+tests/Feature/Architecture/MailIdentityTest.php
+  s_3481294084957b::t_151e15ffb1a5e9 61,65
+tests/Feature/Architecture/InstallBootstrapHostLayoutTest.php
+  s_3481294084957b::t_1b009d637a3700 475-476,479
+  s_3481294084957b::t_6e1299f5a47fa1 516-517,523,533-534,540
+infrastructure/scripts/verify-infrastructure
+  s_3481294084957b::t_7761de9f1aa58c 58-64,317,333,368-376,421-425,650-654,750-751
+.github/workflows/rollback-production.yml
+  s_3481294084957b::t_65c3c5e2f2232c 15-20
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 300-302
+infrastructure/runbooks/install-target-operations.md
+  s_3481294084957b::t_3971f0a44d266f 117,121-149,192,198,259-260,453-454,458-459,461-462,464,469-470,472,477-479,483-485,490-492,497-499,505-507,514-516,524-525,527,529,536
+tests/Feature/Architecture/DisasterRecoveryContractTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 653-655
+infrastructure/scripts/install-bootstrap-services
+  s_3481294084957b::t_d8502bbb349afc 113-114,3125
+infrastructure/runbooks/mail-gateway.md
+  s_3481294084957b::t_151e15ffb1a5e9 17
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_3481294084957b::t_151e15ffb1a5e9 317,320,323,342,401,403-405
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_3481294084957b::t_6b45c00f3b14d9 444-456,458-479
+  s_3481294084957b::t_296826b48072da 578,702
+  s_3481294084957b::t_0d4d7f343cd2db 457
+tests/Feature/Architecture/RestoreWrapperTest.php
+  s_3481294084957b::t_477b2506744049 345-346,348
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_3481294084957b::t_1f3618ce90e15b 329-370
+  s_3481294084957b::t_e8af662cd2d0ea 492,494-495,503
+tests/Feature/Architecture/RepairTargetTest.php
+  s_3481294084957b::t_74a736ac0317f5 232-234,449-450
+tests/Feature/Architecture/BackupCronPerimeterTest.php
+  s_3481294084957b::t_589a64812ef7e3 71,76-85,87-93,95-102,105-114,264,361-364
+tests/Feature/Architecture/DeploymentTargetRegistryTest.php
+  s_3481294084957b::t_2b28693d8d8b9a 325,330,371-372,508,578,1162-1177,1179-1183,1186-1187,1189-1198
+tests/Feature/Architecture/RecordNightwatchDeploymentTest.php
+  s_3481294084957b::t_74a736ac0317f5 93-95,99
+.github/workflows/prepare-production-host.yml
+  s_3481294084957b::t_65c3c5e2f2232c 8-15,17-22,98-100
+tests/Feature/Architecture/MailInboundTest.php
+  s_3481294084957b::t_6614cb231d6e4a 199,463-469
+infrastructure/scripts/install-target-perimeter
+  s_3481294084957b::t_0e5ee842e5c76c 567-569
+  s_3481294084957b::t_d05ea3c4a2f704 61-62,214-215,218-224,454,991-994,1005-1043,1047-1048,1051-1057,1061-1065,1067-1106,1330-1331,1333-1334,1336-1337,1339-1341,1390-1391,1393-1394,1396-1397,1399-1401
+tests/Feature/Architecture/BootstrapHostPreflightTest.php
+  s_3481294084957b::t_3d02b980ca1ece 1622-1646,1654
+  s_3481294084957b::t_b84f9e3aae3a5c 171-183,199-202,216-218,244-245,260-262,410,520-521
+tests/Feature/Architecture/RecoveryHostPreflightTest.php
+  s_3481294084957b::t_9a21745b33a8f6 689-692
+tests/Feature/Architecture/CleanupTest.php
+  s_3481294084957b::t_e6d32ce6baa834 50
+  s_3481294084957b::t_d41d870fe8cf3a 296
+tests/Feature/Architecture/ProvisionTitsGuruWorkflowTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 201-203,206-207
+tests/Feature/Architecture/MailSigningTest.php
+  s_3481294084957b::t_aba18dee48c919 267-268,1141-1142
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 636-638
+infrastructure/runbooks/public-storage-access.md
+  s_3481294084957b::t_7e3011776e9b63 94-97,258-260
+infrastructure/scripts/install-public-storage-access
+  s_3481294084957b::t_e5e241d714cc17 40,220-223,619-639,871,914
+infrastructure/config/sudoers/rateguru-deploy
+  s_3481294084957b::t_0e5ee842e5c76c 8-15
+tests/Feature/Architecture/RestoreWorkflowsTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 451-452,455,458-459
+tests/Feature/Architecture/BackupCycleTest.php
+  s_3481294084957b::t_d41d870fe8cf3a 175
+  s_3481294084957b::t_e6d32ce6baa834 45
+infrastructure/runbooks/backups.md
+  s_3481294084957b::t_c15258e05f2412 130,311,391-407
+tests/Support/real-nginx/scenario.sh
+  s_3481294084957b::t_e2050000bb5a8e 195-200,208,221
+infrastructure/scripts/install-target-prerequisites
+  s_3481294084957b::t_20812649225280 571,578,595,779,782-803
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 454-456
+infrastructure/runbooks/repair-target.md
+  s_3481294084957b::t_c15258e05f2412 443-451
+tests/Feature/Architecture/OffsiteBackupTest.php
+  s_3481294084957b::t_e6d32ce6baa834 47
+  s_3481294084957b::t_d41d870fe8cf3a 210
+infrastructure/runbooks/github-restore.md
+  s_3481294084957b::t_7e3011776e9b63 324-329
+tests/Feature/Architecture/PublicHttpsWorkflowTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 140-143
+tests/Feature/Architecture/InstallTargetPerimeterTest.php
+  s_3481294084957b::t_b5bbafb6863028 474-475,482-504,511,646-647,649,1219,1222-1226,1239-1246,1248-1294,1296-1332,1334,1539,1541-1544
+  s_3481294084957b::t_9ebaa14de7b0c8 1333
+  s_3481294084957b::t_5e820d2c4945e0 24-25,68-82,85-89,91,93-96,98-99,122-146,149-159
+  s_3481294084957b::t_3256b7f3e55809 1383-1384,1391-1394
+  s_3481294084957b::t_9a93c797eac761 533-535,566-568,597-599,628-630,693-695,725-727
+  s_3481294084957b::t_d206611cbec386 234-255,476,661,1247,1295
+infrastructure/runbooks/deployment-targets.md
+  s_3481294084957b::t_c84f502d705cc2 296-300,302-304,306,308-314,325-327,698-701,705-790,793-827
+  s_3481294084957b::t_7e3011776e9b63 318-319,854
+  s_3481294084957b::t_a01d80f9717abe 791-792,1195-1197
+  s_3481294084957b::t_c26975d585907c 1290-1296,1316-1317
+infrastructure/runbooks/infrastructure-verification.md
+  s_3481294084957b::t_7a987e74d71ab1 117-118,134-151
+tests/Feature/Architecture/TargetPerimeterTest.php
+  s_3481294084957b::t_063600e78d662d 574
+  s_3481294084957b::t_477b2506744049 523-524,535-573,575-585,783,788,791-795,816,825,830-832
+tests/Feature/Architecture/RollbackProductionWorkflowTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 106-110,113
+tests/Feature/Architecture/BackupTest.php
+  s_3481294084957b::t_d41d870fe8cf3a 333
+  s_3481294084957b::t_09aa89143371c9 1101-1132
+  s_3481294084957b::t_e6d32ce6baa834 61
+infrastructure/runbooks/target-perimeter.md
+  s_3481294084957b::t_c26975d585907c 74,76-80,82-86,234-235
+  s_3481294084957b::t_ea7c31218993db 71-72
+  s_3481294084957b::t_a10bb6e616dd5a 127-128,167-171,298-301,356-357,449-450,453-473,478-481
+  s_3481294084957b::t_c640ed9770ac27 241-244,247-257
+infrastructure/runbooks/bootstrap-host.md
+  s_3481294084957b::t_7e3011776e9b63 142
+.github/workflows/restore-production.yml
+  s_3481294084957b::t_65c3c5e2f2232c 14-20
+tests/Feature/Architecture/DeployPerimeterRegistryTest.php
+  s_3481294084957b::t_2e6116bd888fb3 29-49,51-52,54,65-66,68,71-72
+tests/Feature/Architecture/InstallTargetPrerequisitesTest.php
+  s_3481294084957b::t_86adf46e5ab8fb 774,784-825,1570,1624-1632,1634-1635,1710,1727,1743,1746,1766,1772,1802,1812,1816,1839,1843,1855,1921,1928,1936,1948,2030,2036
+  s_3481294084957b::t_f9a030f5b85517 1648-1650,1653
+  s_3481294084957b::t_c27aad8837dce8 1633
+tests/Feature/Architecture/PrepareHostWorkflowsTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 425,495,498
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 1779,1782-1786,1789,1791-1794
+tests/Feature/Architecture/TargetAwareOperationsTest.php
+  s_3481294084957b::t_e6d32ce6baa834 37
+  s_3481294084957b::t_d41d870fe8cf3a 302
+  s_3481294084957b::t_d4b87ec3518ff1 1220-1230,1232-1234
+tests/Feature/Architecture/RepairWorkflowsTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 455,463-464,466-468
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  s_3481294084957b::t_3564350f544615 376-378,383-395
+  s_3481294084957b::t_95aeb756b05704 611-616
+  s_3481294084957b::t_e8c207e4a675e3 47-51,92-104,603-610,617-664,1198,1203
+tests/Pest.php
+  s_3481294084957b::t_d41d870fe8cf3a 1577-1612,1647-1658,1662-1663,1686,10415
+  s_3481294084957b::t_e6d32ce6baa834 1626-1638,1641-1646,9902
+  s_3481294084957b::t_eda18c168ae0e8 3840-3841,3964-3965
+  s_3481294084957b::t_18b78184a33dd8 8953-8956,8962
+  s_3481294084957b::t_0e1e6ca1d08ec2 12136-12138,12164,12429-12430,12436-12437,12440
+  s_3481294084957b::t_cf19a873ce6ed3 12438-12439
+  s_3481294084957b::t_1b009d637a3700 11039-11041
+  s_3481294084957b::t_c1bc907c353b35 2608-2609,2616
+  s_3481294084957b::t_f9a030f5b85517 1613-1625,2487-2488,2504,2754-2755,2762-2764,2816-2818,2844-2847,3845,3966,4251-4254,4264,8911-8912,8915,8917,8919
+  s_3481294084957b::t_32f3fd3a552c86 1639-1640
+.github/workflows/release.yml
+  s_3481294084957b::t_65c3c5e2f2232c 265-267
+  s_3481294084957b::t_495c0699d8ee69 268-270
+infrastructure/scripts/common
+  s_3481294084957b::t_85015d3b1243e6 1118-1122
+infrastructure/runbooks/prepare-host.md
+  s_3481294084957b::t_e0918e760769aa 52,541-543,552-569
+tests/Feature/Architecture/MailGatewayTest.php
+  s_3481294084957b::t_151e15ffb1a5e9 1506,1510,1551
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_3481294084957b::t_e8af662cd2d0ea 1018
+tests/Feature/Architecture/InstallBootstrapServicesTest.php
+  s_3481294084957b::t_1a9e076a685d11 1764-1765
+  s_3481294084957b::t_1b009d637a3700 2249
+  s_3481294084957b::t_18b78184a33dd8 1110-1111,1139-1140,1142
+  s_3481294084957b::t_73c76dd036547b 1176-1177,1213-1214,1283-1284,1331-1332
+  s_3481294084957b::t_0c2bfe26fda8ba 2356,2371-2374,2413-2429,2434,2470,2515
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0d6ef842d4a09767cc352accbccda0def4609e16",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
