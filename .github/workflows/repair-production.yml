@@ -136,10 +136,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Pinned to the real production target ID, so it fails closed on the
-      # lifecycle gate. Routing production repair at staging-main, or
-      # activating tits-guru to make this pass, would defeat the entire purpose
-      # of adding the workflow now.
+      # Pinned to the real production target ID. tits-guru is active, and the
+      # server's own checks decide whether it may be repaired: repair-target
+      # refuses a target that is not active, and one with no canonical
+      # deployed release. Never route production repair at staging-main: it
+      # would converge the wrong target.
       - name: Repair tits-guru
         uses: ./.github/actions/repair-rateguru-target
         with:
