@@ -127,11 +127,9 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'activate-tits-guru-inbound-smtp.yml',
         'verify-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-inbound-smtp.yml',
-        // Its inbound mail health check, read-only, the schedule that only
-        // dispatches it on main, and the one-time installation of the monitor
-        // access it reaches the host through.
+        // Its inbound mail health check, read-only, and the one-time
+        // installation of the monitor access it reaches the host through.
         'check-tits-guru-inbound-mail-health.yml',
-        'schedule-tits-guru-inbound-mail-health.yml',
         'install-tits-guru-inbound-mail-monitor.yml',
         // and the installation of its listener's certificate, with the
         // Certbot deploy hook that keeps it renewed.

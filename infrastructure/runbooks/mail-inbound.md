@@ -38,7 +38,7 @@ identity and signing are not changed by any of this.
 | `mx1.tits.guru` A record | **Published** — `213.199.41.241`, confirmed by `1.1.1.1` and `8.8.8.8`; the receiver's address is never committed to the contract |
 | TLS certificate for `mx1.tits.guru` | **Certbot's, on the host**, issued over HTTP-01 by the operator; copied into place and kept current on every renewal by Install tits.guru inbound mail TLS (`install-mail-inbound-tls`) — **installed on the production host** 2026-10-12 — see [below](#tls-for-mx1titsguru) |
 | Support, bounce and reply handling | **Stored, not processed** — accepted mail is kept in the inbound store; every handler is `planned`, deferred until after the first production launch |
-| Inbound mail health check, every six hours | **Implemented in the repository, not installed and not enabled**: no monitor access on the host, no monitor Environment, the schedule off. Its setup moves into RateGuru's future unified monitoring — see [the automatic monitor](#the-automatic-monitor) |
+| Inbound mail health check | **Implemented in the repository, not installed**: no monitor access on the host, no monitor Environment, and no schedule — it runs only when an operator runs it. Its setup moves into RateGuru's future unified monitoring — see [the automatic monitor](#the-automatic-monitor) |
 | 8.4B.5.2 — inbound SMTP and delivery into the store | **Production-accepted 2026-10-12** — see [Production acceptance](#production-acceptance-2026-10-12) |
 | Envelope sender (Return-Path) of mail sent today | `noreply@tits.guru` — the bounce domain is not an envelope sender yet |
 | `tits-guru` outbound mail | **Production-accepted** 2026-10-08, and untouched by any of this — see [`mail-outbound-activation.md`](mail-outbound-activation.md) |
@@ -893,8 +893,8 @@ monitor runs the same library, without the store's full verify.
   [`38261781978`](https://github.com/menvil/RateGuru/actions/runs/38261781978))
   reports `the automatic inbound mail monitor is not installed on this host`.
 - No `production-tits-guru-monitor` Environment exists.
-- `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` is not set, so the schedule
-  dispatches nothing.
+- Nothing runs the check on a schedule. When it runs unattended is for the
+  unified monitoring to decide.
 
 Its setup moves into RateGuru's future unified monitoring (ROADMAP,
 *Post-launch: Mail Processing & Unified Monitoring*). Until then:
@@ -906,15 +906,13 @@ Its setup moves into RateGuru's future unified monitoring (ROADMAP,
 What follows describes the monitor as the repository implements it, for when
 it is set up.
 
-Every six hours, without a person: **Schedule tits.guru inbound mail health**
-dispatches **Check tits.guru inbound mail health** on `main`, which asks the
+**Check tits.guru inbound mail health**, run on `main`, asks the
 production host's **inbound mail monitor** — through a key that can do nothing
 else — whether accepted inbound mail is at risk, and keeps one GitHub issue
 open while it is.
 
 | | What it is | What it can do |
 |---|---|---|
-| The schedule | `schedule-tits-guru-inbound-mail-health.yml`, on the default branch | dispatch the check on `main` — no secret, no host |
 | The check | `check-tits-guru-inbound-mail-health.yml`, from `main`, behind the main-only gate, in the Environment `production-tits-guru-monitor` | connect as `rateguru-mail-monitor` with the monitor key — nothing else |
 | The key | one ed25519 key, `restrict,command="/usr/bin/sudo -n -u postfix /usr/local/libexec/rateguru-mail-inbound-monitor"` | run the monitor: no shell, no other command, no terminal, no forwarding, no file transfer — whatever the client asks |
 | The account | `rateguru-mail-monitor`, a system account with no password; its home and keys are root's | nothing of its own |
@@ -968,8 +966,6 @@ After the activation (step 5 of [the operator order](#the-operator-order)):
 4. **Delete the local copies** of both halves of the key.
 5. **Run Check tits.guru inbound mail health** once by hand: it passes, with no
    approval asked.
-6. **Turn the schedule on:** the repository variable
-   `RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE` = `enabled`.
 
 If the host's sshd restricts who may log in (`AllowUsers`, `AllowGroups`), it
 must admit `rateguru-mail-monitor`; the stock Ubuntu sshd does.
