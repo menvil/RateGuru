@@ -299,7 +299,7 @@ explained rather than offered a merge.
 Each migration also brings its navigation item's operational count (see the contract's
 [Transitional omissions](design-contract.md#transitional-omissions)).
 
-Alongside, as a step of its own: Languages and Translation Center were built from the earlier delivery of the
+Alongside, as a step of its own: Languages and Translation Center were built from the first delivery of the
 prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, which then becomes their
 reference.
 
