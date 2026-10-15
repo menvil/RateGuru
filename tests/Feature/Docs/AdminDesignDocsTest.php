@@ -2,17 +2,18 @@
 
 /**
  * The Admin v2 design documents and the two reference files they are built on,
- * with the earlier delivery of the admin prototype kept beside them.
+ * with the earlier deliveries of the admin prototype kept beside them.
  */
 const ADMIN_DESIGN_DOCS = 'docs/design/admin';
 
-it('files the Admin v2 contract, checklist, migration plan and both references', function (string $path) {
+it('files the Admin v2 contract, checklist, migration plan and every reference', function (string $path) {
     expect(base_path(ADMIN_DESIGN_DOCS.'/'.$path))->toBeFile();
 })->with([
     'design-contract.md',
     'ui-review-checklist.md',
     'migration-plan.md',
     'reference/original/RateGuru-Admin.html',
+    'reference/original/RateGuru-Admin-v2.html',
     'reference/original/RateGuru-Admin-v1.html',
     'reference/original/RateGuru-Dev-UI-Kit.html',
 ]);
@@ -23,17 +24,19 @@ it('keeps the reference files byte for byte as they were delivered', function (s
     // together, in a change of its own.
     expect(hash_file('sha256', base_path(ADMIN_DESIGN_DOCS.'/'.$path)))->toBe($sha256);
 })->with([
-    ['reference/original/RateGuru-Admin.html', '904bd741c3bfb0d9a8116c3f21719a4ad3a5d90b4676e2c0207b4b4a7a36dd4c'],
+    ['reference/original/RateGuru-Admin.html', '2ef550f32110d85bcec3094cc9703c58c4ecca6199abc0cd592792e352b9010f'],
+    ['reference/original/RateGuru-Admin-v2.html', '904bd741c3bfb0d9a8116c3f21719a4ad3a5d90b4676e2c0207b4b4a7a36dd4c'],
     ['reference/original/RateGuru-Admin-v1.html', 'c0f8c040a75d5068b92a398e472b21e722b895cae4c77e8f288f9349ee05860c'],
     ['reference/original/RateGuru-Dev-UI-Kit.html', '22abe18c699b13e98cd97e7db2aaa6f64b4552476f276cc5c050e04d76e19d00'],
 ]);
 
-it('names both reference files as the source of truth', function () {
+it('names every reference file as the source of truth', function () {
     $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
 
     expect($contract)
         ->toContain('reference/original/RateGuru-Dev-UI-Kit.html')
         ->toContain('reference/original/RateGuru-Admin.html')
+        ->toContain('reference/original/RateGuru-Admin-v2.html')
         ->toContain('reference/original/RateGuru-Admin-v1.html')
         ->toContain('--rg-admin-*')
         ->toContain('x-admin.ui.*')

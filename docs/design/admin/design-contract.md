@@ -5,7 +5,7 @@ counterpart of [`docs/design/design-contract.md`](../design-contract.md), which 
 are separate design systems on purpose: they share the Inter typeface and nothing else.
 
 Every value below was taken from the reference files, not invented — for the screens migrated so far, from the UI
-kit and the earlier delivery of the admin prototype. Where production deliberately departs from them, the departure
+kit and the earlier deliveries of the admin prototype. Where production deliberately departs from them, the departure
 is listed under [Deviations from the reference](#deviations-from-the-reference).
 
 ## Source of truth
@@ -15,8 +15,9 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, and the Growth section: Games with the game editor, Experiments with the experiment editor, Analytics, and the media picker) |
-| [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The earlier delivery of the admin prototype, which the screens migrated so far were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor and its playable previews, Experiments with the experiment editor, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v2.html`](reference/original/RateGuru-Admin-v2.html) | The second delivery of the admin prototype, which Categories, Tags, Rating groups, Project settings, Posts, Comments, Reports, Users and Media diagnostics were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
+| [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The first delivery of the admin prototype, which Languages and Translation Center were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 
 Rules for the reference files:
 
