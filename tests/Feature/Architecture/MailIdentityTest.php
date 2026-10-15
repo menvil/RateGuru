@@ -58,11 +58,11 @@ it('validates the real host and target identity contracts', function () {
         ->not->toContain('tits.guru');
 });
 
-it('keeps the real target planned while its committed mail policy requests direct outbound delivery', function () {
+it('keeps the real target active, its committed mail policy requesting direct outbound delivery', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
     expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
     expect($routing['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
     expect(json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true)['direct']['enabled'])->toBeTrue();

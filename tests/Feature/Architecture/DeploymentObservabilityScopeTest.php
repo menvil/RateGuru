@@ -329,15 +329,15 @@ it('keeps release.json exactly as it is', function () {
 // Nothing is activated, nothing unrelated is managed
 // =============================================================================
 
-it('activates no production target', function () {
+it('records no deployment marker for the production target, active as it is', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
-    // The production perimeter, sudoers and Nightwatch allowlist all stay
-    // closed to tits-guru.
+    // Its activation granted the operational perimeter and nothing of this
+    // evaluation: the Nightwatch grant and allowlist stay closed to tits-guru.
     expect(File::get(base_path('infrastructure/config/sudoers/rateguru-deploy')))
-        ->not->toContain('deploy-rateguru-tits-guru');
+        ->toContain('deploy-rateguru-tits-guru');
     expect(File::get(base_path('infrastructure/config/sudoers/rateguru-nightwatch-deployment')))
         ->not->toContain('deploy-rateguru-tits-guru');
     expect(File::get(base_path('infrastructure/scripts/common')))

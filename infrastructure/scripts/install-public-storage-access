@@ -37,7 +37,7 @@
 # Every path this script touches is derived from the target registry via
 # infrastructure/scripts/common — never from a command-line argument or an
 # unapproved environment variable. Only lifecycle=active targets may be
-# touched; tits-guru (lifecycle=planned) is rejected before any filesystem or
+# touched; a planned or disabled target is rejected before any filesystem or
 # ACL access, the same way health-check and status already reject it.
 #
 # --provisioning is the one, explicitly named exception: with it, and only
@@ -217,10 +217,10 @@ check_required_tools() {
 #
 # TARGET_ROOT/SHARED_ROOT/STORAGE_ROOT/etc. below are derived exclusively from
 # require_active_target + the target_* accessors in common — never read from
-# a --target-adjacent flag, never assembled from raw user input. A planned
-# target (tits-guru today) is rejected by require_active_target itself, by
-# name, before any of these variables are even assigned — so no filesystem or
-# ACL call downstream can ever run against it.
+# a --target-adjacent flag, never assembled from raw user input. A planned or
+# disabled target is rejected by require_active_target itself, by name, before
+# any of these variables are even assigned — so no filesystem or ACL call
+# downstream can ever run against it.
 
 TARGET_ROOT=""
 RUNTIME_USER=""
@@ -616,14 +616,27 @@ verify_existing_upload_regression() {
     log "existing upload regression check: OK (${relative_path})"
 }
 
-verify_titsguru_still_planned() {
-    local planned_output
-    if planned_output="$(require_active_target tits-guru 2>&1)"; then
-        fail "tits-guru unexpectedly passed require_active_target — it must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "tits-guru rejection failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "tits-guru: still correctly rejected (lifecycle=planned), untouched"
+# Every target the registry does not hold active is still refused by the gate
+# this script runs first, each for its own lifecycle — named by the registry,
+# never by a literal here, so an activation is a registry change and nothing
+# else. With every target active there is nothing to refuse, and that is said
+# rather than passed off as a check.
+verify_inactive_targets_still_rejected() {
+    local target_id lifecycle rejected_output count=0
+
+    while IFS=$'\t' read -r target_id lifecycle; do
+        [[ -n "${target_id}" ]] || continue
+
+        if rejected_output="$(require_active_target "${target_id}" 2>&1)"; then
+            fail "${target_id} unexpectedly passed require_active_target — a lifecycle=${lifecycle} target must stay rejected"
+        fi
+        grep -Fq "lifecycle=${lifecycle}" <<<"${rejected_output}" \
+            || fail "${target_id} rejection failed for the wrong reason (expected lifecycle=${lifecycle}): ${rejected_output}"
+        log "${target_id}: still correctly rejected (lifecycle=${lifecycle}), untouched"
+        count=$((count + 1))
+    done < <(jq -r '.targets | to_entries[] | select(.value.lifecycle != "active") | [.key, .value.lifecycle] | @tsv' "$(target_registry_file)")
+
+    (( count > 0 )) || log "every registry target is active: none is planned or disabled, so none has to stay rejected"
 }
 
 # Thin wrapper for apply's post-change check: one pass/fail outcome. perform_verify
@@ -855,7 +868,7 @@ perform_apply() {
     log "ACL applied: u:${WEB_USER}:--x on ${SHARED_ROOT} and ${STORAGE_ROOT}"
 
     verify_runtime_state
-    verify_titsguru_still_planned
+    verify_inactive_targets_still_rejected
 
     APPLY_COMMITTED=true
     trap - ERR EXIT
@@ -898,7 +911,7 @@ perform_verify() {
 
     log "--- target validation ---"
     derive_target_paths
-    verify_titsguru_still_planned
+    verify_inactive_targets_still_rejected
 
     log "--- filesystem structure ---"
     run_structural_validation

@@ -171,6 +171,70 @@ it('refuses Prepare with the activation request before Activate ran: the host st
     }
 });
 
+it('re-records the target\'s activation with an ordinary apply, and changes nothing Postfix reads or runs', function () {
+    // The shared host as it is: tits-guru's mail activated to outbound while
+    // the target was planned. Then the reviewed activation of the target
+    // itself — the bundle's registry says active, and nothing else changed.
+    // Delivery stays outbound, so that is not a boundary crossing: Prepare's
+    // ordinary apply records the policy again, and Postfix is left as it was.
+    $host = mailGatewayActivatedHost();
+
+    try {
+        $before = mailGatewayMutableState($host);
+        $recorded = json_decode(File::get(mailGatewayApplied($host)), true);
+        file_put_contents($host['scratch'].'/mutations-before', mailGatewayLog($host, 'mutations.log'));
+
+        file_put_contents($host['scratch'].'/registry.json', File::get(base_path('infrastructure/config/deployment-targets.json')));
+
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(1, $report);
+        expect($report)
+            ->toContain('DRIFT    file:/var/lib/rateguru-mail-gateway/applied-plan.json — the recorded policy differs from the one this bundle requests (listeners.tits-guru.lifecycle)')
+            ->toContain('PASS     file:/etc/postfix/main.cf — matches the current render')
+            ->toContain('PASS     file:/etc/postfix/master.cf — matches the current render');
+
+        [$checked, $report] = mailGatewayRun($host, '--check');
+        expect($checked)->toBe(0, $report);
+
+        [$applied, $log] = mailGatewayRun($host, '--apply');
+        expect($applied)->toBe(0, $log);
+        expect($log)
+            ->toContain('recording /var/lib/rateguru-mail-gateway/applied-plan.json')
+            ->toContain('gateway configuration unchanged')
+            ->not->toContain('installing /etc/postfix')
+            ->not->toContain('authorized by activate-mail-outbound');
+
+        // Every byte Postfix reads is what it was; the record alone moved, and
+        // only by the lifecycle.
+        $after = mailGatewayMutableState($host);
+        expect(array_keys($after))->toBe(array_keys($before));
+        foreach ($before as $path => $content) {
+            if ($path !== 'var/lib/rateguru-mail-gateway/applied-plan.json') {
+                expect($after[$path])->toBe($content, "{$path} changed");
+            }
+        }
+
+        $rerecorded = json_decode(File::get(mailGatewayApplied($host)), true);
+        $expected = $recorded;
+        foreach ($expected['listeners'] as $index => $listener) {
+            if ($listener['identity'] === 'tits-guru') {
+                $expected['listeners'][$index]['lifecycle'] = 'active';
+            }
+        }
+        expect($rerecorded)->toBe($expected);
+        expect(mailGatewayRecordedMode($host))->toBe('outbound');
+
+        // Nothing was reloaded, restarted or stopped.
+        $mutations = substr(mailGatewayLog($host, 'mutations.log'), strlen((string) file_get_contents($host['scratch'].'/mutations-before')));
+        expect($mutations)->not->toContain('reload')->not->toContain('restart')->not->toContain('stop');
+
+        [$verified, $report] = mailGatewayRun($host, '--verify');
+        expect($verified)->toBe(0, $report);
+    } finally {
+        mailGatewayCleanup($host);
+    }
+});
+
 it('refuses Prepare with the stale held configuration after Activate ran: the host keeps delivering', function () {
     // Sequence 2 on the shared host: production was activated, and a host
     // preparation from a bundle that still holds tits-guru — the pre-activation

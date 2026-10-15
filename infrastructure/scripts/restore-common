@@ -268,10 +268,15 @@ restore_validate_identifier() {
 # entry — exactly what a live restore and a host recovery hold aside on purpose
 # — and it orchestrates install-target-operations, which replaces the very
 # scripts a running operation is executing. The two must not overlap in either
-# order, and there is no single lock that can express that, because
-# prepare-host RUNS install-target-operations: a lock held by the parent and
-# re-acquired by the child is denied by flock, which treats independently
-# opened descriptors independently even inside one process tree.
+# order, and no single namespace lock can express that, because prepare-host
+# RUNS install-target-operations: a lock held by the parent and re-acquired by
+# the child is denied by flock, which treats independently opened descriptors
+# independently even inside one process tree.
+#
+# The machine's host-infrastructure lock keeps them apart as well (`common`):
+# Prepare holds it exclusively, and a restore or a recovery holds it shared in
+# --apply and --resume, each for its whole run. This pair stays beneath it,
+# keyed by namespace, so the refusal names the namespace that is busy.
 #
 # So each family owns exactly one lock and CHECKS the other's:
 #

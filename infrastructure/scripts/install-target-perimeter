@@ -58,8 +58,8 @@
 #   * Never touches deployment.conf, the target registry, or the reviewed
 #     backup schedules.
 #   * Never adds a sudoers rule or a backup cron entry for a target that is not
-#     lifecycle=active: tits-guru stays lifecycle=planned, so it has neither,
-#     and this installer does not provision it.
+#     lifecycle=active: a planned or disabled target has neither, and this
+#     installer provisions and activates nothing.
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below — save
 # for two deliberate test seams, both gated behind
@@ -211,10 +211,16 @@ if overrides_allowed && [[ -n "${RATEGURU_VISUDO_BIN:-}" ]]; then
 fi
 
 # A syntactically valid, deliberately fictional restore operation ID for the
-# read-only rateguru-restore probe below. It is never looked up: the probe
-# targets tits-guru, which is rejected as lifecycle=planned before the wrapper
-# execs anything.
+# read-only rateguru-restore probes below. It is never looked up: every probe
+# is refused before the wrapper execs anything.
 WRAPPER_PROBE_OPERATION_ID="19700101-000000-000000"
+
+# The underlying operation every wrapper is pointed at while it is probed: a
+# path no host has. The probes prove each wrapper refuses before it execs, and
+# this makes that safe to prove even against a wrapper that does not — one that
+# wrongly let a probe through would fail to exec it, never run a real deploy,
+# rollback, cleanup or restore.
+WRAPPER_PROBE_UNREACHABLE_BIN="/nonexistent/rateguru-wrapper-probe-never-runs"
 
 WRAPPER_MODE="0755"
 SUDOERS_MODE="0440"
@@ -444,10 +450,8 @@ validate_source_registry() {
 
     grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
         || fail "source registry does not list staging-main as active/staging"
-    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
-        || fail "source registry does not list tits-guru as planned/production"
 
-    log "source registry is valid JSON, passes its own validator, and lists the expected targets"
+    log "source registry is valid JSON, passes its own validator, and lists staging-main as active/staging"
 }
 
 # --- Installed operations bundle staleness guard ----------------------------
@@ -526,11 +530,6 @@ validate_sudoers_syntax() {
         || fail "sudoers file failed visudo -cf: ${path}"
 }
 
-# Confirms the sudoers content grants the staging deploy user access to the
-# four generic wrappers only — the one thing this installer must never do
-# is grant tits-guru's own (unprovisioned) deploy user any access at all,
-# since tits-guru stays lifecycle=planned, or mention any of the six legacy
-# per-environment wrapper names it is responsible for removing.
 # render_sudoers_candidate — the sudoers file this registry describes.
 #
 # The perimeter used to be a committed file naming one account. That was
@@ -564,6 +563,9 @@ render_sudoers_candidate() {
 
         [[ "${deploy_user}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
             || fail "target ${target_id}: deploy_user '${deploy_user}' is not a renderable account name — refusing to render a sudoers rule around it"
+
+        # One blank line between targets, so each target's grant reads as its own.
+        [[ "${target_id}" == "${active[0]}" ]] || printf '\n'
 
         printf 'Defaults:%s !requiretty\n' "${deploy_user}"
         printf '\n'
@@ -986,6 +988,10 @@ wrapper_probe_env() {
         RATEGURU_DEPLOYMENT_CONF_FILE="${SRC_DEPLOYMENT_CONF}" \
         RATEGURU_TARGET_REGISTRY_FILE="${SRC_REGISTRY}" \
         RATEGURU_TARGETS_CLI="${SRC_TARGETS}" \
+        RATEGURU_DEPLOY_BIN="${WRAPPER_PROBE_UNREACHABLE_BIN}" \
+        RATEGURU_ROLLBACK_BIN="${WRAPPER_PROBE_UNREACHABLE_BIN}" \
+        RATEGURU_CLEANUP_BIN="${WRAPPER_PROBE_UNREACHABLE_BIN}" \
+        RATEGURU_RESTORE_TARGET_BIN="${WRAPPER_PROBE_UNREACHABLE_BIN}" \
         "$@"
 }
 
@@ -996,29 +1002,108 @@ verify_wrapper_help() {
     log "${label} --help: OK"
 }
 
+# --- Refusal probes ----------------------------------------------------------
+#
+# Every wrapper must refuse, before it execs anything, a target it may not
+# reach. Which target the probe points it at, and why it must be refused, is
+# read from the registry the probes resolve against and never named here,
+# because which targets are active is the registry's to say:
+#
+#   * the first target, by ID, the registry holds planned or disabled, refused
+#     for its lifecycle by require_active_target — the lifecycle gate itself;
+#   * once every target is active, a target ID the registry does not hold,
+#     refused as unknown by the same gate before any lifecycle is read.
+#
+# The same rule install-target-operations proves its operations by.
+REFUSAL_PROBE_UNKNOWN_TARGET="unregistered-target"
+REFUSAL_PROBE_TARGET=""
+REFUSAL_PROBE_REASON=""
+
+choose_refusal_probe() {
+    local registry="$1" probe
+
+    probe="$(jq -r '
+        [.targets | to_entries[] | select(.value.lifecycle != "active")]
+        | sort_by(.key) | first // empty
+        | [.key, .value.lifecycle] | @tsv' "${registry}")" \
+        || fail "could not read ${registry} to choose a target every wrapper must refuse"
+
+    if [[ -n "${probe}" ]]; then
+        REFUSAL_PROBE_TARGET="${probe%%$'\t'*}"
+        REFUSAL_PROBE_REASON="lifecycle=${probe#*$'\t'}"
+        return 0
+    fi
+
+    jq -e --arg id "${REFUSAL_PROBE_UNKNOWN_TARGET}" '.targets | has($id) | not' "${registry}" >/dev/null \
+        || fail "internal: ${REFUSAL_PROBE_UNKNOWN_TARGET}, the target no registry may hold, is in ${registry}"
+
+    REFUSAL_PROBE_TARGET="${REFUSAL_PROBE_UNKNOWN_TARGET}"
+    REFUSAL_PROBE_REASON="unknown target: ${REFUSAL_PROBE_UNKNOWN_TARGET}"
+}
+
 # A deliberately safe probe: no --help (which would bypass the lifecycle
 # check entirely — see the wrapper's own parse_wrapper_args), and no
 # operation-specific arguments at all. Proves the wrapper's own ordering is
-# root authorization -> caller authorization -> lifecycle=planned rejection
-# -> underlying operation never reached.
+# root authorization -> caller authorization -> target refusal -> underlying
+# operation never reached.
 # Trailing arguments exist for rateguru-restore alone: unlike the other three
 # wrappers, its parser is a closed whitelist that requires a mode before it will
-# accept anything, so `--target tits-guru` on its own would be rejected by
-# argument parsing rather than by the lifecycle check this probe is about. The
-# mode passed is always the READ-ONLY --inspect, with a syntactically valid but
-# entirely fictional operation ID: the point is that require_active_target
-# refuses tits-guru before restore-target is ever reached, so the operation is
-# never looked for and nothing is read, written or restored.
-verify_wrapper_planned_target_rejected() {
+# accept anything, so `--target TARGET` on its own would be rejected by
+# argument parsing rather than by the check this probe is about. The mode
+# passed is always the READ-ONLY --inspect, with a syntactically valid but
+# entirely fictional operation ID: the point is that the wrapper refuses the
+# target before restore-target is ever reached, so the operation is never
+# looked for and nothing is read, written or restored.
+verify_wrapper_refuses_target() {
     local wrapper_path="$1" label="$2"
     shift 2
     local output
-    if output="$(wrapper_probe_env bash "${wrapper_path}" --target tits-guru "$@" 2>&1)"; then
-        fail "${label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+
+    choose_refusal_probe "${SRC_REGISTRY}"
+
+    if output="$(wrapper_probe_env bash "${wrapper_path}" --target "${REFUSAL_PROBE_TARGET}" "$@" 2>&1)"; then
+        fail "${label} --target ${REFUSAL_PROBE_TARGET} unexpectedly succeeded — ${REFUSAL_PROBE_TARGET} must stay rejected"
     fi
-    grep -q 'lifecycle=planned' <<<"${output}" \
-        || fail "${label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${output}"
-    log "${label} --target tits-guru: correctly rejected (lifecycle=planned)"
+    grep -Fq -- "${REFUSAL_PROBE_REASON}" <<<"${output}" \
+        || fail "${label} --target ${REFUSAL_PROBE_TARGET} failed for the wrong reason (expected ${REFUSAL_PROBE_REASON}): ${output}"
+    log "${label} --target ${REFUSAL_PROBE_TARGET}: correctly rejected (${REFUSAL_PROBE_REASON})"
+}
+
+# Every active target's deploy user is refused every OTHER active target, by
+# the wrapper's caller authorization, before the target's lifecycle is even
+# read: one target's restricted credential reaches its own target and nothing
+# else. The sudoers rule lets each deploy user run the four wrappers; this is
+# the half of the perimeter that keeps it to its own target. With one active
+# target there is no other target's deploy user, and that is said rather than
+# passed off as a check. Same trailing arguments as verify_wrapper_refuses_target.
+verify_wrapper_refuses_other_deploy_users() {
+    local wrapper_path="$1" label="$2"
+    shift 2
+    local target_id other_id caller output count=0
+    local -a active=()
+
+    while IFS= read -r target_id; do
+        [[ -n "${target_id}" ]] || continue
+        active+=("${target_id}")
+    done < <(jq -r '[.targets | to_entries[] | select(.value.lifecycle == "active") | .key] | sort[]' "${SRC_REGISTRY}")
+
+    for target_id in "${active[@]}"; do
+        for other_id in "${active[@]}"; do
+            [[ "${other_id}" != "${target_id}" ]] || continue
+
+            caller="$(jq -r --arg id "${other_id}" '.targets[$id].deploy_user' "${SRC_REGISTRY}")"
+
+            if output="$(wrapper_probe_env SUDO_USER="${caller}" bash "${wrapper_path}" --target "${target_id}" "$@" 2>&1)"; then
+                fail "${label} --target ${target_id} called by ${caller}, the deploy user of ${other_id}, unexpectedly succeeded — a deploy user reaches its own target only"
+            fi
+            grep -Fq -- "deploy user ${caller} is not authorized for target ${target_id}" <<<"${output}" \
+                || fail "${label} --target ${target_id} called by ${caller} failed for the wrong reason (expected deploy user ${caller} is not authorized for target ${target_id}): ${output}"
+            log "${label} --target ${target_id} called by ${caller}: correctly refused (the deploy user of ${other_id})"
+            count=$((count + 1))
+        done
+    done
+
+    (( count > 0 )) || log "${label}: one active target, so no other target's deploy user to refuse"
 }
 
 # --- Transactional install/rollback core -------------------------------
@@ -1242,13 +1327,18 @@ verify_runtime_parity() {
     log "verifying runtime parity (safe probes only — never a real deploy/rollback/cleanup/restore)"
 
     verify_wrapper_help "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
-    verify_wrapper_planned_target_rejected "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
+    verify_wrapper_refuses_target "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
+    verify_wrapper_refuses_other_deploy_users "${DST_WRAPPER_DEPLOY}" "rateguru-deploy"
     verify_wrapper_help "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
-    verify_wrapper_planned_target_rejected "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
+    verify_wrapper_refuses_target "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
+    verify_wrapper_refuses_other_deploy_users "${DST_WRAPPER_ROLLBACK}" "rateguru-rollback"
     verify_wrapper_help "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
-    verify_wrapper_planned_target_rejected "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
+    verify_wrapper_refuses_target "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
+    verify_wrapper_refuses_other_deploy_users "${DST_WRAPPER_CLEANUP}" "rateguru-cleanup"
     verify_wrapper_help "${DST_WRAPPER_RESTORE}" "rateguru-restore"
-    verify_wrapper_planned_target_rejected "${DST_WRAPPER_RESTORE}" "rateguru-restore" \
+    verify_wrapper_refuses_target "${DST_WRAPPER_RESTORE}" "rateguru-restore" \
+        --inspect --operation "${WRAPPER_PROBE_OPERATION_ID}"
+    verify_wrapper_refuses_other_deploy_users "${DST_WRAPPER_RESTORE}" "rateguru-restore" \
         --inspect --operation "${WRAPPER_PROBE_OPERATION_ID}"
 
     log "runtime parity verification passed"
@@ -1297,13 +1387,18 @@ verify_staged_candidates() {
     log "  staged wrappers reference generic installed operation paths, never mention --environment, and contain no executable eval/bash -c"
 
     verify_wrapper_help "${staged_deploy}" "staged rateguru-deploy"
-    verify_wrapper_planned_target_rejected "${staged_deploy}" "staged rateguru-deploy"
+    verify_wrapper_refuses_target "${staged_deploy}" "staged rateguru-deploy"
+    verify_wrapper_refuses_other_deploy_users "${staged_deploy}" "staged rateguru-deploy"
     verify_wrapper_help "${staged_rollback}" "staged rateguru-rollback"
-    verify_wrapper_planned_target_rejected "${staged_rollback}" "staged rateguru-rollback"
+    verify_wrapper_refuses_target "${staged_rollback}" "staged rateguru-rollback"
+    verify_wrapper_refuses_other_deploy_users "${staged_rollback}" "staged rateguru-rollback"
     verify_wrapper_help "${staged_cleanup}" "staged rateguru-cleanup"
-    verify_wrapper_planned_target_rejected "${staged_cleanup}" "staged rateguru-cleanup"
+    verify_wrapper_refuses_target "${staged_cleanup}" "staged rateguru-cleanup"
+    verify_wrapper_refuses_other_deploy_users "${staged_cleanup}" "staged rateguru-cleanup"
     verify_wrapper_help "${staged_restore}" "staged rateguru-restore"
-    verify_wrapper_planned_target_rejected "${staged_restore}" "staged rateguru-restore" \
+    verify_wrapper_refuses_target "${staged_restore}" "staged rateguru-restore" \
+        --inspect --operation "${WRAPPER_PROBE_OPERATION_ID}"
+    verify_wrapper_refuses_other_deploy_users "${staged_restore}" "staged rateguru-restore" \
         --inspect --operation "${WRAPPER_PROBE_OPERATION_ID}"
 
     "${VISUDO_BIN}" -cf "${staged_sudoers}" >/dev/null \

@@ -79,10 +79,11 @@
 #     and five copies of each in five privileged scripts is how a restore
 #     ends up trusting a path in one place that another place rejects. Like
 #     common it is installed 0644 and must never be executable.
-#   * tits-guru is not provisioned by this or any other script: it has
-#     lifecycle=planned in the registry, and every target-aware command
-#     rejects it before touching the network or the filesystem. Installing
-#     this tooling does not make tits-guru deployable.
+#   * No target is provisioned or activated by this script. Every
+#     target-aware command refuses a target the registry does not hold
+#     lifecycle=active before touching the network or the filesystem, and a
+#     target becomes active by a reviewed registry change, never by installing
+#     this tooling.
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
@@ -517,10 +518,8 @@ validate_source_registry() {
 
     grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
         || fail "source registry does not list staging-main as active/staging"
-    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
-        || fail "source registry does not list tits-guru as planned/production"
 
-    log "source registry is valid JSON, passes its own validator, and lists the expected targets"
+    log "source registry is valid JSON, passes its own validator, and lists staging-main as active/staging"
 }
 
 run_source_validation() {
@@ -686,142 +685,37 @@ verify_staged_candidates() {
         || fail "staged cleanup --target staging-main --dry-run failed:"$'\n'"${staged_cleanup_target_output}"
     log "  staged cleanup --target staging-main --dry-run: OK"
 
-    # deploy is never run for real here — no artifact exists to deploy, and
-    # doing so would mutate the real staging target during what must stay a
-    # read-only preflight. --help was already proven above (no root-gated
-    # mutation reachable); only the tits-guru lifecycle rejection (fails
-    # before any filesystem access) remains to prove against the staged
-    # candidate. This whole apply run already runs as root (perform_apply is
-    # only reached via run_apply, which requires root), so staged_deploy's
-    # own require_root passes here exactly as it would in production.
+    # Every operation refuses a target it may not act on before it touches
+    # anything, and the staged copies are proved to against the staged
+    # registry: choose_refusal_probe reads which target to point them at, and
+    # the reason each must refuse it for, from that registry. None is ever run
+    # for real — deploying, rolling back, backing up or restoring would mutate
+    # a real target during what must stay a read-only preflight. Each gets
+    # otherwise-complete, deliberately unusable arguments, so a refusal can
+    # only come from the target gate: never from a missing flag, an artifact
+    # that does not exist, a backup ID or a workspace. This whole apply run
+    # already runs as root, so each staged script's own require_root passes
+    # here exactly as it would in production.
+    #
+    # Each command is *expected* to fail. The trap armed by perform_apply is
+    # still inherited into its subshell (see the MAIN_BASHPID comment on
+    # on_apply_error), but that handler recognizes it isn't running in the
+    # main process and exits quietly without side effects, so the expected
+    # failure is captured exactly like any other.
+    choose_refusal_probe "${staged_registry}"
 
-    # This command is *expected* to fail. The trap armed by perform_apply is
-    # still inherited into this subshell (see the MAIN_BASHPID comment on
-    # on_apply_error), but that handler now recognizes it isn't running in
-    # the main process and exits quietly without side effects, so this
-    # expected failure is captured exactly like any other.
-    local planned_output
-    if planned_output="$("${override_env[@]}" bash "${staged_health_check}" --target tits-guru 2>&1)"; then
-        fail "staged health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "staged health-check --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "  staged health-check --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    local staged_cleanup_planned_output
-    if staged_cleanup_planned_output="$("${override_env[@]}" bash "${staged_cleanup}" --target tits-guru --dry-run 2>&1)"; then
-        fail "staged cleanup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_cleanup_planned_output}" \
-        || fail "staged cleanup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_cleanup_planned_output}"
-    log "  staged cleanup --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # A deliberately unusable artifact path: proves rejection happens at the
-    # lifecycle gate, never reaching (and never failing on) artifact
-    # validation — root authorization -> lifecycle=planned rejection -> no
-    # filesystem validation, the same ordering DeployTest.php proves in
-    # depth.
-    local staged_deploy_planned_output
-    if staged_deploy_planned_output="$("${override_env[@]}" bash "${staged_deploy}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 --artifact /definitely/missing.tar.gz 2>&1)"; then
-        fail "staged deploy --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_deploy_planned_output}" \
-        || fail "staged deploy --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_deploy_planned_output}"
-    log "  staged deploy --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # rollback is never run for real here either — no releases exist to roll
-    # back to, and doing so would mutate the real staging target during what
-    # must stay a read-only preflight. --help was already proven above; only
-    # the tits-guru lifecycle rejection remains, mirroring deploy's own
-    # staged checks above exactly. This apply run already runs as root, so
-    # staged_rollback's own require_root passes here exactly as it would in
-    # production.
-    local staged_rollback_planned_output
-    if staged_rollback_planned_output="$("${override_env[@]}" bash "${staged_rollback}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 2>&1)"; then
-        fail "staged rollback --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_rollback_planned_output}" \
-        || fail "staged rollback --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_rollback_planned_output}"
-    log "  staged rollback --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # backup and restore-test are never run for real here either — no local
-    # backup exists yet, and doing so would mutate the real staging target's
-    # database dump/storage archive/backup namespace during what must stay a
-    # read-only preflight. --help was already proven above; only the
-    # tits-guru lifecycle rejection remains, mirroring deploy/rollback's own
-    # staged checks above exactly. This apply run already runs as root, so
-    # both staged scripts' own require_root passes here exactly as it would
-    # in production.
-    local staged_backup_planned_output
-    if staged_backup_planned_output="$("${override_env[@]}" bash "${staged_backup}" --target tits-guru 2>&1)"; then
-        fail "staged backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_backup_planned_output}" \
-        || fail "staged backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_backup_planned_output}"
-    log "  staged backup --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    local staged_restore_test_planned_output
-    if staged_restore_test_planned_output="$("${override_env[@]}" bash "${staged_restore_test}" --target tits-guru 2>&1)"; then
-        fail "staged restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_restore_test_planned_output}" \
-        || fail "staged restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_restore_test_planned_output}"
-    log "  staged restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # offsite-backup, offsite-retention and offsite-restore-test are never run
-    # for real here either — no B2 access, no remote listing, no local backup
-    # mutation, no database work. --help was already proven above; only the
-    # tits-guru lifecycle rejection remains, mirroring backup/restore-test's
-    # own staged checks above exactly.
-    local staged_offsite_backup_planned_output
-    if staged_offsite_backup_planned_output="$("${override_env[@]}" bash "${staged_offsite_backup}" --target tits-guru 2>&1)"; then
-        fail "staged offsite-backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_offsite_backup_planned_output}" \
-        || fail "staged offsite-backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_backup_planned_output}"
-    log "  staged offsite-backup --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    local staged_offsite_retention_planned_output
-    if staged_offsite_retention_planned_output="$("${override_env[@]}" bash "${staged_offsite_retention}" --target tits-guru 2>&1)"; then
-        fail "staged offsite-retention --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_offsite_retention_planned_output}" \
-        || fail "staged offsite-retention --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_retention_planned_output}"
-    log "  staged offsite-retention --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    local staged_offsite_restore_test_planned_output
-    if staged_offsite_restore_test_planned_output="$("${override_env[@]}" bash "${staged_offsite_restore_test}" --target tits-guru 2>&1)"; then
-        fail "staged offsite-restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_offsite_restore_test_planned_output}" \
-        || fail "staged offsite-restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_offsite_restore_test_planned_output}"
-    log "  staged offsite-restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # backup-cycle is never run for real here either — a real cycle would
-    # create a local backup, run a restore test, upload offsite and apply
-    # real retention against the real staging-main target, which must stay
-    # untouched by what is meant to be a read-only preflight. --help was
-    # already proven above; only the tits-guru lifecycle rejection remains,
-    # mirroring every other mutating operational script's own staged checks
-    # above exactly.
-    local staged_backup_cycle_planned_output
-    if staged_backup_cycle_planned_output="$("${override_env[@]}" bash "${staged_backup_cycle}" --target tits-guru 2>&1)"; then
-        fail "staged backup-cycle --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${staged_backup_cycle_planned_output}" \
-        || fail "staged backup-cycle --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_backup_cycle_planned_output}"
-    log "  staged backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)"
-
-    # The five restore primitives are never run for real here
-    # either — a real restore would download a backup, create a temporary
-    # database, quiesce the target and swap its live data, none of which
-    # belongs in a read-only preflight. --help was already proven above; only
-    # the tits-guru lifecycle rejection remains. Each is invoked with
-    # otherwise-complete, deliberately unusable arguments, so a rejection can
-    # only come from the lifecycle gate — never from a missing flag, a bad
-    # backup ID, or a workspace that does not exist.
-    local staged_entry staged_planned_output
+    local staged_entry
     for staged_entry in \
+        "${staged_health_check}|health-check" \
+        "${staged_cleanup}|cleanup|--dry-run" \
+        "${staged_deploy}|deploy|--release|v0.0.0-20260101-000000-abc0000|--artifact|/definitely/missing.tar.gz" \
+        "${staged_rollback}|rollback|--release|v0.0.0-20260101-000000-abc0000" \
+        "${staged_backup}|backup" \
+        "${staged_restore_test}|restore-test" \
+        "${staged_offsite_backup}|offsite-backup" \
+        "${staged_offsite_retention}|offsite-retention" \
+        "${staged_offsite_restore_test}|offsite-restore-test" \
+        "${staged_backup_cycle}|backup-cycle" \
         "${staged_fetch_backup}|fetch-backup|--source|local|--backup|20260101-000000" \
         "${staged_verify_backup}|verify-backup|--operation|20260101-000000-abcdef" \
         "${staged_restore_database}|restore-database|--operation|20260101-000000-abcdef|--stage" \
@@ -832,21 +726,9 @@ verify_staged_candidates() {
         local -a staged_fields=()
         IFS='|' read -r -a staged_fields <<<"${staged_entry}"
 
-        local staged_script="${staged_fields[0]}"
-        local staged_label="${staged_fields[1]}"
-        local -a staged_extra_args=("${staged_fields[@]:2}")
-
-        if staged_planned_output="$(
-            "${override_env[@]}" bash "${staged_script}" \
-                --target tits-guru "${staged_extra_args[@]}" 2>&1
-        )"; then
-            fail "staged ${staged_label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-        fi
-
-        grep -q 'lifecycle=planned' <<<"${staged_planned_output}" \
-            || fail "staged ${staged_label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${staged_planned_output}"
-
-        log "  staged ${staged_label} --target tits-guru: correctly rejected (lifecycle=planned)"
+        expect_refusal "staged ${staged_fields[1]}" "  staged ${staged_fields[1]}" \
+            "${override_env[@]}" bash "${staged_fields[0]}" \
+            --target "${REFUSAL_PROBE_TARGET}" "${staged_fields[@]:2}"
     done
 
     log "staged candidates verified"
@@ -1261,9 +1143,7 @@ verify_installed_files() {
         || fail "installed targets CLI could not list the installed registry"
     grep -Fxq "$(printf 'staging-main\tactive\tstaging')" <<<"${listing}" \
         || fail "installed registry does not list staging-main as active/staging"
-    grep -Fxq "$(printf 'tits-guru\tplanned\tproduction')" <<<"${listing}" \
-        || fail "installed registry does not list tits-guru as planned/production"
-    log "  installed targets list: OK (staging-main active/staging, tits-guru planned/production)"
+    log "  installed targets list: OK (staging-main active/staging)"
 
     log "installed-file verification passed"
 }
@@ -1320,19 +1200,73 @@ verify_status() {
     log "status reports Status: healthy"
 }
 
-verify_planned_target_rejected() {
-    # See the matching comment in verify_staged_candidates and on_apply_error:
-    # this expected failure is safe to run inside a plain command
-    # substitution — the main-process-only guard on the active trap handler
-    # (on_apply_error during apply, on_verify_error during --verify) means it
-    # can never be mistaken for a fatal one from inside the subshell.
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_HEALTH_CHECK}" --target tits-guru 2>&1)"; then
-        fail "installed health-check --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
+# --- Refusal probes ---------------------------------------------------------------
+#
+# Every operation must refuse a target it may not act on before it touches
+# anything. Which target the probes point it at, and why it must be refused,
+# is read from the registry the operation itself reads — the staged one for the
+# staged copies, the installed one for the installed copies — and never named
+# here, because which targets are active is the registry's to say:
+#
+#   * the first target, by ID, the registry holds planned or disabled, refused
+#     for its lifecycle by require_active_target — the lifecycle gate itself;
+#   * once every target is active, a target ID the registry does not hold,
+#     refused as unknown by the same gate before any lifecycle is read.
+#
+# So a planned target, whenever one exists, is proved refused; and with none,
+# the probe still proves the gate is the first thing every operation runs.
+# Neither can reach an active target's data.
+REFUSAL_PROBE_UNKNOWN_TARGET="unregistered-target"
+REFUSAL_PROBE_TARGET=""
+REFUSAL_PROBE_REASON=""
+
+choose_refusal_probe() {
+    local registry="$1" probe
+
+    probe="$(jq -r '
+        [.targets | to_entries[] | select(.value.lifecycle != "active")]
+        | sort_by(.key) | first // empty
+        | [.key, .value.lifecycle] | @tsv' "${registry}")" \
+        || fail "could not read ${registry} to choose a target every operation must refuse"
+
+    if [[ -n "${probe}" ]]; then
+        REFUSAL_PROBE_TARGET="${probe%%$'\t'*}"
+        REFUSAL_PROBE_REASON="lifecycle=${probe#*$'\t'}"
+        return 0
     fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed health-check --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "health-check --target tits-guru: correctly rejected (lifecycle=planned)"
+
+    jq -e --arg id "${REFUSAL_PROBE_UNKNOWN_TARGET}" '.targets | has($id) | not' "${registry}" >/dev/null \
+        || fail "internal: ${REFUSAL_PROBE_UNKNOWN_TARGET}, the target no registry may hold, is in ${registry}"
+
+    REFUSAL_PROBE_TARGET="${REFUSAL_PROBE_UNKNOWN_TARGET}"
+    REFUSAL_PROBE_REASON="unknown target: ${REFUSAL_PROBE_UNKNOWN_TARGET}"
+}
+
+# expect_refusal FAIL_LABEL LOG_LABEL COMMAND... — COMMAND, pointed at
+# REFUSAL_PROBE_TARGET, must fail, and for REFUSAL_PROBE_REASON.
+#
+# The expected failure is safe inside a plain command substitution: the
+# main-process-only guard on the active trap handler (on_apply_error during
+# apply, on_verify_error during --verify) means it can never be mistaken for a
+# fatal one from inside the subshell.
+expect_refusal() {
+    local fail_label="$1" log_label="$2" output
+    shift 2
+
+    if output="$("$@" 2>&1)"; then
+        fail "${fail_label} --target ${REFUSAL_PROBE_TARGET} unexpectedly succeeded — ${REFUSAL_PROBE_TARGET} must stay rejected"
+    fi
+
+    grep -Fq -- "${REFUSAL_PROBE_REASON}" <<<"${output}" \
+        || fail "${fail_label} --target ${REFUSAL_PROBE_TARGET} failed for the wrong reason (expected ${REFUSAL_PROBE_REASON}): ${output}"
+
+    log "${log_label} --target ${REFUSAL_PROBE_TARGET}: correctly rejected (${REFUSAL_PROBE_REASON})"
+}
+
+verify_health_check_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed health-check" "health-check" \
+        no_overrides_env "${DST_HEALTH_CHECK}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 # cleanup --dry-run only, exactly like verify_staged_candidates above —
@@ -1345,14 +1279,10 @@ verify_cleanup_dry_run() {
     log "cleanup --target staging-main --dry-run: OK"
 }
 
-verify_cleanup_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_CLEANUP}" --target tits-guru --dry-run 2>&1)"; then
-        fail "installed cleanup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed cleanup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "cleanup --target tits-guru: correctly rejected (lifecycle=planned)"
+verify_cleanup_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed cleanup" "cleanup" \
+        no_overrides_env "${DST_CLEANUP}" --target "${REFUSAL_PROBE_TARGET}" --dry-run
 }
 
 # Deploy --help only — never a real deployment. This
@@ -1368,17 +1298,14 @@ verify_deploy_help() {
 }
 
 # A deliberately unusable artifact path: proves the installed deploy's
-# ordering is root authorization -> lifecycle=planned rejection -> no
-# filesystem validation reached — never "artifact missing" or any other
-# validation error.
-verify_deploy_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_DEPLOY}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 --artifact /definitely/missing.tar.gz 2>&1)"; then
-        fail "installed deploy --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed deploy --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "deploy --target tits-guru: correctly rejected (lifecycle=planned)"
+# ordering is root authorization -> target refusal -> no filesystem
+# validation reached — never "artifact missing" or any other validation
+# error.
+verify_deploy_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed deploy" "deploy" \
+        no_overrides_env "${DST_DEPLOY}" --target "${REFUSAL_PROBE_TARGET}" \
+        --release v0.0.0-20260101-000000-abc0000 --artifact /definitely/missing.tar.gz
 }
 
 # Rollback --help only — never a real rollback. This
@@ -1393,18 +1320,14 @@ verify_rollback_help() {
 }
 
 # A deliberately unusable release ID: proves the installed rollback's
-# ordering is root authorization -> lifecycle=planned rejection -> no
-# filesystem, lock or history work reached — never "current symlink does not
-# exist" or any other validation error, mirroring
-# verify_deploy_planned_target_rejected exactly.
-verify_rollback_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_ROLLBACK}" --target tits-guru --release v0.0.0-20260101-000000-abc0000 2>&1)"; then
-        fail "installed rollback --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed rollback --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "rollback --target tits-guru: correctly rejected (lifecycle=planned)"
+# ordering is root authorization -> target refusal -> no filesystem, lock or
+# history work reached — never "current symlink does not exist" or any other
+# validation error, mirroring verify_deploy_refusal exactly.
+verify_rollback_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed rollback" "rollback" \
+        no_overrides_env "${DST_ROLLBACK}" --target "${REFUSAL_PROBE_TARGET}" \
+        --release v0.0.0-20260101-000000-abc0000
 }
 
 # Backup/restore-test --help only — never a real backup or
@@ -1418,19 +1341,14 @@ verify_backup_help() {
     log "backup --help: OK"
 }
 
-# A deliberately unusable target: proves the installed backup's ordering is
-# root authorization -> lifecycle=planned rejection -> no backup root, lock,
-# database binary or filesystem work ever reached, mirroring
-# verify_deploy_planned_target_rejected/verify_rollback_planned_target_rejected
-# exactly.
-verify_backup_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_BACKUP}" --target tits-guru 2>&1)"; then
-        fail "installed backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "backup --target tits-guru: correctly rejected (lifecycle=planned)"
+# A target it must refuse: proves the installed backup's ordering is root
+# authorization -> target refusal -> no backup root, lock, database binary or
+# filesystem work ever reached, mirroring verify_deploy_refusal and
+# verify_rollback_refusal exactly.
+verify_backup_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed backup" "backup" \
+        no_overrides_env "${DST_BACKUP}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 verify_restore_test_help() {
@@ -1439,14 +1357,10 @@ verify_restore_test_help() {
     log "restore-test --help: OK"
 }
 
-verify_restore_test_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_RESTORE_TEST}" --target tits-guru 2>&1)"; then
-        fail "installed restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
+verify_restore_test_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed restore-test" "restore-test" \
+        no_overrides_env "${DST_RESTORE_TEST}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 # Offsite-backup/offsite-retention/offsite-restore-test
@@ -1461,18 +1375,14 @@ verify_offsite_backup_help() {
     log "offsite-backup --help: OK"
 }
 
-# A deliberately unusable target: proves the installed offsite-backup's
-# ordering is root authorization -> lifecycle=planned rejection -> no rclone
-# config check, remote listing, local backup root, lock or filesystem work
-# ever reached, mirroring verify_backup_planned_target_rejected exactly.
-verify_offsite_backup_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_OFFSITE_BACKUP}" --target tits-guru 2>&1)"; then
-        fail "installed offsite-backup --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed offsite-backup --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "offsite-backup --target tits-guru: correctly rejected (lifecycle=planned)"
+# A target it must refuse: proves the installed offsite-backup's ordering is
+# root authorization -> target refusal -> no rclone config check, remote
+# listing, local backup root, lock or filesystem work ever reached, mirroring
+# verify_backup_refusal exactly.
+verify_offsite_backup_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed offsite-backup" "offsite-backup" \
+        no_overrides_env "${DST_OFFSITE_BACKUP}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 verify_offsite_retention_help() {
@@ -1481,14 +1391,10 @@ verify_offsite_retention_help() {
     log "offsite-retention --help: OK"
 }
 
-verify_offsite_retention_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_OFFSITE_RETENTION}" --target tits-guru 2>&1)"; then
-        fail "installed offsite-retention --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed offsite-retention --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "offsite-retention --target tits-guru: correctly rejected (lifecycle=planned)"
+verify_offsite_retention_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed offsite-retention" "offsite-retention" \
+        no_overrides_env "${DST_OFFSITE_RETENTION}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 verify_offsite_restore_test_help() {
@@ -1497,14 +1403,10 @@ verify_offsite_restore_test_help() {
     log "offsite-restore-test --help: OK"
 }
 
-verify_offsite_restore_test_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_OFFSITE_RESTORE_TEST}" --target tits-guru 2>&1)"; then
-        fail "installed offsite-restore-test --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed offsite-restore-test --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "offsite-restore-test --target tits-guru: correctly rejected (lifecycle=planned)"
+verify_offsite_restore_test_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed offsite-restore-test" "offsite-restore-test" \
+        no_overrides_env "${DST_OFFSITE_RESTORE_TEST}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
 # Backup-cycle --help only — never a real cycle. This
@@ -1518,23 +1420,17 @@ verify_backup_cycle_help() {
     log "backup-cycle --help: OK"
 }
 
-# A deliberately unusable target: proves the installed backup-cycle's
-# ordering is root authorization -> lifecycle=planned rejection -> no lock
-# root, lock file, or child command ever reached, mirroring
-# verify_offsite_backup_planned_target_rejected and every earlier
-# planned-target check exactly.
-verify_backup_cycle_planned_target_rejected() {
-    local planned_output
-    if planned_output="$(no_overrides_env "${DST_BACKUP_CYCLE}" --target tits-guru 2>&1)"; then
-        fail "installed backup-cycle --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-    fi
-    grep -q 'lifecycle=planned' <<<"${planned_output}" \
-        || fail "installed backup-cycle --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-    log "backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)"
+# A target it must refuse: proves the installed backup-cycle's ordering is
+# root authorization -> target refusal -> no lock root, lock file, or child
+# command ever reached, mirroring verify_offsite_backup_refusal and every
+# earlier refusal probe exactly.
+verify_backup_cycle_refusal() {
+    choose_refusal_probe "${DST_REGISTRY}"
+    expect_refusal "installed backup-cycle" "backup-cycle" \
+        no_overrides_env "${DST_BACKUP_CYCLE}" --target "${REFUSAL_PROBE_TARGET}"
 }
 
-# The five restore primitives, --help and the tits-guru lifecycle
-# rejection only — never a real fetch, verification, stage, activation or
+# The five restore primitives, --help and the target refusal only — never a real fetch, verification, stage, activation or
 # restore. A real invocation would download a backup, create a temporary
 # database, quiesce the target and swap its live data; none of that belongs
 # in an installer's verification pass. This installer's own --apply/--verify
@@ -1542,7 +1438,7 @@ verify_backup_cycle_planned_target_rejected() {
 # exactly as it would in production.
 #
 # Driven from one table rather than ten near-identical function pairs: these
-# five share a single contract (root -> lifecycle rejection -> no workspace,
+# five share a single contract (root -> target refusal -> no workspace,
 # no download, no database), and ten copies of the same six lines is exactly
 # the duplication this bundle keeps eliminating elsewhere.
 RESTORE_PRIMITIVE_CHECKS=(
@@ -1588,12 +1484,14 @@ verify_restore_primitive_help() {
 }
 
 # Deliberately unusable-but-complete arguments: a rejection can then only come
-# from the lifecycle gate, never from a missing flag, a malformed backup ID or
+# from the target gate, never from a missing flag, a malformed backup ID or
 # a workspace that does not exist — the same ordering proof
-# verify_deploy_planned_target_rejected makes for deploy.
-verify_restore_primitive_planned_target_rejected() {
-    local entry label path planned_output
+# verify_deploy_refusal makes for deploy.
+verify_restore_primitive_refusal() {
+    local entry label path
     local -a fields=() extra_args=()
+
+    choose_refusal_probe "${DST_REGISTRY}"
 
     for entry in "${RESTORE_PRIMITIVE_CHECKS[@]}"; do
         IFS='|' read -r -a fields <<<"${entry}"
@@ -1601,21 +1499,15 @@ verify_restore_primitive_planned_target_rejected() {
         extra_args=("${fields[@]:1}")
         path="$(restore_primitive_path "${label}")"
 
-        if planned_output="$(no_overrides_env "${path}" --target tits-guru "${extra_args[@]}" 2>&1)"; then
-            fail "installed ${label} --target tits-guru unexpectedly succeeded — tits-guru must stay rejected"
-        fi
-
-        grep -q 'lifecycle=planned' <<<"${planned_output}" \
-            || fail "installed ${label} --target tits-guru failed for the wrong reason (expected lifecycle=planned): ${planned_output}"
-
-        log "${label} --target tits-guru: correctly rejected (lifecycle=planned)"
+        expect_refusal "installed ${label}" "${label}" \
+            no_overrides_env "${path}" --target "${REFUSAL_PROBE_TARGET}" "${extra_args[@]}"
     done
 }
 
 # deploy invokes the installed verify-required-clis by absolute path on every
 # deployment, before current is ever switched, so "it is installed and it
 # runs" is a deployment prerequisite rather than a nicety. There is no
-# planned-target counterpart: this script is not target-aware.
+# refusal counterpart: this script is not target-aware.
 verify_required_clis_help() {
     local usage_output
     usage_output="$(no_overrides_env "${DST_VERIFY_REQUIRED_CLIS}" --help 2>&1)" \
@@ -1632,27 +1524,27 @@ verify_runtime_parity() {
     log "verifying runtime behaviour against the real host (no test overrides)"
     verify_target_health
     verify_status
-    verify_planned_target_rejected
+    verify_health_check_refusal
     verify_cleanup_dry_run
-    verify_cleanup_planned_target_rejected
+    verify_cleanup_refusal
     verify_deploy_help
-    verify_deploy_planned_target_rejected
+    verify_deploy_refusal
     verify_rollback_help
-    verify_rollback_planned_target_rejected
+    verify_rollback_refusal
     verify_backup_help
-    verify_backup_planned_target_rejected
+    verify_backup_refusal
     verify_restore_test_help
-    verify_restore_test_planned_target_rejected
+    verify_restore_test_refusal
     verify_offsite_backup_help
-    verify_offsite_backup_planned_target_rejected
+    verify_offsite_backup_refusal
     verify_offsite_retention_help
-    verify_offsite_retention_planned_target_rejected
+    verify_offsite_retention_refusal
     verify_offsite_restore_test_help
-    verify_offsite_restore_test_planned_target_rejected
+    verify_offsite_restore_test_refusal
     verify_backup_cycle_help
-    verify_backup_cycle_planned_target_rejected
+    verify_backup_cycle_refusal
     verify_restore_primitive_help
-    verify_restore_primitive_planned_target_rejected
+    verify_restore_primitive_refusal
     verify_target_prerequisites_help
     verify_required_clis_help
     log "runtime parity verification passed"
@@ -1922,7 +1814,7 @@ STAGE_DIR=""
 # set -E means every ERR/EXIT trap armed below is inherited by every $(...)
 # command substitution's subshell for as long as it stays armed — including
 # ones whose command can genuinely, unexpectedly fail (not just the
-# deliberately-failing tits-guru checks). Without this guard, an ordinary
+# deliberately-failing refusal probes). Without this guard, an ordinary
 # failure inside any command substitution after files are installed would
 # run rollback twice: once prematurely inside that subshell, and once more
 # when the real failure reaches this same trap in the main process. Recording
@@ -2164,68 +2056,68 @@ perform_verify() {
     log "--- status ---"
     verify_status
 
-    log "--- planned-target rejection ---"
-    verify_planned_target_rejected
+    log "--- refusal ---"
+    verify_health_check_refusal
 
     log "--- cleanup dry-run ---"
     verify_cleanup_dry_run
 
-    log "--- cleanup planned-target rejection ---"
-    verify_cleanup_planned_target_rejected
+    log "--- cleanup refusal ---"
+    verify_cleanup_refusal
 
     log "--- deploy help ---"
     verify_deploy_help
 
-    log "--- deploy planned-target rejection ---"
-    verify_deploy_planned_target_rejected
+    log "--- deploy refusal ---"
+    verify_deploy_refusal
 
     log "--- rollback help ---"
     verify_rollback_help
 
-    log "--- rollback planned-target rejection ---"
-    verify_rollback_planned_target_rejected
+    log "--- rollback refusal ---"
+    verify_rollback_refusal
 
     log "--- backup help ---"
     verify_backup_help
 
-    log "--- backup planned-target rejection ---"
-    verify_backup_planned_target_rejected
+    log "--- backup refusal ---"
+    verify_backup_refusal
 
     log "--- restore-test help ---"
     verify_restore_test_help
 
-    log "--- restore-test planned-target rejection ---"
-    verify_restore_test_planned_target_rejected
+    log "--- restore-test refusal ---"
+    verify_restore_test_refusal
 
     log "--- offsite-backup help ---"
     verify_offsite_backup_help
 
-    log "--- offsite-backup planned-target rejection ---"
-    verify_offsite_backup_planned_target_rejected
+    log "--- offsite-backup refusal ---"
+    verify_offsite_backup_refusal
 
     log "--- offsite-retention help ---"
     verify_offsite_retention_help
 
-    log "--- offsite-retention planned-target rejection ---"
-    verify_offsite_retention_planned_target_rejected
+    log "--- offsite-retention refusal ---"
+    verify_offsite_retention_refusal
 
     log "--- offsite-restore-test help ---"
     verify_offsite_restore_test_help
 
-    log "--- offsite-restore-test planned-target rejection ---"
-    verify_offsite_restore_test_planned_target_rejected
+    log "--- offsite-restore-test refusal ---"
+    verify_offsite_restore_test_refusal
 
     log "--- backup-cycle help ---"
     verify_backup_cycle_help
 
-    log "--- backup-cycle planned-target rejection ---"
-    verify_backup_cycle_planned_target_rejected
+    log "--- backup-cycle refusal ---"
+    verify_backup_cycle_refusal
 
     log "--- restore primitive help ---"
     verify_restore_primitive_help
 
-    log "--- restore primitive planned-target rejection ---"
-    verify_restore_primitive_planned_target_rejected
+    log "--- restore primitive refusal ---"
+    verify_restore_primitive_refusal
 
     log "--- install-target-prerequisites help ---"
     verify_target_prerequisites_help

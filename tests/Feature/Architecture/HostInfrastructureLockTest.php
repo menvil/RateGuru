@@ -13,6 +13,14 @@ use Illuminate\Support\Facades\File;
  * the same machine in parallel. GitHub concurrency groups do not close it
  * either: two GitHub Environments can address one host, so the authoritative
  * answer has to live where the mutation happens.
+ *
+ * Two modes on that one file. The host-level operations take it EXCLUSIVELY,
+ * so they run alone; every target operation — deploy, rollback, cleanup,
+ * restore, recovery, the backup family — holds it SHARED for its whole run, so
+ * no host-level operation converges the machine underneath one, while two
+ * targets' operations still run side by side. The behaviour is proved here by
+ * running real operations at the same time, and against Prepare Host in
+ * PrepareHostOrchestratorTest.
  */
 function hostLockScripts(): array
 {
@@ -118,24 +126,82 @@ it('is never taken by an installer a locking orchestrator invokes', function (st
     'bootstrap-host',
 ]);
 
-it('leaves per-target operations keyed by their own target', function (string $script) {
-    // Deploy and rollback must NOT serialize against another target's
-    // deployment: widening them to an exclusive machine lock would turn every
-    // unrelated deploy into a queue.
-    //
-    // This is therefore a deliberate limit, not a closed race. A host-global
-    // mutator and a target-only one can still overlap — "Prepare tits-guru"
-    // against "Deploy staging-main" — and closing that needs a shared/exclusive
-    // model where these take the machine SHARED and the host-global operations
-    // take it exclusively. That change audits every target mutation and lands
-    // separately, before tits-guru is activated. What is asserted here is only
-    // that this work did not widen them in the meantime.
-    $source = hostLockSource($script);
+it('is taken shared by every target-only mutator, before its own target or namespace lock', function (string $script, string $evidence, ?string $ownLock) {
+    // The other mode. Each of these changes or reads one target through the
+    // shared services and the installed bundle, so it holds the machine
+    // SHARED for its whole run: a host-level operation refuses while it runs,
+    // and it refuses while one does — but two of them never exclude each other
+    // through this lock, so independent targets still deploy, restore and back
+    // up side by side.
+    $source = executableSourceLines(hostLockSource($script));
 
-    expect($source)
-        ->toContain('acquire_deployment_lock')
-        ->not->toContain('host-infrastructure.lock');
-})->with(['deploy', 'rollback']);
+    $shared = mb_strpos($source, $evidence);
+
+    expect($shared)->not->toBeFalse("{$script} must hold the machine shared");
+
+    if ($ownLock === null) {
+        // The evidence carries the order itself: acquire_deployment_lock
+        // shares the machine first (asserted of common below), and the
+        // restore and recovery entry points take it on the line right above
+        // their own lock.
+        return;
+    }
+
+    $own = mb_strpos($source, $ownLock);
+
+    expect($own)->not->toBeFalse("{$script} must still take its own lock");
+    expect($shared)->toBeLessThan($own, "{$script} must take the machine before its own lock");
+})->with([
+    // Through acquire_deployment_lock in common, which shares the machine first.
+    'deploy' => ['deploy', 'acquire_deployment_lock "${TARGET_ROOT}"', null],
+    'rollback' => ['rollback', 'acquire_deployment_lock "${TARGET_ROOT}"', null],
+    'cleanup' => ['cleanup', 'acquire_deployment_lock "${TARGET_ROOT}"', null],
+    'record-nightwatch-deployment' => ['record-nightwatch-deployment', 'acquire_deployment_lock "${TARGET_ROOT}"', null],
+    // Directly, ahead of their own namespace locks.
+    'restore-target --apply' => ['restore-target', "share_host_infrastructure_lock \"restore-target --apply\"\n    acquire_restore_operation_lock\n", null],
+    'restore-target --resume' => ['restore-target', "share_host_infrastructure_lock \"restore-target --resume\"\n    acquire_restore_operation_lock\n", null],
+    'recover-host --apply' => ['recover-host', "share_host_infrastructure_lock \"recover-host --apply\"\n    acquire_recovery_operation_lock\n", null],
+    'recover-host --resume' => ['recover-host', "share_host_infrastructure_lock \"recover-host --resume\"\n    acquire_recovery_operation_lock\n", null],
+    'backup' => ['backup', 'share_host_infrastructure_lock "backup"', 'exec 9>"${LOCK_FILE}"'],
+    'backup-cycle' => ['backup-cycle', 'share_host_infrastructure_lock "backup-cycle"', 'exec 9>"${LOCK_FILE}"'],
+    'restore-test' => ['restore-test', 'share_host_infrastructure_lock "restore-test"', 'exec 9>"${LOCK_FILE}"'],
+    'offsite-backup' => ['offsite-backup', 'share_host_infrastructure_lock "offsite-backup"', 'exec 9>"${LOCK_FILE}"'],
+    'offsite-retention' => ['offsite-retention', 'share_host_infrastructure_lock "offsite-retention --apply"', 'exec 9>"${LOCK_FILE}"'],
+    'offsite-restore-test' => ['offsite-restore-test', 'share_host_infrastructure_lock "offsite-restore-test"', 'exec 9>"${LOCK_FILE}"'],
+    'fetch-backup' => ['fetch-backup', 'share_host_infrastructure_lock "fetch-backup"', 'exec 203>'],
+]);
+
+it('shares the machine inside acquire_deployment_lock, ahead of the deployment lock itself', function () {
+    $common = hostLockSource('common');
+
+    preg_match('/^acquire_deployment_lock\(\) \{\n(.*?)\n\}/ms', $common, $match);
+
+    expect($match)->not->toBe([], 'common must define acquire_deployment_lock');
+
+    $shared = mb_strpos($match[1], 'share_host_infrastructure_lock');
+    $deployment = mb_strpos($match[1], 'exec 200>');
+
+    expect($shared)->not->toBeFalse();
+    expect($deployment)->not->toBeFalse();
+    expect($shared)->toBeLessThan($deployment);
+});
+
+it('leaves the read-only restore and recovery modes off the machine lock', function () {
+    // deploy asks restore-target --inspect and recover-host --inspect a
+    // question while holding the machine itself, and recover-host asks
+    // prepare-host --verify one. Only --apply and --resume take it.
+    foreach (['restore-target', 'recover-host'] as $script) {
+        $source = hostLockSource($script);
+
+        expect(substr_count($source, 'share_host_infrastructure_lock'))
+            ->toBe(2, "{$script} must hold the machine in --apply and --resume only");
+
+        preg_match('/^perform_inspect\(\) \{\n(.*?)\n\}/ms', $source, $inspect);
+
+        expect($inspect)->not->toBe([]);
+        expect($inspect[1])->not->toContain('share_host_infrastructure_lock');
+    }
+});
 
 it('takes the machine before the target, so two operations cannot wedge', function () {
     // repair-target holds both. Opposite orders in two runs is how a deadlock
@@ -160,3 +226,201 @@ it('keeps the restore and recovery interlocks exactly as they were', function ()
     expect(File::get(base_path('infrastructure/scripts/restore-common')))
         ->toContain('assert_no_host_preparation_running');
 });
+
+// =============================================================================
+// Behaviour: real operations at the same time
+// =============================================================================
+
+/**
+ * Runs $body after sourcing the real `common`, with the machine lock rooted in
+ * $machine. For the properties of the two modes themselves — the operations
+ * that rely on them are run for real below and in PrepareHostOrchestratorTest.
+ *
+ * @return array{0: int, 1: string}
+ */
+function hostLockCommonRun(string $scratch, string $machine, string $body): array
+{
+    $harness = $scratch.'/common-harness-'.bin2hex(random_bytes(4)).'.sh';
+
+    file_put_contents($harness, 'source "${RATEGURU_COMMON_FILE}"'."\n".$body."\n");
+
+    return runInfraScript($harness, [], [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: '/tmp',
+        'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+        'RATEGURU_COMMON_FILE' => base_path('infrastructure/scripts/common'),
+        'RATEGURU_DEPLOYMENT_CONF_FILE' => deploymentConfFixture($scratch),
+        'RATEGURU_HOST_LOCK_ROOT' => $machine,
+    ]);
+}
+
+it('lets target operations on different targets run at the same time', function () {
+    $scratch = makeScratchDir('host-lock', ['', '/machine']);
+    $machine = $scratch.'/machine';
+    $held = deployOpsScratchDir();
+    $other = deployOpsScratchDir();
+    $restore = restoreScratchDir();
+
+    try {
+        // One target's deployment, held inside its locks.
+        $gate = $scratch.'/deploy-gate';
+        $deployment = deployOpsFullDeployment($held, envOverrides: [
+            'RATEGURU_HOST_LOCK_ROOT' => $machine,
+            'RATEGURU_HEALTH_CHECK_BIN' => heldRunGateStub($held.'/bin/health-check-gate', $gate),
+        ]);
+        $run = heldRunStart(['bash', $deployment['harness']], $deployment['env'], $gate);
+        heldRunAwait($run);
+
+        expect(hostInfrastructureLockState($machine))->toBe('shared');
+
+        // Another target's whole deployment runs to the end beside it.
+        $second = deployOpsFullDeployment($other, envOverrides: ['RATEGURU_HOST_LOCK_ROOT' => $machine]);
+        [$exit, $output] = deployOpsExec($second['harness'], $second['env']);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('parity-target deployed successfully');
+
+        // And a third target's whole restore.
+        restoreTargetFixture($restore);
+        $result = restoreTargetApply($restore, ['RATEGURU_HOST_LOCK_ROOT' => $machine]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        // The held deployment was never disturbed.
+        [$exit, $output] = heldRunRelease($run);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('parity-target deployed successfully');
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+    } finally {
+        removeScratchDir($restore);
+        deployOpsCleanup($other);
+        deployOpsCleanup($held);
+        removeScratchDir($scratch);
+    }
+});
+
+it('lets a target operation run another beneath it: a restore and the backup it starts both hold the machine shared', function () {
+    $scratch = makeScratchDir('host-lock', ['', '/machine']);
+    $machine = $scratch.'/machine';
+    $restore = restoreScratchDir();
+
+    try {
+        restoreTargetFixture($restore);
+
+        // The emergency backup restore-target runs is a target operation of
+        // its own, and takes the machine shared again from a fresh descriptor
+        // while its parent holds it — exactly what the real `backup` does.
+        $nested = $restore.'/bin/backup-nested';
+        file_put_contents($nested, "#!/usr/bin/env bash\n"
+            .'source "${RATEGURU_COMMON_FILE}"'."\n"
+            .'share_host_infrastructure_lock "the emergency backup"'."\n"
+            .'printf "%s\n" "${HOST_INFRASTRUCTURE_LOCK_MODE}" >> '.escapeshellarg($scratch.'/nested.log')."\n"
+            .'exec '.escapeshellarg($restore.'/bin/backup-stub').' "$@"'."\n");
+        chmod($nested, 0o755);
+
+        $result = restoreTargetApply($restore, [
+            'RATEGURU_HOST_LOCK_ROOT' => $machine,
+            'RATEGURU_RESTORE_BACKUP_BIN' => $nested,
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(trim((string) file_get_contents($scratch.'/nested.log')))->toBe('shared');
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+    } finally {
+        removeScratchDir($restore);
+        removeScratchDir($scratch);
+    }
+});
+
+it('covers a host-level operation that takes its own target deployment lock, as repair-target does', function () {
+    $scratch = makeScratchDir('host-lock', ['', '/machine', '/target/locks']);
+
+    try {
+        [$exit, $output] = hostLockCommonRun($scratch, $scratch.'/machine', <<<'BASH'
+            acquire_host_infrastructure_lock "repair-target --apply"
+            acquire_deployment_lock "${RATEGURU_HOST_LOCK_ROOT}/../target"
+            printf 'mode=%s\n' "${HOST_INFRASTRUCTURE_LOCK_MODE}"
+            BASH);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('mode=exclusive');
+        expect(hostInfrastructureLockState($scratch.'/machine'))->toBe('free');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('refuses, at once and without waiting, a target operation started beneath a host-level one', function () {
+    // No path in this repository does it — an exclusive holder's children are
+    // installers and read-only modes, which take neither mode — but if one ever
+    // did, flock sees a fresh descriptor as another holder. The cost is a
+    // refusal, never a deadlock: every acquisition is non-blocking.
+    $scratch = makeScratchDir('host-lock', ['', '/machine']);
+
+    try {
+        [$exit, $output] = hostLockCommonRun($scratch, $scratch.'/machine', <<<'BASH'
+            acquire_host_infrastructure_lock "the parent"
+            started="$(date +%s)"
+            status=0
+            bash -c 'source "${RATEGURU_COMMON_FILE}"; share_host_infrastructure_lock "the child"' || status=$?
+            printf 'child=%s elapsed=%s\n' "${status}" "$(( $(date +%s) - started ))"
+            BASH);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('a host-level operation is changing this host')
+            ->toMatch('/child=1 elapsed=[0-2]\n/');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('never upgrades a shared hold in place, because flock would release it first', function () {
+    $scratch = makeScratchDir('host-lock', ['', '/machine']);
+
+    try {
+        [$exit, $output] = hostLockCommonRun($scratch, $scratch.'/machine', <<<'BASH'
+            share_host_infrastructure_lock "a target operation"
+            share_host_infrastructure_lock "the same one, asking again"
+            acquire_host_infrastructure_lock "a host-level step"
+            BASH);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain('already holds it shared');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('runs host-level operations one at a time, and names what holds the machine when it refuses', function (int $held, string $mode, string $reported) {
+    $scratch = makeScratchDir('host-lock', ['', '/machine']);
+    $machine = $scratch.'/machine';
+    $lock = fopen($machine.'/host-infrastructure.lock', 'c');
+
+    try {
+        expect(flock($lock, $held | LOCK_NB))->toBeTrue();
+
+        $call = $mode === 'exclusive' ? 'acquire_host_infrastructure_lock' : 'share_host_infrastructure_lock';
+
+        [$exit, $output] = hostLockCommonRun($scratch, $machine, "{$call} \"the operation under test\"\necho 'MUTATED'");
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain($reported)
+            ->toContain('the operation under test changed nothing')
+            ->not->toContain('MUTATED');
+
+        // The refused run took nothing with it: what is left is the holder's.
+        flock($lock, LOCK_UN);
+        expect(hostInfrastructureLockState($machine))->toBe('free');
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        removeScratchDir($scratch);
+    }
+})->with([
+    'host-level against host-level' => [LOCK_EX, 'exclusive', "another operation is already mutating this host's shared infrastructure"],
+    'host-level against a target operation' => [LOCK_SH, 'exclusive', 'a target operation is running on this host'],
+    'a target operation against host-level' => [LOCK_EX, 'shared', 'a host-level operation is changing this host'],
+]);

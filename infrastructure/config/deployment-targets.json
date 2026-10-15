@@ -48,7 +48,7 @@
     },
     "tits-guru": {
       "id": "tits-guru",
-      "lifecycle": "planned",
+      "lifecycle": "active",
       "environment_class": "production",
       "application_root": "/home/www/rateguru/production/tits-guru",
       "runtime_user": "rateguru-tits-guru",

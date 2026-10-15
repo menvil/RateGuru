@@ -686,8 +686,10 @@ it('explains itself: --help names the runbook, and --operator-guide states the e
     expect($named)->toBe($read);
     expect($guide)->not->toMatch('/PREPARE_[A-Z]/');
 
-    // Without a target, the guide still names every active target's hostname.
-    expect(preflightFromCheckout(['--operator-guide']))->toContain("(public hostnames of this target: {$hostname})");
+    // Without a target, the guide still names every active target's hostname:
+    // staging's and, now that it is active, tits-guru's.
+    $production = $registry['targets']['tits-guru']['public_hostnames'][0];
+    expect(preflightFromCheckout(['--operator-guide']))->toContain("(public hostnames of this target: {$hostname} {$production})");
 });
 
 // =============================================================================

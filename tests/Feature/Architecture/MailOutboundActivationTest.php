@@ -96,10 +96,11 @@ it('requests direct outbound delivery for tits-guru in the committed configurati
     $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true);
     expect($outbound)->toBe(['schema_version' => 1, 'direct' => ['enabled' => true, 'mta_hostname' => 'mta1.tits.guru']]);
 
-    // The target is still planned: requesting outbound mail is not a launch.
+    // Requesting outbound mail was not a launch: the target was activated
+    // afterwards, by a reviewed registry change of its own.
     $registry = collect(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets'])
         ->keyBy('id');
-    expect($registry['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['tits-guru']['lifecycle'])->toBe('active');
 
     // No production application mail transport is set: the templates still
     // leave it to the operation before the first deploy.
@@ -523,7 +524,9 @@ it('records the signing foundation as accepted, and the activation the policy re
         ->not->toContain('production activation pending')
         // The application's mail transport moved to before the first deploy.
         ->toContain('the production application\'s mail transport (`MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`, `MAIL_PORT=2526`, `MAIL_FROM_ADDRESS=noreply@tits.guru`, no SMTP credentials) is set before the first production deploy in 8.6, not here')
-        ->toContain('Before the first production deploy, a separately reviewed operation sets and verifies the application\'s mail transport from the reviewed mail routing plan')
+        // ...and was set there by hand, by the operator, before the first deploy.
+        ->toContain('**8.6.1 The production mail environment — DONE, by hand, by the operator.** The application\'s mail transport, from the reviewed mail routing plan, is in the production `shared/.env`')
+        ->toContain('Laravel\'s own SMTP delivery is verified after the first production deploy')
         // The recovery requirements stay where they belong.
         ->toContain('production backup and recovery must carry the active DKIM signing private key')
         ->toContain('a recovery-time outbound fence')

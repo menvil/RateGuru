@@ -90,11 +90,13 @@ function nwCleanup(string $dir): void
 /**
  * A minimal, self-contained stand-in for the installed `common` library: the
  * handful of helpers the script actually uses, backed by the repository's real
- * target registry so lifecycle and target resolution are exercised for real.
+ * target registry — tits-guru as it was before its activation, so a planned
+ * target is there to refuse — so lifecycle and target resolution are exercised
+ * for real.
  */
 function nwWriteCommon(string $scratch): string
 {
-    $registry = base_path('infrastructure/config/deployment-targets.json');
+    $registry = preActivationRegistryPath();
     $path = $scratch.'/common';
 
     file_put_contents($path, <<<COMMON

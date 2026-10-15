@@ -568,13 +568,14 @@ emit_row() {
 build_prerequisite_table() {
     PREREQ_ROWS=()
 
-    local target_root deploy_user runtime_user runtime_group nginx_site
+    local target_root deploy_user runtime_user runtime_group nginx_site environment_class
 
     target_root="$(target_field .application_root)"
     deploy_user="$(target_field .deploy_user)"
     runtime_user="$(target_field .runtime_user)"
     runtime_group="$(target_field .runtime_group)"
     nginx_site="$(target_field .nginx.site_name)"
+    environment_class="$(target_field .environment_class)"
 
     # --- host scope: Nginx-referenced files, parsed out of the committed
     # vhosts. The target's own site first, so its certificate keeps the
@@ -591,7 +592,7 @@ build_prerequisite_table() {
     # its target-scope material alone aborted on a file that is correctly
     # absent. Scope now decides what is derived, not merely what is printed.
     if host_scope_wanted; then
-        build_host_prerequisite_rows "${nginx_site}"
+        build_host_prerequisite_rows "${nginx_site}" "${environment_class}"
     fi
 
     build_target_prerequisite_rows "${target_root}" "${deploy_user}" "${runtime_user}" "${runtime_group}"
@@ -775,21 +776,31 @@ dkim_key_problem() {
 }
 
 build_host_prerequisite_rows() {
-    local nginx_site="$1"
+    local nginx_site="$1" environment_class="$2"
     local category path mail_src
 
-    # Every vhost source is proved readable BEFORE it is parsed. A process
-    # substitution's failure never reaches the loop that consumes it, so a
-    # missing or unreadable vhost would simply contribute no rows — and a
-    # host-scope table that silently came out empty would make --verify report
-    # "all 0 external prerequisites present" and pass on a host with no TLS
-    # material at all. Fail-open in exactly the place that must not be.
-    require_vhost_source "${SRC_NGINX_DIR}/${nginx_site}"
+    # A production target has no committed vhost: install-bootstrap-services
+    # renders its internal site from the registry, and that render has no TLS
+    # listener, no certificate and no htpasswd by construction — it references
+    # no external file at all. So the target contributes no host rows of its
+    # own, and its host scope is the shared mail-capture vhosts' material below,
+    # exactly what install-bootstrap-services requires before it converges this
+    # host for it. A staging target's vhost is committed and parsed.
+    if [[ "${environment_class}" != production ]]; then
+        # Every vhost source is proved readable BEFORE it is parsed. A process
+        # substitution's failure never reaches the loop that consumes it, so a
+        # missing or unreadable vhost would simply contribute no rows — and a
+        # host-scope table that silently came out empty would make --verify
+        # report "all 0 external prerequisites present" and pass on a host with
+        # no TLS material at all. Fail-open in exactly the place that must not
+        # be.
+        require_vhost_source "${SRC_NGINX_DIR}/${nginx_site}"
 
-    while IFS='|' read -r category path; do
-        [[ -n "${category}" ]] || continue
-        emit_nginx_row "${category}" "${path}" "" "${TARGET_ID} vhost"
-    done < <(nginx_external_prerequisites "${SRC_NGINX_DIR}/${nginx_site}")
+        while IFS='|' read -r category path; do
+            [[ -n "${category}" ]] || continue
+            emit_nginx_row "${category}" "${path}" "" "${TARGET_ID} vhost"
+        done < <(nginx_external_prerequisites "${SRC_NGINX_DIR}/${nginx_site}")
+    fi
 
     for mail_src in "${SRC_MAIL_NGINX_SOURCES[@]}"; do
         require_vhost_source "${mail_src}"

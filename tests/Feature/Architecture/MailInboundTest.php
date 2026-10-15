@@ -196,7 +196,7 @@ it('renders tits-guru receiving support, bounce and reply mail at the domains it
         ],
         'domains' => ['bounce.tx.tits.guru', 'reply.tits.guru', 'tits.guru'],
         'environment_class' => 'production',
-        'lifecycle' => 'planned',
+        'lifecycle' => 'active',
         'mx_hostname' => 'mx1.tits.guru',
         'target' => 'tits-guru',
     ]);
@@ -460,8 +460,13 @@ it('receives for a second production target with its own domains, prefixes and m
         'target' => 'demo-shop',
     ]);
 
-    // tits-guru's entry is exactly what it is without the second brand.
-    expect(mailInboundPlanTarget($plan, 'tits-guru'))->toBe(mailInboundPlanTarget(mailInboundJson(['render-plan']), 'tits-guru'));
+    // tits-guru's entry is exactly what it is without the second brand — save
+    // its lifecycle, which the fixture registry holds as it was before the
+    // activation.
+    $withBrand = mailInboundPlanTarget($plan, 'tits-guru');
+    $alone = mailInboundPlanTarget(mailInboundJson(['render-plan']), 'tits-guru');
+    expect($withBrand['lifecycle'])->toBe('planned');
+    expect(array_diff_key($withBrand, ['lifecycle' => true]))->toBe(array_diff_key($alone, ['lifecycle' => true]));
 
     // Each brand's addresses reach that brand alone.
     $id = MAIL_INBOUND_IDENTIFIER;

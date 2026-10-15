@@ -295,6 +295,15 @@ step() {
 #
 # The ordering is what avoids a deadlock: restore-target must let `backup`
 # acquire and release the backup lock before taking it itself.
+#
+# Before all three, in --apply and --resume, the machine's host-infrastructure
+# lock, SHARED (common): a restore never runs while Prepare, Repair or any other
+# host-level operation converges the services and the bundle it is restoring
+# through, and none of those can start until it has finished. Shared, so a
+# restore of one target still runs beside the other target's deployments and
+# backups — and beside its own emergency backup and restore test, which take it
+# shared again. --inspect is read-only and takes none of it, which is what lets
+# deploy ask it a question while holding the machine shared itself.
 
 acquire_restore_operation_lock() {
     install -d -o root -g root -m 0700 "${RUN_ROOT}"
@@ -1467,6 +1476,7 @@ perform_restore() {
     OPERATION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     step "acquire restore operation lock"
+    share_host_infrastructure_lock "restore-target --apply"
     acquire_restore_operation_lock
 
     step "validate deployed target"
@@ -1897,6 +1907,7 @@ perform_resume() {
     validate_operation_id "${OPERATION_ID}"
 
     step "acquire restore operation lock"
+    share_host_infrastructure_lock "restore-target --resume"
     acquire_restore_operation_lock
 
     step "load operation state"

@@ -17,14 +17,16 @@ not reorganize unrelated infrastructure.
 | 9 | Repeatable production target onboarding | ⏳ planned |
 | 10 | Advanced observability and product analytics | ⏳ planned / optional |
 
-**NEXT: Phase 8.5 — TLS and real tits.guru public routing.**
-- 8.5.1, public HTTP and ACME for `tits.guru`, is done on the host.
-- 8.5.2, DNS and the certificate, is done by hand.
-- 8.5.3, HTTPS in the `tls-ready` state, is implemented in the repository and
-  has not run on the host yet: **Prepare tits.guru HTTPS** is next.
+**NEXT: Phase 8.6 — production operations acceptance.**
+- 8.5, TLS and public routing, is done on the host: `https://tits.guru/`
+  answers 503 in `tls-ready`.
+- 8.6.1, the production mail environment, is done by hand by the operator.
+- 8.6.2, the activation of `tits-guru` for production deployments, is
+  implemented in the repository and not yet applied to the host: **Prepare
+  tits.guru host** from `main` applies it. It deploys nothing and is not GO
+  LIVE.
 
-Then 8.6
-(production operations acceptance) and 8.7 (GO LIVE). The aim is to launch
+Then the first production release, the rest of 8.6, and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
 period of its own. Bounce and reply processing, the remaining inbound mail work
 and unified monitoring are deferred until after the first production launch —
@@ -1644,7 +1646,7 @@ is cheap and repeatable — in the provisioner's own tests, against a synthetic
 brand that exists nowhere in this repository — and then exercised for real on
 `tits-guru`.
 
-**Where it stands, 2026-10-12.**
+**Where it stands, 2026-10-14.**
 
 - **Done.** 8.2 ACCEPTED and 8.3 PRODUCTION-ACCEPTED.
 - **Mail.** Outbound mail has been PRODUCTION-ACCEPTED since 2026-10-08
@@ -1657,17 +1659,18 @@ brand that exists nowhere in this repository — and then exercised for real on
   are not implemented and not cancelled: see **Post-launch: Mail Processing &
   Unified Monitoring** below. The mail safeguards required before GO LIVE
   stay in 8.6 and 8.7.
-- **Next.** **NEXT: Phase 8.5 — TLS and real tits.guru public routing**, then
-  8.6 and 8.7. Where 8.5 stands:
-  - 8.5.1 is done on the host: the public site is `http-acme-ready`.
-  - 8.5.2 is done by the operator: `tits.guru` names the host, and Certbot
-    holds its certificate.
-  - 8.5.3 (HTTPS, `tls-ready`) is IMPLEMENTED in the repository, and
-    **Prepare tits.guru HTTPS** has not run on the host. The application stays
-    closed until 8.7.
-- **Not launched.** `tits-guru` is still `lifecycle=planned`, no application
-  release is deployed, and nothing public serves the site. Phase 8 is not
-  complete.
+- **8.5 done on the host.** The public site is `tls-ready`: HTTPS with a
+  valid certificate, every request 503. The certificates of `tits.guru` and
+  `mx1.tits.guru` are valid.
+- **Next.** **NEXT: Phase 8.6 — production operations acceptance**, then 8.7.
+  Where 8.6 stands:
+  - 8.6.1, the production mail environment, is done by hand by the operator.
+  - 8.6.2, the activation of `tits-guru`, is IMPLEMENTED in the repository
+    and not applied to the host.
+- **Not launched.** In the repository `tits-guru` is `lifecycle=active`; on
+  the host it stays `planned` until **Prepare tits.guru host** installs the
+  new registry. No application release is deployed, and the public site
+  answers 503. Phase 8 is not complete.
 
 Slices, in order:
 
@@ -2407,7 +2410,7 @@ Slices, in order:
    - the extended security and recovery trials;
    - the permanent outbound hold of a live target. The 8.4B.4.2b rollback is
      for the initial launch only.
-5. **8.5 TLS and real tits.guru public routing — NEXT.** The real certificate, the
+5. **8.5 TLS and real tits.guru public routing — DONE on the host.** The real certificate, the
    production public Nginx vhost, and `tits.guru` pointed directly at
    production. No mandatory fake rehearsal domain: the domain already exists,
    and rehearsing on a substitute would prove less than the real cutover with
@@ -2423,8 +2426,8 @@ Slices, in order:
    The public site is a site of its own, with its own owner, never a change to
    the internal one ([`runbooks/public-site.md`](runbooks/public-site.md)). It
    moves through `not-prepared` → `http-acme-ready` → `tls-ready` →
-   `public-active`. The host is in `http-acme-ready`; the repository can take
-   it to `tls-ready`, and `public-active` is used only at GO LIVE (8.7).
+   `public-active`. The host is in `tls-ready`, and `public-active` is used
+   only at GO LIVE (8.7).
 
    **8.5.1 Public HTTP and ACME for `tits.guru` — DONE on the host, by the
    operator's report.** Prepare tits.guru public HTTP and Verify tits.guru
@@ -2497,8 +2500,10 @@ Slices, in order:
      `privkey.pem`, Certbot's own links into `/etc/letsencrypt/archive/tits.guru/`.
    - No certificate is issued again by 8.5.3.
 
-   **8.5.3 HTTPS for `tits.guru`, `tls-ready` — IMPLEMENTED in repository, not
-   yet run on the host.**
+   **8.5.3 HTTPS for `tits.guru`, `tls-ready` — DONE on the host, by the
+   operator's report.** `https://tits.guru/` answers 503 with a valid
+   certificate, and Verify tits.guru HTTPS and Verify tits.guru inbound SMTP
+   pass. What follows is what it implements.
    - **The installer.** `infrastructure/scripts/prepare-public-https
      --check|--apply|--verify|--rollback`, built on prepare-public-http — one
      target loader, one HTTP render, one analysis of the loaded configuration,
@@ -2575,20 +2580,112 @@ Slices, in order:
 6. **8.6 Production operations acceptance.** Everything the launch needs,
    proved before any public traffic. No infrastructure operation performed
    during go-live should be happening for the first time.
-   - **The production mail environment.** Before the first production
-     deploy, a separately reviewed operation sets and verifies the
-     application's mail transport from the reviewed mail routing plan:
-     - `MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`;
-     - `MAIL_PORT` the target's submission port (`2526`);
-     - `MAIL_FROM_ADDRESS` its `default_from` (`noreply@tits.guru`);
-     - no SMTP username or password.
 
-     This moved here from 8.4B.4.2b, because the application is undeployed
-     while its mail is activated.
-   - **The activation and the first production release.** The activation is
-     a reviewed registry change. It also gives the deploy user the sudo grant
-     8.3 deliberately left ungranted. Then the first real production release:
-     deploy, rollback, and deploy again.
+   **8.6.1 The production mail environment — DONE, by hand, by the
+   operator.** The application's mail transport, from the reviewed mail
+   routing plan, is in the production `shared/.env`:
+   - `MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1`;
+   - `MAIL_PORT` the target's submission port (`2526`);
+   - `MAIL_FROM_ADDRESS` its `default_from` (`noreply@tits.guru`);
+   - no SMTP username or password.
+
+   It moved here from 8.4B.4.2b, because the application is undeployed while
+   its mail is activated. The operator edited the file on the host; nothing
+   in the repository wrote it, and nothing rewrites it. Laravel's own SMTP
+   delivery is verified after the first production deploy, under **Outbound
+   mail** below.
+
+   **8.6.2 Activate `tits-guru` for production deployments — IMPLEMENTED in
+   repository, not applied to the host.** Activation is its own operation:
+   it is not the first deploy, and it is not GO LIVE.
+   - **The registry.** `tits-guru` is `lifecycle=active`, and nothing else
+     about it changed. `staging-main` stays active.
+   - **The validator.** `targets` allows `active` for exactly
+     `staging-main` and `tits-guru` — a reviewed list, so a new target becomes
+     deployable by a decision recorded there, never by a registry edit
+     alone. Every uniqueness check is kept.
+   - **The perimeter, regenerated by its own renderers.** The deploy user
+     `deploy-rateguru-tits-guru` is granted the four generic wrappers —
+     `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`,
+     `rateguru-restore` — in a rule of its own, and nothing else. The backup
+     cron gains its three jobs at the reviewed times in
+     `backup-schedules.json`. Staging's grant and jobs are byte for byte what
+     they were.
+   - **Each deploy user reaches its own target only.** The wrappers already
+     refused another target's deploy user; the perimeter installer now
+     proves it for every pair of active targets, staged and installed.
+   - **Refusal probes that read the registry.** The operations and perimeter
+     installers proved their gates by pointing every operation at
+     `tits-guru` and expecting `lifecycle=planned`. An active `tits-guru`
+     would have made those probes real operations. They now read the target
+     to refuse from the registry: the first planned or disabled one, refused
+     for its lifecycle, or — when every target is active — a target no
+     registry holds, refused as unknown. The perimeter's probes point every
+     wrapper at an underlying binary that does not exist, so even a broken
+     wrapper could never run a real operation.
+   - **Prepare tits.guru host fits the configured target.** Its host-scope
+     prerequisites no longer expect a committed vhost for a production target,
+     whose internal site is rendered and references no external file; that
+     also lets a production backup capture its recovery material. Existing
+     material — the hand-edited `.env`, the database password, the DKIM key,
+     the certificates, the SSH keys — is never overwritten: a differing
+     supplied secret is a conflict, refused before anything is written, and an
+     absent one is simply not supplied.
+   - **Before the first release, nothing destructive.** The nightly
+     `backup-cycle --target tits-guru` refuses at its first step — there is no
+     `current/release.json` to back up — so no dump, no upload and no offsite
+     retention runs; the weekly restore tests find no backup and refuse
+     before creating anything. Staging's namespace is never touched.
+   - **Verify production infrastructure** judges an active target before its
+     first release by its preparation contract, the perimeter and the mail
+     sections, and DEFERS the live-target contract and the health check until
+     a release exists. A `current` that is there but broken is judged in
+     full.
+   - **The public site is not opened.** The vhost stays `tls-ready`,
+     `https://tits.guru/` keeps answering 503, and GO LIVE still needs its own
+     typed confirmation and a deployed, healthy release. Verify tits.guru
+     HTTPS keeps passing in `tls-ready` once both registries say `active`.
+     Prepare and Rollback tits.guru HTTPS, and the HTTP workflows of 8.5.1,
+     refuse an active target, as they always did.
+   - **Mail is not changed.** Postfix, OpenDKIM and the inbound receiver are
+     untouched. The mail gateway records the lifecycle in its applied policy,
+     so Prepare tits.guru host re-records that policy with Postfix's
+     configuration byte for byte unchanged and no reload. Activate and
+     Rollback tits.guru outbound mail activation and the mail canary are
+     initial-launch tools, and refuse an active target, as designed.
+   - **Not here.** No deploy, no migration, no release or tag, no `.env`,
+     DNS, public Nginx, Certbot, Postfix or OpenDKIM change, no GO LIVE.
+     Merges into `develop` and `main` deploy nothing: production deploys only
+     from a `v*` tag, through Release to production.
+   - **Host-level and target operations never overlap.**
+     `host-infrastructure.lock` now has two modes (`scripts/common`). The
+     host-level operations — Prepare, Repair, Provision, Configure, the
+     public-site changes and the mail activations — take it exclusively and
+     run one at a time. Every operation on one target — deploy, rollback,
+     cleanup, restore, recovery and the backup family — holds it shared for
+     its whole run, so two targets' operations still run side by side while
+     no host-level operation can converge the machine underneath either.
+     Closing the public site holds it shared, plus the site's own lock, so a
+     deployment in flight never delays it. Every acquisition is non-blocking
+     and taken before the operation's own lock: a conflict is refused before
+     anything changes, nothing waits, and nothing can deadlock. Proved by
+     real operations run at the same time (`HostInfrastructureLockTest`,
+     `PrepareHostOrchestratorTest`).
+
+   *Applied when, in this order* (the steps and what to do on a failure are
+   in
+   [`runbooks/deployment-targets.md`](runbooks/deployment-targets.md#activating-tits-guru)):
+   1. CI passes on `develop`;
+   2. `develop` is promoted to `main`;
+   3. **Prepare tits.guru host** runs from `main`;
+   4. **Verify production infrastructure** passes, the live target and the
+      application DEFERRED;
+   5. **Verify staging infrastructure** passes;
+   6. **Verify tits.guru HTTPS** passes in `tls-ready`;
+   7. **Verify tits.guru inbound SMTP** passes.
+
+   - **The first production release.** Then the first real production
+     release: deploy, rollback, and deploy again.
    - **The application runs.** Laravel, the database, the queue, the
      scheduler and the health check, with errors reported.
    - **Security and isolation.** The target is isolated from staging, and the

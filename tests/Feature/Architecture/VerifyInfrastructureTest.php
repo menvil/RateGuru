@@ -44,7 +44,11 @@ const VERIFY_INFRA_PRIMITIVES = [
  * `none` prints no result at all; `:unrequested` after the state says the
  * bundle does not request public SMTP).
  *
- * @param  array{fail?: list<string>, signal?: list<string>, unrunnable?: list<string>, missing?: list<string>, dns?: array<string, mixed>, inbound?: string}  $options
+ * Every target has a release deployed — its `current` — unless `undeployed`
+ * names it: an active target before its first release, or `broken` names it:
+ * a `current` link with nothing behind it.
+ *
+ * @param  array{fail?: list<string>, signal?: list<string>, unrunnable?: list<string>, missing?: list<string>, dns?: array<string, mixed>, inbound?: string, undeployed?: list<string>, broken?: list<string>}  $options
  * @return array{scratch: string, env: array<string, string>}
  */
 function verifyInfraHost(array $options = []): array
@@ -83,6 +87,19 @@ function verifyInfraHost(array $options = []): array
         foreach ($options[$how] ?? [] as $primitive) {
             touch($scratch."/toggles/{$primitive}.{$how}");
         }
+    }
+
+    foreach ([
+        'staging-main' => '/home/www/rateguru/staging',
+        'tits-guru' => '/home/www/rateguru/production/tits-guru',
+        'demo-shop' => '/home/www/rateguru/production/demo-shop',
+    ] as $target => $root) {
+        if (in_array($target, $options['undeployed'] ?? [], true)) {
+            continue;
+        }
+
+        @mkdir($scratch.'/fs'.$root.'/releases/v1.0.0', 0o755, true);
+        symlink(in_array($target, $options['broken'] ?? [], true) ? 'releases/missing' : 'releases/v1.0.0', $scratch.'/fs'.$root.'/current');
     }
 
     $env = [
@@ -356,10 +373,26 @@ it('stops before verifying anything when the trusted bundle is incomplete', func
 })->with([
     'staging without repair-target' => ['staging-main', 'repair-target'],
     'staging without the capture verifier' => ['staging-main', 'verify-mail-capture'],
-    'production without configure-target' => ['tits-guru', 'configure-target'],
+    'production without the preparation verifier' => ['tits-guru', 'prepare-host'],
+    'production without repair-target' => ['tits-guru', 'repair-target'],
+    'production without health-check' => ['tits-guru', 'health-check'],
     'production without the perimeter verifier' => ['tits-guru', 'install-target-perimeter'],
     'production without the inventory' => ['tits-guru', 'bootstrap-host-preflight'],
 ]);
+
+it('stops a planned production target\'s verification when the bundle has no configure-target', function () {
+    $host = verifyInfraHost(['missing' => ['configure-target']]);
+
+    try {
+        $run = verifyInfraRun($host, 'tits-guru', mailPreActivationCheckout($host['scratch'].'/checkout').'/infrastructure/scripts/verify-infrastructure');
+
+        expect($run['status'])->not->toBe(0);
+        expect($run['output'])->toContain('the trusted bundle is incomplete: '.$host['scratch'].'/bin/configure-target is missing or not executable — nothing was verified');
+        expect($run['calls'])->toBe([]);
+    } finally {
+        removeScratchDir($host['scratch']);
+    }
+});
 
 // =============================================================================
 // A PLANNED PRODUCTION TARGET, BEFORE ITS LAUNCH
@@ -562,6 +595,68 @@ it('holds an active production target to the preparation, live-target and applic
         expect(verifyInfraCalled($planned))->not->toContain('health-check')->not->toContain('prepare-host')->not->toContain('repair-target');
         expect($planned['calls'])->toContain('configure-target --verify --target demo-shop');
         expectVerifyItem($planned['output'], 'DEFERRED', 'health-check', 'demo-shop is planned');
+    } finally {
+        removeScratchDir($host['scratch']);
+    }
+});
+
+it('holds an active production target before its first release to its preparation, and defers what needs a release', function () {
+    // tits-guru right after its activation: prepared, and no release yet. Its
+    // preparation, the perimeter and every mail section are judged in full;
+    // Repair and the health check describe a deployed release and are DEFERRED
+    // — reported, never invoked, never passed.
+    $host = verifyInfraHost(['undeployed' => ['tits-guru']]);
+
+    try {
+        // Its mail as the host has it: outbound, its key installed, its
+        // public DNS published and its signer verified.
+        $key = mailIdentityInstallKey($host['scratch'], 'tits-guru', 'rg1');
+        $host['env'] = [...$host['env'], ...mailIdentityDnsHost($host['scratch'], mailIdentityGoodDns(mailIdentityPublicKey($key)))];
+        mailIdentitySigningVerdict($host['scratch'], true);
+
+        $run = verifyInfraRun($host, 'tits-guru');
+
+        expect($run['status'])->toBe(0, $run['output']);
+        expect($run['calls'])->toBe([
+            'prepare-host --verify --target tits-guru',
+            'bootstrap-host-preflight --report',
+            'install-target-perimeter --verify',
+            'verify-mail-gateway --read-only',
+            'activate-mail-inbound --verify --target tits-guru',
+        ]);
+        expect($run['groups'])->toMatchArray([
+            'preparation' => 'pass',
+            'live-target' => 'deferred',
+            'operations-perimeter' => 'pass',
+            'mail-gateway' => 'pass',
+            'application' => 'deferred',
+        ]);
+        expectVerifyItem($run['output'], 'DEFERRED', 'repair-target', 'tits-guru is active and has no release yet (/home/www/rateguru/production/tits-guru/current is absent)');
+        expectVerifyItem($run['output'], 'DEFERRED', 'health-check', 'there is no application to answer until the first deployment');
+        expect($run['output'])->toContain('PASS means tits-guru is prepared for its first deployment. It does NOT mean it is deployed or live.');
+
+        // The preparation contract is not softened by it: failing, it fails the run.
+        touch($host['scratch'].'/toggles/prepare-host.fail');
+        $failed = verifyInfraRun($host, 'tits-guru');
+        expect($failed['status'])->not->toBe(0);
+        expect($failed['groups']['preparation'])->toBe('fail');
+        expect($failed['output'])->not->toContain('PASS means tits-guru is prepared');
+    } finally {
+        removeScratchDir($host['scratch']);
+    }
+});
+
+it('judges in full an active target whose current is there but leads nowhere', function () {
+    // Only a truly absent `current` is "before the first release". A dangling
+    // link is a deployment gone wrong, and Repair and the health check say so.
+    $host = verifyInfraHost(['broken' => ['tits-guru'], 'fail' => ['repair-target', 'health-check']]);
+
+    try {
+        $run = verifyInfraRun($host, 'tits-guru');
+
+        expect($run['status'])->not->toBe(0);
+        expect($run['calls'])->toContain('repair-target --verify --target tits-guru', 'health-check --target tits-guru');
+        expect($run['groups'])->toMatchArray(['live-target' => 'fail', 'application' => 'fail']);
     } finally {
         removeScratchDir($host['scratch']);
     }
@@ -1100,12 +1195,12 @@ it('says so in the summary of either workflow when a verification produced no re
 // THE REPOSITORY STAYS AS REVIEWED
 // =============================================================================
 
-it('keeps the real production target planned while its committed mail policy requests direct outbound delivery', function () {
+it('keeps the real production target active, its committed mail policy requesting direct outbound delivery', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $routing = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
     $outbound = json_decode(File::get(base_path('infrastructure/config/mail-outbound.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
     expect($routing['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
     expect($routing['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
     expect($outbound['direct'])->toBe(['enabled' => true, 'mta_hostname' => 'mta1.tits.guru']);

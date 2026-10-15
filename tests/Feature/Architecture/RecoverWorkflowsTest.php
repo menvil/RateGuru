@@ -1776,25 +1776,22 @@ it('gates a production recovery behind an exact typed confirmation, before any e
     expect((array) data_get($staging, 'on.workflow_dispatch.inputs'))->not->toHaveKey('confirmation');
 });
 
-it('cannot mutate production while tits-guru is planned, and does not activate it', function () {
+it('refuses production unless it is active, and does not activate it', function () {
     [$workflow, $source] = recoverWorkflow('recover-production.yml');
 
-    // tits-guru stays planned, and this workflow is not what changes that.
-    //
-    // Activating production is what legitimately retires this assertion, and
-    // it is deliberately not the only one: every operator-surface scope guard
-    // in this directory pins the same lifecycle. Whoever activates the target
-    // updates them together —
-    // `git grep -l "tits-guru'\]\['lifecycle'\])->toBe('planned')" tests/`
-    // lists them, rather than a doc that would go stale as guards are added.
+    // tits-guru is active: its activation was a reviewed registry change of
+    // its own, and this workflow is not what changed it. Every
+    // operator-surface scope guard in this directory pins the same lifecycle —
+    // `git grep -l "tits-guru'\]\['lifecycle'\])->toBe('active')" tests/`
+    // lists them.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
-    // The lifecycle gate is in the job with no environment, so a real run
-    // today fails before the production environment's approval is requested,
-    // before a production secret is loaded, and before the replacement machine
-    // is touched at all.
+    // The lifecycle gate is in the job with no environment, so a target that
+    // is not active fails before the production environment's approval is
+    // requested, before a production secret is loaded, and before the
+    // replacement machine is touched at all.
     $validateSteps = recoverWorkflowStepsByName($workflow, 'validate');
 
     expect(data_get($workflow, 'jobs.validate.environment'))->toBeNull()
@@ -1816,8 +1813,8 @@ it('cannot mutate production while tits-guru is planned, and does not activate i
     }
 
     // Asserted against executable content only: the workflow's own header
-    // legitimately EXPLAINS that tits-guru is lifecycle=planned, and a blunt
-    // whole-file scan would forbid saying so.
+    // legitimately EXPLAINS the lifecycle gate, and a blunt whole-file scan
+    // would forbid saying so. Nothing in it writes a lifecycle.
     $executable = executableSourceLines($source);
 
     foreach (['targets set', 'lifecycle": "active', 'certbot', 'provision'] as $forbidden) {

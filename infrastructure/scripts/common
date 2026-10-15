@@ -78,8 +78,14 @@ validate_release_id() {
     fi
 }
 
+# acquire_deployment_lock APPLICATION_ROOT — this target's deployment lock,
+# taken after the machine's, which it holds SHARED (see the host infrastructure
+# lock below): a deployment, rollback, cleanup or recovery never runs while a
+# host-level operation converges what it depends on. The machine first, always.
 acquire_deployment_lock() {
     local application_root="$1"
+
+    share_host_infrastructure_lock "$(basename -- "${0}")"
 
     exec 200>"${application_root}/locks/deployment.lock"
 
@@ -1096,30 +1102,76 @@ require_provisionable_target() {
 # So this lock is keyed by NOTHING. One file per machine, held for the whole
 # run by the operation that owns it.
 #
-# ONE OWNER PER LOCK. Only the top-level operations take it — prepare-host,
-# provision-target, configure-target and repair-target — and only in a mutating
-# mode. The installers they invoke never take it, because flock treats
-# independently opened descriptors independently even inside one process tree,
-# so a child re-acquiring what its parent holds would deadlock against its own
-# orchestrator. A read-only mode takes nothing, which is what lets
-# configure-target ask provision-target --verify a question while holding it.
+# TWO MODES, one file.
+#
+#   exclusive  the host-global mutators: prepare-host, provision-target,
+#              configure-target, repair-target, and prepare-public-http,
+#              prepare-public-https (all but --deactivate),
+#              activate-mail-inbound and activate-mail-outbound in their
+#              mutating modes. They change what every target on the machine
+#              depends on, so they run alone.
+#   shared     the target-only mutators: deploy, rollback, cleanup --apply and
+#              record-nightwatch-deployment (through acquire_deployment_lock),
+#              restore-target and recover-host in --apply and --resume, backup,
+#              backup-cycle, restore-test, offsite-backup, offsite-retention,
+#              offsite-restore-test and fetch-backup. Each one changes or reads
+#              its own target through the shared services and the installed
+#              bundle, and must not have them converged underneath it. They do
+#              not exclude each other through this lock: two targets deploy,
+#              back up and restore side by side exactly as before, and their
+#              own target and namespace locks still decide what may overlap
+#              within one target.
+#
+# Closing the public site (prepare-public-https --deactivate) takes it SHARED,
+# plus that site's own lock exclusively. It rewrites one target's public vhost
+# and nothing a target operation reads, and it must never wait on what might be
+# the reason the site is being closed — a deployment that hangs is exactly that.
+# A host-level operation still refuses it, and it refuses them.
+#
+# So a Prepare refuses while any target operation is running, and every target
+# operation refuses while a Prepare is running — whichever started first wins,
+# on the server, whatever GitHub's concurrency groups did or did not catch.
+#
+# ALWAYS THE OUTERMOST LOCK, ALWAYS NON-BLOCKING. Every operation takes this
+# before its own target or namespace lock, and takes every one of those locks
+# with `flock -n`: a conflict refuses where it is met instead of queueing, so
+# no two operations can ever wait on each other — whatever order their other
+# locks are in, nobody waits for anything.
+#
+# ONCE PER PROCESS. HOST_INFRASTRUCTURE_LOCK_MODE records what this process
+# holds, and asking again is a no-op: repair-target holds the machine
+# exclusively and then takes its target's deployment lock, which asks for it
+# shared, and is already covered. Asking for exclusive while holding shared is
+# refused outright — flock converts a lock by releasing it first, and the window
+# that opens is the race this lock exists to close.
+#
+# NESTING. A shared holder may start another target operation as a child —
+# backup-cycle runs backup and the offsite steps, restore-target runs a safety
+# backup and a restore test — because a second shared holder is compatible
+# with the first. What deploy asks restore-target --inspect and recover-host
+# --inspect is read-only, and takes nothing. An exclusive holder never
+# starts a target operation: the installers it invokes take neither mode, and a
+# read-only mode takes nothing, which is what lets configure-target ask
+# provision-target --verify, and recover-host ask prepare-host --verify, a
+# question while the machine is held. If one ever did, it would be refused
+# immediately, not deadlocked: flock treats a freshly opened descriptor as
+# another holder even inside one process tree.
+#
+# Released by the kernel when the last descriptor on it closes — on
+# completion, on a refusal, and on a crash or a kill alike. A child that
+# inherited it, still doing the operation's work after its parent was killed,
+# keeps it until it exits. There is no stale-lock state to clean.
 #
 # prepare-host cannot source this file (it runs before the operational bundle
-# is installed), so it opens the same path itself. The shared thing is the
-# FILE NAME, not the function.
-#
-# WHAT THIS DOES NOT CLOSE, stated here so nobody reads it as more than it is.
-# It serializes host-global mutators against EACH OTHER. It does not serialize a
-# host-global mutator against a target-only one: "Prepare tits-guru" and "Deploy
-# staging-main" still run concurrently, because deploy, rollback and the
-# restore-style operations take only their own target's lock and never this one.
-# Closing that needs a shared/exclusive model — target-only mutators taking this
-# lock shared, host-global mutators taking it exclusively — which is a separate
-# change with its own audit of every target mutation, and must land before
-# tits-guru is activated.
+# is installed), and the public-site and mail activations are carried by
+# bundles of their own, so each of them opens the same path itself. The shared
+# thing is the FILE NAME and the two modes, not the function.
 HOST_INFRASTRUCTURE_LOCK_NAME="host-infrastructure.lock"
 
 HOST_INFRASTRUCTURE_LOCK_FD=""
+
+# What this process holds: empty, shared or exclusive.
+HOST_INFRASTRUCTURE_LOCK_MODE=""
 
 # host_infrastructure_lock_path — the one lock file for this machine.
 host_infrastructure_lock_path() {
@@ -1132,17 +1184,11 @@ host_infrastructure_lock_path() {
     printf '%s/%s\n' "${run_root}" "${HOST_INFRASTRUCTURE_LOCK_NAME}"
 }
 
-# acquire_host_infrastructure_lock OPERATION — claim this machine's shared
-# infrastructure for the whole run, or refuse naming what already holds it.
-#
-# Never waits. An operator who sees "another operation is already mutating this
-# host" can look at what is running and decide; a run that blocked silently
-# would look like a hang and get cancelled halfway through a mutation.
-acquire_host_infrastructure_lock() {
-    local operation="${1-}" lock_path
-    lock_path="$(host_infrastructure_lock_path)"
-
-    local lock_dir
+# open_host_infrastructure_lock OPERATION LOCK_PATH — the descriptor both modes
+# lock. The directory is the host layout's, and is never created here: a host
+# without it has not been bootstrapped, and nothing should run on it.
+open_host_infrastructure_lock() {
+    local operation="$1" lock_path="$2" lock_dir
     lock_dir="$(dirname -- "${lock_path}")"
 
     [[ -d "${lock_dir}" ]] \
@@ -1150,9 +1196,63 @@ acquire_host_infrastructure_lock() {
 
     exec {HOST_INFRASTRUCTURE_LOCK_FD}>>"${lock_path}" \
         || fail "could not open ${lock_path} to claim this host's shared infrastructure for ${operation}"
+}
 
-    flock -n "${HOST_INFRASTRUCTURE_LOCK_FD}" \
-        || fail "another operation is already mutating this host's shared infrastructure (${lock_path}); ${operation} changed nothing. Targets share one machine, so host-level operations run one at a time"
+# acquire_host_infrastructure_lock OPERATION — claim this machine's shared
+# infrastructure EXCLUSIVELY for the whole run, or refuse naming what holds it.
+#
+# Never waits. An operator who sees the refusal can look at what is running and
+# decide; a run that blocked silently would look like a hang and get cancelled
+# halfway through a mutation.
+acquire_host_infrastructure_lock() {
+    local operation="${1-}" lock_path
+    lock_path="$(host_infrastructure_lock_path)"
+
+    case "${HOST_INFRASTRUCTURE_LOCK_MODE}" in
+        exclusive)
+            return 0
+            ;;
+        shared)
+            fail "${operation} needs this host's shared infrastructure exclusively, but this run already holds it shared (${lock_path}); flock cannot upgrade a lock without first releasing it, so ${operation} changed nothing"
+            ;;
+    esac
+
+    open_host_infrastructure_lock "${operation}" "${lock_path}"
+
+    if flock -n -x "${HOST_INFRASTRUCTURE_LOCK_FD}"; then
+        HOST_INFRASTRUCTURE_LOCK_MODE=exclusive
+
+        return 0
+    fi
+
+    # Who holds it decides what the operator is told. Taking it shared only
+    # succeeds when every holder is a target operation; the refusal below exits,
+    # and exiting releases it.
+    if flock -n -s "${HOST_INFRASTRUCTURE_LOCK_FD}"; then
+        fail "a target operation is running on this host — a deployment, rollback, cleanup, restore, recovery or backup holds ${lock_path} shared; ${operation} changed nothing. Host-level operations change what every target depends on, so they wait until no target operation is in flight"
+    fi
+
+    fail "another operation is already mutating this host's shared infrastructure (${lock_path}); ${operation} changed nothing. Targets share one machine, so host-level operations run one at a time"
+}
+
+# share_host_infrastructure_lock OPERATION — hold this machine's shared
+# infrastructure steady for the whole run of a target operation, or refuse
+# because a host-level operation is changing it.
+#
+# Called as a plain statement, never inside $(...): the descriptor and the mode
+# must survive in this shell, not die with a subshell.
+share_host_infrastructure_lock() {
+    local operation="${1-}" lock_path
+    lock_path="$(host_infrastructure_lock_path)"
+
+    [[ -z "${HOST_INFRASTRUCTURE_LOCK_MODE}" ]] || return 0
+
+    open_host_infrastructure_lock "${operation}" "${lock_path}"
+
+    flock -n -s "${HOST_INFRASTRUCTURE_LOCK_FD}" \
+        || fail "a host-level operation is changing this host's shared infrastructure (${lock_path}) — Prepare, Repair, Provision, Configure, or a public-site or mail activation; ${operation} changed nothing. Run it again once that operation has finished"
+
+    HOST_INFRASTRUCTURE_LOCK_MODE=shared
 }
 # --- host infrastructure lock (end) ---
 

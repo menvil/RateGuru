@@ -34,7 +34,7 @@ function targetOpsStatusScript(): string
 
 function targetOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 /**
@@ -299,11 +299,7 @@ function targetOpsRegistryWithDisabledTarget(string $scratchDir): string
  */
 function targetOpsParityRegistry(string $scratch, string $applicationRoot): array
 {
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(targetOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(targetOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',
@@ -1221,11 +1217,21 @@ it('documents the read-only target operations in the deployment-targets runbook'
 
 // --- lifecycle=active allowlist untouched by this slice ---------------------
 
-it('still only allows staging-main to be active, and tits-guru stays planned', function () {
-    $registry = json_decode(File::get(targetOpsRegistryPath()), true, 512, JSON_THROW_ON_ERROR);
+it('runs against a registry whose planned target is tits-guru, while the committed one has both active', function () {
+    // The suite's own registry keeps a planned target to refuse; the committed
+    // one is what the host runs, and both of its targets are active.
+    $suite = json_decode(File::get(targetOpsRegistryPath()), true, 512, JSON_THROW_ON_ERROR);
+    $committed = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
 
-    expect($registry['targets']['staging-main']['lifecycle'])->toBe('active');
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($suite['targets']['staging-main']['lifecycle'])->toBe('active');
+    expect($suite['targets']['tits-guru']['lifecycle'])->toBe('planned');
+
+    expect($committed['targets']['staging-main']['lifecycle'])->toBe('active');
+    expect($committed['targets']['tits-guru']['lifecycle'])->toBe('active');
+
+    // Nothing else differs between them.
+    $suite['targets']['tits-guru']['lifecycle'] = 'active';
+    expect($suite)->toBe($committed);
 });
 
 // --- out of scope: nothing else changed -------------------------------------

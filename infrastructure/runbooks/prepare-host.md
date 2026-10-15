@@ -49,7 +49,7 @@ Prepare Host is therefore **not**:
 | a drift repair | Phase 7.5 — Repair Target |
 | replacement-server recovery | Recover Host — [`recover-host.md`](recover-host.md) |
 | a target another operation is holding | finish that operation first — `--apply` refuses under a restore or recovery guard |
-| production activation | Phase 8 |
+| production activation | a reviewed registry change — [`deployment-targets.md`](deployment-targets.md#activating-tits-guru); Prepare only installs what it says |
 
 ## Operator usage
 
@@ -538,8 +538,9 @@ vector, a log line or a summary.
 
 ## Target lifecycle
 
-`staging-main` is `lifecycle=active`; `tits-guru` is `lifecycle=planned`.
-Phase 7.2 changes neither.
+`staging-main` and `tits-guru` are both `lifecycle=active`. Prepare changes
+neither: activating a target is a reviewed registry change, and Prepare only
+carries that change to the host.
 
 `prepare-host` refuses any target that is not `active`, **before any
 target-specific mutation**. Both target-aware children enforce the same gate
@@ -548,13 +549,24 @@ provisioning a planned production target.
 
 ### Prepare tits.guru host
 
-The workflow exists, is wired to the same shared action, and is pinned to the
-real `tits-guru` target ID — so a real run fails closed on the server's
-lifecycle gate today. That is deliberate: it proves production will be
-prepared by exactly the same mechanism once Phase 8 activates and provisions
-the target, rather than by a separate production-shaped procedure invented
-under pressure on launch day. The `production-tits-guru` GitHub Environment's
-own protection rules stay authoritative on top of it.
+The workflow is wired to the same shared action as staging and pinned to the
+real `tits-guru` target ID: production is prepared by exactly the mechanism
+staging is, rather than by a production-shaped procedure invented under
+pressure on launch day. The `production-tits-guru` GitHub Environment's own
+protection rules stay authoritative on top of it.
+
+`tits-guru` was provisioned and configured while it was planned, so on its
+first run after the activation Prepare finds almost everything in place. It
+installs the new runtime registry and operations bundle, the deploy user's
+sudo grant and the backup cron, re-records the mail gateway's applied policy
+(Postfix unchanged, not reloaded), and verifies and skips the rest: the
+PHP-FPM pool, the Supervisor program, the scheduler and the internal Nginx
+site are the renders provisioning installed. It needs no `PREPARE_*` secret:
+leave `PREPARE_LARAVEL_ENV` unset in particular, because the host's
+hand-edited `shared/.env` is canonical and any secret that differs from it is
+refused as a conflict before anything is written. The order and the success
+criteria are in
+[`deployment-targets.md`](deployment-targets.md#activating-tits-guru).
 
 ## Boundaries
 

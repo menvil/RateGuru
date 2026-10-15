@@ -47,7 +47,7 @@ function cleanupOpsTargetsCli(): string
 
 function cleanupOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function cleanupOpsDeploymentConfPath(): string
@@ -180,6 +180,9 @@ function cleanupOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => cleanupOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => cleanupOpsTargetsCli(),
@@ -293,11 +296,7 @@ function cleanupOpsRawCandidates(string $output): array
  */
 function cleanupOpsParityRegistry(string $scratch, string $applicationRoot, int $releaseRetention = 3): array
 {
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(cleanupOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(cleanupOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',
@@ -1496,6 +1495,7 @@ it('recomputes candidates fresh under the lock rather than reusing an earlier sn
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
@@ -1540,6 +1540,7 @@ it('deletes only validated candidates, leaving protected releases in place', fun
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
@@ -1578,6 +1579,7 @@ it('appends release-cleaned to history only after a successful deletion', functi
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
@@ -1630,6 +1632,7 @@ it('stops on the first failed deletion without deleting subsequent candidates or
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
@@ -1700,6 +1703,7 @@ it('creates a missing pinned-releases file with exactly the configured owner, gr
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
@@ -1756,6 +1760,7 @@ it('leaves a pre-existing valid pinned-releases file byte-for-byte and timestamp
             [
                 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
                 'RATEGURU_COMMON_FILE' => cleanupOpsCommonFile(),
+                'RATEGURU_HOST_LOCK_ROOT' => $scratch,
                 'RATEGURU_DEPLOYMENT_CONF_FILE' => cleanupOpsDeploymentConfPath(),
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,

@@ -1574,10 +1574,93 @@ function deploymentConfFixture(string $scratch): string
 }
 
 /**
+ * The committed `targets` validator's source with its active allowlist
+ * replaced by exactly these target IDs, for a scratch registry whose active
+ * targets are fixtures. The committed declaration must be found, so a change
+ * to it fails here rather than turning the patch into a silent no-op.
+ */
+function targetsSourceAllowingActive(string $source, string ...$targetIds): string
+{
+    $declaration = 'ACTIVE_ALLOWLIST=(staging-main tits-guru)';
+
+    expect(substr_count($source, $declaration))->toBe(1, 'the targets validator no longer declares its active allowlist as: '.$declaration);
+
+    return str_replace($declaration, 'ACTIVE_ALLOWLIST=('.implode(' ', $targetIds).')', $source);
+}
+
+/**
+ * The committed registry, decoded, with these targets' lifecycles replaced —
+ * e.g. ['tits-guru' => 'planned'] for the shape a planned production target
+ * has, which a test of a refusal needs now that every committed target is
+ * active. Nothing else about any target changes.
+ *
+ * @param  array<string, string>  $lifecycles
+ * @return array<string, mixed>
+ */
+function committedRegistryWithLifecycles(array $lifecycles): array
+{
+    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+
+    foreach ($lifecycles as $targetId => $lifecycle) {
+        expect($registry['targets'])->toHaveKey($targetId);
+        $registry['targets'][$targetId]['lifecycle'] = $lifecycle;
+    }
+
+    return $registry;
+}
+
+/**
+ * The committed registry as it was before tits-guru's activation: tits-guru
+ * planned. Every mail world these tests simulate — the held gateway, the
+ * outbound activation, the inbound receiver — was entered while tits-guru was
+ * planned, and a held target that is active is not a valid routing at all.
+ *
+ * @return array<string, mixed>
+ */
+function preActivationRegistry(): array
+{
+    return committedRegistryWithLifecycles(['tits-guru' => 'planned']);
+}
+
+/**
+ * preActivationRegistry() as a file, written once per process: the default
+ * registry of the operations suites, whose planned target is tits-guru — the
+ * target every operation must refuse — and whose active target is staging-main.
+ */
+function preActivationRegistryPath(): string
+{
+    static $path = null;
+
+    if ($path === null || ! is_file($path)) {
+        $path = writeCommittedRegistryWithLifecycles(
+            sys_get_temp_dir().'/rateguru-pre-activation-registry-'.getmypid().'-'.bin2hex(random_bytes(4)).'.json',
+            ['tits-guru' => 'planned'],
+        );
+        $written = $path;
+        register_shutdown_function(static fn () => @unlink($written));
+    }
+
+    return $path;
+}
+
+/**
+ * committedRegistryWithLifecycles() written to $path, formatted the way the
+ * committed registry is. Returns $path.
+ *
+ * @param  array<string, string>  $lifecycles
+ */
+function writeCommittedRegistryWithLifecycles(string $path, array $lifecycles): string
+{
+    file_put_contents($path, json_encode(committedRegistryWithLifecycles($lifecycles), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+    return $path;
+}
+
+/**
  * A registry declaring one fully valid, lifecycle=active `parity-target`
  * whose paths all live inside the scratch tree, plus the patched `targets`
- * validator that accepts it (the shipped validator only allows staging-main
- * to be active).
+ * validator that accepts it (the shipped validator allows only its reviewed
+ * targets to be active).
  *
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
@@ -1600,7 +1683,7 @@ function parityRegistryFixture(string $scratch, array $options = []): array
     $group = trim((string) shell_exec('id -gn'));
 
     $patched = File::get(base_path('infrastructure/scripts/targets'));
-    $patched = str_replace('ACTIVE_ALLOWLIST="staging-main"', 'ACTIVE_ALLOWLIST="parity-target"', $patched);
+    $patched = targetsSourceAllowingActive($patched, 'parity-target');
     $patched = str_replace('elif [[ "${application_root}" != /home/www/rateguru/* ]]; then', 'elif false; then', $patched);
     $patched = str_replace('elif [[ "${incoming}" != /home/* ]]; then', 'elif false; then', $patched);
     $patched = str_replace('if [[ "${code_group}" == "${runtime_group}" ]]; then', 'if false; then', $patched);
@@ -2401,7 +2484,8 @@ function expectNoKeyMaterial(string $output, string $keyPath): void
 
 /**
  * The four reviewed configuration files mail identity is judged from, written
- * into DIR: the committed ones, plus — unless `demo-shop` is false — the
+ * into DIR: the committed ones — the registry as preActivationRegistry() has
+ * it unless `registry` is given — plus, unless `demo-shop` is false, the
  * synthetic demo-shop target in the registry, in mail routing (`mode` held or
  * outbound), and in mail identity (`identity`, or none when null). `policy`
  * ({routing, outbound}, such as mailPreActivationPolicy()) stands in for the
@@ -2417,7 +2501,7 @@ function mailIdentityFixtureConfig(string $dir, array $options = []): array
 
     $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
 
-    $registry = $options['registry'] ?? $read('deployment-targets.json');
+    $registry = $options['registry'] ?? preActivationRegistry();
     $routing = $options['policy']['routing'] ?? $read('mail-routing.json');
     $identity = $read('mail-identity.json');
     $outbound = $options['outbound'] ?? $options['policy']['outbound'] ?? $read('mail-outbound.json');
@@ -2521,14 +2605,15 @@ function mailRoutingTwoOutboundTargets(): array
 }
 
 /**
- * The committed registry plus the synthetic demo-shop target.
+ * The pre-activation registry (preActivationRegistry(): tits-guru planned) plus
+ * the synthetic demo-shop target — the mail world these tests simulate.
  *
  * @param  array<string, mixed>  $overrides
  * @return array<string, mixed>
  */
 function mailRoutingDemoShopRegistry(array $overrides = []): array
 {
-    return json_decode(provisionRegistryJson($overrides), true, 512, JSON_THROW_ON_ERROR);
+    return json_decode(provisionRegistryJson($overrides, null, ['tits-guru' => 'planned']), true, 512, JSON_THROW_ON_ERROR);
 }
 
 function mailRoutingJson(array $data): string
@@ -2666,14 +2751,17 @@ function mailRoutingPlan(array|string|null $policy = null, ?array $registry = nu
 /**
  * The rendered plan exactly as the CLI printed it on stdout — after proving the
  * render succeeded and wrote nothing on stderr, so a diagnostic can never end
- * up inside a plan file a test hands on.
+ * up inside a plan file a test hands on. Rendered against
+ * preActivationRegistry() unless a registry is given.
  *
  * @param  array<string, mixed>|string|null  $policy
  * @param  array<string, mixed>|null  $registry
  */
 function mailRoutingPlanJson(array|string|null $policy = null, ?array $registry = null): string
 {
-    $run = mailRoutingRun(['render-plan'], $policy, $registry);
+    // The registry a simulated gateway is given by default, so a plan computed
+    // here is the plan that gateway records.
+    $run = mailRoutingRun(['render-plan'], $policy, $registry ?? preActivationRegistry());
 
     expect($run['status'])->toBe(0, "render-plan failed:\n".$run['stderr']);
     expect($run['stderr'])->toBe('', 'render-plan wrote diagnostics on success');
@@ -2725,7 +2813,9 @@ function mailGatewayScratch(): string
  *   policy         a mail routing policy (default: the pre-activation one,
  *                  mailPreActivationPolicy() — tits-guru held; null: none, so
  *                  the installer reads its own bundle's)
- *   registry       a deployment registry instead of the committed one
+ *   registry       a deployment registry (default: the pre-activation one,
+ *                  preActivationRegistry() — tits-guru planned; null: its own
+ *                  bundle's)
  *   outbound       a host outbound contract (default: the pre-activation one —
  *                  direct delivery disabled; null: its own bundle's)
  *   identity       a mail identity contract instead of the committed one
@@ -2749,6 +2839,10 @@ function mailGatewayHost(array $options = []): array
 
     if (! array_key_exists('outbound', $options)) {
         $options['outbound'] = mailPreActivationPolicy()['outbound'];
+    }
+
+    if (! array_key_exists('registry', $options)) {
+        $options['registry'] = preActivationRegistry();
     }
 
     $scratch = mailGatewayScratch();
@@ -3743,11 +3837,12 @@ function mailPreActivationPolicy(?int $port = null): array
 /**
  * A scratch checkout of the infrastructure tree under SCRATCH whose mail
  * routing policy and host contract are the pre-activation ones — the
- * repository before tits-guru's activation was requested. Returns its root.
+ * repository before tits-guru's activation was requested, and so before its
+ * lifecycle was: tits-guru is planned there. Returns its root.
  */
 function mailPreActivationCheckout(string $scratch): string
 {
-    $repo = provisionRepo($scratch, File::get(base_path('infrastructure/config/deployment-targets.json')));
+    $repo = provisionRepo($scratch, json_encode(preActivationRegistry(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
     $policy = mailPreActivationPolicy();
 
     file_put_contents($repo.'/infrastructure/config/mail-routing.json', mailRoutingJson($policy['routing']));
@@ -3866,7 +3961,9 @@ function mailActivationHostBuilt(array $options): array
 
     $request = ($options['requested'] ?? true) ? mailActivationRequest($port) : $preActivation;
     $documents = [
-        'deployment-targets.json' => $options['registry'] ?? $committed('deployment-targets.json'),
+        // The outbound activation is the launch's first mail step, taken while
+        // tits-guru is still planned — the registry its bundles carry.
+        'deployment-targets.json' => $options['registry'] ?? preActivationRegistry(),
         'mail-routing.json' => $options['routing'] ?? $request['routing'],
         'mail-outbound.json' => $options['outbound'] ?? $request['outbound'],
         'mail-identity.json' => $committed('mail-identity.json'),
@@ -4151,10 +4248,10 @@ function mailInboundBundleScripts(): array
 }
 
 /**
- * The documents of an inbound bundle: the committed registry, identity and
- * inbound contract, and the routing policy and host contract a gateway first
- * records (mailPreActivationPolicy) — inbound mail is the same on either side
- * of the outbound activation.
+ * The documents of an inbound bundle: the committed identity and inbound
+ * contract, and the registry, routing policy and host contract a gateway first
+ * records (preActivationRegistry, mailPreActivationPolicy) — inbound mail is
+ * the same on either side of the outbound activation.
  *
  * @return array<string, array<string, mixed>>
  */
@@ -4164,7 +4261,7 @@ function mailInboundDocuments(?array $inbound = null): array
     $held = mailPreActivationPolicy();
 
     return [
-        'deployment-targets.json' => $committed('deployment-targets.json'),
+        'deployment-targets.json' => preActivationRegistry(),
         'mail-routing.json' => $held['routing'],
         'mail-outbound.json' => $held['outbound'],
         'mail-identity.json' => $committed('mail-identity.json'),
@@ -5936,6 +6033,9 @@ function infraScriptEnv(string $scratch, string $registryPath, string $targetsPa
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => infraScript('common'),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         // The patched copy: restore-common's own workspace/history creation
         // uses `install -o root -g root`, which needs real root. Only that is
         // rewritten; every line of logic under test is byte-identical.
@@ -6280,6 +6380,21 @@ function restoreTargetFixture(string $scratch, array $options = []): array
  */
 function restoreTargetRun(string $scratch, array $arguments, array $envOverrides = []): array
 {
+    [$command, $env] = restoreTargetCommand($scratch, $arguments, $envOverrides);
+
+    [$exit, $output] = runInfraScript($command[1], array_slice($command, 2), $env);
+
+    return ['exit' => $exit, 'output' => $output];
+}
+
+/**
+ * The command and environment restoreTargetRun runs, built but not run, so a
+ * concurrency test can start the same restore in the background.
+ *
+ * @return array{0: list<string>, 1: array<string, string>}
+ */
+function restoreTargetCommand(string $scratch, array $arguments, array $envOverrides = []): array
+{
     [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
 
     $env = infraScriptEnv($scratch, $registryPath, $targetsPath, array_merge(
@@ -6294,9 +6409,7 @@ function restoreTargetRun(string $scratch, array $arguments, array $envOverrides
         $envOverrides,
     ));
 
-    [$exit, $output] = runInfraScript(patchedInfraScript($scratch, 'restore-target'), $arguments, $env);
-
-    return ['exit' => $exit, 'output' => $output];
+    return [array_merge(['bash', patchedInfraScript($scratch, 'restore-target')], $arguments), $env];
 }
 
 function restoreTargetApply(string $scratch, array $envOverrides = []): array
@@ -8811,13 +8924,15 @@ function provisionDemoTarget(): array
 }
 
 /**
- * The fixture registry: the committed one plus demo-shop.
+ * The fixture registry: the committed one plus demo-shop — with the committed
+ * targets' lifecycles replaced by $lifecycles, as committedRegistryWithLifecycles().
  *
  * @param  array<string, mixed>  $overrides  dot-free key => value applied to demo-shop
+ * @param  array<string, string>  $lifecycles
  */
-function provisionRegistryJson(array $overrides = [], ?string $lifecycle = null): string
+function provisionRegistryJson(array $overrides = [], ?string $lifecycle = null, array $lifecycles = []): string
 {
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true, 512, JSON_THROW_ON_ERROR);
+    $registry = committedRegistryWithLifecycles($lifecycles);
 
     $demo = provisionDemoTarget();
 
@@ -8851,15 +8966,16 @@ function provisionRepo(string $scratch, string $registryJson, bool $widenActiveA
 
     file_put_contents($repo.'/infrastructure/config/deployment-targets.json', $registryJson);
 
-    // The shipped validator allows exactly one named active target. The
-    // activation-parity test needs two, so it widens the allowlist in this
-    // scratch copy only — the shipped rule is asserted in its own test.
+    // The shipped validator allows only its reviewed targets to be active.
+    // The activation-parity test needs one more, so it widens the allowlist
+    // in this scratch copy only — the shipped rule is asserted in its own
+    // test.
     $targets = $repo.'/infrastructure/scripts/targets';
     $source = File::get(base_path('infrastructure/scripts/targets'));
 
     if ($widenActiveAllowlist) {
         $source = str_replace(
-            '[[ "${lifecycle}" == "active" ]] && [[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]',
+            '[[ "${lifecycle}" == "active" ]] && ! active_allowed "${target_id}"',
             'false',
             $source,
         );
@@ -9799,7 +9915,7 @@ function deployOpsTargetsCli(): string
 
 function deployOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function deployOpsDeploymentConfPath(): string
@@ -9869,9 +9985,7 @@ function deployOpsExec(string $scriptPath, array $env): array
  */
 function deployOpsRunHarness(string $scratch, string $body, array $env = []): array
 {
-    $script = "set -Eeuo pipefail\n".'source '.escapeshellarg(deployOpsScript())."\n".$body."\n";
-    $harnessPath = $scratch.'/harness.sh';
-    file_put_contents($harnessPath, $script);
+    $harnessPath = deployOpsWriteHarness($scratch, $body);
 
     $defaultEnv = [
         'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
@@ -9879,6 +9993,15 @@ function deployOpsRunHarness(string $scratch, string $body, array $env = []): ar
     ];
 
     return deployOpsExec($harnessPath, array_merge($defaultEnv, $env));
+}
+
+/** Writes the harness deployOpsRunHarness runs, and returns its path. */
+function deployOpsWriteHarness(string $scratch, string $body): string
+{
+    $harnessPath = $scratch.'/harness.sh';
+    file_put_contents($harnessPath, "set -Eeuo pipefail\n".'source '.escapeshellarg(deployOpsScript())."\n".$body."\n");
+
+    return $harnessPath;
 }
 
 /**
@@ -9892,6 +10015,9 @@ function deployOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => deployOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => deployOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => deployOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => deployOpsTargetsCli(),
@@ -10312,11 +10438,7 @@ function deployOpsParityRegistry(string $scratch, array $fixture): array
     // whose primary group is also named `runner` — so this was missed
     // locally (this machine's account and primary group differ) until CI
     // caught it.
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(deployOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(deployOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',
@@ -10410,6 +10532,31 @@ function deployOpsCurrentGroup(): string
  */
 function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null): array
 {
+    $deployment = deployOpsFullDeployment($scratch, $failHealthCheck, $artifact);
+
+    [$exit, $output] = deployOpsExec($deployment['harness'], $deployment['env']);
+
+    return [
+        'exit' => $exit,
+        'output' => $output,
+        'fixture' => $deployment['fixture'],
+        'healthCheckLog' => $deployment['healthCheckLog'],
+        'verifyCliLog' => $deployment['verifyCliLog'],
+        'releaseId' => $deployment['releaseId'],
+    ];
+}
+
+/**
+ * Everything deployOpsRunFullDeployment runs, built but not run: the harness,
+ * its environment, and what it deploys. A concurrency test starts it in the
+ * background instead (heldRunStart), with $envOverrides pointing it at a shared
+ * lock root and a gated health check.
+ *
+ * @param  array<string, string>  $envOverrides
+ * @return array{harness: string, env: array<string, string>, fixture: array<string, mixed>, healthCheckLog: string, verifyCliLog: string, releaseId: string}
+ */
+function deployOpsFullDeployment(string $scratch, ?bool $failHealthCheck = false, ?callable $artifact = null, array $envOverrides = []): array
+{
     $fixture = deployOpsBuildFixture($scratch);
 
     if ($artifact !== null) {
@@ -10430,23 +10577,22 @@ function deployOpsRunFullDeployment(string $scratch, ?bool $failHealthCheck = fa
 
     $releaseId = 'v1.0.0-2026010'.random_int(1, 9).'-000000-abc'.random_int(1000, 9999);
 
-    $env = deployOpsBaseEnv($scratch, [
+    $env = deployOpsBaseEnv($scratch, array_merge([
         'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
         'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
         'RATEGURU_VERIFY_REQUIRED_CLIS_BIN' => $verifyCliStub,
-    ]);
+    ], $envOverrides));
 
-    [$exit, $output] = deployOpsRunHarness(
+    $harness = deployOpsWriteHarness(
         $scratch,
         "parse_deploy_args --target parity-target --release {$releaseId} --artifact {$fixture['artifact']}\nresolve_target\nperform_deploy",
-        $env,
     );
 
     return [
-        'exit' => $exit,
-        'output' => $output,
+        'harness' => $harness,
+        'env' => $env,
         'fixture' => $fixture,
         'healthCheckLog' => $healthCheckLog,
         'verifyCliLog' => $verifyCliLog,
@@ -10467,6 +10613,144 @@ function deployOpsHistory(string $root): array
         fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
         array_values(array_filter(explode("\n", $raw))),
     );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Held runs: a real operation stopped inside its locked region
+|--------------------------------------------------------------------------
+|
+| A lock is only proved by two operations that are genuinely in flight at the
+| same time. A held run is a real operational script started in the
+| background, whose stub child — reached only after the operation has taken
+| its locks — announces itself and then waits to be released. While it waits,
+| a second real operation is run against it; then the first is released and
+| must finish exactly as it would have alone.
+|
+| The gate is a path prefix: "<gate>.reached" holds the stub's PID once it is
+| reached, and "<gate>.release" lets it go. The wait is bounded, so a test that
+| forgets to release a gate fails instead of hanging the suite.
+*/
+
+/**
+ * A stub that announces it has been reached, waits for its release, then
+ * execs $then with its own arguments — or exits 0 when there is none.
+ */
+function heldRunGateStub(string $path, string $gate, ?string $then = null): string
+{
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'printf "%s\n" "$$" > '.escapeshellarg($gate.'.reached.tmp')."\n"
+        .'mv '.escapeshellarg($gate.'.reached.tmp').' '.escapeshellarg($gate.'.reached')."\n"
+        .'for _ in $(seq 1 1200); do'."\n"
+        .'    [[ -e '.escapeshellarg($gate.'.release').' ]] && break'."\n"
+        .'    sleep 0.05'."\n"
+        .'done'."\n"
+        .'[[ -e '.escapeshellarg($gate.'.release').' ]] || { echo "held-run gate never released: '.$gate.'" >&2; exit 1; }'."\n"
+        .($then === null ? "exit 0\n" : 'exec '.escapeshellarg($then).' "$@"'."\n"));
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * Starts $command in the background with exactly $env, its output going to a
+ * file beside the gate.
+ *
+ * @param  list<string>  $command
+ * @param  array<string, string>  $env
+ * @return array{process: resource, output: string, gate: string}
+ */
+function heldRunStart(array $command, array $env, string $gate): array
+{
+    $output = $gate.'.out';
+    $process = proc_open($command, [1 => ['file', $output, 'w'], 2 => ['redirect', 1]], $pipes, null, $env);
+
+    expect($process)->not->toBeFalse('could not start the held run');
+
+    return ['process' => $process, 'output' => $output, 'gate' => $gate];
+}
+
+/**
+ * Waits until the run has reached its gate — inside every lock it takes — or
+ * fails with its output if it ended first.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ */
+function heldRunAwait(array $run, float $timeout = 60.0): void
+{
+    $deadline = microtime(true) + $timeout;
+
+    while (! is_file($run['gate'].'.reached')) {
+        if (! proc_get_status($run['process'])['running']) {
+            throw new RuntimeException("the held run ended before it reached its gate:\n".(string) @file_get_contents($run['output']));
+        }
+
+        if (microtime(true) > $deadline) {
+            proc_terminate($run['process'], 9);
+
+            throw new RuntimeException("the held run did not reach its gate within {$timeout}s:\n".(string) @file_get_contents($run['output']));
+        }
+
+        usleep(20_000);
+    }
+}
+
+/**
+ * Releases the gate and waits for the run to finish.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ * @return array{0: int, 1: string}
+ */
+function heldRunRelease(array $run, float $timeout = 120.0): array
+{
+    touch($run['gate'].'.release');
+
+    return heldRunFinish($run, $timeout);
+}
+
+/**
+ * Waits for the run to end on its own. The exit code is read from the first
+ * status that reports it stopped: once PHP has seen that, proc_close can no
+ * longer report it.
+ *
+ * @param  array{process: resource, output: string, gate: string}  $run
+ * @return array{0: int, 1: string}
+ */
+function heldRunFinish(array $run, float $timeout = 120.0): array
+{
+    $deadline = microtime(true) + $timeout;
+
+    while (($status = proc_get_status($run['process']))['running']) {
+        if (microtime(true) > $deadline) {
+            proc_terminate($run['process'], 9);
+
+            throw new RuntimeException("the held run did not finish within {$timeout}s:\n".(string) @file_get_contents($run['output']));
+        }
+
+        usleep(20_000);
+    }
+
+    proc_close($run['process']);
+
+    return [$status['exitcode'], (string) @file_get_contents($run['output'])];
+}
+
+/** The PID of the gate stub a held run is waiting in. */
+function heldRunGatePid(array $run): int
+{
+    return (int) trim((string) file_get_contents($run['gate'].'.reached'));
+}
+
+/**
+ * What the host-infrastructure lock in $root would grant right now, asked from
+ * a separate process with non-blocking flock: 'free' (exclusive is available),
+ * 'shared' (only shared holders) or 'exclusive' (an exclusive holder).
+ */
+function hostInfrastructureLockState(string $root): string
+{
+    $probe = 'exec 9>>"$1"; if flock -n -x 9; then echo free; elif flock -n -s 9; then echo shared; else echo exclusive; fi';
+
+    return trim((string) shell_exec('bash -c '.escapeshellarg($probe).' _ '.escapeshellarg($root.'/host-infrastructure.lock')));
 }
 
 /*
@@ -10940,6 +11224,9 @@ function bsvcFixture(string $scratch, array $options = []): array
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_BOOTSTRAPSVC_EUID' => $options['euid'] ?? '0',
         'RATEGURU_BOOTSTRAPSVC_FS_ROOT' => $fs,
+        // The host as these tests model it: staging-main active, tits-guru
+        // planned — the target its provisioning tests provision.
+        'RATEGURU_BOOTSTRAPSVC_SOURCE_REGISTRY' => preActivationRegistryPath(),
         'RATEGURU_BOOTSTRAPSVC_PASSWD_FILE' => $fs.'/etc-passwd',
         'RATEGURU_BOOTSTRAPSVC_GROUP_FILE' => $fs.'/etc-group',
         'RATEGURU_BOOTSTRAPSVC_PGREP_BIN' => $scratch.'/bin/pgrep',
@@ -12034,7 +12321,9 @@ function publicHttpHost(array $options = []): array
     writeExecutable($scratch.'/bin/openssl', mailInboundStubs()['openssl']);
     file_put_contents($scratch.'/trust.pem', "the trusted certificate authorities\n");
 
-    file_put_contents($scratch.'/installed-registry.json', $options['registry'] ?? File::get(base_path('infrastructure/config/deployment-targets.json')));
+    // The public site was prepared, and taken to HTTPS, while tits-guru was
+    // planned: both registries say so unless a test says otherwise.
+    file_put_contents($scratch.'/installed-registry.json', $options['registry'] ?? File::get(preActivationRegistryPath()));
     publicHttpIpv6(['fs' => $fs], $options['ipv6'] ?? 'available');
     foreach (['mutations.log', 'reads.log'] as $log) {
         file_put_contents($scratch.'/log/'.$log, '');
@@ -12060,6 +12349,7 @@ function publicHttpHost(array $options = []): array
             'RATEGURU_PUBLICHTTP_EUID' => '0',
             'RATEGURU_PUBLICHTTP_FS_ROOT' => $fs,
             'RATEGURU_PUBLICHTTP_RUN_ROOT' => $scratch.'/run',
+            'RATEGURU_PUBLICHTTP_REGISTRY' => preActivationRegistryPath(),
             'RATEGURU_PUBLICHTTP_INSTALLED_REGISTRY' => $scratch.'/installed-registry.json',
             'RATEGURU_PUBLICHTTP_NGINX_BIN' => $scratch.'/bin/nginx',
             'RATEGURU_PUBLICHTTP_SYSTEMCTL_BIN' => $scratch.'/bin/systemctl',
@@ -12324,24 +12614,21 @@ function publicHttpsDeployed(array $host): void
 }
 
 /**
- * The registries of a target that has gone live: tits-guru lifecycle=active in
- * a trusted registry and in the host's own, and a validator that accepts it.
+ * The registries of an activated target: the committed registry, tits-guru
+ * lifecycle=active, as the trusted bundle's and as the host's own.
  *
  * @return array<string, string>
  */
 function publicHttpsActiveTarget(array $host): array
 {
-    $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
-    $registry['targets']['tits-guru']['lifecycle'] = 'active';
-    $json = json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
-
-    file_put_contents($host['scratch'].'/trusted-active-registry.json', $json);
-    file_put_contents($host['scratch'].'/installed-registry.json', $json);
-    writeExecutable($host['scratch'].'/bin/targets', "#!/bin/bash\n# the registry validator, for a registry whose active allowlist has grown\n[[ \"\$1\" == validate ]] && echo \"target registry is valid: \$3\"\n");
+    // The committed registry, which has activated tits-guru, in both places —
+    // the trusted bundle's, and the host's own once Prepare has installed it.
+    // Copies, so a test that changes one never changes the committed file.
+    copy(base_path('infrastructure/config/deployment-targets.json'), $host['scratch'].'/trusted-active-registry.json');
+    copy(base_path('infrastructure/config/deployment-targets.json'), $host['scratch'].'/installed-registry.json');
 
     return [
         'RATEGURU_PUBLICHTTP_REGISTRY' => $host['scratch'].'/trusted-active-registry.json',
-        'RATEGURU_PUBLICHTTP_TARGETS_CLI' => $host['scratch'].'/bin/targets',
     ];
 }
 

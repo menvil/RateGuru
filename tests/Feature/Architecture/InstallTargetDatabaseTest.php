@@ -117,7 +117,9 @@ function itdbWriteStubs(string $scratch): void
 
 function itdbWriteCommon(string $scratch): string
 {
-    $registry = base_path('infrastructure/config/deployment-targets.json');
+    // A registry whose planned target is tits-guru, as it was until its
+    // activation: the target this installer must refuse.
+    $registry = preActivationRegistryPath();
     $path = $scratch.'/common';
 
     file_put_contents($path, <<<COMMON

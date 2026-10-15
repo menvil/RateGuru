@@ -97,14 +97,15 @@ it('routes staging-main from its own gateway port into the existing capture', fu
     ]);
 });
 
-it('routes tits-guru from its own gateway port by direct outbound delivery, still planned', function () {
-    $listener = mailRoutingListener(mailRoutingPlan(), 'tits-guru');
+it('routes tits-guru from its own gateway port by direct outbound delivery, and active', function () {
+    // The committed policy against the committed registry.
+    $listener = mailRoutingListener(mailRoutingPlan(null, perimeterRegistry()), 'tits-guru');
 
     expect($listener)->toBe([
         'delivery_mode' => 'outbound',
         'environment_class' => 'production',
         'identity' => 'tits-guru',
-        'lifecycle' => 'planned',
+        'lifecycle' => 'active',
         'listen' => ['host' => '127.0.0.1', 'port' => 2526],
         'route' => ['kind' => 'direct'],
         'sender' => [
@@ -313,16 +314,15 @@ it('refuses staging.invalid as a production identity', function (array $set, str
     ],
 ]);
 
-it('keeps tits-guru planned, and refuses any held target that is active', function () {
+it('keeps tits-guru active and outbound, and refuses any held target that is active', function () {
     $registry = perimeterRegistry();
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
     expect(mailRoutingPolicy()['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
 
-    // A held tits-guru made active is refused by mail routing itself — not
+    // A held tits-guru that is active is refused by mail routing itself — not
     // only by the registry's own active allowlist, which this scratch copy
     // widens so the mail rule is the one left to decide.
-    data_set($registry, 'targets.tits-guru.lifecycle', 'active');
 
     $scratch = sys_get_temp_dir().'/mail-routing-active-'.bin2hex(random_bytes(6));
     @mkdir($scratch, 0o755, true);
@@ -339,7 +339,7 @@ it('keeps tits-guru planned, and refuses any held target that is active', functi
 
         // The same scratch copy with tits-guru planned is valid, so the
         // lifecycle alone is what was refused.
-        provisionRepo($scratch, mailRoutingJson(perimeterRegistry()), widenActiveAllowlist: true);
+        provisionRepo($scratch, mailRoutingJson(preActivationRegistry()), widenActiveAllowlist: true);
 
         expect(mailRoutingRun(['validate'], null, null, $script)['status'])->toBe(0);
     } finally {
@@ -398,10 +398,11 @@ it('validates and renders a production target delivered outbound by direct SMTP'
     expect($others)->toBe(mailRoutingPlan()['listeners']);
 });
 
-it('routes only the real production target outbound in the real plan, by direct delivery and still planned', function () {
+it('routes only the real production target outbound in the real plan, by direct delivery, and active', function () {
     expect(mailRoutingPolicy()['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
-    expect(mailRoutingListener(mailRoutingPlan(), 'tits-guru')['route'])->toBe(['kind' => 'direct']);
-    expect(perimeterRegistry()['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect(mailRoutingListener(mailRoutingPlan(null, perimeterRegistry()), 'tits-guru')['route'])->toBe(['kind' => 'direct']);
+    expect(mailRoutingListener(mailRoutingPlan(null, perimeterRegistry()), 'tits-guru')['lifecycle'])->toBe('active');
+    expect(perimeterRegistry()['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     $outbound = array_values(array_filter(mailRoutingPlan()['listeners'], static fn (array $listener): bool => $listener['delivery_mode'] === 'outbound'));
     expect(array_column($outbound, 'identity'))->toBe(['tits-guru']);

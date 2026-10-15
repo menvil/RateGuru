@@ -448,14 +448,15 @@ it('gates a production restore behind an exact typed confirmation, before any en
 it('does not activate production or change any target lifecycle', function () {
     [, $source] = restoreWorkflow('restore-production.yml');
 
-    // tits-guru stays planned, and this workflow is not what changes that.
+    // tits-guru is active, by a reviewed registry change of its own; this
+    // workflow is not what changed it.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     // Asserted against executable content only: the workflow's own header
-    // legitimately EXPLAINS that tits-guru is lifecycle=planned, and a blunt
-    // whole-file scan would forbid saying so.
+    // legitimately EXPLAINS the lifecycle gate, and a blunt whole-file scan
+    // would forbid saying so.
     $executable = executableSourceLines($source);
 
     foreach ([

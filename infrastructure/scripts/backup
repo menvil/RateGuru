@@ -356,6 +356,11 @@ perform_backup() {
         "${RUN_ROOT}" \
         "${BACKUP_ROOT}"
 
+    # The machine first, shared (common): no host-level operation converges
+    # the services and the bundle underneath this run, and two targets' runs
+    # still overlap freely.
+    share_host_infrastructure_lock "backup"
+
     exec 9>"${LOCK_FILE}"
 
     if ! flock -n 9; then

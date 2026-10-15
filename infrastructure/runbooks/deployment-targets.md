@@ -293,34 +293,38 @@ dependency on every deployment host, and `jq` is already required.
 | `planned` | Declared and validated, but nothing is provisioned. Not deployable. |
 | `disabled` | Previously real, deliberately taken out of service. Not deployable. |
 
-Validation currently permits `active` only for `staging-main`. Every other
-target must stay `planned` or `disabled` until its own migration slice lands and
-its infrastructure genuinely exists.
+Validation permits `active` only for the targets in `ACTIVE_ALLOWLIST` in
+`infrastructure/scripts/targets`: `staging-main` and `tits-guru`, each added by
+the reviewed change that activated it. Every other target must stay `planned`
+or `disabled` until a reviewed change adds it there: a registry edit alone
+never makes a target deployable.
+
+Both are `active` in the repository. On the host, `tits-guru` becomes active
+when **Prepare tits.guru host** installs this registry — see
+[Activating tits-guru](#activating-tits-guru).
 
 ### Why a planned target cannot be deployed
 
-`tits-guru` is **structurally provisioned**: its directories, Linux identities,
-PHP-FPM pool, Supervisor program, scheduler entry and internal Nginx site now
-exist on the host. It is still `lifecycle=planned`, and that is not a
-contradiction — lifecycle is permission to OPERATE a target, not a description
-of how much of it exists.
-
-What it still does not have is deliberate and separately owned: no deploy sudo
-authorization, no application release, no public hostname, no TLS certificate,
-no DNS record, and no mail transport. The declaration was written before
-provisioning so the plan could be reviewed and collision-checked in advance, and
-being provisioned is not what makes a target deployable — being activated is.
+`tits-guru` was **structurally provisioned** — its directories, Linux
+identities, PHP-FPM pool, Supervisor program, scheduler entry and internal Nginx
+site — and configured while it was still `lifecycle=planned`. That is not a
+contradiction: lifecycle is permission to OPERATE a target, not a description
+of how much of it exists. Being provisioned is not what makes a target
+deployable — being activated is, and `tits-guru`'s activation was a reviewed
+change of its own ([Activating tits-guru](#activating-tits-guru)).
 
 Two independent things prevent that:
 
-- the `active`-allowlist above keeps `tits-guru` at `planned` in validation;
+- the `active`-allowlist above keeps every target it does not name at `planned`
+  or `disabled` in validation;
 - every operational script calls `require_active_target` before touching a
   URL, the filesystem, a database, or a lock — a target that is not
   `lifecycle: active` is rejected before any of that, naming its lifecycle in
   the error.
 
-When `tits-guru` is genuinely provisioned, flipping it to `active` is a
-reviewable one-line change with the allowlist updated alongside it.
+Flipping a target to `active` is a reviewable one-line registry change with
+the allowlist updated alongside it, which is exactly how `tits-guru` was
+activated.
 
 ## What is non-secret
 
@@ -691,22 +695,166 @@ below.
 Every entry point calls `require_active_target TARGET` before doing anything
 else: it validates the target ID, validates the whole registry, confirms the
 target exists, and confirms `lifecycle == active` — all before a URL is built,
-`curl` runs, or an application path is touched. `staging-main` is the only
-target with `lifecycle: active`; `tits-guru` stays `planned` and is rejected
-with a message naming its lifecycle. This is a promise, not an implementation
-detail: `targets validate` continues to reject `lifecycle: active` on any
-target other than `staging-main` (see [Validation](#validation) above), so a
+`curl` runs, or an application path is touched. A planned or disabled target
+is rejected with a message naming its lifecycle. This is a promise, not an
+implementation detail: `targets validate` rejects `lifecycle: active` on any
+target outside its reviewed allowlist (see [Lifecycle](#lifecycle) above), so a
 target cannot become operable by mistake — flipping it requires a reviewed
 registry change.
 
-### tits-guru is still not deployable
+### Activating tits-guru
 
-`tits-guru` now has its directories, users, socket, queue worker, cron entry and
-internal Nginx site, and it is still rejected at `lifecycle=planned`. That is
-the point: rejecting it on lifecycle rather than on whether its parts happen to
-exist is exactly what keeps a *provisioned* target from being mistaken for a
-*deployable* one. Nothing about provisioning, or about configuring, moves that
-gate — only a reviewed registry change does.
+`tits-guru` was kept `planned` while it was provisioned and configured, and
+rejecting it on lifecycle rather than on whether its parts happened to exist is
+exactly what kept a *provisioned* target from being mistaken for a
+*deployable* one. Its activation is a separate, reviewed infrastructure
+operation, and it is three things it is not:
+
+- **not the first deploy.** Nothing is built, uploaded or migrated, and no
+  release exists afterwards. The first production release goes through
+  **Release to production**, from a `v*` tag only;
+- **not GO LIVE.** The public site stays `tls-ready`, and
+  `https://tits.guru/` keeps answering 503. GO LIVE is its own workflow,
+  behind its own typed confirmation, and needs a deployed, healthy release;
+- **not a change to the host's material.** The production `shared/.env` —
+  including the mail settings the operator added by hand — the database
+  password, the DKIM key, the certificates and the SSH keys are never
+  rewritten.
+
+**What changes in the repository.** `tits-guru` is `lifecycle=active`, and the
+validator's allowlist names it. The two committed renders follow from that:
+`config/sudoers/rateguru-deploy` grants `deploy-rateguru-tits-guru` the four
+generic wrappers in a rule of its own, and `config/cron/rateguru-backups`
+schedules its three backup jobs at the reviewed times in
+`config/backup-schedules.json`. Staging's grant and jobs are unchanged, byte for
+byte.
+
+**What changes on the host** — only when **Prepare tits.guru host** runs from
+`main`:
+
+- the runtime registry, saying `tits-guru` is active;
+- the target-aware operations bundle;
+- the sudoers rule and the backup cron, now naming both targets;
+- the mail gateway's record of the policy it was applied from, which carries
+  each target's lifecycle. Postfix's configuration is unchanged and Postfix is
+  not reloaded.
+
+Every other step of the run verifies and skips: the PHP-FPM pool, the
+Supervisor program, the scheduler and the internal Nginx site are the same
+renders provisioning installed. The queue program and the scheduler stay idle
+until a release exists.
+
+**The `PREPARE_*` secrets of `production-tits-guru`.** Prepare installs
+material only where it is absent, and refuses — before writing anything —
+material that differs from what the host holds. On this already configured
+target:
+
+- leave `PREPARE_LARAVEL_ENV` **unset**. The host's `shared/.env` is
+  canonical: it was edited by hand, and any secret that is not byte-identical
+  to it is refused as a conflict;
+- leave `PREPARE_DEPLOY_AUTHORIZED_KEYS` unset, or identical to the installed
+  `authorized_keys`;
+- leave `PREPARE_RCLONE_CONFIG` unset when `/root/.config/rclone/rclone.conf`
+  already exists on the host — staging's backups put it there;
+- leave the TLS, Basic Auth and mail TLS secrets unset, or identical to the
+  installed files.
+
+**Before the first release.** Nothing scheduled destroys anything:
+
+- the nightly `backup-cycle --target tits-guru` refuses at its first step,
+  because there is no `current/release.json` to back up. Nothing is dumped,
+  uploaded or pruned, and the failure is recorded in its own log,
+  `/var/log/rateguru/tits-guru-backup-cycle.log`, every night until the first
+  release;
+- the weekly `restore-test` and `offsite-restore-test` find no backup in the
+  `tits-guru` namespace and refuse before creating a database or a
+  download;
+- `rollback`, `restore-target` and `rateguru-restore` refuse a target with no
+  release; `cleanup` finds nothing to clean;
+- staging's backups, its namespace and its B2 prefix are never touched by any
+  of it.
+
+**Host-level and target operations never overlap.** Both targets share one
+machine, and one lock file on it, `/home/www/rateguru/run/host-infrastructure.lock`,
+in two modes (`infrastructure/scripts/common`):
+
+- **Exclusive** — the operations that change what every target depends on:
+  **Prepare**, **Repair**, **Provision**, **Configure**, every other change to
+  the public site (its HTTP and HTTPS preparation and rollback, GO LIVE) and
+  the mail activations. They run one at a time.
+- **Shared** — every operation on one target: deploy, rollback, cleanup,
+  `restore-target` and `recover-host` (`--apply`, `--resume`), and the backup
+  family the cron runs (`backup-cycle`, `backup`, `restore-test`,
+  `offsite-backup`, `offsite-retention`, `offsite-restore-test`,
+  `fetch-backup`). They run side by side: a staging deployment and a production
+  backup never wait for each other.
+- **Closing the public site** (Close tits.guru public site) holds the machine
+  shared and the site exclusively, so a deployment or a backup in flight never
+  delays it; a host-level operation still does.
+
+Whichever starts first wins, and the other is **refused before it changes
+anything** — nothing ever waits on the lock:
+
+- *Prepare (or Repair, …) refused* with "a target operation is running on this
+  host": a deployment, rollback, restore or backup of either target is in
+  flight. Wait for it to finish and run it again.
+- *A deployment, rollback or restore refused* with "a host-level operation is
+  changing this host's shared infrastructure": wait for that operation and run
+  it again.
+- *A nightly backup or weekly restore test refused* the same way: its cron log
+  records the refusal, and the next scheduled run takes it. Avoid starting a
+  host-level operation in the minutes before a target's scheduled backup
+  (`config/backup-schedules.json`).
+
+The lock is released by the kernel when the operation ends — successfully, on
+a refusal, or killed — so there is never a stale lock to delete. Read-only
+modes (`--verify`, `--check`, `--inspect`, the Verify workflows) take nothing
+and always run.
+
+#### The order after the merge
+
+1. **CI on `develop`.** The pull request's CI passes and it is merged into
+   `develop`; CI passes again on `develop`.
+2. **Promote `develop` to `main`.** The activation reaches the host only
+   from `main`: every production workflow checks out `main`.
+3. **Run Prepare tits.guru host** from `main`, with the secrets above unset.
+   *Success:* `TARGET PREPARED: YES`, every slice `PASS`, and `APPLICATION
+   DEPLOYED: NOT REQUIRED`.
+4. **Run Verify production infrastructure.** *Success:* `VERIFY
+   INFRASTRUCTURE: PASS`; the live-target contract and the application are
+   `DEFERRED` with "has no release yet", and the line "PASS means tits-guru is
+   prepared for its first deployment" is printed. Every other group passes.
+5. **Run Verify staging infrastructure.** *Success:* PASS, exactly as before.
+6. **Run Verify tits.guru HTTPS.** *Success:* the state is `tls-ready`,
+   both registries say `active`, and `https://tits.guru/` answers 503 with a
+   valid certificate.
+7. **Run Verify tits.guru inbound SMTP.** *Success:* the receiver is
+   `enabled-verified`, and the outbound gateway verifies.
+
+The first production release comes after all seven, as its own step.
+
+#### When a step fails
+
+- **Stop at the first failure.** Each step changes nothing or converges in
+  place; none needs undoing before it is diagnosed.
+- **Prepare tits.guru host refuses** with a CONFLICT on an existing file:
+  a supplied `PREPARE_*` secret differs from what the host holds. Nothing was
+  written. Unset that secret — never edit the host's file to match it — and
+  run Prepare again.
+- **Prepare fails on a slice.** Earlier slices stay converged; the failing
+  installer restored its own files. Read its output, fix the cause, and run
+  Prepare again: it resumes at that slice. Do not deploy.
+- **A Verify fails after a successful Prepare.** It names the contract and the
+  operation that converges it. Do not deploy, and do not GO LIVE. Run the
+  operation it names — for production, that is Prepare tits.guru host again.
+- **The activation itself has to be withdrawn.** Revert the registry change
+  in a reviewed pull request (`tits-guru` back to `planned`, the allowlist and
+  both renders with it), promote it to `main`, and run Prepare tits.guru host
+  and Prepare staging host: the sudoers rule and the backup cron lose
+  `tits-guru` again, and its operations refuse it. Nothing was deployed, so
+  there is nothing to roll back. Never edit the host's registry, sudoers or
+  cron by hand.
+- **Never** run GO LIVE, a deploy or a migration to "check" the activation.
 
 ## Read-only operations: health-check and status
 
@@ -733,7 +881,7 @@ target's own `release_retention` field in the registry
 a property of the instance, not the host.
 
 `require_active_target` gates `cleanup` exactly as it does `health-check`/
-`status`: a planned target (`tits-guru`) is rejected — clearly naming its
+`status`: a planned or disabled target is rejected — clearly naming its
 lifecycle — before any lock is acquired, any path is scanned, or
 `pinned-releases`/history is touched.
 
@@ -1074,8 +1222,9 @@ single candidate algorithm.
 `backup-cycle --target TARGET_ID`. `require_root` is the first action of
 `main()`, then `parse_backup_cycle_args`, then `resolve_backup_cycle_subject`
 (where `require_active_target` runs immediately, before the cycle lock, the
-history file, or any child command), then `perform_backup_cycle`. `tits-guru`
-is rejected with `lifecycle=planned` before any of those are ever touched.
+history file, or any child command), then `perform_backup_cycle`. A planned or
+disabled target is rejected, naming its lifecycle, before any of those are ever
+touched.
 
 `staging-main`'s namespace, cycle lock and history file are unchanged from
 before the registry existed:
@@ -1168,12 +1317,13 @@ generic wrapper:
 - uses only Bash arrays and `exec` — never `eval`, never `bash -c`, never a
   string-built command.
 
-`infrastructure/config/sudoers/rateguru-deploy` grants
-`deploy-rateguru-staging` `NOPASSWD` access to the four generic wrappers, and
-nothing else. No rule exists for `tits-guru`'s own deploy user: that account
-exists now, and what withholds its grant is `lifecycle=planned`, not the
-account being absent. The file is rendered from the registry, so a target's
-perimeter appears when it is activated and never before.
+`infrastructure/config/sudoers/rateguru-deploy` grants each active target's
+deploy user — `deploy-rateguru-staging` and `deploy-rateguru-tits-guru` —
+`NOPASSWD` access to the four generic wrappers, in a rule of its own, and
+nothing else. Each wrapper then refuses any caller but the target's own
+registered deploy user, so one target's credential never reaches the other.
+The file is rendered from the registry, so a target's perimeter appears when it
+is activated and never before.
 
 `.github/actions/deploy-rateguru/action.yml` has a required
 `deployment-target` input, validated locally
@@ -1193,8 +1343,8 @@ commands — the nightly `backup-cycle`, and the weekly `restore-test` /
 `offsite-restore-test` — with `--target`, for every `lifecycle=active` target.
 Like the sudoers rule it is rendered: the registry decides which targets are
 scheduled, and `infrastructure/config/backup-schedules.json` holds each
-target's reviewed times. Today that is `staging-main` alone; `tits-guru`'s
-schedule is reviewed, and its jobs appear when it is activated.
+target's reviewed times. Both `staging-main` and `tits-guru` are scheduled,
+each into its own backup namespace and its own log files.
 
 See [`target-perimeter.md`](target-perimeter.md) for the full installer
 contract (`install-target-perimeter`) that manages the three wrappers, the

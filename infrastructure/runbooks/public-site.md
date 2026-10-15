@@ -8,12 +8,12 @@ the application becoming reachable before GO LIVE:
 3. HTTPS with that certificate, still closed to the public;
 4. at GO LIVE only, the application.
 
-**Where it stands, 2026-10-12, by the operator's report.**
+**Where it stands, 2026-10-14, by the operator's report.**
 - **8.5.1 is done on the production host.**
   - Prepare tits.guru public HTTP, Verify tits.guru public HTTP and Verify
     tits.guru inbound SMTP passed.
-  - The public site is `http-acme-ready`, `tits-guru` is `lifecycle=planned`,
-    and Laravel is not reachable publicly.
+  - The public site was `http-acme-ready`, `tits-guru` was `lifecycle=planned`,
+    and Laravel was not reachable publicly.
   - The run before it, [`38306251547`](https://github.com/menvil/RateGuru/actions/runs/38306251547),
     refused before changing anything, because the host disables IPv6; see
     [Hosts that disable IPv6](#hosts-that-disable-ipv6).
@@ -23,9 +23,13 @@ the application becoming reachable before GO LIVE:
   - Certbot issued the certificate over the webroot:
     `/etc/letsencrypt/live/tits.guru/{fullchain,privkey}.pem`, Certbot's links
     into `/etc/letsencrypt/archive/tits.guru/`.
-- **8.5.3 is implemented in the repository and has not run on the host.**
-  `prepare-public-https` and its workflows take the site to `tls-ready`. See
+- **8.5.3 is done on the production host.** The site is `tls-ready`:
+  `https://tits.guru/` answers 503 with a valid certificate, and Verify
+  tits.guru HTTPS and Verify tits.guru inbound SMTP pass. See
   [HTTPS: `tls-ready`](#https-tls-ready).
+- **8.6.2, the activation of `tits-guru`, keeps it closed.** `tits-guru` is
+  `active` in the repository, and in the host's own registry once Prepare
+  tits.guru host has run; the site stays `tls-ready` until GO LIVE.
 
 The host disables IPv6. Every operation here supports that, and none of them
 turns IPv6 on.
@@ -35,9 +39,9 @@ turns IPv6 on.
 | State | What the host serves for `tits.guru` | How it is reached | Implemented |
 |-------|--------------------------------------|-------------------|-------------|
 | `not-prepared` | Nothing of its own: the request falls to the host's default server. | The starting state, and **Rollback tits.guru public HTTP**. | Yes |
-| `http-acme-ready` | Port 80 only: `/.well-known/acme-challenge/<token>` from `/var/www/html`, and `503 Service Unavailable` with `Retry-After: 3600` for everything else. | **Prepare tits.guru public HTTP**. | Yes — run on the production host (8.5.1); the host is in this state today |
-| `tls-ready` | Port 80: the ACME challenge from `/var/www/html`, and a 301 to HTTPS for everything else. Port 443: Certbot's certificate, and `503` with `Retry-After: 3600` and `Cache-Control: no-store` for everything. | **Prepare tits.guru HTTPS** (`prepare-public-https --apply`), which takes the public site over; and **Close tits.guru public site**. | Yes — in the repository (8.5.3); not yet run on the host |
-| `public-active` | Port 80 as in `tls-ready`. Port 443: the production application, through `tits-guru`'s own PHP-FPM pool. | **GO LIVE tits.guru** (`--activate`), at 8.7 only. | Prepared in the repository and refused while the target is `planned`; never run |
+| `http-acme-ready` | Port 80 only: `/.well-known/acme-challenge/<token>` from `/var/www/html`, and `503 Service Unavailable` with `Retry-After: 3600` for everything else. | **Prepare tits.guru public HTTP**. | Yes — run on the production host (8.5.1); the host left it for `tls-ready` at 8.5.3 |
+| `tls-ready` | Port 80: the ACME challenge from `/var/www/html`, and a 301 to HTTPS for everything else. Port 443: Certbot's certificate, and `503` with `Retry-After: 3600` and `Cache-Control: no-store` for everything. | **Prepare tits.guru HTTPS** (`prepare-public-https --apply`), which takes the public site over; and **Close tits.guru public site**. | Yes — run on the production host (8.5.3); the host is in this state today |
+| `public-active` | Port 80 as in `tls-ready`. Port 443: the production application, through `tits-guru`'s own PHP-FPM pool. | **GO LIVE tits.guru** (`--activate`), at 8.7 only. | Prepared in the repository; never run. Blocked until GO LIVE (8.7): it needs `tits-guru` active in both registries, a deployed and healthy release, and its typed confirmation |
 
 `prepare-public-http` manages the first two states and no others.
 `prepare-public-https` manages `http-acme-ready` → `tls-ready` → `public-active`
@@ -451,7 +455,13 @@ what the mode promises before the job summary shows the state, the
 certificate, the hook and what changed.
 
 Every changing mode shares one transaction:
-1. It holds the host's lock and judges everything again under it.
+1. It holds the host's lock and judges everything again under it. Every mode
+   but `--deactivate` holds it exclusively, like every other host-level
+   operation, so it refuses while a deployment, restore or backup of any
+   target is running. `--deactivate` holds it shared: closing the site never
+   waits on a deployment or a backup in flight, only on a host-level
+   operation. Each also holds the site's own lock, `public-site.lock`, so two
+   changes to the site never run at once.
 2. It starts from its own exact known state:
 
    | Mode | Starts from | Lifecycle, in both registries |
@@ -536,8 +546,15 @@ wrong:
   answering after the reload. These are failures to install the closed
   configuration, and the transaction puts `public-active` back.
 
-Today `tits-guru` is `planned`, so **GO LIVE tits.guru is refused**, by its
-workflow before the Environment, and on the host.
+`tits-guru` is `active` in the repository (8.6.2), and in the host's own
+registry once **Prepare tits.guru host** has installed it. That does not open
+the site: GO LIVE is still refused on the host until a release is deployed and
+healthy, and runs only behind its own typed confirmation. Until then
+**Verify tits.guru HTTPS** passes in `tls-ready` with `active` in both
+registries; with the two registries disagreeing — the repository activated,
+the host not yet prepared — it fails, and Prepare tits.guru host is what makes
+them agree. **Prepare** and **Rollback tits.guru HTTPS**, and the public HTTP
+workflows of 8.5.1, are for a planned target and refuse an active one.
 
 ## The order from here
 
@@ -545,8 +562,13 @@ Done:
 - **8.5.1**: Prepare and Verify tits.guru public HTTP passed; `http-acme-ready`.
 - **8.5.2**: DNS A `tits.guru` → `213.199.41.241`; Certbot's certificate
   through the webroot.
+- **8.5.3**: Prepare tits.guru HTTPS ran on the production host, following
+  steps 1–5 below; Verify tits.guru HTTPS and Verify tits.guru inbound SMTP
+  pass, and the site is `tls-ready`.
 
-After this change is merged:
+How 8.5.3 was run, kept as the record of what was checked. It does not run
+again: since 8.6.2 `tits-guru` is active, and **Prepare** and **Rollback
+tits.guru HTTPS** refuse an active target.
 
 1. Merge into `develop`. CI passes, including **Public HTTP on a real Nginx**,
    which now runs HTTPS on a real Nginx with real certificates.
@@ -580,10 +602,15 @@ After this change is merged:
      `sudo env -i RENEWED_LINEAGE=/etc/letsencrypt/live/mx1.tits.guru
      /etc/letsencrypt/renewal-hooks/deploy/rateguru-public-https-tits-guru`
      prints nothing and exits 0.
-6. If anything is wrong while it is `tls-ready`: **Rollback tits.guru HTTPS**
-   (`ROLLBACK tits-guru HTTPS`) returns the exact `http-acme-ready` and keeps
-   the certificate; **Verify tits.guru public HTTP** passes again.
-7. Phase 8.6: the production environment, activation in the registry, the
+6. If anything was wrong while it was `tls-ready` and `tits-guru` still
+   planned: **Rollback tits.guru HTTPS** (`ROLLBACK tits-guru HTTPS`) returned
+   the exact `http-acme-ready` and kept the certificate.
+
+Next:
+
+7. Phase 8.6: the production environment (8.6.1, done by hand), the
+   activation in the registry (8.6.2 — see
+   [`deployment-targets.md`](deployment-targets.md#activating-tits-guru)), the
    first deploy, rollback and deploy, the backup cycle and the recovery
    checks. The site stays `tls-ready`, closed.
 8. Phase 8.7, GO LIVE: **GO LIVE tits.guru** (`OPEN tits.guru TO THE PUBLIC`),
@@ -647,8 +674,8 @@ After this change is merged:
     `--apply`;
   - a renewal through the hook that is then the certificate served, and a
     renewal of `mx1.tits.guru` that the hook ignores;
-  - GO LIVE refused for the planned target, and the `public-active` render
-    passing `nginx -t`;
+  - GO LIVE refused for a target still planned, and the `public-active`
+    render passing `nginx -t`;
   - a failed reload or `nginx -t` putting the previous state back;
   - `--rollback` to the exact `http-acme-ready`, keeping the certificate;
   - the same `tls-ready` and back with IPv6 disabled.
@@ -678,6 +705,9 @@ After this change is merged:
   - closing a live site with the application down, with an expired or
     untrusted certificate (which `--verify` still reports), and with the two
     registries disagreeing on the lifecycle;
+  - closing it while a target operation holds the host's lock shared, and
+    refused while a host-level operation or another change to the site holds
+    its lock;
   - IPv6 disabled.
 - `tests/Feature/Architecture/PublicHttpsWorkflowTest.php` covers the five
   workflows and their action:

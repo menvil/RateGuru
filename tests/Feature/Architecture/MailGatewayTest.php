@@ -1503,11 +1503,11 @@ it('never runs the mutating acceptance from ordinary preparation', function () {
 // WHAT DID NOT MOVE
 // =============================================================================
 
-it('keeps tits-guru planned and the production environment untouched while its committed mail is outbound', function () {
+it('keeps tits-guru active and the production environment template untouched while its committed mail is outbound', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
     $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
     expect($policy['targets']['tits-guru']['delivery_mode'])->toBe('outbound');
     expect($policy['targets']['tits-guru']['outbound'])->toBe(['kind' => 'direct']);
 
@@ -1548,7 +1548,7 @@ it('records the gateway as accepted on the real host, and the direct outbound ro
     expect($runbook)
         ->toContain('| Gateway on the staging host | **Installed and accepted**')
         ->toContain('| Staging application mail | **Through the gateway**: the host\'s `shared/.env` says `MAIL_PORT=2525`')
-        ->toContain('| `tits-guru` — committed policy | `lifecycle=planned`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |')
+        ->toContain('| `tits-guru` — committed policy | `lifecycle=active`; **outbound requested**: `delivery_mode=outbound` with `outbound.kind=direct` |')
         ->toContain('| `tits-guru` — real host | **Outbound**, activated on 2026-10-08 through `activate-mail-outbound`')
         ->toContain('**Implemented and active on the shared host** for `tits-guru` since its guarded activation on 2026-10-08')
         ->toContain('| Production outbound delivery | **Production-accepted** on 2026-10-08')
