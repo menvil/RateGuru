@@ -1,0 +1,96 @@
+tests/Feature/Architecture/CleanupTest.php
+  s_3481294084957b::t_fdcbee932cb064 183-185
+  s_3481294084957b::t_82c7a974da3de1 1498,1543,1582,1635,1706,1763
+tests/Feature/Architecture/HostInfrastructureLockTest.php
+  s_3481294084957b::t_21936c337e4471 16-23,130-140,152-155,160,165-204
+  s_3481294084957b::t_52e8d1f227daca 129,141-142,147-151,156-159
+  s_3481294084957b::t_2b76ea5e081cc8 143-146,161-164
+  s_3481294084957b::t_0cda6c25e81538 229-426
+tests/Pest.php
+  s_3481294084957b::t_248d86af18a991 6036-6038,10018-10020
+  s_3481294084957b::t_8ad6c7c16f8807 6383-6396,6412
+  s_3481294084957b::t_d8713f50313840 9988,9998-10004,10534-10558,10580,10586,10588,10594-10595
+  s_3481294084957b::t_0ce52bdd0c5f4c 10620-10755
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_6be011c44a6565 458-464,700-702
+infrastructure/scripts/activate-mail-inbound
+  s_3481294084957b::t_c630fb8a4a51da 364-374
+tests/Feature/Architecture/BackupCycleTest.php
+  s_3481294084957b::t_248d86af18a991 139-141
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_3481294084957b::t_78ecfd4cb467e1 628-680
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_de3d2eb8dda77c 2660-2673
+infrastructure/scripts/offsite-restore-test
+  s_3481294084957b::t_1f5fdd67298512 187-191
+infrastructure/scripts/prepare-public-https
+  s_3481294084957b::t_c630fb8a4a51da 1477-1482
+infrastructure/scripts/offsite-retention
+  s_3481294084957b::t_1f5fdd67298512 285-289
+tests/Feature/Architecture/OffsiteRestoreTest.php
+  s_3481294084957b::t_fdcbee932cb064 231-233
+tests/Feature/Architecture/RollbackTest.php
+  s_3481294084957b::t_fdcbee932cb064 156-158
+infrastructure/scripts/offsite-backup
+  s_3481294084957b::t_1f5fdd67298512 158-162
+tests/Feature/Architecture/BackupTest.php
+  s_3481294084957b::t_fdcbee932cb064 163-165
+infrastructure/scripts/activate-mail-outbound
+  s_3481294084957b::t_c630fb8a4a51da 342-352
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_3481294084957b::t_30b070af0a3a84 1742-1923,1925-1956,1958-2045
+  s_3481294084957b::t_a5ff57d812f770 1924,1957
+infrastructure/scripts/backup-cycle
+  s_3481294084957b::t_1f5fdd67298512 231-235
+infrastructure/scripts/common
+  s_3481294084957b::t_447d8ed662a831 81-96
+  s_3481294084957b::t_bbd67e64f24a1b 1105,1107-1123,1130-1146,1148-1165,1170-1172,1184-1197,1199,1201-1203,1208-1215,1217,1219-1237
+  s_3481294084957b::t_d000dc743b9f3d 1124-1129
+  s_3481294084957b::t_e4e5fa6eda05f0 1238
+  s_3481294084957b::t_f9639eb5abb170 1239-1252
+infrastructure/runbooks/deployment-targets.md
+  s_3481294084957b::t_de3d2eb8dda77c 777-781,785-804,808-812
+  s_3481294084957b::t_b87df0699f88db 782-784,805-807
+infrastructure/scripts/restore-test
+  s_3481294084957b::t_1f5fdd67298512 261-265
+infrastructure/scripts/backup
+  s_3481294084957b::t_1f5fdd67298512 359-363
+infrastructure/scripts/fetch-backup
+  s_3481294084957b::t_1f5fdd67298512 186-188
+infrastructure/scripts/restore-target
+  s_3481294084957b::t_8e29c8a2cb92ad 298-306,1479,1910
+infrastructure/scripts/prepare-host
+  s_3481294084957b::t_2796fd4e4ffb12 645-649,655-663
+infrastructure/scripts/restore-common
+  s_3481294084957b::t_b7802839e6102f 271-279
+infrastructure/scripts/recover-host
+  s_3481294084957b::t_8e29c8a2cb92ad 367-370,1950,2461
+  s_3481294084957b::t_e6426aeb9ca97b 371-373
+tests/Feature/Architecture/OffsiteBackupTest.php
+  s_3481294084957b::t_fdcbee932cb064 171-173
+tests/Feature/Architecture/OffsiteRetentionTest.php
+  s_3481294084957b::t_248d86af18a991 222-224
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_3481294084957b::t_99a9907e011289 641-646,649-651,653,665
+  ai_agent 647-648,652,731-740,742
+tests/Feature/Architecture/RestoreTest.php
+  s_3481294084957b::t_fdcbee932cb064 136-138
+infrastructure/scripts/prepare-public-http
+  s_3481294084957b::t_c630fb8a4a51da 140-141,200,349-358,360,368-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49456ead893e14d291c1ea43493845648642b699",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
