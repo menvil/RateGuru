@@ -771,11 +771,53 @@ it('rejects a lifecycle=planned target before computing a single destination', f
         [$exit, $output] = itpRun($scratch, [
             '--apply', '--target', 'tits-guru', '--scope', 'host',
             '--material-dir', '/root/material',
-        ]);
+        ], itpPlannedTitsGuru($scratch));
 
         expect($exit)->toBe(1);
         expect($output)->toContain('lifecycle=planned, not active');
         expect(is_dir($scratch.'/etc'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('derives an active production target\'s host scope from the shared vhosts alone, with no committed vhost of its own', function () {
+    // tits-guru's internal site is rendered from the registry, with no TLS, no
+    // certificate and no htpasswd, so it has no committed vhost to parse and
+    // contributes no host row. What its host scope holds is the shared
+    // mail-capture material install-bootstrap-services needs before it
+    // converges this host — the same files staging's scope names, under their
+    // shared names.
+    $scratch = itpScratchDir();
+
+    try {
+        expect(File::exists(base_path('infrastructure/config/nginx/rateguru-tits-guru')))->toBeFalse();
+
+        itpValidHostScope($scratch);
+
+        [$check, $report] = itpRun($scratch, ['--check', '--target', 'tits-guru', '--scope', 'host']);
+
+        expect($check)->toBe(0, $report);
+        expect($report)
+            ->not->toContain('committed Nginx vhost is missing')
+            ->not->toContain('tits.guru')
+            ->toContain('/etc/letsencrypt/live/staging-mail-capture/fullchain.pem')
+            ->toContain('/etc/nginx/rateguru-staging.htpasswd');
+
+        [$status, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'host', '--target', 'tits-guru']);
+        expect($status)->toBe(0, $names);
+        expect(array_values(array_filter(explode("\n", trim($names)))))->toBe([
+            'mail-basic-auth',
+            'mail-tls-certificate',
+            'mail-tls-private-key',
+            'mail-nginx-tls-options',
+            'mail-tls-dhparams',
+        ]);
+
+        // A staging target's vhost is still committed, and still parsed.
+        [$staging, $stagingReport] = itpRun($scratch, ['--check', '--target', 'staging-main', '--scope', 'host']);
+        expect($staging)->toBe(0, $stagingReport);
+        expect($stagingReport)->toContain('/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem');
     } finally {
         removeScratchDir($scratch);
     }
@@ -1525,7 +1567,7 @@ it('derives no host-global offsite credential for a target that is not active ye
     try {
         [, $provisioning] = itpRun($scratch, [
             '--check', '--scope', 'target', '--provisioning', '--target', 'tits-guru',
-        ]);
+        ], itpPlannedTitsGuru($scratch));
 
         expect($provisioning)->not->toContain('rclone');
 
@@ -1580,6 +1622,20 @@ function itpTitsGuruArgs(string $mode): array
 }
 
 /**
+ * A checkout of the committed tree in which tits-guru is still planned — the
+ * registry it was configured, and its DKIM key installed, under. --provisioning
+ * is the authorization for exactly that target, and refuses it once active.
+ *
+ * @return array<string, string>
+ */
+function itpPlannedTitsGuru(string $scratch): array
+{
+    $repo = provisionRepo($scratch.'/planned-checkout', json_encode(committedRegistryWithLifecycles(['tits-guru' => 'planned']), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+    return ['RATEGURU_TARGETPREREQ_REPO_ROOT' => $repo];
+}
+
+/**
  * A scratch checkout whose configuration adds the synthetic demo-shop target —
  * held beside the pre-activation tits-guru on a host without direct delivery,
  * or outbound on a host that enabled it — with its own identity, and
@@ -1589,9 +1645,12 @@ function itpTitsGuruArgs(string $mode): array
  */
 function itpDemoShopCheckout(string $scratch, string $mode): array
 {
-    $repo = provisionRepo($scratch.'/checkout', provisionRegistryJson());
+    // Held is the pre-activation world, in which tits-guru was planned.
+    $registryJson = provisionRegistryJson([], null, $mode === 'held' ? ['tits-guru' => 'planned'] : []);
+    $repo = provisionRepo($scratch.'/checkout', $registryJson);
 
     mailIdentityFixtureConfig($repo.'/infrastructure/config', [
+        'registry' => json_decode($registryJson, true),
         'mode' => $mode,
         'policy' => $mode === 'outbound' ? mailCommittedPolicy() : mailPreActivationPolicy(),
         'outbound' => ['schema_version' => 1, 'direct' => ['enabled' => $mode === 'outbound', 'mta_hostname' => 'mta1.example.net']],
@@ -1648,7 +1707,7 @@ it('requires tits-guru\'s DKIM key now that its committed mail policy requests o
     try {
         itpTitsGuruReady($scratch);
 
-        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         expect($check)->not->toBe(0, $report);
         expect($report)
             ->toMatch('/^MISSING +target +mail-dkim-private-key +absent and no material supplied: \/etc\/opendkim\/keys\/tits-guru\/rg1.private/m')
@@ -1665,7 +1724,7 @@ it('installs a supplied DKIM key readable by root and the signer only, at the de
         itpTitsGuruReady($scratch);
         itpSupplyDkimKey($scratch, 'rsa2048');
 
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($apply)->toBe(0, $log);
         expect($log)
             ->toContain('created /etc/opendkim (root:root 0755)')
@@ -1681,10 +1740,10 @@ it('installs a supplied DKIM key readable by root and the signer only, at the de
         expect(itpMode($scratch.'/etc/opendkim'))->toBe('0755');
 
         // A held target with a valid key is simply ready.
-        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'), itpPlannedTitsGuru($scratch));
         expect($verify)->toBe(0, $verified);
 
-        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material']);
+        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($check)->toBe(0, $report);
         expect($report)
             ->toMatch('/^CONVERGED +target +mail-dkim-private-key +already present and identical/m')
@@ -1704,13 +1763,13 @@ it('refuses a supplied DKIM key that is not usable, installs nothing, and never 
         itpTitsGuruReady($scratch);
         itpSupplyDkimKey($scratch, $kind);
 
-        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material']);
+        [$check, $report] = itpRun($scratch, [...itpTitsGuruArgs('--check'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($check)->not->toBe(0);
         expect($report)
             ->toMatch('/^CONFLICT +target +mail-dkim-private-key +the supplied mail-dkim-private-key is not a usable DKIM private key: '.preg_quote($reason, '/').'/m')
             ->toContain('TARGET PREREQUISITES READY: NO');
 
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($apply)->not->toBe(0);
         expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse('a refused key still created its directories');
 
@@ -1740,7 +1799,7 @@ it('never overwrites or rotates an installed DKIM key, and refuses one that is n
 
         // A different, perfectly valid key: a conflict, never a rotation.
         itpSupplyDkimKey($scratch, 'rsa3072');
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($apply)->not->toBe(0);
         expect($log)->toContain('mail-dkim-private-key: already present and DIFFERS from the supplied material');
         expect(file_get_contents($key))->toBe($before);
@@ -1750,11 +1809,11 @@ it('never overwrites or rotates an installed DKIM key, and refuses one that is n
         chmod($key, 0o600);
         unlink($scratch.'/root/material/mail-dkim-private-key');
 
-        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         expect($check)->not->toBe(0);
         expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +the installed key at \/etc\/opendkim\/keys\/tits-guru\/rg1.private is not a usable DKIM private key: it is a 1024-bit RSA key/m');
 
-        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'), itpPlannedTitsGuru($scratch));
         expect($verify)->not->toBe(0);
         expect($verified)->toContain('external prerequisite mail-dkim-private-key at /etc/opendkim/keys/tits-guru/rg1.private is not a usable DKIM private key');
 
@@ -1777,11 +1836,11 @@ it('accepts an installed key in the signing-ready layout and in the pre-signer l
         chmod(dirname($key, 2), $dirMode);
         $before = hash_file('sha256', $key);
 
-        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         expect($check)->toBe(0, $report);
         expect($report)->toMatch('/^PRESENT +target +mail-dkim-private-key +already present; left untouched: \/etc\/opendkim\/keys\/tits-guru\/rg1.private/m');
 
-        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'));
+        [$verify, $verified] = itpRun($scratch, itpTitsGuruArgs('--verify'), itpPlannedTitsGuru($scratch));
         expect($verify)->toBe(0, $verified);
 
         // The pre-signer key is named as such, and left exactly as it is: the
@@ -1793,7 +1852,7 @@ it('accepts an installed key in the signing-ready layout and in the pre-signer l
             expect($report.$verified)->not->toContain('pre-signer');
         }
 
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($apply)->toBe(0, $log);
         expect(itpMode($key))->toBe(sprintf('%04o', $keyMode));
         expect(itpMode(dirname($key)))->toBe(sprintf('%04o', $dirMode));
@@ -1859,14 +1918,14 @@ it('refuses a DKIM key reached through a symlink, or with any access but the sig
         $key = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
 
         symlink(mailIdentityKey('rsa2048'), $key);
-        [, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +canonical destination is a symlink/m');
 
         unlink($key);
         copy(mailIdentityKey('rsa2048'), $key);
         foreach ([0o644, 0o660, 0o604, 0o700, 0o400] as $mode) {
             chmod($key, $mode);
-            [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+            [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
             expect($check)->not->toBe(0);
             expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +is mode '.decoct($mode).', neither the signing-ready root:opendkim 0640 nor the pre-signer root:root 0600/m');
         }
@@ -1874,7 +1933,7 @@ it('refuses a DKIM key reached through a symlink, or with any access but the sig
         // Its directory, too: one anybody can enter is refused.
         chmod($key, 0o640);
         chmod(dirname($key), 0o755);
-        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [$check, $report] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         expect($check)->not->toBe(0);
         expect($report)->toMatch('/^CONFLICT +target +mail-dkim-private-key +sits under a directory with the wrong access: \/etc\/opendkim\/keys\/tits-guru is mode 755, neither root:opendkim 0750 nor the pre-signer root:root 0700/m');
 
@@ -1886,7 +1945,7 @@ it('refuses a DKIM key reached through a symlink, or with any access but the sig
         symlink($scratch.'/elsewhere', $scratch.'/etc/opendkim/keys');
         itpSupplyDkimKey($scratch, 'rsa2048');
 
-        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material']);
+        [$apply, $log] = itpRun($scratch, [...itpTitsGuruArgs('--apply'), '--material-dir', '/root/material'], itpPlannedTitsGuru($scratch));
         expect($apply)->not->toBe(0);
         expect($log)->toContain('/etc/opendkim/keys is a symlink — refusing to write a private key through one');
         expect(glob($scratch.'/elsewhere/*') ?: [])->toBe([]);
@@ -1968,13 +2027,13 @@ it('lists the DKIM key among a production target\'s own material names', functio
     $scratch = itpScratchDir();
 
     try {
-        [$status, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'target', '--provisioning', '--target', 'tits-guru']);
+        [$status, $names] = itpRun($scratch, ['--list-material-names', '--scope', 'target', '--provisioning', '--target', 'tits-guru'], itpPlannedTitsGuru($scratch));
 
         // --list-material-names takes no --provisioning; the planned target is
         // refused, which is the existing lifecycle rule, unchanged.
         expect($status)->not->toBe(0);
 
-        [, $check] = itpRun($scratch, itpTitsGuruArgs('--check'));
+        [, $check] = itpRun($scratch, itpTitsGuruArgs('--check'), itpPlannedTitsGuru($scratch));
         preg_match_all('/^[A-Z]+ +target +(\S+)/m', $check, $matches);
         expect($matches[1])->toBe(['laravel-env', 'deploy-authorized-keys', 'mail-dkim-private-key']);
     } finally {

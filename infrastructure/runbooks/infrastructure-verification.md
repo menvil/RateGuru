@@ -114,7 +114,8 @@ The result line carries `target`, `environment_class`, `lifecycle`,
 
 ## What each lifecycle is held to
 
-**An active target** — `staging-main` today:
+**An active target** — `staging-main`, and `tits-guru` once Prepare tits.guru
+host has installed its activation:
 
 | Group | Primitive | |
 |-------|-----------|---|
@@ -130,7 +131,24 @@ The result line carries `target`, `environment_class`, `lifecycle`,
 
 Expected today: `VERIFY INFRASTRUCTURE: PASS`.
 
-**A planned production target** — `tits-guru` today. `prepare-host` and
+**An active target before its first release** — `tits-guru` right after its
+activation. Its `current` is truly absent, so it is prepared and nothing more.
+Everything above is required of it, except the two contracts that describe a
+deployed release:
+
+| Group | Primitive | Before the first release |
+|-------|-----------|--------------------------|
+| Live target contract | `repair-target` | `DEFERRED` — "has no release yet", never called |
+| Application | `health-check` | `DEFERRED` — never called |
+
+Expected: `VERIFY INFRASTRUCTURE: PASS` with those two deferred, and the line
+**PASS means tits-guru is prepared for its first deployment. It does NOT mean
+it is deployed or live.** A `current` that exists in any other form — a
+dangling link, a file — is not this state: it is judged in full, and fails
+there. From the first release on, both are required.
+
+**A planned production target** — `tits-guru` before its activation.
+`prepare-host` and
 `repair-target` refuse a target that is not active, and that gate is kept: the
 host and the target are judged by the contracts that apply to a planned target.
 

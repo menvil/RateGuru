@@ -452,7 +452,7 @@ it('exposes the release it did not change as an output', function () {
 // Production stays fail-closed
 // =============================================================================
 
-it('cannot repair production while tits-guru is lifecycle=planned', function () {
+it('leaves the lifecycle gate to the server, and activates nothing', function () {
     $registry = json_decode(
         File::get(base_path('infrastructure/config/deployment-targets.json')),
         true,
@@ -460,11 +460,12 @@ it('cannot repair production while tits-guru is lifecycle=planned', function () 
         JSON_THROW_ON_ERROR,
     );
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    // tits-guru was activated by a reviewed registry change of its own.
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
-    // The workflow is pinned to the real production target ID, so it fails
-    // closed on the lifecycle gate. Routing it at staging-main, or activating
-    // tits-guru to make it pass, would defeat the point of adding it now.
+    // The workflow is pinned to the real production target ID, and the
+    // server's lifecycle gate decides. Routing it at staging-main would repair
+    // the wrong target.
     expect(repairStep('repair-production.yml')['with']['deployment-target'])->toBe('tits-guru');
 
     // And nothing in either workflow edits a registry or activates anything.

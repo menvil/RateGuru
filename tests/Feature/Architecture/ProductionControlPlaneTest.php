@@ -288,10 +288,6 @@ it('classifies every operational workflow in the repository', function () {
             'ci.yml',
             'coverage.yml',
             'label-review-bot-prs.yml',
-            // The inbound mail health check's schedule: it holds no secret,
-            // reaches no host and can only dispatch Check tits.guru inbound mail
-            // health on main, which is classified — MailInboundHealthWorkflowTest.
-            'schedule-tits-guru-inbound-mail-health.yml',
             // The application release path, governed by its own rules below.
             'release.yml',
         ], true))
@@ -324,6 +320,48 @@ it('releases to production only from a v* tag', function () {
 
     expect(array_key_exists('branches', $workflow['on']['push']))
         ->toBeFalse('release.yml must never run on a branch push');
+});
+
+it('deploys nothing to production on a merge: only a v* tag reaches it, whatever the lifecycle says', function () {
+    // tits-guru is active, so a deployment to it is no longer refused by its
+    // lifecycle. What keeps a merge into develop or main from deploying it is
+    // that nothing a branch push, a pull request or a schedule runs can reach
+    // production at all.
+    $automatic = [];
+
+    foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
+        $file = basename($path);
+        $triggers = array_keys((array) controlPlaneWorkflow($file)['on']);
+
+        if (array_diff($triggers, ['workflow_dispatch', 'workflow_call']) === []) {
+            continue;
+        }
+
+        if ($file === 'release.yml') {
+            expect($triggers)->toBe(['push']);
+            expect(controlPlaneWorkflow($file)['on']['push'])->toBe(['tags' => ['v*']]);
+
+            continue;
+        }
+
+        $automatic[] = $file;
+        $source = File::get($path);
+
+        foreach ([
+            'environment: production-tits-guru',
+            'deployment-target: tits-guru',
+            './.github/actions/deploy-rateguru',
+            './.github/actions/prepare-rateguru-host',
+            'secrets.DEPLOY_SSH_KEY',
+            'secrets.BOOTSTRAP_SSH_KEY',
+        ] as $production) {
+            expect(str_contains($source, $production))
+                ->toBeFalse("{$file} runs without an operator and must not reach production: {$production}");
+        }
+    }
+
+    // CI runs on every merge, so it is the one that matters most here.
+    expect($automatic)->toContain('ci.yml');
 });
 
 it('accepts only a semantic v* tag whose commit is contained in main', function () {
@@ -447,10 +485,10 @@ it('keeps staging deployment operator-triggered and defaulted to develop', funct
 // Lifecycle gates are untouched by the control-plane change
 // =============================================================================
 
-it('leaves tits-guru planned, and leaves every fail-closed lifecycle gate alone', function () {
+it('leaves every fail-closed lifecycle gate alone, tits-guru active as it is', function () {
     // Promoting the control plane says nothing about whether the target is
-    // live. tits-guru stays planned, and the gates that refuse a planned target
-    // keep refusing it.
+    // live. tits-guru was activated by a reviewed registry change of its own,
+    // and the gates that refuse a target that is not active keep refusing it.
     $registry = json_decode(
         File::get(base_path('infrastructure/config/deployment-targets.json')),
         true,
@@ -458,7 +496,7 @@ it('leaves tits-guru planned, and leaves every fail-closed lifecycle gate alone'
         JSON_THROW_ON_ERROR,
     );
 
-    expect(data_get($registry, 'targets.tits-guru.lifecycle'))->toBe('planned');
+    expect(data_get($registry, 'targets.tits-guru.lifecycle'))->toBe('active');
     expect(data_get($registry, 'targets.staging-main.lifecycle'))->toBe('active');
 
     // The production workflows that must still refuse a planned target do so

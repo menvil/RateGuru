@@ -304,7 +304,7 @@ it('draws a badge a navigation item provides, without the shell counting anythin
         ->assertSee('rg-admin-nav-item__dot rg-admin-nav-item__dot--warning', false);
 });
 
-it('runs no queries of its own to draw the shell', function () {
+it('runs no queries of its own to draw the shell, only the counts its destinations give', function () {
     $this->actingAs(User::factory()->admin()->create());
     Filament::setCurrentPanel(Filament::getPanel('admin'));
 
@@ -313,10 +313,18 @@ it('runs no queries of its own to draw the shell', function () {
     Livewire::test(Sidebar::class)->assertOk();
     Livewire::test(Topbar::class)->assertOk();
 
-    $queries = collect(DB::getQueryLog())->pluck('query')->implode("\n");
+    // Posts gives its count of posts waiting for review, Comments its count
+    // of reported comments still visible, Reports its open reports and Media
+    // diagnostics the missing masters of the last completed audit, once per
+    // navigation drawn; every other query would be the shell's own.
+    [$counts, $others] = collect(DB::getQueryLog())->pluck('query')
+        ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1
+            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1);
+
+    expect($counts)->not->toBeEmpty();
 
     foreach (['posts', 'comments', 'reports', 'media', 'translations', 'count('] as $counted) {
-        expect($queries)->not->toContain($counted);
+        expect($others->implode("\n"))->not->toContain($counted);
     }
 });
 

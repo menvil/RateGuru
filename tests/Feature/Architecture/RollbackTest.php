@@ -48,7 +48,7 @@ function rollbackOpsTargetsCli(): string
 
 function rollbackOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function rollbackOpsDeploymentConfPath(): string
@@ -153,6 +153,9 @@ function rollbackOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => rollbackOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => rollbackOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => rollbackOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => rollbackOpsTargetsCli(),
@@ -325,11 +328,7 @@ function rollbackOpsParityRegistry(string $scratch, array $fixture): array
     // See DeployTest.php's own deployOpsParityRegistry() for why each of
     // these four constraints is relaxed in this throwaway, test-only copy of
     // the committed `targets` validator.
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(rollbackOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(rollbackOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

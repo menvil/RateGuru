@@ -262,13 +262,12 @@ jobs:
           name: ${{ needs.build.outputs.workflow-artifact-name }}
           path: ${{ runner.temp }}/rateguru-production-release
 
-      # tits-guru intentionally remains lifecycle=planned — activation is
-      # explicitly out of scope for this cutover, and its infrastructure
-      # existing does not change that. This
-      # job is pinned to its real target ID so it fails closed, before
-      # touching anything, until the target is activated in
-      # a later phase. Routing production to staging-main or activating
-      # tits-guru here would violate the accepted rollout plan.
+      # Pinned to tits-guru, the production target. Whether it may be deployed
+      # is decided server-side, by its lifecycle in the host's own registry,
+      # never here. This job runs only for a v* tag on main, after staging has
+      # taken the same artifact, and behind the production-tits-guru
+      # Environment's own protection rules: no merge and no lifecycle change
+      # deploys anything.
       - name: Deploy verified artifact to production
         uses: ./.github/actions/deploy-rateguru
         with:

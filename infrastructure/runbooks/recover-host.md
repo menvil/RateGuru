@@ -746,9 +746,11 @@ owns the target.
   variable, or `DEPLOY_HOST`. The target registry contains logical identity, not
   IP addresses: a TARGET is a stable logical identity, a HOST is a replaceable
   physical machine, and the replacement host is passed explicitly by the caller.
-* **No production activation.** `tits-guru` is `lifecycle=planned`, and every
-  server-side and action-side path fails closed for it through the same
-  active-target gate.
+* **No production activation.** Recovery never changes a lifecycle: every
+  server-side and action-side path fails closed for a target that is not
+  active through the same active-target gate. `tits-guru` was activated by a
+  reviewed registry change of its own, and a recovery needs its backup, which
+  exists only after its first release and its first real backup cycle.
 * **No observability marker.** `record-rateguru-deployment` is called by the
   workflow *after* the recovery deployment succeeded, `--resume` succeeded and
   health passed. Observability stays fail-open, and there is no second marker

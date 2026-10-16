@@ -26,9 +26,11 @@ REGISTRY_DEFAULT_FILE="/home/www/rateguru/config/deployment-targets.json"
 DEPLOYMENT_CONF_FILE="${RATEGURU_DEPLOYMENT_CONF_FILE:-/home/www/rateguru/config/deployment.conf}"
 SCHEMA_VERSION=1
 
-# Only this target may currently be active. Every other target must stay
-# planned or disabled until the host that serves it has been provisioned.
-ACTIVE_ALLOWLIST="staging-main"
+# The targets that may be active, each one named here by the reviewed change
+# that activated it. Every other target must stay planned or disabled: a new
+# target becomes deployable by a decision recorded in this list, never by a
+# registry edit alone.
+ACTIVE_ALLOWLIST=(staging-main tits-guru)
 
 # Property names anywhere in the registry that would indicate a secret leaked
 # into committed, world-readable data.
@@ -549,6 +551,17 @@ is_safe_service_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]
 }
 
+# active_allowed TARGET_ID — is TARGET_ID one of ACTIVE_ALLOWLIST, exactly?
+active_allowed() {
+    local allowed
+
+    for allowed in "${ACTIVE_ALLOWLIST[@]}"; do
+        [[ "$1" != "${allowed}" ]] || return 0
+    done
+
+    return 1
+}
+
 is_plain_hostname() {
     local hostname="$1"
 
@@ -732,10 +745,10 @@ validate_target_enums() {
             ;;
     esac
 
-    # Only the proven staging target may be active in this slice. A planned or
+    # Only a target whose activation was reviewed may be active. A planned or
     # disabled target must never be mistaken for something deployable.
-    if [[ "${lifecycle}" == "active" ]] && [[ "${target_id}" != "${ACTIVE_ALLOWLIST}" ]]; then
-        problem "${target_id}: lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST}"
+    if [[ "${lifecycle}" == "active" ]] && ! active_allowed "${target_id}"; then
+        problem "${target_id}: lifecycle=active is currently allowed only for ${ACTIVE_ALLOWLIST[*]}"
     fi
 
     local environment_class

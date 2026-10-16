@@ -114,20 +114,39 @@ live on) belongs to a VPS bootstrap step outside this installer's scope.
 - the registry's own contents — `staging-main` and `tits-guru` keep the exact
   values committed to this repository.
 
-### Why tits-guru remains planned
+### Installing tooling activates nothing
 
 Installing `health-check`, `status`, `cleanup`, `deploy`, `rollback`,
 `backup`, `restore-test`, `offsite-backup`, `offsite-retention`,
-`offsite-restore-test` and `backup-cycle` on the VPS does **not** provision
-`tits-guru`. It has `lifecycle: planned` in the registry, and every
-target-aware command rejects it — before any URL is built, any `curl` runs,
-or any filesystem path, database, lock or history is touched — via
-`require_active_target`, which only lets `lifecycle: active` targets through.
-`staging-main` is the only target with that lifecycle. Nothing in this
-installer, or in the scripts it installs, creates a `tits-guru` directory,
-database, service, or DNS record; those all belong to a future slice that
-provisions the target for real, and only then would its lifecycle be
-reviewed and changed to `active`.
+`offsite-restore-test` and `backup-cycle` on the VPS provisions and activates
+no target. Every target-aware command rejects a target the registry does not
+hold `lifecycle: active` — before any URL is built, any `curl` runs, or any
+filesystem path, database, lock or history is touched — via
+`require_active_target`. Nothing in this installer, or in the scripts it
+installs, creates a target directory, database, service, or DNS record.
+
+`staging-main` and `tits-guru` are both active: `tits-guru` was provisioned and
+configured while it was planned, and activated by a reviewed registry change of
+its own — this installer only carries the registry that says so to the host
+([`deployment-targets.md`](deployment-targets.md#activating-tits-guru)).
+
+### The refusal probe
+
+The installer proves every operation refuses a target it may not act on,
+against the staged copies before installing and the installed copies after.
+The target it points them at, and the reason each must refuse it for, are read
+from the registry the operation reads — never named in the installer:
+
+- the first target, by ID, that registry holds `planned` or `disabled`,
+  refused for its lifecycle (`lifecycle=planned`) — the lifecycle gate itself;
+- when every target is active, as now, a target ID no registry holds
+  (`unregistered-target`), refused as unknown (`unknown target:
+  unregistered-target`) by the same gate, before any lifecycle is read.
+
+So a planned target, whenever one exists, is proved refused, and with none the
+probe still proves the gate is the first thing every operation runs. Neither
+can reach an active target's data. Below, "the refusal probe target" and "the
+refusal reason" are whichever of the two applies.
 
 ### backup-cycle orchestration
 
@@ -170,13 +189,13 @@ can parse the registry, validates the deployment protocol contract's shape
 (schema, both versions integers in `1..2147483647`, and
 `artifact.minimum_required <= tooling.supported`), runs the *committed* `targets` CLI against the
 *committed* registry and confirms it both validates and lists `staging-main`
-as `active`/`staging` and `tits-guru` as `planned`/`production`, and confirms
+as `active`/`staging`, and confirms
 every required host tool is present (`bash`, `jq`, `curl`, `install`, `stat`,
 `cmp`, `diff`, `awk`, `mv`, `cp`, `mktemp`, `readlink`, `tail`, `env`, `find`,
 `sort`, `cut`, `sed`, `rm`, `flock` — the last six for `cleanup`). `rclone`
 itself is **not** required on this list: this installer never calls it — the
 offsite scripts' staged and runtime-parity checks below only reach `--help`
-and the `lifecycle=planned` rejection path, both of which return before any
+and the refusal probe, both of which return before any
 `rclone` config check or remote call. Makes no changes anywhere. Safe to run
 from a laptop checkout, in CI, or on the VPS before ever touching it as root.
 
@@ -237,8 +256,8 @@ sudo infrastructure/scripts/install-target-operations --apply
    unusable release ID), `backup`, `restore-test`, `offsite-backup`,
    `offsite-retention`, `offsite-restore-test`, `backup-cycle`,
    `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage` and
-   `restore-target` all still correctly fail against `--target tits-guru`
-   with `lifecycle=planned`.
+   `restore-target` all still correctly fail against the refusal probe target,
+   for the refusal reason — both read from the staged registry.
    Every staged `cleanup` invocation here is `--dry-run` only, and neither
    `deploy`, `rollback`, `backup`, `restore-test`, `offsite-backup`,
    `offsite-retention`, `offsite-restore-test`, `backup-cycle` nor any of the
@@ -431,70 +450,70 @@ a rehearsal against overridden paths:
    exactly one occurrence each of the four standard sections (`Releases`,
    `Current release metadata`, `Health`, `Recent deployment history`), and
    `Status: healthy`;
-3. `health-check --target tits-guru` **fails**, and its error names
-   `lifecycle=planned` — nothing about `tits-guru` (no directory, database,
+3. `health-check` pointed at the refusal probe target **fails**, and its error names
+   the refusal reason — nothing about that target (no directory, database,
    service, or hostname) is created or contacted, because this rejects it
    before any of those would ever be touched;
 4. `cleanup --target staging-main --dry-run` succeeds;
-5. `cleanup --target tits-guru --dry-run` **fails**, and its error names
-   `lifecycle=planned` — `cleanup` never contacts `tits-guru` either;
+5. `cleanup --dry-run` pointed at the refusal probe target **fails**, and its error names
+   the refusal reason — `cleanup` never contacts that target either;
 6. `deploy --help` succeeds;
-7. `deploy --target tits-guru`, given a deliberately unusable release/artifact
-   combination, **fails**, and its error names `lifecycle=planned` — proving
+7. `deploy` pointed at the refusal probe target, given a deliberately unusable release/artifact
+   combination, **fails**, and its error names the refusal reason — proving
    the installed `deploy`'s ordering is root authorization →
-   `lifecycle=planned` rejection → no artifact or filesystem validation ever
+   target refusal → no artifact or filesystem validation ever
    reached. `deploy` is never invoked with a real artifact by this installer,
    at any point — a real deployment is always a separate, explicit,
    human-triggered action;
 8. `rollback --help` succeeds;
-9. `rollback --target tits-guru`, given a deliberately unusable release ID,
-   **fails**, and its error names `lifecycle=planned` — proving the
+9. `rollback` pointed at the refusal probe target, given a deliberately unusable release ID,
+   **fails**, and its error names the refusal reason — proving the
    installed `rollback`'s ordering is root authorization →
-   `lifecycle=planned` rejection → no filesystem, lock or history work ever
+   target refusal → no filesystem, lock or history work ever
    reached. `rollback` is never invoked for a real rollback by this
    installer, at any point — a real rollback is always a separate,
    explicit, human-triggered action;
 10. `backup --help` succeeds;
-11. `backup --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `backup`'s ordering is root
-    authorization → `lifecycle=planned` rejection → no backup root, lock,
+11. `backup` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `backup`'s ordering is root
+    authorization → target refusal → no backup root, lock,
     database binary or filesystem work ever reached. `backup` is never
     invoked for a real backup by this installer, at any point;
 12. `restore-test --help` succeeds;
-13. `restore-test --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `restore-test`'s ordering is
-    root authorization → `lifecycle=planned` rejection → no filesystem, lock
+13. `restore-test` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `restore-test`'s ordering is
+    root authorization → target refusal → no filesystem, lock
     or database work ever reached. `restore-test` is never invoked for a
     real restore test by this installer, at any point — a real backup or
     restore test is always a separate, explicit, human-triggered action;
 14. `offsite-backup --help` succeeds;
-15. `offsite-backup --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `offsite-backup`'s ordering
-    is root authorization → `lifecycle=planned` rejection → no `rclone`
+15. `offsite-backup` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `offsite-backup`'s ordering
+    is root authorization → target refusal → no `rclone`
     config check, remote listing, local backup root, lock, temp directory or
     database work ever reached. `offsite-backup` is never invoked for a real
     upload by this installer, at any point, and never contacts Backblaze B2;
 16. `offsite-retention --help` succeeds;
-17. `offsite-retention --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `offsite-retention`'s
-    ordering is root authorization → `lifecycle=planned` rejection → no
+17. `offsite-retention` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `offsite-retention`'s
+    ordering is root authorization → target refusal → no
     `rclone` config check, remote listing or lock work ever reached, in
     either its default dry-run mode or `--apply`. `offsite-retention` is
     never invoked for a real deletion by this installer, at any point, and
     never contacts Backblaze B2;
 18. `offsite-restore-test --help` succeeds;
-19. `offsite-restore-test --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `offsite-restore-test`'s
-    ordering is root authorization → `lifecycle=planned` rejection → no
+19. `offsite-restore-test` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `offsite-restore-test`'s
+    ordering is root authorization → target refusal → no
     `rclone` config check, remote listing, lock, temp directory or database
     work ever reached. `offsite-restore-test` is never invoked for a real
     restore test by this installer, at any point, and never contacts
     Backblaze B2 — a real offsite backup, retention run, or offsite restore
     test is always a separate, explicit, human-triggered action;
 20. `backup-cycle --help` succeeds;
-21. `backup-cycle --target tits-guru` **fails**, and its error names
-    `lifecycle=planned` — proving the installed `backup-cycle`'s ordering is
-    root authorization → `lifecycle=planned` rejection → no lock root, lock
+21. `backup-cycle` pointed at the refusal probe target **fails**, and its error names
+    the refusal reason — proving the installed `backup-cycle`'s ordering is
+    root authorization → target refusal → no lock root, lock
     file, or child-command work ever reached. `backup-cycle` is never
     invoked for a real cycle by this installer, at any point, and never
     contacts Backblaze B2 — a real backup cycle is always a separate,
@@ -502,19 +521,19 @@ a rehearsal against overridden paths:
 22. `fetch-backup`, `verify-backup`, `restore-database`, `restore-storage`
     and `restore-target` each answer `--help` successfully, and each
     documents the `--target` selector and no legacy selector alongside it;
-23. each of those five **fails** for `--target tits-guru`, with an error
-    naming `lifecycle=planned`. Every one is invoked with otherwise-complete
+23. each of those five **fails** for the refusal probe target, with an error
+    naming the refusal reason. Every one is invoked with otherwise-complete
     but deliberately unusable arguments, so a rejection can only come from
-    the lifecycle gate — never from a missing flag, a malformed backup ID or
+    the target gate — never from a missing flag, a malformed backup ID or
     a workspace that does not exist. That proves the installed ordering is
-    root authorization → `lifecycle=planned` rejection → no workspace
+    root authorization → target refusal → no workspace
     created, no backup root computed, no byte downloaded, no database
     touched, no target quiesced. No restore primitive is ever invoked for
     real by this installer, at any point;
 24. `verify-required-clis --help` succeeds and documents `--release-root`,
     proving the helper `deploy` invokes by absolute path on every deployment
     is actually installed and runnable. There is deliberately no
-    planned-target counterpart: it is a generic release-tree check and takes
+    refusal counterpart: it is a generic release-tree check and takes
     no `--target` at all. It is never invoked against a real release here.
 
 ## Expected server commands

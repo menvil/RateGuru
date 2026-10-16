@@ -5,7 +5,7 @@ counterpart of [`docs/design/design-contract.md`](../design-contract.md), which 
 are separate design systems on purpose: they share the Inter typeface and nothing else.
 
 Every value below was taken from the reference files, not invented — for the screens migrated so far, from the UI
-kit and the earlier delivery of the admin prototype. Where production deliberately departs from them, the departure
+kit and the earlier deliveries of the admin prototype. Where production deliberately departs from them, the departure
 is listed under [Deviations from the reference](#deviations-from-the-reference).
 
 ## Source of truth
@@ -15,8 +15,9 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, and the Growth section: Games with the game editor, Experiments with the experiment editor, Analytics, and the media picker) |
-| [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The earlier delivery of the admin prototype, which the screens migrated so far were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor and its playable previews, Experiments with the experiment editor, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v2.html`](reference/original/RateGuru-Admin-v2.html) | The second delivery of the admin prototype, which Categories, Tags, Rating groups, Project settings, Posts, Comments, Reports, Users and Media diagnostics were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
+| [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The first delivery of the admin prototype, which Languages and Translation Center were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 
 Rules for the reference files:
 
@@ -59,9 +60,9 @@ changes one file.
 
 The admin CSS is additive. Every Admin v2 rule is scoped to a `.rg-admin-*` class; nothing restyles Filament's
 own `.fi-*` components, so the existing screens keep their design until each one is migrated. The theme file
-holds the only rules that touch Filament's own elements, all unlayered: two fixes carried over from the old
-inline stylesheet (pointer cursor on toggles, selects and file pickers; a frameless records-per-page chooser),
-and one that fits Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
+holds the only rules that touch Filament's own elements, all unlayered: a fix carried over from the old inline
+stylesheet (pointer cursor on toggles, selects and file pickers — the frameless records-per-page chooser it
+also carried went with the last Filament table), and one that fits Filament into the Admin v2 shell (hiding Filament's own sidebar overlay, which the shell
 replaces). Because the theme compiles Tailwind
 from `app/Filament` and `resources/views/filament`, utilities those views already used but Filament's prebuilt
 stylesheet lacked now take effect as written.
@@ -109,7 +110,8 @@ Tertiary text deliberately departs from the reference; see
 | due time | — | `#7A4520` | — | ages past their threshold, “Required”, unsaved counts |
 
 The info tint adds `--rg-admin-status-info-border` `#C9D5EE`, `--rg-admin-status-info-field` `#F4F7FD` (an
-unsaved AI draft's field) and `--rg-admin-status-info-cell` `#FAFBFE` (its cell). Data colours: track
+unsaved AI draft's field) and `--rg-admin-status-info-cell` `#FAFBFE` (its cell). The danger tint adds
+`--rg-admin-status-danger-row` `#FFFBFB`, the faint ground of a critical row (Media diagnostics). Data colours: track
 `#E1E4EB`, progress ink, complete `#21C06C` (only at 100%), missing `#FD8549`, invalid `#E5484D`, running
 `#2D4373`.
 
@@ -206,8 +208,8 @@ This section is the target design from the prototype. Production builds it as de
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Categories, Tags and Rating groups are migrated: their content is
-Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
+Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -247,8 +249,12 @@ Admin v2 too.
 - **Top bar right side:** the `TOPBAR_END` render hook, scoped to the current page and its resource, where a
   migrated page puts its actions: Categories and Tags put their Create action there, registered with the panel,
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
-  the group editor its unsaved state, Discard and Save. A page without a permanent action, such as Languages,
-  leaves it empty.
+  the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
+  and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
+  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
+  diagnostics when it was read, Refresh and Run full audit. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
+  Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
   (`x-admin.ui.toast-stack`). It is not a stacking context and it knows the width the sidebar takes, so the stack
   centres on the main column at every width. A page raises a toast with a browser event; see
@@ -268,18 +274,16 @@ These are the current migration state, not changes to the target design:
   user may search: posts, comments, users, tags, categories and rating groups. The reference's index also lists
   settings, static pages, languages and media assets; those wait for a product-wide admin search contract rather
   than a partial imitation.
-- **Operational counts** (posts pending, comments reported, reports open, missing translations, media critical)
-  are not shown. The shell draws a badge whenever a navigation item provides one, but adds no count queries of
-  its own; each count arrives with the migration of its screen.
+- **Operational counts** arrived with their screens: Posts shows its pending count, Comments its reported comments
+  still visible and Reports its open reports (warning); Media diagnostics the masters the last completed audit
+  found missing (danger), read from that audit's own tally. The shell draws a badge whenever a navigation item
+  provides one, but adds no count queries of its own. Only Translation Center's is still missing, below.
 - **Translation Center's missing count.** The reference badges Translation Center with the missing translations
   (neutral). Counting them means reading every unit of project content, and the navigation is drawn on every
   admin page, so the item has no badge for now rather than a full completeness read per page or a counter kept
   for it alone. Translation Center itself always shows the exact figures, and so does Languages.
 - **Legacy page headers, breadcrumbs and actions** stay inside each page until that page is migrated; page
   actions are not moved into the top bar. Languages is migrated and has none of them left.
-- **Translation status on the content editors.** The Project settings and Static pages editors edit English only
-  and are still Filament's; the translation status the prototype shows on them arrives with their Admin v2
-  migration, as it did for Categories, Tags and Rating groups.
 
 ## Page anatomy
 
@@ -320,7 +324,10 @@ These are the current migration state, not changes to the target design:
   value”) · segmented control · active filter chips (28 high, radius 8, sunken, removable) · result count on the
   right (13 tertiary, “3 posts match”).
 - **Bulk bar (TBL-03):** min 52, sunken, under the toolbar; “3 selected”, one primary sm action with the eligible
-  count (“Approve selected (2)”), a note about skipped rows, “Clear selection” on the right.
+  count (“Approve selected (2)”), a note about skipped rows, “Clear selection” on the right. In production it is
+  `x-admin.ui.bulk-bar`: the count a status region, the actions its slot, unavailable while none of the selected
+  rows qualifies. A selection never outlives the list it was made on: another tab, search, filter or page clears
+  it.
 - **Row actions (TBL-04):** the one or two most used actions for the row's status inline as secondary sm buttons;
   everything else in an ellipsis menu (ghost sm). Menus are 248–272 wide, radius 12, padding 6; items carry a 16
   icon, a 14px label and an optional 12px hint. Unavailable actions stay visible, disabled, with the reason as a
@@ -356,7 +363,7 @@ Grid templates used in the prototype, for reference:
 | Rating groups | `minmax(240px,1fr) 130px 170px 100px 150px 100px 64px 120px` | 1040 |
 | Languages | `minmax(220px,1fr) 90px 150px 180px 190px 110px 130px` | 1060 |
 | Translation Center | `240px minmax(0,1fr) minmax(0,1fr)` | — |
-| Media diagnostics | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px` | 1100 |
+| Media diagnostics | `96px 170px 88px 132px 80px minmax(160px,1fr) 120px 210px` | 1056 |
 | Translation AI recent calls (production) | `96px 172px 180px 96px 52px 116px 92px 72px minmax(200px,1fr)` | 1076 |
 
 ## Forms
@@ -379,7 +386,9 @@ Grid templates used in the prototype, for reference:
 - **Checkbox (FRM-07):** 18×18, radius 5; ink fill with a 12px white check (stroke 3); a minus for mixed.
 - **Segmented control (FRM-08):** gray-100 track with hairline, padding 3, radius 10; segments 32 (28 compact),
   radius 8; the active one white with shadow-xs and 500. For two to four exclusive options.
-- **Radio cards (FRM-09):** padding 12, radius 12; selected with an ink border, sunken fill and a 5px ink ring.
+- **Radio cards (FRM-09):** padding 12, radius 12; selected with an ink border, sunken fill and a 5px ink ring. In
+  production `x-admin.ui.radio-cards`: a radiogroup as the segmented control is, each card a label and a line of
+  explanation, the choice exposed to `wire:model` and `x-model`.
 - **Filter dropdown (FRM-10):** popover radius 12, padding 6, 200–240 wide; items 36 high, radius 8, check on the
   selected one, optional count.
 - **Searchable combobox (FRM-11):** 52-high trigger, radius 12, border gray-300, overline plus value; a 420-wide
@@ -396,6 +405,11 @@ In production the locked identifier, the number stepper and the switch are Blade
 - **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
   state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
   `wire:model` and `x-model` (`x-modelable`).
+- **`x-admin.ui.checkbox` (FRM-07):** a real `input type="checkbox"` under the drawn box, so the keyboard, a form,
+  `wire:model` and `x-model` reach it; named by its label, which `hide-label` keeps for assistive technology only
+  (a row's selection box); `mixed` is the input's indeterminate state, which a select-all box keeps live itself.
+- **Preset chips (FRM-03):** `x-admin.ui.textarea` takes `presets`, texts offered above the field; choosing one
+  fills the field as typing would and marks the chip chosen (`aria-pressed`) while the field holds it.
 
 The segmented control, the filter dropdown and the combobox are Blade components, each with the keyboard
 behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelable`):
@@ -471,7 +485,8 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   in the Livewire runtime) moves focus inside, keeps it there and returns it to the trigger on close; the rest of
   the page is hidden from assistive technology and does not scroll. When the trigger has left the page by then —
   its row filtered away by the change it confirmed — focus goes to the page's heading. Both sit on
-  `x-admin.ui.overlay`, the layer that holds this shared behaviour; it is not used on its own. The dialog has the `default` (light),
+  `x-admin.ui.overlay`, the layer that holds this shared behaviour; besides them only the Posts image viewer
+  is drawn on it. The dialog has the `default` (light),
   `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
   blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
   acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
@@ -930,17 +945,247 @@ navigation item, the policy and global search, whose results open a group's edit
 - **Access:** rating groups are an administrator's; every write goes through its action, which checks the policy
   again.
 
+### Project settings
+
+Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs — Site identity,
+Object labels, Defaults, Feature flags, Sign-in providers and Static pages — saved together from the top bar
+through `SaveProjectSettingsAction`. Static pages are its last tab; they have no screen of their own.
+
+- **Header band:** “Project settings”, the saved site name and host, and “English is the reference language”;
+  beside it the installation preset.
+- **Installation preset:** a button naming the preset applied at installation, with “Matches preset” (success,
+  dot) or “Customized · n” (warning) as the draft is typed, or “Not applied”. Its panel says when the preset
+  was applied, or that none was, and that presets are applied once from the server; it lists each setting the preset controls that the
+  draft differs from — “Preset “Pet” → now “Critter”” — with Revert, which puts the preset's value back in the
+  draft. Nothing here applies a preset: that is `php artisan rateguru:setup`. The site's identity is the project's
+  own and is not compared.
+- **Tabs (NAV-03):** links, so a tab has an address (`?tab=features`, `?tab=pages&page=terms`), switched in place.
+  Edit source in Translation Center opens a setting or a static page on its tab. What is typed on one tab stays in
+  the draft while another is open.
+- **Save from the top bar (NAV-02):** “n unsaved changes” in the due colour, Discard and Save changes, counted in
+  the browser — every changed setting and every changed static page field — against the server's `saved` copy.
+  Save validates every tab; a refused field shows its error on its tab, and a warning notice above the tabs names
+  the tabs that hold one (“Some settings can’t be saved yet: Object labels and Static pages.”). Saved: “Project
+  settings saved. Visitors see the changes on their next page load.”
+- **Site identity and Object labels (LAY-02):** each English text (FRM-02, the description FRM-03 counted to its
+  translation limit) with what it is used for and “Differs from preset · “…”” while it does; in the card's sunken
+  footer which offered languages miss which texts — “Translations: Русский complete · Български missing the
+  description.” — and Translate into Translation Center on the first missing one. Beside the card, “Where visitors
+  see it”: the site header, the feed's title and count and a post's links drawn from the draft as it is typed.
+- **Defaults:** Default theme (System, Light, Dark) and Default sort (Hot, New, Top), each a segmented control
+  (FRM-08) with an icon per option and what the chosen one means under it.
+- **Feature flags:** one settings row each (FRM-06, `layout="row"`) in a flush card: what it does, On or Off,
+  “Differs from preset” while it does. Switching off Allow user uploads (“Pause all uploads?”) or Allow guest
+  viewing (“Require sign-in for everyone?”) asks first (OVL-01, warning); the others switch at once. Every switch
+  applies when the settings are saved, as the dialogs' footnote says.
+- **Sign-in providers:** “Email and password sign-in is always on.” and one row per provider — Configured or Not
+  configured (with the server keys it needs), how many accounts sign in with it, Enabled or Off. Switching one off
+  asks first: its buttons are hidden and its sign-ins refused, the accounts stay linked, and people who only ever
+  signed in with it are shown on the login page how to set a password.
+- **Static pages:** the list — each page's title, “n translations missing” or “Translated”, “· edited” while its
+  draft differs — and the open page: its path, View page, the English Title and Content (FRM-03, “Plain text.
+  Line breaks are kept.”), and its translations in the footer with Translate.
+- **Access:** project settings are an administrator's (`manage-project-settings`); every write goes through
+  `SaveProjectSettingsAction`, which refuses translations and the offered languages.
+
+## Moderation
+
+### Posts
+
+Posts (`ListPosts`) is drawn entirely in Admin v2: the moderation queue and every other post, a tab at a time,
+searched, narrowed and read 25 at a time on the server (`ModerationPostsQuery`). The resource keeps the route, the
+navigation item — with the pending count, warning — the policy and global search, whose results open the post
+in the list by its id.
+
+- **Header band:** “Posts wait here before publishing while their author isn’t trusted or hasn’t confirmed their
+  email. Everyone else publishes at once.” Stats: Waiting, Oldest waiting (“3 h 12 min”) and Reported. The top
+  bar says when the list was read and has Refresh, which reads it again with skeleton rows meanwhile (TBL-06).
+- **Tabs (NAV-03):** All · Pending · Published · Hidden · Reported (reported, or flagged for review after their
+  reports were dismissed) · Deleted by author, each with its count; links with an address (`?status=hidden`).
+  Pending opens first and reads oldest first; every other tab newest first.
+- **Toolbar (TBL-02):** the search over the title, the author's username and the post's id (“#4821”); Category
+  and Sort (Oldest first · Newest first · Most reported) as filter dropdowns (FRM-10); the category as a removable
+  chip; “n posts”, or “n posts match” while filtered.
+- **Table (TBL-01):** the selection box (FRM-07); the thumbnail — the smallest variant — which opens the original;
+  the title, a link to the public post while it is published, over “#id · category”; the author with whether they
+  publish at once (Trusted, Not trusted, Email not confirmed) and how many posts they have, a link to their user
+  page for whoever may manage them; the status (STS-01) with its note — Restorable, the rejection reason,
+  Retained for audit, Retained internally; the reports (STS-02); when it came in, and “Waiting 3 h 12 min” on a
+  pending post, in the due colour after two hours.
+- **Row actions (TBL-04):** Approve and Reject on a pending post, Hide on a published one, Restore on a hidden
+  one; a finalized removal shows “Final” and nothing else. The menu: Open public post, Open original image, View
+  author, and for an administrator Finalize removal — on a hidden post (“Irreversible”), unavailable on a
+  published one (“Hide the post first”).
+- **Approve** publishes at once, with no confirmation and no Undo: approving notifies the author and the
+  author's followers. **Restore** is immediate, with Undo, which hides the post again.
+- **Confirmations (OVL-01):** Reject is light — an optional reason; Hide is firm — a required reason, for one post
+  or for every published one selected, with Undo after it; Finalize removal is irreversible — the danger callout,
+  what happens, a required internal reason and the acknowledgement checkbox, with the danger confirm. Reasons are
+  up to 500 characters, at least 3 when given; the chips are the reasons visitors report with (Spam, Offensive,
+  Fake, Copyright, Wrong category). The confirm button waits for what is required, and each dialog says it is
+  recorded in the moderation log.
+- **Bulk bar (TBL-03):** “n selected”, Approve selected (n) and Hide selected (n) with the posts each applies to,
+  and how many selected posts neither applies to.
+- **Image viewer:** the original over a darker scrim, with its size in pixels, type, file size and disk, and Open
+  original; Escape, the scrim and Close dismiss it.
+- **A post that changed meanwhile** — moderated by someone else since the list was drawn — is not acted on; the
+  toast says so, and the list shows it as it is now. A post the list does not hold is never acted on.
+- **Access:** posts are moderated by moderators and administrators; finalizing is an administrator's. Every change
+  goes through its moderation action, which checks the moderator, locks the post and writes the moderation log.
+
+### Comments
+
+Comments (`ListComments`) is drawn entirely in Admin v2: every comment, a tab at a time, searched and read 25 at a
+time on the server (`ModerationCommentsQuery`), newest first. The resource keeps the route, the navigation item —
+with the reported comments still visible, warning — the policy and global search, whose results open the comment
+in the list by its id.
+
+- **Header band:** “Comments publish immediately. Moderation happens after the fact, mostly from reports.” Stats:
+  Reported and Hidden.
+- **Tabs (NAV-03):** All · Visible · Hidden (a finalized removal included) · Author deleted · Reported (reported
+  and not removed for good), each with its count and an address of its own.
+- **Toolbar (TBL-02):** the search over the text, the author's username, the post's title and the comment's id
+  (“#90412”); “n comments”, or “n comments match”.
+- **Table (TBL-01):** the text in two lines — a link to it under the public post while it is visible there — over
+  its id and, once its author deleted it or its removal is final, “Read-only” (“· kept for audit” for the author's
+  deletion); the author, a link to their user page for whoever may manage them; the post's title and id; the
+  reports (STS-02); the state (STS-01) — Visible, Hidden by moderation (“Restorable”), Deleted by author, Removal
+  finalized (“Retained internally”); when it was written.
+- **Row actions (TBL-04):** Hide on a visible comment, Restore on a hidden one; a finalized removal shows “Final”.
+  The menu: Open in thread, View author, Open post in moderation — the post in the Posts list — and for an
+  administrator Finalize removal, on a hidden comment, its author's deleted one included (“Irreversible”), and
+  unavailable on a visible one (“Hide the comment first”).
+- **Hide** is a warning confirmation with an optional reason — the chips are the reasons visitors report a
+  comment with — and Undo after it; **Restore** is immediate, with Undo; **Finalize removal** is the irreversible
+  confirmation Posts has. Each says it is recorded in the moderation log.
+- **A comment that changed meanwhile** is not acted on, and the toast says so: hiding one already hidden would
+  otherwise toast a hide, and an Undo, that were someone else's.
+- **Access:** comments are moderated by moderators and administrators; finalizing is an administrator's. Nothing
+  here deletes a comment: that is its author's alone.
+
+### Reports
+
+Reports (`ListReports`) is drawn entirely in Admin v2: each report points to one post, comment or person, and the
+screen reads them a tab at a time on the server (`ModerationReportsQuery`), beside the open report's chain. The
+resource keeps the route, the navigation item — with the open reports, warning — and the policy.
+
+- **Header band:** “Each report points to one post, comment or person, and its author. Acting on the content and
+  closing the report are separate steps.” Stats: Open, Targets (what the open reports point to) and Oldest open.
+  The top bar shows the keys: J for the next report, K for the previous, from anywhere but a field or a dialog.
+- **Tabs (NAV-03):** Open (oldest first) · Resolved · Ignored · All (newest first), each with its count and an
+  address of its own.
+- **Toolbar (TBL-02):** the search over the reported content, the reporter, the reason, the reporter's message and
+  the report's id; Type (All, Posts, Comments, People) as a filter dropdown (FRM-10); “n reports”.
+- **Docked or over the list:** where the main column leaves 1048 for the list, the open report's chain docks
+  beside it as the 448 panel, sticky as the page scrolls, and the list condenses to Target · Reason · reporter ·
+  Status · Created — opened wide with nothing chosen, the first report opens. Otherwise the list keeps Type ·
+  Target · Reason · Reporter · Status · Created · Actions (Resolve and Ignore on an open report, Open details),
+  scrolling inside its card, and the chain floats over it on the right, 472 wide with its card's shadow. A report's
+  target opens its chain; the report is in the address (`?report=2284`).
+- **Report chain (DOM-02):** the report — “Reported as spam”, who reported it, their message, and “3 open reports
+  point to this post. Each one is closed separately.”; the target — its text, what it is, its state, Open target
+  while visitors can see it and Hide target while it can be hidden, and the info notice that a hidden target's
+  report stays open; the author — or the person reported — with their status, whether they are trusted, their
+  posts and the reports on their content, View user and Ban author (unavailable, with the reason: already
+  banned, account deleted, administrators only). The panel's head has Previous, Next and Close.
+- **Closing:** the footer takes an optional resolution note, stored with the report; Resolve and Ignore close that
+  report only, toast with Undo — which opens it again — and open the next open report. A closed report says who
+  closed it, when and with which note, and offers Reopen (`ReopenReportAction`).
+- **Hide target** is a warning confirmation — a required reason for a post, an optional one for a comment, the
+  report's own reason filled in; **Ban author** is a danger confirmation with what a ban does and an optional
+  reason. Both leave the report open, and say so in their toast.
+- **Something that changed meanwhile** — a report someone else closed, a target already hidden — is not acted on;
+  the toast says so.
+- **Access:** reports are processed by moderators and administrators; banning is an administrator's. Every change
+  goes through its action.
+
+### Users
+
+Users (`ListUsers`) and a person's page (`EditUser`) are drawn entirely in Admin v2. The list reads everyone with an
+account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the moderation actions,
+which go through their actions and log themselves. The resource keeps the routes, the navigation item, who may edit
+whom (`UserPolicy::manage`) and global search, whose results open the person's page — or the list on them where the
+page is not theirs to edit.
+
+- **List header band:** “Status changes only through moderation actions. Trust decides whether a person’s posts
+  skip review.” Stats: Total, Restricted (limited, banned, shadowbanned) and Staff.
+- **Tabs (NAV-03):** All · Active · Limited · Banned · Shadowbanned · Deleted · Trusted (active and at the trusted
+  level), newest accounts first.
+- **Toolbar (TBL-02):** the search over the username, the name and the email address; Role as a filter dropdown;
+  the Role and Suspicious chips — Suspicious, as the dashboard's Suspicious users opens the list
+  (`?suspicious=1`): shadowbanned, or with reported posts or comments.
+- **Table (TBL-01):** the avatar, the username — a link to the person's page for whoever may edit it — the name
+  and when they joined; the email address (“Removed on deletion” for a deleted account); the role, staff as an
+  outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
+  reports on their posts and comments (STS-02); Edit and the row menu.
+- **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
+  on them), then Mark trusted, Restore access, Limit, Shadowban and Ban as their status allows — each unavailable
+  one kept with why: “This is your account”, “Administrators can’t be sanctioned”, “Administrators only”, “Already
+  trusted”, “Restore access first”.
+- **Moderation (OVL-01):** Limit (warning), Shadowban and Ban (danger) say what they do as the lifecycle has it —
+  no new posts, comments, votes, reports or follows, the content kept, never a locked account — with an optional
+  reason; Mark trusted (light) has no reason to give. A sanction on an active person toasts with Undo, which
+  restores access; Restore access is immediate and toasts with Undo, which applies the sanction again. The same
+  actions and dialogs are on the person's page.
+- **A person's page — header band:** the avatar, the username and status, the name and when they joined; stats
+  Posts, Comments and Reports (on their content).
+- **The draft (NAV-02):** Profile — Name, Username (“Public as @name”), Email (a new address has to be confirmed
+  again); Role & trust — Role as a segmented control (FRM-08) with what it allows, Trust as radio cards (FRM-09):
+  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The top bar counts the
+  unsaved changes; a change of role is asked about first (warning). Saved through `UpdateUserAccountAction`.
+- **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
+  that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
+  joined, posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
+  comments, newest first, then when the account was created.
+- **Access:** moderators see the list; editing an account and every moderation action are an administrator's,
+  never on their own account nor another administrator's, and never on a deleted one.
+
+## System
+
+### Media diagnostics
+
+Media diagnostics (`MediaDiagnosticsPage`) is drawn entirely in Admin v2. Every figure comes from aggregate SQL or
+the snapshot the last audit recorded — never a scan of the disks; the one exception is the asset inspector, which
+checks the files of the one asset it shows. The page keeps its route, its navigation item and who may open it
+(`view-media-diagnostics`, administrators).
+
+- **Header band:** the title with the library's health (STS-01: Healthy, Degraded, Critical, Unknown before any
+  audit), when the last audit completed and how many issues it found — or that a full audit is running — and the
+  media disks.
+- **Overview:** ten figures in one card — health with its critical and warning counts, assets, variants, tracked
+  storage, missing masters (Critical), missing variants (Warning), active unreferenced, purgeable, physical orphan
+  candidates and failed media jobs (Failed). A figure that counts issues is a button that narrows the issues to it.
+- **Audit issues (TBL-01, TBL-02):** the issues of the last completed audit, the most severe first, 25 a page
+  (`MediaAuditIssuesQuery`, a registered stable pagination boundary), each kept in its address — searched by asset
+  id or path, narrowed by Severity and Issue type as filter dropdowns with counts. A critical row has the faint
+  danger ground. Each row offers only what can be done about it: Regenerate on a missing variant, Release on an
+  active unreferenced asset, Purge on a purgeable one, and Inspect wherever there is an asset.
+- **Last audit, Audit history, Failed media jobs:** the last run whatever its status — started, completed,
+  duration, status, assets, variants and issues; the five runs before, each with its tally; the failed media jobs,
+  each with its exception, Retry, and Retry all, which dispatches a fresh regeneration rather than the old payload.
+- **Asset inspector (OVL-02):** what the issue means for the asset, its details — kind, what uses it, disk, path,
+  size, dimensions, type, uploaded, lifecycle — and its files, the master and each variant, there or missing.
+  Under the files, Force regenerate all variants for an asset still active; in the footer Copy path, then Release
+  asset, Purge asset or Regenerate missing variants as the issue allows, or “No automatic fix” for a missing master.
+  A confirmation asked for here replaces the drawer.
+- **Confirmations (OVL-01):** Release (warning) and Force regenerate (warning) say what they do; Purge is
+  irreversible — the danger callout, what it deletes and an acknowledgement. Each is checked again when confirmed:
+  an asset something uses again is not released, and only an asset still purgeable is purged.
+- **Top bar (NAV-02):** when the page was read, Refresh, and Run full audit, which dispatches an audit unless one
+  is already running.
+
 ## Responsive rules
 
-- Verified widths: 1440, 1280 and 1024; Translation AI, Categories, Tags and Rating groups also at 768 and 390.
+- Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
+  groups and Project settings also at 768 and 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
 - A grid without a minimum width — Translation Center's rows — stacks its cells in their own order once its own
   width (a container query, not the window's) leaves them too narrow, rather than scrolling or reshuffling.
 - Toolbars wrap; auto-fit grids reflow; drawers cap at `100vw`.
-- Reports docks its 448 panel only when the main column leaves at least 1048 px for the table; otherwise the panel
-  floats over the list.
+- Reports docks its 448 panel only when the main column leaves at least 1048 px for the table — from 1348 px with the
+  full sidebar, from 1116 px with the rail — otherwise the panel floats over the list.
 
 ## Accessibility baseline
 
@@ -999,6 +1244,56 @@ navigation item, the policy and global search, whose results open a group's edit
 | Archive Undo | Undo restores an archived option | no Undo: the archive is confirmed, and Unarchive is in the row menu | archiving asks first, so it is not a reversible action that toasts with Undo |
 | Translate on Rating groups | opens Translation Center on the section | on the group's first missing label or description | the record is what was asked about |
 | Create group | the new group's page saves in place | Create group opens the group's editor, where its options are made | options belong to a group that exists |
+| Static page content | a rich text editor (headings, bold, italic, lists) | a plain textarea: “Plain text. Line breaks are kept.” | the public pages show the content as plain text with its line breaks; markup typed here would be shown as typed |
+| Static page “last edited” | “last edited 12 Sep 2026 by Daria Kovaleva” | the page's path only | nothing records who changed a static page, or when |
+| Unconfigured sign-in provider | turning it on is refused in a dialog: the server has no key | it can be on; its row says Not configured with the keys it needs, and its buttons stay hidden until they are set | switching a provider on is the project's decision, and setting the keys is the server's; either can come first |
+| Setting text limits and counters | site name 40, tagline 60, description 200, each field counted | the limits the translations of each text are held to; a counter on the multi-line fields, `maxlength` on single-line ones | one limit for a text and its translations; a single-line field stops at its limit as it is typed |
+| Installation preset | “Preset” over the name; compared with every setting | “Installation preset”; the site's identity is not compared | the preset is applied once at installation, and the site's name and copy are the project's own |
+| Posts author trust | New, Regular or Trusted | Trusted, Not trusted or Email not confirmed | the application knows trust as a threshold, and a post waits when its author is below it or has not confirmed their email |
+| Posts header text | “Posts from new and regular users wait here before publishing. Trusted users skip the queue.” | “Posts wait here before publishing while their author isn’t trusted or hasn’t confirmed their email. Everyone else publishes at once.” | it states the rule the application applies |
+| Post ids | “P-48213” | “#48213”, and the search finds “#48213” or “48213” | the id as stored |
+| Restore window | “Restorable until 16 Oct”, 14 days after hiding | “Restorable”, until the removal is finalized | nothing closes the window but finalizing |
+| Approve Undo | Undo after approving, alone or selected | none | approving notifies the author and the author's followers; Hide takes a post back down |
+| Reject and Hide reasons | “Shared with the author”; the author is notified of a rejection | “Stored in the moderation log.” | neither is sent to the author |
+| Moderation reason chips | Not a pet, Spam or advertising, Animal sale, Graphic content, Duplicate, Low quality | Spam, Offensive, Fake, Copyright, Wrong category | the reasons visitors report with, for a project about anything |
+| Finalize removal | on hidden, rejected and author-deleted posts | on hidden posts only, by an administrator | FinalizePostRemovalAction finalizes a hidden post only |
+| View author | opens Users filtered to the author | opens the author's user page, for whoever may manage them | the person is what was asked about |
+| Original image | a placeholder lightbox | the original, with its size, type, file size and disk | the file is there to show |
+| Posts empty queue | “New submissions appear here automatically.” | “New submissions appear here when you refresh.” | the list is read on load and on Refresh |
+| Posts grid | `44px 56px minmax(200px,1fr) 160px 140px 80px 120px 192px`, 992 | Author 176 and Created 136, 1024 | the trust words and “Waiting 3 h 12 min” fit without wrapping |
+| Comment ids | “C-90412”, the post's “P-48166” | “#90412”, the post's “#48166” | the ids as stored, as Posts shows them |
+| Comment restore window | “Restorable until 17 Oct” | “Restorable”, until the removal is finalized | as for posts |
+| Comment Hide reasons | Spam or advertising, Harassment, Off-topic, Misinformation | Spam, Offensive, Fake, Copyright | the reasons visitors report a comment with |
+| Finalize a comment | on hidden and on any author-deleted comment | on a hidden comment, its author's deleted one included | FinalizeCommentRemovalAction finalizes a hidden comment only |
+| Comments grid | `minmax(240px,1fr) 150px 180px 80px 150px 104px 140px`, 1044 | State 170 and Created 120, 1080 | “Hidden by moderation” and the time fit without wrapping |
+| Report ids | “R-2284”, the target's “P-48090” | “Report #2284”, the target's “#48090” (“@name” for a person) | the ids as stored, as the other lists show them |
+| Report targets | posts and comments | posts, comments and people, with Type: People | a person can be reported, and their report reads as their chain |
+| Report order | oldest first in every tab | Open oldest first; Resolved, Ignored and All newest first | the queue waits oldest first, and a closed report is looked up by when it came in |
+| Hide target reasons | “Shared with the author.”; pet-specific chips | “Stored in the moderation log.”; the reasons visitors report with | a hide's reason is not sent to the author |
+| Ban reasons | Repeated spam, Harassment, Animal sale, Ban evasion | Repeated spam, Harassment, Scam, Ban evasion | for a project about anything |
+| What a ban does | “Signs them out everywhere and blocks sign-in.” | “They can still sign in, browse and manage their account.”, and no new posts, comments, votes, reports or follows | a ban stops participation and never locks anyone out of their account (docs/architecture/user-lifecycle.md) |
+| Reports empty queue | “New reports appear here as they arrive.” | “New reports appear here when you open the page again.” | the list is read on load |
+| Trust levels | New, Regular and Trusted, with upload caps | Not trusted and Trusted | trust is one threshold: at or above it a person's posts publish at once, once their email is confirmed; nothing caps uploads |
+| What Limit and Shadowban do | Limit: posts reviewed, uploads capped; Shadowban: activity visible only to them, not notified | both stop new posts, comments, votes, reports and follows, and keep the content visible | the lifecycle as it is (docs/architecture/user-lifecycle.md): no viewer-dependent visibility exists |
+| Sanctioning staff | “Change the role to User first” | moderators can be sanctioned; administrators can’t, and nobody their own account | UserPolicy as it is |
+| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person's page |
+| Sanction Undo | Undo after any sanction | Undo from an active account only | restoring access returns someone to Active, not to the sanction they had before |
+| Last active | “Last active Today 08:15” | not shown | nothing records when someone was last active |
+| New password | at least 10 characters; signs other sessions out | the application's password rule; other sessions stay | the rule people's own passwords follow, and saving does not end sessions |
+| Person's page top bar | Cancel and Save changes | Discard and Save changes | as every Admin v2 editor |
+| Users grid | `minmax(200px,1fr) 220px 110px 140px 120px 70px 80px 110px`, 1050 | Trust 150, 1080 | “Not trusted” beside its bar fits without wrapping |
+| Next scheduled audit | “Next scheduled audit Tomorrow 04:00” in the header band | not shown | no audit is scheduled; one runs from the top bar or `media:audit` |
+| Asset ids | “A-208113” | “#208113”, and the search finds “#208113” or “208113” | the id as stored, as the other lists show theirs |
+| Issue type names | Missing master, Missing variant, Unreferenced asset, Purgeable asset, Physical orphan | Missing master file, Missing variant file, Active unreferenced asset, Purgeable asset, Physical orphan candidate, Failed generation job | the issue types the audit records |
+| Asset preview | a 168 high preview at the top of the inspector | none | the inspector checks files, it does not render them |
+| Force regenerate | not in the reference | in the inspector, under the files of an asset still active, after a warning confirmation | the page has always offered replacing an asset's variants from its master |
+| Media diagnostics grid | `104px 160px 104px 104px 96px minmax(200px,1fr) 104px 210px`, 1100 | `96px 170px 88px 132px 80px minmax(160px,1fr) 120px 210px`, 1056 | the variant names as stored (`post_detail_1920`) and “Yesterday 23:39” fit, and the grid fits the card at 1440 |
+| Overview figures | at least 180 wide | at least 160 wide | two figures a row on a phone instead of ten one under another |
+| Purge confirmation | a typed asset id and an acknowledgement; “Recorded in the audit log as …” | the acknowledgement alone; no footnote | the acknowledgement is the irreversible level, as Finalize removal has it; no log records a purge |
+| Release facts | “Checked just now: no post, avatar or static page uses this file.” | “Checked again when you confirm: an asset something uses now is left as it is.” | the references are checked on confirming, not on opening the dialog |
+| Failed job attempts | “attempt 3 of 3” | not shown | the failed job record keeps no attempt count |
+| Run full audit progress | a progress bar while the audit runs | “A full audit is running” in the header band; Refresh reads the outcome | the audit runs in the background and reports no progress |
+| Translate on Project settings | opens Translation Center on the section | on the first missing text of the card or the page, in the first offered language it is missing from | the text is what was asked about |
 | Global search | sidebar search over records, settings, pages, languages and media | the same field and results, over the records Filament's global search finds | see [Transitional omissions](#transitional-omissions) |
 | Sidebar header | ~73 high, its hairline below the top bar's | 62, as tall as the top bar | the two hairlines run as one line |
 | Workspace switcher | a switcher button with a chevron | a static identity block | there is only one workspace |
@@ -1037,11 +1332,11 @@ built.
 | Foundations | FND-01 Colour tokens · FND-02 Typography · FND-03 Spacing, radii, elevation · FND-04 Icons | all |
 | Actions | ACT-01 Button · ACT-02 Icon button · ACT-03 Links and text actions | all |
 | Status | STS-01 Status badge · STS-02 Counters · STS-03 Progress bar · STS-04 Active range slots · STS-05 Locale chips | all |
-| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | FRM-01–06, FRM-08, FRM-10, FRM-11 |
+| Forms | FRM-01 Search field · FRM-02 Text field · FRM-03 Textarea with counter · FRM-04 Locked identifier · FRM-05 Number stepper · FRM-06 Toggle switch · FRM-07 Checkbox · FRM-08 Segmented control · FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |
 | Navigation | NAV-01 Sidebar · NAV-02 Top bar and breadcrumb · NAV-03 Status tabs · NAV-04 Pagination | all; NAV-01 and NAV-02 also run as the production shell; NAV-04 as a live, reusable component |
 | Layout | LAY-01 Page header · LAY-02 Card and sections · LAY-03 Detail rows and section labels | all |
-| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all but TBL-03; TBL-04 as a live, reusable component |
+| Tables | TBL-01 Table row · TBL-02 Table toolbar · TBL-03 Bulk action bar · TBL-04 Row actions and menu · TBL-05 Empty states · TBL-06 Loading skeleton | all; TBL-03 and TBL-04 as live, reusable components |
 | Overlays & feedback | OVL-01 Confirmation dialog · OVL-02 Drawer · FBK-01 Toast · FBK-02 Inline notice | all; OVL-01, OVL-02 and FBK-01 as live, reusable components |
-| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | DOM-01 |
+| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | all; DOM-02 as a live, reusable component (`x-admin.ui.timeline-item`) |
 
 The [migration plan](migration-plan.md) says when the remaining elements are built.

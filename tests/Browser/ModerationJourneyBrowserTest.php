@@ -17,29 +17,6 @@ use function Pest\Laravel\actingAs;
  * person, so the person acting is switched between the steps.
  */
 
-/**
- * Runs a Filament row action the way a moderator does: presses it on the
- * row, writes the note its confirmation asks for when one is given, and
- * confirms. Returns once the confirmation has closed, which it does after the
- * action has run.
- */
-function confirmPanelRowAction(mixed $page, string $label, ?string $note = null): mixed
-{
-    $modalOpen = '[...document.querySelectorAll(".fi-modal-window")].some((modal) => modal.checkVisibility())';
-
-    $page->click($label);
-    waitForScript($page, $modalOpen);
-
-    if ($note !== null) {
-        $page->type('.fi-modal-window textarea:visible', $note);
-    }
-
-    $page->click('.fi-modal-window button[type="submit"]:visible');
-    waitForScript($page, $modalOpen, false);
-
-    return $page;
-}
-
 it('takes a reported post down from the report in the panel, for everyone', function () {
     $post = Post::factory()->published()->create(['title' => 'Buy cheap followers here']);
     $reader = User::factory()->create();
@@ -57,13 +34,18 @@ it('takes a reported post down from the report in the panel, for everyone', func
 
     actingAs($moderator);
 
-    // The report reached the queue, pointing at the post.
-    $panel = visit('/admin/reports')->assertSee('Buy cheap followers here');
-    confirmPanelRowAction($panel, 'Hide target', 'Spam.');
-    confirmPanelRowAction($panel, 'Resolve', 'Hidden as spam.')
-        ->assertDontSee('Hide target');
-
+    // The report reached the queue, pointing at the post: hide the post from
+    // the report's chain, then resolve the report with a note.
     $report = Report::query()->sole();
+    $panel = openReportChain($report->id)->assertSee('Buy cheap followers here');
+    $panel->click('.rg-admin-reports__panel button[wire\\:click="askToHideTarget"]');
+    confirmAdminDialog($panel, 'Spam.');
+    waitForScript($panel, "document.querySelector('.rg-admin-reports__panel button[wire\\\\:click=\"askToHideTarget\"]') === null");
+    $panel->type('#rg-admin-report-note', 'Hidden as spam.');
+    $panel->click('.rg-admin-reports__close .rg-admin-button--primary');
+    waitForScript($panel, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Report #'.$report->id.' resolved');
+
+    $report->refresh();
 
     expect($post->fresh()->status)->toBe(PostStatus::Hidden)
         ->and($report->status)->toBe(ReportStatus::Resolved)
@@ -107,7 +89,10 @@ it('publishes a held-back post when a moderator approves it in the panel, and te
 
     actingAs(User::factory()->moderator()->create());
 
-    confirmPanelRowAction(visit('/admin/posts'), 'Approve');
+    // Approving publishes at once, without a confirmation.
+    $panel = visit('/admin/posts');
+    $panel->click("#rg-admin-post-{$post->id} button[wire\\:click=\"approve({$post->id})\"]");
+    waitForScript($panel, "document.querySelector('.rg-admin-toast .rg-admin-toast__text')?.textContent.trim()", '“Grandma’s dumplings” approved and published');
 
     expect($post->fresh()->status)->toBe(PostStatus::Published);
 
@@ -142,7 +127,9 @@ it('bans the author of a reported comment from the report, and the author can no
 
     actingAs(User::factory()->admin()->create());
 
-    confirmPanelRowAction(visit('/admin/reports'), 'Ban target author', 'Abusive comments.');
+    $panel = openReportChain(Report::query()->sole()->id);
+    $panel->click('.rg-admin-reports__panel button[wire\\:click="askToBan"]');
+    confirmAdminDialog($panel, 'Abusive comments.');
 
     expect($troll->fresh()->status)->toBe(UserStatus::Banned);
 

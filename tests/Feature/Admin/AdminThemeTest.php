@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Vite;
 /**
  * The admin panel's custom Filament theme: one compiled Vite entry that layers
  * the Admin v2 tokens and components on Filament's own theme, and carries the
- * two fixes to Filament components that used to be an inline stylesheet.
+ * fix to Filament components that used to be an inline stylesheet.
  */
 const ADMIN_THEME_ENTRY = 'resources/css/filament/admin/theme.css';
 
@@ -100,10 +100,10 @@ it('keeps admin styling in the compiled theme rather than an inline stylesheet',
         ->and($provider)->not->toContain('PanelsRenderHook::STYLES_')
         ->and($provider)->not->toContain('<style')
         ->and($provider)->not->toContain('filament.admin.styles')
-        // The two fixes the inline stylesheet carried now live in the theme.
+        // The fix the inline stylesheet carried, for the controls Filament
+        // still draws, now lives in the theme.
         ->and($theme)->toContain("input[type='checkbox']:not(:disabled)")
-        ->and($theme)->toContain("input[type='file']:not(:disabled)::file-selector-button")
-        ->and($theme)->toContain('.fi-pagination-records-per-page-select .fi-input-wrp:focus-within');
+        ->and($theme)->toContain("input[type='file']:not(:disabled)::file-selector-button");
 });
 
 it('loads the theme on admin pages through Vite', function () {
@@ -123,7 +123,7 @@ it('loads the theme on admin pages through Vite', function () {
             ->get('/admin')
             ->assertOk()
             ->assertSee('http://vite.test/'.ADMIN_THEME_ENTRY, false)
-            ->assertDontSee('.fi-pagination-records-per-page-select .fi-input-wrp', false);
+            ->assertDontSee("input[type='file']:not(:disabled)::file-selector-button", false);
     } finally {
         unlink($hotFile);
     }

@@ -13,8 +13,8 @@ name: Check tits.guru inbound mail health
 # read-only program, as postfix, and nothing else — no shell, no other command,
 # no argument (install-mail-inbound-monitor). It never holds the bootstrap
 # credential, uploads nothing and runs nothing of this repository on the host.
-# Schedule tits.guru inbound mail health dispatches it every six hours, from
-# main; an operator may run it at any time.
+# Nothing runs it on a schedule: an operator runs it from main. When it runs
+# unattended is for production's unified monitoring to decide.
 on:
   workflow_dispatch:
 

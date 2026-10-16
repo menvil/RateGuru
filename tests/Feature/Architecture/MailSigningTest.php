@@ -264,6 +264,8 @@ function mailSigningHost(array $options = []): array
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
         'STUB_FS' => $fs,
+        // The signer was installed while tits-guru was planned.
+        'RATEGURU_MAILSIGN_REGISTRY_FILE' => preActivationRegistryPath(),
     ];
 
     if (isset($options['identity'])) {
@@ -1136,6 +1138,8 @@ function mailSigningVerifierHost(bool $signer = true, bool $gateway = true): arr
         'RATEGURU_MAILSIGN_POSTSUPER_BIN' => $scratch.'/bin/postsuper',
         'RATEGURU_MAILSIGN_POSTCAT_BIN' => $scratch.'/bin/postcat',
         'RATEGURU_MAILSIGN_POLL_TIMEOUT' => '1',
+        // The acceptance is of a held target, as tits-guru was while planned.
+        'RATEGURU_MAILSIGN_REGISTRY_FILE' => preActivationRegistryPath(),
         'STUB_LOG' => $scratch.'/log',
     ]];
 }

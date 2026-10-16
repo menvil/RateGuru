@@ -4,17 +4,15 @@ name: Repair tits.guru
 # the same shared action, the same server-side repair-target — a different
 # fixed identity, a different concurrency domain, and one extra gate.
 #
-# IT DOES NOT WORK YET, AND THAT IS THE POINT. tits-guru is lifecycle=planned.
-# Its infrastructure exists, but a planned target may not be operated.
-# The repair action refuses a non-active target before it
-# uploads anything, and infrastructure/scripts/repair-target refuses it again
-# server-side — so a real run of this workflow fails closed today. It exists now
-# to prove that production will be repaired by exactly the same mechanism once
-# production is provisioned and activated, rather than by a production-shaped
-# procedure invented under pressure during an incident.
+# tits-guru is lifecycle=active, so it is repaired by exactly the mechanism
+# staging is. Repair is the contract of a DEPLOYED target: before the first
+# production release, infrastructure/scripts/repair-target refuses it, as it
+# refuses any target with no canonical deployed release. The repair action
+# refuses a non-active target before it uploads anything, and repair-target
+# refuses it again server-side.
 #
-# Nothing here weakens that gate, nothing here edits the registry, this workflow
-# activates nothing, and the production-tits-guru GitHub Environment's own protection
+# Nothing here weakens either gate, nothing here edits the registry, this
+# workflow activates nothing, and the production-tits-guru GitHub Environment's own protection
 # rules stay authoritative on top of the confirmation below.
 #
 # There is deliberately no target dropdown anywhere in this repository:
@@ -138,10 +136,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Pinned to the real production target ID, so it fails closed on the
-      # lifecycle gate. Routing production repair at staging-main, or
-      # activating tits-guru to make this pass, would defeat the entire purpose
-      # of adding the workflow now.
+      # Pinned to the real production target ID. tits-guru is active, and the
+      # server's own checks decide whether it may be repaired: repair-target
+      # refuses a target that is not active, and one with no canonical
+      # deployed release. Never route production repair at staging-main: it
+      # would converge the wrong target.
       - name: Repair tits-guru
         uses: ./.github/actions/repair-rateguru-target
         with:

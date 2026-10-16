@@ -579,7 +579,6 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'rollback-tits-guru-inbound-smtp.yml',
         'rollback-tits-guru-mail-activation.yml',
         'rollback-tits-guru-public-http.yml',
-        'schedule-tits-guru-inbound-mail-health.yml',
         'send-tits-guru-mail-canary.yml',
         // The permanent read-only infrastructure verification, one per
         // environment, guarded by VerifyInfrastructureTest — and the live
@@ -633,7 +632,9 @@ it('adds no durable release-artifact archive', function () {
 it('activates no production target, provisions nothing and changes no DNS', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    // tits-guru's activation was a reviewed registry change of its own, not
+    // anything this surface does.
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
 
     foreach (operationalFiles() as $path) {
         $source = File::get($path);
@@ -693,10 +694,13 @@ it('leaves every accepted operational surface it does not extend untouched', fun
         // the gated test overrides every other installer has, so it changes
         // when its own tests do. Recovery needs it to know nothing of a
         // recovery, which is asserted below as well.
-        'infrastructure/config/cron/rateguru-backups',
+        //
+        // The registry and the backup cron rendered from it have left it as
+        // well: a target's activation changes both. That the cron is exactly
+        // the registry's render is BackupCronPerimeterTest's, and no recovery
+        // path writes the registry — asserted by RecoverWorkflowsTest.
         'infrastructure/config/supervisor/rateguru-staging-queue.conf',
         'infrastructure/config/cron/rateguru-staging-scheduler',
-        'infrastructure/config/deployment-targets.json',
     ] as $untouched) {
         expect($changed)->not->toContain($untouched);
     }
@@ -726,10 +730,27 @@ it('leaves every accepted operational surface it does not extend untouched', fun
     // what recovery needs of it is not that it is frozen but that it still
     // names no recovery account and still only ever takes capability away,
     // which is asserted directly below.
+    //
+    // The deploy sudoers rule has left it too: it is the registry's render, so
+    // it changes when a target is activated. What recovery needs of it is that
+    // it grants the four generic wrappers to deploy users and nothing to a
+    // recovery, which is asserted directly below.
     foreach (['infrastructure/config/wrappers', 'infrastructure/config/sudoers'] as $directory) {
         foreach ($changed as $path) {
+            if ($path === 'infrastructure/config/sudoers/rateguru-deploy') {
+                continue;
+            }
+
             expect($path)->not->toStartWith($directory.'/');
         }
+    }
+
+    $deploySudoers = File::get(base_path('infrastructure/config/sudoers/rateguru-deploy'));
+    preg_match_all('#/usr/local/sbin/([a-z-]+)#', $deploySudoers, $granted);
+    expect(array_values(array_unique($granted[1])))->toBe(['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore']);
+    preg_match_all('/^(\S+) ALL=/m', $deploySudoers, $accounts);
+    foreach ($accounts[1] as $account) {
+        expect($account)->toStartWith('deploy-rateguru-')->not->toContain('recover');
     }
 
     $ssh = File::get(base_path('infrastructure/config/ssh/70-rateguru-deploy.conf'));

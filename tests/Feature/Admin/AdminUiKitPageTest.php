@@ -248,6 +248,7 @@ it('shows the segmented control, the filter dropdown and the combobox live, from
         ->toContain('role="radiogroup"')
         ->toContain('Missing only')
         ->toContain('rg-admin-segmented--compact')
+        ->toContain('x-text="`icons · sort = ${sort}`"')
         ->and(adminUiKitSpecimen($html, 'FRM-10'))
         ->toContain('x-admin.ui.filter-dropdown')
         ->toContain('aria-haspopup="menu"')
@@ -305,7 +306,52 @@ it('shows the locked identifier, the number stepper and the switch live, from th
         ->toContain('Blade component · x-admin.ui.switch')
         ->toContain('role="switch"')
         ->toContain('x-model="active"')
-        ->toMatch('/id="kit-switch-disabled"[^>]*role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
+        ->toMatch('/id="kit-switch-disabled"[^>]*role="switch"[^>]*aria-checked="false"[^>]*disabled/s')
+        // And as a settings row, in a flush card.
+        ->toContain('class="rg-admin-switch-row"')
+        ->toContain('id="kit-switch-row"');
+});
+
+it('shows the radio cards live, from their component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-09'))
+        ->toContain('Blade component · x-admin.ui.radio-cards')
+        ->toContain('role="radiogroup"')
+        ->toContain('x-model="trust"');
+});
+
+it('shows the report chain live, from its component', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'DOM-02'))
+        ->toContain('Blade component · x-admin.ui.timeline-item')
+        ->toContain('Reported as spam')
+        ->toContain('Author · kotofey')
+        ->toContain('rg-admin-timeline-item--danger');
+});
+
+it('shows the checkbox and the bulk bar live, from their components', function () {
+    $html = $this->actingAs(User::factory()->admin()->create())
+        ->get(ADMIN_UI_KIT_URL)
+        ->getContent();
+
+    expect(adminUiKitSpecimen($html, 'FRM-07'))
+        ->toContain('Blade component · x-admin.ui.checkbox')
+        ->toContain('class="rg-admin-checkbox__input"')
+        ->toContain('x-model="picked"')
+        ->toContain('x-init="$el.indeterminate = true"')
+        ->and(adminUiKitSpecimen($html, 'TBL-03'))
+        ->toContain('Blade component · x-admin.ui.bulk-bar')
+        ->toContain('3 selected')
+        ->toContain('Approve selected (2)')
+        ->toContain('Clear selection')
+        ->and(adminUiKitSpecimen($html, 'FRM-03'))
+        ->toContain('class="rg-admin-preset"');
 });
 
 it('shows the row menu live, an unavailable item kept with its reason', function () {

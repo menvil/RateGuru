@@ -81,12 +81,13 @@ it('keeps English for actions taken inside the panel', function (string $locale)
 
     $html = $this->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))->assertOk()->getContent();
 
+    // Saving a password too short to keep: the panel says why in English.
     $response = $this->withHeaders(['X-Livewire' => '1'])
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
                 'snapshot' => adminPageSnapshot($html, EditUser::class),
-                'updates' => [],
-                'calls' => [['path' => '', 'method' => '$refresh', 'params' => []]],
+                'updates' => ['password' => 'short'],
+                'calls' => [['path' => '', 'method' => 'save', 'params' => []]],
             ]],
         ])
         ->assertOk();
@@ -97,7 +98,7 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     expect($snapshot['memo']['locale'])->toBe('en')
         ->and(app()->getLocale())->toBe('en')
         ->and($response->json('components.0.effects.html'))->toBeString()
-        ->toContain(__('filament-panels::resources/pages/edit-record.form.actions.save.label', [], 'en'));
+        ->toContain(e(__('validation.min.string', ['attribute' => 'password', 'min' => 8], 'en')));
 })->with(representativeTranslatedLocales());
 
 it('renders the admin sign-in page in English for a visitor browsing in another language', function (string $locale) {

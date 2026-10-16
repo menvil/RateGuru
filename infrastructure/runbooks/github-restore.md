@@ -321,11 +321,12 @@ ends before the production environment's approval is even requested and long
 before any SSH connection is made. That is *in addition to* the environment's
 own protection rules, not instead of them.
 
-`tits-guru` remains `lifecycle=planned`; its infrastructure exists, but a
-planned target may not be operated. The workflow exists
-for architectural parity and fails closed on a real run — the wrapper and
-`restore-target` both reject a planned target before touching anything. Nothing
-in Phase 7.4 activates production.
+`tits-guru` is `lifecycle=active` — activated by a reviewed registry change of
+its own, not by anything here. The wrapper and `restore-target` both reject a
+target that is not active before touching anything, and a live restore also
+needs a deployed target and a backup: before the first production release,
+`restore-target` refuses it without touching anything. Nothing in Phase 7.4
+activates production.
 
 ## Concurrency
 

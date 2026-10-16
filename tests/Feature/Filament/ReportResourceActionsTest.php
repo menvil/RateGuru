@@ -1,256 +1,187 @@
 <?php
 
+use App\Actions\Reports\ResolveReportAction;
 use App\Enums\CommentStatus;
+use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
+use App\Enums\ReportReason;
 use App\Enums\ReportStatus;
 use App\Enums\UserStatus;
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Models\Comment;
+use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('resolves open report from report resource table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'resolved_by' => null,
-        'resolved_at' => null,
-    ]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListReports::class)
-        ->callTableAction('resolve', $report, data: [
-            'note' => 'Reviewed and handled.',
-        ])
-        ->assertHasNoTableActionErrors();
-
-    $report->refresh();
-
-    expect($report->status)->toBe(ReportStatus::Resolved);
-    expect($report->resolved_by)->toBe($moderator->id);
-    expect($report->resolved_at)->not->toBeNull();
-    expect($report->resolution_note)->toBe('Reviewed and handled.');
+/**
+ * Acting on reports: Resolve and Ignore close one report — from its row, or
+ * from its chain with a note, which then opens the next open report — with
+ * Undo; Reopen opens a closed one again. Hide target and Ban author act on
+ * what the report points to and leave the report open.
+ */
+beforeEach(function () {
+    $this->moderator = User::factory()->moderator()->create();
+    $this->actingAs($this->moderator);
 });
 
-it('hides resolve action for already resolved reports', function () {
-    $moderator = User::factory()->moderator()->create();
-    $report = Report::factory()->resolved()->create();
+it('resolves or ignores a report from its row, with Undo that opens it again', function (string $method, ReportStatus $closed, string $word) {
+    $report = reportOn(Post::factory()->published()->create());
 
-    $this->actingAs($moderator);
+    $page = Livewire::test(ListReports::class)
+        ->call($method, $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'Report #'.$report->id.' '.$word, action: ['label' => 'Undo', 'event' => 'reopen-report', 'params' => ['id' => $report->id]]);
 
-    Livewire::test(ListReports::class)
-        ->assertTableActionHidden('resolve', $report);
-});
+    expect($report->fresh())->status->toBe($closed)->resolved_by->toBe($this->moderator->id);
 
-it('ignores open report from report resource table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-    ]);
+    $page->dispatch('reopen-report', id: $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'Report #'.$report->id.' is open again')
+        ->assertSet('report', $report->id);
 
-    $this->actingAs($moderator);
+    expect($report->fresh()->status)->toBe(ReportStatus::Open);
+})->with([
+    'resolved' => ['resolve', ReportStatus::Resolved, 'resolved'],
+    'ignored' => ['ignore', ReportStatus::Ignored, 'ignored'],
+]);
 
-    Livewire::test(ListReports::class)
-        ->callTableAction('ignore', $report, data: [
-            'note' => 'No violation found.',
-        ])
-        ->assertHasNoTableActionErrors();
-
-    $report->refresh();
-
-    expect($report->status)->toBe(ReportStatus::Ignored);
-    expect($report->resolved_by)->toBe($moderator->id);
-    expect($report->resolved_at)->not->toBeNull();
-    expect($report->resolution_note)->toBe('No violation found.');
-});
-
-it('hides ignore action for already resolved reports', function () {
-    $moderator = User::factory()->moderator()->create();
-    $report = Report::factory()->resolved()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListReports::class)
-        ->assertTableActionHidden('ignore', $report);
-});
-
-it('hides reported post from report resource table action', function () {
-    $moderator = User::factory()->moderator()->create();
+it('closes the open report with its note, and opens the next open one', function () {
     $post = Post::factory()->published()->create();
-
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
-
-    $this->actingAs($moderator);
+    $first = reportOn($post, ['created_at' => now()->subHours(3)]);
+    $second = reportOn($post, ['created_at' => now()->subHours(2)]);
 
     Livewire::test(ListReports::class)
-        ->callTableAction('hideTarget', $report, data: [
-            'reason' => 'Violates content rules.',
-        ])
-        ->assertHasNoTableActionErrors();
+        ->call('select', $first->id)
+        ->set('note', '  Post hidden as spam. ')
+        ->call('resolve')
+        ->assertSet('report', $second->id)
+        ->assertSet('note', '');
 
-    expect($post->fresh()->status)->toBe(PostStatus::Hidden);
+    expect($first->fresh())->status->toBe(ReportStatus::Resolved)->resolution_note->toBe('Post hidden as spam.');
 });
 
-it('hides reported comment from report resource table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
-
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Comment::class,
-        'target_id' => $comment->id,
-    ]);
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListReports::class)
-        ->callTableAction('hideTarget', $report, data: [
-            'reason' => 'Abusive comment.',
-        ])
-        ->assertHasNoTableActionErrors();
-
-    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden);
-});
-
-it('does not auto-resolve report after hiding target', function () {
-    $moderator = User::factory()->moderator()->create();
+it('steps from one report to the next and back, in the list\'s order', function () {
     $post = Post::factory()->published()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
-
-    $this->actingAs($moderator);
+    $first = reportOn($post, ['created_at' => now()->subHours(3)]);
+    $second = reportOn($post, ['created_at' => now()->subHours(2)]);
 
     Livewire::test(ListReports::class)
-        ->callTableAction('hideTarget', $report, data: ['reason' => null])
-        ->assertHasNoTableActionErrors();
+        ->call('step', 1)
+        ->assertSet('report', $first->id)
+        ->call('step', 1)
+        ->assertSet('report', $second->id)
+        ->call('step', 1)
+        ->assertSet('report', $second->id)
+        ->call('step', -1)
+        ->assertSet('report', $first->id)
+        ->call('closePanel')
+        ->assertSet('report', null);
+});
+
+it('reopens a closed report from its chain', function () {
+    $report = reportOn(Post::factory()->published()->create(), ['status' => ReportStatus::Ignored]);
+
+    Livewire::withQueryParams(['status' => 'ignored'])->test(ListReports::class)
+        ->call('select', $report->id)
+        ->assertSeeHtml('Reopen')
+        ->call('reopen', $report->id);
 
     expect($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
-it('hides hideTarget action when target is missing', function () {
-    $moderator = User::factory()->moderator()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Post::class,
-        'target_id' => 9999, // non-existent
-    ]);
+it('says so, and changes nothing, when someone closed the report meanwhile', function () {
+    $report = reportOn(Post::factory()->published()->create());
+    $page = Livewire::test(ListReports::class);
+    app(ResolveReportAction::class)->handle(User::factory()->moderator()->create(), $report, 'Elsewhere.');
 
-    $this->actingAs($moderator);
+    $page->call('ignore', $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
 
-    Livewire::test(ListReports::class)
-        ->assertTableActionHidden('hideTarget', $report);
+    expect($report->fresh())->status->toBe(ReportStatus::Resolved)->resolution_note->toBe('Elsewhere.');
 });
 
-it('hides hideTarget action for unsupported target types', function () {
-    // A target that resolves to neither Post nor Comment must not show the
-    // action, so the RuntimeException path is never reachable from the UI.
-    $moderator = User::factory()->moderator()->create();
-    $someone = User::factory()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => User::class,
-        'target_id' => $someone->id,
-    ]);
-
-    $this->actingAs($moderator);
+it('hides a reported post only with a reason, the report\'s own filled in, and leaves the report open', function () {
+    $post = Post::factory()->published()->create();
+    $report = reportOn($post, ['reason' => ReportReason::Spam]);
+    reportOn($post);
 
     Livewire::test(ListReports::class)
-        ->assertTableActionHidden('hideTarget', $report);
+        ->call('select', $report->id)
+        ->call('askToHideTarget')
+        ->assertSet('confirming', 'hide')
+        ->assertSet('reason', 'Spam')
+        ->assertSeeHtml('Hide the reported post?')
+        ->set('reason', '')
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'required'])
+        ->set('reason', 'Spam')
+        ->call('confirm')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'Post #'.$post->id.' hidden. 2 open reports remain on it.');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open)
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HidePost)->sole()->reason)->toBe('Spam');
 });
 
-it('allows admin to ban reported post author from report resource', function () {
-    $admin = User::factory()->admin()->create();
-    $author = User::factory()->create(['status' => UserStatus::Active]);
-    $post = Post::factory()->for($author)->published()->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
-
-    $this->actingAs($admin);
+it('hides a reported comment with an optional reason', function () {
+    $comment = Comment::factory()->create();
+    $report = reportOn($comment);
 
     Livewire::test(ListReports::class)
-        ->callTableAction('banTargetAuthor', $report, data: [
-            'reason' => 'Repeated violations.',
-        ])
-        ->assertHasNoTableActionErrors();
+        ->call('select', $report->id)
+        ->call('askToHideTarget')
+        ->set('reason', '')
+        ->call('confirm')
+        ->assertHasNoErrors();
 
-    expect($author->fresh()->status)->toBe(UserStatus::Banned);
+    expect($comment->fresh()->status)->toBe(CommentStatus::Hidden)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
-it('allows admin to ban reported comment author from report resource', function () {
-    $admin = User::factory()->admin()->create();
-    $author = User::factory()->create(['status' => UserStatus::Active]);
-    $comment = Comment::factory()->for($author)->create();
-    $report = Report::factory()->create([
-        'status' => ReportStatus::Open,
-        'target_type' => Comment::class,
-        'target_id' => $comment->id,
-    ]);
-
-    $this->actingAs($admin);
+it('lets an administrator ban the author of the reported content, leaving the report open', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $author = User::factory()->create(['username' => 'cheap_pet_meds']);
+    $report = reportOn(Post::factory()->published()->for($author)->create());
 
     Livewire::test(ListReports::class)
-        ->callTableAction('banTargetAuthor', $report, data: [
-            'reason' => 'Abusive author.',
-        ])
-        ->assertHasNoTableActionErrors();
+        ->call('select', $report->id)
+        ->call('askToBan')
+        ->assertSet('confirming', 'ban')
+        ->assertSeeHtml('Ban cheap_pet_meds?')
+        ->assertSeeHtml('can no longer take part: no new posts, comments, votes, reports or follows.')
+        ->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'cheap_pet_meds banned. Report #'.$report->id.' is still open.');
 
-    expect($author->fresh()->status)->toBe(UserStatus::Banned);
+    expect($author->fresh()->status)->toBe(UserStatus::Banned)
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
-it('hides ban target author action from moderators', function () {
-    $moderator = User::factory()->moderator()->create();
-    $author = User::factory()->create();
-    $post = Post::factory()->for($author)->published()->create();
-    $report = Report::factory()->create([
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
+it('offers no ban to a moderator, nor of an administrator or someone already banned', function (string $who) {
+    if ($who !== 'moderator') {
+        $this->actingAs(User::factory()->admin()->create());
+    }
 
-    $this->actingAs($moderator);
-
-    Livewire::test(ListReports::class)
-        ->assertTableActionHidden('banTargetAuthor', $report);
-});
-
-it('hides ban target author action when target author is admin', function () {
-    $admin = User::factory()->admin()->create();
-    $otherAdmin = User::factory()->admin()->create();
-    $post = Post::factory()->for($otherAdmin)->published()->create();
-    $report = Report::factory()->create([
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
-
-    $this->actingAs($admin);
+    $author = match ($who) {
+        'admin target' => User::factory()->admin()->create(),
+        'banned' => User::factory()->banned()->create(),
+        default => User::factory()->create(),
+    };
+    $report = reportOn(Post::factory()->published()->for($author)->create());
 
     Livewire::test(ListReports::class)
-        ->assertTableActionHidden('banTargetAuthor', $report);
-});
+        ->call('select', $report->id)
+        ->call('askToBan')
+        ->assertSet('confirming', null);
 
-it('hides ban target author action when author is already banned', function () {
-    $admin = User::factory()->admin()->create();
-    $author = User::factory()->create(['status' => UserStatus::Banned]);
-    $post = Post::factory()->for($author)->published()->create();
-    $report = Report::factory()->create([
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-    ]);
+    expect($author->fresh()->status)->toBe($who === 'banned' ? UserStatus::Banned : UserStatus::Active);
+})->with(['moderator', 'admin target', 'banned']);
 
-    $this->actingAs($admin);
+it('offers no Hide when the target is gone', function () {
+    $report = Report::factory()->create(['target_type' => Post::class, 'target_id' => 999999, 'status' => ReportStatus::Open]);
 
     Livewire::test(ListReports::class)
-        ->assertTableActionHidden('banTargetAuthor', $report);
+        ->call('select', $report->id)
+        ->call('askToHideTarget')
+        ->assertSet('confirming', null);
 });

@@ -86,12 +86,13 @@ final class AdminUiKit extends Page
             ['key' => 'foundations', 'label' => 'Foundations', 'description' => 'Tokens everything else is built from.', 'ids' => ['FND-01', 'FND-02', 'FND-03', 'FND-04']],
             ['key' => 'actions', 'label' => 'Actions', 'description' => 'Buttons, icon buttons and text actions.', 'ids' => ['ACT-01', 'ACT-02', 'ACT-03']],
             ['key' => 'status', 'label' => 'Status', 'description' => 'Badges, counters and indicators that report state.', 'ids' => ['STS-01', 'STS-02', 'STS-03', 'STS-04', 'STS-05']],
-            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-08', 'FRM-10', 'FRM-11']],
+            ['key' => 'forms', 'label' => 'Forms', 'description' => 'The fields every editor is built from.', 'ids' => ['FRM-01', 'FRM-02', 'FRM-03', 'FRM-04', 'FRM-05', 'FRM-06', 'FRM-07', 'FRM-08', 'FRM-09', 'FRM-10', 'FRM-11']],
             ['key' => 'navigation', 'label' => 'Navigation', 'description' => 'Where the admin is and how to move through lists.', 'ids' => ['NAV-01', 'NAV-02', 'NAV-03', 'NAV-04']],
             ['key' => 'layout', 'label' => 'Layout', 'description' => 'Page structure, containers and read-only details.', 'ids' => ['LAY-01', 'LAY-02', 'LAY-03']],
-            ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-04', 'TBL-05', 'TBL-06']],
+            ['key' => 'tables', 'label' => 'Tables', 'description' => 'The moderation workhorse: rows, toolbar, actions and states.', 'ids' => ['TBL-01', 'TBL-02', 'TBL-03', 'TBL-04', 'TBL-05', 'TBL-06']],
             ['key' => 'feedback', 'label' => 'Overlays and feedback', 'description' => 'Confirmations, drawers, toasts and notices.', 'ids' => ['OVL-01', 'OVL-02', 'FBK-01', 'FBK-02']],
             ['key' => 'localization', 'label' => 'Localization domain', 'description' => 'Patterns that exist only in RateGuru Admin: the translation states Translation Center is built on.', 'ids' => ['DOM-01']],
+            ['key' => 'moderation', 'label' => 'Moderation domain', 'description' => 'Patterns that exist only in RateGuru Admin: a report, what it points to and that content’s author, read as one chain.', 'ids' => ['DOM-02']],
         ];
     }
 
@@ -495,6 +496,7 @@ final class AdminUiKit extends Page
                     ['Counter', '12 tabular · right · red past the limit'],
                     ['Limit', 'soft: typing past it is allowed, the error says by how much'],
                     ['Tones', 'default · info (generated draft) · changed (unsaved edit)'],
+                    ['Presets', 'chips 28 h · radius 8 · the chosen one with an ink border · aria-pressed'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.textarea
@@ -502,10 +504,15 @@ final class AdminUiKit extends Page
                         name="reason"
                         :required="true"
                         :limit="500"
+                        :presets="['Spam', 'Offensive', 'Fake']"
                         placeholder="Describe why this action is necessary…"
-                        hint="Shared with the author and stored in the moderation log."
+                        hint="Stored in the moderation log."
+                        wire:model="reason"
                     />
                     BLADE,
+                'rules' => [
+                    'A preset fills the field as typing would, so it can still be edited before the action is confirmed.',
+                ],
             ],
             'FRM-04' => [
                 'name' => 'Locked identifier',
@@ -573,6 +580,7 @@ final class AdminUiKit extends Page
                     ['Disabled', '50% opacity · really disabled · the hint gives the reason'],
                     ['A11y', 'a button with role="switch" and aria-checked, named by its label'],
                     ['Binding', 'wire:model or x-model on the component (x-modelable)'],
+                    ['Row layout', 'layout="row" · label, note and hint left · state and switch right · hairline between rows in a flush card'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.switch
@@ -588,6 +596,27 @@ final class AdminUiKit extends Page
                     BLADE,
                 'rules' => [
                     'A switch applies when its form is saved; one that removes access asks first when turned off.',
+                    'A list of settings — feature flags, sign-in providers — is a flush card of rows (layout="row"), a note slot beside each label for a badge or a remark.',
+                ],
+            ],
+            'FRM-07' => [
+                'name' => 'Checkbox',
+                'source' => 'Blade component · x-admin.ui.checkbox',
+                'kind' => 'component',
+                'purpose' => 'Row selection, and the acknowledgement an irreversible dialog asks for.',
+                'specs' => [
+                    ['Box', '18×18 · radius 5 · gray-300 border · white'],
+                    ['Checked', 'ink fill · 12 white check, stroke 3'],
+                    ['Mixed', 'ink fill · 12 white minus · the input\'s indeterminate state'],
+                    ['Label', '14/20 · 10 from the box · hide-label keeps it for assistive technology only'],
+                    ['A11y', 'a real input type="checkbox" under the picture: keyboard, forms, wire:model and x-model reach it'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.checkbox label="Select Luna howling along" hide-label :value="$post->id" wire:model.live="selected" />
+                    <x-admin.ui.checkbox label="I understand this post can no longer be restored." wire:model="acknowledged" />
+                    BLADE,
+                'rules' => [
+                    'A select-all box is mixed while only some rows are selected; the screen keeps that live with x-effect.',
                 ],
             ],
             'FRM-08' => [
@@ -601,6 +630,7 @@ final class AdminUiKit extends Page
                     ['Checked', 'white · shadow-xs · 500 ink · aria-checked'],
                     ['Keyboard', 'Tab reaches the checked option · arrows, Home and End choose'],
                     ['Binding', 'x-model on the component (x-modelable)'],
+                    ['Icons', 'optional · icons="value => icon" · 15 before the label · gap 6'],
                 ],
                 'code' => <<<'BLADE'
                     <x-admin.ui.segmented
@@ -612,6 +642,33 @@ final class AdminUiKit extends Page
                 'rules' => [
                     'Two to four options; a longer list belongs in a filter dropdown.',
                     '!Never tell the checked option by colour alone.',
+                ],
+            ],
+            'FRM-09' => [
+                'name' => 'Radio cards',
+                'source' => 'Blade component · x-admin.ui.radio-cards',
+                'kind' => 'component',
+                'purpose' => 'Two to four exclusive choices that each need a line of explanation: a person’s trust.',
+                'specs' => [
+                    ['Card', 'padding 12 · radius 12 · hairline · side by side, one per row on a phone'],
+                    ['Chosen', 'ink border · sunken fill · 5px ink ring'],
+                    ['Content', '16 ring and 14/500 label · 12 secondary explanation under it'],
+                    ['Keyboard', 'Tab reaches the chosen card · arrows, Home and End choose'],
+                    ['Binding', 'wire:model or x-model on the component (x-modelable)'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.radio-cards
+                        label="Trust"
+                        :options="[
+                            'reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits for moderation.'],
+                            'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once.'],
+                        ]"
+                        :value="$trust"
+                        wire:model="trust"
+                    />
+                    BLADE,
+                'rules' => [
+                    'Use radio cards where each choice needs explaining; a segmented control where the labels say it all.',
                 ],
             ],
             'FRM-10' => [
@@ -899,6 +956,28 @@ final class AdminUiKit extends Page
                     </div>
                     BLADE,
             ],
+            'TBL-03' => [
+                'name' => 'Bulk action bar',
+                'source' => 'Blade component · x-admin.ui.bulk-bar',
+                'kind' => 'component',
+                'purpose' => 'Appears under the toolbar while rows are selected. Each action says how many of the selected rows it applies to.',
+                'specs' => [
+                    ['Bar', 'min 52 h · padding 8 16 · sunken · bottom hairline · wraps'],
+                    ['Count', '“3 selected” 14/500 · a status region'],
+                    ['Actions', 'sm buttons, the primary first · “Approve selected (2)” · unavailable while none applies'],
+                    ['Note', '13 tertiary · the selected rows an action will skip'],
+                    ['Clear', 'ghost sm “Clear selection” on the right'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.bulk-bar :count="3" note="1 selected post is neither pending nor published and will be skipped" clear="$wire.clearSelection()">
+                        <x-admin.ui.button size="sm" variant="primary" icon="check" wire:click="approveSelected">Approve selected (2)</x-admin.ui.button>
+                        <x-admin.ui.button size="sm" icon="eye-off" disabled>Hide selected</x-admin.ui.button>
+                    </x-admin.ui.bulk-bar>
+                    BLADE,
+                'rules' => [
+                    'Selection is cleared when the list changes — another tab, search, filter or page — so an action never reaches rows out of sight.',
+                ],
+            ],
             'TBL-04' => [
                 'name' => 'Row actions and menu',
                 'source' => 'Blade components · x-admin.ui.row-menu, x-admin.ui.menu-item',
@@ -1117,6 +1196,29 @@ final class AdminUiKit extends Page
                 'rules' => [
                     '!Never write AI output to the database before the administrator saves it.',
                     'Switching the target language asks before dropping unsaved drafts.',
+                ],
+            ],
+            'DOM-02' => [
+                'name' => 'Report chain',
+                'source' => 'Blade component · x-admin.ui.timeline-item',
+                'kind' => 'component',
+                'purpose' => 'A report, its target and the target’s author as one chain, with the actions for each link next to it.',
+                'specs' => [
+                    ['Marker', '32 · an icon 16 in a hairline circle, or the person’s initials · danger tone on the status fill'],
+                    ['Line', '1 hairline from under the marker to the next link · none after the last'],
+                    ['Title', '14/22 500 · optional time 13 tertiary on the right · a badge beside it'],
+                    ['Body', '6 under the title · 12 between parts · 14/22 secondary'],
+                    ['Spacing', '16 between marker and text · 24 between links'],
+                ],
+                'code' => <<<'BLADE'
+                    <x-admin.ui.timeline-item icon="flag" title="Reported as spam" time="08:31">
+                        Reported by <strong>biscuit_mum</strong> · 2 open reports on this post
+                    </x-admin.ui.timeline-item>
+                    <x-admin.ui.timeline-item icon="image" title="Post #48227">…the post and Hide target…</x-admin.ui.timeline-item>
+                    <x-admin.ui.timeline-item initials="KO" title="Author · kotofey" last>…status, View user, Ban author…</x-admin.ui.timeline-item>
+                    BLADE,
+                'rules' => [
+                    'Acting on a link — hiding the target, banning the author — leaves the report open; closing it is its own step.',
                 ],
             ],
         ];

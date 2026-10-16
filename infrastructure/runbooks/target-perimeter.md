@@ -68,21 +68,22 @@ up, and rolled back on failure exactly like every install step: see
 - `infrastructure/config/cron/rateguru-staging-scheduler` — the Laravel
   scheduler entry, unrelated to this perimeter;
 - systemd timers, Nginx, PHP-FPM, Supervisor, Ansible, production
-  provisioning, or `tits-guru`'s own (nonexistent) infrastructure.
+  provisioning, or `tits-guru`'s own service configuration, which its
+  provisioning installed.
 
-### Why there is no sudoers rule and no backup cron for tits-guru
+### Why tits-guru has a sudoers rule and backup jobs
 
-`tits-guru` is `lifecycle: planned` in the registry. Its account, directories
-and database may already exist; what withholds its deploy grant and its backup
-jobs is the lifecycle, not their absence. Both renderers emit `lifecycle=active`
-targets only, so `tits-guru` has neither — not because it is named in an
-exception, but because it is never emitted.
+`tits-guru` is `lifecycle: active`. What gives a target its deploy grant and its
+backup jobs is the lifecycle, not whether its account or directories exist: both
+renderers emit `lifecycle=active` targets only, so a planned or disabled target
+has neither — not because it is named in an exception, but because it is never
+emitted.
 
-Its backup **schedule** is already reviewed and committed, deliberately ahead
-of activation. When the reviewed transition flips `tits-guru` to `active`, the
-same renderers produce its sudoers rule and its three backup jobs; the
-transition regenerates both committed files, and the installer refuses until it
-does.
+Its backup **schedule** was reviewed and committed ahead of its activation. The
+reviewed activation flipped it to `active` and regenerated both committed files
+with these renderers, and nothing else: staging's rule and jobs are byte for
+byte what they were. The installer refuses a committed file that is not its
+render.
 
 ## The four generic wrappers
 
@@ -123,9 +124,8 @@ Each of `rateguru-deploy`, `rateguru-rollback`, `rateguru-cleanup`,
    `sudo` involved) or `SUDO_USER=root` are both treated as server
    administration and always permitted;
 4. calls `require_active_target TARGET_ID` — the identical lifecycle gate
-   every other target-aware command already uses. A planned target
-   (`tits-guru`) is rejected here, before the underlying binary is ever
-   invoked;
+   every other target-aware command already uses. A planned or disabled
+   target is rejected here, before the underlying binary is ever invoked;
 5. execs into the real, unchanged binary at its generic installed path —
    `/home/www/rateguru/bin/deploy`, `.../rollback`, `.../cleanup` or
    `.../restore-target` — with `--target TARGET_ID` prepended exactly once,
@@ -164,11 +164,11 @@ deploy-rateguru-staging ALL=(root) NOPASSWD: \
     /usr/local/sbin/rateguru-restore
 ```
 
-This is the only grant in the file: the staging deploy user's access to the
-four generic wrappers, and nothing else. No rule for `tits-guru`'s deploy user
-— that account now exists, and the absence of a grant for it follows from its
-target being `lifecycle=planned`, not from the account being missing — and no
-rule for any per-environment identity;
+followed, after a blank line, by the identical rule for
+`deploy-rateguru-tits-guru`. Those are the only two grants in the file: each
+active target's deploy user's access to the four generic wrappers, and nothing
+else. A planned or disabled target's deploy user has no rule, whether or not
+its account exists, and there is no rule for any per-environment identity;
 those grants existed only temporarily, alongside the six obsolete wrapper
 files, and were removed together with them.
 
@@ -231,22 +231,30 @@ inputs, each owning one question:
   target may — and should — have its schedule reviewed while it is still
   planned; an `active` target without one is refused.
 
-Today that renders staging alone, with its schedules and log paths exactly as
-they have always been:
+Today that renders both targets, staging with its schedules and log paths
+exactly as they have always been:
 
 ```cron
 30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
 10 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
 40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
+
+0 3 * * * root /home/www/rateguru/bin/backup-cycle --target tits-guru >> /var/log/rateguru/tits-guru-backup-cycle.log 2>&1
+10 5 * * 0 root /home/www/rateguru/bin/restore-test --target tits-guru >> /var/log/rateguru/tits-guru-local-restore-test.log 2>&1
+40 5 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target tits-guru >> /var/log/rateguru/tits-guru-offsite-restore-test.log 2>&1
 ```
 
-`tits-guru`'s reviewed schedule — 03:00 UTC nightly, Sunday 05:10 and 05:40
-UTC for the two restore tests, logs under
-`/var/log/rateguru/tits-guru-*.log` — is in the schedule file but not in the
-cron, because `tits-guru` is planned. The `backup-cycle`, `restore-test` and
-`offsite-restore-test` scripts refuse a planned target on their own as well;
-the cron following lifecycle does not replace that gate, it means the gate is
-never the thing standing between a planned target and a nightly root job.
+The `backup-cycle`, `restore-test` and `offsite-restore-test` scripts refuse a
+planned target on their own as well; the cron following lifecycle does not
+replace that gate, it means the gate is never the thing standing between a
+planned target and a nightly root job.
+
+Before `tits-guru`'s first release its jobs run and refuse, destroying
+nothing: `backup-cycle` stops at its first step, because there is no
+`current/release.json` to back up — no dump, no upload, no offsite retention —
+and records the failure in `tits-guru-backup-cycle.log`; the restore tests find
+no backup in the `tits-guru` namespace and stop before creating anything.
+Staging's namespace is never touched by either.
 
 ### Regenerating the committed cron
 
@@ -287,10 +295,10 @@ wrapper scripts and the installer itself are executable and pass `bash -n`;
 never blocks `--check`); that `deploy`, `rollback`, `cleanup`,
 `backup-cycle`, `restore-test` and `offsite-restore-test` still declare
 `--target` support in their own committed source; the committed registry
-validates and lists `staging-main` active/staging and `tits-guru`
-planned/production; the candidate sudoers file passes `visudo -cf` and
-grants staging (never `tits-guru`, never any other identity) access to only
-the four generic wrappers; the candidate cron file runs each of the three
+validates and lists `staging-main` active/staging; the candidate sudoers file
+passes `visudo -cf`, grants every active target's deploy user — and no other
+identity — access to only the four generic wrappers, and is byte-for-byte the
+registry's render; the candidate cron file runs each of the three
 backup jobs exactly once for every `active` target and names no other target,
 selects its target with `--target` on every line, and is byte-for-byte
 what the registry and the reviewed backup schedules render; and — see
@@ -345,8 +353,8 @@ operational scripts — this guard is what prevents that.
    installer never creates, `chown`s, or `chmod`s any of them.
 3. The six source files are copied into a private, root-only staging
    directory, then verified together there: `bash -n` on the staged
-   wrappers, each staged wrapper's `--help` and a bare
-   `--target tits-guru` probe (proving the planned-target rejection — see
+   wrappers, each staged wrapper's `--help`, its refusal probe and its
+   cross-target probes (see
    [Safe probes, never a real operation](#safe-probes-never-a-real-operation)
    below), `visudo -cf` on the staged sudoers file, and the cron content
    check and render comparison on the staged cron file.
@@ -438,28 +446,39 @@ remain absent. Makes no changes and creates no backup.
 ### Safe probes, never a real operation
 
 This installer never runs a real deploy, rollback, cleanup apply,
-backup-cycle, restore, or offsite operation. Its only two probes against
-each wrapper are:
+backup-cycle, restore, or offsite operation. Its only probes against each
+wrapper are:
 
 - `--help`, which exits before any selector or lifecycle work;
-- a bare `--target tits-guru`, with no operation arguments at all, which
-  the wrapper's own `require_active_target` rejects with
-  `lifecycle=planned` before the underlying binary is ever reached.
+- the **refusal probe**: a bare `--target TARGET`, with no operation
+  arguments at all, which the wrapper's own `require_active_target` must
+  refuse before the underlying binary is ever reached. The target is read
+  from the registry, never named in the installer: the first planned or
+  disabled target, refused for its lifecycle, or — when every target is
+  active, as now — a target ID no registry holds, refused as unknown;
+- the **cross-target probes**: for every pair of active targets, the wrapper
+  called as one target's deploy user (`SUDO_USER`) with `--target` naming the
+  other, which its caller authorization must refuse —
+  `deploy user deploy-rateguru-staging is not authorized for target tits-guru`,
+  and the other way round. The sudoers rule lets each deploy user run the
+  wrappers; this proves each reaches its own target only.
 
-`--target tits-guru --help` is deliberately **not** used for the second
-probe: `--help` is intercepted in argument parsing before authorization or
-lifecycle checks ever run, so it would prove nothing about rejection — the
-bare `--target tits-guru` probe above is what actually exercises that path
-safely.
+`--target TARGET --help` is deliberately **not** used for the refusal probe:
+`--help` is intercepted in argument parsing before authorization or lifecycle
+checks ever run, so it would prove nothing about rejection.
 
-Both probes run with `RATEGURU_COMMON_FILE`/`RATEGURU_TARGET_REGISTRY_FILE`/
+Every probe points the wrapper's underlying operation at a path no host has,
+so even a wrapper that wrongly let a probe through would fail to exec it rather
+than run a real operation. The probes run with
+`RATEGURU_COMMON_FILE`/`RATEGURU_TARGET_REGISTRY_FILE`/
 `RATEGURU_TARGETS_CLI` pointed at this repository's own committed copies —
 never at whatever may or may not already be installed at
 `/home/www/rateguru` — so this installer's own checks are self-contained and
 never depend on `install-target-operations` having run first on the exact
-host being checked. `SUDO_USER` is explicitly cleared before every probe, so
-these checks are never accidentally rejected on caller identity grounds
-just because the installer itself happened to be invoked through `sudo`.
+host being checked. `SUDO_USER` is explicitly cleared before every probe but
+the cross-target ones, which set it themselves, so these checks are never
+accidentally rejected on caller identity grounds just because the installer
+itself happened to be invoked through `sudo`.
 
 ### Test overrides
 

@@ -8,8 +8,9 @@ admin works, and every screen is either fully v1 or fully v2.
 
 - **Incremental.** A screen is migrated in one change and stays usable before and after it.
 - **Additive CSS.** Admin v2 styles apply only through `.rg-admin-*` classes; nothing restyles Filament's `.fi-*`
-  components globally. The theme's only rules for Filament's own components are the two fixes carried over from
-  the old inline stylesheet (pointer cursors, the frameless records-per-page chooser). One side effect is
+  components globally. The theme's only rules for Filament's own components are the pointer cursors carried over
+  from the old inline stylesheet and the hidden Filament sidebar overlay (the frameless records-per-page chooser
+  went with the last Filament table). One side effect is
   intended: the theme compiles Tailwind from the admin's own views, so utilities that v1 views already used but
   Filament's prebuilt stylesheet lacked (for example `space-y-2`, `lg:grid-cols-5`) now render as written.
 - **Filament stays.** Screens keep Filament's routing, authorization and Livewire; v2 replaces what they look
@@ -29,7 +30,7 @@ admin works, and every screen is either fully v1 or fully v2.
 - The two references are filed under `docs/design/admin/reference/original/`.
 - `design-contract.md`, `ui-review-checklist.md` and this plan are written.
 - Filament uses the custom Vite theme `resources/css/filament/admin/theme.css` with the `--rg-admin-*` tokens and
-  the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its two fixes live in the theme.
+  the `.rg-admin-*` component CSS. The old inline stylesheet render hook is gone; its fixes live in the theme.
 - The live developer UI kit, local and testing only, lives at `/admin/dev/ui-kit`: FND-01–04, ACT-01–03, STS-01–03 and STS-05, FRM-01–03,
   NAV-01–04, LAY-01–03, TBL-01, TBL-02, TBL-04–06, FBK-01–02 and DOM-01. Later screens add the elements they need
   under their reference IDs.
@@ -207,12 +208,12 @@ translation status that links into Translation Center. The moderation screens fo
 |---|---|---|
 | 1 | Categories and Tags — **done** | FRM-04 locked identifier, FRM-05 number stepper, FRM-06 switch, TBL-04 row menu, Undo on FBK-01, the danger level of OVL-01 |
 | 2 | Rating groups and the group editor — **done** | STS-04 range slots (FRM-05 number stepper is built) |
-| 3 | Project settings and Static pages | — |
-| 4 | Posts | TBL-03 bulk bar, FRM-07 checkbox (TBL-04 row menu is built) |
-| 5 | Comments | — |
-| 6 | Reports | DOM-02 report chain, the docked 448 panel |
-| 7 | Users and user edit | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
-| 8 | Media diagnostics | — |
+| 3 | Project settings and Static pages — **done** | the settings-row layout of FRM-06 and icons on FRM-08 |
+| 4 | Posts — **done** | TBL-03 bulk bar, FRM-07 checkbox, FRM-03 preset chips (TBL-04 row menu is built) |
+| 5 | Comments — **done** | — |
+| 6 | Reports — **done** | DOM-02 report chain, the docked 448 panel |
+| 7 | Users and user edit — **done** | FRM-09 radio cards (FRM-06 switch and FRM-08 segmented control are built) |
+| 8 | Media diagnostics — **done** | — |
 
 **Categories and Tags. Status: done.** Each is one screen drawn entirely in Admin v2 (`ManageCategories`,
 `ManageTags`), as the contract's [Content](design-contract.md#content) section describes: the header band with its
@@ -237,6 +238,59 @@ option needs it. The new actions keep the range: `CreateRatingGroupAction` creat
 prototype asks for: a group's and an option's key are fixed once created, and a group starts inactive. A group is
 still never deleted.
 
+**Project settings. Status: done.** One screen (`ProjectSettingsPage`) drawn in Admin v2, as the contract's
+[Project settings](design-contract.md#project-settings) section describes: six tabs with addresses of their own —
+Site identity, Object labels, Defaults, Feature flags, Sign-in providers and Static pages — over one draft saved
+together from the top bar, which counts its unsaved changes. The installation preset is shown and compared with the
+draft as it is typed, a setting reverted to it in one press, and never applied from the page. Each card and each
+static page says which offered languages miss which of its texts and leads to Translation Center; Edit source
+there opens a setting or a page on its tab. Pausing uploads, requiring sign-in for everyone and switching off a
+sign-in provider ask first. Static pages are its last tab, edited as plain text, as the public pages show them. The
+top bar of an editor is shared now (`filament.pages.editor.topbar`), and the group editor uses it too.
+
+**Posts. Status: done.** One screen (`ListPosts`) drawn in Admin v2, as the contract's
+[Posts](design-contract.md#posts) section describes: the queue and every other post by tab, searched, narrowed by
+category and ordered on the server, 25 a page (`ModerationPostsQuery`, a registered stable pagination boundary);
+Approve at once, Reject with an optional reason, Hide with a required one and Restore at once — Hide and Restore
+with Undo — and Finalize removal behind the irreversible confirmation, each through its moderation action; rows
+selected to approve or hide together; the original image in a viewer; and Refresh in the top bar. The navigation
+item shows the pending count. The kit gained the bulk bar (TBL-03), the checkbox (FRM-07) and the preset chips of
+the textarea (FRM-03).
+
+**Comments. Status: done.** One screen (`ListComments`) drawn in Admin v2, as the contract's
+[Comments](design-contract.md#comments) section describes: every comment by state, searched on the server, 25 a
+page (`ModerationCommentsQuery`, a registered stable pagination boundary); Hide with an optional reason and
+Restore at once, both with Undo, and Finalize removal behind the irreversible confirmation, each through its
+action; a comment its author deleted listed read-only. The navigation item shows the reported comments still
+visible. The moderation reason, its chips and the acknowledgement are one partial
+(`filament.pages.moderation.reason`) that Posts uses too.
+
+**Reports. Status: done.** One screen (`ListReports`) drawn in Admin v2, as the contract's
+[Reports](design-contract.md#reports) section describes: the reports by status and kind of target, searched on the
+server, 25 a page (`ModerationReportsQuery`, a registered stable pagination boundary), with the open report's
+chain (DOM-02, `x-admin.ui.timeline-item`) docked as the 448 panel where there is room and over the list where
+there is not; J and K step through reports; Resolve and Ignore close one report with Undo and open the next; Hide
+target and Ban author leave it open. One action is new: `ReopenReportAction`, behind Reopen and Undo, which
+clears who closed the report, when and why.
+
+**Users. Status: done.** The list (`ListUsers`) and a person's page (`EditUser`) are drawn in Admin v2, as the
+contract's [Users](design-contract.md#users) section describes: everyone by status or trust, narrowed to a role or
+to the suspicious and searched on the server, 25 a page (`ModerationUsersQuery`, a registered stable pagination
+boundary); Limit, Shadowban, Ban and Mark trusted after a confirmation that says what they really do, Restore access
+at once, with Undo where it reverses exactly; and a person's page that edits their profile, role, trust and
+password from the top bar through the new `UpdateUserAccountAction`, beside their status, account and moderation
+history. The kit gained the radio cards (FRM-09).
+
+**Media diagnostics. Status: done.** One screen (`MediaDiagnosticsPage`) drawn in Admin v2, as the contract's
+[Media diagnostics](design-contract.md#media-diagnostics) section describes: the library's health in the header
+band, the overview's figures — those counting issues narrowing the list to them — and the last completed audit's
+issues, the most severe first, searched and narrowed on the server, 25 a page (`MediaAuditIssuesQuery`, a
+registered stable pagination boundary); the asset inspector in a drawer; Release, Force regenerate and the
+irreversible Purge behind their confirmations, each checked again by the media lifecycle; the last audit, the runs
+before it and the failed media jobs with Retry and Retry all; Refresh and Run full audit in the top bar. The
+navigation item shows the missing masters of the last completed audit. With it the last Filament table left the
+admin, and the theme's fix for Filament's records-per-page chooser went with it.
+
 **Deferred, to discuss once every section is on v2: merging tags.** The prototype's Merge into… (pick the tag to
 keep, move the posts, discard the merged tag's translations) needs a domain action of its own. Until it is
 designed, the row menu shows Merge into… unavailable with “Not available yet”, and a tag posts still carry is
@@ -245,7 +299,7 @@ explained rather than offered a merge.
 Each migration also brings its navigation item's operational count (see the contract's
 [Transitional omissions](design-contract.md#transitional-omissions)).
 
-Alongside, as a step of its own: Languages and Translation Center were built from the earlier delivery of the
+Alongside, as a step of its own: Languages and Translation Center were built from the first delivery of the
 prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, which then becomes their
 reference.
 

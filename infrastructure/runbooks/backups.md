@@ -127,7 +127,7 @@ lock (restore-test) = /home/www/rateguru/run/restore-test-staging.lock
 
 `require_active_target` runs immediately after root authorization — before
 the backup root, lock, database binary, `rclone`, or any filesystem work — so
-a planned target (`tits-guru`) is rejected before anything is touched.
+a planned or disabled target is rejected before anything is touched.
 
 ### Local retention: deterministic, count-aware, creation-gated
 
@@ -308,7 +308,7 @@ sudo /home/www/rateguru/bin/backup-cycle --target staging-main
 `backup-cycle` requires root unconditionally, as the first action of every
 invocation. `require_active_target` runs immediately after root
 authorization — before the cycle lock, the history file, or any child
-command — so a planned target (`tits-guru`) is rejected before anything is
+command — so a planned or disabled target is rejected before anything is
 touched.
 
 ```text
@@ -388,13 +388,23 @@ and no other. The file is rendered from the registry and from the reviewed
 per-target times in `infrastructure/config/backup-schedules.json`, and each
 job logs to `/var/log/rateguru/<backup namespace>-*.log`.
 
-Today only `staging-main` is active, so the cron is staging's three jobs, with
-schedules and log paths unchanged from before the registry-based model
-existed. `tits-guru`'s schedule (03:00 UTC nightly; Sunday 05:10 and 05:40 UTC
-restore tests) is reviewed and committed, but the planned target has no cron
-entry until its reviewed activation; see
-[`target-perimeter.md`](target-perimeter.md#backup-cron) for the renderer and
-how the committed file is regenerated.
+`staging-main` and `tits-guru` are both active, so the cron is staging's three
+jobs — schedules and log paths unchanged from before the registry-based model
+existed — and `tits-guru`'s three, at its reviewed times (03:00 UTC nightly;
+Sunday 05:10 and 05:40 UTC restore tests), each logging under its own
+namespace. See [`target-perimeter.md`](target-perimeter.md#backup-cron) for the
+renderer and how the committed file is regenerated.
+
+**Before `tits-guru`'s first release** its jobs run and refuse, destroying
+nothing. `backup` refuses a target whose `current/release.json` does not exist
+before a byte is dumped, so the nightly `backup-cycle` fails at its first step
+and never reaches the upload, the offsite retention or the offsite restore
+test; the weekly restore tests find no backup in the `tits-guru` namespace and
+stop before creating a database or a download. The failure is recorded in
+`/var/log/rateguru/tits-guru-backup-cycle.log` and in the cycle history every
+night until the first release, and is expected. Staging's namespace is never
+touched by any of it. The first real `backup-cycle --target tits-guru` is the
+production backup acceptance of 8.6, after the first deploy.
 
 ### Recovering from an immutable partial upload
 

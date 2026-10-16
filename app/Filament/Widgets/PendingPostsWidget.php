@@ -27,13 +27,7 @@ class PendingPostsWidget extends StatsOverviewWidget
                     ->count(),
             )
                 ->description('Posts waiting for review')
-                ->url(PostResource::getUrl('index', [
-                    'filters' => [
-                        'pending' => [
-                            'isActive' => true,
-                        ],
-                    ],
-                ])),
+                ->url(PostResource::getUrl('index')),
         ];
     }
 }

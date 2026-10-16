@@ -110,8 +110,8 @@
 #
 # Application-release safety: current/previous/releases are never modified,
 # no artifact is deployed, no migration/composer/npm/asset step runs, and
-# planned targets (tits-guru) receive zero service configuration — committed
-# production config sources are ignored while the target stays planned.
+# planned targets receive zero service configuration — committed production
+# config sources are ignored while a target stays planned.
 #
 # The one exception has to be asked for in argv: `--target TARGET_ID
 # --provisioning` narrows the same contract to ONE lifecycle=planned,
@@ -3122,7 +3122,7 @@ converge_public_storage_access() {
 #
 # Which targets get it is not this installer's decision: the marker installer
 # refuses any target that has no Nightwatch program in the closed allowlist in
-# common, so a planned production target is passed over here and would be
+# common, so a production target without one is passed over here and would be
 # refused there too.
 # records_deployment_marker TARGET — asked of the installer that owns the
 # closed allowlist, never answered from a copy of it here. This installer reads

@@ -7,6 +7,7 @@
     'onHint' => null,
     'offHint' => null,
     'disabled' => false,
+    'layout' => 'field',
 ])
 
 @php
@@ -20,9 +21,50 @@
      * The state is the component's own, exposed to wire:model and x-model
      * (x-modelable): wire:model="isActive". A switch that removes access
      * asks first when turned off; that is the screen's to do.
+     *
+     * `layout="row"` lays it out as a settings row: the label and the hint on
+     * the left — the `note` slot beside the label, for a badge or a remark —
+     * and the state in words and the switch on the right.
      */
+    if (! in_array($layout, ['field', 'row'], true)) {
+        throw new InvalidArgumentException("Unknown admin switch layout [{$layout}].");
+    }
+
     $checked = (bool) $checked;
+    $hasHint = $onHint !== null || $offHint !== null;
 @endphp
+
+@if ($layout === 'row')
+<div
+    {{ $attributes->class(['rg-admin-switch-row']) }}
+    x-data="{ checked: @js($checked) }"
+    x-modelable="checked"
+>
+    <div class="rg-admin-switch-row__text">
+        <div class="rg-admin-switch-row__head">
+            <label for="{{ $id }}" class="rg-admin-switch-row__label">{{ $label }}</label>
+            {{ $note ?? '' }}
+        </div>
+        @if ($hasHint)
+            <p id="{{ $id }}-hint" class="rg-admin-switch-row__hint" x-text="checked ? @js($onHint ?? '') : @js($offHint ?? '')">{{ $checked ? $onHint : $offHint }}</p>
+        @endif
+    </div>
+    <span class="rg-admin-switch-row__state" aria-hidden="true" x-text="checked ? @js($on) : @js($off)">{{ $checked ? $on : $off }}</span>
+    <button
+        type="button"
+        id="{{ $id }}"
+        role="switch"
+        class="rg-admin-switch"
+        aria-checked="{{ $checked ? 'true' : 'false' }}"
+        x-bind:aria-checked="checked ? 'true' : 'false'"
+        @if ($hasHint) aria-describedby="{{ $id }}-hint" @endif
+        @disabled($disabled)
+        x-on:click="checked = ! checked"
+    >
+        <span class="rg-admin-switch__knob" aria-hidden="true"></span>
+    </button>
+</div>
+@else
 
 <div
     {{ $attributes->class(['rg-admin-field', 'rg-admin-switch-field']) }}
@@ -52,3 +94,4 @@
         <p id="{{ $id }}-hint" class="rg-admin-hint" x-text="checked ? @js($onHint ?? '') : @js($offHint ?? '')">{{ $checked ? $onHint : $offHint }}</p>
     @endif
 </div>
+@endif

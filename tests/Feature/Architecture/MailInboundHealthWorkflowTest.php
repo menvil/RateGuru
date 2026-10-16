@@ -8,9 +8,8 @@ use Symfony\Component\Yaml\Yaml;
  *
  *   - Check tits.guru inbound mail health, which reaches the host only through
  *     the monitor's own read-only key, from an Environment of its own that
- *     needs no approval, and keeps one GitHub issue open while it fails;
- *   - Schedule tits.guru inbound mail health, which every six hours asks for
- *     one run of it on main, holding no secret and reaching no host itself;
+ *     needs no approval, and keeps one GitHub issue open while it fails —
+ *     run by an operator, never on a schedule;
  *   - Install tits.guru inbound mail monitor, which installs that read-only
  *     access once, behind the production Environment's approval.
  *
@@ -252,37 +251,14 @@ it('installs the monitor\'s access once, from main, behind the production approv
     expect(array_values(array_unique($secrets[1])))->toBe(['BOOTSTRAP_SSH_KEY', 'BOOTSTRAP_KNOWN_HOSTS']);
 });
 
-it('schedules a check every six hours, holding no secret and reaching no host — it only dispatches the check on main', function () {
-    $source = File::get(base_path('.github/workflows/schedule-tits-guru-inbound-mail-health.yml'));
-    $workflow = mailInboundHealthWorkflow('schedule-tits-guru-inbound-mail-health.yml');
-
-    expect($workflow['name'])->toBe('Schedule tits.guru inbound mail health');
-    expect($workflow['on'])->toBe(['schedule' => [['cron' => '41 */6 * * *']]]);
-    expect($workflow['permissions'])->toBe([]);
-    expect(array_keys($workflow['jobs']))->toBe(['dispatch']);
-
-    $dispatch = $workflow['jobs']['dispatch'];
-    expect($dispatch['if'])->toBe("\${{ vars.RATEGURU_MAIL_INBOUND_HEALTH_SCHEDULE == 'enabled' }}");
-    expect($dispatch['permissions'])->toBe(['actions' => 'write']);
-    expect($dispatch)->not->toHaveKey('environment');
-    expect(count($dispatch['steps']))->toBe(1);
-    expect($source)->not->toContain('secrets.')->not->toContain('uses:')->not->toContain('ssh ')->not->toContain('activate-mail-inbound');
-
-    $run = mailInboundHealthStep($dispatch['steps'][0]['run'], ['GH_TOKEN' => 'token', 'REPOSITORY' => 'owner/repo']);
-    expect($run['status'])->toBe(0, $run['output']);
-    expect(trim($run['calls']))->toBe('api -X POST repos/owner/repo/actions/workflows/check-tits-guru-inbound-mail-health.yml/dispatches -f ref=main');
-});
-
-it('is the only workflow that starts the health check, and nothing else runs on a schedule', function () {
+it('leaves the health check to an operator: no workflow runs on a schedule or starts it', function () {
     foreach (glob(base_path('.github/workflows/*.yml')) ?: [] as $path) {
         $workflow = Yaml::parse(File::get($path));
         $triggers = array_keys((array) ($workflow['on'] ?? $workflow[true] ?? []));
         $name = basename($path);
 
-        expect(in_array('schedule', $triggers, true))->toBe($name === 'schedule-tits-guru-inbound-mail-health.yml', "{$name} runs on a schedule");
-        if ($name !== 'schedule-tits-guru-inbound-mail-health.yml') {
-            expect(File::get($path))->not->toContain('check-tits-guru-inbound-mail-health.yml/dispatches');
-        }
+        expect(in_array('schedule', $triggers, true))->toBeFalse("{$name} runs on a schedule");
+        expect(File::get($path))->not->toContain('check-tits-guru-inbound-mail-health.yml/dispatches');
     }
 });
 

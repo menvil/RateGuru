@@ -137,8 +137,10 @@ it('refuses GO LIVE before the Environment while main\'s registry has tits-guru 
     expect($run('planned'))->not->toBe(0);
     expect($run('disabled'))->not->toBe(0);
 
-    // Today's registry: refused.
-    expect(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    // Today's registry: tits-guru is active, so this gate passes — and GO LIVE
+    // still needs its typed confirmation, the Environment and the server's own
+    // checks of a deployed, healthy release.
+    expect(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets']['tits-guru']['lifecycle'])->toBe('active');
 });
 
 it('takes no input in the read-only Verify', function () {

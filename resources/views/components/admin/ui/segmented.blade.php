@@ -3,6 +3,7 @@
     'options' => [],
     'value' => null,
     'compact' => false,
+    'icons' => [],
 ])
 
 @php
@@ -12,7 +13,8 @@
      * arrow keys, Home and End move the choice and the focus with it, and
      * Space or Enter on an option chooses it.
      *
-     * options is value => label. The choice is the component's own state,
+     * options is value => label, and icons an optional value => icon to lead
+     * each label with. The choice is the component's own state,
      * exposed to x-model (x-modelable), so a screen binds it to its filter:
      *
      *     <x-admin.ui.segmented label="Show" :options="['missing' => 'Missing only', 'all' => 'All']" x-model="mode" />
@@ -69,6 +71,9 @@
             x-bind:tabindex="selected === @js($optionValue) ? 0 : -1"
             x-on:click="selected = @js($optionValue)"
         >
+            @isset($icons[$optionValue])
+                <x-admin.ui.icon :name="$icons[$optionValue]" :size="15" />
+            @endisset
             {{-- The weight-500 copy reserves the checked width, so choosing an option never moves the others. --}}
             <span class="rg-admin-segmented__label" data-label="{{ $optionLabel }}">{{ $optionLabel }}</span>
         </button>

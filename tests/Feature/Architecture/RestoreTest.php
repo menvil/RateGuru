@@ -40,7 +40,7 @@ function restoreTestOpsTargetsCli(): string
 
 function restoreTestOpsRegistryPath(): string
 {
-    return base_path('infrastructure/config/deployment-targets.json');
+    return preActivationRegistryPath();
 }
 
 function restoreTestOpsDeploymentConfPath(): string
@@ -133,6 +133,9 @@ function restoreTestOpsBaseEnv(string $scratch, array $overrides = []): array
         'HOME' => getenv('HOME') ?: '/tmp',
         'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
         'RATEGURU_COMMON_FILE' => restoreTestOpsCommonFile(),
+        // The machine's lock, in this test's own scratch: a target operation holds
+        // it shared for its whole run, and never on the real host path.
+        'RATEGURU_HOST_LOCK_ROOT' => $scratch,
         'RATEGURU_DEPLOYMENT_CONF_FILE' => restoreTestOpsDeploymentConfPath(),
         'RATEGURU_TARGET_REGISTRY_FILE' => restoreTestOpsRegistryPath(),
         'RATEGURU_TARGETS_CLI' => restoreTestOpsTargetsCli(),
@@ -249,11 +252,7 @@ function restoreTestOpsParityRegistry(string $scratch, string $backupNamespace =
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
 
-    $patchedTargets = str_replace(
-        'ACTIVE_ALLOWLIST="staging-main"',
-        'ACTIVE_ALLOWLIST="parity-target"',
-        File::get(restoreTestOpsTargetsCli()),
-    );
+    $patchedTargets = targetsSourceAllowingActive(File::get(restoreTestOpsTargetsCli()), 'parity-target');
     $patchedTargets = str_replace(
         'elif [[ "${application_root}" != /home/www/rateguru/* ]]; then',
         'elif false; then',

@@ -198,10 +198,13 @@ it('serializes against every other mutation of the same machine', function () {
 it('leaves the target planned, undeployed and unreachable', function () {
     [, $source] = provisionWorkflow();
 
-    // The registry is what declares a lifecycle, and this run does not touch it.
+    // The registry is what declares a lifecycle, and this run does not touch
+    // it: tits-guru was activated by a reviewed registry change of its own,
+    // after its provisioning, and Provision refuses it from then on.
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
+    expect(executableSourceLines($source))->not->toContain('deployment-targets.json');
 
     // The summary reports the action's own outputs, and says plainly what did
     // not happen — a green run here is "infrastructure exists", nothing more.

@@ -21,7 +21,8 @@ use Illuminate\Support\Facades\File;
  * a self-contained stub wrapper (installPerimeterWriteWrapperStub) for the
  * real infrastructure/config/wrappers/rateguru-{deploy,rollback,cleanup} —
  * the real wrappers' own require_root would otherwise block every runtime
- * probe (--help, --target tits-guru) the installer performs, exactly the
+ * probe (--help, the refusal probe, the cross-target probes) the installer
+ * performs, exactly the
  * same constraint InstallTargetOperationsTest.php works around with its own
  * stub deploy/rollback/backup-cycle candidates. The real wrappers' own
  * parsing/authorization/lifecycle/exec behaviour is proven separately and
@@ -64,31 +65,32 @@ function installPerimeterCleanup(string $dir): void
 }
 
 /**
- * A self-contained stub wrapper mimicking exactly the two safe probes
- * install-target-perimeter ever performs (--help, and a bare
- * --target tits-guru with no operation arguments) without requiring root.
- * Any other invocation is treated as a test failure in its own right — this
- * is what proves the installer never attempts a real, mutating operation
+ * A self-contained stub wrapper mimicking exactly the safe probes
+ * install-target-perimeter ever performs, without requiring root:
+ *
+ *   --help                         the usage;
+ *   --target TARGET, no SUDO_USER  the refusal probe: TARGET is refused for
+ *                                  what the registry the probe hands it says —
+ *                                  unknown, or its lifecycle;
+ *   --target TARGET as SUDO_USER   the cross-target probe: a caller that is not
+ *                                  TARGET's registered deploy user is refused.
+ *
+ * rateguru-restore's probes carry the read-only `--inspect --operation ID`
+ * after the target. Every probe must point the wrapper's underlying operation
+ * at the unreachable path, and any other invocation — or a probe the stub
+ * would have to let through — is a test failure in its own right: that is
+ * what proves the installer never attempts a real, mutating operation
  * through it.
  *
- * @param  'reject'|'unexpected-success'|'wrong-reason'  $titsGuru
+ * $refusal and $crossTarget make the stub misbehave on one kind of probe, so
+ * a test can prove the installer catches it.
+ *
+ * @param  'reject'|'unexpected-success'|'wrong-reason'  $refusal
+ * @param  'reject'|'unexpected-success'|'wrong-reason'  $crossTarget
  */
-function installPerimeterWriteWrapperStub(string $path, string $titsGuru = 'reject'): void
+function installPerimeterWriteWrapperStub(string $path, string $refusal = 'reject', string $crossTarget = 'reject'): void
 {
-    $rejectionBranch = match ($titsGuru) {
-        'reject' => <<<'SH'
-        echo "target tits-guru has lifecycle=planned, not active" >&2
-        exit 1
-        SH,
-        'unexpected-success' => <<<'SH'
-        echo "stub: pretending tits-guru succeeded"
-        exit 0
-        SH,
-        'wrong-reason' => <<<'SH'
-        echo "stub: some unrelated failure" >&2
-        exit 1
-        SH,
-    };
+    expect(['reject', 'unexpected-success', 'wrong-reason'])->toContain($refusal, $crossTarget);
 
     // The literal strings below are never executed — they exist solely so
     // this stub also satisfies verify_wrapper_static_contract's static
@@ -111,17 +113,53 @@ if [[ "\$*" == "--help" ]]; then
     exit 0
 fi
 
-# The bare form every wrapper is probed with, and the read-only form
-# rateguru-restore is probed with — its parser needs a mode before it will
-# accept anything, so the perimeter installer passes --inspect plus a
-# fictional operation ID that is never looked up.
-if [[ "\$*" == "--target tits-guru" ]] \
-    || [[ "\$*" == "--target tits-guru --inspect --operation "* ]]; then
-{$rejectionBranch}
+unsafe() {
+    echo "STUB: unsafe/unexpected invocation: \$*" >&2
+    exit 1
+}
+
+# misbehave MODE PROBE — a stub told to get one kind of probe wrong does so.
+misbehave() {
+    case "\$1" in
+        unexpected-success) echo "stub: pretending the \$2 probe succeeded"; exit 0 ;;
+        wrong-reason) echo 'stub: some unrelated failure' >&2; exit 1 ;;
+        *) ;;
+    esac
+}
+
+for underlying in "\${RATEGURU_DEPLOY_BIN:-}" "\${RATEGURU_ROLLBACK_BIN:-}" "\${RATEGURU_CLEANUP_BIN:-}" "\${RATEGURU_RESTORE_TARGET_BIN:-}"; do
+    [[ "\${underlying}" == /nonexistent/rateguru-wrapper-probe-never-runs ]] \
+        || unsafe "probed without its underlying operation pointed at the unreachable path"
+done
+
+[[ "\${1:-}" == --target && -n "\${2:-}" ]] || unsafe "\$@"
+target="\$2"
+shift 2
+[[ \$# -eq 0 ]] || [[ "\$*" == "--inspect --operation "* && \$# -eq 3 ]] || unsafe "--target \${target} \$*"
+
+registry="\${RATEGURU_TARGET_REGISTRY_FILE:?}"
+
+if [[ -n "\${SUDO_USER:-}" ]]; then
+    misbehave '{$crossTarget}' cross-target
+    owner="\$(jq -r --arg id "\${target}" '.targets[\$id].deploy_user // empty' "\${registry}")"
+    if [[ "\${SUDO_USER}" != "\${owner}" ]]; then
+        echo "ERROR: deploy user \${SUDO_USER} is not authorized for target \${target}" >&2
+        exit 1
+    fi
+    unsafe "a cross-target probe as \${target}'s own deploy user"
 fi
 
-echo "STUB: unsafe/unexpected invocation: \$*" >&2
-exit 1
+misbehave '{$refusal}' refusal
+lifecycle="\$(jq -r --arg id "\${target}" '.targets[\$id].lifecycle // empty' "\${registry}")"
+if [[ -z "\${lifecycle}" ]]; then
+    echo "ERROR: unknown target: \${target}" >&2
+    exit 1
+fi
+if [[ "\${lifecycle}" != active ]]; then
+    echo "ERROR: target \${target} has lifecycle=\${lifecycle}, not active" >&2
+    exit 1
+fi
+unsafe "a refusal probe of the active target \${target}"
 
 SH;
 
@@ -191,6 +229,29 @@ function installPerimeterWriteOperationsBundle(string $scratch): array
         $copy('infrastructure/scripts/'.$scriptName, $dst, 0o755);
         $vars[$varName] = $dst;
     }
+
+    return $vars;
+}
+
+/**
+ * Points $vars at the registry as it was before tits-guru's activation —
+ * tits-guru planned — with the sudoers rule and backup cron that registry
+ * renders, and an installed operations bundle carrying the same registry.
+ *
+ * @param  array<string, string>  $vars
+ * @return array<string, string>
+ */
+function installPerimeterPreActivation(array $vars, string $scratch): array
+{
+    $vars['SRC_REGISTRY'] = preActivationRegistryPath();
+    $vars['SRC_SUDOERS'] = $scratch.'/pre-activation-sudoers';
+    $vars['SRC_CRON'] = $scratch.'/pre-activation-cron';
+
+    file_put_contents($vars['SRC_SUDOERS'], perimeterRender(preActivationRegistry()));
+    file_put_contents($vars['SRC_CRON'], perimeterRender(preActivationRegistry(), 'render_backup_cron_candidate'));
+
+    copy($vars['SRC_REGISTRY'], $vars['DST_OPS_REGISTRY']);
+    chmod($vars['DST_OPS_REGISTRY'], 0o640);
 
     return $vars;
 }
@@ -413,13 +474,44 @@ it('check fails when the sudoers candidate grants access to tits-guru\'s deploy 
                 /usr/local/sbin/rateguru-deploy
             SUDOERS);
 
+        // tits-guru as it was before its activation: granted, it is a planned
+        // target with a perimeter.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
+        $vars['SRC_SUDOERS'] = $bad;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('grants deploy-rateguru-tits-guru, whose target tits-guru is lifecycle=planned');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('check fails when the sudoers candidate leaves the active tits-guru\'s deploy user out', function () {
+    // The committed registry, both targets active, and a candidate that still
+    // grants staging alone: activation without its perimeter is refused.
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $bad = $scratch.'/bad-sudoers';
+        file_put_contents($bad, <<<'SUDOERS'
+            Defaults:deploy-rateguru-staging !requiretty
+
+            deploy-rateguru-staging ALL=(root) NOPASSWD: \
+                /usr/local/sbin/rateguru-deploy, \
+                /usr/local/sbin/rateguru-rollback, \
+                /usr/local/sbin/rateguru-cleanup, \
+                /usr/local/sbin/rateguru-restore
+            SUDOERS);
+
         $vars = installPerimeterBaseVars($scratch);
         $vars['SRC_SUDOERS'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
 
         expect($exit)->not->toBe(0);
-        expect($output)->toContain('tits-guru');
+        expect($output)->toContain('sudoers file does not grant the deploy user of active target tits-guru (deploy-rateguru-tits-guru)');
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -441,7 +533,9 @@ it('check fails when the sudoers candidate mentions a legacy wrapper name', func
                 /usr/local/sbin/rateguru-staging-deploy
             SUDOERS);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_SUDOERS'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -472,7 +566,9 @@ it('check fails when the sudoers candidate grants a production deploy user acces
                 /usr/local/sbin/rateguru-deploy
             SUDOERS);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_SUDOERS'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -501,7 +597,9 @@ it('check fails when the cron candidate is missing an active target\'s jobs', fu
             30 2 * * * root /home/www/rateguru/bin/backup-cycle --target staging-main >> /var/log/rateguru/staging-backup-cycle.log 2>&1
             CRON);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_CRON'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -530,7 +628,9 @@ it('check fails when the cron candidate runs one job twice and another not at al
             40 4 * * 0 root /home/www/rateguru/bin/restore-test --target staging-main >> /var/log/rateguru/staging-local-restore-test.log 2>&1
             CRON);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_CRON'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -546,10 +646,10 @@ it('check fails when the cron candidate schedules the planned tits-guru', functi
     $scratch = installPerimeterScratchDir();
 
     try {
-        // Exactly what an activated registry would render — handed to an
-        // installer whose registry still says planned.
+        // Exactly what an activated registry renders — handed to an installer
+        // whose registry still says planned.
         $bad = $scratch.'/bad-cron';
-        file_put_contents($bad, File::get(base_path('infrastructure/config/cron/rateguru-backups')).<<<'CRON'
+        file_put_contents($bad, perimeterRender(preActivationRegistry(), 'render_backup_cron_candidate').<<<'CRON'
 
             # Every night at 03:00 UTC, the full pipeline:
             # local backup -> local restore-test -> B2 upload -> offsite retention apply -> offsite restore-test.
@@ -561,7 +661,7 @@ it('check fails when the cron candidate schedules the planned tits-guru', functi
 
             CRON);
 
-        $vars = installPerimeterBaseVars($scratch);
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_CRON'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -593,7 +693,9 @@ it('recognizes an @-shortcut schedule (e.g. @daily) as an operational line, not 
             40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
             CRON);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_CRON'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -623,7 +725,9 @@ it('check fails when a cron candidate line still uses --environment', function (
             40 4 * * 0 root /home/www/rateguru/bin/offsite-restore-test --target staging-main >> /var/log/rateguru/staging-offsite-restore-test.log 2>&1
             CRON);
 
-        $vars = installPerimeterBaseVars($scratch);
+        // A staging-only candidate, judged against the registry it was written
+        // for: tits-guru planned.
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
         $vars['SRC_CRON'] = $bad;
 
         [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'run_check');
@@ -1115,12 +1219,14 @@ it('a successful apply installs exactly six files with correct ownership, mode a
     }
 });
 
-it('never invokes anything beyond the two safe wrapper probes during apply', function () {
+it('never invokes anything beyond the safe wrapper probes during apply', function () {
     // installPerimeterWriteWrapperStub's own catch-all ("unsafe/unexpected
     // invocation") would fail this apply outright if the installer ever
-    // called the wrapper with anything other than --help or a bare
-    // --target tits-guru — so a passing apply here is itself the proof that
-    // no real deploy/rollback/cleanup/backup operation was ever attempted.
+    // called the wrapper with anything other than --help, a refusal probe or
+    // a cross-target probe — or let one through to an underlying operation
+    // that is not the unreachable path — so a passing apply here is itself the
+    // proof that no real deploy/rollback/cleanup/backup operation was ever
+    // attempted.
     $scratch = installPerimeterScratchDir();
 
     try {
@@ -1132,6 +1238,103 @@ it('never invokes anything beyond the two safe wrapper probes during apply', fun
         installPerimeterCleanup($scratch);
     }
 });
+
+it('proves every wrapper refuses a target it may not reach, chosen from the registry, staged and installed', function (string $registry, string $target, string $reason) {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+
+        if ($registry === 'pre-activation') {
+            // A registry with a planned target: the probe is the lifecycle gate.
+            $vars = installPerimeterPreActivation($vars, $scratch);
+        }
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore'] as $wrapper) {
+            expect($output)
+                ->toContain("staged {$wrapper} --target {$target}: correctly rejected ({$reason})")
+                ->toContain("] {$wrapper} --target {$target}: correctly rejected ({$reason})");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+})->with([
+    'every target active: a target no registry holds' => ['committed', 'unregistered-target', 'unknown target: unregistered-target'],
+    'a planned target: its lifecycle' => ['pre-activation', 'tits-guru', 'lifecycle=planned'],
+]);
+
+it('proves each active target\'s deploy user is refused the other\'s target, through every wrapper, staged and installed', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        [$exit, $output] = installPerimeterRunHarness($scratch, installPerimeterBaseVars($scratch), 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+
+        foreach (['rateguru-deploy', 'rateguru-rollback', 'rateguru-cleanup', 'rateguru-restore'] as $wrapper) {
+            foreach (['staged ', '] '] as $phase) {
+                expect($output)
+                    ->toContain("{$phase}{$wrapper} --target staging-main called by deploy-rateguru-tits-guru: correctly refused (the deploy user of tits-guru)")
+                    ->toContain("{$phase}{$wrapper} --target tits-guru called by deploy-rateguru-staging: correctly refused (the deploy user of staging-main)");
+            }
+        }
+
+        // The grant those probes keep in bounds is the one the registry renders.
+        expect(File::get($scratch.'/dest/etc/sudoers.d/rateguru-deploy'))
+            ->toBe(File::get(base_path('infrastructure/config/sudoers/rateguru-deploy')));
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('says so, and passes, when there is only one active target and so no other deploy user to refuse', function () {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterPreActivation(installPerimeterBaseVars($scratch), $scratch);
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('rateguru-deploy: one active target, so no other target\'s deploy user to refuse')
+            ->not->toContain('called by deploy-rateguru-');
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+});
+
+it('apply fails when a wrapper lets another target\'s deploy user through, or refuses it for the wrong reason', function (string $mode, string $message) {
+    $scratch = installPerimeterScratchDir();
+
+    try {
+        $vars = installPerimeterBaseVars($scratch);
+        $stub = $scratch.'/cross-target-wrapper';
+        installPerimeterWriteWrapperStub($stub, 'reject', $mode);
+        $vars['SRC_WRAPPER_DEPLOY'] = $stub;
+        $vars['SRC_WRAPPER_ROLLBACK'] = $stub;
+        $vars['SRC_WRAPPER_CLEANUP'] = $stub;
+        $vars['SRC_WRAPPER_RESTORE'] = $stub;
+
+        [$exit, $output] = installPerimeterRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain($message);
+
+        foreach (['DST_WRAPPER_DEPLOY', 'DST_SUDOERS', 'DST_CRON'] as $key) {
+            expect(file_exists($vars[$key]))->toBeFalse("{$key} must not exist — this failure happens during staged verification");
+        }
+    } finally {
+        installPerimeterCleanup($scratch);
+    }
+})->with([
+    'let through' => ['unexpected-success', 'unexpectedly succeeded — a deploy user reaches its own target only'],
+    'refused for the wrong reason' => ['wrong-reason', 'failed for the wrong reason (expected deploy user deploy-rateguru-tits-guru is not authorized for target staging-main)'],
+]);
 
 it('a successful verify passes against a freshly applied perimeter', function () {
     $scratch = installPerimeterScratchDir();
@@ -1180,16 +1383,18 @@ it('apply and verify are idempotent: a second apply changes nothing and verify p
         expect($reverifyExit)->toBe(0, $reverifyOut);
         expect($reverifyOut)->toContain('PASS: target-aware perimeter installed and verified');
 
-        // Still exactly six files, and the cron is still staging's three jobs
-        // alone: re-applying never schedules the planned target.
+        // Still exactly six files, and the cron is still each active target's
+        // three jobs, once each: re-applying never schedules anything twice.
         expect(array_merge(
             glob($scratch.'/dest/usr/local/sbin/*'),
             glob($scratch.'/dest/etc/sudoers.d/*'),
             glob($scratch.'/dest/etc/cron.d/*'),
         ))->toHaveCount(6);
 
-        expect(cronOperationalLines(file_get_contents($vars['DST_CRON'])))->toHaveCount(3)
-            ->each->toContain('--target staging-main ');
+        $lines = cronOperationalLines(file_get_contents($vars['DST_CRON']));
+        expect($lines)->toHaveCount(6);
+        expect(array_filter($lines, fn (string $line): bool => str_contains($line, '--target staging-main ')))->toHaveCount(3);
+        expect(array_filter($lines, fn (string $line): bool => str_contains($line, '--target tits-guru ')))->toHaveCount(3);
     } finally {
         installPerimeterCleanup($scratch);
     }
@@ -1334,12 +1539,12 @@ it('leaves no partial perimeter when apply fails at any point', function () {
     }
 });
 
-it('apply fails with a specific diagnostic when the planned-target rejection happens for the wrong reason', function () {
+it('apply fails with a specific diagnostic when the refusal probe is refused for the wrong reason', function () {
     // Exercises installPerimeterWriteWrapperStub's 'wrong-reason' variant:
-    // the stub fails a --target tits-guru probe, but not with
-    // lifecycle=planned, so verify_wrapper_planned_target_rejected must
-    // distinguish "rejected, but for the wrong reason" from both a genuine
-    // pass and an unexpected success.
+    // the stub fails the refusal probe, but not for the reason the registry
+    // gives, so verify_wrapper_refuses_target must distinguish "rejected, but
+    // for the wrong reason" from both a genuine pass and an unexpected
+    // success.
     $scratch = installPerimeterScratchDir();
 
     try {

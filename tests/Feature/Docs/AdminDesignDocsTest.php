@@ -2,17 +2,18 @@
 
 /**
  * The Admin v2 design documents and the two reference files they are built on,
- * with the earlier delivery of the admin prototype kept beside them.
+ * with the earlier deliveries of the admin prototype kept beside them.
  */
 const ADMIN_DESIGN_DOCS = 'docs/design/admin';
 
-it('files the Admin v2 contract, checklist, migration plan and both references', function (string $path) {
+it('files the Admin v2 contract, checklist, migration plan and every reference', function (string $path) {
     expect(base_path(ADMIN_DESIGN_DOCS.'/'.$path))->toBeFile();
 })->with([
     'design-contract.md',
     'ui-review-checklist.md',
     'migration-plan.md',
     'reference/original/RateGuru-Admin.html',
+    'reference/original/RateGuru-Admin-v2.html',
     'reference/original/RateGuru-Admin-v1.html',
     'reference/original/RateGuru-Dev-UI-Kit.html',
 ]);
@@ -23,17 +24,19 @@ it('keeps the reference files byte for byte as they were delivered', function (s
     // together, in a change of its own.
     expect(hash_file('sha256', base_path(ADMIN_DESIGN_DOCS.'/'.$path)))->toBe($sha256);
 })->with([
-    ['reference/original/RateGuru-Admin.html', '904bd741c3bfb0d9a8116c3f21719a4ad3a5d90b4676e2c0207b4b4a7a36dd4c'],
+    ['reference/original/RateGuru-Admin.html', '2ef550f32110d85bcec3094cc9703c58c4ecca6199abc0cd592792e352b9010f'],
+    ['reference/original/RateGuru-Admin-v2.html', '904bd741c3bfb0d9a8116c3f21719a4ad3a5d90b4676e2c0207b4b4a7a36dd4c'],
     ['reference/original/RateGuru-Admin-v1.html', 'c0f8c040a75d5068b92a398e472b21e722b895cae4c77e8f288f9349ee05860c'],
     ['reference/original/RateGuru-Dev-UI-Kit.html', '22abe18c699b13e98cd97e7db2aaa6f64b4552476f276cc5c050e04d76e19d00'],
 ]);
 
-it('names both reference files as the source of truth', function () {
+it('names every reference file as the source of truth', function () {
     $contract = (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md'));
 
     expect($contract)
         ->toContain('reference/original/RateGuru-Dev-UI-Kit.html')
         ->toContain('reference/original/RateGuru-Admin.html')
+        ->toContain('reference/original/RateGuru-Admin-v2.html')
         ->toContain('reference/original/RateGuru-Admin-v1.html')
         ->toContain('--rg-admin-*')
         ->toContain('x-admin.ui.*')
@@ -130,7 +133,7 @@ it('records Translation Center as done, on the one catalog Languages counts, and
         ->toContain('`x-admin.ui.segmented` (FRM-08)')
         ->toContain('`x-admin.ui.filter-dropdown` (FRM-10)')
         ->toContain('`x-admin.ui.combobox` (FRM-11)')
-        ->toContain('| FRM-01–06, FRM-08, FRM-10, FRM-11 |')
+        ->toContain('FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |')
         ->toContain('| DOM-01 placement |')
         ->toContain('| Languages table on narrow widths |')
         ->toContain('On a phone the stats stay on one line')
@@ -245,7 +248,7 @@ it('records Translation AI telemetry and the Translation AI page as done, and bu
 
 it('records the translation cutover as done, in one change, and the content screens first after it', function () {
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
-    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages |', '| 4 | Posts |', '| 5 | Comments |', '| 6 | Reports |', '| 7 | Users and user edit |', '| 8 | Media diagnostics |'];
+    $order = ['| 1 | Categories and Tags — **done** |', '| 2 | Rating groups and the group editor — **done** |', '| 3 | Project settings and Static pages — **done** |', '| 4 | Posts — **done** |', '| 5 | Comments — **done** |', '| 6 | Reports — **done** |', '| 7 | Users and user edit — **done** |', '| 8 | Media diagnostics — **done** |'];
     $positions = array_map(fn (string $row): int|false => strpos($plan, $row), $order);
 
     expect($plan)
@@ -283,6 +286,110 @@ it('describes Rating groups on v2: the range kept by every action, saved from th
         ->toContain('a group\'s and an option\'s key are fixed once created, and a group starts inactive');
 });
 
+it('describes Posts on v2: moderated a tab at a time through the moderation actions, approving without Undo', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Posts')
+        ->toContain('Posts (`ListPosts`) is drawn entirely in Admin v2')
+        ->toContain('**Approve** publishes at once, with no confirmation and no Undo')
+        ->toContain('`x-admin.ui.bulk-bar`')
+        ->toContain('`x-admin.ui.checkbox` (FRM-07)')
+        ->toContain('| Approve Undo |')
+        ->toContain('| Finalize removal |')
+        ->toContain('FRM-09 Radio cards · FRM-10 Filter dropdown and chips · FRM-11 Searchable combobox | all |')
+        ->toContain('all; TBL-03 and TBL-04 as live, reusable components')
+        ->toContain('Posts shows its pending count, Comments its reported comments still visible and Reports its open reports (warning)');
+
+    expect($plan)
+        ->toContain('**Posts. Status: done.**')
+        ->toContain('a registered stable pagination boundary');
+});
+
+it('describes Media diagnostics on v2: figures from the recorded audit, every repair checked again when confirmed', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Media diagnostics')
+        ->toContain('Media diagnostics (`MediaDiagnosticsPage`) is drawn entirely in Admin v2')
+        ->toContain('never a scan of the disks')
+        ->toContain('Media diagnostics the masters the last completed audit found missing (danger)')
+        ->toContain('| Purge confirmation |')
+        ->not->toContain('(media critical) are not shown yet');
+
+    expect($plan)
+        ->toContain('**Media diagnostics. Status: done.**')
+        ->toContain('`MediaAuditIssuesQuery`')
+        ->not->toContain('frameless records-per-page chooser).');
+});
+
+it('describes Users on v2: status only through the moderation actions, said as the lifecycle has it', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Users')
+        ->toContain('Users (`ListUsers`) and a person\'s page (`EditUser`) are drawn entirely in Admin v2')
+        ->toContain('never a locked account')
+        ->toContain('| What Limit and Shadowban do |')
+        ->toContain('`x-admin.ui.radio-cards`');
+
+    expect($plan)
+        ->toContain('**Users. Status: done.**')
+        ->toContain('`UpdateUserAccountAction`');
+});
+
+it('describes Reports on v2: the chain docked or over the list, closing apart from acting on the content', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Reports')
+        ->toContain('Reports (`ListReports`) is drawn entirely in Admin v2')
+        ->toContain('**Report chain (DOM-02):**')
+        ->toContain('| Admin-specific | DOM-01 Translation field states · DOM-02 Report chain | all; DOM-02 as a live, reusable component (`x-admin.ui.timeline-item`) |')
+        ->toContain('| Report order |');
+
+    expect($plan)
+        ->toContain('**Reports. Status: done.**')
+        ->toContain('`ReopenReportAction`');
+});
+
+it('describes Comments on v2: moderated after the fact, a comment its author deleted kept read-only', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Comments')
+        ->toContain('Comments (`ListComments`) is drawn entirely in Admin v2')
+        ->toContain('Nothing here deletes a comment: that is its author\'s alone.')
+        ->toContain('| Finalize a comment |');
+
+    expect($plan)
+        ->toContain('**Comments. Status: done.**')
+        ->toContain('`filament.pages.moderation.reason`');
+});
+
+it('describes Project settings on v2: one draft saved from the top bar, the preset compared and never applied', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('### Project settings')
+        ->toContain('Project settings (`ProjectSettingsPage`) is drawn entirely in Admin v2: one draft over six tabs')
+        ->toContain('Nothing here applies a preset: that is `php artisan rateguru:setup`.')
+        ->toContain('The editors share one top bar (`filament.pages.editor.topbar`)')
+        ->toContain('| Static page content |')
+        ->toContain('| Unconfigured sign-in provider |')
+        ->not->toContain('**Translation status on the content editors.**');
+
+    expect($plan)
+        ->toContain('**Project settings. Status: done.**')
+        ->toContain('never applied from the page');
+});
+
 it('describes Categories and Tags on v2, and leaves merging tags to be discussed once every section is', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
@@ -301,7 +408,7 @@ it('describes Categories and Tags on v2, and leaves merging tags to be discussed
         ->toContain('| Merge into… |')
         ->toContain('| Category and tag slugs |')
         ->toContain('| Categories and Tags translations note |')
-        ->toContain('TBL-04 as a live, reusable component')
+        ->toContain('TBL-03 and TBL-04 as live, reusable components')
         ->not->toContain('no Undo in the stack yet')
         ->not->toContain('built when the first screen needs them');
 

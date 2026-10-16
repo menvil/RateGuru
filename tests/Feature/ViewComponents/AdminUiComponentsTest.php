@@ -417,6 +417,13 @@ it('draws a segmented control as a radio group with one checked option, reachabl
         ->and($html)->toMatch('/aria-checked="true"\s+tabindex="0"[^>]*>\s*<span class="rg-admin-segmented__label" data-label="All">/');
 });
 
+it('leads each segmented option with the icon it is given', function () {
+    $html = (string) $this->blade('<x-admin.ui.segmented label="Sort" :options="[\'hot\' => \'Hot\', \'new\' => \'New\']" :icons="[\'hot\' => \'flame\']" value="hot" />');
+
+    expect($html)->toMatch('/<svg[^>]*>.*?<\/svg>\s*(<!--.*?-->\s*)*<span class="rg-admin-segmented__label" data-label="Hot">/s')
+        ->and(substr_count($html, '<svg'))->toBe(1);
+});
+
 it('checks the first option of a segmented control whose value is none of them', function () {
     $html = (string) $this->blade('<x-admin.ui.segmented label="Show" :options="[\'missing\' => \'Missing only\', \'all\' => \'All\']" value="everything" />');
 
@@ -676,6 +683,102 @@ it('draws a switch as a real button with role switch, its state in words and a h
     expect((string) $this->blade('<x-admin.ui.switch label="Active" id="active" disabled />'))
         ->toMatch('/role="switch"[^>]*aria-checked="false"[^>]*disabled/s');
 });
+
+it('lays a switch out as a settings row, a note beside its label', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.switch layout="row" label="Sign in with Google" id="google" :checked="false" on="Enabled" on-hint="Accounts: 3." off-hint="Accounts: 3." wire:model.live="data.google">
+            <x-slot:note><span class="note">Configured</span></x-slot:note>
+        </x-admin.ui.switch>
+        BLADE);
+
+    expect($view)
+        ->toContain('class="rg-admin-switch-row"')
+        ->toMatch('/<label for="google" class="rg-admin-switch-row__label">Sign in with Google<\/label>\s*<span class="note">Configured<\/span>/')
+        ->toMatch('/<button\s+type="button"\s+id="google"\s+role="switch"\s+class="rg-admin-switch"\s+aria-checked="false"/')
+        ->toContain('aria-describedby="google-hint"')
+        ->toContain('wire:model.live="data.google"')
+        ->toContain('>Off</span>');
+});
+
+it('draws a checkbox as a real input under its picture, named by its label', function () {
+    $view = (string) $this->blade('<x-admin.ui.checkbox label="Select Luna" hide-label id="luna" value="7" :checked="true" wire:model.live="selected" />');
+
+    expect($view)
+        ->toMatch('/<label class="rg-admin-checkbox">\s*<input\s+type="checkbox"\s+id="luna"\s+class="rg-admin-checkbox__input"\s+checked/')
+        ->toContain('value="7"')
+        ->toContain('wire:model.live="selected"')
+        ->toContain('<span class="rg-admin-checkbox__label rg-admin-sr-only">Select Luna</span>')
+        ->toContain('class="rg-admin-checkbox__box" aria-hidden="true"');
+
+    expect((string) $this->blade('<x-admin.ui.checkbox label="Select all" :mixed="true" />'))->toContain('x-init="$el.indeterminate = true"')
+        ->and((string) $this->blade('<x-admin.ui.checkbox label="Select" disabled />'))->toContain('rg-admin-checkbox--disabled')->toMatch('/<input[^>]*disabled/s');
+});
+
+it('draws radio cards as a radio group with one chosen card, reachable by Tab', function () {
+    $html = (string) $this->blade('<x-admin.ui.radio-cards label="Trust" :options="$options" value="trusted" wire:model="trust" />', [
+        'options' => ['reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits.'], 'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once.']],
+    ]);
+
+    expect($html)
+        ->toMatch('/role="radiogroup"\s+aria-label="Trust"/')
+        ->toContain('x-modelable="selected"')
+        ->toContain('wire:model="trust"')
+        ->toMatch('/role="radio"\s+class="rg-admin-radio-card"\s+aria-checked="false"\s+tabindex="-1"/')
+        ->toMatch('/role="radio"\s+class="rg-admin-radio-card"\s+aria-checked="true"\s+tabindex="0"/')
+        ->toContain('<span class="rg-admin-radio-card__help">Posts publish at once.</span>');
+});
+
+it('holds radio cards to two to four options', function () {
+    $this->blade('<x-admin.ui.radio-cards label="Trust" :options="[\'only\' => [\'label\' => \'Only\']]" />');
+})->throws(ViewException::class, 'Radio cards offer two to four options.');
+
+it('draws a report chain link: its marker, the line to the next, the title and time, and its details', function () {
+    $view = (string) $this->blade('<x-admin.ui.timeline-item icon="flag" title="Reported as spam" time="08:31">Reported by georgi.d</x-admin.ui.timeline-item>');
+
+    expect($view)
+        ->toContain('class="rg-admin-timeline-item"')
+        ->toContain('<span class="rg-admin-timeline-item__line" aria-hidden="true"></span>')
+        ->toContain('<h3 class="rg-admin-timeline-item__title">Reported as spam</h3>')
+        ->toContain('<span class="rg-admin-timeline-item__time">08:31</span>')
+        ->toContain('<div class="rg-admin-timeline-item__body">Reported by georgi.d</div>');
+
+    expect((string) $this->blade('<x-admin.ui.timeline-item initials="KO" title="Author · kotofey" tone="danger" last />'))
+        ->toContain('rg-admin-timeline-item--last rg-admin-timeline-item--danger')
+        ->toContain('<span class="rg-admin-avatar rg-admin-avatar--md" aria-hidden="true">KO</span>')
+        ->not->toContain('rg-admin-timeline-item__line')
+        ->not->toContain('rg-admin-timeline-item__body');
+});
+
+it('draws the bulk bar with its count as a status, its actions, the skipped note and Clear selection', function () {
+    $view = (string) $this->blade(<<<'BLADE'
+        <x-admin.ui.bulk-bar :count="3" note="1 selected post will be skipped" clear="$wire.clearSelection()">
+            <button type="button">Approve selected (2)</button>
+        </x-admin.ui.bulk-bar>
+        BLADE);
+
+    expect($view)
+        ->toContain('class="rg-admin-bulk-bar" role="region" aria-label="Selected rows"')
+        ->toContain('<span class="rg-admin-bulk-bar__count" role="status">3 selected</span>')
+        ->toContain('Approve selected (2)')
+        ->toContain('<span class="rg-admin-bulk-bar__note">1 selected post will be skipped</span>')
+        ->toContain('x-on:click="$wire.clearSelection()"')
+        ->toContain('Clear selection');
+});
+
+it('offers a textarea\'s presets as chips that fill it, the chosen one pressed', function () {
+    $view = (string) $this->blade('<x-admin.ui.textarea label="Moderation reason" id="reason" value="Spam" :presets="[\'Spam\', \'Fake\']" />');
+
+    expect($view)
+        ->toContain('role="group" aria-label="Suggested moderation reasons"')
+        ->toMatch('/class="rg-admin-preset"\s+aria-pressed="true"[^>]*>Spam</s')
+        ->toMatch('/class="rg-admin-preset"\s+aria-pressed="false"[^>]*>Fake</s')
+        ->toContain("x-on:click=\"choose('Spam')\"")
+        ->toContain('current = $event.target.value');
+});
+
+it('refuses a switch layout it does not have', function () {
+    $this->blade('<x-admin.ui.switch layout="inline" label="Active" id="active" />');
+})->throws(ViewException::class, 'Unknown admin switch layout [inline].');
 
 it('shows a note of its own beside a text field\'s label', function () {
     expect((string) $this->blade('<x-admin.ui.text-field label="Name" tag="English · reference" :required="true" />'))

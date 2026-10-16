@@ -168,6 +168,19 @@ function bootstrapPreflightCompliantStatTable(): array
         '/home/deploy-rateguru-staging|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
         '/home/deploy-rateguru-staging/.ssh|directory|deploy-rateguru-staging|deploy-rateguru-staging|700',
         '/home/deploy-rateguru-staging/incoming|directory|deploy-rateguru-staging|deploy-rateguru-staging|750',
+        // tits-guru, active, as the shared host holds it after its activation:
+        // provisioned and configured while it was planned, and no release yet —
+        // so no current, which is PRE_DEPLOY, never a failure.
+        '/home/www/rateguru/production/tits-guru|directory|root|root|755',
+        '/home/www/rateguru/production/tits-guru/releases|directory|deploy-rateguru-tits-guru|rateguru-tits-guru-code|2750',
+        '/home/www/rateguru/production/tits-guru/shared|directory|rateguru-tits-guru|rateguru-tits-guru|2770',
+        '/home/www/rateguru/production/tits-guru/shared/storage|directory|rateguru-tits-guru|rateguru-tits-guru|2770',
+        '/home/www/rateguru/production/tits-guru/shared/storage/logs|directory|rateguru-tits-guru|rateguru-tits-guru|2770',
+        '/home/www/rateguru/production/tits-guru/locks|directory|deploy-rateguru-tits-guru|rateguru-tits-guru-code|2750',
+        '/home/www/rateguru/production/tits-guru/deployments|directory|deploy-rateguru-tits-guru|rateguru-tits-guru-code|2750',
+        '/home/deploy-rateguru-tits-guru|directory|deploy-rateguru-tits-guru|deploy-rateguru-tits-guru|750',
+        '/home/deploy-rateguru-tits-guru/.ssh|directory|deploy-rateguru-tits-guru|deploy-rateguru-tits-guru|700',
+        '/home/deploy-rateguru-tits-guru/incoming|directory|deploy-rateguru-tits-guru|deploy-rateguru-tits-guru|750',
         '/var/log/rateguru|directory|root|root|750',
         '/usr/local/sbin/rateguru-deploy|regular file|root|root|755',
         '/usr/local/sbin/rateguru-rollback|regular file|root|root|755',
@@ -183,6 +196,10 @@ function bootstrapPreflightCompliantStatTable(): array
         '/etc/nginx/sites-enabled/rateguru-staging|symbolic link|root|root|777',
         '/etc/php/8.5/fpm/pool.d/rateguru-staging.conf|regular file|root|root|644',
         '/etc/supervisor/conf.d/rateguru-staging-queue.conf|regular file|root|root|644',
+        '/etc/nginx/sites-available/rateguru-tits-guru|regular file|root|root|644',
+        '/etc/nginx/sites-enabled/rateguru-tits-guru|symbolic link|root|root|777',
+        '/etc/php/8.5/fpm/pool.d/rateguru-tits-guru.conf|regular file|root|root|644',
+        '/etc/supervisor/conf.d/rateguru-tits-guru-queue.conf|regular file|root|root|644',
         '/etc/systemd/system/staging-mailpit.service|regular file|root|root|644',
         '/etc/systemd/system/staging-mailtrap-local.service|regular file|root|root|644',
         '/etc/staging-mail-capture|directory|root|root|755',
@@ -196,6 +213,9 @@ function bootstrapPreflightCompliantStatTable(): array
         '/etc/nginx/rateguru-staging.htpasswd|regular file|root|root|640',
         '/etc/letsencrypt/live/rateguru.staging.myprojects.pp.ua/fullchain.pem|regular file|root|root|644',
         '/etc/letsencrypt/live/staging-mail-capture/fullchain.pem|regular file|root|root|644',
+        '/home/www/rateguru/production/tits-guru/shared/.env|regular file|rateguru-tits-guru|rateguru-tits-guru|640',
+        '/home/deploy-rateguru-tits-guru/.ssh/authorized_keys|regular file|deploy-rateguru-tits-guru|deploy-rateguru-tits-guru|600',
+        '/etc/letsencrypt/live/tits.guru/fullchain.pem|regular file|root|root|644',
     ];
 
     foreach ([
@@ -221,6 +241,8 @@ function bootstrapPreflightCompliantPasswd(): string
         'postgres:x:110:118::/var/lib/postgresql:/bin/bash',
         'rateguru-staging:x:1001:1001::/home/www/rateguru/staging:/usr/sbin/nologin',
         'deploy-rateguru-staging:x:1002:1002::/home/deploy-rateguru-staging:/bin/bash',
+        'rateguru-tits-guru:x:1003:1003::/home/www/rateguru/production/tits-guru:/usr/sbin/nologin',
+        'deploy-rateguru-tits-guru:x:1004:1004::/home/deploy-rateguru-tits-guru:/bin/bash',
         'staging-mailpit:x:990:990::/var/lib/staging-mail-capture:/usr/sbin/nologin',
         'staging-mailtrap-local:x:991:991::/var/lib/staging-mail-capture:/usr/sbin/nologin',
     ])."\n";
@@ -235,6 +257,9 @@ function bootstrapPreflightCompliantGroup(): string
         'rateguru-staging:x:1001:',
         'deploy-rateguru-staging:x:1002:',
         'rateguru-staging-code:x:1010:rateguru-staging,deploy-rateguru-staging,www-data',
+        'rateguru-tits-guru:x:1003:',
+        'deploy-rateguru-tits-guru:x:1004:',
+        'rateguru-tits-guru-code:x:1011:rateguru-tits-guru,deploy-rateguru-tits-guru,www-data',
         'staging-mailpit:x:990:',
         'staging-mailtrap-local:x:991:',
     ])."\n";
@@ -382,7 +407,7 @@ function bootstrapPreflightWriteListenerFixtures(string $scratch, array $options
 
     file_put_contents($scratch.'/ss-tcp.txt', $tcpRows);
 
-    $unixSockets = $options['unixSockets'] ?? ['/run/php/rateguru-staging.sock', '/var/run/supervisor.sock'];
+    $unixSockets = $options['unixSockets'] ?? ['/run/php/rateguru-staging.sock', '/run/php/rateguru-tits-guru.sock', '/var/run/supervisor.sock'];
     $unixRows = '';
 
     foreach ($unixSockets as $socket) {
@@ -492,6 +517,8 @@ SH);
     $aclRows = $options['aclTable'] ?? [
         '/home/www/rateguru/staging/shared|granted',
         '/home/www/rateguru/staging/shared/storage|granted',
+        '/home/www/rateguru/production/tits-guru/shared|granted',
+        '/home/www/rateguru/production/tits-guru/shared/storage|granted',
     ];
     file_put_contents($aclTablePath, implode("\n", $aclRows)."\n");
 
@@ -1592,6 +1619,31 @@ it('reports runtime registry and deployment.conf drift as WARN without modifying
     }
 });
 
+it('passes the host once tits-guru is active, provisioned and configured while planned, and never deployed', function () {
+    // The shared host right after the activation reaches it: every structural
+    // part of tits-guru exists, exactly as its provisioning left it, and its
+    // missing current is the first deployment not having happened yet —
+    // DEFERRED, never MISSING.
+    $scratch = bootstrapPreflightScratchDir();
+
+    try {
+        $env = bootstrapPreflightFixture($scratch);
+        [$exit, $output] = bootstrapPreflightRun(['--check'], $env);
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('MISSING: 0')
+            ->toContain('CONFLICT: 0')
+            ->toContain('DEFERRED path:/home/www/rateguru/production/tits-guru/current — absent — first immutable deployment has not happened yet (PRE_DEPLOY for tits-guru')
+            ->toContain('PASS     path:/etc/supervisor/conf.d/rateguru-tits-guru-queue.conf')
+            ->toContain('PASS     path:/etc/php/8.5/fpm/pool.d/rateguru-tits-guru.conf')
+            ->toContain('PASS     path:/etc/nginx/sites-available/rateguru-tits-guru')
+            ->toContain('PASS     membership:www-data:rateguru-tits-guru-code');
+    } finally {
+        bootstrapPreflightCleanup($scratch);
+    }
+});
+
 it('validates the source registry through the standalone targets CLI', function () {
     $scratch = bootstrapPreflightScratchDir();
 
@@ -1599,7 +1651,7 @@ it('validates the source registry through the standalone targets CLI', function 
         $env = bootstrapPreflightFixture($scratch);
         [, $output] = bootstrapPreflightRun(['--check'], $env);
 
-        expect($output)->toContain('PASS     registry:source — valid (1 active target(s): staging-main)');
+        expect($output)->toContain('PASS     registry:source — valid (2 active target(s): staging-main tits-guru)');
     } finally {
         bootstrapPreflightCleanup($scratch);
     }

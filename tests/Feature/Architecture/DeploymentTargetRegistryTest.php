@@ -322,12 +322,12 @@ it('derives staging-main from the committed infrastructure sources', function ()
     expect(File::exists(base_path($target['environment_template'])))->toBeTrue();
 });
 
-it('declares tits-guru completely but leaves it planned', function () {
+it('declares tits-guru completely, and active', function () {
     $target = json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets']['tits-guru'];
 
     expect($target)->toMatchArray([
         'id' => 'tits-guru',
-        'lifecycle' => 'planned',
+        'lifecycle' => 'active',
         'environment_class' => 'production',
         'application_root' => '/home/www/rateguru/production/tits-guru',
         'runtime_user' => 'rateguru-tits-guru',
@@ -368,8 +368,8 @@ it('declares tits-guru completely but leaves it planned', function () {
         'internal_hostname' => 'tits-guru.internal',
     ]);
 
-    // Every required key is present, so "planned" means unprovisioned rather
-    // than under-specified.
+    // Every required key is present: the target was fully specified before it
+    // was activated, and activating it changed its lifecycle and nothing else.
     expect(array_keys($target))->toContain(
         'id', 'lifecycle', 'environment_class', 'application_root', 'runtime_user',
         'runtime_group', 'deploy_user', 'code_group', 'incoming_artifacts', 'release_retention',
@@ -505,7 +505,7 @@ it('lists targets deterministically', function () {
     expect($exit)->toBe(0, $output);
     expect($output)->toBe(
         "staging-main\tactive\tstaging\n"
-        ."tits-guru\tplanned\tproduction"
+        ."tits-guru\tactive\tproduction"
     );
 
     // Stable across runs, and independent of key order in the file.
@@ -575,7 +575,7 @@ it('keeps normal output clean on a valid registry', function () {
     expect($listExit)->toBe(0, $list['stderr']);
     expect($list['stdout'])->toBe(
         "staging-main\tactive\tstaging\n"
-        ."tits-guru\tplanned\tproduction\n"
+        ."tits-guru\tactive\tproduction\n"
     );
     expect($list['stdout'])->not->toContain('registry is valid');
 
@@ -1159,17 +1159,43 @@ it('rejects invalid lifecycle and environment class values', function () {
     }
 });
 
-it('allows lifecycle active only for staging-main', function () {
-    [$exit, $output] = validateMutatedRegistry('.targets["tits-guru"].lifecycle = "active"');
+it('allows lifecycle active for both reviewed targets at once', function () {
+    // The committed registry itself: staging-main and tits-guru both active.
+    [$exit, $output] = runTargetsCli(['validate', '--file', targetRegistryPath()]);
 
-    expect($exit)->not->toBe(0, 'a planned target must not be flippable to active without review');
-    expect($output)->toContain('staging-main');
+    expect($exit)->toBe(0, $output);
+    expect(collect(json_decode(File::get(targetRegistryPath()), true, 512, JSON_THROW_ON_ERROR)['targets'])->pluck('lifecycle')->all())
+        ->toBe(['active', 'active']);
 
-    // planned and disabled stay acceptable for a non-allowlisted target.
-    foreach (['planned', 'disabled'] as $lifecycle) {
-        [$ok] = validateMutatedRegistry(".targets[\"tits-guru\"].lifecycle = \"{$lifecycle}\"");
-        expect($ok)->toBe(0, "lifecycle {$lifecycle} should remain valid for tits-guru");
+    // Either of them may still be planned or disabled.
+    foreach (['staging-main', 'tits-guru'] as $target) {
+        foreach (['planned', 'disabled'] as $lifecycle) {
+            [$ok, $why] = validateMutatedRegistry(".targets[\"{$target}\"].lifecycle = \"{$lifecycle}\"");
+            expect($ok)->toBe(0, "lifecycle {$lifecycle} should remain valid for {$target}: {$why}");
+        }
     }
+});
+
+it('allows lifecycle active only for the targets whose activation was reviewed', function () {
+    // A third, fully valid target — tits-guru's shape with every value it must
+    // not share renamed — is accepted planned or disabled, and refused active:
+    // a registry edit alone never makes a new target deployable.
+    $newTarget = '.targets["food-guru"] = (.targets["tits-guru"] | walk(if type == "string" then gsub("tits-guru"; "food-guru") | gsub("tits_guru"; "food_guru") | gsub("tits\\\\.guru"; "food.guru") else . end))';
+
+    foreach (['planned', 'disabled'] as $lifecycle) {
+        [$ok, $why] = validateMutatedRegistry("{$newTarget} | .targets[\"food-guru\"].lifecycle = \"{$lifecycle}\"");
+        expect($ok)->toBe(0, "a new target should be valid while {$lifecycle}: {$why}");
+    }
+
+    [$exit, $output] = validateMutatedRegistry("{$newTarget} | .targets[\"food-guru\"].lifecycle = \"active\"");
+
+    expect($exit)->not->toBe(0, 'a new target must not be activated without review');
+    expect($output)->toContain('food-guru: lifecycle=active is currently allowed only for staging-main tits-guru');
+
+    // The allowlist is the reviewed list itself, matched exactly: no prefix,
+    // no pattern.
+    expect(File::get(base_path('infrastructure/scripts/targets')))
+        ->toContain('ACTIVE_ALLOWLIST=(staging-main tits-guru)');
 });
 
 it('rejects a service name that could not be safely rendered into configuration', function (string $mutation) {

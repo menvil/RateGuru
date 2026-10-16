@@ -2,20 +2,19 @@
 
 namespace App\Filament\Resources\Reports;
 
+use App\Enums\ReportStatus;
 use App\Filament\Resources\Reports\Pages\ListReports;
-use App\Filament\Resources\Reports\Tables\ReportsTable;
 use App\Filament\Support\AdminNavigationGroup;
-use App\Models\Comment;
-use App\Models\Post;
 use App\Models\Report;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Relations\Relation;
 
+/**
+ * Reports in the admin: one screen, ListReports, drawn in Admin v2. The
+ * resource keeps the route and the navigation item, with its count of open
+ * reports.
+ */
 class ReportResource extends Resource
 {
     protected static ?string $model = Report::class;
@@ -31,36 +30,22 @@ class ReportResource extends Resource
         return AdminNavigationGroup::MODERATION;
     }
 
-    public static function table(Table $table): Table
+    /** What waits for a moderator: the open reports, none when there are none. */
+    public static function getNavigationBadge(): ?string
     {
-        return ReportsTable::configure($table);
+        $open = Report::query()->where('status', ReportStatus::Open)->count();
+
+        return $open > 0 ? (string) $open : null;
     }
 
-    public static function getEloquentQuery(): Builder
+    public static function getNavigationBadgeColor(): string
     {
-        // Eager-load reporter and the polymorphic target so the table can
-        // render `reporter.username` and dispatch hide/ban actions without
-        // N+1 queries across the moderation queue. The target's author is
-        // loaded per morph type via morphWith so the banTargetAuthor
-        // visibility check (which reads $target->user) stays N+1-free.
-        return parent::getEloquentQuery()->with([
-            'reporter',
-            'target' => function (Relation $relation): void {
-                if ($relation instanceof MorphTo) {
-                    $relation->morphWith([
-                        Post::class => ['user'],
-                        Comment::class => ['user'],
-                    ]);
-                }
-            },
-        ]);
+        return 'warning';
     }
 
-    public static function getRelations(): array
+    public static function getNavigationBadgeTooltip(): ?string
     {
-        return [
-            //
-        ];
+        return 'Open reports';
     }
 
     public static function getPages(): array

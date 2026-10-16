@@ -3,14 +3,19 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\MediaDiagnosticsPage;
+use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
+use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
+use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
@@ -73,13 +78,38 @@ class AdminPanelProvider extends PanelProvider
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
-                fn (): string => view('filament.pages.rating-group.topbar', ['save' => 'Create group'])->render(),
+                fn (): string => self::editorActions('Create group', 'Unsaved group changes', 'discard-rating-group', 'save-rating-group'),
                 scopes: CreateRatingGroup::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
-                fn (): string => view('filament.pages.rating-group.topbar', ['save' => 'Save group'])->render(),
+                fn (): string => self::editorActions('Save group', 'Unsaved group changes', 'discard-rating-group', 'save-rating-group'),
                 scopes: EditRatingGroup::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save changes', null, 'discard-project-settings', 'save-project-settings'),
+                scopes: ProjectSettingsPage::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.posts.topbar', ['at' => now()->format('H:i')])->render(),
+                scopes: ListPosts::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.reports.topbar')->render(),
+                scopes: ListReports::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save changes', null, 'discard-user', 'save-user'),
+                scopes: EditUser::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => view('filament.pages.media-diagnostics.topbar', ['at' => now()->format('H:i')])->render(),
+                scopes: MediaDiagnosticsPage::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with
@@ -123,5 +153,14 @@ class AdminPanelProvider extends PanelProvider
         return $allowed
             ? view('filament.pages.taxonomy.create-action', ['label' => $label, 'event' => $event])->render()
             : '';
+    }
+
+    /**
+     * An editor page's top bar: its unsaved state, Discard and Save, which
+     * dispatch these events for the page to handle.
+     */
+    private static function editorActions(string $label, ?string $unsaved, string $discard, string $save): string
+    {
+        return view('filament.pages.editor.topbar', ['label' => $label, 'unsaved' => $unsaved, 'discard' => $discard, 'save' => $save])->render();
     }
 }

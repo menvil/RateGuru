@@ -422,7 +422,7 @@ it('serializes preparation against every other mutation of the same target', fun
 // Production stays unprovisioned
 // =============================================================================
 
-it('cannot bypass the lifecycle=planned gate from the production workflow', function () {
+it('cannot bypass the lifecycle gate from the production workflow', function () {
     $step = phwPrepareStep('prepare-production-host.yml');
 
     // Pinned to the real production target ID: the server refuses it, and the
@@ -492,10 +492,10 @@ it('keeps the runner-side and server-side lifecycle gates deciding the same thin
     expect($server)->toContain('fail "target ${TARGET_ID} has lifecycle=');
 });
 
-it('leaves tits-guru lifecycle=planned and changes no registry entry', function () {
+it('changes no registry entry: tits-guru\'s activation is the registry\'s own reviewed change', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('planned');
+    expect($registry['targets']['tits-guru']['lifecycle'])->toBe('active');
     expect($registry['targets']['staging-main']['lifecycle'])->toBe('active');
 
     // Nothing added in Prepare Host writes to the registry.

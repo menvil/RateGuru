@@ -232,7 +232,7 @@ function installOpsStatDir(string $dir): array
 /**
  * Run just the "runtime verification" block (no_overrides_env,
  * status_body_after_header, verify_legacy_environment_health,
- * verify_target_health, verify_status_parity, verify_planned_target_rejected,
+ * verify_target_health, verify_status_parity, verify_health_check_refusal,
  * verify_runtime_parity — and verify_installed_files, whose own dependency on
  * verify_installed_regular_file is only resolved if a driver actually calls
  * it) standalone.
@@ -299,6 +299,12 @@ done
 
 if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
+fi
+
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
 fi
 
 if [[ "\$target" == "staging-main" ]]; then
@@ -472,6 +478,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 if [[ "\$target" == "staging-main" ]]; then
     {$failClause}
     {$candidateLines}
@@ -489,7 +501,7 @@ SH;
  * A self-contained stub `deploy`: understands only --help and --target
  * tits-guru rejection — this installer's own --apply/--verify never run a
  * real deployment (see verify_staged_candidates/verify_deploy_help/
- * verify_deploy_planned_target_rejected in the shipped script), so the stub
+ * verify_deploy_refusal in the shipped script), so the stub
  * needs no artifact/release/checksum handling at all. Mirrors
  * installOpsCleanupStub()'s tits-guru clause exactly.
  */
@@ -521,6 +533,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 exit 0
 
 SH;
@@ -530,7 +548,7 @@ SH;
  * A self-contained stub `rollback`: understands only --help and --target
  * tits-guru rejection — this installer's own --apply/--verify never run a
  * real rollback (see verify_staged_candidates/verify_rollback_help/
- * verify_rollback_planned_target_rejected in the shipped script), so the stub
+ * verify_rollback_refusal in the shipped script), so the stub
  * needs no release/previous handling at all. Mirrors installOpsDeployStub()
  * exactly.
  */
@@ -562,6 +580,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 exit 0
 
 SH;
@@ -571,7 +595,7 @@ SH;
  * A self-contained stub `backup`: understands only --help and --target
  * tits-guru rejection — 's installer never runs a real
  * backup (see verify_staged_candidates/verify_backup_help/
- * verify_backup_planned_target_rejected in the shipped script), so the stub
+ * verify_backup_refusal in the shipped script), so the stub
  * needs no database/filesystem handling at all. Mirrors
  * installOpsRollbackStub() exactly.
  */
@@ -601,6 +625,12 @@ done
 
 if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
+fi
+
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
 fi
 
 exit 0
@@ -640,6 +670,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 exit 0
 
 SH;
@@ -675,6 +711,12 @@ done
 
 if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
+fi
+
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
 fi
 
 exit 0
@@ -714,6 +756,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 exit 0
 
 SH;
@@ -749,6 +797,12 @@ done
 
 if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
+fi
+
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
 fi
 
 exit 0
@@ -788,6 +842,12 @@ if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
 fi
 
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
+fi
+
 exit 0
 
 SH;
@@ -825,6 +885,12 @@ done
 
 if [[ "\$target" == "tits-guru" ]]; then
     {$titsGuruClause}
+fi
+
+# The target the refusal probes choose once every registry target is active.
+if [[ "\$target" == "unregistered-target" ]]; then
+    printf 'ERROR: unknown target: unregistered-target\n' >&2
+    exit 1
 fi
 
 exit 0
@@ -944,7 +1010,10 @@ function installOpsBaseVars(
         'STAGING_TARGET_ROOT' => $scratch.'/target',
         'OPERATIONAL_RUN_ROOT' => $scratch.'/run',
         'SRC_SELF' => base_path('infrastructure/scripts/install-target-operations'),
-        'SRC_REGISTRY' => base_path('infrastructure/config/deployment-targets.json'),
+        // A registry whose planned target is tits-guru, the target the stubs
+        // refuse — the refusal probes read it from the registry, and a planned
+        // target is the first they choose.
+        'SRC_REGISTRY' => preActivationRegistryPath(),
         'SRC_TARGETS' => base_path('infrastructure/scripts/targets'),
         'SRC_COMMON' => base_path('infrastructure/scripts/common'),
         'SRC_HEALTH_CHECK' => $scratch.'/src/health-check',
@@ -1217,7 +1286,8 @@ it('documents exactly the thirty-two files it owns, and what it does not touch, 
         ->toContain('/home/www/rateguru/config/deployment.conf')
         ->toContain('infrastructure/config/deployment-protocol.json')
         ->toContain('/home/www/rateguru/config/deployment-protocol.json')
-        ->toContain('Why tits-guru remains planned');
+        ->toContain('Installing tooling activates nothing')
+        ->toContain('The refusal probe');
 });
 
 it('documents backup location, rollback behaviour and manual restore in the runbook', function () {
@@ -1659,7 +1729,7 @@ it('rollback reports incomplete, without masking the original failure, when a ba
 
 // =============================================================================
 // Runtime verification block: no_overrides_env, status_body_after_header,
-// verify_status_parity, verify_planned_target_rejected — extracted and
+// verify_status_parity, verify_health_check_refusal — extracted and
 // exercised against self-contained stub health-check/status.
 // =============================================================================
 
@@ -1829,14 +1899,15 @@ SH;
     }
 });
 
-it('verify_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_health_check_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, installOpsHealthCheckStub(null, 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_HEALTH_CHECK'] = $vars['SRC_HEALTH_CHECK'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_health_check_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -1845,14 +1916,15 @@ it('verify_planned_target_rejected fails when tits-guru unexpectedly succeeds', 
     }
 });
 
-it('verify_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_health_check_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, installOpsHealthCheckStub(null, 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_HEALTH_CHECK'] = $vars['SRC_HEALTH_CHECK'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_health_check_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -1862,7 +1934,7 @@ it('verify_planned_target_rejected fails when the rejection happens for the wron
 });
 
 // =============================================================================
-// the target-aware migration: verify_cleanup_dry_run / verify_cleanup_planned_target_rejected —
+// the target-aware migration: verify_cleanup_dry_run / verify_cleanup_refusal —
 // the runtime-verification-block additions for cleanup.
 // =============================================================================
 
@@ -1901,14 +1973,15 @@ it('verify_cleanup_dry_run fails when the installed cleanup --dry-run fails', fu
     }
 });
 
-it('verify_cleanup_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_cleanup_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -1917,14 +1990,15 @@ it('verify_cleanup_planned_target_rejected fails when tits-guru unexpectedly suc
     }
 });
 
-it('verify_cleanup_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_cleanup_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, null, null, installOpsCleanupStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_CLEANUP'] = $vars['SRC_CLEANUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_cleanup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -1934,7 +2008,7 @@ it('verify_cleanup_planned_target_rejected fails when the rejection happens for 
 });
 
 // =============================================================================
-// the target-aware migration: verify_deploy_help / verify_deploy_planned_target_rejected
+// the target-aware migration: verify_deploy_help / verify_deploy_refusal
 // — the runtime-verification-block additions for deploy.
 // =============================================================================
 
@@ -1975,14 +2049,15 @@ it('verify_deploy_help fails when the installed deploy does not answer --help su
     }
 });
 
-it('verify_deploy_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_deploy_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, null, null, null, installOpsDeployStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_DEPLOY'] = $vars['SRC_DEPLOY'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_deploy_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_deploy_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -1991,14 +2066,15 @@ it('verify_deploy_planned_target_rejected fails when tits-guru unexpectedly succ
     }
 });
 
-it('verify_deploy_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_deploy_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, null, null, null, installOpsDeployStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_DEPLOY'] = $vars['SRC_DEPLOY'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_deploy_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_deploy_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2049,14 +2125,15 @@ it('verify_rollback_help fails when the installed rollback does not answer --hel
     }
 });
 
-it('verify_rollback_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_rollback_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, rollbackStub: installOpsRollbackStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_ROLLBACK'] = $vars['SRC_ROLLBACK'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2065,14 +2142,15 @@ it('verify_rollback_planned_target_rejected fails when tits-guru unexpectedly su
     }
 });
 
-it('verify_rollback_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_rollback_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, rollbackStub: installOpsRollbackStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_ROLLBACK'] = $vars['SRC_ROLLBACK'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_rollback_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2125,14 +2203,15 @@ it('verify_backup_help fails when the installed backup does not answer --help su
     }
 });
 
-it('verify_backup_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_backup_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, backupStub: installOpsBackupStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_BACKUP'] = $vars['SRC_BACKUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2141,14 +2220,15 @@ it('verify_backup_planned_target_rejected fails when tits-guru unexpectedly succ
     }
 });
 
-it('verify_backup_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_backup_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, backupStub: installOpsBackupStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_BACKUP'] = $vars['SRC_BACKUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2194,14 +2274,15 @@ it('verify_restore_test_help fails when the installed restore-test does not answ
     }
 });
 
-it('verify_restore_test_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_restore_test_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, restoreTestStub: installOpsRestoreTestStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_RESTORE_TEST'] = $vars['SRC_RESTORE_TEST'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_restore_test_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_restore_test_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2210,14 +2291,15 @@ it('verify_restore_test_planned_target_rejected fails when tits-guru unexpectedl
     }
 });
 
-it('verify_restore_test_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_restore_test_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, restoreTestStub: installOpsRestoreTestStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_RESTORE_TEST'] = $vars['SRC_RESTORE_TEST'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_restore_test_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_restore_test_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2230,7 +2312,7 @@ it('verify_restore_test_planned_target_rejected fails when the rejection happens
 // : verify_offsite_backup_help / verify_offsite_backup_
 // planned_target_rejected / verify_offsite_retention_help / verify_offsite_
 // retention_planned_target_rejected / verify_offsite_restore_test_help /
-// verify_offsite_restore_test_planned_target_rejected — the runtime-
+// verify_offsite_restore_test_refusal — the runtime-
 // verification-block additions for offsite-backup/offsite-retention/
 // offsite-restore-test.
 // =============================================================================
@@ -2272,14 +2354,15 @@ it('verify_offsite_backup_help fails when the installed offsite-backup does not 
     }
 });
 
-it('verify_offsite_backup_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_offsite_backup_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteBackupStub: installOpsOffsiteBackupStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_BACKUP'] = $vars['SRC_OFFSITE_BACKUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_backup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_backup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2288,14 +2371,15 @@ it('verify_offsite_backup_planned_target_rejected fails when tits-guru unexpecte
     }
 });
 
-it('verify_offsite_backup_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_offsite_backup_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteBackupStub: installOpsOffsiteBackupStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_BACKUP'] = $vars['SRC_OFFSITE_BACKUP'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_backup_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_backup_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2341,14 +2425,15 @@ it('verify_offsite_retention_help fails when the installed offsite-retention doe
     }
 });
 
-it('verify_offsite_retention_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_offsite_retention_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteRetentionStub: installOpsOffsiteRetentionStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_RETENTION'] = $vars['SRC_OFFSITE_RETENTION'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_retention_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_retention_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2357,14 +2442,15 @@ it('verify_offsite_retention_planned_target_rejected fails when tits-guru unexpe
     }
 });
 
-it('verify_offsite_retention_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_offsite_retention_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteRetentionStub: installOpsOffsiteRetentionStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_RETENTION'] = $vars['SRC_OFFSITE_RETENTION'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_retention_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_retention_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2410,14 +2496,15 @@ it('verify_offsite_restore_test_help fails when the installed offsite-restore-te
     }
 });
 
-it('verify_offsite_restore_test_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_offsite_restore_test_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteRestoreTestStub: installOpsOffsiteRestoreTestStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_RESTORE_TEST'] = $vars['SRC_OFFSITE_RESTORE_TEST'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_restore_test_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_restore_test_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2426,14 +2513,15 @@ it('verify_offsite_restore_test_planned_target_rejected fails when tits-guru une
     }
 });
 
-it('verify_offsite_restore_test_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_offsite_restore_test_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, offsiteRestoreTestStub: installOpsOffsiteRestoreTestStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_OFFSITE_RESTORE_TEST'] = $vars['SRC_OFFSITE_RESTORE_TEST'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_restore_test_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_offsite_restore_test_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -2485,14 +2573,15 @@ it('verify_backup_cycle_help fails when the installed backup-cycle does not answ
     }
 });
 
-it('verify_backup_cycle_planned_target_rejected passes when tits-guru is correctly rejected', function () {
+it('verify_backup_cycle_refusal passes when tits-guru is correctly rejected', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch);
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_BACKUP_CYCLE'] = $vars['SRC_BACKUP_CYCLE'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_refusal');
 
         expect($exit)->toBe(0, $output);
         expect($output)->toContain('backup-cycle --target tits-guru: correctly rejected (lifecycle=planned)');
@@ -2501,14 +2590,15 @@ it('verify_backup_cycle_planned_target_rejected passes when tits-guru is correct
     }
 });
 
-it('verify_backup_cycle_planned_target_rejected fails when tits-guru unexpectedly succeeds', function () {
+it('verify_backup_cycle_refusal fails when tits-guru unexpectedly succeeds', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, backupCycleStub: installOpsBackupCycleStub(titsGuru: 'unexpected-success'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_BACKUP_CYCLE'] = $vars['SRC_BACKUP_CYCLE'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('unexpectedly succeeded');
@@ -2517,14 +2607,15 @@ it('verify_backup_cycle_planned_target_rejected fails when tits-guru unexpectedl
     }
 });
 
-it('verify_backup_cycle_planned_target_rejected fails when the rejection happens for the wrong reason', function () {
+it('verify_backup_cycle_refusal fails when the rejection happens for the wrong reason', function () {
     $scratch = installOpsScratchDir();
 
     try {
         $vars = installOpsBaseVars($scratch, backupCycleStub: installOpsBackupCycleStub(titsGuru: 'wrong-reason'));
+        $vars['DST_REGISTRY'] = $vars['SRC_REGISTRY'];
         $vars['DST_BACKUP_CYCLE'] = $vars['SRC_BACKUP_CYCLE'];
 
-        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_planned_target_rejected');
+        [$exit, $output] = installOpsRunRuntimeHarness($scratch, $vars, 'verify_backup_cycle_refusal');
 
         expect($exit)->not->toBe(0);
         expect($output)->toContain('failed for the wrong reason');
@@ -3045,6 +3136,39 @@ it('--verify catches a genuine verify_status failure the same way --apply does',
         expect($verifyOut)->toContain('--- status ---');
         expect($verifyOut)->toContain("status output does not report 'Status: healthy'");
         expect($verifyOut)->toContain('FAIL: verification did not pass');
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('points every refusal probe at a target no registry holds once every target is active, and installs the activated registry', function () {
+    // The committed registry: staging-main and tits-guru both active. There is
+    // no planned target to refuse, so every staged and installed operation is
+    // pointed at a target no registry holds — refused as unknown, before the
+    // lifecycle is read — and none is ever pointed at tits-guru, whose data is
+    // real now.
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        $vars['SRC_REGISTRY'] = base_path('infrastructure/config/deployment-targets.json');
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('apply complete');
+
+        foreach (['health-check', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'recover-host'] as $operation) {
+            expect($output)
+                ->toContain("staged {$operation} --target unregistered-target: correctly rejected (unknown target: unregistered-target)")
+                ->toContain("] {$operation} --target unregistered-target: correctly rejected (unknown target: unregistered-target)")
+                ->not->toContain("{$operation} --target tits-guru");
+        }
+
+        // The registry the host now holds is the activated one.
+        expect(File::get($vars['DST_REGISTRY']))->toBe(File::get(base_path('infrastructure/config/deployment-targets.json')));
+        expect(json_decode(File::get($vars['DST_REGISTRY']), true)['targets']['tits-guru']['lifecycle'])->toBe('active');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -4072,16 +4196,17 @@ it('takes no lock at all in --check or --verify', function () {
 it('keeps the target-only lifecycle contract and introduces no legacy selector alongside the new CLI', function () {
     $installer = File::get(base_path('infrastructure/scripts/install-target-operations'));
 
-    // staging-main stays the active target; tits-guru stays planned and
-    // rejected — the new CLI changes nothing about lifecycle handling.
+    // The refusal probes name no target of their own: which target every
+    // operation must refuse is the registry's to say.
     expect($installer)
         ->toContain('staging-main')
-        ->toContain('tits-guru')
-        ->toContain('lifecycle=planned');
+        ->toContain('choose_refusal_probe "${staged_registry}"')
+        ->toContain('choose_refusal_probe "${DST_REGISTRY}"')
+        ->not->toContain('--target tits-guru');
 
     // verify-required-clis is deliberately NOT target-aware, so it must not
-    // have been wired into the planned-target rejection checks.
-    expect($installer)->not->toContain('verify_required_clis_planned_target_rejected');
+    // have been wired into the refusal probes.
+    expect($installer)->not->toContain('verify_required_clis_refusal');
 
     // The installer mentions --environment only to REJECT it, so the
     // meaningful assertion is that no accepting case branch exists — not

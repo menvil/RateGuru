@@ -650,7 +650,9 @@ it('records the recovered release on both operator paths, and never lets that re
 it('refuses a production recovery before an approval, a secret, a connection or a mutation', function () {
     $registry = json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true);
 
-    expect(data_get($registry, 'targets.tits-guru.lifecycle'))->toBe('planned');
+    // tits-guru is active now; the gate below is what refuses any target that
+    // is not, and it is unchanged.
+    expect(data_get($registry, 'targets.tits-guru.lifecycle'))->toBe('active');
 
     [$workflow] = recoverWorkflow('recover-production.yml');
 

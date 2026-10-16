@@ -1004,6 +1004,36 @@
             box-shadow var(--rg-admin-transition-fast);
     }
 
+    /* Preset chips over a textarea: 28 high, radius 8, the chosen one with an ink border. */
+    .rg-admin-field__presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-preset {
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-preset:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-preset[aria-pressed='true'] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
     .rg-admin-textarea--compact {
         min-height: 42px;
         padding-block: 9px;
@@ -1256,6 +1286,52 @@
         border-radius: var(--rg-admin-radius-full);
         background: var(--rg-admin-surface-card);
         box-shadow: 0 1px 2px rgb(14 18 27 / 0.24);
+    }
+
+    /* A settings row: the label and hint on the left, the state and the switch on the right. */
+    .rg-admin-switch-row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-5);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-switch-row + .rg-admin-switch-row {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-switch-row__text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-switch-row__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 10px;
+    }
+
+    .rg-admin-switch-row__label {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-switch-row__hint {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-switch-row__state {
+        flex-shrink: 0;
+        min-width: 28px;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+        text-align: right;
     }
 
     .rg-admin-switch-field__state {
@@ -1611,6 +1687,47 @@
         gap: 10px;
     }
 
+    /* Two lines in a cell, and a name in one — clipped with an ellipsis rather than wrapped. */
+    .rg-admin-table__stack {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-table__ellipsis {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-table__name {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-decoration: none;
+    }
+
+    .rg-admin-table__name--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-table__nowrap {
+        white-space: nowrap;
+    }
+
+    /* A finalized removal in the actions cell: nothing left to do. */
+    .rg-admin-table__final {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 6px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
     .rg-admin-avatar {
         display: inline-flex;
         align-items: center;
@@ -1627,13 +1744,83 @@
         line-height: 1;
     }
 
+    .rg-admin-avatar--md {
+        width: 32px;
+        height: 32px;
+        font-size: var(--rg-admin-text-micro);
+    }
+
+    .rg-admin-avatar--lg {
+        width: 48px;
+        height: 48px;
+        color: var(--rg-admin-gray-600);
+        font-size: 16px;
+    }
+
+    /* FRM-07 · Checkbox: 18×18, radius 5; ink fill with a 12px white check, a minus while mixed */
     .rg-admin-checkbox {
+        position: relative;
+        display: inline-flex;
+        align-items: flex-start;
+        gap: 10px;
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        cursor: pointer;
+    }
+
+    /* The real input, over its picture: what the pointer and the keyboard reach. */
+    .rg-admin-checkbox__input {
+        position: absolute;
+        top: 1px;
+        left: 0;
         width: 18px;
         height: 18px;
         margin: 0;
+        opacity: 0;
+        cursor: inherit;
+    }
+
+    .rg-admin-checkbox__box {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
         border: 1px solid var(--rg-admin-border-strong);
         border-radius: var(--rg-admin-radius-xs);
-        accent-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-inverse);
+        transition:
+            background-color var(--rg-admin-transition-fast),
+            border-color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-checkbox__check,
+    .rg-admin-checkbox__minus {
+        display: none;
+    }
+
+    .rg-admin-checkbox__input:checked + .rg-admin-checkbox__box,
+    .rg-admin-checkbox__input:indeterminate + .rg-admin-checkbox__box {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-checkbox__input:checked:not(:indeterminate) + .rg-admin-checkbox__box .rg-admin-checkbox__check,
+    .rg-admin-checkbox__input:indeterminate + .rg-admin-checkbox__box .rg-admin-checkbox__minus {
+        display: block;
+    }
+
+    .rg-admin-checkbox__input:focus-visible + .rg-admin-checkbox__box {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-checkbox--disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     /* TBL-02 · Table toolbar */
@@ -1657,6 +1844,40 @@
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-text-tertiary);
+    }
+
+    /* TBL-03 · Bulk bar: under the toolbar while rows are selected */
+    .rg-admin-bulk-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        min-height: 52px;
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-bulk-bar__count {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-bulk-bar__divider {
+        width: 1px;
+        height: 16px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-bulk-bar__note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-bulk-bar__clear {
+        margin-left: auto;
     }
 
     /* FRM-10 · Active filter chip */
@@ -1705,6 +1926,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: var(--rg-admin-space-2);
         height: var(--rg-admin-control-sm);
         padding: 0 var(--rg-admin-space-3);
         border: 0;
@@ -1758,6 +1980,81 @@
         font-weight: var(--rg-admin-weight-medium);
         user-select: none;
         pointer-events: none;
+    }
+
+    /* FRM-09 · Radio cards: exclusive choices that each need a line of explanation */
+    .rg-admin-radio-cards {
+        display: grid;
+        grid-template-columns: repeat(var(--rg-admin-radio-cards-columns, 2), minmax(0, 1fr));
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-radio-card {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-radio-card:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-radio-card[aria-checked='true'] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-radio-card:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-radio-card__head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        width: 100%;
+    }
+
+    .rg-admin-radio-card__ring {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-radio-card[aria-checked='true'] .rg-admin-radio-card__ring {
+        border: 5px solid var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-radio-card__label {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-radio-card__help {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    @media (max-width: 479px) {
+        .rg-admin-radio-cards {
+            grid-template-columns: minmax(0, 1fr);
+        }
     }
 
     /* FRM-10 · Filter dropdown: “Field: value” and a menu of values */
@@ -2762,6 +3059,90 @@
         border-top: 1px solid var(--rg-admin-border-default);
     }
 
+    /* DOM-02 · Report chain: the report, its target and the target's author, one link each */
+    .rg-admin-timeline-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        column-gap: var(--rg-admin-space-4);
+        padding-bottom: var(--rg-admin-space-6);
+    }
+
+    .rg-admin-timeline-item--last {
+        padding-bottom: 0;
+    }
+
+    .rg-admin-timeline-item__line {
+        position: absolute;
+        top: 32px;
+        bottom: 0;
+        left: 15.5px;
+        width: 1px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-timeline-item__marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-timeline-item--danger .rg-admin-timeline-item__marker {
+        border-color: transparent;
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-timeline-item__content {
+        min-width: 0;
+        padding-top: 5px;
+    }
+
+    .rg-admin-timeline-item__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 22px;
+    }
+
+    .rg-admin-timeline-item__title {
+        margin: 0;
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-timeline-item--danger .rg-admin-timeline-item__title {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-timeline-item__time {
+        margin-left: auto;
+        padding-left: var(--rg-admin-space-3);
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .rg-admin-timeline-item__body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        margin-top: 6px;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        text-wrap: pretty;
+    }
+
     /* DOM-01 · Translation field states */
     .rg-admin-translation-state {
         display: flex;
@@ -3661,6 +4042,1209 @@
         line-height: var(--rg-admin-leading-caption);
         color: var(--rg-admin-status-due-fg);
         white-space: nowrap;
+    }
+
+    /* Project settings (ProjectSettingsPage) */
+    .rg-admin-settings__header {
+        align-items: center;
+    }
+
+    .rg-admin-settings__body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-settings__preset {
+        position: relative;
+        flex-shrink: 0;
+    }
+
+    .rg-admin-settings__preset-trigger {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 10px var(--rg-admin-space-3) 10px 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-settings__preset-trigger:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-settings__preset-trigger:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-settings__preset-trigger > .rg-admin-icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-settings__preset-text {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rg-admin-settings__preset-name {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-settings__preset-panel {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        z-index: 60;
+        width: 420px;
+        max-width: calc(100vw - 32px);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-settings__preset-head {
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-settings__preset-title {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-settings__preset-list {
+        margin: 0;
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-4) var(--rg-admin-space-3);
+        list-style: none;
+    }
+
+    .rg-admin-settings__preset-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-settings__preset-item-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-settings__preset-item-label {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-settings__preset-match {
+        margin: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-settings__fields {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-5);
+        padding-block: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-settings__field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-settings__differs {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-settings__translations {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-settings__translations > .rg-admin-icon {
+        flex-shrink: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-settings__translations-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-settings__preview {
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-settings__preview-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 48px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-settings__preview-name {
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-semibold);
+        white-space: nowrap;
+    }
+
+    .rg-admin-settings__preview-tagline {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-settings__preview-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        margin-left: auto;
+        padding: 0 var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+    }
+
+    .rg-admin-settings__preview-feed {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: 14px;
+    }
+
+    .rg-admin-settings__preview-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-workspace);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-settings__preview-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-settings__preview-tile {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 1;
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-settings__choice {
+        display: grid;
+        grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+        gap: var(--rg-admin-space-6);
+        padding: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-settings__choice + .rg-admin-settings__choice {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-settings__choice {
+            grid-template-columns: minmax(0, 1fr);
+            gap: var(--rg-admin-space-3);
+        }
+    }
+
+    .rg-admin-settings__choice-control {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .rg-admin-settings__meaning {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-settings__pages {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        align-items: start;
+        gap: var(--rg-admin-space-6);
+    }
+
+    @media (max-width: 767.98px) {
+        .rg-admin-settings__pages {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-settings__page-list {
+        display: flex;
+        flex-direction: column;
+        padding: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-settings__page {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-control);
+        color: var(--rg-admin-text-strong);
+        text-decoration: none;
+    }
+
+    .rg-admin-settings__page:hover,
+    .rg-admin-settings__page--current {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-settings__page:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-settings__page-title {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-settings__page--current .rg-admin-settings__page-title {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-settings__page-meta {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-settings__page-meta--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* Posts (ListPosts): the thumbnail, the title and author cells, Final, and the image viewer */
+    .rg-admin-posts__thumb {
+        overflow: hidden;
+        padding: 0;
+        cursor: zoom-in;
+    }
+
+    .rg-admin-posts__thumb:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-posts__thumb-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-admin-posts__title {
+        display: flex;
+        min-width: 0;
+        max-width: 100%;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+    }
+
+    .rg-admin-posts__title-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* A post its author deleted, or whose removal is final, reads as one. */
+    .rg-admin-posts__title--muted {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-posts__skeleton-stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    /* When the list was read, and Refresh, in the top bar. */
+    .rg-admin-topbar__meta-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    /* The original image, centred over a darker scrim than a dialog's. */
+    .rg-admin-viewer-layer {
+        align-items: center;
+        padding: 40px var(--rg-admin-space-4);
+        background: var(--rg-admin-scrim-viewer);
+    }
+
+    .rg-admin-viewer {
+        overflow: hidden;
+        width: 760px;
+        max-width: 100%;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-viewer:focus {
+        outline: none;
+    }
+
+    .rg-admin-viewer__image {
+        display: grid;
+        place-items: center;
+        height: min(500px, 70vh);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-viewer__image img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .rg-admin-viewer__footer {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 14px var(--rg-admin-space-4) 14px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-viewer__text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-viewer__title {
+        overflow: hidden;
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-viewer__meta {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* Comments (ListComments): the text in two lines, its id and read-only note, the post */
+    .rg-admin-comments__search {
+        width: 340px;
+    }
+
+    .rg-admin-comments__text {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        text-decoration: none;
+        text-wrap: pretty;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    .rg-admin-comments__text--link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    /* Hidden, deleted by its author or removed for good: no longer in the thread. */
+    .rg-admin-comments__text--muted {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-comments__meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 2px;
+    }
+
+    .rg-admin-comments__read-only {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-comments__post {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-comments__created {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
+    }
+
+    /* Reports (ListReports): the list and the open report's chain, docked or over the list */
+    .rg-admin-reports__intro {
+        max-width: 640px;
+    }
+
+    .rg-admin-reports__keys {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-reports__search {
+        flex: 1;
+        min-width: 180px;
+        max-width: 340px;
+    }
+
+    .rg-admin-reports__layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__layout {
+        grid-template-columns: minmax(0, 1fr) 448px;
+    }
+
+    /* Every column, the card scrolling sideways where it is narrower; four once the chain is docked. */
+    .rg-admin-reports__grid {
+        --rg-admin-table-columns: 100px minmax(240px, 1fr) 150px 140px 100px 104px 176px;
+        --rg-admin-table-min-width: 1010px;
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__grid {
+        --rg-admin-table-columns: minmax(180px, 1fr) 150px 96px 92px;
+        --rg-admin-table-min-width: 0;
+    }
+
+    .rg-admin-reports__docked,
+    .rg-admin-reports--docked .rg-admin-reports__full {
+        display: none;
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__docked {
+        display: initial;
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__tile {
+        display: grid;
+    }
+
+    .rg-admin-reports__row--selected,
+    .rg-admin-reports__row--selected:hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-reports__type {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    /* The target opens the report's chain: the whole cell is the button. */
+    .rg-admin-reports__target {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-reports__preview {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-reports__target:hover .rg-admin-reports__preview {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-reports__tile {
+        place-items: center;
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-reports__created {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
+    }
+
+    /* The chain: docked, it stays in view as the page scrolls; otherwise it floats over the list on the right. */
+    .rg-admin-reports__panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 150;
+        width: 472px;
+        max-width: 100vw;
+        padding: var(--rg-admin-space-3);
+        overflow-y: auto;
+    }
+
+    .rg-admin-reports__panel .rg-admin-reports__card {
+        border-radius: var(--rg-admin-radius-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__panel {
+        position: sticky;
+        top: calc(var(--rg-admin-topbar-height, 62px) + var(--rg-admin-space-4));
+        z-index: auto;
+        width: auto;
+        padding: 0;
+        overflow: visible;
+    }
+
+    .rg-admin-reports--docked .rg-admin-reports__panel .rg-admin-reports__card {
+        box-shadow: none;
+    }
+
+    .rg-admin-reports__card {
+        overflow: hidden;
+    }
+
+    .rg-admin-reports__head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 14px var(--rg-admin-space-3) 14px var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-reports__head-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-reports__title {
+        margin: 0;
+        font-size: 15px;
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-reports__subtitle {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-reports__chain {
+        padding: var(--rg-admin-space-5) var(--rg-admin-space-5) var(--rg-admin-space-1);
+    }
+
+    .rg-admin-reports__reporter {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-reports__strong {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-reports__message {
+        margin: 0;
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-caption);
+        line-height: 20px;
+    }
+
+    .rg-admin-reports__note {
+        margin: 0;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-reports__subject {
+        display: flex;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-reports__subject-tile {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 44px;
+        height: 44px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-reports__subject-tile--round {
+        border-radius: var(--rg-admin-radius-full);
+    }
+
+    .rg-admin-reports__subject-text {
+        color: var(--rg-admin-text-strong);
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-reports__actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-reports__spacer {
+        flex: 1;
+    }
+
+    .rg-admin-reports__footer {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) 18px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-reports__close {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-reports__close-note {
+        flex: 1;
+        min-width: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-reports__closed {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-reports__closed .rg-admin-table__stack {
+        flex: 1;
+    }
+
+    .rg-admin-reports__closed-title {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    /* Users (ListUsers) and a person's page (EditUser) */
+    .rg-admin-users__username {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-users__email {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-users__role {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-body);
+    }
+
+    /* Trust as a two-step bar and its word: both steps filled, in green, once trusted. */
+    .rg-admin-users__trust {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-users__trust--trusted {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-users__trust-bar {
+        display: inline-flex;
+        gap: 2px;
+        width: 36px;
+    }
+
+    .rg-admin-users__trust-bar > span {
+        flex: 1;
+        height: 6px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-users__trust-bar > span:first-child {
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-users__trust--trusted .rg-admin-users__trust-bar > span {
+        background: var(--rg-admin-green-500);
+    }
+
+    .rg-admin-menu__caption {
+        margin: 0;
+        padding: 6px 10px 8px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-user__header {
+        align-items: center;
+    }
+
+    .rg-admin-user__identity {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-user__title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-user__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 6px;
+    }
+
+    .rg-admin-user__columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-space-4);
+        max-width: 1320px;
+    }
+
+    .rg-admin-user__main {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-user__side {
+        width: 100%;
+        max-width: 520px;
+        min-width: 0;
+    }
+
+    .rg-admin-user__fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px var(--rg-admin-space-4);
+    }
+
+    .rg-admin-user__wide {
+        grid-column: 1 / -1;
+    }
+
+    .rg-admin-user__role {
+        align-self: flex-start;
+    }
+
+    .rg-admin-user__stack {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+    }
+
+    .rg-admin-user__password {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+        max-width: 440px;
+    }
+
+    .rg-admin-user__password .rg-admin-field {
+        flex: 1;
+    }
+
+    /* Level with the field, under its label. */
+    .rg-admin-user__reveal {
+        margin-top: 28px;
+    }
+
+    .rg-admin-user__section + .rg-admin-user__section {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-user__status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-user__section .rg-admin-reports__message,
+    .rg-admin-user__section .rg-admin-reports__actions {
+        margin-top: 10px;
+    }
+
+    .rg-admin-user__lock {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        margin: 10px 0 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-user__history {
+        margin-top: 14px;
+    }
+
+    /* Media diagnostics (MediaDiagnosticsPage): the overview's figures, the issues, the cards and the asset inspector */
+    /* Every figure draws its own top and left rule; pulled under the card's frame, the outer ones vanish. */
+    .rg-admin-media__tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(max(160px, calc(20% - 1px)), 1fr));
+        margin: -1px 0 0 -1px;
+    }
+
+    .rg-admin-media__tile {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        padding: var(--rg-admin-space-4) 18px;
+        border: 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-left: 1px solid var(--rg-admin-border-default);
+        background: transparent;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+    }
+
+    .rg-admin-media__tile--action {
+        cursor: pointer;
+    }
+
+    .rg-admin-media__tile--action:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-media__tile--action:focus-visible {
+        outline: none;
+        box-shadow: inset 0 0 0 2px var(--rg-admin-focus-ring);
+    }
+
+    .rg-admin-media__tile-value {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-height: 28px;
+        font-size: var(--rg-admin-text-stat);
+        line-height: var(--rg-admin-leading-stat);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-tight);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-media__topbar .rg-admin-topbar__meta {
+            display: none;
+        }
+
+        /* As .rg-admin-sr-only, on a phone only. */
+        .rg-admin-media__topbar-label {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    }
+
+    .rg-admin-media__issues-title {
+        min-width: 0;
+        margin-right: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-media__search {
+        width: 260px;
+        max-width: 100%;
+    }
+
+    .rg-admin-media__row--critical {
+        background: var(--rg-admin-status-danger-row);
+    }
+
+    .rg-admin-media__type {
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-media__mono {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-media__mono--strong {
+        color: var(--rg-admin-text-strong);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    /* The end of a long path is the part that tells files apart, so it is the part kept. */
+    .rg-admin-media__path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        direction: rtl;
+        text-align: left;
+    }
+
+    .rg-admin-media__cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-media__card-head {
+        padding-bottom: 6px;
+    }
+
+    .rg-admin-media__card-note {
+        margin: 0;
+        padding: 28px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-card__body .rg-admin-media__card-note {
+        padding: var(--rg-admin-space-3) 0 0;
+        border-top: 0;
+    }
+
+    .rg-admin-media__history-row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 10px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-media__history-row .rg-admin-table__stack {
+        flex: 1;
+    }
+
+    .rg-admin-media__jobs-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-media__jobs-head .rg-admin-section-label {
+        flex: 1;
+    }
+
+    .rg-admin-media__job {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 14px var(--rg-admin-space-4) 14px var(--rg-admin-space-5);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-media__job-icon {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-media__job-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-media__job-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-media__job-time {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-media__exception {
+        margin: 6px 0 0;
+        padding: var(--rg-admin-space-2) 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: 18px;
+        color: var(--rg-admin-red-950);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-media__section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px var(--rg-admin-space-5) var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-media__section:first-child {
+        padding-top: var(--rg-admin-space-5);
+        border-top: 0;
+    }
+
+    /* A long value wraps under its label's line; a path or a type keeps one line and its start. */
+    .rg-admin-media__detail {
+        display: block;
+        max-width: 260px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-media__detail.rg-admin-detail-row__value--mono {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-media__files-action {
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .rg-admin-media__files {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        overflow: hidden;
+    }
+
+    .rg-admin-media__file {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        padding: 0 var(--rg-admin-space-3);
+        color: var(--rg-admin-status-success-dot);
+    }
+
+    .rg-admin-media__file + .rg-admin-media__file {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-media__file .rg-admin-media__mono {
+        flex: 1;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-media__file--missing {
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
     }
 
     /* Languages screen (LanguagesPage): its table cells and its missing-translations drawer */
@@ -5752,6 +7336,16 @@
 
     .rg-admin-kit__item--center {
         align-items: center;
+    }
+
+    .rg-admin-kit__chain {
+        max-width: 448px;
+        padding: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-kit__item--wide {
+        flex: 1 1 100%;
+        align-items: stretch;
     }
 
     .rg-admin-kit__caption {

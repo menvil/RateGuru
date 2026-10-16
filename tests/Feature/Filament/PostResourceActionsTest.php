@@ -1,210 +1,146 @@
 <?php
 
+use App\Actions\Moderation\HidePostAction;
 use App\Actions\Posts\DeletePostAction;
+use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Filament\Resources\Posts\Pages\ListPosts;
+use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use Livewire\Livewire;
 
-it('approves a pending post via the approve table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
+/**
+ * Moderating one post from its row: Approve at once, Reject with an optional
+ * reason, Hide with a required one and Restore at once, each through its
+ * moderation action, which logs it — Hide and Restore with Undo. What a post
+ * offers depends on its status; a post its author deleted offers nothing,
+ * and nothing deletes a post from here.
+ */
+beforeEach(function () {
+    $this->moderator = User::factory()->moderator()->create();
+    $this->actingAs($this->moderator);
+});
 
-    $this->actingAs($moderator);
+it('offers each status its own actions, and nothing to a post its author deleted', function () {
+    $pending = Post::factory()->pending()->create();
+    $published = Post::factory()->published()->create();
+    $hidden = Post::factory()->hidden()->create();
+    $owner = User::factory()->create();
+    $deleted = Post::factory()->published()->for($owner)->create();
+    app(DeletePostAction::class)->handle($owner, $deleted);
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class);
+    $actions = fn (Post $post): array => array_keys(array_filter(array_intersect_key(listedRow($page, $post), array_flip(['approve', 'reject', 'hide', 'restore'])), fn (bool $offered): bool => $offered));
+
+    expect($actions($pending))->toBe(['approve', 'reject'])
+        ->and($actions($published))->toBe(['hide'])
+        ->and($actions($hidden))->toBe(['restore'])
+        ->and($actions($deleted))->toBe([]);
+
+    expect($page->html())->not->toContain('wire:click="delete');
+});
+
+it('approves a pending post at once, without asking', function () {
+    $post = Post::factory()->pending()->create(['title' => 'Grandma’s dumplings']);
 
     Livewire::test(ListPosts::class)
-        ->callTableAction('approve', $post);
+        ->call('approve', $post->id)
+        ->assertSet('confirming', null)
+        ->assertDispatched('rg-admin-toast', message: '“Grandma’s dumplings” approved and published', tone: 'success', action: null);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+});
+
+it('rejects a pending post after asking, with the reason when one is given', function (string $reason, ?string $logged) {
+    $post = Post::factory()->pending()->create(['title' => 'Buy vitamins']);
+
+    Livewire::test(ListPosts::class)
+        ->call('askToReject', $post->id)
+        ->assertSet('confirming', ['action' => 'reject', 'ids' => [$post->id]])
+        ->assertSeeHtml('Reject this post?')
+        ->assertSeeHtml('Spam')
+        ->set('reason', $reason)
+        ->call('confirm')
+        ->assertHasNoErrors()
+        ->assertSet('confirming', null)
+        ->assertDispatched('rg-admin-toast', message: '“Buy vitamins” rejected');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Rejected)
+        ->and(ModerationLog::query()->where('action', ModerationActionType::RejectPost)->sole()->reason)->toBe($logged);
+})->with([
+    'with a reason' => ['Spam', 'Spam'],
+    'without one' => ['', null],
+]);
+
+it('hides a published post only with a reason, and Undo restores it', function () {
+    $post = Post::factory()->published()->create(['title' => 'Free kittens']);
+
+    $page = Livewire::withQueryParams(['status' => 'published'])->test(ListPosts::class)
+        ->call('askToHide', $post->id)
+        ->assertSeeHtml('Hide this post?')
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'required']);
 
     expect($post->fresh()->status)->toBe(PostStatus::Published);
 
-    $this->assertDatabaseHas('moderation_logs', [
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-        'moderator_id' => $moderator->id,
-    ]);
+    $page->set('reason', 'Animal sale')
+        ->call('confirm')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: '“Free kittens” hidden', action: ['label' => 'Undo', 'event' => 'restore-posts', 'params' => ['ids' => [$post->id]]]);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden)
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HidePost)->sole()->reason)->toBe('Animal sale');
+
+    $page->dispatch('restore-posts', ids: [$post->id])
+        ->assertDispatched('rg-admin-toast', message: '“Free kittens” is visible again');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
 });
 
-it('approve table action does not render a reason form', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
+it('restores a hidden post at once, and Undo hides it again', function () {
+    $post = Post::factory()->hidden()->create(['title' => 'Cat fight compilation']);
 
-    $this->actingAs($moderator);
+    $page = Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class)
+        ->call('restore', $post->id)
+        ->assertDispatched('rg-admin-toast', message: '“Cat fight compilation” restored and visible again', action: ['label' => 'Undo', 'event' => 'hide-posts-again', 'params' => ['ids' => [$post->id]]]);
 
-    Livewire::test(ListPosts::class)
-        ->assertTableActionExists(
-            'approve',
-            function ($action): bool {
-                $schema = new ReflectionProperty($action, 'schema');
-                $schema->setAccessible(true);
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
 
-                return $schema->getValue($action) === null;
-            },
-            $post,
-        );
-});
-
-it('hides the approve action for non-pending posts', function () {
-    $moderator = User::factory()->moderator()->create();
-    $published = Post::factory()->published()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('approve', $published);
-});
-
-it('rejects a pending post via the reject table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->pending()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->callTableAction('reject', $post, data: ['reason' => 'Invalid content.']);
-
-    expect($post->fresh()->status)->toBe(PostStatus::Rejected);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-        'moderator_id' => $moderator->id,
-    ]);
-});
-
-it('hides the reject action for non-pending posts', function () {
-    $moderator = User::factory()->moderator()->create();
-    $published = Post::factory()->published()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('reject', $published);
-});
-
-it('hides a published post via the hide table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->published()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->callTableAction('hide', $post, data: ['reason' => 'Reported content.']);
+    $page->dispatch('hide-posts-again', ids: [$post->id]);
 
     expect($post->fresh()->status)->toBe(PostStatus::Hidden);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-        'moderator_id' => $moderator->id,
-    ]);
 });
 
-it('hides the hide action for non-published posts', function () {
-    $moderator = User::factory()->moderator()->create();
-    $pending = Post::factory()->pending()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('hide', $pending);
-});
-
-it('restores a hidden post via the restore table action', function () {
-    $moderator = User::factory()->moderator()->create();
-    $post = Post::factory()->hidden()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->callTableAction('restore', $post, data: ['reason' => 'Reviewed and restored.']);
-
-    expect($post->fresh()->status)->toBe(PostStatus::Published);
-
-    $this->assertDatabaseHas('moderation_logs', [
-        'target_type' => Post::class,
-        'target_id' => $post->id,
-        'moderator_id' => $moderator->id,
-    ]);
-});
-
-it('hides the restore action for non-hidden posts', function () {
-    $moderator = User::factory()->moderator()->create();
-    $published = Post::factory()->published()->create();
-
-    $this->actingAs($moderator);
-
-    Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('restore', $published);
-});
-
-it('exposes no generic admin delete table action at all', function () {
-    $admin = User::factory()->admin()->create();
+it('holds a reason to its limit', function () {
     $post = Post::factory()->published()->create();
 
-    $this->actingAs($admin);
-
     Livewire::test(ListPosts::class)
-        ->assertTableActionDoesNotExist('delete');
-
-    $this->assertNotSoftDeleted('posts', ['id' => $post->id]);
+        ->call('askToHide', $post->id)
+        ->set('reason', str_repeat('r', ListPosts::REASON_LIMIT + 1))
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'max'])
+        ->set('reason', 'ok')
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'min']);
 });
 
-it('shows author-deleted posts labeled and with no moderation actions', function () {
-    $admin = User::factory()->admin()->create();
-    $owner = User::factory()->create();
-    $post = Post::factory()->published()->for($owner)->create();
+it('says so, and does nothing, when the post changed meanwhile', function () {
+    $post = Post::factory()->published()->create();
+    $page = Livewire::withQueryParams(['status' => 'published'])->test(ListPosts::class);
+    app(HidePostAction::class)->handle(User::factory()->moderator()->create(), $post, 'Elsewhere');
 
-    app(DeletePostAction::class)->handle($owner, $post);
+    $page->call('approve', $post->id)
+        ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
 
-    $this->actingAs($admin);
-
-    Livewire::test(ListPosts::class)
-        ->filterTable('author_deleted')
-        ->assertCanSeeTableRecords([$post])
-        ->assertSee('Deleted by author')
-        ->assertTableActionHidden('approve', $post)
-        ->assertTableActionHidden('reject', $post)
-        ->assertTableActionHidden('hide', $post)
-        ->assertTableActionHidden('restore', $post);
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden);
 });
 
-it('excludes malformed legacy soft-deleted rows from the audit listing', function () {
-    $admin = User::factory()->admin()->create();
-
-    $live = Post::factory()->pending()->create();
-
-    // Legacy shape: soft-deleted without the Deleted status transition.
+it('never acts on a post the list does not hold', function () {
     $legacy = Post::factory()->pending()->create();
     Post::query()->whereKey($legacy->id)->update(['deleted_at' => now()]);
 
-    $this->actingAs($admin);
+    Livewire::test(ListPosts::class)->call('approve', $legacy->id)->assertNotDispatched('rg-admin-toast');
 
-    $trashedLegacy = Post::withTrashed()->findOrFail($legacy->id);
-
-    Livewire::test(ListPosts::class)
-        ->assertCanSeeTableRecords([$live])
-        ->assertCanNotSeeTableRecords([$trashedLegacy]);
-
-    // The malformed row stays out of the filtered audit view as well.
-    Livewire::test(ListPosts::class)
-        ->filterTable('author_deleted')
-        ->assertCanNotSeeTableRecords([$trashedLegacy]);
-});
-
-it('never offers moderation restore as author restore on deleted rows', function () {
-    // The moderation restore action targets Hidden posts only; an
-    // author-deleted row must not resurrect through the admin table.
-    $admin = User::factory()->admin()->create();
-    $owner = User::factory()->create();
-    $post = Post::factory()->published()->for($owner)->create();
-
-    app(DeletePostAction::class)->handle($owner, $post);
-
-    $this->actingAs($admin);
-
-    Livewire::test(ListPosts::class)
-        ->assertTableActionHidden('restore', $post);
-
-    expect(Post::withTrashed()->findOrFail($post->id)->trashed())->toBeTrue();
+    expect(Post::withTrashed()->findOrFail($legacy->id)->status)->toBe(PostStatus::Pending);
 });
