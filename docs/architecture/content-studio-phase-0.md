@@ -5,7 +5,9 @@
 модели, Actions, сервисы, политики, механизмы публикации, модерации, обработки
 изображений, голосования и фоновых заданий переиспользуются, что требует точечного
 расширения и что придётся создать. Код приложения, миграции, интерфейс, зависимости и
-инфраструктура в рамках этапа не менялись.
+инфраструктура в рамках этапа не менялись. Редакция от 17 октября 2026 учитывает
+окончательные архитектурные решения, принятые после обсуждения первой версии аудита;
+фактическая инвентаризация кода сохранена, изменены выводы и приоритеты этапов.
 
 Как читать документ:
 
@@ -17,7 +19,20 @@
 - Решения из постановки (персоны как роль в `users`, ручное создание контента,
   исторические даты через доверенный внутренний механизм, переиспользование
   `MediaAsset`, отказ от универсальной системы ИИ, отложенная география) приняты как
-  данность и не пересматриваются.
+  данность и не пересматриваются. Документ различает три вида утверждений:
+  **утверждённые решения** (помечены «решение»), **конкретные изменения существующего
+  кода**, необходимые для реализации (раздел C и этапы раздела F), и **будущие
+  возможности**, отложенные до своего этапа. Предварительные предложения по именам
+  таблиц, полей, статусов и классов помечены как «предложение» и не являются
+  техническим контрактом.
+- Главный принцип: Content Studio — не отдельная социальная платформа и не независимый
+  механизм публикации, а административная система подготовки и исполнения действий от
+  имени управляемых пользовательских аккаунтов. Она использует существующие `User`,
+  `Post`, `Comment`, `PostVote`, `CommentVote`, `RatingVote`, существующие Actions
+  публикаций, комментариев, голосований и модерации, систему `MediaAsset`, Laravel Queue
+  на Redis, Scheduler, PostgreSQL и Admin v2. Новое создаётся только там, где
+  существующего действительно нет. Сначала — работающие Personas, создание публикаций
+  и обсуждений через UI; не универсальная инфраструктура на годы вперёд.
 - Версии: `laravel/framework v13.35.0`, `filament/filament v5.10.1`,
   `livewire/livewire v4.4.7` (`composer.lock`). Основная СУБД на staging/production —
   PostgreSQL 18; SQLite и MariaDB — цели совместимости в CI
@@ -74,13 +89,54 @@ GenerateMediaVariantsJob` не зависит от `Post` и годится дл
 - Лимиты скорости по пользователю (загрузка 5/600 с, комментарии 10/60 с, голоса
   60/60 с) применяются к персонам как к обычным пользователям.
 
-**Рекомендуемая последовательность** (раздел F): (1) роль `Persona` и закрытие проверок
-персонала и входа; (2) настройки персоны и раздел Personas с реальным созданием и
-редактированием — первый функциональный этап; (3) доверенные расширения существующих
-Actions: исторические даты, готовый ассет, флаги уведомлений, идемпотентный режим
-голосов, ссылка черновика в `MediaReferenceChecker`; (4) планы публикаций и редактор;
-(5) очередь действий и исполнитель; (6) подготовленное обсуждение и зависимости; далее
-правила ответов, интеграция OpenAI и общий анализ SFW/NSFW.
+**Утверждённые архитектурные решения** (подробно в разделе E):
+
+- Персона остаётся ролью `UserRole::Persona` в `users`; отдельного измерения
+  `account_type` и новой системы ролей нет. Все проверки вида `role !== UserRole::User`,
+  определяющие административные полномочия, заменяются явной проверкой
+  `Admin`/`Moderator`.
+- Синтетический email персоны — только технический идентификатор; он никогда не
+  считается подтверждённым. Персона не получает пароль, не подтверждает почту, не
+  сбрасывает пароль и не привязывает OAuth. Право публиковать даёт утверждение плана
+  администратором: исполнитель создаёт пост существующим `CreatePostAction`
+  (для персоны он ложится в `Pending`) и в той же транзакции одобряет его существующим
+  `ApprovePostAction` от имени утвердившего администратора, сохраняя нужную дату
+  публикации.
+- Одно запланированное действие = одна строка PostgreSQL = одно логическое задание
+  Laravel Queue с единственным аргументом — id действия. Каждое действие атомарно само по
+  себе; одной транзакции на весь план нет. Зависимости задают порядок; независимые
+  действия друг на друга не влияют. Первая версия работает на существующем одиночном
+  воркере каждого окружения без новых очередей, процессов и изменений Supervisor.
+- Гарантия — однократное применение результата к доменным данным PostgreSQL (блокировки,
+  транзакции, проверка состояния действия, уникальные ограничения), а не «exactly-once
+  execution» очереди: Redis допускает повторную доставку, и внешние эффекты
+  (уведомления, файлы, обращения к ИИ) гарантией не покрываются.
+- Защита от повторной доставки и обработка уже существующего голоса — задачи исполнителя
+  и предпроверки плана; универсальный режим «обеспечить голос» в существующие Actions не
+  вводится, публичное поведение голосования не меняется.
+- Временный сбой родителя не отменяет дочерние действия: они ждут. Отмена только при
+  окончательной невозможности или по решению администратора. Зависшие
+  `dispatched`/`running` обнаруживаются и восстанавливаются; попытки ограничены.
+- Существующий плавный деплой (`queue:restart`, завершение текущего задания, замена
+  процесса Supervisor) сохраняется; задания Content Studio переносят только id и читают
+  состояние из PostgreSQL; включение новых заданий — только после готовности воркера
+  соответствующей версии.
+- Исторические даты записываются в обычные поля `created_at`/`updated_at`/`published_at`
+  создаваемых постов, комментариев и голосов; реальное время исполнения хранится в
+  журнале действий. Сохранение исторического `updated_at` навсегда не обещается.
+- OpenAI нужен уже при подготовке публикации (анализ фотографии, варианты текстов, затем
+  обсуждение) и появляется сразу после планов с черновиком изображения; универсальный
+  AI Engine, реестр моделей и общий мониторинг расходов отложены.
+- SFW/NSFW — самостоятельная подсистема с отдельным выбором модели, общая для
+  пользовательских загрузок и Content Studio; география и история входов — отдельное
+  направление вне MVP.
+
+**Последовательность этапов** (раздел F): Phase 1 Personas с полноценным UI →
+Phase 2 планы публикаций и черновик с изображением → Phase 3 OpenAI: анализ изображения
+и тексты → Phase 4 публикация, исторические даты, исполнитель с восстановлением и
+безопасным деплоем → Phase 5 генерация обсуждения → Phase 6 голоса и рейтинги →
+Phase 7 общая классификация SFW/NSFW (может быть выполнена раньше, после готовности
+медиа-пути) → Phase 8 автоматические ответы → Phase 9 очистка и доводка.
 
 ---
 
@@ -94,7 +150,7 @@ Actions: исторические даты, готовый ассет, флаг�
 | Пользователи | `app/Policies/UserPolicy.php:45-75` | `canSanction`: активный админ управляет любым не-админом; `markTrusted` только для `User` | Админ сможет редактировать и санкционировать персон без изменений политики |
 | Пользователи | `app/Actions/Users/UpdateUserAccountAction.php:31-64` | Админская правка name/username/email/role/trust/password под парной блокировкой `LocksAndAuthorizesModerationPair` | База для редактирования персоны; нужны ограничения на пароль и переходы роли |
 | Пользователи | `app/Console/Commands/CreateAdminUserCommand.php:62-69` | Единственный не-регистрационный путь создания пользователя (`User::create` с ролью и статусом) | Образец для `CreatePersonaAction`; его allow-list в `tests/Feature/Architecture/UserLifecycleWriteBoundaryTest.php:17-23` |
-| Пользователи | `app/Actions/Auth/RegisterSocialUserAction.php:48-64` | Создание аккаунта без пароля (`'password' => null`), `email_verified_at` по подтверждению провайдера | Образец «аккаунт без пароля с подтверждённым email» для персон |
+| Пользователи | `app/Actions/Auth/RegisterSocialUserAction.php:48-64` | Создание аккаунта без пароля (`'password' => null`), `email_verified_at` только по подтверждению провайдера | Образец «аккаунт без пароля» для персон; `email_verified_at` у персоны остаётся пустым (решение) |
 | Пользователи | `app/Actions/Users/GenerateUniqueUsernameAction.php`, `app/Actions/Auth/Concerns/CreatesUserWithUniqueUsername.php` | Генерация уникального `username` с повтором при коллизии | Генерация handle персоны |
 | Пользователи | `app/Actions/Profile/AnonymizeUserAccountAction.php:63-89, 186-189` | Tombstone; email вида `deleted-{id}-{uuid}@deleted.invalid` (RFC 2606); сбрасывает роль в `User` (`:83`) | Образец немаршрутизируемого адреса для персон; решение о роли при удалении персоны |
 | Пользователи | `app/Actions/Profile/UpdateUserProfileAction.php:39-41, 64-82, 100-105` | Аватар: `ImageUploadStorer` → `MediaAssetCreator(Avatar)` → `users.avatar_asset_id`, soft-delete прежнего, `GenerateMediaVariantsJob` | Пять шагов переносятся в админский Action установки аватара персоны |
@@ -106,7 +162,7 @@ Actions: исторические даты, готовый ассет, флаг�
 | Публикации | `app/Actions/Posts/CreatePostAction.php:44-174` | Единственный путь создания поста: policy `create`, лимит `upload`, файл до транзакции, `lockActor`, статус по доверию и email/роли (`:88-91`), `MediaAssetCreator`, `Post::create` без `created_at` (`:97-106`), job подписчикам при `Published` (`:136-147`), варианты `afterCommit()` (`:149-171`) | Вызывается исполнителем без изменений логики; расширяется DTO |
 | Публикации | `app/Data/Posts/CreatePostData.php:8-28` | Readonly DTO: title, description, sourceUrl, tagIds, `?UploadedFile $image`, `ImageInputSource`, categoryId, authorAnswerOptionIds; единственный конструктор в `app/Livewire/Feed/UploadPostForm.php:106-115` | Добавляются необязательные доверенные поля (даты, `imageAssetId`, флаг уведомлений) |
 | Публикации | `app/Models/Post.php` | `$guarded = []` (`:33`); `scopePublished` (`:48-51`); `canReceiveVotes/Comments/RatingVotes` = не trashed и `Published` (`:89-112`); наблюдателей нет | Явно переданные `created_at`/`published_at` сохраняются Eloquent без изменений модели; предикаты доступности для отмены зависимостей |
-| Публикации | `app/Actions/Moderation/ApprovePostAction.php:41-45, 88-97` | `published_at = $locked->published_at ?? now()`; job подписчикам | Историческая `published_at` сохраняется при одобрении; персоны должны публиковаться сразу, чтобы одобрение не требовалось |
+| Публикации | `app/Actions/Moderation/ApprovePostAction.php:27-98` | Из `Pending` в `Published` под блокировкой поста, `published_at = $locked->published_at ?? now()` (`:43`), лог `ApprovePost`, `PostApprovedNotification` автору, job подписчикам | Путь публикации персоны: исполнитель одобряет созданный `Pending`-пост от имени утвердившего администратора; нужен доверенный необязательный параметр даты публикации вместо `now()` |
 | Публикации | `app/Actions/Ranking/RecalculatePostScoreAction.php:14-31`, `app/Support/Ranking/HotScoreCalculator.php:17-35` | Hot score от `posts.created_at` и счётчиков; при создании не вычисляется (`hot_score` остаётся 0) | Исполнитель вызывает после создания исторического поста |
 | Публикации | `app/Actions/Counters/RecalculatePostCountersAction.php:13-48` | Полный пересчёт голосов под блокировкой строки поста | Без изменений |
 | Публикации | `app/Queries/Feed/FeedQuery.php:82-87` | «Новое» упорядочено по `published_at DESC, created_at DESC, id DESC` | Исторический пост занимает хронологическое место автоматически |
@@ -118,13 +174,13 @@ Actions: исторические даты, готовый ассет, флаг�
 | Комментарии | `app/Models/Comment.php:24, 97-108` | `$guarded = []`; `canReceiveVotes()`; `isStructuralTombstone()` | Исторические даты через `create`; предикаты отмены |
 | Комментарии | `app/Queries/Comments/CommentListQuery.php:26-29, 40-41` | Корни по `created_at DESC, id DESC`; ответы `created_at ASC, id ASC` | Историческая дата ставит комментарий в правильное место |
 | Комментарии | `app/Actions/Comments/HideCommentAction.php`, `DeleteCommentAction.php` | Скрытие/удаление не трогает детей; корень становится структурным tombstone | Модерация сохраняется; зависимые действия отменяет исполнитель по предикатам |
-| Голоса | `app/Actions/Votes/VotePostAction.php:30-103` | Переключатель: существующий голос удаляется, иначе создаётся (`:86-94`); пересчёт счётчиков и hot score в транзакции | Нужен режим «обеспечить голос» |
-| Голоса | `app/Actions/Votes/VoteCommentAction.php:27-116` | Тот же тип → удалить, другой → обновить (`:100-112`); проверка «не свой комментарий» (`:41-43`, `:89-92`) | Нужен режим «обеспечить голос» |
-| Голоса | `app/Actions/Rating/VoteRatingOptionAction.php:27-115` | `upsert` по `(user_id, post_id, rating_group_id)`; повтор с тем же вариантом — без изменений; `created_at` сохраняется при конфликте (`:96-107`) | Идемпотентен уже сейчас; `created_at => now()` параметризуется |
+| Голоса | `app/Actions/Votes/VotePostAction.php:30-103` | Переключатель: существующий голос удаляется, иначе создаётся (`:86-94`); прямой голос «вниз» без предшествующего «вверх» допустим; пересчёт счётчиков и hot score в транзакции | Вызывается исполнителем как есть; защита от повтора — статус действия, проверка существующего голоса — предпроверка плана и исполнитель (раздел E); на этапе голосований потребуется только необязательный параметр даты |
+| Голоса | `app/Actions/Votes/VoteCommentAction.php:27-116` | Тот же тип → удалить, другой → обновить (`:100-112`); проверка «не свой комментарий» (`:41-43`, `:89-92`) | Так же: публичное поведение не меняется |
+| Голоса | `app/Actions/Rating/VoteRatingOptionAction.php:27-115` | `upsert` по `(user_id, post_id, rating_group_id)`; повтор с тем же вариантом — без изменений; `created_at` сохраняется при конфликте (`:96-107`) | Идемпотентен уже сейчас; на этапе голосований `created_at => now()` получает необязательный параметр даты |
 | Голоса | `app/Models/PostVote.php:15`, `CommentVote.php:15`, `RatingVote.php:13` | `PostVote` `$guarded = []`; `CommentVote` `$fillable` без `created_at`; `RatingVote` `$fillable = ['rating_option_id']` | Для исторических дат `CommentVote` требует `forceFill()` |
 | Голоса | Миграции `2026_05_14_185608...:16`, `2026_05_26_000004...:18`, `2026_06_05_000003...:26` | Уникальные индексы `(post_id,user_id)`, `(comment_id,user_id)`, `(user_id,post_id,rating_group_id)`; все FK `restrictOnDelete` | Страховка от дубликатов при повторной доставке |
 | Голоса | `app/Support/AbuseGuards/ActionRateLimiter.php:10-24`, `config/rate_limits.php` | Ключ `rate-limit:{action}:user:{id}`, срабатывает до транзакции; голоса 60/60 с общим ведром | Пейсинг исполнителя или отдельный ключ (вопрос H) |
-| Медиа | `app/Support/Media/ImageUploadStorer.php:27-37` | `UploadedFile` → `ImageIngestor::ingest` → `MediaStorage::storeNormalized` → `StoredMedia` | Сохранение фотографии черновика тем же вызовом с `MediaStoreRequest::forPostImage($personaId)` |
+| Медиа | `app/Support/Media/ImageUploadStorer.php:27-37`, `app/Services/Media/MediaPathGenerator.php:35-37` | `UploadedFile` → `ImageIngestor::ingest` → `MediaStorage::storeNormalized` → `StoredMedia`; путь изображения поста `media/post-images/Y/m/{uuid}` не содержит владельца (в отличие от аватара) | Сохранение фотографии черновика тем же вызовом; смена автора плана не требует перезагрузки файла |
 | Медиа | `app/Services/Media/ImageIngestor.php`, `GdImageIngestor.php`, `ImageIngestPolicy.php`, `config/uploads.php` | Проверка формата по содержимому, лимиты (5120 KB, 6000×6000, 16 MP), EXIF-поворот, перекодирование, очистка метаданных | Без изменений; единственная граница для всех пользовательских изображений |
 | Медиа | `app/Support/Media/MediaAssetCreator.php:23-50` | Строка `media_assets` со `status => Ready`, `visibility => Public`, `owner_user_id` | Создание ассета черновика; точка для будущего SFW/NSFW |
 | Медиа | `app/Services/Media/MediaStoreRequest.php:23-45` | `forPostImage(?int $ownerUserId)`, `forAvatar(int $ownerUserId)` | Без изменений |
@@ -137,10 +193,11 @@ Actions: исторические даты, готовый ассет, флаг�
 | Фон | `config/queue.php:16`, `infrastructure/templates/environment/*.env.example`, `infrastructure/config/environment-contract.json` (`QUEUE_CONNECTION`) | По умолчанию `database`, локально `sync`; на всех целях `QUEUE_CONNECTION=redis` | Исполнитель работает на существующем Redis-воркере |
 | Фон | `infrastructure/config/supervisor/rateguru-staging-queue.conf:6,9`, `infrastructure/scripts/install-bootstrap-services:1091`, `infrastructure/config/deployment-targets.json` | Один процесс `queue:work redis --queue=<цель> --sleep=3 --tries=3 --timeout=120 --max-time=3600 --max-jobs=1000`; имена очередей `rateguru-staging`, `rateguru-tits-guru` | Диспетчеризуем в очередь по умолчанию цели; отдельная очередь — инфраструктурная задача |
 | Фон | `infrastructure/config/cron/rateguru-staging-scheduler:4`, `install-bootstrap-services:1147`, `routes/console.php:16-38` | cron `schedule:run` каждую минуту; пять ежедневных команд с `withoutOverlapping()` | Добавляется ежеминутная команда диспетчера |
-| Фон | `infrastructure/scripts/deploy:450-562` | `queue:restart` обязателен при деплое | Без изменений |
-| Фон | `config/cache.php:18`, `database/migrations/0001_01_01_000001_create_cache_table.php` | Кеш по умолчанию `database`; таблица `cache_locks` существует | Блокировки исполнителя по образцу медиа |
-| Фон | `app/Services/Media/MediaVariantWriter.php:114-130`, `MediaLifecycleService.php:266-275`, `app/Jobs/RunMediaAuditJob.php:44-55` | Атомарные блокировки `Cache::store('database')->getStore()->lock(...)`, неблокирующий `get()` + `finally release()` | Шаблон блокировки «одно действие — один исполнитель» |
-| Фон | `app/Support/Translations/Generation/ProjectTranslationGenerationStore.php:235-257`, `app/Jobs/Translations/GenerateProjectTranslationChunkJob.php:36-49, 73-77, 164-179` | Claim «только queued можно забрать» под блокировкой; `tries = 1`, `timeout = 75` < `retry_after 90` < воркер 120; `failed()` помечает состояние | Прямой образец exactly-once для исполнителя действий |
+| Фон | `infrastructure/scripts/deploy:450-562, 1945-1961, 1989-1995`, `tests/Feature/Architecture/DeployTest.php:893` | Релизная схема: `config:cache` → `view:cache` → `migrate --force` → `list --raw` → `queue:restart`; `current` переключается атомарно (`ln -sfn` + `mv -Tf`); `queue:restart` обязателен при работающем воркере, перезапуск плавный: воркер завершает текущее задание и выходит, Supervisor поднимает процесс нового релиза (комментарий `:515-536`) | Без изменений; исполнитель проектируется под эти правила (раздел E8) |
+| Фон | `config/cache.php:18`, `database/migrations/0001_01_01_000001_create_cache_table.php` | Кеш по умолчанию `database`; таблица `cache_locks` существует | Для исполнителя не требуется, если достаточно транзакций и блокировок PostgreSQL (решение) |
+| Фон | `app/Services/Media/MediaVariantWriter.php:114-130`, `MediaLifecycleService.php:266-275`, `app/Jobs/RunMediaAuditJob.php:44-55` | Атомарные блокировки `Cache::store('database')->getStore()->lock(...)`, неблокирующий `get()` + `finally release()` | Образец на случай, если понадобится блокировка вне строки; в первой версии исполнителя не используется |
+| Фон | `app/Support/Translations/Generation/ProjectTranslationGenerationStore.php:235-257`, `app/Jobs/Translations/GenerateProjectTranslationChunkJob.php:36-49, 73-77, 164-179` | Claim «только queued можно забрать» под блокировкой; `tries = 1`, `timeout = 75` < `retry_after 90` < воркер 120; `failed()` помечает состояние | Образец однократного применения результата и контракта тайм-аутов для исполнителя действий |
+| Фон | `app/Actions/Import/ImportFromUrlAction.php:35-37`, `app/Support/Settings/ProjectSettingsManager.php:45` | Feature-флаг проекта (`featureEnabled('allow_url_imports')`) с умолчанием в менеджере настроек | Образец выключателя для безопасного включения диспетчера после деплоя |
 | Фон | `app/Models/Concerns/LocksActorForWrite.php`, `LocksUsersInOrder.php`, `app/Services/Posts/PostRetentionPurgeService.php:49-90` | `lockForUpdate` + перепроверка состояния как compare-and-set | Claim строки действия под блокировкой |
 | Фон | `app/Actions/Posts/TogglePostSaveAction.php:87-100`, `CreatesUserWithUniqueUsername.php:37-58` | Уникальное ограничение как идемпотентный барьер (`UniqueConstraintViolationException`) | Страховка для голосов |
 | Фон | `app/Models/FailedJob.php`, `app/Services/Media/FailedMediaJobReader.php` | Чтение `failed_jobs` для медиа-заданий; повтор — свежая диспетчеризация, не `queue:retry` | Тот же подход для Action queue (повтор — бизнес-решение администратора) |
@@ -171,48 +228,52 @@ Actions: исторические даты, готовый ассет, флаг�
 ## C. Required Extensions
 
 Приоритет: **К** — критично (без этого персона ломает или компрометирует существующее),
-**В** — высокий (нужно для первого функционального этапа или исполнителя),
-**С** — средний, **Н** — низкий. Этапы соответствуют разделу F.
+**В** — высокий (нужно для завершения своего этапа), **С** — средний, **Н** — низкий.
+Этап — номер Phase из раздела F; расширение существующего кода вносится на том этапе,
+где появляется его потребитель, а не заранее. Имена новых классов, таблиц и полей —
+предложения.
 
 | Компонент | Текущая проблема или ограничение | Точное необходимое изменение | Приоритет | Будущий этап |
 |---|---|---|---|---|
-| `app/Enums/UserRole.php:5-10` | Нет роли персоны | `case Persona = 'persona'`; желательно `isStaff(): bool` и `label(): string`, чтобы убрать рукописные карты меток | К | 1 |
+| `app/Enums/UserRole.php:5-10` | Нет роли персоны | `case Persona = 'persona'` (решение: `User`, `Persona`, `Moderator`, `Admin`); желательно `isStaff(): bool` и `label(): string`, чтобы убрать рукописные карты меток | К | 1 |
 | `app/Filament/Resources/Users/Pages/ListUsers.php:161-168` | `roleLabel()` — `match` без `default`; падает `UnhandledMatchError` на первой персоне в списке | Добавить ветку `UserRole::Persona => 'Persona'` (или `UserRole::label()`) | К | 1 |
 | `app/Filament/Resources/Users/Pages/ListUsers.php:149` | `'staff' => $person->role !== UserRole::User` — персона получит бейдж персонала | `in_array($person->role, [UserRole::Admin, UserRole::Moderator], true)` или `isStaff()` | К | 1 |
-| `app/Filament/Resources/Users/Pages/ListUsers.php:118-123` | Фильтр ролей захардкожен тремя значениями; `normalize()` (`:174`) уже примет `?role=persona` | Добавить вариант `Persona` в список фильтра | В | 1 |
-| `app/Filament/Resources/Users/Pages/EditUser.php:222, 130` | `Rule::enum(UserRole::class)` сделает `persona` допустимым значением сохранения в обе стороны | Явный список допустимых ролей для цели (`Rule::in([...])`); переход `user ↔ persona` через эту страницу запретить | К | 1 |
-| `app/Filament/Resources/Users/Pages/EditUser.php:198-203`, `resources/views/filament/pages/user.blade.php:82, 191, 201` | Карты `roles`/`roleHelp` без персоны; диалог подтверждения индексирует `$roles[$role]` → undefined key на странице персоны | Добавить метку и подсказку персоны; для персоны показывать роль только для чтения | К | 1 |
+| `app/Filament/Resources/Users/Pages/ListUsers.php:118-123` | Фильтр ролей захардкожен тремя значениями; `normalize()` (`:174`) уже примет `?role=persona` | Добавить вариант `Persona` в список фильтра — так персоны находятся через обычный раздел Users (решение) | В | 1 |
+| `app/Filament/Resources/Users/Pages/EditUser.php:222, 130` | `Rule::enum(UserRole::class)` сделает `persona` допустимым значением сохранения в обе стороны | Явный список допустимых ролей для цели (`Rule::in([...])`); переход `user ↔ persona` через эту страницу запретить — персоны создаются и редактируются только в Content Studio | К | 1 |
+| `app/Filament/Resources/Users/Pages/EditUser.php:198-203`, `resources/views/filament/pages/user.blade.php:82, 186-201` | Карты `roles`/`roleHelp` без персоны; диалог подтверждения индексирует `$roles[$role]` → undefined key | Добавить метку и подсказку персоны; для персоны роль только для чтения, ссылка на редактор персоны в Content Studio | К | 1 |
 | `resources/views/filament/pages/user.blade.php:92-109`, `app/Actions/Users/UpdateUserAccountAction.php:56-58` | Админ может задать пароль любому аккаунту, что откроет персоне вход по паролю | В Action: для персоны пароль всегда `null`, попытка задать — исключение; карточку пароля скрыть | К | 1 |
-| `app/Actions/Posts/CreatePostAction.php:88-89` | `role !== UserRole::User` освобождает персону от подтверждённого email как «персонал» | Заменить на явную проверку персонала (метод модели или Policy); персоны получают `email_verified_at` при создании и публикуются сразу по доверию и подтверждённому email | К | 1 |
+| `app/Actions/Users/UpdateUserAccountAction.php:44-54` | Смена email сбрасывает `email_verified_at`; для персоны email — технический идентификатор | Для персоны email не редактируется через эту страницу (или только синтетический домен); никакого проставления `email_verified_at` | В | 1 |
+| `app/Actions/Posts/CreatePostAction.php:88-89` | `role !== UserRole::User` трактует персону как персонал и освобождает от подтверждённого email | Заменить на явную проверку `Admin`/`Moderator` (метод модели/Policy). Для персоны результат — `Pending`; это ожидаемо: публикует её утверждение плана через `ApprovePostAction` (раздел E9). Никакого обхода через ложный персонал или фиктивную верификацию | К | 1 |
 | `app/Filament/Resources/Posts/Pages/ListPosts.php:553` | Та же трактовка в подписи доверия | Зеркально поправить | С | 1 |
-| `app/Models/User.php:151-154`, `AuthenticateUserAction.php:41`, `ResolveSocialLoginAction.php:70, 90`, `ClaimAccountWithVerifiedEmailAction.php:57`, `LinkSocialAccountAction.php:51`, `ResetPasswordAction.php:34`, `EnsureAccountIsNotTombstoned.php:28` | Все гейты входа статусные: активная персона с паролем, OAuth-идентичностью или подтверждённым провайдером email войдёт | Ввести ролевой предикат входа (например `User::canSignIn()` = `canAuthenticate() && role !== Persona`) и применить во всех семи точках; не переопределять `canAuthenticate()`, он нужен персонам для записей настроек | К | 1 |
-| `app/Models/User.php` (`sendPasswordResetNotification` не переопределён), `SendPasswordResetLinkAction.php:12` | `Password::sendResetLink` создаст токен и отправит письмо на синтетический адрес персоны | Переопределить `sendPasswordResetNotification()` как no-op для персон (или гейт в Action) | В | 1 |
-| `tools/phpstan/src/Rules/NoDirectControllerPermissionCheckRule.php:22-35` | Список методов, запрещённых в презентации, не знает новых предикатов | Добавить `isPersona()`/`canSignIn()`; презентация ходит через Gate/Policy | С | 1 |
-| `docs/architecture/user-lifecycle.md:9-27`, `tests/Unit/Enums/UserRoleTest.php` и тесты из раздела G | Таблица роль×статус и тесты перечисляют три роли | Добавить строку Persona и регрессионные случаи (вход запрещён всеми путями, панель закрыта, список/страница рендерятся) | К | 1 |
-| Создание управляемого аккаунта | Нет Create-страницы (`UserResource::getPages()` — `index`, `edit`) и нет Action создания пользователя из админки | `CreatePersonaAction` по образцу `CreateAdminUserCommand`/`RegisterSocialUserAction`: `password => null`, синтетический email на зарезервированном домене (`*.invalid`), `email_verified_at => now()`, `status` по умолчанию, без события `Registered`; страница Personas (список + создание + редактирование) в секции Content Studio | В | 2 |
-| Настройки персоны | В `users` нет колонок характера, манеры речи, тем, ограничений, интенсивности, дневного лимита | Новая таблица `persona_profiles` (1:1 к `users`), модель и Action обновления; аватар — существующий `users.avatar_asset_id`, публичное описание — `users.bio` | В | 2 |
-| Аватар персоны | `UpdateUserProfileAction` — только self-service (`canUpdateProfile()` актора, поля профиля из валидации) | Админский Action установки аватара, повторяющий пять шагов (`:39-41, 67-72, 82, 105`) | В | 2 |
-| `app/Filament/Support/AdminNavigationGroup.php`, `AdminShellNavigation::ICONS`, `resources/views/components/admin/ui/icon.blade.php`, `tests/Feature/Admin/AdminShellTest.php:37-44, 259-285`, `tests/Unit/Filament/AdminNavigationGroupTest.php:14-23` | Нет секции Content Studio; тесты закрепляют точный список секций и 13 destination; в реестре иконок нет `newspaper`, `messages-square`, `scroll-text`, `list-checks` | Константа `CONTENT_STUDIO` в `all()`, иконки для пяти экранов (геометрия Lucide в реестр), обновить `toHaveCount`, карту `ICONS` и список секций; по чеклисту UI пункт навигации без готовой страницы запрещён — добавлять по мере появления экранов | В | 2 |
-| `docs/design/admin/migration-plan.md`, `tests/Feature/Docs/AdminDesignDocsTest.php:249-266` | Content Studio в плане миграции не упомянут; тест закрепляет строки таблицы «remaining sections» и отсутствие строки `| 9 | Dashboard |` | Дополнить план разделом Content Studio своим изменением и синхронно обновить тест | С | 2 |
-| `app/Actions/Profile/AnonymizeUserAccountAction.php:83` | При удалении роль сбрасывается в `User`; админского пути удаления нет | Решить, сохраняется ли `Persona` у tombstone; при необходимости — админский Action вывода персоны из эксплуатации | Н | 2+ |
-| `app/Data/Posts/CreatePostData.php:10-27`, `CreatePostAction.php:91, 97-106` | Нет исторических `created_at`/`updated_at`/`published_at` | Необязательные поля DTO (`?CarbonImmutable`); `$publishesAtOnce ? ($data->publishedAt ?? now()) : null`; `created_at`/`updated_at` в массив `Post::create` при наличии (модель `$guarded = []`) | В | 3 |
-| `CreatePostData`, `CreatePostAction.php:66-68, 93-95` | Нет создания поста из готового `MediaAsset` | `?int $imageAssetId` (взаимоисключим с `$image`); при наличии — пропустить `ImageUploadStorer`, загрузить ассет под `lockForUpdate()`, проверить `kind = PostImage`, `status = Ready`, не trashed, принадлежность; `StoredMediaCleaner` не затрагивается | В | 3 |
-| `CreatePostAction.php:136-147` | Уведомление подписчикам при каждом `Published` | Флаг `notifyFollowers` в DTO (по умолчанию `true`) | В | 3 |
-| `CreatePostAction.php:138`, `ApprovePostAction.php:89` | `NotifyFollowersAboutNewPostJob::dispatch` без `afterCommit()` — внутри внешней транзакции исполнителя задание уйдёт до фиксации | Добавить `->afterCommit()` | С | 3 |
-| `app/Actions/Comments/AddCommentAction.php:35, 121-127, 135-158`, `CommentReplyService.php:26-45` | Нет исторических дат; уведомление автору поста всегда | Необязательный `?CarbonImmutable $createdAt` и флаг `notify`; прокинуть через `createReply()` | В | 3 |
-| `app/Exceptions/Comments/CannotCommentException.php` | Недоступность цели ответа не отличима от ошибок тела (общий `becauseBodyIsInvalid`) | Отдельная причина `becauseReplyTargetUnavailable()` для трёх точек (`CommentReplyService.php:36`, `AddCommentAction.php:72, 76, 117`) | С | 6 |
-| `app/Actions/Votes/VotePostAction.php:86-94`, `VoteCommentAction.php:100-112` | Переключатель: повтор снимает голос | Режим «обеспечить голос» (параметр с умолчанием, сохраняющим текущее поведение): тот же тип → no-op внутри транзакции, другой → `update`; необязательный `$castAt` для `created_at`; `CommentVote` — через `forceFill()` или расширение `$fillable` | В | 3 |
-| `app/Actions/Rating/VoteRatingOptionAction.php:102-103` | `created_at => now()` в `upsert` | `$castAt ?? now()`; остальное уже идемпотентно | Н | 3 |
-| `ActionRateLimiter` в `CreatePostAction:50-55`, `AddCommentAction:49-58`, `Vote*:45-57` | Лимиты по пользователю срабатывают до транзакции и считают повторы | Решение: пейсинг `run_after` в планировщике или отдельный ключ/флаг доверенного исполнителя с собственной записью в `config/rate_limits.php` | В | 5 |
-| `app/Actions/Ranking/RecalculatePostScoreAction.php` | Не вызывается при создании | Исполнитель вызывает после создания исторического поста (образец `database/seeders/DemoFillSeeder.php:812-823`) | С | 5 |
-| `app/Services/Media/MediaReferenceChecker.php:24-52` | Ссылка только из `posts` и `users`; ассет черновика — «активный неиспользуемый», доступен Release | Добавить третий источник (`studio_plans.image_asset_id`) в `isReferenced()` и `referencedAssetIds()`; обновить `tests/Feature/Services/Media/MediaReferenceCheckerTest.php:69` (2 → 3 запроса) и `docs/architecture/media.md` | В | 4 |
-| `app/Support/Media/MediaAssetCreator.php:47-48` | `status`/`visibility` зашиты (`Ready`/`Public`) | Параметризовать visibility (по умолчанию `Public`); сюда же `->afterCommit()` диспетчеризация будущего анализа SFW/NSFW | С | 9 |
-| Таблицы планов и действий | Нет ничего похожего (полный список таблиц в приложении) | `studio_plans`, `studio_plan_actions` (раздел E) | В | 4, 5 |
-| `routes/console.php:16-38` | Только ежедневные команды; ежеминутных нет | `Schedule::command('studio:dispatch-due')->everyMinute()->withoutOverlapping()` | В | 5 |
-| Job исполнителя | В репозитории нет `ShouldBeUnique`/middleware; есть образец claim-before-run | `ExecuteStudioActionJob`: скалярный id, `tries = 1`, `timeout` ≤ 80 с (при `retry_after` 90), `failOnTimeout`, `failed()`; claim строки под `lockForUpdate` + условный `UPDATE ... WHERE status = 'dispatched'` | В | 5 |
-| Имя очереди | Воркер слушает ровно `--queue=<цель>`; `onQueue()` в коде не используется | Первая версия — очередь по умолчанию цели; выделенная очередь = отдельная инфраструктурная задача (`deployment-targets.json`, `install-bootstrap-services:1091`, `rateguru-staging-queue.conf:6`, `tests/Feature/Architecture/ProvisionTargetTest.php:609-618`, `InstallBootstrapServicesTest.php:2474-2495`) | С | 5 |
-| Комментарии `CreatePostAction.php:161-164`, `UpdateUserProfileAction.php:109-112`, `docs/deployment/queue-worker.md:5, 44` | Утверждают «`QUEUE_CONNECTION=sync` — единственное соединение», что противоречит контракту окружения | Поправить при первом касании файлов | Н | 3 |
-| Клиент OpenAI для Content Studio | Движок переводов принимает только `input_text`, контракт `translateBatch`, тест закрепляет ключи тела (`OpenAiTranslationProviderTest.php:84`) | Отдельный клиент Responses API вне `app/Support/TranslationEngine` с `input_image`, конфиг на фичу, enum ошибок, таблица учёта вызовов, ключи в `environment-contract.json` | С | 8 |
+| `app/Models/User.php:151-154`, `AuthenticateUserAction.php:41`, `ResolveSocialLoginAction.php:70, 90`, `ClaimAccountWithVerifiedEmailAction.php:57`, `LinkSocialAccountAction.php:51`, `ResetPasswordAction.php:34`, `EnsureAccountIsNotTombstoned.php:28` | Все гейты входа статусные: активная персона с паролем, OAuth-идентичностью или подтверждённым провайдером email войдёт | Ввести ролевой предикат входа (например `User::canSignIn()` = `canAuthenticate() && role !== Persona`) и применить во всех семи точках; `canAuthenticate()` не переопределять — он нужен персонам для записей настроек | К | 1 |
+| `app/Models/User.php` (`sendPasswordResetNotification` не переопределён), `SendPasswordResetLinkAction.php:12`, `SendEmailVerificationNotificationAction`, событие `Registered` | `Password::sendResetLink` создаст токен и отправит письмо на синтетический адрес; `Registered` по умолчанию шлёт письмо подтверждения | Переопределить `sendPasswordResetNotification()` как no-op для персон (или гейт в Action); при создании персоны не вызывать `Registered` и не отправлять подтверждение | В | 1 |
+| `tools/phpstan/src/Rules/NoDirectControllerPermissionCheckRule.php:22-35` | Список методов, запрещённых в презентации, не знает новых предикатов | Добавить `isPersona()`/`canSignIn()`/`isStaff()`; презентация ходит через Gate/Policy | С | 1 |
+| `docs/architecture/user-lifecycle.md:9-27`, `tests/Unit/Enums/UserRoleTest.php` и тесты из раздела G | Таблица роль×статус и тесты перечисляют три роли | Добавить строку Persona и регрессионные случаи (вход запрещён всеми путями, панель закрыта, список/страница рендерятся, email не считается подтверждённым) | К | 1 |
+| Создание управляемого аккаунта | Нет Create-страницы (`UserResource::getPages()` — `index`, `edit`) и нет Action создания пользователя из админки | `CreatePersonaAction` по образцу `CreateAdminUserCommand`/`RegisterSocialUserAction`: `password => null`, синтетический уникальный email на зарезервированном домене (`*.invalid`), `email_verified_at => null`, `status` по умолчанию, без события `Registered`; страницы Personas (список, создание, редактирование) в секции Content Studio | В | 1 |
+| Настройки персоны | В `users` нет колонок характера, манеры речи, тем, ограничений, интенсивности, дневного лимита | Новая таблица `persona_profiles` (1:1 к `users`), модель и Action обновления; аватар — существующий `users.avatar_asset_id`, публичное описание — `users.bio`; географических полей не добавлять (решение) | В | 1 |
+| Аватар персоны | `UpdateUserProfileAction` — только self-service (`canUpdateProfile()` актора, поля профиля из валидации) | Админский Action установки аватара, повторяющий пять шагов (`:39-41, 67-72, 82, 105`) | В | 1 |
+| `app/Filament/Support/AdminNavigationGroup.php`, `AdminShellNavigation::ICONS`, `resources/views/components/admin/ui/icon.blade.php`, `tests/Feature/Admin/AdminShellTest.php:37-44, 259-285`, `tests/Unit/Filament/AdminNavigationGroupTest.php:14-23` | Нет секции Content Studio; тесты закрепляют точный список секций и 13 destination; в реестре иконок нет `newspaper`, `messages-square`, `scroll-text`, `list-checks` | Константа `CONTENT_STUDIO` в `all()`, иконки по мере появления экранов (сначала Personas), обновить `toHaveCount`, карту `ICONS` и список секций; пункт навигации без готовой страницы запрещён чеклистом UI | В | 1 |
+| `docs/design/admin/migration-plan.md`, `tests/Feature/Docs/AdminDesignDocsTest.php:249-266` | Content Studio в плане миграции не упомянут; тест закрепляет строки таблицы «remaining sections» и отсутствие строки `| 9 | Dashboard |` | Дополнить план разделом Content Studio своим изменением и синхронно обновить тест | С | 1 |
+| `app/Actions/Profile/AnonymizeUserAccountAction.php:83` | При удалении роль сбрасывается в `User`; админского пути удаления нет | Решить, сохраняется ли `Persona` у tombstone; при необходимости — админский Action вывода персоны из эксплуатации | Н | 1+ |
+| Планы публикаций | Нет ничего похожего (полный список таблиц в приложении) | Таблица `studio_plans` (предложение), модель, Actions создания/обновления/утверждения, редактор Image → Post → Discussion → Publication; автор — только персона (решение) | В | 2 |
+| `app/Services/Media/MediaReferenceChecker.php:24-52` | Ссылка только из `posts` и `users`; ассет черновика — «активный неиспользуемый», доступен Release | Добавить третий источник (`studio_plans.image_asset_id`) в `isReferenced()` и `referencedAssetIds()`; обновить `tests/Feature/Services/Media/MediaReferenceCheckerTest.php:69` (2 → 3 запроса) и `docs/architecture/media.md` | В | 2 |
+| Клиент OpenAI для Content Studio | Движок переводов принимает только `input_text`, контракт `translateBatch`, тест закрепляет ключи тела (`OpenAiTranslationProviderTest.php:84`) | Отдельный минимальный клиент Responses API вне `app/Support/TranslationEngine` с `input_image` и структурированным ответом, конфиг на фичу (ключ, базовый URL, таймауты, модель), enum ошибок, ключи в `environment-contract.json`; минимальный технический учёт допустим, общий мониторинг не является предпосылкой | В | 3 |
+| `app/Data/Posts/CreatePostData.php:10-27`, `CreatePostAction.php:97-106` | Нет исторических `created_at`/`updated_at` | Необязательные доверенные поля DTO (`?CarbonImmutable $createdAt`, `$updatedAt`); при наличии — в массив `Post::create` (модель `$guarded = []`); статусная логика `:88-91` не меняется | В | 4 |
+| `CreatePostData`, `CreatePostAction.php:66-68, 93-95` | Нет создания поста из готового `MediaAsset` | `?int $imageAssetId` (взаимоисключим с `$image`); при наличии — пропустить `ImageUploadStorer`, загрузить ассет под `lockForUpdate()`, проверить `kind = PostImage`, `status = Ready`, не trashed, что на него ссылается исполняемый план и не ссылается другой пост; `StoredMediaCleaner` не затрагивается | В | 4 |
+| `app/Actions/Moderation/ApprovePostAction.php:27, 41-45` | `published_at = $locked->published_at ?? now()` — историческая дата публикации теряется при одобрении | Необязательный доверенный параметр даты публикации: `$locked->published_at ?? $publishedAt ?? now()`; вызывается исполнителем от имени утвердившего администратора сразу после `CreatePostAction` в той же транзакции | В | 4 |
+| `CreatePostAction.php:136-147`, `ApprovePostAction.php:65-97` | Уведомления подписчикам и автору создаются при любой публикации | Флаг подавления уведомлений для исторического контента — после решения вопроса H о политике уведомлений; до него уведомления остаются как есть | С | 4 |
+| `CreatePostAction.php:138`, `ApprovePostAction.php:89` | `NotifyFollowersAboutNewPostJob::dispatch` без `afterCommit()` — внутри внешней транзакции исполнителя задание уйдёт до фиксации | Добавить `->afterCommit()` | В | 4 |
+| `app/Actions/Ranking/RecalculatePostScoreAction.php` | Не вызывается при создании | Исполнитель вызывает после публикации исторического поста (образец `database/seeders/DemoFillSeeder.php:812-823`) | С | 4 |
+| Очередь действий | Нет таблицы действий, диспетчера и исполнителя | Таблица `studio_plan_actions` (предложение), команда диспетчера `everyMinute()->withoutOverlapping()` в `routes/console.php`, Job с единственным id, Action исполнения с транзакционным однократным применением, восстановление зависших и экран Action queue — всё в первом же MR, вводящем исполнитель | В | 4 |
+| Выключатель диспетчера | Старый воркер после `queue:restart` ещё работает и не знает новых классов заданий | Диспетчер выключен по умолчанию и включается существующим механизмом feature-флагов проекта после подтверждения, что воркер нового релиза запущен (образец `ImportFromUrlAction.php:35-37`) | В | 4 |
+| `ActionRateLimiter` в `CreatePostAction:50-55`, `AddCommentAction:49-58`, `Vote*:45-57` | Лимиты по пользователю срабатывают до транзакции и считают повторы | Решение на этапе исполнителя: пейсинг реального времени запуска или отдельный ключ/флаг доверенного исполнителя с собственной записью в `config/rate_limits.php` | В | 4 |
+| Комментарии `CreatePostAction.php:161-164`, `UpdateUserProfileAction.php:109-112`, `docs/deployment/queue-worker.md:5, 44` | Утверждают «`QUEUE_CONNECTION=sync` — единственное соединение», что противоречит контракту окружения | Поправить при первом касании файлов | Н | 4 |
+| `app/Actions/Comments/AddCommentAction.php:35, 121-127, 135-158`, `CommentReplyService.php:26-45` | Нет исторических дат; уведомление автору поста всегда | Необязательный `?CarbonImmutable $createdAt` (и `updated_at` тем же значением), прокинутый через `createReply()`; флаг уведомления — по решению вопроса H | В | 5 |
+| `app/Exceptions/Comments/CannotCommentException.php` | Недоступность цели ответа не отличима от ошибок тела (общий `becauseBodyIsInvalid`) | Отдельная причина `becauseReplyTargetUnavailable()` для трёх точек (`CommentReplyService.php:36`, `AddCommentAction.php:72, 76, 117`), чтобы исполнитель отличал отмену от ошибки | С | 5 |
+| Генерация обсуждения | Клиента для текстов комментариев нет | Расширение клиента OpenAI этапа 3 на генерацию связного дерева с учётом фотографии, текстов и профилей персон; глубина — один уровень ответов (D6) | В | 5 |
+| `app/Actions/Votes/VotePostAction.php:89-93`, `VoteCommentAction.php:107-111`, `app/Actions/Rating/VoteRatingOptionAction.php:102-103`, `app/Models/CommentVote.php:15` | Нет исторических дат голосов; `CommentVote::$fillable` без `created_at` | Необязательный параметр даты в трёх Actions (`CommentVote` через `forceFill()`); режим «обеспечить голос» не вводится — защита от повтора и проверка существующего голоса живут в исполнителе и предпроверке плана (решение) | В | 6 |
+| `app/Support/Media/MediaAssetCreator.php:47-48` | `status`/`visibility` зашиты (`Ready`/`Public`) | Точка подключения общей классификации: параметр visibility (по умолчанию `Public`) и `->afterCommit()`-диспетчеризация задания классификации по id ассета; модель и пакеты выбираются на своём этапе | С | 7 |
+| Правила и журнал ответов | Отсутствуют | `persona_reply_rules` (предложение), детектор триггеров, журнал как строки таблицы действий или отдельная таблица (вопрос H), экраны Reply rules и Reply log | В | 8 |
 
 ---
 
@@ -223,10 +284,11 @@ Actions: исторические даты, готовый ассет, флаг�
 Код не знает понятия «персонал» и в трёх местах выводит его как «не `User`»:
 
 - `app/Actions/Posts/CreatePostAction.php:88-89` — публикация без подтверждённого email
-  для `$lockedActor->role !== UserRole::User`. Персона получит это исключение случайно.
-  Нужная семантика для персон — публиковаться сразу, но через явно заданный
-  `email_verified_at` при создании и `trust_level = 10` (ставится `User::booted()`),
-  а не через лазейку для персонала.
+  для `$lockedActor->role !== UserRole::User`. Персона получила бы это освобождение
+  случайно. Решение: заменить на явную проверку `Admin`/`Moderator`; персона не является
+  персоналом, её пост создаётся как `Pending`, а публикует его утверждение плана
+  (раздел D3, E9). Никакого обхода пользовательских ограничений через ложное
+  определение персоны как сотрудника.
 - `app/Filament/Resources/Users/Pages/ListUsers.php:149` — бейдж персонала.
 - `app/Filament/Resources/Posts/Pages/ListPosts.php:553` — подпись «Email not confirmed»
   только для `User`.
@@ -236,12 +298,15 @@ Actions: исторические даты, готовый ассет, флаг�
 перестанет открываться. На странице персоны в `EditUser` сегментированный контрол роли не
 содержит её значения, а диалог подтверждения смены роли обращается к `$roles[$role]` и
 `$roles[$saved['role']]` (`user.blade.php:186-201`) — undefined key при любой попытке
-сохранить роль. Безопасные места:
-`Sidebar.php:57-61` (есть `default`), `ModerationUsersQuery::staff()` (явный список
-`Moderator`/`Admin`), все Policies (`isAdmin()`/`isModerator()`), `User::canAccessPanel()`.
-`UserRole::cases()` в коде не используется; единственное автоматическое расширение —
-`Rule::enum(UserRole::class)` в `EditUser.php:222` и `UserRole::tryFrom()` в
-`ListUsers.php:103, 124, 174`.
+сохранить роль. Безопасные места: `Sidebar.php:57-61` (есть `default`),
+`ModerationUsersQuery::staff()` (явный список `Moderator`/`Admin`), все Policies
+(`isAdmin()`/`isModerator()`), `User::canAccessPanel()`. `UserRole::cases()` в коде не
+используется; единственное автоматическое расширение — `Rule::enum(UserRole::class)` в
+`EditUser.php:222` и `UserRole::tryFrom()` в `ListUsers.php:103, 124, 174`.
+
+Решение: название `Persona` и роль в `UserRole` остаются; порядок перечисления `User`,
+`Persona`, `Moderator`, `Admin`. Дополнительное измерение `account_type` и новая система
+ролей не вводятся.
 
 ### D2. Авторизация и OAuth
 
@@ -259,19 +324,46 @@ Actions: исторические даты, готовый ассет, флаг�
 Защиты, которые уже есть: `/admin/login` Filament отвергает любого без
 `canAccessPanel()`; `LinkSocialAccountAction.php:80-87` не привяжет идентичность, чей
 email принадлежит другому аккаунту; `RegisterUserAction`/`RegisterSocialUserAction`
-никогда не читают роль из ввода — публичная регистрация персоны невозможна. Требуемые
-изменения перечислены в разделе C (ролевой предикат входа в семи точках, запрет пароля,
-домен `*.invalid` по образцу tombstone).
+никогда не читают роль из ввода — публичная регистрация персоны невозможна.
 
-### D3. Подтверждение email при публикации
+Решение: персона не может самостоятельно авторизоваться ни через обычный вход, ни через
+OAuth; она не получает пароль, не подтверждает почту, не сбрасывает пароль и не привязывает
+OAuth. Требуемые изменения перечислены в разделе C (ролевой предикат входа в семи точках,
+запрет пароля, no-op сброса пароля, синтетический email на зарезервированном домене по
+образцу tombstone).
+
+### D3. Публикация без фиктивной верификации email
 
 Условие публикации сразу: `trust_level >= 10 && (hasVerifiedEmail() || role !== User)`
-(`CreatePostAction.php:88-89`). Иначе пост ложится в `Pending`, `published_at` остаётся
-`null`, и одобрение проставит `published_at = now()` (`ApprovePostAction.php:43`) —
-историческая дата будет потеряна. Следствие: персона должна создаваться с
-`email_verified_at`, а событие `Registered` при её создании не должно отправляться
-(фреймворк по умолчанию шлёт письмо подтверждения; `app/Providers` не содержит
-`EventServiceProvider`). Отдельного «принудительно опубликовать» вводить не нужно.
+(`CreatePostAction.php:88-89`). После замены ролевой части на явную проверку
+`Admin`/`Moderator` пост персоны (email не подтверждён) всегда ложится в `Pending` с
+`published_at = null`.
+
+Решение: не проставлять персоне `email_verified_at` — синтезированный адрес на домене
+`.invalid` не является подтверждённым, и верификация не должна быть способом разрешить
+управляемому аккаунту публикацию. Доверенное разрешение на публикацию — утверждение
+плана администратором. Минимальная интеграция с существующим кодом:
+
+1. Исполнитель вызывает `CreatePostAction::handle($persona, CreatePostData)` с готовым
+   `MediaAsset` и историческими `created_at`/`updated_at`; статусная логика не меняется —
+   пост `Pending`.
+2. В той же транзакции исполнитель вызывает `ApprovePostAction::handle($approvingAdmin,
+   $post, null, $publishedAt)` от имени администратора, утвердившего план:
+   `PostPolicy::approve` проверяет его как модератора (`PostPolicy.php:25-28, 90-96`),
+   `lockAndAuthorizePostModeration` требует статус `Pending` (`ApprovePostAction.php:37`),
+   запись в `moderation_logs` фиксирует одобрение, `published_at` берётся из доверенного
+   параметра вместо `now()` (единственное изменение Action: `$locked->published_at ??
+   $publishedAt ?? now()` в `:43`). Пост никогда не виден как `Pending`: оба шага
+   фиксируются одной транзакцией исполнителя.
+3. Если утвердивший администратор к моменту исполнения потерял права (санкция,
+   понижение), `ApprovePostAction` отвергнет одобрение — действие переходит в класс
+   «неожиданная ошибка» (D11) и ждёт решения администратора.
+
+Публичный API и `UploadPostForm` параметрами административной публикации не расширяются:
+`CreatePostData` конструируется только в `UploadPostForm.php:106-115`, новые поля с
+умолчанием `null` недостижимы из публичных запросов, что закрепляется grep-тестом.
+Событие `Registered` при создании персоны не вызывается (фреймворк по умолчанию шлёт
+письмо подтверждения; `app/Providers` не содержит `EventServiceProvider`).
 
 ### D4. Повторное выполнение голосований
 
@@ -281,34 +373,66 @@ email принадлежит другому аккаунту; `RegisterUserActio
 | `VoteCommentAction` (`:100-112`) | удаляет голос | обновляет тип на месте | нет |
 | `VoteRatingOptionAction` (`:96-109`) | без изменений (`$changed === false`) | обновляет `rating_option_id` | да |
 
+Обычное голосование: `VoteType::Up`/`VoteType::Down`, пользователь может сразу поставить
+голос «вниз», уникальные индексы (`post_votes (post_id, user_id)`, `comment_votes
+(comment_id, user_id)`, `rating_votes (user_id, post_id, rating_group_id)`) не допускают
+двух записей одного пользователя за один объект. Переключатель важен для очереди:
+повторная доставка задания, вызвавшего `VotePostAction`, снимет голос.
+
+Решение: публичное поведение Actions не меняется, режим «обеспечить голос» в них не
+вводится. Защита живёт в исполнителе и предпроверке плана — это две разные задачи:
+
+- **Повторная доставка.** Доменная запись голоса и статус `done` строки действия
+  фиксируются одной транзакцией; повторно доставленное задание видит `done` и Action не
+  вызывает (раздел E5).
+- **Уже существующий голос.** Предпроверка плана отклоняет повторные или конфликтующие
+  запланированные голоса одной персоны по одному объекту. Исполнитель перед вызовом
+  переключателя читает фактический голос под блокировкой: нужный голос уже есть —
+  действие завершается `done` без вызова Action; неожиданный голос противоположного типа
+  — не удаляется и не меняется молча, действие переходит в явную обработку конфликта
+  (класс C, D11) в рамках семантики плана.
+
 Защита «тот же голос → ничего не делать» в публичном UI существует только в
-`app/Livewire/Posts/PostVoting.php:60-64` вне транзакции. Для исполнителя проверка
-должна быть внутри транзакции под `lockForUpdate` строки голоса (раздел E). Запрет
-голосовать за свой контент остаётся: `PostPolicy::vote` (`:73-77`) для постов и
-рейтингов, инлайн-проверка `comment->user_id === user->id` для комментариев
-(`VoteCommentAction.php:41-43, 89-92`). Планировщик обязан не ставить персону голосовать
-за собственный контент — иначе действие завершится исключением.
+`app/Livewire/Posts/PostVoting.php:60-64` вне транзакции и образцом для исполнителя не
+служит. Запрет голосовать за свой контент остаётся: `PostPolicy::vote` (`:73-77`) для
+постов и рейтингов, инлайн-проверка `comment->user_id === user->id` для комментариев
+(`VoteCommentAction.php:41-43, 89-92`); предпроверка плана отклоняет такие действия до
+утверждения. Если на этапе голосований конкретный сценарий потребует небольшого
+расширения доменного Action, оно обосновывается там, а не создаётся заранее.
 
 ### D5. Исторические даты
+
+Решение окончательное: при первоначальном создании `Post.created_at`,
+`Post.updated_at` и `Post.published_at` получают запланированные даты; `Comment.created_at`
+и `updated_at` — запланированную дату; новые `PostVote`, `CommentVote`, `RatingVote` —
+аналогично. Реальное время исполнения хранится в журнале действий. Факты кода:
 
 - Ни один Action не принимает временные метки; `created_at`/`updated_at` ставит Eloquent.
   Модели `Post`, `Comment`, `PostVote` незащищены (`$guarded = []`), поэтому явно
   переданные значения сохраняются без изменений моделей; `CommentVote` и `RatingVote`
   требуют `forceFill()` или `upsert` с явным значением.
-- `updated_at` недолговечен: каждый пересчёт счётчиков, hot score, скрытие или
-  одобрение вызывают `save()` (`RecalculatePostCountersAction.php:39-42`,
-  `RecalculateCommentCountersAction.php`, `HideCommentAction.php:60`). Историческое
-  `updated_at` живёт до первого взаимодействия; в продукте оно не отображается.
+- `updated_at` недолговечен: каждый `save()` при пересчёте счётчиков и hot score, при
+  одобрении, скрытии или восстановлении переписывает его реальным временем
+  (`ApprovePostAction.php:41-45`, `RecalculatePostCountersAction.php:39-42`,
+  `RecalculatePostScoreAction.php:26-28`, `RefreshesPostCommentsCount.php:29`,
+  `RecalculateCommentCountersAction.php`, `HideCommentAction.php:60`). На пути
+  «создать → одобрить» `Post.updated_at` равен реальному времени уже после одобрения, а
+  первый подготовленный голос или комментарий переписывает его снова. Сохранение
+  исторического `updated_at` навсегда не обещается; нужно ли удерживать его при
+  технических пересчётах — вопрос H.
 - Hot score считается от `posts.created_at` и текущего времени
   (`HotScoreCalculator.php:31`) и не вычисляется при создании. Пост с датой пять дней
-  назад получит ≈0.0007 после первого пересчёта — это и есть ожидаемое поведение для
-  исторического контента, но пересчёт надо вызвать явно.
+  назад получит ≈0.0007 после первого пересчёта — ожидаемое поведение для исторического
+  контента; пересчёт вызывает исполнитель.
 - Лента «Новое» и профиль упорядочены по `published_at`, обсуждение — по `created_at`:
-  исторические записи встают в хронологическое место. Корректность порядка внутри ветки
-  (ответ не раньше корня) никто не проверяет — ответственность планировщика.
+  исторические записи встают в хронологическое место. Порядок внутри ветки (ответ не
+  раньше родителя, комментарии не раньше поста) проверяет предпроверка плана — код этого
+  не делает.
+- Исторические действия, время которых уже прошло, исполняются при подтверждении плана
+  по зависимостям и в хронологическом порядке `occurs_at`.
 - Макет Content Studio описывает «редакционную дату» и обещает никогда не изменять
-  `created_at` задним числом (раздел П10а, шаг Publication). Утверждённое решение 1.3
-  требует обратного; документ следует решению, подпись макета — предмет правки.
+  `created_at` задним числом (раздел П10а, шаг Publication). Решение требует обратного;
+  документ следует решению, подпись макета — предмет правки на UI-этапе.
 - Доверенность: `CreatePostData` конструируется только в `UploadPostForm.php:106-115`;
   новые поля с умолчанием `null` недостижимы из публичных запросов по построению.
   Репозиторий уже защищает такие инварианты grep-тестами
@@ -327,7 +451,8 @@ email принадлежит другому аккаунту; `RegisterUserActio
 (`DemoFillSeeder` вставляет три уровня сырыми запросами), но UI рендерит только
 `replies` корней (`CommentListQuery.php:17-31`). Следствие для генератора обсуждений:
 дерево — ровно два уровня (корни и их ответы); «ответ на ответ» моделируется как ещё
-один ответ тому же корню с адресацией в тексте. Правило не меняем.
+один ответ тому же корню с адресацией в тексте. Правило не меняем, пока не принято
+решение расширять его.
 
 ### D7. Хранение MediaAsset до публикации
 
@@ -339,10 +464,11 @@ email принадлежит другому аккаунту; `RegisterUserActio
 библиотеки станет `Warning`, а Media diagnostics предложит Release
 (`MediaDiagnosticsPage.php:543, 632-636`) — один клик мягко удалит ассет, и через 7 дней
 `media:purge` удалит файлы. Исполнение плана с soft-удалённым ассетом даст пост без
-изображения (`Post::imageAsset` — `belongsTo` к модели с `SoftDeletes`). Единственное
-надёжное решение — сделать план источником ссылки в `MediaReferenceChecker` (раздел C).
-Повторная обработка не нужна: `GenerateMediaVariantsJob` при публикации пропустит уже
-созданные варианты (`MediaVariantGenerator.php:69-71`).
+изображения (`Post::imageAsset` — `belongsTo` к модели с `SoftDeletes`). Решение: план
+становится источником ссылки в `MediaReferenceChecker` (раздел C, этап 2). Повторная
+обработка не нужна: `GenerateMediaVariantsJob` при публикации пропустит уже созданные
+варианты (`MediaVariantGenerator.php:69-71`). Владение ассетом черновика и смена автора
+— раздел E10.
 
 ### D8. Счётчики, кеш и рейтинг
 
@@ -367,339 +493,643 @@ email принадлежит другому аккаунту; `RegisterUserActio
 комментария не существует вовсе — реальный пользователь не узнает об ответе персоны без
 нового класса уведомления (это отдельное продуктовое решение). Персоны как живые
 аккаунты получают строки `notifications` (например, `PostCommentedNotification` о
-комментариях к их постам); при анонимизации персоны эти строки и уведомления с её
-`actor_id`/`author_id` удаляются (`AnonymizeUserAccountAction.php:108-130`).
+комментариях к их постам, `PostApprovedNotification` при одобрении плана); при
+анонимизации персоны эти строки и уведомления с её `actor_id`/`author_id` удаляются
+(`AnonymizeUserAccountAction.php:108-130`). Уведомления — внешний эффект: гарантия
+однократного применения на них не распространяется, они выполняются отдельно и
+безопасно (`NotifyFollowersAboutNewPostAction` дедуплицирует по существующим строкам
+`notifications`, `:28-40`).
 
-### D10. Блокировки и модерация
+### D10. Блокировки, модерация и состояния персон
 
-Правила сохраняются без изменений: `UserStatus` для персоны `Active`; санкции
-(`Limited`/`Banned`/`Shadowbanned`) мгновенно блокируют её участие через capability-методы
-и перепроверки под блокировкой в каждом Action; `HidePostAction`/`HideCommentAction`
-не трогают дочерний контент, но делают его недоступным для новых голосов и ответов
-(`Post::canReceiveComments/Votes`, `Comment::canReceiveVotes`, цель ответа только
-`Visible`). Исполнитель обязан проверять те же предикаты перед запуском и трактовать
-исключения `CannotCommentException`/`CannotVoteException`/`CannotVoteCommentException`
-о недоступности цели как «отменено», а не «ошибка». Порядок блокировок (актор → другие
-пользователи по возрастанию id → пост → комментарий/группа → рёбра) обязателен и для
-новых Actions.
+Правила модерации сохраняются без изменений и ради Content Studio не расширяются:
+`UserStatus` для персоны `Active`; санкции (`Limited`/`Banned`/`Shadowbanned`) мгновенно
+блокируют её участие через capability-методы и перепроверки под блокировкой в каждом
+Action; `HidePostAction`/`HideCommentAction` не трогают дочерний контент, но делают его
+недоступным для новых голосов и ответов (`Post::canReceiveComments/Votes`,
+`Comment::canReceiveVotes`, цель ответа только `Visible`). Порядок блокировок (актор →
+другие пользователи по возрастанию id → пост → комментарий/группа → рёбра) обязателен и
+для новых Actions.
+
+Два независимых понятия: **активность автоматических ответов** в настройках персоны
+(`Off`, `Low`, `Normal`, `High`) и **состояние аккаунта** (`Active`, `Limited`, `Banned`,
+`Shadowbanned`, `Deleted`). Обязательная политика исполнения (решение):
+
+| Состояние персоны | Запланированные действия плана |
+|---|---|
+| `Active` | исполняются |
+| `Off` в настройках | запрещает только самостоятельные ответы; утверждённые действия планов исполняются |
+| `Limited` | недопустимые действия приостанавливаются; после снятия ограничения накопленные действия не исполняются автоматически — возобновление контролируемое, через администратора |
+| `Shadowbanned` | недопустимые действия приостанавливаются до административного решения |
+| `Banned` | невыполненные действия персоны отменяются |
+| `Deleted` | невыполненные действия персоны отменяются |
+
+Допустимость каждого действия определяют существующие правила `UserStatus` и Policies
+(`canCreateContent`, `canComment`, `canVote` только для `Active`); исполнитель их не
+обходит и проверяет **допустимость актора** и **доступность цели** отдельно. Отмена
+учитывает реальные зависимости: если персона должна создать пост и окончательно потеряла
+такую возможность, создание поста отменяется вместе с зависимыми действиями; если пост
+уже создан и остаётся опубликованным, запрет его автора не отменяет будущие комментарии
+и голоса других активных персон. Связанные действия физически не удаляются.
+
+### D11. Технические сбои и окончательные отмены
+
+Управляемые аккаунты, известные планы и утверждение администратором позволяют
+обнаруживать ошибки бизнес-логики до запуска: предпроверка плана перед подтверждением
+проверяет наличие и допустимый статус персон, доступность исходных объектов,
+возможность создания поста, готовность фотографии (`MediaAsset` `Ready`, не trashed),
+полноту данных публикации, запрет голосования за собственный контент, повторные голоса,
+допустимую структуру комментариев (D6), корректность и монотонность дат, зависимости,
+наличие авторов и участников и прочие ограничения доменных Actions. Заведомо невалидный
+план к исполнению не допускается.
+
+Три класса ситуаций при исполнении (решение):
+
+| Класс | Примеры | Поведение |
+|---|---|---|
+| **A. Временный технический сбой** | недоступность PostgreSQL, перезапуск сервера, прерывание воркера, временная ошибка | безопасное автоматическое восстановление, ограниченные повторные попытки; зависимые действия остаются в ожидании; ничего успешно выполненного не откатывается |
+| **B. Действие стало недопустимым после утверждения** | пост скрыт модератором, родительский комментарий удалён, персона удалена, цель окончательно недоступна | действие отменяется с указанием причины; отменяется только зависимая ветка; независимые действия продолжаются; история сохраняется |
+| **C. Неожиданная ошибка или исчерпание попыток** | исключение Action вне класса B, конфликт голоса, потеря прав утвердившего администратора | ветка приостанавливается, проблема видна в Action queue, администратор повторяет или отменяет; план автоматически не уничтожается |
+
+Важно: временный сбой родителя не отменяет дочерние действия. Если создание поста
+завершилось технической ошибкой, комментарии и голоса ждут восстановления поста;
+отмена — только при окончательной невозможности создания родителя или явной
+административной отмене. Модель состояний различает временное ожидание/блокировку,
+окончательную отмену и техническую ошибку (раздел E3). Исключения существующих Actions о
+недоступности цели (`becausePostIsNotPublic`, `reply_target_unavailable`,
+`becauseCommentIsNotVisible`) относятся к классу B; остальные — к классу C.
+
+### D12. Повторная доставка и однократное применение
+
+Laravel Queue не даёт «exactly-once execution»: Redis-очередь выдаёт задание повторно
+после `retry_after` (90 с по умолчанию, `config/queue.php:71`) при зависшем воркере, а
+при `tries = 1` падение задания не повторяется очередью. Требуемая гарантия —
+однократное применение результата к доменным данным PostgreSQL. Она достигается
+блокировками строк, транзакциями, проверкой состояния действия и уникальными
+ограничениями (раздел E5). Существующий образец — `GenerateProjectTranslationChunkJob`:
+«only a queued chunk can be claimed, so a job delivered twice sends nothing the second
+time» (`:45-49`), `tries = 1`, `timeout = 75` под `retry_after` (`:36-49, 73-77`). Для
+внешних эффектов — уведомлений, файлов, обращений к ИИ — гарантия автоматически не
+распространяется: они выполняются отдельно, идемпотентно или с дедупликацией
+(варианты изображений — пропуск готовых, уведомления подписчикам — дедупликация по
+`notifications`).
 
 ---
 
 ## E. Minimal Architecture
 
+Имена таблиц, полей, статусов и классов в этом разделе — предложения для постановки
+задач; утверждённые решения помечены явно.
+
 ### E1. Принципы
 
 1. Content Studio не создаёт контент сам: каждая публикация, комментарий, ответ и голос
    проходит через существующий Action с его политиками, блокировками, счётчиками и
-   логами. Новый код добавляет только доверенные параметры с умолчаниями, сохраняющими
-   текущее поведение.
-2. Бизнес-состояние (планы, действия, их статусы, зависимости, результаты) живёт в
-   таблицах PostgreSQL и видно администратору. Техническая очередь (Redis-список и
-   `failed_jobs`) переносит только идентификаторы.
-3. Exactly-once обеспечивается транзакцией: доменная запись и перевод строки действия в
-   `done` фиксируются вместе; повторная доставка задания видит `done` и ничего не делает.
-4. Новые сущности — только там, где существующих недостаточно; для каждой объяснено,
-   почему нельзя использовать существующую.
+   логами. Новый код добавляет к Actions только необязательные доверенные параметры с
+   умолчаниями, сохраняющими текущее поведение, и только на том этапе, где появляется их
+   потребитель.
+2. Бизнес-состояние (планы, действия, их статусы, зависимости, результаты, реальное время
+   исполнения) живёт в таблицах PostgreSQL и видно администратору. Техническая очередь
+   (Redis-список и `failed_jobs`) переносит только идентификаторы (решение).
+3. Одно запланированное действие = одна строка PostgreSQL = одно логическое задание
+   Laravel Queue. Каждое действие атомарно само по себе; одной транзакции на весь план
+   или на группу действий одного времени нет (решение).
+4. Гарантия — однократное применение результата к доменным данным PostgreSQL, не
+   «exactly-once execution» очереди (решение; D12).
+5. Новые сущности — только там, где существующих недостаточно; для каждой объяснено,
+   почему нельзя использовать существующую. Дополнительные блокировки Redis/Cache не
+   вводятся, пока достаточно транзакций, условных обновлений и блокировок PostgreSQL
+   (решение).
 
 ### E2. Новые сущности
 
 **`PersonaProfile` (таблица `persona_profiles`, 1:1 к `users`).** Характер, манера речи,
-темы, ограничения, внутреннее описание, интенсивность автоматических ответов
-(`Off` отключает только самостоятельные ответы), дневной лимит, автор записи. Аватар и
-публичное описание остаются в `users` (`avatar_asset_id`, `bio`). Почему не `users`:
-колонки нужны только персонам, таблица `users` — общая с реальными людьми, а её записи
-статуса охраняет `UserLifecycleWriteBoundaryTest`; отдельная таблица не трогает ни
-регистрацию, ни анонимизацию, ни фабрики.
+темы, ограничения («о чём не пишет»), внутреннее описание, интенсивность автоматических
+ответов (`Off`, `Low`, `Normal`, `High`; `Off` отключает только самостоятельные ответы),
+дневной лимит ответов, автор записи. Аватар и публичное описание остаются в `users`
+(`avatar_asset_id`, `bio`). Почасовое расписание активности и географические поля не
+добавляются (решение). Почему не `users`: колонки нужны только персонам, таблица `users`
+— общая с реальными людьми, а её записи статуса охраняет `UserLifecycleWriteBoundaryTest`;
+отдельная таблица не трогает ни регистрацию, ни анонимизацию, ни фабрики.
 
-**`StudioPlan` (таблица `studio_plans`) — одна публикация, один план.** Статус
-(черновик → готов → утверждён → исполняется → завершён / отменён), автор-персона
-(FK `users`, restrict), создатель-администратор, `image_asset_id` (FK `media_assets`),
-черновой текст, окончательные заголовок и описание, категория, теги, ответы автора,
-время исполнения, историческое время публикации, ссылка на созданный `post_id`,
-отметки утверждения. Почему не `Post` со статусом `Draft`: `PostStatus::Draft` сегодня
-не создаётся ни одним Action (только фабрикой), а `PostPolicy::update` для черновиков
-не имеет вызывающих; пост требует автора и участвует в FK-графе, авторском удалении
-(`AUTHOR_DELETABLE_STATUSES`) и модерационных списках; план должен хранить
-подготовленное обсуждение и голоса до появления поста, а также расписание и
-исторические даты, которым в `posts` нет места. Почему не `jobs`: payload непрозрачен,
-строка исчезает после выполнения, нет статусов, зависимостей и видимости в админке.
+**`StudioPlan` (таблица `studio_plans`) — одна публикация, один план.** Статус плана
+(черновик → утверждён → исполняется → завершён / отменён), автор-персона (FK `users`,
+restrict; только роль `Persona` — решение), создатель и утвердивший администратор с
+временем утверждения, `image_asset_id` (FK `media_assets`), результат анализа фотографии
+и варианты текстов (этап 3), окончательные заголовок и описание, категория, теги, ответы
+автора, режим публикации («сейчас», «на дату» — будущую или прошлую), запланированное
+время публикации, ссылка на созданный `post_id`. Почему не `Post` со статусом `Draft`:
+`PostStatus::Draft` сегодня не создаётся ни одним Action (только фабрикой), а
+`PostPolicy::update` для черновиков не имеет вызывающих; пост требует автора и
+участвует в FK-графе, авторском удалении (`AUTHOR_DELETABLE_STATUSES`) и модерационных
+списках; план должен хранить подготовленное обсуждение и голоса до появления поста,
+расписание и исторические даты, которым в `posts` нет места. Почему не `jobs`: payload
+непрозрачен, строка исчезает после выполнения, нет статусов, зависимостей и видимости в
+админке.
 
 **`StudioAction` (таблица `studio_plan_actions`) — одна запланированная доменная запись.**
 `plan_id`, `parent_action_id` (self-FK, nullable), вид (`create_post`, `create_comment`,
 `create_reply`, `vote_post`, `vote_comment`, `vote_rating`), актор-персона, payload
-(тело, тип голоса, вариант рейтинга), `occurs_at` (историческое время для штампа),
-`run_after` (реальное время, не раньше которого можно исполнять), статус (`pending`,
-`dispatched`, `running`, `done`, `cancelled`, `failed`), попытки, `claimed_at`,
-`finished_at` (реальное время исполнения — «история исполнения действий» из постановки),
-результат (`result_type`/`result_id` по образцу морфов `reports.target_type/target_id`),
-код и текст причины отказа. Почему не `moderation_logs`/`notifications`/`failed_jobs`:
-это журналы других доменов с другой семантикой; `failed_jobs` хранит только ошибки.
+(тело, тип голоса, вариант рейтинга), `occurs_at` (запланированное время события —
+штамп для `created_at`/`published_at`), `run_after` (необходимое реальное время запуска),
+статус (E3), `attempts`, `dispatched_at`, `claimed_at`, `finished_at` (фактическое время
+исполнения), результат (`result_type`/`result_id` по образцу морфов
+`reports.target_type/target_id`), код и текст причины отказа. Почему не
+`moderation_logs`/`notifications`/`failed_jobs`: это журналы других доменов с другой
+семантикой; `failed_jobs` хранит только ошибки.
 
-**Правила ответов (`persona_reply_rules`) и журнал ответов** появляются на этапе
-автоответов. Рекомендация: журнал ответов — строки той же таблицы действий с видом
-`auto_reply` и ссылкой на комментарий-триггер (`plan_id` допускает `null`), чтобы не
-плодить второй исполнитель; окончательное решение — на этапе 7 (раздел H).
+**Правила ответов и журнал ответов** появляются на этапе автоматических ответов (Phase 8):
+`persona_reply_rules` и либо строки той же таблицы действий с видом `auto_reply` и ссылкой
+на комментарий-триггер, либо отдельная таблица — вопрос H.
 
-### E3. Исполнитель действий
+### E3. Модель действия и состояний
 
-1. **Диспетчер** — команда `studio:dispatch-due`, зарегистрированная в `routes/console.php`
-   как `everyMinute()->withoutOverlapping()` рядом с пятью ежедневными. Выбирает
-   ограниченное число строк `status = pending AND run_after <= now()` с завершённым
-   родителем (или без родителя), в порядке `run_after, id` (правило детерминированной
-   пагинации из `docs/architecture/http-and-database-boundaries.md`), переводит каждую в
-   `dispatched` условным обновлением `WHERE status = 'pending'` и диспетчеризует
-   `ExecuteStudioActionJob($actionId)` с `afterCommit()`. Читает «просроченное в прошлом»,
-   поэтому переживает паузу воркера и cron во время restore
-   (`infrastructure/scripts/restore-target:500-596`).
-2. **Job** — `ExecuteStudioActionJob` с единственным скалярным аргументом (как все четыре
-   существующих Job), `tries = 1`, `timeout` не выше 80 с (Redis `retry_after` 90 с,
-   воркер 120 с — контракт `GenerateProjectTranslationChunkJob.php:36-49`),
-   `failOnTimeout = true`, `failed()` переводит строку в `failed`. Повтор — решение
-   администратора в Action queue, не очереди (как «fresh dispatch» в Media diagnostics).
+Предлагаемые состояния строки действия и их смысл:
+
+| Статус | Смысл | Кто переводит |
+|---|---|---|
+| `pending` | ждёт `run_after` и завершения родителя | план при утверждении; администратор при повторе |
+| `held` | временная блокировка: актор `Limited`/`Shadowbanned` или решение администратора; ждёт явного возобновления | исполнитель, администратор |
+| `dispatched` | задание отправлено в Redis, ещё не захвачено | диспетчер |
+| `running` | захвачено воркером, выполняется | исполнитель |
+| `done` | результат применён; `result_*`, `finished_at` заполнены | исполнитель (в транзакции с доменной записью) |
+| `failed` | техническая ошибка после исчерпания безопасных попыток или неожиданная ошибка; ждёт администратора (повторить → `pending`, отменить → `cancelled`) | исполнитель, диспетчер |
+| `cancelled` | окончательно, с кодом причины (цель недоступна, актор заблокирован/удалён, родитель отменён, администратор отменил) | исполнитель, администратор |
+
+Временное ожидание выражается статусом `pending` при незавершённом родителе и статусом
+`held`; окончательная отмена — `cancelled`; техническая ошибка — `failed`. Завершённые
+действия (`done`) никогда не откатываются из-за ошибки другого действия и никогда не
+исполняются повторно.
+
+### E4. Диспетчер и исполнитель
+
+1. **Диспетчер** — команда `studio:dispatch-due` (предложение), зарегистрированная в
+   `routes/console.php` как `everyMinute()->withoutOverlapping()` рядом с пятью
+   ежедневными командами. Выбирает ограниченное число строк `pending` с `run_after <=
+   now()` и завершённым родителем (или без родителя) в порядке `run_after, id`
+   (детерминированная сортировка по правилу `docs/architecture/http-and-database-
+   boundaries.md`), переводит каждую в `dispatched` условным обновлением `WHERE status =
+   'pending'` и после фиксации диспетчеризует `ExecuteStudioActionJob($actionId)`
+   (`afterCommit()`). Та же команда выполняет восстановление зависших строк (E5).
+   Диспетчер читает «просроченное в прошлом», поэтому переживает паузу воркера и cron во
+   время restore (`infrastructure/scripts/restore-target:500-596`).
+2. **Job** — `ExecuteStudioActionJob` с единственным скалярным аргументом id (как все
+   четыре существующих Job), `tries = 1`, собственный `timeout` ниже Redis `retry_after`
+   (90 с; контракт `GenerateProjectTranslationChunkJob.php:36-49` и тест
+   `GenerateProjectTranslationChunkJobTest.php:56-59`), `failOnTimeout = true`, `failed()`
+   переводит строку в `failed` с кодом. Повтор — решение администратора в Action queue
+   или автоматическое восстановление класса A, не повтор очереди.
 3. **Action исполнения** в `app/Actions` (презентация и Jobs не пишут модели напрямую —
    `NoPresentationModelMutationRule`). Внутри одной `DB::transaction`:
-   `lockForUpdate` строки действия → если статус не `dispatched`, выйти (повторная
-   доставка) → перечитать родительский контент и проверить предикаты
-   (`Post::canReceiveComments()/canReceiveVotes()`, `CommentReplyService::canStartReply()`,
-   `Comment::canReceiveVotes()`, актор `Active`) → если цель недоступна, `cancelled` с
-   причиной и каскадная отмена поддерева → иначе вызвать существующий Action с
-   доверенными параметрами (`occurs_at` как `created_at`/`published_at`, уведомления
-   выключены, голоса в режиме «обеспечить») → записать `result_*`, `done`, `finished_at`.
+   - `lockForUpdate` строки действия; допустимые исходные статусы — `dispatched` или
+     `running` с просроченным `claimed_at` (E5); иначе выход без изменений (повторная
+     доставка, уже `done`, отменено, `held`);
+   - перевод в `running`, `claimed_at = now()`, `attempts + 1`;
+   - проверка допустимости актора (статус персоны по политике D10) и доступности цели
+     (`Post::canReceiveComments()/canReceiveVotes()`,
+     `CommentReplyService::canStartReply()`, `Comment::canReceiveVotes()`), для голосов —
+     чтение фактического голоса под блокировкой (D4);
+   - вызов существующего Action с доверенными параметрами (даты из `occurs_at`, готовый
+     `MediaAsset`); для `create_post` — `CreatePostAction`, затем `ApprovePostAction` от
+     имени утвердившего администратора (D3);
+   - запись `result_*`, `done`, `finished_at` в той же транзакции.
    Вложенные `DB::transaction` Actions становятся savepoint; `GenerateMediaVariantsJob`
    уже ждёт внешний commit (`afterCommit()`, проверено
    `tests/Feature/Actions/CreatePostActionMediaVariantDispatchTest.php:73`);
    `NotifyFollowersAboutNewPostJob::dispatch` требует добавить `afterCommit()`.
-4. **После фиксации** для `create_post` — `RecalculatePostScoreAction::handle($post)`.
-5. **Исключения Actions о недоступности цели** (`becausePostIsNotPublic`,
-   `reply_target_unavailable`, `becauseCommentIsNotVisible`) → `cancelled`; прочие →
-   `failed` с классом исключения; тексты, ключи и prompt в журнал не пишутся
-   (образец `DomainLogger`).
-6. **Параллельность.** Строковый `lockForUpdate` плюс условный `UPDATE` — compare-and-set
-   на PostgreSQL (единственная развёрнутая СУБД). Дополнительно, по образцу
-   `MediaLifecycleService::purgeLock()`, допустима неблокирующая атомарная блокировка
-   `Cache::store('database')` с ключом по id действия и TTL больше `timeout` Job.
+4. **После фиксации** для `create_post` — `RecalculatePostScoreAction::handle($post)`;
+   завершение родителя может сразу поставить готовые дочерние действия (`pending`, все
+   зависимости `done`, `run_after` наступил) в очередь тем же условным обновлением, не
+   дожидаясь следующей минуты; периодический диспетчер остаётся страховкой.
+5. **Классификация исходов**: исключения Actions о недоступности цели → `cancelled` с
+   причиной и отмена зависимой ветки (класс B); конфликт голоса, потеря прав
+   администратора, прочие исключения → `failed` с классом исключения (класс C); потеря
+   соединения/прерывание → транзакция откатывается, строка остаётся `running` до
+   восстановления (класс A). Тексты, ключи и prompt в журнал не пишутся (образец
+   `DomainLogger`).
+6. **Лимиты скорости** (`ActionRateLimiter` до транзакции, ключ по пользователю) считают и
+   повторы; решение между пейсингом `run_after` и отдельным ключом/флагом доверенного
+   исполнителя принимается на этапе 4 (вопрос H).
 
-### E4. Доверенные исторические даты
+### E5. Однократное применение и восстановление
 
-Параметры добавляются к существующим DTO/сигнатурам с умолчанием `null`:
-`CreatePostData::$publishedAt/$createdAt/$updatedAt`, `AddCommentAction::handle(...,
-?CarbonImmutable $createdAt = null)` и `CommentReplyService::createReply(...)`,
-`VotePostAction/VoteCommentAction/VoteRatingOptionAction::handle(..., ?CarbonImmutable
-$castAt = null)`. Значения применяются внутри транзакций после всех проверок и
-блокировок, не обходя их. Единственный вызывающий — Action исполнения; grep-тест
-запрещает презентации передавать эти параметры. Реальное время исполнения хранится в
-`studio_plan_actions.finished_at`; `moderation_logs` и `notifications` сохраняют
-реальные даты.
+- **Захват.** Исполнитель захватывает действие строковой блокировкой `SELECT … FOR
+  UPDATE` и переводом `dispatched → running` внутри транзакции; второй процесс с тем же
+  id либо ждёт блокировку и видит `running`/`done`, либо получает ноль затронутых строк в
+  условном `UPDATE` — и выходит. На PostgreSQL (единственная развёрнутая СУБД) это
+  compare-and-set; дополнительные блокировки Cache/Redis не нужны.
+- **Фиксация.** Доменная запись (пост, комментарий, голос) и `done` фиксируются одной
+  транзакцией. Авария **до** фиксации: изменения PostgreSQL откатываются, строка остаётся
+  `running` с `claimed_at`; авария **после** фиксации: строка `done`, повторная доставка
+  Redis видит `done` и ничего не делает. Разрыв между обновлением статуса в PostgreSQL и
+  отправкой в Redis (`dispatched` без задания: Redis недоступен, процесс умер до
+  `afterCommit`, задание потеряно при `queue:flush`, старый воркер не знает класс) не
+  теряет действие навсегда — его подбирает восстановление.
+- **Обнаружение мёртвого исполнителя.** Критерий временной: `running` с `claimed_at`
+  старше `timeout` Job плюс запас (контракт тайм-аутов гарантирует, что Laravel прервал
+  задание, а Supervisor `stopwaitsecs=130` и `--max-time=3600` завершили процесс);
+  `dispatched` с `dispatched_at` старше порога ожидания захвата (обычно секунды, порог —
+  минуты) считается потерянным. Оба порога — конфигурация, не константы кода.
+- **Восстановление.** Диспетчер тем же ежеминутным проходом возвращает просроченные
+  `dispatched`/`running` строки в оборот: условным обновлением снова в `dispatched` с
+  новым `dispatched_at` и `attempts + 1`, затем диспетчеризация. Уже `done` строки не
+  трогаются; `pending` ждут своей очереди.
+- **Ограничение попыток и отсутствие бесконечного цикла.** `attempts` считает каждую
+  отправку; при достижении предела (конфигурация) строка переводится в `failed` с кодом
+  «попытки исчерпаны» и показывается администратору; повторная диспетчеризация не раньше
+  истечения порога, так что один сбой не порождает шторм повторов.
+- **Побочные эффекты вне транзакции** (задание вариантов изображения, уведомления
+  подписчикам, вызовы ИИ) гарантией не покрываются: они идемпотентны или дедуплицированы
+  (пропуск готовых вариантов, дедупликация уведомлений по строкам `notifications`),
+  повторный запуск — через существующие механизмы («fresh dispatch» в Media diagnostics).
+- **Лимиты скорости** сбрасываются не транзакцией: каждая попытка потребляет лимит
+  `ActionRateLimiter`; при восстановлении это учитывается пейсингом или отдельным ключом
+  (E4, п. 6).
 
-### E5. Зависимости и отмена
+### E6. Зависимости, ожидание и отмена
 
 `parent_action_id` задаёт дерево: пост → комментарии → ответы и голоса за комментарии;
-пост → голоса за пост и рейтинги. При исполнении ребёнок читает `result_id` родителя и
-передаёт модель в Action. Отмена: если родительское действие не `done`, или контент
-исчез/не проходит предикат, ребёнок и всё его поддерево получают `cancelled` в той же
-транзакции (`whereIn('parent_action_id', ...)->whereIn('status', [pending, dispatched])`);
-независимые действия (без родителя или со здоровым родителем) не затрагиваются, потому
-что выбор идёт по строкам. Образец «провалить остаток, сохранить сделанное» —
-`StartProjectTranslationGenerationAction.php:156-161`. Режим `Off` у персоны отключает
-только автоответы и не отменяет утверждённые планы — проверка интенсивности живёт в
-правилах ответов, а не в исполнителе планов.
+пост → голоса за пост и рейтинги. Правила (решение):
 
-### E6. Бизнес-очередь и техническая очередь
+- пока родитель не `done`, зависимое действие остаётся `pending` и не диспетчеризуется;
+  после `done` родителя готовые дочерние становятся доступными (сразу или следующим
+  проходом диспетчера);
+- ребёнок читает `result_id` родителя и передаёт модель в Action; голос за комментарий
+  невозможен до создания комментария;
+- ошибка одного комментария не блокирует независимые комментарии: выбор идёт по строкам,
+  сиблинги не затрагиваются;
+- временный сбой родителя (класс A, `running`/`failed` после технической ошибки) не
+  отменяет детей — они ждут; после восстановления родителя исполнение продолжается
+  автоматически;
+- окончательная отмена родителя (класс B или решение администратора) отменяет поддерево
+  в той же транзакции (`whereIn('parent_action_id', …)->whereIn('status', [pending,
+  held, dispatched])`), независимые действия продолжаются;
+- доступность цели и допустимость актора проверяются отдельно (D10): запрет автора уже
+  опубликованного поста не отменяет комментарии и голоса других активных персон.
 
-| | Бизнес-очередь Content Studio | Техническая очередь Laravel |
-|---|---|---|
-| Где | `studio_plans`, `studio_plan_actions` (PostgreSQL, в периметре бэкапа) | Redis-список `queues:<имя>`, `failed_jobs` |
-| Что хранит | план, действие, статус, зависимости, `occurs_at`/`run_after`, результат, причина отказа, `finished_at` | сериализованное задание с одним id |
-| Кто меняет | диспетчер, Action исполнения, администратор (отмена, повтор) | воркер (`queue:work redis --queue=<цель>`) |
-| Видимость | экран Action queue | только `failed_jobs` через Media diagnostics (медиа-подмножество) |
-| Потеря | нет (транзакционная БД) | допустима: диспетчер заново выдаст `pending`/зависшие `dispatched` по тайм-ауту claim |
+Образец «провалить остаток, сохранить сделанное» — `StartProjectTranslationGenerationAction.php:156-161`.
+Режим `Off` у персоны отключает только автоответы и не отменяет утверждённые планы;
+проверка интенсивности живёт в правилах ответов (Phase 8), не в исполнителе планов.
 
-Имя очереди: в первой версии — очередь цели по умолчанию (воркер слушает только её);
-отдельное имя потребует изменения реестра целей, `install-bootstrap-services`,
-коммитнутого supervisor-конфига и архитектурных тестов — это самостоятельная
-инфраструктурная задача.
+### E7. Доверенные исторические даты
 
-### E7. Персоны
+Решение окончательное (D5). Параметры добавляются к существующим DTO/сигнатурам с
+умолчанием `null` на этапе, где появляется потребитель: Phase 4 —
+`CreatePostData::$createdAt/$updatedAt` и дата публикации в `ApprovePostAction`; Phase 5 —
+`AddCommentAction::handle(..., ?CarbonImmutable $createdAt = null)` и
+`CommentReplyService::createReply(...)`; Phase 6 — параметр даты в трёх Actions
+голосования. Значения применяются внутри транзакций после всех проверок и блокировок,
+не обходя их. Единственный вызывающий — Action исполнения; grep-тест запрещает
+презентации передавать эти параметры. Фактическое время исполнения — `finished_at`
+строки действия; `moderation_logs` и `notifications` сохраняют реальные даты.
+
+### E8. Деплой во время исполнения действий
+
+Существующий механизм сохраняется и не переписывается заранее: релиз собирается в
+новый каталог, выполняются `config:cache`, `view:cache`, `migrate --force`, `list --raw`,
+затем `queue:restart` (`DeployTest.php:893`; `deploy:1945-1961, 458`), `current`
+переключается атомарно (`deploy:1989-1995`); воркер завершает текущее задание и выходит,
+Supervisor запускает процесс, который делает `cd current && exec … queue:work` уже в новом
+релизе (`deploy:515-536`, `install-bootstrap-services:1091`). Обычный деплой не
+останавливает Content Studio: начатое действие завершается старым воркером, новые
+исполняются новым.
+
+Требования к заданиям и миграциям Content Studio (решение):
+
+1. Задания переносят только id действия; содержимое читается из PostgreSQL.
+2. Никаких сериализованных Eloquent-моделей или объектов старого релиза в payload.
+3. Миграции совместимы с предыдущим релизом, пока старый воркер работает: `migrate`
+   выполняется **до** `queue:restart`, поэтому новые миграции должны быть аддитивными для
+   таблиц, которые читает старый код; схему, нужную старому воркеру, нельзя удалять или
+   менять до его завершения.
+4. `timeout` задания меньше Redis `retry_after`.
+5. Новые классы заданий, неизвестные старому воркеру: `queue:restart` не означает
+   мгновенного исчезновения старого процесса. Безопасная последовательность первого
+   внедрения и будущих несовместимых изменений: релиз с исполнителем выходит с
+   **выключенным** диспетчером (feature-флаг проекта по образцу
+   `ImportFromUrlAction.php:35-37`, умолчание в `ProjectSettingsManager`); после
+   подтверждения, что воркер нового релиза запущен (`supervisorctl status` RUNNING с новым
+   pid после `queue:restart`), флаг включается. Если задание всё же попало к старому
+   воркеру, оно падает, а строка остаётся `dispatched` и подбирается восстановлением (E5).
+6. Проверки совместимости перед включением: миграции применены, воркер нового релиза
+   запущен, `REDIS_QUEUE` хоста соответствует имени очереди воркера (операторское значение,
+   скриптами не проверяется).
+
+### E9. Персоны и путь публикации
 
 Персона — строка `users` с `role = persona`, `status = active`, `password = NULL`,
-`email` на зарезервированном домене (`*.invalid`, как у tombstone), `email_verified_at`
-проставлен, `trust_level = 10` по умолчанию, `username` сгенерирован. Создание — новый
-Action (образцы `CreateAdminUserCommand`, `RegisterSocialUserAction`), без события
+синтетическим уникальным `email` на зарезервированном домене (`*.invalid`, как у tombstone),
+`email_verified_at = NULL` (решение: синтетический адрес не считается подтверждённым),
+`trust_level = 10` по умолчанию (`User::booted()`), сгенерированным `username`. Создание —
+новый Action (образцы `CreateAdminUserCommand`, `RegisterSocialUserAction`), без события
 `Registered`. Вход закрыт ролевым предикатом во всех семи точках (раздел C); панель уже
 закрыта `canAccessPanel()`. Аватар — админский Action по пяти шагам
 `UpdateUserProfileAction`. В разделе Users персона видна через фильтр роли; санкции
-(`UserPolicy::canSanction`) к ней применимы.
+(`UserPolicy::canSanction`) к ней применимы; создаётся и редактируется только через
+Content Studio.
 
-### E8. Медиа на этапе черновика
+Путь публикации (D3): `CreatePostAction::handle($persona, $data)` → пост `Pending` с
+историческими `created_at`/`updated_at` и готовым `MediaAsset` → в той же транзакции
+исполнителя `ApprovePostAction::handle($approvingAdmin, $post, null, $publishedAt)` →
+`Published` с запланированной `published_at`, запись `ApprovePost` в `moderation_logs`.
+Доверенное разрешение на публикацию — утверждение плана; ни ложное определение персоны
+как персонала, ни фиктивная верификация email не используются.
+
+### E10. Медиа на этапе черновика
 
 Шаг Image редактора сохраняет файл сразу: `ImageUploadStorer::store($file,
-MediaStoreRequest::forPostImage($personaId))` → `MediaAssetCreator::create($stored,
-MediaKind::PostImage, $persona)` → `GenerateMediaVariantsJob::dispatch($asset->id)`;
+MediaStoreRequest::forPostImage($uploaderAdminId))` → `MediaAssetCreator::create($stored,
+MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($asset->id)`;
 для URL-источника перед этим `StoreImportedImageAction::download()` с обязательным
-`cleanup()`. `studio_plans.image_asset_id` становится третьей ссылкой в
-`MediaReferenceChecker`. При исполнении `CreatePostData::$imageAssetId` передаёт готовый
-ассет; повторная диспетчеризация вариантов — no-op. Общий анализ SFW/NSFW в будущем
-подключается одним Job по id ассета из `MediaAssetCreator::create()` (`afterCommit()`),
-читая уже нормализованный мастер через `MediaStorage::readStream()` как
-`MediaVariantGenerator::readMasterBytes()`; гейт показа — `MediaVisibility::Private`
-(уже реализован в резолверах URL), гейт вариантов — `MediaStatus` (генератор требует
-`Ready`). Модель и пакеты на этом этапе не выбираются.
+`cleanup()`. Владение и жизненный цикл ассета черновика (предложение в рамках
+существующей системы, без нового хранилища):
 
-### E9. Что не создаём
+- **Владелец до публикации** — загрузивший администратор (`owner_user_id` по
+  документированной семантике «загрузивший, не потребитель», `docs/architecture/media.md`);
+  путь файла поста `media/post-images/Y/m/{uuid}` владельца не содержит
+  (`MediaPathGenerator.php:35-37`), поэтому **смена автора плана ничего не делает с
+  файлом**; ассет не привязан к текущей персоне.
+- **Ссылка черновика** — `studio_plans.image_asset_id`, третий источник в
+  `MediaReferenceChecker::isReferenced()/referencedAssetIds()`; пока план существует и
+  ссылается на ассет, audit не считает его неиспользуемым и Release не предлагается.
+- **Право использовать ассет при публикации** — исполнитель передаёт в `CreatePostData`
+  только `image_asset_id` исполняемого плана; `CreatePostAction` под `lockForUpdate`
+  проверяет `kind = PostImage`, `status = Ready`, не trashed, отсутствие ссылки из другого
+  поста. Владелец не сравнивается с автором.
+- **Переход к посту** — в момент фиксации `create_post`: `posts.image_asset_id`
+  заполняется; `GenerateMediaVariantsJob` при повторной диспетчеризации пропускает
+  готовые варианты.
+- **Снятие ссылки черновика** — при замене фотографии в черновике или удалении/отмене
+  неисполненного плана: ссылка плана снимается и вызывается
+  `MediaLifecycleService::releaseUnreferenced([$id])` — ассет мягко удаляется, если на
+  него не ссылается ни пост, ни другой план; физические файлы удалит `media:purge` после
+  7 дней грации.
+- **Очистка неиспользуемых черновиков** — только через снятие ссылки; автоматического
+  удаления активных ассетов нет и не добавляется.
 
-Отдельный `StudioPost`; свои таблицы голосов; универсальный AI Engine/Provider Registry
-(существующий `TranslationProviderRouter` — ровно то, что отложено); массовый импорт,
-content packs и сидеры рабочего контента; географический справочник, GeoIP и журнал
-входов; кеш ленты.
+Общая классификация SFW/NSFW — отдельная подсистема (E12), не часть этого пути.
+
+### E11. Бизнес-очередь и техническая очередь
+
+| | Бизнес-очередь Content Studio | Техническая очередь Laravel |
+|---|---|---|
+| Где | `studio_plans`, `studio_plan_actions` (PostgreSQL, в периметре бэкапа) — источник истины | Redis-список `queues:<имя>`, `failed_jobs` — транспорт заданий |
+| Что хранит | план, действие, статус, зависимости, `occurs_at`/`run_after`, результат, причина отказа, `finished_at` | сериализованное задание с одним id |
+| Кто меняет | диспетчер, Action исполнения, администратор (отмена, повтор, возобновление) | воркер (`queue:work redis --queue=<цель>`) |
+| Видимость | экран Action queue | только `failed_jobs` через Media diagnostics (медиа-подмножество) |
+| Потеря | нет (транзакционная БД) | допустима: восстановление E5 заново выдаёт просроченные `dispatched`/`running` |
+
+Имя очереди: очередь цели по умолчанию (воркер слушает только её); отдельная очередь,
+дополнительные процессы и изменения Supervisor в первой версии не требуются (решение).
+
+### E12. Будущие подсистемы вне ядра
+
+- **Классификация SFW/NSFW** — самостоятельный этап с отдельным выбором модели (локальная
+  CPU-модель на VPS, внешний поставщик, иное); общая для пользовательских загрузок и
+  Content Studio; одно изображение не обрабатывается дважды (чтение нормализованного
+  мастера через `MediaStorage::readStream()` как в `MediaVariantGenerator::readMasterBytes()`);
+  ошибка классификации не ломает загрузку и остальные механизмы; результат нужен для
+  правил отображения, фильтрации, размытия и модерации, а не как «ошибка» для
+  эротического контента; потенциальный `MediaVisibility::Private` не считается полной
+  защитой публичного файла без дополнительной проверки (файл остаётся под публичным
+  симлинком, `docs/architecture/media.md`); не зависит от клиента OpenAI. Точка
+  подключения — `MediaAssetCreator::create()` с `afterCommit()`-диспетчеризацией задания
+  по id ассета.
+- **География и история входов** — отдельное инфраструктурно-прикладное направление:
+  сначала изучение данных MaxMind (страны, города, идентификаторы, обновления, точность),
+  затем справочник, поля профиля и журнал входов; в `users` и `persona_profiles`
+  географические поля сейчас не добавляются; механизм записи успешных входов
+  проектируется на этапе GeoIP с учётом факта, что событие `Login` срабатывает до гейта
+  tombstone (П9).
+
+### E13. Что не создаём
+
+Отдельный `StudioPost`; свои таблицы голосов; фиктивные пользовательские действия;
+универсальный AI Engine/Provider Registry (существующий `TranslationProviderRouter` —
+ровно то, что отложено), реестр моделей, интерфейс выбора поставщиков, общий мониторинг
+расходов ИИ; режим «обеспечить голос» в публичных Actions; отдельную очередь и новые
+процессы Supervisor; одну транзакцию на весь план; массовый импорт, content packs и
+сидеры рабочего контента; географический справочник, GeoIP и журнал входов; кеш ленты.
 
 ---
 
 ## F. Implementation Dependencies
 
-Первый функциональный этап — Personas с полноценным UI — это MR 1 и MR 2 вместе.
+Этапы идут по пользовательским сценариям: сначала работающие Personas, затем планы с
+изображением, ИИ для текстов, публикация с исполнителем, обсуждения, голоса. Каждый этап
+делится на небольшие MR и завершается проверяемым на staging результатом. Правила для
+всех этапов (решение): расширения Actions вносятся не раньше появления их потребителя;
+исполнитель не строится заранее под будущие сценарии, но восстановление после сбоя и
+однократное применение входят в первый же MR, вводящий рабочий исполнитель; критическая
+безопасность не откладывается; пункт навигации не ведёт на несуществующую страницу;
+совместимость со staging и production сохраняется. GeoIP, география профилей, история
+входов и универсальная система управления ИИ — отдельные направления вне этого плана.
 
-### MR 1 — роль Persona и закрытие проверок
+### Phase 0 — Technical Audit
 
-- **До начала:** ничего; документ принят.
+Текущий документ. Только анализ; код не менялся.
+
+### Phase 1 — Personas
+
+Два MR допустимы, но этап один, и он не считается завершённым после добавления enum и
+фабрики.
+
+**MR 1.1 — роль, авторизация, проверки прав и совместимость.**
+
+- **До начала:** документ принят.
 - **Существующие компоненты:** `UserRole`, `User`, `UserPolicy`, `ListUsers`, `EditUser`,
   `ModeratesUsers`, `UpdateUserAccountAction`, `CreatePostAction`, `ListPosts`, семь гейтов
   входа, `EnsureAccountIsNotTombstoned`, `NoDirectControllerPermissionCheckRule`.
-- **Новое:** `case Persona`, ролевой предикат входа (`canSignIn()` или аналог),
-  `isStaff()`/`label()`, no-op `sendPasswordResetNotification()` для персон, запрет пароля
-  и переходов роли в `UpdateUserAccountAction`, фабричное состояние `persona()`, строка в
-  `docs/architecture/user-lifecycle.md`.
-- **Риски:** пропущенная точка входа; регрессия списка пользователей; изменение условия
-  публикации для реальных админов/модераторов (сохранить их освобождение явно).
-- **Критерий на staging:** персона, созданная фабрикой/тинкером, видна в Users с фильтром
-  роли; её страница открывается; вход по паролю (если выставлен напрямую в БД), через
-  Google/Facebook и сброс пароля отвергаются с общим сообщением; `/admin` закрыт;
-  обычный пользователь и модератор публикуют как раньше.
+- **Новое:** `case Persona`, ролевой предикат входа, `isStaff()`/`label()`, no-op
+  `sendPasswordResetNotification()` для персон, запрет пароля и переходов роли в
+  `UpdateUserAccountAction`, явная проверка `Admin`/`Moderator` в `CreatePostAction` и
+  `ListPosts`, фабричное состояние `persona()`, строка в `docs/architecture/user-lifecycle.md`.
+- **Риски:** пропущенная точка входа; регрессия списка пользователей; случайное изменение
+  условия публикации для реальных админов/модераторов (их освобождение сохраняется явно).
+- **Критерий на staging:** персона, созданная фабрикой, видна в Users с фильтром роли, её
+  страница открывается; вход по паролю (если выставлен напрямую в БД), через
+  Google/Facebook и сброс пароля отвергаются с общим сообщением; `/admin` закрыт; пост
+  персоны (создан тинкером) ложится в `Pending`; обычный пользователь и модератор публикуют
+  как раньше.
 
-### MR 2 — настройки персоны и раздел Personas
+**MR 1.2 — `PersonaProfile`, Actions управления и полноценный интерфейс.**
 
-- **До начала:** MR 1.
+- **До начала:** MR 1.1.
 - **Существующие компоненты:** `ListUsers`/`EditUser` как образец страницы Admin v2
   (черновик, сохранение из верхней панели, `filament.pages.editor.topbar`), `x-admin.ui.*`,
-  `UpdateUserAccountAction`, `GenerateUniqueUsernameAction`, `ImageUploadStorer`,
-  `MediaAssetCreator`, `GenerateMediaVariantsJob`, `AdminNavigationGroup`,
-  `AdminShellNavigation`.
+  `GenerateUniqueUsernameAction`, `ImageUploadStorer`, `MediaAssetCreator`,
+  `GenerateMediaVariantsJob`, `AdminNavigationGroup`, `AdminShellNavigation`, публичный
+  профиль `/u/{username}`.
 - **Новое:** миграция и модель `PersonaProfile`, `CreatePersonaAction`,
-  `UpdatePersonaAction`, Action установки аватара, Filament-страницы Personas
-  (список/создание/редактирование) в секции Content Studio, иконки и обновлённый
-  `AdminShellTest`, allow-list в `UserLifecycleWriteBoundaryTest` при явной записи статуса.
+  `UpdatePersonaAction`, Action установки аватара, страницы Personas (список, создание,
+  редактирование) в секции Content Studio с иконкой и обновлёнными `AdminShellTest`/
+  `AdminNavigationGroupTest`, allow-list в `UserLifecycleWriteBoundaryTest` при явной записи
+  статуса, раздел Content Studio в `migration-plan.md` с синхронным обновлением
+  `AdminDesignDocsTest`.
 - **Риски:** дублирование логики аватара вместо выделения общих шагов; нарушение
   PHPStan-правил записи из презентации; несоответствие дизайн-контракту
-  (`docs/design/admin/ui-review-checklist.md`).
-- **Критерий на staging:** администратор создаёт персону с аватаром и настройками,
-  редактирует их, видит персону в Users; у персоны есть публичный профиль `/u/{username}`;
-  персона не может войти ни одним способом.
+  (`docs/design/admin/ui-review-checklist.md`); добавление географических полей или
+  почасового расписания из макета (не делаем).
+- **Критерий завершения этапа:** администратор создаёт и редактирует персону
+  исключительно через Content Studio, загружает аватар, задаёт характер, манеру речи,
+  темы, ограничения, интенсивность ответов и дневной лимит, видит публичный профиль
+  `/u/{username}` и находит персону в Users через фильтр роли; персона не может войти ни
+  одним способом.
 
-### MR 3 — доверенные расширения Actions
+### Phase 2 — Publication Plans & Image Draft
 
-- **До начала:** MR 1 (персона как автор).
-- **Существующие компоненты:** `CreatePostData`, `CreatePostAction`, `AddCommentAction`,
-  `CommentReplyService`, три `Vote*Action`, `NotifyFollowersAboutNewPostJob`.
-- **Новое:** поля DTO и параметры (даты, `imageAssetId`, `notifyFollowers`, `notify`,
-  режим «обеспечить голос», `castAt`), `afterCommit()` на job подписчикам, grep-тест на
-  недоступность параметров из презентации, правка устаревших комментариев про `sync`.
-- **Риски:** изменение публичного поведения голосов (режим по умолчанию обязан остаться
-  переключателем); пропуск проверок при загрузке готового ассета.
-- **Критерий на staging:** Pest-сценарии: пост от персоны с датой в прошлом встаёт в
-  ленте на место даты, подписчики не уведомлены, hot score пересчитан; комментарий и
-  голос с историческими `created_at`; повторный вызов «обеспечить голос» не меняет
-  состояние.
-
-### MR 4 — планы и редактор публикации
-
-- **До начала:** MR 2, MR 3 (пункт про `MediaReferenceChecker` можно внести здесь).
+- **До начала:** Phase 1.
 - **Существующие компоненты:** `ImageUploadStorer`, `MediaAssetCreator`,
   `StoreImportedImageAction`, `GenerateMediaVariantsJob`, `MediaReferenceChecker`,
   `RatingConfigurationManager` (активные группы и варианты для ответов автора),
   `ListPosts` (просмотр изображения), компоненты Admin v2.
-- **Новое:** миграция и модель `StudioPlan`, Actions создания/обновления/утверждения
-  плана, страница Publications & plans и редактор из четырёх шагов (Image, Post,
-  Discussion, Publication; шаг Discussion может быть заглушкой до MR 6), расширение
-  `MediaReferenceChecker` с тестом и правкой `docs/architecture/media.md`.
-- **Риски:** ассет черновика без ссылки (Release в Media diagnostics); разрастание
-  редактора в собственную логику публикации — публикация остаётся делом исполнителя.
-- **Критерий на staging:** план с фотографией сохраняется; `media:audit` не отмечает его
-  ассет как неиспользуемый; план утверждается с расписанием.
+- **Новое:** минимальная модель `StudioPlan`, Actions создания/обновления плана, страница
+  Publications & plans, каркас редактора Image → Post → Discussion → Publication с
+  сохранением черновика, выбор автора только из персон, сохранение фотографии через
+  существующий `MediaAsset` с владельцем-загрузчиком, третий источник в
+  `MediaReferenceChecker` с тестом и правкой `docs/architecture/media.md`, снятие ссылки
+  и `releaseUnreferenced()` при замене фотографии или удалении черновика. Без очереди и
+  исполнителя.
+- **Риски:** ассет черновика без ссылки (Release в Media diagnostics); жёсткая привязка
+  файла к персоне; разрастание редактора в собственную логику публикации.
+- **Критерий на staging:** план с фотографией сохраняется и переоткрывается; смена автора
+  не требует перезагрузки файла; `media:audit` не отмечает ассет плана как
+  неиспользуемый; удаление черновика освобождает ассет.
 
-### MR 5 — очередь действий и исполнитель
+### Phase 3 — OpenAI Image Understanding & Post Texts
 
-- **До начала:** MR 3, MR 4.
-- **Существующие компоненты:** `routes/console.php`, cron `schedule:run`, Redis-воркер,
-  `LocksActorForWrite`, образцы `GenerateProjectTranslationChunkJob` и
-  `MediaLifecycleService::purgeLock()`, `RecalculatePostScoreAction`, `FailedMediaJobReader`
-  как образец повтора, `MediaDiagnosticsPage` как образец экрана.
-- **Новое:** миграция и модель `StudioAction`, команда `studio:dispatch-due`,
-  `ExecuteStudioActionJob`, Action исполнения, экран Action queue (статусы, причины,
-  повтор, отмена), решение по лимитам скорости (пейсинг или отдельный ключ).
-- **Риски:** `timeout` Job выше `retry_after` 90 с; двойное исполнение при отсутствии
-  условного обновления; исчерпание лимитов `upload`/`comment`/`vote` персоной;
-  единственный воркер делит пропускную способность с медиа и переводами.
-- **Критерий на staging:** утверждённый план создаёт реальный пост персоны в нужное
-  время с историческими датами; повторный запуск задания (искусственно) не создаёт
-  дубликатов; действие с отменённым планом не исполняется; записи в Action queue
-  содержат реальное `finished_at`.
-
-### MR 6 — подготовленное обсуждение и зависимости
-
-- **До начала:** MR 5.
-- **Существующие компоненты:** `AddCommentAction`, `CommentReplyService::canStartReply()`,
-  `VoteCommentAction`, предикаты `Post`/`Comment`, `CannotCommentException`.
-- **Новое:** шаг Discussion редактора (дерево в два уровня с датами и голосами),
-  построение `parent_action_id`, каскадная отмена, отдельная причина
-  `becauseReplyTargetUnavailable()`, проверка монотонности дат внутри ветки при
-  планировании.
-- **Риски:** попытка глубины больше двух; ответ датой раньше корня; персона голосует за
-  собственный комментарий.
-- **Критерий на staging:** скрытие поста модератором отменяет ожидающие комментарии и
-  голоса плана; скрытие корневого комментария отменяет его ответы и голоса, остальные
-  действия продолжаются.
-
-### MR 7 — правила ответов и журнал ответов
-
-- **До начала:** MR 6, решение по триггерам (новое уведомление автору родительского
-  комментария сегодня отсутствует; `PostCommentedNotification` даёт только комментарии к
-  постам персоны).
-- **Существующие компоненты:** `AddCommentAction`, `CommentReplyService`, таблица
-  действий как журнал, `PersonaProfile` (интенсивность, дневной лимит, `Off`).
-- **Новое:** `persona_reply_rules`, детектор триггеров, генерация текста (зависит от
-  MR 8), экраны Reply rules и Reply log.
-- **Риски:** лимит `comment` 10/60 с; зацикливание персон между собой; `Off` обязан
-  останавливать только автоответы.
-- **Критерий на staging:** реальный комментарий к посту персоны порождает запись в
-  журнале и, при включённой интенсивности, ответ персоны не чаще дневного лимита.
-
-### MR 8 — интеграция OpenAI для Content Studio
-
-- **До начала:** MR 4 (есть изображение и черновик).
-- **Существующие компоненты (копируются, не импортируются):** рецепт `Http` и валидация
-  настроек из `OpenAiTranslationProvider`, классификация ошибок, разбор Responses API,
-  `DomainLogger`, `BigDecimal`-арифметика стоимости, механизм контракта окружения,
-  тестовые фикстуры `openAiResponseBody()`.
-- **Новое:** клиент Responses API с `input_image`, конфиг на фичу (ключ, базовый URL,
-  таймауты, модель на задачу), enum ошибок, таблица учёта вызовов и команда очистки,
-  ключи в `environment-contract.json` и шаблонах, тесты с `Http::fake`.
-- **Риски:** переиспользование переводного ключа `TRANSLATION_OPENAI_API_KEY` под
-  расходы Content Studio (противоречит правилу именования); повторы, удваивающие
-  платные вызовы.
-- **Критерий на staging:** анализ фотографии и черновик заголовка появляются в
-  редакторе; вызов учтён с токенами и оценкой стоимости; при пустом ключе функция
+- **До начала:** Phase 2 (есть изображение и черновик).
+- **Существующие компоненты (образец, копируется, не импортируется):** рецепт `Http`,
+  валидация настроек и защита ключа из `OpenAiTranslationProvider`, классификация
+  ошибок, разбор Responses API, `DomainLogger`, механизм контракта окружения, тестовые
+  фикстуры `openAiResponseBody()`; `MediaStorage::readStream()` для чтения
+  нормализованного мастера.
+- **Новое:** минимальный клиент Responses API для Content Studio (конкретная модель
+  OpenAI, `input_image` + структурированный ответ), конфиг на фичу и ключи в
+  `environment-contract.json` и шаблонах, enum ошибок, анализ изображения на шаге Image,
+  генерация вариантов заголовков и описаний на шаге Post с выбором и редактированием
+  финального текста, использование характера персоны как контекста где нужно,
+  минимальный технический учёт вызовов (без общего мониторинга), тесты с `Http::fake`.
+- **Риски:** переиспользование переводного ключа под расходы Content Studio (противоречит
+  правилу именования); повторы, удваивающие платные вызовы; расползание в универсальный
+  движок.
+- **Критерий на staging:** анализ фотографии и варианты заголовков/описаний появляются
+  в редакторе, финальный текст выбирается и редактируется; при пустом ключе функция
   отвергается как «не настроена», остальное приложение работает.
 
-### MR 9 — общий анализ SFW/NSFW
+### Phase 4 — Publishing & Historical Actions
 
-- **До начала:** MR 8 (клиент) и продуктовое решение о модели.
+- **До начала:** Phase 2 (план с изображением и текстами); Phase 3 желательна, но не
+  блокирует.
+- **Существующие компоненты:** `CreatePostAction`, `CreatePostData`, `ApprovePostAction`,
+  `PostPolicy::approve`, `RecalculatePostScoreAction`, `NotifyFollowersAboutNewPostJob`,
+  `routes/console.php`, cron `schedule:run`, Redis-воркер, `LocksActorForWrite`, образцы
+  `GenerateProjectTranslationChunkJob` и `PostRetentionPurgeService`, механизм
+  feature-флагов проекта, `FailedMediaJobReader`/`MediaDiagnosticsPage` как образцы
+  повтора и экрана.
+- **Новое (один этап, восстановление и однократность — в первом же MR исполнителя):**
+  утверждение плана с предпроверкой (D11), `CreatePostData::$imageAssetId`,
+  `$createdAt`/`$updatedAt`, доверенный параметр даты публикации в `ApprovePostAction`,
+  `afterCommit()` на job подписчикам, таблица `StudioAction`, диспетчер
+  `everyMinute()->withoutOverlapping()` с восстановлением зависших строк,
+  `ExecuteStudioActionJob` и Action исполнения с транзакционным однократным
+  применением, выключатель диспетчера, экран Action queue (статусы, причины, повтор,
+  отмена, возобновление `held`), решение по лимитам скорости, вызов
+  `RecalculatePostScoreAction`, grep-тест на недоступность доверенных параметров из
+  презентации, правка устаревших комментариев про `sync`.
+- **Риски:** `timeout` Job выше `retry_after` 90 с; двойное исполнение без условного
+  обновления; старый воркер получает новый класс задания (выключатель и восстановление);
+  потеря прав утвердившего администратора к моменту исполнения; исчерпание лимита
+  `upload` персоной; `updated_at` переписывается одобрением и пересчётами (D5).
+- **Критерий на staging:** утверждённый план создаёт реальный пост персоны «сейчас», в
+  будущем и с датой в прошлом; пост в ленте стоит на месте своей даты и имеет запись
+  `ApprovePost` в журнале модерации; искусственно повторенное задание не создаёт
+  дубликата; убитый посреди исполнения воркер — действие восстанавливается и
+  завершается один раз; потерянное задание Redis переотправляется; деплой во время
+  исполнения не теряет и не дублирует действие; Action queue показывает реальное
+  `finished_at`.
+
+### Phase 5 — Discussion Generation
+
+- **До начала:** Phase 3 и Phase 4.
+- **Существующие компоненты:** `AddCommentAction`, `CommentReplyService::canStartReply()`,
+  предикаты `Post`/`Comment`, `CannotCommentException`, `CommentListQuery` (порядок по
+  датам), клиент OpenAI этапа 3.
+- **Новое:** генерация связного обсуждения (фотография, заголовок, описание, характер и
+  манера речи каждой персоны; связность комментариев и ответов; глубина — один уровень
+  ответов), редактирование и перегенерация отдельных частей до утверждения, шаг
+  Discussion редактора, виды действий `create_comment`/`create_reply` с
+  `parent_action_id`, параметр `$createdAt` в `AddCommentAction`/`createReply()`,
+  отдельная причина `becauseReplyTargetUnavailable()`, предпроверка монотонности дат и
+  глубины, отмена недоступных веток.
+- **Риски:** попытка глубины больше двух; ответ датой раньше корня; лимит `comment`
+  10/60 с при пачке комментариев одной персоны; уведомления автору поста о «старых»
+  комментариях (вопрос H).
+- **Критерий на staging:** план с обсуждением создаёт настоящие комментарии и ответы
+  персон с историческими датами в правильном порядке; скрытие корневого комментария
+  отменяет только его ветку; техническая ошибка создания поста оставляет комментарии в
+  ожидании и они исполняются после восстановления.
+
+### Phase 6 — Votes & Ratings
+
+- **До начала:** Phase 4; Phase 5 для голосов за комментарии.
+- **Существующие компоненты:** `VotePostAction`, `VoteCommentAction`,
+  `VoteRatingOptionAction`, `PostPolicy::vote`, `RecalculatePostCountersAction`,
+  `RecalculateCommentCountersAction`, уникальные индексы голосов.
+- **Новое:** виды действий `vote_post`/`vote_comment`/`vote_rating`, зависимости от
+  постов и комментариев, предпроверка повторных и конфликтующих голосов и голосов за
+  собственный контент, проверка фактического голоса исполнителем перед вызовом
+  переключателя (D4), необязательный параметр даты в трёх Actions (`CommentVote` через
+  `forceFill()`), шаги Votes редактора. Публичное поведение голосования не меняется.
+- **Риски:** снятие голоса повтором; молчаливая смена противоположного голоса; лимит
+  `vote` 60/60 с; сериализация на строке `RatingGroup` при массовых рейтинговых голосах.
+- **Критерий на staging:** голоса персон вверх и вниз, за комментарии и за варианты
+  рейтинга создаются с историческими датами, счётчики и рейтинг корректны; повтор
+  задания не меняет голос; существующий такой же голос завершает действие без вызова
+  Action; конфликтующий голос виден администратору как проблема.
+
+### Phase 7 — Shared NSFW Classification
+
+- **До начала:** общий медиа-путь (Phase 2); не зависит от Phase 5/6 и может быть
+  выполнен раньше них.
 - **Существующие компоненты:** `MediaAssetCreator::create()`, `MediaStorage::readStream()`,
   `MediaVisibility`, `MediaStatus`, `MediaVariantGenerator`, Media diagnostics.
-- **Новое:** Job анализа по id ассета, параметр visibility в `MediaAssetCreator`,
-  гейт показа/вариантов, отображение результата в Media diagnostics и редакторе.
-- **Риски:** `MediaStatusTest` закрепляет четыре значения; `private` на локальном диске
-  — флаг, а не контроль доступа (`docs/architecture/media.md`).
-- **Критерий на staging:** новая загрузка пользователя и фотография плана проходят анализ
-  один раз без повторной нормализации; результат виден администратору.
+- **Новое:** экспериментальное сравнение моделей (локальная CPU-модель на VPS, внешние
+  поставщики, иное) и выбор реализации; задание классификации по id ассета с
+  `afterCommit()`; сохранение результата; правила отображения, фильтрации, размытия и
+  модерации; общая обработка для пользовательских загрузок и Content Studio.
+- **Риски:** `MediaStatusTest` закрепляет четыре значения; `Private` на локальном диске —
+  флаг, а не контроль доступа; ошибка классификации не должна ломать загрузку; не
+  привязывать к клиенту OpenAI.
+- **Критерий на staging:** новая загрузка пользователя и фотография плана проходят
+  классификацию один раз без повторной нормализации; результат виден администратору и
+  применяется в правилах отображения; сбой классификации не блокирует загрузку.
+
+### Phase 8 — Automatic Replies
+
+- **До начала:** Phase 5 (генерация текста персоны), Phase 4 (исполнитель); решение по
+  триггерам (уведомления автору родительского комментария нет; `PostCommentedNotification`
+  даёт только комментарии к постам персоны).
+- **Существующие компоненты:** `AddCommentAction`, `CommentReplyService`, таблица действий
+  и исполнитель, `PersonaProfile` (интенсивность, дневной лимит, `Off`).
+- **Новое:** `persona_reply_rules`, детектор триггеров, лимиты и интенсивность, защита от
+  циклических ответов персон друг другу, журнал Reply log, экраны Reply rules и Reply log,
+  интеграция с Action queue.
+- **Риски:** лимит `comment` 10/60 с; зацикливание; `Off` обязан останавливать только
+  автоответы; реакция на скрытый/удалённый контент.
+- **Критерий на staging:** реальный комментарий к посту персоны порождает запись в
+  журнале и, при включённой интенсивности, ответ персоны не чаще дневного лимита; `Off`
+  останавливает автоответы, но не утверждённые планы.
+
+### Phase 9 — Cleanup & Polish
+
+- **До начала:** все предыдущие этапы.
+- **Новое:** удаление временных компонентов и выключателей, устранение расхождений с
+  Admin v2 и дизайн-контрактом (ширины панелей, вкладки вместо выпадающего фильтра,
+  размер страницы 25, сохранение из верхней панели), очистка демонстрационных
+  механизмов, если они больше не используются, финальные регрессионные проверки.
+- **Критерий на staging:** все экраны Content Studio проходят
+  `docs/design/admin/ui-review-checklist.md`; временных флагов не осталось.
 
 ---
 
@@ -732,76 +1162,81 @@ content packs и сидеры рабочего контента; географ�
 
 | Этап | Регрессионные тесты, которые нужно дополнить или добавить |
 |---|---|
-| MR 1 | `UserRoleTest` (четыре роли); `UserLifecycleTest` (персона: панель закрыта при любом статусе); `UserPolicyTest` (персона санкционируема, не помечается доверенной); `UserResourceTest` (список и страница с персоной рендерятся, фильтр роли); `AuthenticationTest`, `SocialLoginTest`, `SocialAccountClaimTest`, `PasswordResetTest`, `TombstonedSessionTest` (персона отвергнута всеми путями, живая сессия завершается); `CreatePostActionTest` (персона публикует по подтверждённому email, не по роли; админ/модератор освобождены явно); `UpdateUserAccountActionTest` (пароль персоне не задаётся, переход `user ↔ persona` закрыт); `RegistrationTest` (роль не принимается из ввода) |
-| MR 2 | Новые тесты `CreatePersonaAction`/`UpdatePersonaAction`/аватара (по образцу `AvatarMediaLifecycleTest`, `UpdateUserProfileActionMediaVariantDispatchTest`); Filament-тесты страниц Personas (по образцу `UserResourceTest`); `AdminShellTest` (новые destination и иконки); `UserLifecycleWriteBoundaryTest` при записи статуса; `AdminDesignSystemSeparationTest` для новых Blade |
-| MR 3 | `CreatePostActionTest` (исторические даты, готовый ассет: пропуск storer, отказ на trashed/не Ready/не PostImage, флаг подписчиков); `CreatePostActionMediaVariantDispatchTest` (без повторной генерации); `NotifyFollowersAboutNewPostActionTest`; `AddCommentActionTest`/`AddCommentActionNotificationTest` (дата, подавление уведомления); `VotePostActionTest`/`VoteCommentActionTest`/`VoteRatingOptionActionTest` (режим «обеспечить», `castAt`, публичный переключатель не изменён); `PostVotingTest`/`CommentVotingTest` (UI без изменений); новый grep-тест на недоступность доверенных параметров из презентации |
-| MR 4 | Новые тесты модели/Actions плана; `MediaReferenceCheckerTest` (третий источник, число запросов); `MediaAuditServiceTest` и `MediaDiagnosticsPageTest` (ассет плана не «неиспользуемый», Release не предлагается); `MediaLifecycleServicePurgeTest` (план удерживает ассет); Filament-тесты редактора; `StoreImportedImageActionTest` без изменений |
-| MR 5 | Новые тесты диспетчера (`ContentCleanupScheduleTest` как образец для выражения расписания и `withoutOverlapping`), Job (контракт `tries`/`timeout` по образцу `GenerateProjectTranslationChunkJobTest.php:44-62`; повторная доставка ничего не делает), Action исполнения (транзакция, claim, `finished_at`, `RecalculatePostScoreAction`), экрана Action queue; `VoteRateLimitTest`/`CreatePostRateLimitTest`/`AddCommentRateLimitTest` при изменении ключей лимитов |
-| MR 6 | `CommentTombstoneLifecycleTest`/`CommentParentPostLifecycleTest` (каскадная отмена по тем же предикатам); тесты зависимостей и причин отмены; тест новой причины исключения |
-| MR 7 | Новые тесты правил, лимитов и `Off`; `PostCommentedNotificationTest` при добавлении триггеров |
-| MR 8 | Тесты клиента по образцу `OpenAiTranslationProviderTest` (`Http::preventStrayRequests`, статусы, транспорт, отказ модели, утечка ключа); тесты учёта по образцу `TranslationAiTelemetryTest`; `EnvironmentContractCompletenessTest` и `EnvironmentContractTest` для новых ключей; `TranslationEngineArchitectureGuardTest` остаётся зелёным (новый код вне `app/Support/TranslationEngine`) |
-| MR 9 | `MediaStatusTest`/`MediaVisibilityTest` при расширении enum; `MediaVariantGeneratorTest` (порядок анализ → Ready → варианты); `FilesystemMediaUrlResolverTest`, `PostImagePresenter*Test`, `AvatarUrlResolverResponsiveTest` (приватный ассет без URL); `GdImageIngestorTest` без изменений (повторной нормализации нет) |
+| Phase 1 | `UserRoleTest` (четыре роли); `UserLifecycleTest` (персона: панель закрыта при любом статусе); `UserPolicyTest` (персона санкционируема, не помечается доверенной); `UserResourceTest` (список и страница с персоной рендерятся, фильтр роли, роль персоны только для чтения); `AuthenticationTest`, `SocialLoginTest`, `SocialAccountClaimTest`, `SocialAccountLinkingTest`, `PasswordResetTest`, `TombstonedSessionTest` (персона отвергнута всеми путями, письмо сброса не уходит, живая сессия завершается); `CreatePostActionTest` (пост персоны → `Pending`; админ/модератор освобождены явно; синтетический email не считается подтверждённым); `UpdateUserAccountActionTest` (пароль персоне не задаётся, переход `user ↔ persona` закрыт); `RegistrationTest` (роль не принимается из ввода); новые тесты `CreatePersonaAction`/`UpdatePersonaAction`/аватара (по образцу `AvatarMediaLifecycleTest`, `UpdateUserProfileActionMediaVariantDispatchTest`); Filament-тесты страниц Personas (по образцу `UserResourceTest`); `AdminShellTest`/`AdminNavigationGroupTest` (новая секция и destination); `AdminDesignDocsTest` при правке плана миграции; `UserLifecycleWriteBoundaryTest` при записи статуса; `AdminDesignSystemSeparationTest` для новых Blade; `ProfilePageTest` (публичный профиль персоны) |
+| Phase 2 | Новые тесты модели и Actions плана (автор только персона, смена автора без перезагрузки файла); `MediaReferenceCheckerTest` (третий источник, число запросов 2 → 3); `MediaAuditServiceTest` и `MediaDiagnosticsPageTest` (ассет плана не «неиспользуемый», Release не предлагается); `MediaLifecycleServicePurgeTest` (план удерживает ассет; снятие ссылки освобождает его); Filament-тесты редактора; `StoreImportedImageActionTest` без изменений |
+| Phase 3 | Тесты клиента по образцу `OpenAiTranslationProviderTest` (`Http::preventStrayRequests`, статусы, транспорт, отказ модели, невалидный ответ, утечка ключа, тело запроса с `input_image`); `EnvironmentContractCompletenessTest` и `EnvironmentContractTest` для новых ключей; `TranslationEngineArchitectureGuardTest` остаётся зелёным (новый код вне `app/Support/TranslationEngine`); тесты шагов Image/Post (анализ, варианты, выбор финального текста, «не настроено» при пустом ключе) |
+| Phase 4 | `CreatePostActionTest` (исторические `created_at`/`updated_at`; готовый ассет: пропуск storer, отказ на trashed/не Ready/не PostImage/чужую ссылку); `ApprovePostActionTest` (доверенная дата публикации, `now()` без неё, отказ при потере прав администратора); `CreatePostActionMediaVariantDispatchTest` (без повторной генерации); `NotifyFollowersAboutNewPostActionTest` (`afterCommit()`); новые тесты диспетчера (образец `ContentCleanupScheduleTest` для расписания и `withoutOverlapping`), Job (контракт `tries`/`timeout` по образцу `GenerateProjectTranslationChunkJobTest.php:44-62`), Action исполнения и экрана Action queue — обязательные сценарии: **повторная доставка одного действия** (второй запуск не меняет данные); **сбой до фиксации** (откат, строка `running`, восстановление, один пост в итоге) и **сбой после фиксации** (`done`, повтор — no-op); **потерянное задание Redis** (`dispatched` без задания переотправляется); **зависшие действия** (`running` с просроченным `claimed_at` восстанавливаются, предел попыток → `failed`); **деплой во время выполняющегося задания** (выключенный диспетчер не отправляет; включение после подтверждения воркера); **совместимость старого воркера с новыми миграциями** (аддитивность); **ошибка создания родительского Post** (дети остаются `pending`); **восстановление зависимых действий** после успеха родителя; **окончательная отмена родителя** (каскад) и **продолжение независимых действий**; **блокировка и удаление персоны** (`Limited`/`Shadowbanned` → `held`, `Banned`/`Deleted` → `cancelled`, чужие действия продолжаются); **исторические временные метки** поста в ленте и профиле; `VoteRateLimitTest`/`CreatePostRateLimitTest`/`AddCommentRateLimitTest` при изменении ключей лимитов; новый grep-тест на недоступность доверенных параметров из презентации |
+| Phase 5 | `AddCommentActionTest`/`AddCommentActionNotificationTest` (дата; уведомление по решению H); `CommentTombstoneLifecycleTest`/`CommentParentPostLifecycleTest` (отмена ветки по тем же предикатам; глубина не больше двух); тест новой причины `becauseReplyTargetUnavailable()`; тесты генерации обсуждения (структура, глубина, монотонность дат, редактирование и перегенерация части); `CommentListQueryTest` (исторические даты в правильном порядке) |
+| Phase 6 | `VotePostActionTest`/`VoteCommentActionTest`/`VoteRatingOptionActionTest` (параметр даты; публичный переключатель не изменён; **прямое голосование вниз**); `PostVotingTest`/`CommentVotingTest`/`RatingVotingTest` (UI без изменений); тесты исполнителя: **существующий голос от того же актора** (действие `done` без вызова Action), конфликтующий голос → проблема в Action queue, повтор задания не снимает голос; предпроверка плана (повторные голоса, голос за своё); `RecalculatePostCountersActionTest`/`RecalculateCommentCountersActionTest` (счётчики после исторических голосов); `FeedQueryTest` (hot/top после пересчёта) |
+| Phase 7 | `MediaStatusTest`/`MediaVisibilityTest` при расширении enum; `MediaVariantGeneratorTest` (порядок классификация → `Ready` → варианты, если выбран статусный гейт); `FilesystemMediaUrlResolverTest`, `PostImagePresenter*Test`, `AvatarUrlResolverResponsiveTest` (приватный ассет без URL); `GdImageIngestorTest` без изменений (повторной нормализации нет); тест «сбой классификации не ломает загрузку» для `UploadPostFormTest`/`AvatarUploadTest` |
+| Phase 8 | Новые тесты правил, лимитов, `Off`, защиты от циклов; `PostCommentedNotificationTest` при добавлении триггеров; тесты журнала ответов и его отмены |
+| Phase 9 | Повторный прогон `tests/Feature/Filament/*`, `tests/Feature/Admin/*`, `AdminDesignDocsTest`; удаление тестов временных флагов |
 
 ---
 
 ## H. Open Technical Questions
 
-1. **Имя очереди и воркер для заданий Content Studio.** Воркер каждой цели слушает ровно
-   одно имя (`--queue=rateguru-staging`/`rateguru-tits-guru`, `numprocs=1`); `onQueue()` в
-   коде не используется. Открыто: достаточно ли очереди по умолчанию, или нужна
-   выделенная с изменением реестра целей и установщика. Подтверждённые ограничения:
-   значение `REDIS_QUEUE` на хостах операторское и не проверяется скриптами. Решать на
-   этапе 5, при необходимости отдельной инфраструктурной задачей.
-2. **Хранилище блокировок и мьютекса планировщика.** Медиа-блокировки намеренно
-   используют `Cache::store('database')` со ссылкой на запрет Redis в `AGENTS.md`; при
-   этом очередь и хранилище черновиков переводов работают на Redis, а `CACHE_STORE` на
-   хостах пуст в шаблонах (значение операторское). Открыто: какой store считать
-   каноническим для блокировок исполнителя и `withoutOverlapping()` новой команды.
-   Решать на этапе 5.
-3. **Лимиты скорости для доверенного исполнителя.** `ActionRateLimiter` срабатывает до
+Разрешено и сюда не входит: отдельная очередь и воркер для Content Studio не нужны
+(первая версия — существующий одиночный воркер); публичное голосование ради повторной
+доставки не меняется; одной транзакции на весь план нет; временный сбой родителя не
+отменяет дочерние действия; дополнительные блокировки Redis/Cache не вводятся, пока
+достаточно PostgreSQL; `email_verified_at` персоне не проставляется; OpenAI появляется до
+автоматических ответов; универсальный реестр моделей и GeoIP отложены.
+
+1. **Лимиты скорости для доверенного исполнителя.** `ActionRateLimiter` срабатывает до
    транзакции с ключом по пользователю (загрузка 5/600 с, комментарии 10/60 с, голоса
-   60/60 с). Открыто: пейсинг `run_after` без изменения кода или отдельный ключ/флаг для
-   исполнителя. Подтверждено: `tests/Feature/Support/ActionRateLimiterTest.php` требует
-   положительных лимитов у каждого настроенного действия. Решать на этапе 5.
-4. **Политика уведомлений для исторического контента.** Подавлять ли уведомления
-   подписчикам и автору поста целиком (флаги) или допускать их с реальной датой.
-   Подтверждено: отложить уведомление «в прошлое» нельзя — колокольчик показывает дату
-   строки уведомления. Решать на этапах 3 и 5.
-5. **Домен синтетического email персон и поведение почтовых каналов.** Образец —
-   `@deleted.invalid` у tombstone. Открыто: конкретный домен и нужно ли глушить любые
-   `mail`-уведомления персонам (сейчас mail используют только уведомления о социальных
-   аккаунтах, недостижимые для персон). Решать на этапе 1.
+   60/60 с) и считает повторы. Открыто: пейсинг `run_after` без изменения кода или
+   отдельный ключ/флаг для исполнителя. Подтверждено:
+   `tests/Feature/Support/ActionRateLimiterTest.php` требует положительных лимитов у
+   каждого настроенного действия. Решать на Phase 4.
+2. **Политика уведомлений для исторического контента.** Подавлять ли уведомления
+   подписчикам и автору поста (флаги в `CreatePostAction`/`ApprovePostAction`/
+   `AddCommentAction`) или допускать их с реальной датой. Подтверждено: отложить
+   уведомление «в прошлое» нельзя — колокольчик показывает дату строки уведомления;
+   `PostApprovedNotification` при одобрении плана уйдёт персоне-автору (database).
+   Решать на Phase 4 (посты) и Phase 5 (комментарии).
+3. **Удержание исторического `updated_at` при технических пересчётах.** `save()` в
+   `ApprovePostAction`, пересчётах счётчиков и hot score переписывает `updated_at`
+   реальным временем сразу при исполнении (D5). Открыто: принять как есть (не
+   обещается) или сохранять значение при технических записях. Решать на Phase 4.
+4. **Домен синтетического email персон и почтовые каналы.** Образец — `@deleted.invalid`
+   у tombstone. Открыто: конкретный домен и нужно ли глушить любые `mail`-уведомления
+   персонам (сейчас mail используют только уведомления о социальных аккаунтах,
+   недостижимые для персон). Решать на Phase 1.
+5. **Пороги восстановления и предел попыток.** Значения порогов «потерянное `dispatched`»,
+   «зависшее `running`» и максимума `attempts` — конфигурация; конкретные числа
+   подбираются на staging. Решать на Phase 4.
 6. **Триггер автоответов.** Уведомления автору родительского комментария нет; есть только
    `PostCommentedNotification` автору поста (database). Открыто: детектировать ответы
    реальных пользователей запросом к `comments` или добавить новое уведомление/событие.
-   Решать на этапе 7.
-7. **Журнал ответов как часть таблицы действий или отдельная таблица.** Решать на этапе 7.
-8. **Ставки, модели и параметры анализа изображений.** Переводная конфигурация знает одну
-   модель и ставки `gpt-6-luna`; клиенту Content Studio нужны модель на задачу и свои
-   ставки. Открыто: имена ключей окружения (переиспользовать `TRANSLATION_OPENAI_API_KEY`
-   нельзя по правилу именования). Решать на этапе 8.
-9. **Семантика «ожидает проверки» для SFW/NSFW.** Через `MediaVisibility::Private` (гейт
-   показа, файл остаётся под публичным симлинком) или через `MediaStatus` (гейт вариантов).
-   Решать на этапе 9 вместе с выбором модели.
-10. **Расхождения макета с утверждёнными решениями и дизайн-контрактом.** Подпись шага
-    Publication в макете («Real timestamps such as created_at … are never backdated»)
-    противоречит решению об исторических датах; дерево обсуждения макета допускает
-    `Nested reply` (третий уровень), который код отвергает; выбор автора из `Editorial
-    accounts`/`Users` противоречит решению «только персоны»; drawer редактора персоны
-    680 px при максимуме кита 480; сохранение Reply rules из нижней панели против
-    требования контракта сохранять из верхней; размер страницы Action queue 15 против 25;
-    фильтр статуса выпадающим списком против вкладок NAV-03. Подтверждено: по контракту
-    эталон побеждает документ, кроме задокументированных отступлений
-    (`docs/design/admin/design-contract.md:30-31, 1203-1307`). Решать при постановке MR 4–7
-    как записи в таблице отступлений.
-11. **Куда подключать запись успешного входа.** Единственный общий хук — событие
-    `Login`, но оно срабатывает до гейта tombstone в `AuthenticateUserAction` (`Auth::attempt`
-    уже вызвал `login()`), повторяется при оживлении сессии «запомнить меня» и при входе в
-    `/admin/login` Filament, а id сессии регенерируется уже после события. Альтернатива —
-    явные вызовы в трёх контроллерах входа (образец `CompletePendingSocialLinkAction`), но
-    они не видят вход в админку. Подтверждено: `trustProxies` не нужен сегодня (nginx —
-    граница сети), а `SESSION_DRIVER` на хостах — операторское значение, поэтому
-    заполненность `sessions.ip_address` неизвестна. Решать при проектировании географии.
+   Решать на Phase 8.
+7. **Журнал ответов как часть таблицы действий или отдельная таблица.** Решать на Phase 8.
+8. **Модель, ставки и имена ключей окружения для клиента OpenAI.** Переводная
+   конфигурация знает одну модель; клиенту Content Studio нужны своя модель и свои ключи
+   (переиспользовать `TRANSLATION_OPENAI_API_KEY` нельзя по правилу именования). Решать на
+   Phase 3.
+9. **Реализация SFW/NSFW и семантика «ожидает проверки».** Выбор между локальной
+   CPU-моделью, внешним поставщиком и иным; гейт через `MediaVisibility::Private`
+   (показ; файл остаётся под публичным симлинком) или `MediaStatus` (варианты). Решать на
+   Phase 7 после экспериментального сравнения.
+10. **Расхождения макета с утверждёнными решениями и дизайн-контрактом.** Обязательные
+    исправления будущего UI (решение): автор публикации — только персоны; исторические
+    даты пишутся в обычные поля сущностей, реальное время — отдельно; обсуждение
+    ограничено поддерживаемой глубиной; почасовое расписание персоны не требуется; `Off`
+    не отменяет утверждённые планы; географические поля отложены; интерфейс строится на
+    Admin v2 и его контракте. Остальное — сведения для UI-этапов: drawer редактора
+    персоны 680 px при максимуме кита 480; сохранение Reply rules из нижней панели против
+    верхней; размер страницы Action queue 15 против 25; фильтр статуса выпадающим списком
+    против вкладок NAV-03. Макет в этом PR не правится; записи в таблице отступлений
+    контракта — при постановке соответствующих UI-этапов.
+11. **Запись успешных входов для будущей истории входов.** Единственный общий хук —
+    событие `Login`, но оно срабатывает до гейта tombstone в `AuthenticateUserAction`
+    (`Auth::attempt` уже вызвал `login()`), повторяется при оживлении сессии «запомнить
+    меня» и при входе в `/admin/login` Filament, а id сессии регенерируется уже после
+    события. Альтернатива — явные вызовы в трёх контроллерах входа (образец
+    `CompletePendingSocialLinkAction`), но они не видят вход в админку. Подтверждено:
+    `trustProxies` не нужен сегодня (nginx — граница сети), `SESSION_DRIVER` на хостах —
+    операторское значение. Решать на этапе GeoIP после изучения данных MaxMind.
 
 ---
 
@@ -819,12 +1254,14 @@ content packs и сидеры рабочего контента; географ�
    (`UserPolicy::markTrusted/canSanction/viewAdmin`, `MarkUserTrustedAction.php:43`,
    `ModeratesUsers.php:161, 171`, `ModerationUsersQuery::staff()`, все `isAdmin()`/
    `isModerator()`) корректны для не-персонала и не меняются.
-3. **Безопасное создание управляемого аккаунта** — раздел E7: `email` уникален и
-   обязателен (`0001_01_01_000000_create_users_table.php:17`), поэтому нужен
-   немаршрутизируемый адрес; `password` nullable с миграции
-   `2026_09_11_100000_make_users_password_nullable.php`; `email_verified_at`, `status`
-   (по умолчанию `active`), `trust_level` (хук модели); без `Registered`; создание только
-   через Action (PHPStan-правило `NoPresentationModelMutationRule`).
+3. **Безопасное создание управляемого аккаунта** — раздел E9: `email` уникален и
+   обязателен (`0001_01_01_000000_create_users_table.php:17`), поэтому нужен синтетический
+   немаршрутизируемый адрес как технический идентификатор; `email_verified_at` остаётся
+   `NULL` — адрес не считается подтверждённым (решение); `password` nullable с миграции
+   `2026_09_11_100000_make_users_password_nullable.php` и остаётся `NULL`; `status` по
+   умолчанию `active`, `trust_level` — хук модели; без `Registered`; создание только через
+   Action (PHPStan-правило `NoPresentationModelMutationRule`). Публикацию разрешает
+   утверждение плана администратором (D3), а не свойства аккаунта.
 4. **Переиспользуемые механизмы профиля и аватара** — публичный профиль `/u/{username}`
    (`app/Livewire/Profile/ProfilePage.php`) не ветвится по роли; поля `display_name`,
    `bio`, `profile_website_url`, `rating_activity_visibility`
@@ -848,18 +1285,24 @@ content packs и сидеры рабочего контента; географ�
    `Post::create`, теги, ответы автора) → компенсация файла при ошибке → лог
    `posts.created` → job подписчикам при `Published` → job вариантов `afterCommit()`.
 2. **Статус** — `Published` при `trust_level >= 10` и (`hasVerifiedEmail()` или роль не
-   `User`), иначе `Pending` (`CreatePostAction.php:88-91`).
+   `User`), иначе `Pending` (`CreatePostAction.php:88-91`). После замены ролевой части на
+   явную проверку `Admin`/`Moderator` пост персоны всегда `Pending`; публикует его
+   `ApprovePostAction` от имени утвердившего администратора в той же транзакции
+   исполнителя (D3).
 3. **Даты** — `created_at`/`updated_at` ставит Eloquent (`Post::create` без них);
    `published_at = now()` только при публикации сразу, иначе `null` до одобрения
-   (`ApprovePostAction.php:43`, `RestorePostAction.php:43` сохраняют существующее).
+   (`ApprovePostAction.php:43`, `RestorePostAction.php:43` сохраняют существующее);
+   доверенная дата публикации передаётся в `ApprovePostAction` необязательным параметром
+   (`$locked->published_at ?? $publishedAt ?? now()`).
 4. **Подтверждение публикации** — `ApprovePostAction` под блокировкой поста из `Pending`,
    лог `ApprovePost`, `PostApprovedNotification` автору, job подписчикам.
 5. **Уведомления** — `CreatePostAction.php:136-147`, `ApprovePostAction.php:65-97`,
    `AddCommentAction.php:135-158`; все database и синхронные (job подписчикам — очередь).
 6. **Связь с медиа** — `posts.image_asset_id` (FK `media_assets`, `nullOnDelete`),
    записывается только в `CreatePostAction.php:105`; `Post::imageAsset()`.
-7. **Историческое время** — раздел E4: необязательные поля `CreatePostData`, применение в
-   `CreatePostAction.php:91, 97-106`.
+7. **Историческое время** — раздел E7: необязательные поля `CreatePostData`
+   (`createdAt`/`updatedAt`) в массиве `Post::create` (`CreatePostAction.php:97-106`) и дата
+   публикации в `ApprovePostAction.php:43`; статусная логика `:88-91` не меняется.
 8. **Пост из сохранённого `MediaAsset`** — раздел C: `imageAssetId` в DTO, ветка в
    `CreatePostAction.php:93-95`, пропуск storer в `:66-68`, проверки kind/status/trashed.
 9. **Без дублирования** — исполнитель вызывает `CreatePostAction::handle()` с DTO; никакой
@@ -893,10 +1336,14 @@ content packs и сидеры рабочего контента; географ�
    голосование не влияют.
 4. **Один голос** — уникальные индексы плюс `lockForUpdate` строки голоса (посты,
    комментарии) и блокировка `RatingGroup` плюс `upsert` (рейтинги).
-5. **Историческая дата** — `castAt` в трёх Actions; `PostVote` принимает `created_at`
-   через `create`, `CommentVote` — `forceFill()`, `RatingVote` — значение в `upsert`.
-6. **Исключение повторного исполнения** — режим «обеспечить» внутри транзакции плюс
-   статус `done` строки действия; `VoteRatingOptionAction` идемпотентен уже сейчас.
+5. **Историческая дата** — необязательный параметр даты в трёх Actions на Phase 6;
+   `PostVote` принимает `created_at` через `create`, `CommentVote` — `forceFill()`,
+   `RatingVote` — значение в `upsert`.
+6. **Исключение повторного исполнения** — статус `done` строки действия, фиксируемый
+   одной транзакцией с голосом (повторная доставка Action не вызывает), плюс чтение
+   фактического голоса исполнителем под блокировкой перед вызовом переключателя и
+   предпроверка плана на повторные/конфликтующие голоса (D4); режим «обеспечить голос» в
+   Actions не вводится; `VoteRatingOptionAction` идемпотентен уже сейчас.
 7. **Через существующие Actions** — все три; ни одной записи в таблицы голосов извне
    Actions. Отдельных таблиц голосов для персон не создаём.
 
@@ -912,11 +1359,14 @@ content packs и сидеры рабочего контента; географ�
 2. **Проверка, нормализация, изменение размеров** — проверка и нормализация в
    `GdImageIngestor`, размеры только в варианте (`GdImageVariantProcessor`).
 3. **Когда создаётся `MediaAsset`** — внутри транзакции `CreatePostAction`, перед `Post`.
-4. **Сохранение для черновика** — раздел E8.
+4. **Сохранение для черновика** — раздел E10 (владелец — загрузивший администратор,
+   ссылка плана как третий источник `MediaReferenceChecker`, смена автора без
+   перезагрузки файла).
 5. **Защита от удаления** — третья ссылка в `MediaReferenceChecker` (раздел D7).
 6. **Расширение `CreatePostAction`** — раздел C.
 7. **Точка SFW/NSFW** — `MediaAssetCreator::create()` с диспетчеризацией `afterCommit()`
-   Job по id ассета (раздел E8).
+   Job по id ассета (раздел E12); отдельная подсистема с отдельным выбором модели,
+   независимая от клиента OpenAI.
 8. **Без повторной обработки** — Job читает уже нормализованный мастер через
    `MediaStorage::readStream()`; варианты не пересчитываются.
 
@@ -935,16 +1385,20 @@ Failed` приложением не записываются.
    `post_tag`, `post_votes`, `posts`, `project_settings`, `rating_groups`,
    `rating_options`, `rating_votes`, `reports`, `sessions`, `social_accounts`, `tags`,
    `translation_ai_provider_calls`, `users` — ничего похожего на планы или действия.
-2. **Передача обработчикам** — ежеминутный диспетчер и Job с id (раздел E3); отложенные
-   `delay()` не рекомендуются (не отзываются при отмене, невидимы администратору).
-3. **Одновременное выполнение** — `lockForUpdate` + условный `UPDATE` статуса;
-   опционально атомарная блокировка `Cache::store('database')`.
-4. **Однократное применение** — доменная запись и статус `done` в одной транзакции.
-5. **Зависимости** — `parent_action_id` и `result_type/result_id` (раздел E5).
-6. **Исторические даты** — доверенные параметры Actions (раздел E4).
-7. **Отмена зависимых** — предикаты и каскад по поддереву (раздел E5).
+2. **Передача обработчикам** — ежеминутный диспетчер (он же восстанавливает зависшие
+   `dispatched`/`running`) и Job с единственным id (раздел E4); завершение родителя может
+   сразу ставить готовых детей; отложенные `delay()` не рекомендуются (не отзываются при
+   отмене, невидимы администратору).
+3. **Одновременное выполнение** — `lockForUpdate` + условный `UPDATE` статуса на
+   PostgreSQL; дополнительных блокировок Cache/Redis нет (решение, раздел E5).
+4. **Однократное применение** — доменная запись и статус `done` в одной транзакции;
+   гарантия относится к данным PostgreSQL, не к внешним эффектам (D12).
+5. **Зависимости** — `parent_action_id` и `result_type/result_id` (раздел E6).
+6. **Исторические даты** — доверенные параметры Actions на своих этапах (раздел E7).
+7. **Отмена зависимых** — только окончательная (класс B или администратор), каскадом по
+   поддереву; временный сбой родителя оставляет детей в ожидании (разделы D11, E6).
 8. **Продолжение независимых** — отбор по строкам, сиблинги не затрагиваются.
-9. **Бизнес-очередь и техническая** — раздел E6.
+9. **Бизнес-очередь и техническая** — раздел E11; деплой во время исполнения — E8.
 
 Факты инфраструктуры: Redis установлен и используется на хостах (`install-bootstrap-runtime`
 ставит `redis-server` и `php8.5-redis`; `config/translation.php:43` жёстко задаёт
@@ -966,7 +1420,10 @@ Sentry получает падения заданий единым путём (`
    `TranslationProviderRouter` (и есть тот «реестр провайдеров», который отложен),
    `TranslationErrorCode` с переводными сообщениями, `TranslationAiProviderCall` и
    `TranslationAiCallRecorder` (NOT NULL `target_locale`, счётчики элементов).
-3. **Минимальные компоненты для Content Studio** — раздел F, MR 8.
+3. **Минимальные компоненты для Content Studio** — раздел F, Phase 3 (сразу после планов
+   с черновиком изображения): минимальный клиент Responses API с `input_image`, конфиг на
+   фичу, enum ошибок, минимальный технический учёт; общий мониторинг и управление
+   расходами — позже, вместе с переводами.
 4. **Ограничения** — только `input_text`; `input_image`, файлы, moderation endpoint в коде
    отсутствуют; лимиты запроса 50 элементов / 60 000 символов, пакета 500 / 500 000;
    тест закрепляет ключи тела запроса (`OpenAiTranslationProviderTest.php:84`); движок
@@ -976,6 +1433,16 @@ Sentry получает падения заданий единым путём (`
    повторов/фоллбэка, Batch API, SDK.
 
 ### П9. География и история входов
+
+Решение: направление отложено и не входит в MVP Content Studio. Сначала изучаются реальные
+данные MaxMind (страны, города, идентификаторы объектов, пригодность для выпадающих
+списков, обновления базы, точность и полнота); до этого собственный справочник не
+создаётся, географические поля в `users` и `persona_profiles` не добавляются, Phase 1
+Personas справочником не блокируется. Поля `City`/`Country` в макете редактора персоны
+не реализуются. Точный механизм записи успешных входов (время, пользователь, IP,
+предполагаемые страна и город, источник определения) проектируется на этапе GeoIP с
+учётом факта, что событие `Login` не во всех ситуациях означает окончательно разрешённую
+авторизацию (ниже).
 
 - **Поля страны/города в `users`** — отсутствуют. Профильные колонки: `display_name`,
   `bio`, `profile_website_url`, `rating_activity_visibility`
@@ -1158,7 +1625,9 @@ plan or reply rule uses it.», `Save persona`. Соответствие пост
 `Character`, «манера речи» — `Speech style`, «темы» — `Topics and typical jokes`,
 «ограничения» — `Never writes about`, «интенсивность автоответов» — `Engagement`,
 «дневной лимит» — `Max replies a day`; поля `City`/`Country` и часы `Active from/until`
-есть в макете, но постановка откладывает географию и не требует почасового расписания.
+есть в макете, но по решению география отложена, а почасовое расписание активности не
+требуется — эти поля не реализуются. Группы авторов `Editorial accounts`/`Users` в
+`AuthorPicker` не реализуются: автор — только персона.
 
 **Reply rules.** `Overall level` — `Reply to about n %` («0% turns replies off»), расчёт
 «About n replies a day»; `When a reply is allowed`: `Who personas reply to` (`Real users
