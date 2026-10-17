@@ -1,0 +1,39 @@
+docs/architecture/content-studio-phase-0.md
+  s_a71cdc56fbeeb1::t_0f75d751e36c78 287-291,301-309,327-333,335,338-366,376-394,396-401,405-409,414-422,425-426,428-432,434-435,454-455,467-471,496-575,581-583,588-602,607-628,633-681,684-695,700-749,752-818,821-824,828-836,838,841-842,844-912,918-926,928,930-939,943-957,960-962,964-968,971-981,986-1017,1020-1094,1097-1132
+  s_a71cdc56fbeeb1::t_91a7bb0b7e9346 177-179
+  s_a71cdc56fbeeb1::t_bf6e3721813e0e 1339-1346
+  s_a71cdc56fbeeb1::t_bfe3ec30a7d4d0 1423-1426
+  s_a71cdc56fbeeb1::t_a0f0c3bb413b1b 1368-1369
+  s_a71cdc56fbeeb1::t_39ad3b4193ecca 1257-1264
+  s_a71cdc56fbeeb1::t_506a17453b1c3b 1437-1446
+  s_a71cdc56fbeeb1::t_645eeec8e53958 22-35
+  s_a71cdc56fbeeb1::t_77af67e0c9312f 1303-1305
+  s_a71cdc56fbeeb1::t_384ae2a1e3d15b 92-139
+  s_a71cdc56fbeeb1::t_f206ba33844037 153
+  s_a71cdc56fbeeb1::t_56d55f3bd867ab 1628-1630
+  s_a71cdc56fbeeb1::t_bea51bde451077 183
+  s_a71cdc56fbeeb1::t_5ebdcd27f12718 165
+  s_a71cdc56fbeeb1::t_c1e8a9d239772f 196-200
+  s_a71cdc56fbeeb1::t_6c0c3af16bc5e8 1165-1173,1179-1186,1188-1208,1212-1239
+  s_a71cdc56fbeeb1::t_b1628e0040b036 231-234,238,241-243,245-246,248-276
+  s_a71cdc56fbeeb1::t_8331b6328379df 1288-1291,1294-1296
+  s_a71cdc56fbeeb1::t_81ddc77f96eb5e 8-10
+  s_a71cdc56fbeeb1::t_a8750e5335c28e 1362-1364
+  s_a71cdc56fbeeb1::t_da2f0c96af3e7f 1388-1399,1401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac30dae04eb3e4c2bc16feb05b0e264e64dd3715",
+  "prompts": {},
+  "sessions": {
+    "s_a71cdc56fbeeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04c66e0c-8a1a-4b03-94c7-85b7dda1a8a0",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
