@@ -54,7 +54,9 @@ final class ClaimAccountWithVerifiedEmailAction
         $claim = DB::transaction(function () use ($user, $identity): AccountClaim {
             $locked = $this->lockActor($user);
 
-            if ($locked === null || ! $locked->canAuthenticate()) {
+            // On the locked row: a provider's confirmation is never a way to
+            // take over a tombstone or a Persona, whatever the caller saw.
+            if ($locked === null || ! $locked->canSignIn()) {
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 

@@ -35,10 +35,25 @@ use Livewire\Attributes\On;
  * Only an administrator edits an account, never their own nor another
  * administrator's (UserPolicy::manage); the save goes through
  * UpdateUserAccountAction.
+ *
+ * A Persona's page shows its account and its role and edits none of it:
+ * a Persona is made and edited only in Content Studio. Its status still
+ * moves through the same moderation actions as anyone's.
  */
 final class EditUser extends Page
 {
     use ModeratesUsers;
+
+    /** The roles this page gives. Never Persona: nobody becomes one, or stops being one, here. */
+    private const ASSIGNABLE_ROLES = [UserRole::User, UserRole::Moderator, UserRole::Admin];
+
+    /** What each role may do, as the page says it. */
+    private const ROLE_HELP = [
+        'user' => 'No admin access.',
+        'persona' => 'A managed account. It takes part like a member, never signs in and has no admin access. Its posts wait for moderation.',
+        'moderator' => 'Reviews posts, comments and reports.',
+        'admin' => 'Full access: people, content, settings and languages.',
+    ];
 
     protected static string $resource = UserResource::class;
 
@@ -100,6 +115,15 @@ final class EditUser extends Page
     public function save(): void
     {
         $person = $this->person();
+
+        // Nothing on a Persona's page is a draft. UpdateUserAccountAction
+        // refuses a Persona on its own too; this only says so plainly.
+        if ($person->role === UserRole::Persona) {
+            $this->moderationToast('A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+            return;
+        }
+
         $this->name = Str::squish($this->name);
         $this->username = trim($this->username);
         $this->email = Str::lower(trim($this->email));
@@ -195,12 +219,17 @@ final class EditUser extends Page
                 ...$profile->history($person)->map(fn (ModerationLog $log): array => self::historyItem($log))->all(),
                 ['icon' => 'user-plus', 'tone' => 'default', 'title' => 'Account created', 'time' => $person->created_at !== null ? ModerationListFormat::when($person->created_at) : null, 'body' => null],
             ],
-            'roles' => ['user' => 'User', 'moderator' => 'Moderator', 'admin' => 'Admin'],
-            'roleHelp' => [
-                'user' => 'No admin access.',
-                'moderator' => 'Reviews posts, comments and reports.',
-                'admin' => 'Full access: people, content, settings and languages.',
-            ],
+            'isPersona' => $person->role === UserRole::Persona,
+            'roleLabel' => (string) $person->role?->label(),
+            'roles' => collect(self::ASSIGNABLE_ROLES)->mapWithKeys(fn (UserRole $role): array => [$role->value => $role->label()])->all(),
+            'roleHelp' => self::ROLE_HELP,
+            // Read from whatever the draft and the saved values hold, so a role
+            // the page does not offer still reads as itself, never a missing key.
+            'roleChange' => $this->confirmingRole ? [
+                'from' => self::roleLabel($this->saved['role']),
+                'to' => self::roleLabel($this->role),
+                'help' => self::ROLE_HELP[$this->role] ?? '',
+            ] : null,
             'trusts' => [
                 'reviewed' => ['label' => 'Not trusted', 'help' => 'Every post waits for moderation.'],
                 'trusted' => ['label' => 'Trusted', 'help' => 'Posts publish at once, once their email is confirmed.'],
@@ -219,7 +248,7 @@ final class EditUser extends Page
                 ? ['required', 'string']
                 : ['required', 'string', 'regex:/\A[a-z0-9_]+\z/', 'max:32', Rule::unique(User::class)->ignore($person->id)],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class)->ignore($person->id)],
-            'role' => ['required', Rule::enum(UserRole::class)],
+            'role' => ['required', Rule::in(array_map(fn (UserRole $role): string => $role->value, self::ASSIGNABLE_ROLES))],
             'trust' => ['required', Rule::in(['trusted', 'reviewed'])],
             'password' => ['nullable', 'string', 'max:255', Password::defaults()],
         ];
@@ -264,6 +293,11 @@ final class EditUser extends Page
                 ! $isAboutThePerson && $by !== null ? 'By '.$by.'.' : null,
             ])) ?: null,
         ];
+    }
+
+    private static function roleLabel(string $role): string
+    {
+        return UserRole::tryFrom($role)?->label() ?? $role;
     }
 
     /** @return array<string, string> */

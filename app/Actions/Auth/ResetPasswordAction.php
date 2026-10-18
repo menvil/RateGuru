@@ -25,13 +25,14 @@ final class ResetPasswordAction
             function (User $user) use ($validated, &$terminalRejected): void {
                 // The broker-provided instance may be stale: anonymization
                 // can commit between token validation and this write. Lock
-                // the row by immutable primary key and require a living
-                // account — a tombstone gets no password, no fresh
-                // remember_token and no PasswordReset event.
+                // the row by immutable primary key and require an account
+                // that may sign in — a tombstone or a Persona gets no
+                // password, no fresh remember_token and no PasswordReset
+                // event, whatever token was presented.
                 $written = DB::transaction(function () use ($user, $validated): ?User {
                     $locked = $this->lockActor($user);
 
-                    if ($locked === null || ! $locked->canAuthenticate()) {
+                    if ($locked === null || ! $locked->canSignIn()) {
                         return null;
                     }
 
@@ -59,7 +60,7 @@ final class ResetPasswordAction
 
         if ($terminalRejected) {
             // The existing generic invalid-user outcome: never reveal that
-            // the account was deleted or used to exist.
+            // the account was deleted, used to exist or is a Persona.
             throw ValidationException::withMessages([
                 'email' => __(Password::INVALID_USER),
             ]);

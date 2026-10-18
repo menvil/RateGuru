@@ -10,4 +10,9 @@ final class CannotUpdateUserAccountException extends DomainException
     {
         return new self('User is not allowed to edit this account.');
     }
+
+    public static function becauseAccountIsPersona(): self
+    {
+        return new self('A persona is not edited as a user account.');
+    }
 }

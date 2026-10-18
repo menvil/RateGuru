@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\DB;
  * Every invariant of account linking is enforced here and nowhere else, on
  * the locked account row:
  *
- *  - only a living account (canAuthenticate) may gain an identity;
+ *  - only an account that may sign in for itself (canSignIn) may gain an
+ *    identity — never a tombstone, never a Persona;
  *  - one identity per provider per account — an existing Google identity is
  *    never silently replaced by another;
  *  - an identity already owned by someone else is never reassigned;
@@ -48,7 +49,7 @@ final class LinkSocialAccountAction
         $account = DB::transaction(function () use ($user, $identity): SocialAccount {
             $locked = $this->lockActor($user);
 
-            if ($locked === null || ! $locked->canAuthenticate()) {
+            if ($locked === null || ! $locked->canSignIn()) {
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 

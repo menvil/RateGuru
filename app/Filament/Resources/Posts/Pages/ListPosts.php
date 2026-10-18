@@ -10,7 +10,6 @@ use App\Actions\Moderation\RejectPostAction;
 use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Enums\ReportReason;
-use App\Enums\UserRole;
 use App\Exceptions\Moderation\CannotFinalizeRemovalException;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Filament\Resources\Posts\PostResource;
@@ -545,12 +544,16 @@ final class ListPosts extends Page
         };
     }
 
-    /** Whether an author publishes at once: trusted, and — unless staff — with a confirmed email address. */
+    /**
+     * Whether an author publishes at once: trusted, and — unless staff — with a
+     * confirmed email address. The same rule as CreatePostAction: a Persona is
+     * not staff, and its synthetic address is never confirmed.
+     */
     private static function trust(User $author): string
     {
         return match (true) {
             (int) $author->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL => 'Not trusted',
-            $author->role === UserRole::User && ! $author->hasVerifiedEmail() => 'Email not confirmed',
+            ! ($author->role?->isStaff() ?? false) && ! $author->hasVerifiedEmail() => 'Email not confirmed',
             default => 'Trusted',
         };
     }

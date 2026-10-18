@@ -1,8 +1,11 @@
 <?php
 
 use App\Actions\Auth\ClaimAccountWithVerifiedEmailAction;
+use App\Data\Auth\SocialIdentity;
 use App\Enums\SocialProvider;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\PasswordResetToken;
 use App\Models\Session;
 use App\Models\SocialAccount;
@@ -437,4 +440,35 @@ it('stamps every new sign-in with the account generation', function () {
     expect(session(SessionGeneration::SESSION_KEY))->toBe('current-generation');
     $this->get(route('feed'))->assertOk();
     $this->assertAuthenticated();
+});
+
+it('never lets a confirmed email take over a persona', function (string $provider) {
+    $persona = User::factory()->persona()->create();
+    Socialite::fake($provider, confirmedIdentity($provider, $persona->email));
+
+    $this->get(socialCallbackUrl($provider))
+        ->assertRedirect(route('login'))
+        ->assertSessionHasErrors(['social' => trans('auth.failed')]);
+
+    $this->assertGuest();
+    $fresh = $persona->fresh();
+    expect(SocialAccount::count())->toBe(0)
+        ->and($fresh->hasVerifiedEmail())->toBeFalse()
+        ->and($fresh->password)->toBeNull();
+})->with(['google', 'facebook']);
+
+it('decides on the locked row: an account made a persona meanwhile is not claimed', function () {
+    $user = User::factory()->unverified()->create(['email' => 'ivan@example.com']);
+    $stale = User::query()->findOrFail($user->id);
+    User::query()->whereKey($user->id)->update(['role' => UserRole::Persona->value]);
+
+    expect(fn () => app(ClaimAccountWithVerifiedEmailAction::class)->execute(
+        $stale,
+        new SocialIdentity(SocialProvider::Google, 'g-1', 'ivan@example.com', 'Ivan Moroz', null, true),
+    ))->toThrow(SocialAuthenticationException::class);
+
+    $fresh = $user->fresh();
+    expect(SocialAccount::count())->toBe(0)
+        ->and($fresh->hasVerifiedEmail())->toBeFalse()
+        ->and($fresh->password)->not->toBeNull();
 });

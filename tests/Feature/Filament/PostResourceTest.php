@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaVariantName;
+use App\Enums\UserRole;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\Users\UserResource;
@@ -192,6 +193,9 @@ it('names the author, whether they publish at once and how many posts they have'
     'trusted' => [['trust_level' => 10], 'Trusted'],
     'not trusted' => [['trust_level' => 0], 'Not trusted'],
     'without a confirmed email' => [['trust_level' => 10, 'email_verified_at' => null], 'Email not confirmed'],
+    // Staff publish without a confirmed email; a Persona is not staff.
+    'a moderator without a confirmed email' => [['role' => UserRole::Moderator, 'trust_level' => 10, 'email_verified_at' => null], 'Trusted'],
+    'a persona' => [['role' => UserRole::Persona, 'trust_level' => 10, 'email_verified_at' => null, 'password' => null], 'Email not confirmed'],
 ]);
 
 it('shows each status with its tone and note, the reports and how long a pending post has waited', function () {

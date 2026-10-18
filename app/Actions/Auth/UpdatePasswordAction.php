@@ -12,7 +12,8 @@ use Illuminate\Validation\ValidationException;
  * Password changes are private/security state: living accounts (Active,
  * Limited, Banned, Shadowbanned) keep them, a Deleted tombstone is
  * terminal — a stale in-flight request must never write a usable password
- * back into an anonymized row (docs/architecture/user-lifecycle.md).
+ * back into an anonymized row (docs/architecture/user-lifecycle.md). A
+ * Persona never signs in, so it never gains a password either.
  */
 final class UpdatePasswordAction
 {
@@ -23,9 +24,9 @@ final class UpdatePasswordAction
         DB::transaction(function () use ($user, $password): void {
             $locked = $this->lockActor($user);
 
-            if ($locked === null || ! $locked->canAuthenticate()) {
+            if ($locked === null || ! $locked->canSignIn()) {
                 // Generic failure: never reveal that the account was
-                // deleted or used to exist.
+                // deleted, used to exist or is a Persona.
                 throw ValidationException::withMessages([
                     'password' => trans('auth.failed'),
                 ]);

@@ -21,10 +21,50 @@ role (Admin or Moderator) — see `User::canAccessPanel()`.
 | ------------- | ------ | ------- | ------ | ------------ | ------- |
 | Admin         | panel allowed | denied | denied | denied | denied |
 | Moderator     | panel allowed | denied | denied | denied | denied |
+| Persona       | denied | denied | denied | denied | denied |
 | User          | denied | denied | denied | denied | denied |
 
 (A Deleted admin/moderator cannot exist in practice — anonymization demotes
 the role to User — but the panel gate fails closed regardless.)
+
+Staff means Admin and Moderator — `UserRole::isStaff()`, the one definition.
+Nothing treats "not a `User`" as staff.
+
+### Persona
+
+A Persona (`UserRole::Persona`) is a managed account: a `users` row like a
+member's, which takes part in the community only through trusted
+administrative actions and never signs in for itself. Three things are kept
+apart:
+
+| | User | Persona | Moderator / Admin |
+| --- | --- | --- | --- |
+| Content participation (post, comment, vote, report, follow) | by status | by status | by status |
+| Signing in for itself (`User::canSignIn()`) | while living | never | while living |
+| Administrative powers (panel, moderation) | none | none | by role, Active only |
+
+- **Participation** belongs to status alone. An Active Persona has every
+  capability in the matrix below; a sanctioned one loses them exactly as a
+  member does, and Limit, Shadowban, Ban and Restore access apply to it
+  unchanged. Its posts wait for moderation: it is not staff, and its address
+  is never confirmed (`CreatePostAction`).
+- **Signing in** is `canAuthenticate() && ! isPersona()`. Password login,
+  Google/Facebook (a linked identity and an email match alike), the
+  verified-email claim, linking an identity, password reset and change,
+  email verification and a surviving session (`EnsureAccountIsNotTombstoned`)
+  all ask it, on the locked row wherever they write, and refuse with their
+  usual generic outcome. `canAuthenticate()` stays the lifecycle answer.
+- **Administration**: none. `User::canAccessPanel()` requires Admin or
+  Moderator, so the panel is closed to a Persona in every status, and
+  `UserPolicy::markTrusted` never marks one trusted.
+- A Persona has no password, no sign-in identity and an unconfirmed
+  synthetic address on a reserved `.invalid` domain. No mail is ever
+  delivered to it (`User::routeNotificationForMail()`; no reset or
+  verification link is sent); its database notifications arrive like
+  anyone's.
+- It is created and edited only through Content Studio. The Users editor
+  shows a Persona read-only, and `UpdateUserAccountAction` refuses to make
+  one, to turn one back into anyone else, or to change one.
 
 Lifecycle status is **not** RBAC: no status ever grants a permission a role
 withholds, and no role rescues a non-active status (fail closed).
@@ -175,11 +215,12 @@ Notes:
   The password-security flow and account self-deletion are deliberately NOT
   gated by it: a sanctioned living user can always secure or delete their
   account.
-- **canAuthenticate** is enforced at the auth boundary
-  (`AuthenticateUserAction` for passwords, `ResolveSocialLoginAction` for
-  Google/Facebook): living sanctions log in normally and never
-  force logout or session revocation; a Deleted tombstone is refused with
-  the generic failure message. The stale-session terminal-account
+- **canAuthenticate** is enforced at the auth boundary through
+  `User::canSignIn()` (`AuthenticateUserAction` for passwords,
+  `ResolveSocialLoginAction` for Google/Facebook): living sanctions log in
+  normally and never force logout or session revocation; a Deleted
+  tombstone — and a Persona, whatever its status — is refused with the
+  generic failure message. The stale-session terminal-account
   middleware (`EnsureAccountIsNotTombstoned`) is unchanged. The sanctioned
   authenticated user sees a private, translated restriction notice on
   normal pages — neutral for Shadowbanned, never exposing the internal
@@ -282,6 +323,9 @@ Limited/Banned, and existing content remains publicly visible.
 - The PHPStan rule `NoDirectControllerPermissionCheckRule` blocks
   presentation classes (Filament/Livewire/controllers/requests) from calling
   capability methods directly — presentation must authorize through Gate.
+  It covers the role questions asked of an account too (`canSignIn`,
+  `isPersona`, `isStaff` on a `User`); reading a role's own label or staff
+  badge off `UserRole` stays presentation's.
 
 ## Tests
 
@@ -328,6 +372,9 @@ preferences, saved-post edges and social identity linking and unlinking
 their transactions and require a living account (`canAuthenticate`) —
 a stale request that lost the race against anonymization mutates nothing
 and reveals nothing (password flows fail with their generic outcomes).
+Those that grant a way to sign in — password update and reset, email
+verification, the verified-email claim and linking — require
+`canSignIn` instead, so a Persona gains none of them either.
 Living sanctions (Limited/Banned/Shadowbanned) keep every intended
 private/security operation, including saved posts; only Deleted is
 barred.

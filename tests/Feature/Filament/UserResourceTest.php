@@ -230,3 +230,176 @@ it('opens a person found by global search on their page, or the list where the p
     expect(UserResource::getGlobalSearchResultUrl($member))->toBe(EditUser::getUrl(['record' => $member]))
         ->and(UserResource::getGlobalSearchResultUrl($otherAdmin))->toBe(ListUsers::getUrl(['q' => 'daria_k']));
 });
+
+/*
+ * A Persona among the people: listed and found by its role, never counted
+ * as staff, its page open to show its account but never to edit it — while
+ * the moderation actions treat it as they treat a member.
+ */
+it('lists a persona with its role, never as staff', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+    User::factory()->moderator()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect(listedRow($page, $persona))->toMatchArray([
+        'username' => 'chef_persona',
+        'role' => 'Persona',
+        'staff' => false,
+        'editUrl' => EditUser::getUrl(['record' => $persona]),
+    ])
+        ->and($page->viewData('stats')['staff'])->toBe('2');
+});
+
+it('narrows the list to personas, from the role filter or a link', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+    User::factory()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect($page->viewData('roles'))->toContain(['value' => 'persona', 'label' => 'Persona'])
+        ->and(array_column($page->set('role', 'persona')->viewData('rows'), 'id'))->toBe([$persona->id])
+        ->and($page->viewData('roleName'))->toBe('Persona');
+
+    Livewire::withQueryParams(['role' => 'persona'])->test(ListUsers::class)
+        ->assertSet('role', 'persona')
+        ->assertSeeHtml('Role: Persona');
+});
+
+it('draws personas in every state, the deleted one included', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    foreach (['active', 'limited', 'banned', 'shadowbanned'] as $state) {
+        User::factory()->persona()->create(['username' => 'persona_'.$state, 'status' => UserStatus::from($state)]);
+    }
+
+    User::factory()->persona()->tombstoned()->create();
+
+    expect($this->get(UserResource::getUrl('index', ['role' => 'persona']))->assertOk()->getContent())
+        ->toContain('persona_active')
+        ->toContain('persona_limited')
+        ->toContain('persona_banned')
+        ->toContain('persona_shadowbanned')
+        ->toContain('Removed on deletion');
+});
+
+it('reads each persona row by its state, the deleted one read-only', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $personas = collect(['Active', 'Limited', 'Banned', 'Shadowbanned'])
+        ->mapWithKeys(fn (string $label): array => [$label => User::factory()->persona()->create(['status' => UserStatus::from(strtolower($label))])]);
+    $deleted = User::factory()->persona()->tombstoned()->create();
+
+    $page = Livewire::test(ListUsers::class)->set('role', 'persona');
+
+    foreach ($personas as $label => $persona) {
+        expect(listedRow($page, $persona))->status->label->toBe($label)->staff->toBeFalse();
+    }
+
+    expect(listedRow($page, $deleted))->toMatchArray(['deleted' => true, 'email' => 'Removed on deletion', 'editUrl' => null]);
+});
+
+it('opens a persona\'s page, showing its account and role with nothing to edit', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+
+    expect($this->get(EditUser::getUrl(['record' => $persona]))->assertOk()->getContent())
+        ->toContain('<h1 id="rg-admin-user-title" class="rg-admin-page-header__title">chef_persona</h1>')
+        ->toContain('A persona’s account can’t be edited here.')
+        ->toContain($persona->email)
+        ->toMatch('/rg-admin-user__role">(?:\s|<!--.*?-->)*Persona\s*</')
+        ->not->toContain('wire:model="name"')
+        ->not->toContain('wire:model="email"')
+        ->not->toContain('wire:model="role"')
+        ->not->toContain('wire:model="trust"')
+        ->not->toContain('New password')
+        ->not->toContain('Mark trusted');
+});
+
+it('saves nothing on a persona\'s page, whatever the request carries', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['name' => 'Kept Name', 'trust_level' => 10]);
+    $email = $persona->email;
+
+    Livewire::test(EditUser::class, ['record' => $persona->id])
+        ->assertSet('role', 'persona')
+        ->set('name', 'Forged Name')
+        ->set('email', 'real@example.com')
+        ->set('role', 'user')
+        ->set('trust', 'reviewed')
+        ->set('password', 'a-long-new-password-2026')
+        ->dispatch('save-user')
+        ->assertSet('confirmingRole', false)
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($persona->fresh())
+        ->name->toBe('Kept Name')
+        ->email->toBe($email)
+        ->role->toBe(UserRole::Persona)
+        ->trust_level->toBe(10)
+        ->password->toBeNull();
+});
+
+it('neither offers nor accepts the persona role on anyone else\'s page', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+
+    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+
+    expect($page->viewData('roles'))->toBe(['user' => 'User', 'moderator' => 'Moderator', 'admin' => 'Admin']);
+
+    $page->set('role', 'persona')
+        ->dispatch('save-user')
+        ->assertHasErrors(['role'])
+        ->assertSet('confirmingRole', false);
+
+    expect($person->fresh()->role)->toBe(UserRole::User);
+});
+
+it('names any saved role in the role confirmation, one this page does not offer included', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+    $page = Livewire::test(EditUser::class, ['record' => $persona->id]);
+
+    // Turned back into a member elsewhere while the page stayed open.
+    User::query()->whereKey($persona->id)->update(['role' => UserRole::User->value]);
+
+    $page->set('role', 'moderator')
+        ->dispatch('save-user')
+        ->assertSet('confirmingRole', true)
+        ->assertSeeHtml('Change role to Moderator?')
+        ->assertSeeHtml('Persona → Moderator');
+});
+
+it('moderates a persona like a member', function (string $kind, UserStatus $status) {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+
+    $page = Livewire::test(EditUser::class, ['record' => $persona->id])
+        ->call('askToSanction', $kind, $persona->id)
+        ->call('confirmSanction');
+
+    expect($persona->fresh()->status)->toBe($status);
+
+    $page->call('restoreAccess', $persona->id);
+
+    expect($persona->fresh())->status->toBe(UserStatus::Active)->role->toBe(UserRole::Persona);
+})->with([
+    'limit' => ['limit', UserStatus::Limited],
+    'shadowban' => ['shadowban', UserStatus::Shadowbanned],
+    'ban' => ['ban', UserStatus::Banned],
+]);
+
+it('never offers to mark a persona trusted', function (int $trustLevel) {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['trust_level' => $trustLevel]);
+
+    $page = Livewire::test(EditUser::class, ['record' => $persona->id]);
+
+    expect($page->viewData('options')['trust']['available'])->toBeFalse();
+
+    $page->call('askToSanction', 'trust', $persona->id)->assertSet('sanction', null);
+
+    expect($persona->fresh()->trust_level)->toBe($trustLevel);
+})->with(['not trusted' => 0, 'trusted' => 10]);

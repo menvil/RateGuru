@@ -9,9 +9,10 @@ use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Terminal-account guard: a session authenticated as an account that can no
- * longer authenticate (today: a Deleted tombstone) is force-terminated on
- * its next request — logout, session invalidation, CSRF regeneration.
+ * Terminal-account guard: a session authenticated as an account that may no
+ * longer sign in (User::canSignIn — a Deleted tombstone, or an account made
+ * a Persona) is force-terminated on its next request — logout, session
+ * invalidation, CSRF regeneration.
  *
  * This is what makes tombstoning effective across every session backend:
  * AnonymizeUserAccountAction can only revoke database-driver sessions, but a
@@ -25,7 +26,7 @@ final class EnsureAccountIsNotTombstoned
     {
         $user = $request->user();
 
-        if ($user instanceof User && ! $user->canAuthenticate()) {
+        if ($user instanceof User && ! $user->canSignIn()) {
             Auth::guard('web')->logout();
 
             $request->session()->invalidate();

@@ -1,7 +1,10 @@
 <?php
 
 use App\Actions\Auth\RegisterUserAction;
+use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Users\GenerateUniqueUsernameAction;
+use App\Enums\UserRole;
+use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -27,6 +30,27 @@ test('new users can register', function () {
         'email' => 'test@example.com',
         'username' => 'test_user',
     ]);
+});
+
+test('registration never takes a role, a status, a trust level or a confirmed address from the form', function () {
+    $this->post('/register', [
+        'name' => 'Test User',
+        'email' => 'test@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+        'role' => UserRole::Persona->value,
+        'status' => UserStatus::Banned->value,
+        'trust_level' => 99,
+        'email_verified_at' => now()->toDateTimeString(),
+    ]);
+
+    $user = User::query()->where('email', 'test@example.com')->sole();
+
+    expect($user->role)->toBe(UserRole::User)
+        ->and($user->status)->toBe(UserStatus::Active)
+        ->and($user->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL)
+        ->and($user->hasVerifiedEmail())->toBeFalse();
+    $this->assertAuthenticatedAs($user);
 });
 
 test('registration retries username unique constraint violations', function () {

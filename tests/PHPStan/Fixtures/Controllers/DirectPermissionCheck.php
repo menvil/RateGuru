@@ -80,3 +80,52 @@ final class DirectLifecycleCheckAction
         return $actor->canFollow() && $actor->canManageContent();
     }
 }
+
+namespace App\Http\Controllers\Fixtures;
+
+use App\Models\User;
+
+final class DirectSignInCheckController
+{
+    public function __invoke(User $user): bool
+    {
+        return $user->canSignIn();
+    }
+}
+
+namespace App\Filament\Fixtures;
+
+use App\Enums\UserRole;
+use App\Models\User;
+
+final class DirectRoleCheckPage
+{
+    public function showPersonaNotice(User $person): bool
+    {
+        return $person->isPersona();
+    }
+
+    public function showStaffBadge(User $person): bool
+    {
+        return $person->isStaff();
+    }
+
+    // The role's own vocabulary, read for a badge, is not an authorization
+    // decision: only the account's isStaff() is flagged.
+    public function staffBadge(UserRole $role): bool
+    {
+        return $role->isStaff();
+    }
+}
+
+namespace App\Actions\Fixtures;
+
+use App\Models\User;
+
+final class DirectRoleCheckAction
+{
+    public function handle(User $actor): bool
+    {
+        return $actor->canSignIn() && $actor->isStaff() && ! $actor->isPersona();
+    }
+}

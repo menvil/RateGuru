@@ -8,7 +8,9 @@ final class SendEmailVerificationNotificationAction
 {
     public function execute(User $user): bool
     {
-        if ($user->hasVerifiedEmail()) {
+        // A Persona's synthetic address has nothing to confirm and nowhere
+        // to send a link to.
+        if ($user->hasVerifiedEmail() || $user->isPersona()) {
             return false;
         }
 
