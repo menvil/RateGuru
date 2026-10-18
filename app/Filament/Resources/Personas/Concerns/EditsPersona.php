@@ -14,7 +14,6 @@ use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Personas\PersonaValidationRules;
 use App\Support\Profile\ProfileValidationRules;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\File;
 use Livewire\Attributes\Locked;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -142,15 +141,22 @@ trait EditsPersona
 
     /**
      * Checks the draft with the actions' own rules, each message by its field,
-     * the name and the username first put as they will be stored — so spaces
-     * around them are no reason to refuse it.
+     * every text first put as the actions store it (PersonaData::normalized())
+     * — so the draft is held to the limits on what would be saved, and spaces
+     * around a name, a username or a text are no reason to refuse it.
      */
     protected function validateDraft(?User $persona): void
     {
         $rules = app(PersonaValidationRules::class);
 
-        $this->displayName = Str::squish($this->displayName);
-        $this->username = trim($this->username);
+        $this->displayName = PersonaData::normalizedName($this->displayName);
+        $this->username = (string) PersonaData::normalizedText($this->username);
+        $this->bio = (string) PersonaData::normalizedText($this->bio);
+        $this->shortDescription = (string) PersonaData::normalizedText($this->shortDescription);
+        $this->character = (string) PersonaData::normalizedText($this->character);
+        $this->speechStyle = (string) PersonaData::normalizedText($this->speechStyle);
+        $this->topics = (string) PersonaData::normalizedText($this->topics);
+        $this->neverWritesAbout = (string) PersonaData::normalizedText($this->neverWritesAbout);
 
         $this->validate([
             ...$rules->rules($persona, $persona !== null && $this->username === $persona->username),
@@ -163,24 +169,24 @@ trait EditsPersona
     }
 
     /**
-     * Gives the Persona the chosen photo. A photo that cannot be used leaves
-     * the rest saved and says why by the photo, so it can be chosen again.
+     * Gives the Persona the chosen photo, if it is still what the editor
+     * expects (`$fingerprint`, `$avatarAssetId`). A photo that cannot be used
+     * leaves the rest saved and says why by the photo, so it can be chosen
+     * again; a Persona changed or gone meanwhile is the page's to explain.
+     *
+     * @throws CannotManagePersonaException when the administrator may not, or the Persona changed or is gone
      */
-    protected function savePhoto(User $persona): bool
+    protected function savePhoto(User $persona, string $fingerprint, ?int $avatarAssetId): bool
     {
         if ($this->photo === null) {
             return true;
         }
 
         try {
-            app(SetPersonaAvatarAction::class)->handle($this->admin(), $persona, $this->photo);
+            app(SetPersonaAvatarAction::class)->handle($this->admin(), $persona, $this->photo, $fingerprint, $avatarAssetId);
         } catch (ImageIngestException $exception) {
             report($exception);
             $this->addError('photo', 'This image can’t be used. Choose another JPEG, PNG or WebP photo.');
-
-            return false;
-        } catch (CannotManagePersonaException) {
-            $this->addError('photo', 'The photo wasn’t saved. Reload the page and choose it again.');
 
             return false;
         }

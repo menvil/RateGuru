@@ -1,11 +1,14 @@
 <?php
 
 use App\Actions\Personas\SetPersonaAvatarAction;
+use App\Actions\Personas\UpdatePersonaAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
+use App\Data\Personas\PersonaData;
 use App\Enums\MediaKind;
 use App\Exceptions\Personas\CannotManagePersonaException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\MediaAsset;
+use App\Models\PersonaProfile;
 use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Services\Media\GdImageIngestor;
@@ -22,7 +25,8 @@ use Illuminate\Support\Facades\Storage;
  * A Persona's avatar, set by an administrator through the media path a
  * member's own avatar takes: normalized once, stored before the transaction,
  * owned by the Persona, the previous one released only once the new one is
- * in place, its variants generated after the commit.
+ * in place, its variants generated after the commit — and refused when the
+ * Persona changed after the editor was drawn.
  */
 beforeEach(function () {
     Storage::fake('public');
@@ -32,9 +36,18 @@ afterEach(function () {
     Carbon::setTestNow();
 });
 
+/** Sets the avatar from an editor drawn just now: the Persona as it is stored, whatever copy the caller holds. */
 function setPersonaAvatar(User $admin, User $persona, ?UploadedFile $file = null): void
 {
-    app(SetPersonaAvatarAction::class)->handle($admin, $persona, $file ?? UploadedFile::fake()->image('face.jpg', 400, 400));
+    $current = User::query()->with('personaProfile')->findOrFail($persona->id);
+
+    app(SetPersonaAvatarAction::class)->handle(
+        $admin,
+        $persona,
+        $file ?? UploadedFile::fake()->image('face.jpg', 400, 400),
+        PersonaData::of($current, $current->personaProfile)->fingerprint(),
+        $current->avatar_asset_id,
+    );
 }
 
 it('stores the normalized photo as the persona\'s own avatar', function () {
@@ -194,3 +207,50 @@ it('stores nothing for anyone but an active administrator, nor for an account th
     'an administrator, for a member' => [fn () => User::factory()->admin()->create(), fn () => User::factory()->create()],
     'an administrator, for a deleted persona' => [fn () => User::factory()->admin()->create(), fn () => User::factory()->persona()->tombstoned()->create()],
 ]);
+
+it('refuses a photo chosen before somebody else saved the persona, keeping the avatar and no file', function (Closure $meanwhile) {
+    Queue::fake();
+    $admin = User::factory()->admin()->create();
+    $persona = PersonaProfile::factory()->for(User::factory()->persona()->state(['display_name' => 'Night Owl']), 'user')->create(['character' => 'Dry'])->user;
+    setPersonaAvatar($admin, $persona);
+    $persona->refresh()->load('personaProfile');
+
+    // The editor is drawn here.
+    $fingerprint = PersonaData::of($persona, $persona->personaProfile)->fingerprint();
+    $avatar = $persona->avatar_asset_id;
+
+    $meanwhile($persona);
+    $after = $persona->fresh()->avatar_asset_id;
+    $assets = MediaAsset::withTrashed()->count();
+    $files = Storage::disk('public')->allFiles();
+    // Only what the refused photo would push counts from here.
+    Queue::fake();
+
+    expect(fn () => app(SetPersonaAvatarAction::class)->handle($admin, $persona, UploadedFile::fake()->image('late.jpg', 300, 300), $fingerprint, $avatar))
+        ->toThrow(fn (CannotManagePersonaException $exception) => expect($exception->isStale())->toBeTrue());
+
+    expect($persona->fresh()->avatar_asset_id)->toBe($after)
+        ->and(MediaAsset::withTrashed()->count())->toBe($assets)
+        ->and(Storage::disk('public')->allFiles())->toBe($files);
+    Queue::assertNotPushed(GenerateMediaVariantsJob::class);
+})->with([
+    'its profile' => [function (User $persona): void {
+        $other = User::factory()->admin()->create();
+        app(UpdatePersonaAction::class)->handle($other, $persona, new PersonaData(displayName: 'Night Owl', username: $persona->username, character: 'Warmer'), PersonaData::of($persona, $persona->personaProfile)->fingerprint());
+    }],
+    'its photo' => [fn (User $persona) => setPersonaAvatar(User::factory()->admin()->create(), $persona)],
+]);
+
+it('takes the photo when the persona is as the editor was drawn, even from an old copy', function () {
+    $admin = User::factory()->admin()->create();
+    $persona = PersonaProfile::factory()->for(User::factory()->persona(), 'user')->create()->user;
+    $fingerprint = PersonaData::of($persona, $persona->personaProfile)->fingerprint();
+    $copy = User::query()->findOrFail($persona->id);
+
+    // Saved as it was: nothing the editor shows has changed.
+    $persona->forceFill(['updated_at' => now()->addMinute()])->save();
+
+    app(SetPersonaAvatarAction::class)->handle($admin, $copy, UploadedFile::fake()->image('face.jpg', 300, 300), $fingerprint, null);
+
+    expect($persona->fresh()->avatar_asset_id)->not->toBeNull();
+});

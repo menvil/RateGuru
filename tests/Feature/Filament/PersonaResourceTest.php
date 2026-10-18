@@ -1,5 +1,8 @@
 <?php
 
+use App\Actions\Personas\SetPersonaAvatarAction;
+use App\Actions\Profile\AnonymizeUserAccountAction;
+use App\Data\Personas\PersonaData;
 use App\Enums\PersonaEmojiFrequency;
 use App\Enums\PersonaEngagement;
 use App\Enums\UserRole;
@@ -16,8 +19,15 @@ use App\Models\MediaAsset;
 use App\Models\PersonaProfile;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
+use App\Services\Media\GdImageIngestor;
+use App\Services\Media\ImageIngestor;
+use App\Services\Media\ImageIngestPolicy;
+use App\Services\Media\ImageInput;
+use App\Services\Media\NormalizedImage;
+use App\Support\Profile\ProfileValidationRules;
 use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -163,13 +173,34 @@ it('shows the last page for a page past the end', function () {
     $this->actingAs(User::factory()->admin()->create());
     User::factory()->persona()->count(PersonasQuery::PER_PAGE + 2)->create();
 
-    $page = Livewire::withQueryParams(['page' => 9])->test(ListPersonas::class);
+    $page = Livewire::withQueryParams(['page' => 99])->test(ListPersonas::class);
 
     expect($page->viewData('rows'))->toHaveCount(2)
         ->and($page->viewData('paginator')->currentPage())->toBe(2)
         ->and($page->get('pageNumber'))->toBe(2);
 
-    $page->assertDontSee('No personas match');
+    $page->assertSee('27 personas')->assertDontSee('No personas match');
+});
+
+it('moves back to the last page left when personas go after the list was drawn', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $personas = User::factory()->persona()->count(PersonasQuery::PER_PAGE + 2)->create();
+
+    $page = Livewire::withQueryParams(['page' => 2])->test(ListPersonas::class);
+    expect($page->viewData('rows'))->toHaveCount(2);
+
+    $personas->take(3)->each(fn (User $persona) => app(AnonymizeUserAccountAction::class)->execute($persona));
+    $page->call('$refresh');
+
+    expect($page->viewData('rows'))->toHaveCount(PersonasQuery::PER_PAGE - 1)
+        ->and($page->viewData('paginator')->currentPage())->toBe(1)
+        ->and($page->get('pageNumber'))->toBe(1);
+
+    // Every one gone: the section is empty, on its first page.
+    $personas->skip(3)->each(fn (User $persona) => app(AnonymizeUserAccountAction::class)->execute($persona));
+    $page->call('goToPage', 2)->assertSee('No personas yet');
+
+    expect($page->get('pageNumber'))->toBe(1);
 });
 
 it('tells an empty section from an empty search', function () {
@@ -277,17 +308,54 @@ it('says what is wrong by each field, creating nothing', function () {
     expect(User::query()->where('role', UserRole::Persona)->exists())->toBeFalse();
 });
 
-it('checks the draft as it will be stored, the name on one line and the username trimmed', function () {
+it('checks a new persona as it will be stored, so spaces around a name, a username or a text refuse nothing', function () {
     $this->actingAs(User::factory()->admin()->create());
     $name = str_repeat('Owl ', 20);
 
     Livewire::test(CreatePersona::class)
         ->set('displayName', '  '.str_replace(' ', '   ', $name))
         ->set('username', ' night_owl ')
+        ->set('bio', '  '.str_repeat('b', ProfileValidationRules::BIO_LIMIT).'  ')
+        ->set('shortDescription', "\n".str_repeat('s', PersonaProfile::SHORT_DESCRIPTION_LIMIT)."\n")
+        ->set('character', str_repeat('c', PersonaProfile::NOTES_LIMIT)."\n\n")
         ->dispatch('save-persona')
         ->assertHasNoErrors();
 
-    expect(User::query()->where('username', 'night_owl')->firstOrFail()->display_name)->toBe(trim($name));
+    $persona = User::query()->where('username', 'night_owl')->firstOrFail();
+
+    expect($persona)
+        ->display_name->toBe(trim($name))
+        ->bio->toBe(str_repeat('b', ProfileValidationRules::BIO_LIMIT))
+        ->and($persona->personaProfile)
+        ->short_description->toBe(str_repeat('s', PersonaProfile::SHORT_DESCRIPTION_LIMIT))
+        ->character->toBe(str_repeat('c', PersonaProfile::NOTES_LIMIT));
+});
+
+it('checks an edit as it will be stored, holding each text to its limit without the spaces around it', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona(['username' => 'night_owl', 'display_name' => 'Night Owl']);
+
+    Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('displayName', ' Night   Owl ')
+        ->set('username', ' night_owl ')
+        ->set('speechStyle', ' '.str_repeat('s', PersonaProfile::NOTES_LIMIT).' ')
+        ->set('topics', "\t".str_repeat('t', PersonaProfile::NOTES_LIMIT))
+        ->set('neverWritesAbout', str_repeat('n', PersonaProfile::NOTES_LIMIT)."\n")
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('displayName', 'Night Owl')
+        ->assertSet('username', 'night_owl');
+
+    expect($persona->fresh()->personaProfile)
+        ->speech_style->toBe(str_repeat('s', PersonaProfile::NOTES_LIMIT))
+        ->topics->toBe(str_repeat('t', PersonaProfile::NOTES_LIMIT))
+        ->never_writes_about->toBe(str_repeat('n', PersonaProfile::NOTES_LIMIT));
+
+    // What is too long once trimmed is still refused, as the action refuses it.
+    Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('shortDescription', ' '.str_repeat('s', PersonaProfile::SHORT_DESCRIPTION_LIMIT + 1).' ')
+        ->call('save')
+        ->assertHasErrors(['shortDescription' => 'max']);
 });
 
 it('takes no role, status, address or trust from a request', function (string $property, mixed $value) {
@@ -357,18 +425,91 @@ it('saves the editor and stays on it, the saved values drawn again', function ()
     $this->get('/u/old_name')->assertNotFound();
 });
 
-it('gives the persona a new photo with the rest of the draft', function () {
+it('gives the persona a new photo with the rest of the draft, its own save no conflict with itself', function () {
     Storage::fake('public');
     $this->actingAs(User::factory()->admin()->create());
-    $persona = studioPersona();
+    $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('character', 'Warmer')
         ->set('photo', UploadedFile::fake()->image('new.jpg', 200, 200))
         ->call('save')
         ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'Changes to Night Owl saved', tone: 'success')
+        ->assertSet('stale', false)
         ->assertSet('photo', null);
 
-    expect(MediaAsset::query()->findOrFail($persona->fresh()->avatar_asset_id)->owner_user_id)->toBe($persona->id);
+    $persona->refresh();
+
+    expect($persona->personaProfile->character)->toBe('Warmer')
+        ->and(MediaAsset::query()->findOrFail($persona->avatar_asset_id)->owner_user_id)->toBe($persona->id)
+        ->and($page->get('avatarAssetId'))->toBe($persona->avatar_asset_id);
+
+    // Drawn again from what was saved, so the next photo is no conflict either.
+    $page->set('photo', UploadedFile::fake()->image('newer.jpg', 200, 200))->call('save')->assertHasNoErrors();
+
+    expect($persona->fresh()->avatar_asset_id)->not->toBe($persona->avatar_asset_id);
+});
+
+it('refuses a photo alone chosen before somebody else\'s save, keeping their avatar and no file', function (Closure $meanwhile) {
+    Storage::fake('public');
+    Queue::fake();
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
+
+    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('photo', UploadedFile::fake()->image('mine.jpg', 200, 200));
+
+    $meanwhile($persona);
+    $theirs = $persona->fresh()->avatar_asset_id;
+    $files = Storage::disk('public')->allFiles();
+    $assets = MediaAsset::withTrashed()->count();
+
+    $page->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Someone saved this persona after you opened it, so nothing was saved.', tone: 'error')
+        ->assertSet('stale', true);
+
+    expect($persona->fresh()->avatar_asset_id)->toBe($theirs)
+        ->and(MediaAsset::withTrashed()->count())->toBe($assets)
+        ->and(Storage::disk('public')->allFiles())->toBe($files);
+
+    $page->dispatch('reload-persona')->assertSet('stale', false)->assertSet('photo', null)->assertSet('avatarAssetId', $theirs);
+})->with([
+    'their profile' => [fn (User $persona) => PersonaProfile::query()->where('user_id', $persona->id)->update(['character' => 'Their edit'])],
+    'their photo' => [fn (User $persona) => app(SetPersonaAvatarAction::class)->handle(User::factory()->admin()->create(), $persona, UploadedFile::fake()->image('theirs.jpg', 200, 200), PersonaData::of($persona, $persona->personaProfile)->fingerprint(), null)],
+]);
+
+it('keeps the changes but not the photo when somebody saves the persona in between, and says so', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry', 'topics' => 'Cats']);
+
+    // Somebody else's save lands while the photo is being read: after this
+    // page's changes were saved, before its photo is.
+    app()->instance(ImageIngestor::class, new class($persona) implements ImageIngestor
+    {
+        public function __construct(private readonly User $persona) {}
+
+        public function ingest(ImageInput $input, ImageIngestPolicy $policy): NormalizedImage
+        {
+            PersonaProfile::query()->where('user_id', $this->persona->id)->update(['topics' => 'Dogs']);
+
+            return app(GdImageIngestor::class)->ingest($input, $policy);
+        }
+    });
+
+    Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('character', 'Warmer')
+        ->set('photo', UploadedFile::fake()->image('mine.jpg', 200, 200))
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Changes saved, but someone else saved this persona meanwhile, so the photo wasn’t.', tone: 'error')
+        ->assertSet('stale', true)
+        ->assertSet('character', 'Warmer');
+
+    expect($persona->fresh()->personaProfile)->character->toBe('Warmer')->topics->toBe('Dogs')
+        ->and($persona->fresh()->avatar_asset_id)->toBeNull()
+        ->and(MediaAsset::withTrashed()->exists())->toBeFalse()
+        ->and(Storage::disk('public')->allFiles())->toBe([]);
 });
 
 it('refuses a draft drawn before somebody else\'s save, and Reload draws what they saved', function () {

@@ -65,8 +65,10 @@ apart:
   anyone's.
 - It is created and edited only through Content Studio
   (`CreatePersonaAction`, `UpdatePersonaAction`, `SetPersonaAvatarAction`),
-  by an active administrator (`manage-personas`), asked again on the locked
-  rows. Creation is a status-write boundary of its own: it makes a new
+  by an active administrator (`manage-personas`), asked again on the
+  administrator's and the Persona's rows, locked in ascending id order like a
+  sanction's. An edit drawn before somebody else's save — a photo alone
+  included — is refused and asks for a reload. Creation is a status-write boundary of its own: it makes a new
   Active account, with every way in set closed by the server — no password,
   no remember token, no identity and an unconfirmed
   `persona-{uuid}@persona.invalid` address — and fires no `Registered`.
@@ -303,7 +305,8 @@ transaction and re-checks the current capability before mutating
 (Actor -> Post -> parent Comment), post creation (trust-level publishing
 is decided on the fresh row), reports, author post delete/restore and
 author comment delete (authorized via `Gate::forUser` on the locked
-actor). Two-user operations (follows, sanctions) lock both rows in
+actor). Two-user operations (follows, sanctions, and an administrator's
+edit of a Persona's profile or avatar in Content Studio) lock both rows in
 ascending primary-key order and only then identify follower/target —
 never "follower first", which would deadlock against the opposite pair.
 Cheap pre-checks on the caller's instance remain but are never

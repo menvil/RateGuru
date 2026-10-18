@@ -94,8 +94,9 @@ final class ListPersonas extends Page
         $engagement = PersonaEngagement::tryFrom((string) $this->engagement);
         $paginator = $query->paginate((string) $this->q, $status, $engagement, (int) $this->pageNumber);
 
-        // A page past the end — an old link, or personas gone since — shows the last one instead.
-        if ($paginator->isEmpty() && $paginator->currentPage() > 1 && $paginator->total() > 0) {
+        // A page past the end — an old link, or personas gone since the list
+        // was drawn — shows the last one there is instead, and says so in the address.
+        if ($paginator->currentPage() > $paginator->lastPage()) {
             $this->pageNumber = $paginator->lastPage();
             $paginator = $query->paginate((string) $this->q, $status, $engagement, $this->pageNumber);
         }

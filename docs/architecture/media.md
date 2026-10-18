@@ -77,14 +77,17 @@ period expires; see "Media lifecycle" below.
 A Persona's avatar takes the same path through `SetPersonaAvatarAction`:
 `ImageUploadStorer` checks, normalizes and stores the file under the Persona's
 id before any transaction; the transaction locks the administrator's row and
-then the Persona's, asks again whether the administrator may manage Personas
-and whether the account is still a living Persona — so an avatar never lands
-on an account deleted during the upload — creates the `avatar` asset owned by
-the Persona and points `users.avatar_asset_id` at it, and only then releases
-the previous asset through `MediaLifecycleService::releaseUnreferenced()`
-(soft-deleted unless something else still references it). A failure after the
-store removes the stored file through `StoredMediaCleaner`; the variants are
-generated after the commit (`GenerateMediaVariantsJob`, `afterCommit()`).
+the Persona's in ascending id order, asks again whether the administrator may
+manage Personas and whether the account is still a living Persona — so an
+avatar never lands on an account deleted during the upload — and whether it is
+still what the editor was drawn from (its profile fingerprint and its avatar),
+so a photo chosen before somebody else's save is refused; it then creates the
+`avatar` asset owned by the Persona and points `users.avatar_asset_id` at it,
+and only then releases the previous asset through
+`MediaLifecycleService::releaseUnreferenced()` (soft-deleted unless something
+else still references it). A failure or a refusal after the store removes the
+stored file through `StoredMediaCleaner`; the variants are generated after the
+commit (`GenerateMediaVariantsJob`, `afterCommit()`).
 
 ## Open Graph is a variant, not a post column
 

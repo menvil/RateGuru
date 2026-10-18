@@ -37,7 +37,7 @@ function describedPersona(): User
 
 it('takes the persona\'s Content Studio profile with the account, keeping its contribution and releasing its avatar', function () {
     $persona = describedPersona();
-    app(SetPersonaAvatarAction::class)->handle(User::factory()->admin()->create(), $persona, UploadedFile::fake()->image('face.jpg', 200, 200));
+    app(SetPersonaAvatarAction::class)->handle(User::factory()->admin()->create(), $persona, UploadedFile::fake()->image('face.jpg', 200, 200), PersonaData::of($persona, $persona->personaProfile)->fingerprint(), null);
     $avatar = $persona->fresh()->avatar_asset_id;
     $post = Post::factory()->published()->for($persona)->create();
     $comment = Comment::factory()->for($persona)->create(['status' => CommentStatus::Visible]);

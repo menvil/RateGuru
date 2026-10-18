@@ -78,11 +78,19 @@ final class CreatePersona extends Page
         }
 
         $this->createdId = $persona->id;
-        $photoSaved = $this->savePhoto($persona);
+        $created = PersonaData::of($persona, $persona->personaProfile);
+
+        try {
+            $photoSaved = $this->savePhoto($persona, $created->fingerprint(), null);
+        } catch (CannotManagePersonaException) {
+            // Changed, deleted or put out of reach the moment it was made:
+            // its editor says which.
+            $photoSaved = false;
+        }
 
         // Everything on the page is saved now, so leaving it for the editor
         // is not leaving unsaved changes behind.
-        $this->saved = self::savedValuesOf(PersonaData::of($persona, $persona->personaProfile));
+        $this->saved = self::savedValuesOf($created);
         $this->fillDraft($this->saved);
 
         session()->flash('rg-admin-toast', $photoSaved

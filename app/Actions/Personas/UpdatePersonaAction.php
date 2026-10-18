@@ -4,7 +4,7 @@ namespace App\Actions\Personas;
 
 use App\Data\Personas\PersonaData;
 use App\Exceptions\Personas\CannotManagePersonaException;
-use App\Models\Concerns\LocksActorForWrite;
+use App\Models\Concerns\LocksUsersInOrder;
 use App\Models\PersonaProfile;
 use App\Models\User;
 use App\Support\Database\UsernameUniqueViolation;
@@ -22,8 +22,10 @@ use Illuminate\Validation\ValidationException;
  * Limited, Banned or Shadowbanned Persona can still have its settings
  * corrected here, and stays as sanctioned as it was.
  *
- * The administrator's row, then the Persona's, then its profile are locked,
- * and everything is asked again on them: the administrator may still manage
+ * The administrator's row and the Persona's are locked in ascending id order
+ * (LocksUsersInOrder) — the order a sanction of the Persona by the same
+ * administrator takes, so the two cannot deadlock — then its profile, and
+ * everything is asked again on them: the administrator may still manage
  * Personas, the account is still a Persona and not deleted, the username is
  * still free — and the Persona is still what the editor was drawn from
  * (`$expectedFingerprint`), so a draft made before somebody else's save is
@@ -34,7 +36,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class UpdatePersonaAction
 {
-    use LocksActorForWrite;
+    use LocksUsersInOrder;
 
     public function __construct(
         private readonly PersonaValidationRules $rules,
@@ -57,13 +59,14 @@ final class UpdatePersonaAction
 
         try {
             DB::transaction(function () use ($admin, $persona, $changes, $expectedFingerprint): void {
-                $lockedAdmin = $this->lockActor($admin);
+                $rows = $this->lockUsersInOrder((int) $admin->getKey(), (int) $persona->getKey());
+                $lockedAdmin = $rows->get($admin->getKey());
 
                 if ($lockedAdmin === null || ! $lockedAdmin->can('manage-personas')) {
                     throw CannotManagePersonaException::becauseUserIsNotAllowed();
                 }
 
-                $locked = User::query()->whereKey($persona->getKey())->lockForUpdate()->first();
+                $locked = $rows->get($persona->getKey());
 
                 // The role and the status that count are the ones the row has
                 // now, whatever the editor was drawn from.

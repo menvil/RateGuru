@@ -24,10 +24,10 @@ use Livewire\Attributes\On;
  * stands — its status, which only the moderation actions in Users change,
  * and its public profile.
  *
- * The editor remembers what it was drawn from (`fingerprint`): a save after
- * somebody else's is refused and says so, and Reload draws the Persona as it
- * is now. A Persona deleted, or no longer a Persona, meanwhile can no longer
- * be saved at all.
+ * The editor remembers what it was drawn from (`fingerprint`, and the avatar
+ * it showed): a save after somebody else's — a photo alone included — is
+ * refused and says so, and Reload draws the Persona as it is now. A Persona
+ * deleted, or no longer a Persona, meanwhile can no longer be saved at all.
  */
 final class EditPersona extends Page
 {
@@ -46,6 +46,10 @@ final class EditPersona extends Page
     /** PersonaData::fingerprint() of the Persona as the draft was drawn from it. */
     #[Locked]
     public string $fingerprint = '';
+
+    /** The avatar the Persona had when the draft was drawn. */
+    #[Locked]
+    public ?int $avatarAssetId = null;
 
     /** Whether somebody else saved the Persona since the draft was drawn. */
     #[Locked]
@@ -114,6 +118,7 @@ final class EditPersona extends Page
 
         $draft = $this->draftData();
         $changed = $draft->fingerprint() !== $this->fingerprint;
+        $fingerprint = $this->fingerprint;
 
         if ($changed) {
             try {
@@ -123,9 +128,24 @@ final class EditPersona extends Page
 
                 return;
             }
+
+            // The photo is asked against what this save has just written, so
+            // the save is no conflict with itself.
+            $fingerprint = PersonaData::of($persona, $persona->personaProfile)->fingerprint();
         }
 
-        $photoSaved = $this->savePhoto($persona);
+        try {
+            $photoSaved = $this->savePhoto($persona, $fingerprint, $this->avatarAssetId);
+        } catch (CannotManagePersonaException $exception) {
+            if ($changed) {
+                // What this save wrote stands; the photo is all it lost.
+                $this->draw($persona);
+            }
+
+            $this->refuse($exception, $changed);
+
+            return;
+        }
 
         $this->draw($persona->fresh(['personaProfile']) ?? $persona);
 
@@ -164,8 +184,11 @@ final class EditPersona extends Page
         ];
     }
 
-    /** Says why nothing was saved, by the field where there is one. */
-    private function refuse(CannotManagePersonaException $exception): void
+    /**
+     * Says why nothing — or, once the rest was saved, only the photo — was
+     * saved, by the field where there is one.
+     */
+    private function refuse(CannotManagePersonaException $exception, bool $restSaved = false): void
     {
         if ($exception->isUsernameTaken()) {
             $this->addError('username', 'Another account already uses this username. Choose another one.');
@@ -176,7 +199,9 @@ final class EditPersona extends Page
         if ($exception->isStale()) {
             $this->stale = true;
             $this->dispatch('rg-admin-toast',
-                message: 'Someone saved this persona after you opened it, so nothing was saved.',
+                message: $restSaved
+                    ? 'Changes saved, but someone else saved this persona meanwhile, so the photo wasn’t.'
+                    : 'Someone saved this persona after you opened it, so nothing was saved.',
                 tone: 'error',
                 action: ['label' => 'Reload', 'event' => 'reload-persona', 'params' => []],
             );
@@ -184,14 +209,16 @@ final class EditPersona extends Page
             return;
         }
 
+        $what = $restSaved ? 'the photo wasn’t saved' : 'nothing was saved';
+
         if ($exception->isGone()) {
             $this->gone = true;
-            $this->toast('This persona can’t be edited any more, so nothing was saved.', 'error');
+            $this->toast("This persona can’t be edited any more, so {$what}.", 'error');
 
             return;
         }
 
-        $this->toast('You can’t manage personas any more, so nothing was saved.', 'error');
+        $this->toast("You can’t manage personas any more, so {$what}.", 'error');
     }
 
     private function draw(User $persona): void
@@ -199,6 +226,7 @@ final class EditPersona extends Page
         $saved = PersonaData::of($persona, $persona->personaProfile);
 
         $this->fingerprint = $saved->fingerprint();
+        $this->avatarAssetId = $persona->avatar_asset_id !== null ? (int) $persona->avatar_asset_id : null;
         $this->saved = self::savedValuesOf($saved);
         $this->stale = false;
         $this->fillDraft($this->saved);

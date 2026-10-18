@@ -63,14 +63,14 @@ final readonly class PersonaData
     public function normalized(): self
     {
         return new self(
-            displayName: Str::squish($this->displayName),
-            username: self::text($this->username),
-            bio: self::text($this->bio),
-            shortDescription: self::text($this->shortDescription),
-            character: self::text($this->character),
-            speechStyle: self::text($this->speechStyle),
-            topics: self::text($this->topics),
-            neverWritesAbout: self::text($this->neverWritesAbout),
+            displayName: self::normalizedName($this->displayName),
+            username: self::normalizedText($this->username),
+            bio: self::normalizedText($this->bio),
+            shortDescription: self::normalizedText($this->shortDescription),
+            character: self::normalizedText($this->character),
+            speechStyle: self::normalizedText($this->speechStyle),
+            topics: self::normalizedText($this->topics),
+            neverWritesAbout: self::normalizedText($this->neverWritesAbout),
             emojiFrequency: $this->emojiFrequency,
             engagement: $this->engagement,
             maxRepliesPerDay: $this->maxRepliesPerDay,
@@ -143,7 +143,14 @@ final readonly class PersonaData
         ];
     }
 
-    private static function text(?string $value): ?string
+    /** A display name as it is stored: on one line, with no space around it. */
+    public static function normalizedName(string $value): string
+    {
+        return Str::squish($value);
+    }
+
+    /** A username or a text as it is stored: trimmed, and no text at all when nothing is left. */
+    public static function normalizedText(?string $value): ?string
     {
         $value = trim((string) $value);
 
