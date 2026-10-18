@@ -1,7 +1,9 @@
 <?php
 
 use App\Actions\Users\GenerateUniqueUsernameAction;
+use App\Data\Auth\PendingSocialLink;
 use App\Enums\SocialProvider;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\SocialAccount;
 use App\Models\User;
@@ -396,4 +398,50 @@ it('parks a pending link when the callback loses a race to a registration with t
     expect(User::count())->toBe(1)
         ->and(SocialAccount::count())->toBe(0)
         ->and(session('auth.pending_social_link.email'))->toBe('ivan@example.com');
+});
+
+/*
+ * A Persona never signs in through Google or Facebook: not through an
+ * identity that somehow reached its row, and not through an address that
+ * matches its own — refused with the generic failure before anything is
+ * claimed, parked or created.
+ */
+it('refuses a persona that somehow carries an identity, with the generic failure', function (string $provider) {
+    $persona = User::factory()->persona()->create();
+    SocialAccount::factory()->for($persona)->create([
+        'provider' => SocialProvider::from($provider),
+        'provider_user_id' => 'subject-42',
+    ]);
+    Socialite::fake($provider, fakeSocialiteUser(['id' => 'subject-42', 'email' => 'someone@example.com']));
+
+    $response = $this->get(socialCallbackUrl($provider));
+
+    $response->assertRedirect(route('login'));
+    $response->assertSessionHasErrors(['social' => trans('auth.failed')]);
+    $this->assertGuest();
+    expect(User::count())->toBe(1)->and(SocialAccount::count())->toBe(1);
+})->with(['google', 'facebook']);
+
+it('neither parks a link nor registers anyone when an unconfirmed address is a persona\'s', function () {
+    $persona = User::factory()->persona()->create();
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => $persona->email]));
+
+    $this->get(socialCallbackUrl('google'))
+        ->assertRedirect(route('login'))
+        ->assertSessionHasErrors(['social' => trans('auth.failed')]);
+
+    $this->assertGuest();
+    expect(session()->has(PendingSocialLink::SESSION_KEY))->toBeFalse()
+        ->and(User::count())->toBe(1)
+        ->and(SocialAccount::count())->toBe(0);
+});
+
+it('registers a first-time identity as an ordinary member, whatever the callback carries', function () {
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-new', 'email' => 'new@example.com', 'role' => 'persona']));
+
+    $this->get(socialCallbackUrl('google', ['role' => 'persona']))->assertRedirect(route('dashboard', absolute: false));
+
+    $user = User::query()->where('email', 'new@example.com')->sole();
+    expect($user->role)->toBe(UserRole::User);
+    $this->assertAuthenticatedAs($user);
 });

@@ -56,3 +56,62 @@ it('refuses anyone who may not manage the account', function (string $case) {
 
     app(UpdateUserAccountAction::class)->handle($actor, $target, accountChanges($target, ['name' => 'Forged']));
 })->throws(CannotUpdateUserAccountException::class)->with(['a moderator', 'another administrator', 'their own account', 'a deleted account']);
+
+/*
+ * A Persona is made and edited only in Content Studio. This edit refuses it
+ * in both directions and touches nothing of one — decided on the locked row,
+ * so neither a forged request nor a stale page gets around it.
+ */
+it('never makes anyone a persona', function (UserRole $role) {
+    $admin = User::factory()->admin()->create();
+    $target = User::factory()->create(['role' => $role]);
+
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $target, accountChanges($target, ['role' => UserRole::Persona])))
+        ->toThrow(CannotUpdateUserAccountException::class);
+
+    expect($target->fresh()->role)->toBe($role);
+})->with(['a member' => UserRole::User, 'a moderator' => UserRole::Moderator]);
+
+it('never turns a persona back into a member, a moderator or an administrator', function (UserRole $role) {
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create();
+
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, ['role' => $role])))
+        ->toThrow(CannotUpdateUserAccountException::class);
+
+    expect($persona->fresh()->role)->toBe(UserRole::Persona);
+})->with([UserRole::User, UserRole::Moderator, UserRole::Admin]);
+
+it('gives a persona no password, no new address and no other change', function (array $changes) {
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create(['name' => 'Kept Name', 'trust_level' => 10]);
+    $email = $persona->email;
+
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, $changes)))
+        ->toThrow(CannotUpdateUserAccountException::class);
+
+    expect($persona->fresh())
+        ->password->toBeNull()
+        ->email->toBe($email)
+        ->email_verified_at->toBeNull()
+        ->name->toBe('Kept Name')
+        ->trust_level->toBe(10);
+})->with([
+    'a password' => [['password' => 'a-new-long-password']],
+    'a new address' => [['email' => 'real@example.com']],
+    'a new name' => [['name' => 'Renamed']],
+    'no trust' => [['trust_level' => 0]],
+    'nothing at all' => [[]],
+]);
+
+it('decides on the locked row: an account made a persona since the page was drawn is left alone', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create();
+    $stale = User::query()->findOrFail($user->id);
+    User::query()->whereKey($user->id)->update(['role' => UserRole::Persona->value, 'password' => null]);
+
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $stale, accountChanges($stale, ['role' => UserRole::User, 'password' => 'a-new-long-password'])))
+        ->toThrow(CannotUpdateUserAccountException::class);
+
+    expect($user->fresh())->role->toBe(UserRole::Persona)->password->toBeNull();
+});

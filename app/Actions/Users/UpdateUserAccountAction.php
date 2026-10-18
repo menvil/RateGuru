@@ -20,6 +20,11 @@ use Illuminate\Support\Facades\Hash;
  * rows (UserPolicy::manage), so a just-demoted administrator, or an account
  * deleted meanwhile, is never written. A new email address has to be
  * confirmed again, as when people change their own.
+ *
+ * Never a Persona, in either direction: a Persona is created and edited only
+ * through Content Studio, so this edit neither makes one nor turns one back
+ * into a person, and leaves everything of one alone — its synthetic address,
+ * a password it must never have, its trust and its profile.
  */
 final class UpdateUserAccountAction
 {
@@ -39,6 +44,12 @@ final class UpdateUserAccountAction
                 [, $locked] = $this->lockAndAuthorizePair($admin, $target, 'manage');
             } catch (CannotModerateUserException) {
                 throw CannotUpdateUserAccountException::becauseUserIsNotAllowed();
+            }
+
+            // On the locked row, not the caller's: the role that counts is the
+            // one the account has now, whatever the page was drawn from.
+            if ($locked->isPersona() || $changes['role'] === UserRole::Persona) {
+                throw CannotUpdateUserAccountException::becauseAccountIsPersona();
             }
 
             $locked->forceFill([

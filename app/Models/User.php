@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use SensitiveParameter;
 
 /**
  * @property UserRole|null $role
@@ -154,6 +155,22 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     }
 
     /**
+     * Whether this account may hold a session of its own — signed in by
+     * password, by Google or Facebook, or kept from before. Lifecycle says
+     * whether the account is living (canAuthenticate); role says whether it
+     * is anyone's to sign in to. A Persona is driven only by trusted
+     * administrative actions and never signs in, whatever its status.
+     *
+     * canAuthenticate() stays the lifecycle answer on its own: whether an
+     * account is living does not depend on who drives it.
+     */
+    public function canSignIn(): bool
+    {
+        return $this->canAuthenticate()
+            && ! $this->isPersona();
+    }
+
+    /**
      * Whether the account has a password at all. An account created through
      * Google or Facebook has none until its owner sets one through the
      * emailed password link; the password flows ask for one only then.
@@ -211,6 +228,57 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;
+    }
+
+    public function isPersona(): bool
+    {
+        return $this->role === UserRole::Persona;
+    }
+
+    /** Admin or Moderator, as UserRole::isStaff() defines it; no role is no staff. */
+    public function isStaff(): bool
+    {
+        return $this->role?->isStaff() ?? false;
+    }
+
+    /**
+     * A Persona has no password to reset, and its address is a synthetic
+     * identifier nobody reads: the broker answers as it does for any other
+     * account and nothing is sent. ResetPasswordAction refuses a Persona on
+     * its own, whatever token arrives.
+     */
+    public function sendPasswordResetNotification(#[SensitiveParameter] $token): void
+    {
+        if ($this->isPersona()) {
+            return;
+        }
+
+        parent::sendPasswordResetNotification($token);
+    }
+
+    /**
+     * A Persona's synthetic address is never confirmed — confirming it is no
+     * way to let a managed account publish — so no link is ever sent for it,
+     * whether asked for or fired by Registered.
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        if ($this->isPersona()) {
+            return;
+        }
+
+        parent::sendEmailVerificationNotification();
+    }
+
+    /**
+     * Where mail to this account goes. A Persona's address is a technical
+     * identifier on a reserved domain, so the mail channel has nowhere to
+     * deliver, whatever the notification. Only mail is closed: its database
+     * notifications arrive like anyone else's.
+     */
+    public function routeNotificationForMail(): ?string
+    {
+        return $this->isPersona() ? null : $this->email;
     }
 
     /** @return HasMany<Post, $this> */

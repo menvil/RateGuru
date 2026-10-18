@@ -16,10 +16,11 @@ final class VerifyEmailAction
         $verified = DB::transaction(function () use ($user): bool {
             // The caller's instance may be stale: a verification link
             // clicked after anonymization must never restore
-            // email_verified_at on a Deleted tombstone.
+            // email_verified_at on a Deleted tombstone, and a Persona's
+            // synthetic address is never confirmed.
             $locked = $this->lockActor($user);
 
-            if ($locked === null || ! $locked->canAuthenticate()) {
+            if ($locked === null || ! $locked->canSignIn()) {
                 return false;
             }
 

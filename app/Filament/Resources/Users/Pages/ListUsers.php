@@ -117,11 +117,9 @@ final class ListUsers extends Page
             ],
             'roles' => [
                 ['value' => '', 'label' => 'All roles', 'trigger' => 'All'],
-                ['value' => UserRole::User->value, 'label' => 'User'],
-                ['value' => UserRole::Moderator->value, 'label' => 'Moderator'],
-                ['value' => UserRole::Admin->value, 'label' => 'Admin'],
+                ...array_map(fn (UserRole $role): array => ['value' => $role->value, 'label' => $role->label()], UserRole::cases()),
             ],
-            'roleName' => UserRole::tryFrom((string) $this->role) !== null ? self::roleLabel(UserRole::from((string) $this->role)) : null,
+            'roleName' => UserRole::tryFrom((string) $this->role)?->label(),
             'paginator' => $paginator,
             'rows' => array_map(fn (User $person): array => $this->row($person), $paginator->items()),
             'filtered' => trim((string) $this->q) !== '' || $this->role !== '' || (bool) $this->suspicious,
@@ -145,8 +143,8 @@ final class ListUsers extends Page
             'initials' => ModerationListFormat::initials((string) ($person->username ?? $person->name)),
             'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('M Y') : ''),
             'email' => $deleted ? 'Removed on deletion' : (string) $person->email,
-            'role' => self::roleLabel($person->role),
-            'staff' => $person->role !== UserRole::User,
+            'role' => (string) $person->role?->label(),
+            'staff' => $person->role?->isStaff() ?? false,
             'status' => ModerationListFormat::personStatus($person),
             'trust' => ModerationListFormat::trust($person),
             'posts' => (int) $person->posts_count,
@@ -156,15 +154,6 @@ final class ListUsers extends Page
             'deleted' => $deleted,
             'options' => $options,
         ];
-    }
-
-    private static function roleLabel(UserRole $role): string
-    {
-        return match ($role) {
-            UserRole::Admin => 'Admin',
-            UserRole::Moderator => 'Moderator',
-            UserRole::User => 'User',
-        };
     }
 
     /** Whatever a link or a forged update put here, read as something the page offers. */

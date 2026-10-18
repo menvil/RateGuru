@@ -545,12 +545,17 @@ final class ListPosts extends Page
         };
     }
 
-    /** Whether an author publishes at once: trusted, and — unless staff — with a confirmed email address. */
+    /**
+     * Whether an author publishes at once: trusted, and — unless staff — with a
+     * confirmed email address. The same rule as CreatePostAction: a Persona's
+     * posts always wait, and a Persona is not staff.
+     */
     private static function trust(User $author): string
     {
         return match (true) {
+            $author->role === UserRole::Persona => 'Always reviewed',
             (int) $author->trust_level < MarkUserTrustedAction::TRUSTED_LEVEL => 'Not trusted',
-            $author->role === UserRole::User && ! $author->hasVerifiedEmail() => 'Email not confirmed',
+            ! ($author->role?->isStaff() ?? false) && ! $author->hasVerifiedEmail() => 'Email not confirmed',
             default => 'Trusted',
         };
     }

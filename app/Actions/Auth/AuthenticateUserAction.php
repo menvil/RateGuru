@@ -31,14 +31,16 @@ final class AuthenticateUserAction
             ]);
         }
 
-        // Lifecycle gate after credential verification: living sanctions
-        // (limited/banned/shadowbanned) may authenticate; only a Deleted
-        // tombstone is refused — with the generic failure message, never
-        // revealing that a tombstone exists. Anonymization already
-        // scrambles tombstone credentials; this is the explicit boundary.
+        // Sign-in gate after credential verification: living sanctions
+        // (limited/banned/shadowbanned) may authenticate; a Deleted
+        // tombstone and a Persona are refused — with the generic failure
+        // message, never revealing that either exists. Anonymization
+        // already scrambles tombstone credentials and a Persona is never
+        // given a password; this is the explicit boundary for when one
+        // reaches the row anyway.
         $user = Auth::user();
 
-        if ($user !== null && ! $user->canAuthenticate()) {
+        if ($user !== null && ! $user->canSignIn()) {
             Auth::logout();
 
             $request->session()->invalidate();

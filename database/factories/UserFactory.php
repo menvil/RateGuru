@@ -90,6 +90,24 @@ class UserFactory extends Factory
     }
 
     /**
+     * A Persona: a managed account with no password, no remember token, no
+     * sign-in identity and an unconfirmed synthetic address on the reserved
+     * .invalid domain. Trust is the default, as for any new account; its
+     * posts wait for moderation whatever its trust (CreatePostAction).
+     */
+    public function persona(): static
+    {
+        return $this->state(fn () => [
+            'role' => UserRole::Persona,
+            'status' => UserStatus::Active,
+            'email' => 'persona-'.Str::uuid()->toString().'@persona.invalid',
+            'email_verified_at' => null,
+            'password' => null,
+            'remember_token' => null,
+        ]);
+    }
+
+    /**
      * A minimal already-tombstoned account for capability/guard tests.
      * Production tombstones are only ever produced by
      * AnonymizeUserAccountAction — use that in tests asserting the full

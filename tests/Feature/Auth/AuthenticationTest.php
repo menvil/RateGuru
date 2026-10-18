@@ -2,6 +2,9 @@
 
 use App\Enums\UserStatus;
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 test('login screen can be rendered', function () {
     $response = $this->get('/login');
@@ -79,4 +82,40 @@ test('users can logout', function () {
 
     $this->assertGuest();
     $response->assertRedirect('/');
+});
+
+/*
+ * A Persona never signs in for itself. It is never given a password; this
+ * proves the boundary holds when one reaches its row anyway — refused with
+ * the same generic failure, the session ended and the attempt counted like
+ * any other failed one.
+ */
+test('a persona cannot authenticate even with a password written straight into its row', function (string $state) {
+    $persona = User::factory()->persona()->create(['status' => UserStatus::from($state)]);
+    User::query()->whereKey($persona->id)->update(['password' => Hash::make('password')]);
+
+    $response = $this->post('/login', [
+        'email' => $persona->email,
+        'password' => 'password',
+        'remember' => 'on',
+    ]);
+
+    $this->assertGuest();
+    $response->assertSessionHasErrors(['email' => trans('auth.failed')]);
+    expect(RateLimiter::attempts(Str::transliterate(Str::lower($persona->email).'|127.0.0.1')))->toBe(1);
+})->with(['active', 'limited', 'banned', 'shadowbanned']);
+
+test('a persona is locked out after the same number of attempts as anyone', function () {
+    $persona = User::factory()->persona()->create();
+    User::query()->whereKey($persona->id)->update(['password' => Hash::make('password')]);
+
+    foreach (range(1, 5) as $attempt) {
+        $this->post('/login', ['email' => $persona->email, 'password' => 'password']);
+    }
+
+    $this->post('/login', ['email' => $persona->email, 'password' => 'password'])
+        ->assertSessionHasErrors('email');
+
+    $this->assertGuest();
+    expect(session('errors')->first('email'))->toStartWith(Str::before(trans('auth.throttle'), ':seconds'));
 });
