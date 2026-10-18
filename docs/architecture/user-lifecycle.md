@@ -46,8 +46,9 @@ apart:
 - **Participation** belongs to status alone. An Active Persona has every
   capability in the matrix below; a sanctioned one loses them exactly as a
   member does, and Limit, Shadowban, Ban and Restore access apply to it
-  unchanged. Its posts wait for moderation: it is not staff, and its address
-  is never confirmed (`CreatePostAction`).
+  unchanged. Its posts always wait for moderation, whatever its trust or
+  address (`CreatePostAction`): it is published only by an administrator's
+  approval, never as staff and never through a confirmed address.
 - **Signing in** is `canAuthenticate() && ! isPersona()`. Password login,
   Google/Facebook (a linked identity and an email match alike), the
   verified-email claim, linking an identity, password reset and change,

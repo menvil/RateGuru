@@ -193,9 +193,10 @@ it('names the author, whether they publish at once and how many posts they have'
     'trusted' => [['trust_level' => 10], 'Trusted'],
     'not trusted' => [['trust_level' => 0], 'Not trusted'],
     'without a confirmed email' => [['trust_level' => 10, 'email_verified_at' => null], 'Email not confirmed'],
-    // Staff publish without a confirmed email; a Persona is not staff.
+    // Staff publish without a confirmed email; a Persona's posts always wait.
     'a moderator without a confirmed email' => [['role' => UserRole::Moderator, 'trust_level' => 10, 'email_verified_at' => null], 'Trusted'],
-    'a persona' => [['role' => UserRole::Persona, 'trust_level' => 10, 'email_verified_at' => null, 'password' => null], 'Email not confirmed'],
+    'a persona' => [['role' => UserRole::Persona, 'trust_level' => 10, 'email_verified_at' => null, 'password' => null], 'Always reviewed'],
+    'a persona with a confirmed address on its row' => [['role' => UserRole::Persona, 'trust_level' => 10, 'password' => null], 'Always reviewed'],
 ]);
 
 it('shows each status with its tone and note, the reports and how long a pending post has waited', function () {

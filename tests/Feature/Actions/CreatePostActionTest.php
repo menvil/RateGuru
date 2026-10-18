@@ -138,9 +138,9 @@ it('publishes staff posts at once without a confirmed email, since staff could a
 })->with(['moderator', 'admin']);
 
 /*
- * A Persona is not staff, and its synthetic address is never confirmed:
- * trusted or not, its post waits for moderation like an unconfirmed
- * member's. Staff keep their exemption by name, not by "not a User".
+ * A Persona's post always waits for moderation: it is published only by an
+ * administrator's approval, never by trust, a confirmed address or a staff
+ * exemption. Staff keep their exemption by name, not by "not a User".
  */
 it('holds a persona\'s post for a moderator, trusted as it is', function () {
     $persona = User::factory()->persona()->create();
@@ -152,6 +152,17 @@ it('holds a persona\'s post for a moderator, trusted as it is', function () {
         ->and($post->status)->toBe(PostStatus::Pending)
         ->and($post->published_at)->toBeNull()
         ->and($post->user_id)->toBe($persona->id);
+});
+
+it('holds a persona\'s post even with a confirmed address on its row', function () {
+    $persona = User::factory()->persona()->create();
+    User::query()->whereKey($persona->id)->update(['email_verified_at' => now()]);
+
+    $post = app(CreatePostAction::class)->handle($persona, new CreatePostData(title: 'Persona entry'));
+
+    expect($persona->fresh()->hasVerifiedEmail())->toBeTrue()
+        ->and($post->status)->toBe(PostStatus::Pending)
+        ->and($post->published_at)->toBeNull();
 });
 
 it('subjects a persona to the same lifecycle gate as anyone', function (string $state) {

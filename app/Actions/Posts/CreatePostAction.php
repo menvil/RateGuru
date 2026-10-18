@@ -84,10 +84,13 @@ final class CreatePostAction
                 // trusted, so trust alone would publish whatever an account
                 // registered with any address posts. Staff — Admin and
                 // Moderator, never "anyone but a User" — are exempt from the
-                // email half, since they could approve the post themselves. A
-                // Persona is not staff and its synthetic address is never
-                // confirmed, so its post waits like anyone's.
-                $publishesAtOnce = $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
+                // email half, since they could approve the post themselves.
+                // A Persona's post always waits, whatever its trust or address:
+                // it is published only by an administrator's approval, so a
+                // confirmed address on its row — which it should never have —
+                // publishes nothing.
+                $publishesAtOnce = ! $lockedActor->isPersona()
+                    && $lockedActor->trust_level >= MarkUserTrustedAction::TRUSTED_LEVEL
                     && ($lockedActor->hasVerifiedEmail() || $lockedActor->isStaff());
                 $status = $publishesAtOnce ? PostStatus::Published : PostStatus::Pending;
                 $publishedAt = $publishesAtOnce ? now() : null;
