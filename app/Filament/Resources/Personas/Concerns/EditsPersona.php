@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Personas\PersonaValidationRules;
 use App\Support\Profile\ProfileValidationRules;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\File;
 use Livewire\Attributes\Locked;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -139,13 +140,20 @@ trait EditsPersona
         );
     }
 
-    /** Checks the draft with the actions' own rules, each message by its field. */
+    /**
+     * Checks the draft with the actions' own rules, each message by its field,
+     * the name and the username first put as they will be stored — so spaces
+     * around them are no reason to refuse it.
+     */
     protected function validateDraft(?User $persona): void
     {
         $rules = app(PersonaValidationRules::class);
 
+        $this->displayName = Str::squish($this->displayName);
+        $this->username = trim($this->username);
+
         $this->validate([
-            ...$rules->rules($persona, $persona !== null && trim($this->username) === $persona->username),
+            ...$rules->rules($persona, $persona !== null && $this->username === $persona->username),
             'photo' => ['nullable', File::image()->max((int) config('uploads.images.max_kilobytes', 5120))],
         ], [
             ...$rules->messages(),

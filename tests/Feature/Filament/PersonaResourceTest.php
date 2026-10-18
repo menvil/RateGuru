@@ -159,6 +159,19 @@ it('pages 25 at a time', function () {
     expect($page->viewData('rows'))->toHaveCount(2);
 });
 
+it('shows the last page for a page past the end', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    User::factory()->persona()->count(PersonasQuery::PER_PAGE + 2)->create();
+
+    $page = Livewire::withQueryParams(['page' => 9])->test(ListPersonas::class);
+
+    expect($page->viewData('rows'))->toHaveCount(2)
+        ->and($page->viewData('paginator')->currentPage())->toBe(2)
+        ->and($page->get('pageNumber'))->toBe(2);
+
+    $page->assertDontSee('No personas match');
+});
+
 it('tells an empty section from an empty search', function () {
     $this->actingAs(User::factory()->admin()->create());
 
@@ -262,6 +275,19 @@ it('says what is wrong by each field, creating nothing', function () {
         ->assertNoRedirect();
 
     expect(User::query()->where('role', UserRole::Persona)->exists())->toBeFalse();
+});
+
+it('checks the draft as it will be stored, the name on one line and the username trimmed', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $name = str_repeat('Owl ', 20);
+
+    Livewire::test(CreatePersona::class)
+        ->set('displayName', '  '.str_replace(' ', '   ', $name))
+        ->set('username', ' night_owl ')
+        ->dispatch('save-persona')
+        ->assertHasNoErrors();
+
+    expect(User::query()->where('username', 'night_owl')->firstOrFail()->display_name)->toBe(trim($name));
 });
 
 it('takes no role, status, address or trust from a request', function (string $property, mixed $value) {
@@ -398,6 +424,7 @@ it('keeps a username older rules allowed when it is not changed', function () {
     $persona = studioPersona(['username' => 'old.style.name']);
 
     Livewire::test(EditPersona::class, ['record' => $persona->id])
+        ->set('username', ' old.style.name ')
         ->set('character', 'Saved anyway')
         ->call('save')
         ->assertHasNoErrors();
