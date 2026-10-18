@@ -6,6 +6,7 @@ it('defines stable admin navigation group names', function () {
     expect(AdminNavigationGroup::OVERVIEW)->toBe('Overview');
     expect(AdminNavigationGroup::MODERATION)->toBe('Moderation');
     expect(AdminNavigationGroup::CONTENT)->toBe('Content');
+    expect(AdminNavigationGroup::CONTENT_STUDIO)->toBe('Content Studio');
     expect(AdminNavigationGroup::LOCALIZATION)->toBe('Localization');
     expect(AdminNavigationGroup::CONFIGURATION)->toBe('Configuration');
     expect(AdminNavigationGroup::SYSTEM)->toBe('System');
@@ -16,6 +17,7 @@ it('exposes all navigation groups in the Admin v2 display order', function () {
         'Overview',
         'Moderation',
         'Content',
+        'Content Studio',
         'Localization',
         'Configuration',
         'System',

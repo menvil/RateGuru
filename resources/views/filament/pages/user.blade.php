@@ -10,7 +10,8 @@
      *
      * A Persona's page draws the same account read-only, with no Password
      * card at all: nothing on it is a draft, so the top bar never has a
-     * change to save.
+     * change to save. Its editor is in Content Studio, linked for whoever may
+     * manage Personas.
      */
     $draft = '{ name: $wire.name, username: $wire.username, email: $wire.email, role: $wire.role, trust: $wire.trust, password: $wire.password }';
 @endphp
@@ -74,6 +75,9 @@
                                 <p class="rg-admin-hint">{{ $trusts[$saved['trust']]['label'] }}</p>
                             </div>
                             <p class="rg-admin-user__lock"><x-admin.ui.icon name="lock" :size="12" />A persona’s account can’t be edited here.</p>
+                            @if ($personaEditorUrl !== null)
+                                <x-admin.ui.button size="sm" icon="pencil" class="rg-admin-user__role" :href="$personaEditorUrl">Edit in Content Studio</x-admin.ui.button>
+                            @endif
                         </div>
                     </x-admin.ui.card>
                 @else

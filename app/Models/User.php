@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -333,6 +334,18 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     public function avatarAsset(): BelongsTo
     {
         return $this->belongsTo(MediaAsset::class, 'avatar_asset_id');
+    }
+
+    /**
+     * What Content Studio keeps about a Persona for itself — internal, never
+     * public, removed by anonymization. Having one does not make an account a
+     * Persona; its role does.
+     *
+     * @return HasOne<PersonaProfile, $this>
+     */
+    public function personaProfile(): HasOne
+    {
+        return $this->hasOne(PersonaProfile::class);
     }
 
     /**

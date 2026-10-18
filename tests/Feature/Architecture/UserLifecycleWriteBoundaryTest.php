@@ -20,6 +20,9 @@ it('keeps user status writes inside sanctioned lifecycle boundaries', function (
         // Bootstrap boundary: creates a NEW Active admin, never transitions
         // an existing account.
         'app/Console/Commands/CreateAdminUserCommand.php',
+        // Creation boundary: creates a NEW Active persona, never transitions
+        // an existing account.
+        'app/Actions/Personas/CreatePersonaAction.php',
     ];
 
     $offenders = collect(File::allFiles(app_path()))

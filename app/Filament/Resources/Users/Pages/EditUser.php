@@ -8,6 +8,8 @@ use App\Enums\ModerationActionType;
 use App\Enums\SocialProvider;
 use App\Enums\UserRole;
 use App\Exceptions\Users\CannotUpdateUserAccountException;
+use App\Filament\Resources\Personas\Pages\EditPersona;
+use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Users\Concerns\ModeratesUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\ModerationListFormat;
@@ -37,9 +39,10 @@ use Livewire\Attributes\On;
  * UpdateUserAccountAction.
  *
  * A Persona's page shows its account and its role and edits none of it:
- * a Persona is made and edited only in Content Studio, and
- * UpdateUserAccountAction refuses it whatever a request carries. Its status
- * still moves through the same moderation actions as anyone's.
+ * a Persona is made and edited only in Content Studio, where the page leads
+ * an administrator who may manage Personas, and UpdateUserAccountAction
+ * refuses it whatever a request carries. Its status still moves through the
+ * same moderation actions as anyone's.
  */
 final class EditUser extends Page
 {
@@ -214,6 +217,8 @@ final class EditUser extends Page
                 ['icon' => 'user-plus', 'tone' => 'default', 'title' => 'Account created', 'time' => $person->created_at !== null ? ModerationListFormat::when($person->created_at) : null, 'body' => null],
             ],
             'isPersona' => $person->role === UserRole::Persona,
+            // Where a Persona is edited, for whoever may manage Personas.
+            'personaEditorUrl' => PersonaResource::canEdit($person) ? EditPersona::getUrl(['record' => $person]) : null,
             'roleLabel' => (string) $person->role?->label(),
             'roles' => collect(self::ASSIGNABLE_ROLES)->mapWithKeys(fn (UserRole $role): array => [$role->value => $role->label()])->all(),
             'roleHelp' => self::ROLE_HELP,

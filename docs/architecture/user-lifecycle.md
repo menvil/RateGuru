@@ -63,9 +63,24 @@ apart:
   delivered to it (`User::routeNotificationForMail()`; no reset or
   verification link is sent); its database notifications arrive like
   anyone's.
-- It is created and edited only through Content Studio. The Users editor
-  shows a Persona read-only, and `UpdateUserAccountAction` refuses to make
-  one, to turn one back into anyone else, or to change one.
+- It is created and edited only through Content Studio
+  (`CreatePersonaAction`, `UpdatePersonaAction`, `SetPersonaAvatarAction`),
+  by an active administrator (`manage-personas`), asked again on the locked
+  rows. Creation is a status-write boundary of its own: it makes a new
+  Active account, with every way in set closed by the server — no password,
+  no remember token, no identity and an unconfirmed
+  `persona-{uuid}@persona.invalid` address — and fires no `Registered`.
+  Editing changes the public profile and the Content Studio profile only;
+  status still moves only through the moderation actions, so a sanctioned
+  Persona's settings can be corrected and it stays as sanctioned as it was.
+  The Users editor shows a Persona read-only and links an administrator to
+  its editor, and `UpdateUserAccountAction` refuses to make one, to turn one
+  back into anyone else, or to change one.
+- What Content Studio keeps about it — character, speech style, topics,
+  what it never writes about, emoji and reply settings — is its
+  `persona_profiles` row: internal, hidden from every serialization, never
+  on its public profile, and deleted by anonymization in the same
+  transaction.
 
 Lifecycle status is **not** RBAC: no status ever grants a permission a role
 withholds, and no role rescues a non-active status (fail closed).
@@ -183,6 +198,7 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | User PII (name, email, username, bio, website, display name) | anonymize |
 | Credentials, sessions, reset tokens, remember token | delete / revoke |
 | Social sign-in identities (Google / Facebook) | delete |
+| A Persona's Content Studio profile (`persona_profiles`) | delete |
 | Followers / following (both directions) | delete |
 | Avatar | detach + release via media lifecycle (grace-period purge) |
 | Posts | retain |
@@ -320,7 +336,7 @@ Limited/Banned, and existing content remains publicly visible.
   moderation actions (above), audience query filters
   (`MatchedUsersQuery`, `SendContactMessageAction`, Filament table
   filters/widgets, demo seeders), presentation badges, and default values
-  (factories, `CreateAdminUserCommand`).
+  (factories, `CreateAdminUserCommand`, `CreatePersonaAction`).
 - The PHPStan rule `NoDirectControllerPermissionCheckRule` blocks
   presentation classes (Filament/Livewire/controllers/requests) from calling
   capability methods directly — presentation must authorize through Gate.

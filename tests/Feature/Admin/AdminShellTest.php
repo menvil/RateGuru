@@ -8,6 +8,7 @@ use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
+use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Reports\ReportResource;
@@ -38,6 +39,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Overview' => ['Dashboard'],
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
+    'Content Studio' => ['Personas'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -173,6 +175,7 @@ it('marks the destination of the current page', function (string $path, string $
     'translation ai' => ['/admin/translation-ai', 'Translation AI'],
     'project settings' => ['/admin/project-settings', 'Project settings'],
     'media diagnostics' => ['/admin/media-diagnostics', 'Media diagnostics'],
+    'personas' => ['/admin/personas', 'Personas'],
 ]);
 
 it('keeps a resource marked on its create and edit pages, with a breadcrumb back to its list', function (Closure $url, string $active) {
@@ -193,6 +196,8 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     'rating group create' => [fn (): string => RatingGroupResource::getUrl('create'), 'Rating groups'],
     'rating group edit' => [fn (): string => RatingGroupResource::getUrl('edit', ['record' => RatingGroup::factory()->create()]), 'Rating groups'],
     'user edit' => [fn (): string => UserResource::getUrl('edit', ['record' => User::factory()->create()]), 'Users'],
+    'persona create' => [fn (): string => PersonaResource::getUrl('create'), 'Personas'],
+    'persona edit' => [fn (): string => PersonaResource::getUrl('edit', ['record' => User::factory()->persona()->create()]), 'Personas'],
 ]);
 
 it('names the section and page in the breadcrumb without loading any record', function () {
@@ -217,6 +222,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Categories' => CategoryResource::canAccess(),
         'Tags' => TagResource::canAccess(),
         'Rating groups' => RatingGroupResource::canAccess(),
+        'Personas' => PersonaResource::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
         'Media diagnostics' => MediaDiagnosticsPage::canAccess(),
@@ -233,6 +239,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
 
     $this->get(LanguagesPage::getUrl())->assertForbidden();
     $this->get(ProjectSettingsPage::getUrl())->assertForbidden();
+    $this->get(PersonaResource::getUrl('index'))->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -261,7 +268,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(13);
+    expect($keys)->toHaveCount(14);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -276,6 +283,7 @@ it('has an Admin v2 icon for every production destination', function () {
         CategoryResource::class => 'folder',
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
+        PersonaResource::class => 'bot',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',

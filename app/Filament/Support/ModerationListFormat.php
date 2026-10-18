@@ -46,7 +46,18 @@ final class ModerationListFormat
      */
     public static function personStatus(User $person): array
     {
-        return match ($person->status) {
+        return self::statusBadge($person->status);
+    }
+
+    /**
+     * A lifecycle status as its badge shows it, where there is no person to
+     * read it from — a filter's options, say.
+     *
+     * @return array{label: string, tone: string, dot: bool}
+     */
+    public static function statusBadge(?UserStatus $status): array
+    {
+        return match ($status) {
             UserStatus::Limited => ['label' => 'Limited', 'tone' => 'warning', 'dot' => false],
             UserStatus::Banned => ['label' => 'Banned', 'tone' => 'danger', 'dot' => false],
             UserStatus::Shadowbanned => ['label' => 'Shadowbanned', 'tone' => 'neutral', 'dot' => false],

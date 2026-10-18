@@ -76,6 +76,13 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/ModerationUsersQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Personas\PersonasQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over Persona usernames, names, short descriptions and characters requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/PersonasQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Media\MediaAuditIssuesQuery
                 methods: [orWhereRaw, orderByRaw]
                 reason: 'Literal search over audit issue paths requires an explicit ESCAPE clause and a separately bound pattern; listing the most severe first ranks the severity with a CASE over bound values.'
@@ -132,6 +139,12 @@ parameters:
                 method: paginate
                 uniqueOrder: [media_audit_issues.id]
                 behaviorTests: [tests/Feature/Queries/MediaAuditIssuesQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Personas\PersonasQuery
+                method: paginate
+                uniqueOrder: [users.id]
+                behaviorTests: [tests/Feature/Queries/PersonasQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Users\ModerationUsersQuery

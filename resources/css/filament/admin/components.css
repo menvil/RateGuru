@@ -4981,6 +4981,157 @@
         margin-top: 14px;
     }
 
+    /* Personas (ListPersonas) and a persona's editor (CreatePersona, EditPersona) */
+    /* An avatar with a photo: the image fills the circle the initials would. */
+    .rg-admin-avatar__image {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        object-fit: cover;
+    }
+
+    .rg-admin-avatar--xl {
+        width: 72px;
+        height: 72px;
+        border: 1px solid var(--rg-admin-border-default);
+        color: var(--rg-admin-gray-600);
+        font-size: var(--rg-admin-text-stat);
+    }
+
+    .rg-admin-personas__short {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-persona__header {
+        align-items: center;
+    }
+
+    .rg-admin-persona__identity {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-persona__title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-persona__title-row .rg-admin-page-header__title {
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-persona__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 6px;
+    }
+
+    .rg-admin-persona__columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-space-4);
+        max-width: 1320px;
+    }
+
+    .rg-admin-persona__main {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+        min-width: 0;
+    }
+
+    .rg-admin-persona__side {
+        width: 100%;
+        max-width: 520px;
+        min-width: 0;
+    }
+
+    .rg-admin-persona__stack {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .rg-admin-persona__fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+        gap: 18px var(--rg-admin-space-4);
+    }
+
+    .rg-admin-persona__wide {
+        grid-column: 1 / -1;
+    }
+
+    .rg-admin-persona__photo {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-persona__photo-actions {
+        display: flex;
+        flex: 1 1 220px;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-persona__photo-buttons,
+    .rg-admin-persona__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-persona__photo-actions .rg-admin-hint,
+    .rg-admin-persona__photo-actions .rg-admin-error {
+        margin: 0;
+    }
+
+    .rg-admin-persona__segmented {
+        align-self: flex-start;
+        max-width: 100%;
+    }
+
+    .rg-admin-persona__note {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-persona__section + .rg-admin-persona__section {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-persona__section .rg-admin-persona__note,
+    .rg-admin-persona__status,
+    .rg-admin-persona__links {
+        margin-top: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-persona__lock {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        margin: 10px 0 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
     /* Media diagnostics (MediaDiagnosticsPage): the overview's figures, the issues, the cards and the asset inspector */
     /* Every figure draws its own top and left rule; pulled under the card's frame, the outer ones vanish. */
     .rg-admin-media__tiles {
