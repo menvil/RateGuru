@@ -1,0 +1,155 @@
+tests/Feature/Policies/PersonaPolicyTest.php
+  s_0f80700cf0b8c6::t_bdab1d96b4e274 1-25
+docs/architecture/media.md
+  s_0f80700cf0b8c6::t_62e5c2f148d5db 13-16,77-87
+tests/Unit/Enums/PersonaProfileEnumsTest.php
+  s_0f80700cf0b8c6::t_bdab1d96b4e274 1-20
+app/Filament/Support/AdminShellNavigation.php
+  s_0f80700cf0b8c6::t_fe864449b8fda0 13,52
+tests/Feature/Admin/AdminShellTest.php
+  s_0f80700cf0b8c6::t_3c2d4f56b95c5e 11,42,178,199-200,225,242,271,286
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_86545b1b157dc5 309-331
+app/Support/Profile/ProfileValidationRules.php
+  s_0f80700cf0b8c6::t_961dbce3394a60 10-15,20-21
+app/Providers/AppServiceProvider.php
+  s_0f80700cf0b8c6::t_ef1f6358d431cf 82
+  s_0f80700cf0b8c6::t_da031f6b147f9e 11
+tests/Feature/Actions/CreatePersonaActionTest.php
+  s_0f80700cf0b8c6::t_ac18a39f328e07 78,205-207,210-211
+  s_0f80700cf0b8c6::t_4c423a95abfab0 140-141,155-156,208
+  s_0f80700cf0b8c6::t_733187a382aa33 1-77,79-139,142-154,157-204,209,212-266
+app/Filament/Support/ModerationListFormat.php
+  s_0f80700cf0b8c6::t_b5275790632853 49-60
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_86545b1b157dc5 190,213-214,257-258,994-1039,1229,1357-1361
+tests/Browser/AdminPersonasBrowserTest.php
+  s_0f80700cf0b8c6::t_bff230697893ca 12-13,15-19
+  s_0f80700cf0b8c6::t_aab8aa06cb8bd2 1-11,14,20-117
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_0f80700cf0b8c6::t_ffa134f6be76c3 344-365
+app/Data/Personas/PersonaData.php
+  s_0f80700cf0b8c6::t_a34fb7e321cb8c 1-152
+app/Models/PersonaProfile.php
+  s_0f80700cf0b8c6::t_903667ab62f433 1-85
+app/Queries/Personas/PersonasQuery.php
+  s_0f80700cf0b8c6::t_b038a7a904174a 1-102
+app/Actions/Personas/SetPersonaAvatarAction.php
+  s_0f80700cf0b8c6::t_591bbd31ede553 1-141
+tests/Feature/Actions/SetPersonaAvatarActionTest.php
+  s_0f80700cf0b8c6::t_aebd4609a50c09 126-127
+  s_0f80700cf0b8c6::t_6579758c57eb0e 1-53,55-124,128-141,143-168,170-196
+  s_0f80700cf0b8c6::t_a0c012fbde77ae 54,125,142,169
+app/Support/Personas/PersonaValidationRules.php
+  s_0f80700cf0b8c6::t_ec35a54b9a3c21 35,38,44-53,103-105
+  s_0f80700cf0b8c6::t_8a7a1bd44d6aa8 1-34,36-37,39-43,54-102,106-109
+app/Filament/Resources/Users/UserResource.php
+  s_0f80700cf0b8c6::t_6b079cecb9fdcc 5-6,21-22,49-53
+app/Filament/Resources/Personas/PersonaResource.php
+  s_0f80700cf0b8c6::t_e2d94666ab939d 1-102
+tests/Feature/Actions/PersonaLifecycleTest.php
+  s_0f80700cf0b8c6::t_c98b50a5546f19 1-113
+tests/Feature/Architecture/UserLifecycleWriteBoundaryTest.php
+  s_0f80700cf0b8c6::t_3c2d4f56b95c5e 23-25
+app/Providers/Filament/AdminPanelProvider.php
+  s_0f80700cf0b8c6::t_fe864449b8fda0 10-13,98-111
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_7668e7061e1dbd 4984-5134
+app/Filament/Resources/Personas/Pages/ListPersonas.php
+  s_0f80700cf0b8c6::t_045a134c21c89d 135,137-138
+  s_0f80700cf0b8c6::t_b5275790632853 5,101,107,148-149,152
+  s_0f80700cf0b8c6::t_d481a16f6e62f6 1-4,6-100,102-106,108-134,136,139-147,150-151,153-156
+resources/views/filament/pages/personas/topbar.blade.php
+  s_0f80700cf0b8c6::t_f2263d252b6b18 1-2
+database/migrations/2026_10_18_100000_create_persona_profiles_table.php
+  s_0f80700cf0b8c6::t_7f0a0ae6a608c5 1-46
+docs/architecture/user-lifecycle.md
+  s_0f80700cf0b8c6::t_62e5c2f148d5db 66-83,201,339
+app/Actions/Personas/UpdatePersonaAction.php
+  s_0f80700cf0b8c6::t_da031f6b147f9e 11
+  s_0f80700cf0b8c6::t_00df3e8b350790 1-9,12-96,98-109
+  s_0f80700cf0b8c6::t_857bfdcf698536 10,97
+resources/views/filament/pages/user.blade.php
+  s_0f80700cf0b8c6::t_a46cbafc69e9bb 13-14,78-80
+app/Filament/Resources/Personas/Concerns/EditsPersona.php
+  s_0f80700cf0b8c6::t_045a134c21c89d 237
+  s_0f80700cf0b8c6::t_ec35a54b9a3c21 148
+  s_0f80700cf0b8c6::t_541d81f95a8273 167
+  s_0f80700cf0b8c6::t_d7e8d0454c3e63 1-58,65-147,149-166,168-236,238-242
+  s_0f80700cf0b8c6::t_ec5588fc5f0d86 59-64
+app/Enums/PersonaEmojiFrequency.php
+  s_0f80700cf0b8c6::t_d78240af24a4da 1-23
+resources/views/filament/pages/persona.blade.php
+  s_0f80700cf0b8c6::t_28bb7aaa3b995f 1-328
+app/Filament/Support/AdminNavigationGroup.php
+  s_0f80700cf0b8c6::t_e2d94666ab939d 20-21,37
+database/factories/PersonaProfileFactory.php
+  s_0f80700cf0b8c6::t_903667ab62f433 1-38
+tests/Feature/Filament/PersonaResourceTest.php
+  s_0f80700cf0b8c6::t_a4bb55a67241d3 1-180,183-302,305-448
+  s_0f80700cf0b8c6::t_9118c482bab64a 181-182,303-304
+app/Filament/Resources/Users/Pages/EditUser.php
+  s_0f80700cf0b8c6::t_a46cbafc69e9bb 11-12,42-45,220-221
+app/Models/User.php
+  ai_agent 24
+  s_0f80700cf0b8c6::t_b1a974b1ee5361 340-350
+app/Actions/Auth/Concerns/CreatesUserWithUniqueUsername.php
+  s_0f80700cf0b8c6::t_857bfdcf698536 8
+  s_0f80700cf0b8c6::t_8bdc4ea7247c3f 52
+tests/Unit/Filament/AdminNavigationGroupTest.php
+  s_0f80700cf0b8c6::t_3c2d4f56b95c5e 9,20
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_0f80700cf0b8c6::t_09229c5f1f008f 10,33-34,110-114
+tools/phpstan/architecture.neon
+  s_0f80700cf0b8c6::t_0a027f29e70c8a 79-84,143-147
+app/Filament/Resources/Personas/Pages/CreatePersona.php
+  s_0f80700cf0b8c6::t_390272684238b8 81,83-88
+  s_0f80700cf0b8c6::t_ab2d79e8d281b8 1-80,82,89-106
+app/Filament/Resources/Personas/Pages/EditPersona.php
+  s_0f80700cf0b8c6::t_e5c81110230430 1-61,63-215
+  s_0f80700cf0b8c6::t_21caca22ae6a05 62
+resources/views/filament/pages/personas.blade.php
+  s_0f80700cf0b8c6::t_f2263d252b6b18 1-114
+tests/Feature/Queries/PersonasQueryTest.php
+  s_0f80700cf0b8c6::t_a4c8460f303cbb 1-101
+app/Policies/PersonaPolicy.php
+  s_0f80700cf0b8c6::t_ef1f6358d431cf 1-23
+app/Exceptions/Personas/CannotManagePersonaException.php
+  s_0f80700cf0b8c6::t_8a7a1bd44d6aa8 1-64
+tests/Feature/Models/PersonaProfileTest.php
+  s_0f80700cf0b8c6::t_1d305d77da7d6b 1-98
+app/Enums/PersonaEngagement.php
+  s_0f80700cf0b8c6::t_d78240af24a4da 1-27
+composer.json
+  s_0f80700cf0b8c6::t_0a027f29e70c8a 82-83
+tests/Feature/Actions/UpdatePersonaActionTest.php
+  s_0f80700cf0b8c6::t_207c13eadcae31 1-287
+app/Actions/Personas/CreatePersonaAction.php
+  s_0f80700cf0b8c6::t_da031f6b147f9e 16
+  s_0f80700cf0b8c6::t_fc0e67c4be1509 1-14,17-91,93,95-141
+  s_0f80700cf0b8c6::t_a6f4e567ce0703 92
+  s_0f80700cf0b8c6::t_857bfdcf698536 15,94
+app/Support/Database/UsernameUniqueViolation.php
+  s_0f80700cf0b8c6::t_857bfdcf698536 1-35
+tests/Feature/Livewire/ProfilePageTest.php
+  s_0f80700cf0b8c6::t_39a1bcc7ca9a40 3,5,296-338
+resources/views/filament/pages/personas/row.blade.php
+  s_0f80700cf0b8c6::t_f2263d252b6b18 1-24,26-61
+  s_0f80700cf0b8c6::t_9bd24611d66c05 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c3f015c0d19554f50f159c44f32497dab2c02692",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
