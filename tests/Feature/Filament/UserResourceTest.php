@@ -317,6 +317,11 @@ it('opens a persona\'s page, showing its account and role with nothing to edit',
         ->not->toContain('Mark trusted');
 });
 
+/*
+ * Nothing on a Persona's page is a draft, and a forged request changes
+ * nothing either: UpdateUserAccountAction refuses the account, and the page
+ * says why.
+ */
 it('saves nothing on a persona\'s page, whatever the request carries', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = User::factory()->persona()->create(['name' => 'Kept Name', 'trust_level' => 10]);
@@ -326,10 +331,10 @@ it('saves nothing on a persona\'s page, whatever the request carries', function 
         ->assertSet('role', 'persona')
         ->set('name', 'Forged Name')
         ->set('email', 'real@example.com')
-        ->set('role', 'user')
         ->set('trust', 'reviewed')
         ->set('password', 'a-long-new-password-2026')
         ->dispatch('save-user')
+        ->assertHasNoErrors()
         ->assertSet('confirmingRole', false)
         ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
 
@@ -339,6 +344,36 @@ it('saves nothing on a persona\'s page, whatever the request carries', function 
         ->role->toBe(UserRole::Persona)
         ->trust_level->toBe(10)
         ->password->toBeNull();
+});
+
+it('turns a persona into nobody else, even past the role confirmation', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+
+    Livewire::test(EditUser::class, ['record' => $persona->id])
+        ->set('role', 'user')
+        ->dispatch('save-user')
+        ->assertSet('confirmingRole', true)
+        ->assertSeeHtml('Persona → User')
+        ->call('save')
+        ->assertSet('confirmingRole', false)
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($persona->fresh()->role)->toBe(UserRole::Persona);
+});
+
+it('saves nothing to an account made a persona since its page was drawn', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['name' => 'Kept Name']);
+    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+
+    User::query()->whereKey($person->id)->update(['role' => UserRole::Persona->value]);
+
+    $page->set('name', 'Forged Name')
+        ->dispatch('save-user')
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($person->fresh())->name->toBe('Kept Name')->role->toBe(UserRole::Persona);
 });
 
 it('neither offers nor accepts the persona role on anyone else\'s page', function () {

@@ -129,3 +129,27 @@ final class DirectRoleCheckAction
         return $actor->canSignIn() && $actor->isStaff() && ! $actor->isPersona();
     }
 }
+
+namespace App\Livewire\Fixtures;
+
+use App\Enums\UserRole;
+use App\Models\User;
+
+final class NullsafePermissionCheckComponent
+{
+    public function showPublishButton(?User $user): bool
+    {
+        return $user?->canCreateContent() ?? false;
+    }
+
+    public function showStaffBadge(?User $person): bool
+    {
+        return $person?->isStaff() ?? false;
+    }
+
+    // A role that may be missing is still the role's own vocabulary.
+    public function staffBadge(?UserRole $role): bool
+    {
+        return $role?->isStaff() ?? false;
+    }
+}

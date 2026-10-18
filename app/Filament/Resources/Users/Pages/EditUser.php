@@ -37,8 +37,9 @@ use Livewire\Attributes\On;
  * UpdateUserAccountAction.
  *
  * A Persona's page shows its account and its role and edits none of it:
- * a Persona is made and edited only in Content Studio. Its status still
- * moves through the same moderation actions as anyone's.
+ * a Persona is made and edited only in Content Studio, and
+ * UpdateUserAccountAction refuses it whatever a request carries. Its status
+ * still moves through the same moderation actions as anyone's.
  */
 final class EditUser extends Page
 {
@@ -115,15 +116,6 @@ final class EditUser extends Page
     public function save(): void
     {
         $person = $this->person();
-
-        // Nothing on a Persona's page is a draft. UpdateUserAccountAction
-        // refuses a Persona on its own too; this only says so plainly.
-        if ($person->role === UserRole::Persona) {
-            $this->moderationToast('A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
-
-            return;
-        }
-
         $this->name = Str::squish($this->name);
         $this->username = trim($this->username);
         $this->email = Str::lower(trim($this->email));
@@ -160,8 +152,10 @@ final class EditUser extends Page
                 },
                 'password' => $this->password !== '' ? $this->password : null,
             ]);
-        } catch (CannotUpdateUserAccountException) {
-            $this->moderationToast('You can’t edit this account any more, so nothing was saved.', tone: 'error');
+        } catch (CannotUpdateUserAccountException $exception) {
+            $this->moderationToast($exception->isAboutPersona()
+                ? 'A persona’s account can’t be edited here, so nothing was saved.'
+                : 'You can’t edit this account any more, so nothing was saved.', tone: 'error');
 
             return;
         }
@@ -248,7 +242,11 @@ final class EditUser extends Page
                 ? ['required', 'string']
                 : ['required', 'string', 'regex:/\A[a-z0-9_]+\z/', 'max:32', Rule::unique(User::class)->ignore($person->id)],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class)->ignore($person->id)],
-            'role' => ['required', Rule::in(array_map(fn (UserRole $role): string => $role->value, self::ASSIGNABLE_ROLES))],
+            // A role kept as it is is not held to the roles this page gives:
+            // whether the account may be saved at all is the action's to say.
+            'role' => $this->role === $this->saved['role']
+                ? ['required', 'string']
+                : ['required', Rule::in(array_map(fn (UserRole $role): string => $role->value, self::ASSIGNABLE_ROLES))],
             'trust' => ['required', Rule::in(['trusted', 'reviewed'])],
             'password' => ['nullable', 'string', 'max:255', Password::defaults()],
         ];

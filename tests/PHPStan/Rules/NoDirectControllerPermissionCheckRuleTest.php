@@ -53,6 +53,14 @@ final class NoDirectControllerPermissionCheckRuleTest extends RuleTestCase
                 'Presentation classes must authorize through Gate or policies; do not call isStaff() directly.',
                 110,
             ],
+            [
+                'Presentation classes must authorize through Gate or policies; do not call canCreateContent() directly.',
+                142,
+            ],
+            [
+                'Presentation classes must authorize through Gate or policies; do not call isStaff() directly.',
+                147,
+            ],
         ]);
     }
 }
