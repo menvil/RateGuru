@@ -336,7 +336,7 @@ function offsiteBackupOpsBuildLocalBackup(string $localRoot, string $timestamp, 
 
     // A schema 3 backup carries its recovery material, checksummed in the
     // position backup writes it — unless a test omits it on purpose.
-    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
+    if (in_array($options['schema'] ?? null, [3, 4], true) && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -978,6 +978,39 @@ it('uploads a schema 3 backup with all eight of its files, and refuses one missi
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('missing required backup file: recovery-material.tar.gz');
         expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
+    } finally {
+        offsiteBackupOpsCleanup($scratch);
+    }
+});
+
+it('uploads a schema 4 backup with the same eight files, its recovery material byte for byte', function () {
+    $scratch = offsiteBackupOpsScratchDir();
+
+    try {
+        $manifest = offsiteBackupOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 4;
+        $manifest['dkim_public_key_sha256'] = null;
+
+        $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest, options: ['schema' => 4]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('(schema4, exactly 8 files)');
+
+        $uploaded = array_values(array_diff(scandir($result['remoteDir']), ['.', '..']));
+        sort($uploaded);
+
+        expect($uploaded)->toBe([
+            'SHA256SUMS', 'database.dump', 'environment.env', 'manifest.json',
+            'recovery-material.tar.gz', 'release.json', 'server-configuration.tar.gz', 'storage-app.tar.gz',
+        ]);
+
+        // What reaches B2 is the archive the backup wrote, unchanged — the
+        // offsite restore test certifies exactly these bytes.
+        expect(hash_file('sha256', $result['remoteDir'].'/recovery-material.tar.gz'))
+            ->toBe(hash_file('sha256', $result['localDir'].'/recovery-material.tar.gz'));
+
+        $history = json_decode(trim(File::get($result['historyFile'])), true);
+        expect($history['files'])->toBe(8);
     } finally {
         offsiteBackupOpsCleanup($scratch);
     }

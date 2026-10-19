@@ -69,7 +69,9 @@
 #                   backup member of its own, the deploy key is derived by the
 #                   recovery from the deploy credential, and the offsite
 #                   credential is the recovery's own. A held target's key is
-#                   not in it either — nothing signs with it yet.
+#                   not in it either — nothing signs with it yet — and only a
+#                   planned target is ever held: the routing policy gives an
+#                   active one a delivery route.
 #
 #                   Prepare Host's recovery preparation installs this scope
 #                   BEFORE host bootstrap, because the signer bootstrap
@@ -125,10 +127,11 @@
 # checkout on a clean host; capture and validation run it from the installed
 # operational bundle on a live host, where a nightly backup and a restore test
 # have no checkout to reach for. install-target-operations installs it beside
-# the registry and the committed vhost sources under /home/www/rateguru, in the
-# same relative layout the checkout has — `../config` from this script's own
-# directory — so one script, resolving one configuration directory, serves
-# both places.
+# the registry, the committed vhost sources and — for the recovery scope's DKIM
+# row — mail-identity, mail-routing and the three mail contracts under
+# /home/www/rateguru, in the same relative layout the checkout has —
+# `../config` from this script's own directory — so one script, resolving one
+# configuration directory, serves both places.
 #
 # THE SAFE-EXISTING-FILE CONTRACT. Prepare Host is a button an operator can
 # press by accident on a live host, so the rules are deliberately blunt:
