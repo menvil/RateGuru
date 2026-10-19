@@ -2,13 +2,18 @@
 
 namespace App\Filament\Resources\StudioPlans\Concerns;
 
+use App\Actions\Import\ImportFromUrlAction;
 use App\Actions\Import\StoreImportedImageAction;
 use App\Actions\Studio\RemoveStudioPlanImageAction;
+use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\SetStudioPlanImageAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\ImageInputSource;
 use App\Enums\StudioPlanPublicationMode;
+use App\Exceptions\Import\UnsafeImportUrlException;
+use App\Exceptions\Import\UrlImportDisabledException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
+use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Models\Category;
@@ -21,13 +26,16 @@ use App\Models\User;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Queries\Personas\PersonasQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Support\Import\ImportProviderDetector;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Studio\StudioPlanValidationRules;
+use App\Support\StudioAi\StudioImageAnalyzer;
 use Carbon\CarbonImmutable;
 use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Number;
 use Illuminate\Validation\Rule;
@@ -45,11 +53,17 @@ use Throwable;
  *
  * What is typed or chosen is a draft until Save in the top bar (NAV-02): the
  * browser compares it to `saved` to count what is unsaved, and Discard puts
- * the saved values back. A photo chosen from the computer, a link to import
- * one from and taking the saved photo off are part of the draft; the file is
- * stored only when the draft is saved. The draft is checked with the rules
- * the Content Studio actions check it with again (StudioPlanValidationRules),
- * and nothing in it can carry a status, a creator or a version.
+ * the saved values back. The draft is checked with the rules the Content
+ * Studio actions check it with again (StudioPlanValidationRules), and nothing
+ * in it can carry a status, a creator or a version.
+ *
+ * The photo is no part of the draft. One chosen from the computer — picked or
+ * dropped — or imported from a link or a social post is stored on the plan
+ * the moment it arrives, through SetStudioPlanImageAction against the
+ * version the editor last read or wrote (a new publication's first photo
+ * makes its Draft first), and its analysis is asked for at once. Only the
+ * photo and the version change: the texts on screen stay as typed, and as
+ * unsaved as they were, so the next Save is no conflict with the photo.
  */
 trait EditsStudioPlan
 {
@@ -63,6 +77,9 @@ trait EditsStudioPlan
 
     /** The most Personas, and tags, offered at once to choose from. */
     private const CHOICES = 8;
+
+    /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
+    private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
 
     /**
      * The step on screen. Not part of the draft, and changed only through
@@ -100,24 +117,41 @@ trait EditsStudioPlan
     public string $publishAt = '';
 
     /**
-     * A photo chosen from the computer, kept until Save.
+     * A photo chosen from the computer, picked or dropped, as Livewire's
+     * upload leaves it: stored the moment it arrives, never kept for Save.
      *
      * @var TemporaryUploadedFile|null
      */
     public $photo = null;
 
-    /**
-     * Where a new photo comes from: the computer, or a link. Only this source
-     * is ever saved, and only its value counts as a change. Not part of the
-     * draft.
-     */
+    /** Where a new photo comes from: the computer, a direct link to an image, or a social post. */
     public string $imageSource = 'upload';
 
-    /** A direct link to an image to import when the draft is saved. */
+    /** A direct link to an image, imported once it is complete. */
     public string $imageUrl = '';
 
-    /** Whether Save takes the saved photo off the plan. */
-    public bool $removeImage = false;
+    /** A link to a public post, whose image is imported once the link is complete. */
+    public string $postUrl = '';
+
+    /** The plan the photo is kept on: the one edited, or the Draft a new publication made for its first photo; 0 for none yet. */
+    #[Locked]
+    public int $planId = 0;
+
+    /** The plan's lock_version as the editor last read or wrote it. */
+    #[Locked]
+    public int $lockVersion = 0;
+
+    /** The source and address an image was last imported from, so the same one is never fetched twice running. */
+    #[Locked]
+    public string $importedFrom = '';
+
+    /** The upload last stored, so an upload reported twice is stored once. */
+    #[Locked]
+    public string $keptUpload = '';
+
+    /** The file name of the photo the last one replaced, while the editor stays open. */
+    #[Locked]
+    public ?string $replacedPhoto = null;
 
     /** The search over the Personas offered as the author. Not part of the draft. */
     public string $authorSearch = '';
@@ -157,67 +191,131 @@ trait EditsStudioPlan
     }
 
     /**
-     * A chosen photo is checked as soon as it arrives, so a wrong file is said
-     * before Save. A file comes from the computer, so the computer becomes the
-     * source and a link typed before is dropped.
+     * A photo from the computer is checked as soon as it arrives, then stored
+     * and analysed; a wrong file is said by the drop zone and stores nothing.
      */
     public function updatedPhoto(): void
     {
         $this->imageSource = 'upload';
-        $this->dropImageUrl();
-        $this->removeImage = false;
-        $this->validateOnly('photo', $this->imageRules(), $this->imageMessages());
-    }
+        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
 
-    /** A link typed makes the link the source, and drops a file chosen before. */
-    public function updatedImageUrl(): void
-    {
-        if (trim($this->imageUrl) === '') {
+        try {
+            $this->validateOnly('photo', $this->imageRules(), $this->imageMessages());
+        } catch (ValidationException $exception) {
+            $this->photo = null;
+
+            throw $exception;
+        }
+
+        $photo = $this->photo;
+        $this->photo = null;
+
+        if (! $photo instanceof TemporaryUploadedFile || $photo->getFilename() === $this->keptUpload) {
             return;
         }
 
-        $this->imageSource = 'link';
-        $this->dropPhoto();
-        $this->removeImage = false;
+        $this->keptUpload = $photo->getFilename();
+        $this->keepPhoto('photo', $photo, ImageInputSource::Upload);
+    }
+
+    /** Switching the source keeps nothing of the other one's, and no error of it. */
+    public function updatedImageSource(): void
+    {
+        $this->imageSource = in_array($this->imageSource, ['link', 'post'], true) ? $this->imageSource : 'upload';
+        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
     }
 
     /**
-     * Only the source on screen is ever saved: switching drops what the other
-     * one held — a file chosen before switching to a link, a link typed before
-     * switching back — rather than keeping it out of sight to win on Save. The
-     * saved photo stays as it is either way.
+     * Imports the image a link points at — a direct link to an image, or the
+     * picture of a public post — once the browser finds the address complete,
+     * through the importers the site's own uploads use: the safe client for
+     * every request, no private address, the temporary file always removed.
+     * The same address is never fetched twice running.
      */
-    public function updatedImageSource(): void
+    public function importImage(mixed $source): void
     {
-        $this->imageSource = $this->imageSource === 'link' ? 'link' : 'upload';
+        $source = $source === 'post' ? 'post' : 'link';
+        $field = $source === 'post' ? 'postUrl' : 'imageUrl';
+        $url = trim($source === 'post' ? $this->postUrl : $this->imageUrl);
 
-        $this->imageSource === 'link' ? $this->dropPhoto() : $this->dropImageUrl();
+        $this->imageSource = $source;
+        $source === 'post' ? $this->postUrl = $url : $this->imageUrl = $url;
+        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+
+        if ($url === '' || "{$source} {$url}" === $this->importedFrom) {
+            return;
+        }
+
+        $this->validateOnly($field, $this->imageRules(), $this->imageMessages());
+        $this->importedFrom = "{$source} {$url}";
+
+        $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
+
+        if ($imageUrl === null) {
+            return;
+        }
+
+        $importer = app(StoreImportedImageAction::class);
+
+        try {
+            $file = $importer->download($imageUrl);
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->addError($field, $source === 'post'
+                ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
+                : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+
+            return;
+        }
+
+        try {
+            $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+        } finally {
+            $importer->cleanup($file);
+        }
     }
 
-    /** Takes the chosen photo off the draft; the saved one stays. */
-    public function clearPhoto(): void
+    /** Imports the same address again, after a try that failed. */
+    public function retryImport(): void
     {
-        $this->dropPhoto();
+        if ($this->imageSource === 'upload') {
+            return;
+        }
+
+        $this->importedFrom = '';
+        $this->importImage($this->imageSource);
     }
 
-    /** Takes the link off the draft; the saved photo stays. */
-    public function clearImageUrl(): void
+    /**
+     * Takes the photo off the plan at once, released to the media lifecycle
+     * — the way a new one replaces it — and its analysis out of view.
+     */
+    public function removePhoto(): void
     {
-        $this->dropImageUrl();
-    }
+        $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
 
-    /** Save takes the saved photo off the plan; until then it stays. */
-    public function removeSavedImage(): void
-    {
-        $this->photo = null;
-        $this->imageUrl = '';
-        $this->removeImage = true;
-        $this->resetErrorBag(['photo', 'imageUrl']);
-    }
+        if ($plan === null) {
+            if ($this->planId !== 0) {
+                $this->refusePhoto(CannotManageStudioPlanException::becausePlanIsGone(), 'removed');
+            }
 
-    public function keepSavedImage(): void
-    {
-        $this->removeImage = false;
+            return;
+        }
+
+        try {
+            app(RemoveStudioPlanImageAction::class)->handle($this->admin(), $plan, $this->lockVersion);
+        } catch (CannotManageStudioPlanException $exception) {
+            $this->refusePhoto($exception, 'removed');
+
+            return;
+        }
+
+        $this->lockVersion = $plan->lock_version;
+        $this->forgetPhotoInputs();
+        $this->importedFrom = '';
+        $this->replacedPhoto = null;
+        $this->dispatch('rg-studio-photo-kept');
+        $this->toast('Photo removed from this draft', 'info');
     }
 
     /** Chooses a living Persona as the author. */
@@ -259,7 +357,7 @@ trait EditsStudioPlan
         $this->tagIds = array_values(array_filter($this->chosenTagIds(), fn (int $chosen): bool => $chosen !== (int) $id));
     }
 
-    /** Puts every value of the draft back as saved, and forgets what was chosen for the photo. */
+    /** Puts every value of the draft back as saved. */
     protected function fillDraft(StudioPlanData $data): void
     {
         $this->postTitle = (string) $data->title;
@@ -279,16 +377,13 @@ trait EditsStudioPlan
             ->all();
         $this->publicationMode = $data->publicationMode->value;
         $this->publishAt = self::dateInput($data->publicationMode === StudioPlanPublicationMode::AtDate ? $data->publishAt : null);
-        $this->photo = null;
-        $this->imageUrl = '';
-        $this->removeImage = false;
         $this->authorSearch = '';
         $this->tagSearch = '';
     }
 
     /**
-     * A plan's values as the editor compares them: every value as text, each
-     * list of ids in ascending order, and nothing chosen for the photo.
+     * A plan's values as the editor compares them: every value as text, and
+     * each list of ids in ascending order.
      *
      * @return array<string, string>
      */
@@ -311,15 +406,12 @@ trait EditsStudioPlan
             'authorAnswers' => $ids($data->authorAnswerOptionIds),
             'publicationMode' => $data->publicationMode->value,
             'publishAt' => self::dateInput($data->publicationMode === StudioPlanPublicationMode::AtDate ? $data->publishAt : null),
-            'photo' => '',
-            'imageUrl' => '',
-            'removeImage' => '',
         ];
     }
 
     /**
      * What a plan's draft is, in one value: whether the texts and settings
-     * differ from what was drawn, apart from the photo.
+     * differ from what was drawn.
      */
     protected static function fingerprintOf(StudioPlanData $data): string
     {
@@ -338,7 +430,6 @@ trait EditsStudioPlan
         $this->postTitle = (string) StudioPlanData::normalizedText($this->postTitle);
         $this->postDescription = (string) StudioPlanData::normalizedText($this->postDescription);
         $this->sourceUrl = (string) StudioPlanData::normalizedText($this->sourceUrl);
-        $this->imageUrl = trim($this->imageUrl);
 
         try {
             // What the editor's own fields can hold, before the plan's rules.
@@ -351,8 +442,6 @@ trait EditsStudioPlan
                 'authorAnswers.*' => ['nullable', 'regex:/\A[0-9]{0,18}\z/'],
                 'publicationMode' => ['required', Rule::enum(StudioPlanPublicationMode::class)],
                 'publishAt' => ['nullable', 'date_format:Y-m-d\TH:i,Y-m-d\TH:i:s'],
-                // The source on screen alone: the other holds nothing to save.
-                ...array_intersect_key($this->imageRules(), [$this->imageSource === 'link' ? 'imageUrl' : 'photo' => true]),
             ], [
                 'authorUserId.*' => 'Choose a persona as the author.',
                 'categoryId.*' => 'Choose a category from the list.',
@@ -360,7 +449,6 @@ trait EditsStudioPlan
                 'authorAnswers.*' => 'Choose the author’s answers from the rating options.',
                 'publicationMode.*' => 'Choose when to publish.',
                 'publishAt.*' => 'Enter a date and time.',
-                ...$this->imageMessages(),
             ]);
 
             return app(StudioPlanValidationRules::class)->validated($this->draftData());
@@ -393,100 +481,156 @@ trait EditsStudioPlan
         );
     }
 
-    /** Whether Save has anything to do with the photo. */
-    protected function changesImage(): bool
-    {
-        return $this->chosenPhoto() !== null || $this->chosenImageUrl() !== '' || $this->removeImage;
-    }
-
-    /** The file Save stores: one chosen while the computer is the source, and only then. */
-    protected function chosenPhoto(): ?TemporaryUploadedFile
-    {
-        return $this->imageSource === 'upload' && $this->photo instanceof TemporaryUploadedFile ? $this->photo : null;
-    }
-
-    /** The link Save imports from: one typed while a link is the source, and only then. */
-    protected function chosenImageUrl(): string
-    {
-        return $this->imageSource === 'link' ? trim($this->imageUrl) : '';
-    }
+    /**
+     * The plan a photo is kept on: the page's own, or — on a new publication
+     * — the Draft made for its first photo. None when there is none to keep
+     * it on, said by refusePhoto().
+     */
+    abstract protected function photoPlan(): ?StudioPlan;
 
     /**
-     * Saves what the draft says about the photo — the chosen file, the linked
-     * image, or taking the saved one off — against the plan at $version. A
-     * file the site can't use leaves the rest saved and says why by its
-     * field, so it can be chosen again; a plan changed or gone meanwhile is
-     * the page's to explain.
-     *
-     * @throws CannotManageStudioPlanException
+     * Says why the photo was not saved or removed: the plan was changed,
+     * deleted or closed meanwhile, or the administrator may no longer manage
+     * plans. What a refusal means for the page is the page's to show.
      */
-    protected function saveImage(StudioPlan $plan, int $version): bool
+    abstract protected function refusePhoto(CannotManageStudioPlanException $exception, string $what = 'saved'): void;
+
+    /**
+     * Stores a photo on the plan through the plan's own action, against the
+     * version this editor last read or wrote, and asks for its analysis. A
+     * file the site can't use is said by the field it came from.
+     */
+    private function keepPhoto(string $field, UploadedFile $file, ImageInputSource $source): void
     {
-        $admin = $this->admin();
-        $photo = $this->chosenPhoto();
-        $imageUrl = $this->chosenImageUrl();
+        $plan = $this->photoPlan();
 
-        if ($photo !== null) {
-            try {
-                app(SetStudioPlanImageAction::class)->handle($admin, $plan, $photo, $version);
-            } catch (ImageIngestException $exception) {
-                report($exception);
-                $this->addError('photo', 'This image can’t be used. Choose another JPEG, PNG or WebP image.');
-
-                return false;
-            }
-        } elseif ($imageUrl !== '') {
-            $importer = app(StoreImportedImageAction::class);
-
-            try {
-                $file = $importer->download($imageUrl);
-            } catch (Throwable $exception) {
-                report($exception);
-                $this->addError('imageUrl', 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
-
-                return false;
-            }
-
-            try {
-                app(SetStudioPlanImageAction::class)->handle($admin, $plan, $file, $version, ImageInputSource::UrlImport);
-            } catch (ImageIngestException $exception) {
-                report($exception);
-                $this->addError('imageUrl', 'The file at this link isn’t an image the site takes. Use a JPEG, PNG or WebP image.');
-
-                return false;
-            } finally {
-                $importer->cleanup($file);
-            }
-        } elseif ($this->removeImage && $plan->image_asset_id !== null) {
-            app(RemoveStudioPlanImageAction::class)->handle($admin, $plan, $version);
+        if ($plan === null) {
+            return;
         }
 
-        $this->photo = null;
-        $this->imageUrl = '';
-        $this->removeImage = false;
+        $previous = $plan->image_asset_id !== null ? MediaAsset::query()->find($plan->image_asset_id)?->original_filename : null;
 
-        return true;
+        try {
+            app(SetStudioPlanImageAction::class)->handle($this->admin(), $plan, $file, $this->lockVersion, $source);
+        } catch (CannotManageStudioPlanException $exception) {
+            $this->refusePhoto($exception);
+
+            return;
+        } catch (ImageIngestException $exception) {
+            report($exception);
+            $this->addError($field, $field === 'photo'
+                ? 'This image can’t be used. Choose another JPEG, PNG or WebP image.'
+                : 'The file at this link isn’t an image the site takes. Use a JPEG, PNG or WebP image.');
+
+            return;
+        }
+
+        // The action keeps the copy it was handed in step with the row it
+        // wrote: only the photo and the version moved.
+        $this->lockVersion = $plan->lock_version;
+
+        // A file replaced whatever a link brought, so that link may bring it back.
+        if ($source === ImageInputSource::Upload) {
+            $this->importedFrom = '';
+        }
+
+        $this->forgetPhotoInputs();
+        $this->replacedPhoto = $previous;
+        $this->dispatch('rg-studio-photo-kept');
+        $this->analysePhoto($plan);
     }
 
     /**
-     * What the editor shows besides the draft: the steps, the photo, the
-     * Personas, categories, tags and rating groups to choose from, the
-     * limits, and the publication card as the draft stands.
+     * Asks for the photo just stored to be analysed — a new attempt for the
+     * new photo, so nothing of the one before is shown for it. With analysis
+     * not configured, or refused, the photo stays saved and the card says
+     * what stands.
+     */
+    private function analysePhoto(StudioPlan $plan): void
+    {
+        if ($plan->image_asset_id === null) {
+            return;
+        }
+
+        try {
+            app(RequestStudioImageAnalysisAction::class)->handle($this->admin(), $plan, $plan->image_asset_id);
+        } catch (CannotManageStudioPlanException|CannotRequestStudioImageAnalysisException) {
+            // Nothing was queued; the card reads the plan as it is.
+        } catch (Throwable $exception) {
+            // The photo is saved either way, and the card offers the analysis again.
+            report($exception);
+        }
+    }
+
+    /**
+     * The image of a public post: what the site's own import finds for the
+     * link. None — said by the field — when importing is switched off, the
+     * address is not one to fetch, or the post shows no image.
+     */
+    private function postImageUrl(string $url): ?string
+    {
+        try {
+            $preview = app(ImportFromUrlAction::class)->handle($url);
+        } catch (UrlImportDisabledException) {
+            $this->addError('postUrl', 'Importing from links is switched off in Project settings.');
+
+            return null;
+        } catch (UnsafeImportUrlException) {
+            $this->addError('postUrl', 'This address can’t be imported. Use the link of a public post.');
+
+            return null;
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->addError('postUrl', 'This post couldn’t be read. Try again, or upload the file.');
+
+            return null;
+        }
+
+        if (! $preview->isSupported() || $preview->imageUrl === null) {
+            $this->addError('postUrl', 'No image was found in this post. It may be private, or the site may not share it.');
+
+            return null;
+        }
+
+        return $preview->imageUrl;
+    }
+
+    private function forgetPhotoInputs(): void
+    {
+        $this->photo = null;
+        $this->imageUrl = '';
+        $this->postUrl = '';
+        $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+    }
+
+    /**
+     * What the editor shows besides the draft: the steps, the plan's photo
+     * and where a new one comes from, the Personas, categories, tags and
+     * rating groups to choose from, the limits, and the publication card as
+     * the draft stands.
      *
      * @return array<string, mixed>
      */
-    protected function editorViewData(?MediaAsset $savedImage): array
+    protected function editorViewData(?StudioPlan $plan): array
     {
         $author = $this->authorUserId !== '' ? User::query()->with('avatarAsset.variants')->find((int) $this->authorUserId) : null;
         $category = $this->categoryId !== '' ? Category::query()->find((int) $this->categoryId) : null;
-        $photo = $this->photoDetails($savedImage);
+        $photo = $this->photoDetails($plan?->imageAsset);
         $mode = StudioPlanPublicationMode::tryFrom($this->publicationMode) ?? StudioPlanPublicationMode::Now;
+        $postProvider = trim($this->postUrl) !== '' ? app(ImportProviderDetector::class)->detect(trim($this->postUrl)) : null;
 
         return [
             'steps' => collect(self::STEPS)->map(fn (array $step, string $key): array => ['key' => $key, 'label' => $step[0], 'caption' => $step[1]])->values()->all(),
             'stepNumber' => array_search($this->step, array_keys(self::STEPS), true) + 1,
             'stepLabel' => self::STEPS[$this->step][0] ?? '',
             'shownPhoto' => $photo,
+            // The card is about the plan the photo is kept on, and drawn afresh for each photo.
+            'analysisPlanId' => $this->planId,
+            'analysisImageId' => $plan?->image_asset_id,
+            'replacedPhoto' => $this->replacedPhoto,
+            'analysisConfigured' => app(StudioImageAnalyzer::class)->isConfigured(),
+            'platforms' => self::PLATFORMS,
+            'detectedPlatform' => self::PLATFORMS[$postProvider] ?? null,
             'maxImageSize' => Number::fileSize(self::maxImageKilobytes() * 1024),
             'author' => StudioPlanFormat::author($author),
             'authorChoices' => $this->authorChoices(),
@@ -508,7 +652,7 @@ trait EditsStudioPlan
             ],
             'timezone' => (string) config('app.timezone'),
             'card' => [
-                'image' => $photo['url'],
+                'image' => $photo['url'] ?? null,
                 'title' => trim($this->postTitle),
                 'description' => trim($this->postDescription),
                 'author' => StudioPlanFormat::author($author),
@@ -565,7 +709,7 @@ trait EditsStudioPlan
     private static function stepOf(string $field): ?string
     {
         return match (true) {
-            in_array($field, ['photo', 'imageUrl'], true) => 'image',
+            in_array($field, ['photo', 'imageUrl', 'postUrl'], true) => 'image',
             in_array($field, ['publicationMode', 'publishAt'], true) => 'publication',
             $field === '' => null,
             default => 'post',
@@ -578,18 +722,6 @@ trait EditsStudioPlan
         $at = array_search($this->step, $keys, true);
 
         return $keys[max(0, min(count($keys) - 1, ($at === false ? 0 : $at) + $offset))];
-    }
-
-    private function dropPhoto(): void
-    {
-        $this->photo = null;
-        $this->resetErrorBag('photo');
-    }
-
-    private function dropImageUrl(): void
-    {
-        $this->imageUrl = '';
-        $this->resetErrorBag('imageUrl');
     }
 
     /** @return list<int> */
@@ -609,6 +741,7 @@ trait EditsStudioPlan
         return [
             'photo' => ['nullable', File::image()->types(['jpg', 'jpeg', 'png', 'webp'])->max(self::maxImageKilobytes())],
             'imageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
+            'postUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
         ];
     }
 
@@ -621,52 +754,31 @@ trait EditsStudioPlan
             'photo.max' => 'Choose an image of '.Number::fileSize(self::maxImageKilobytes() * 1024).' or less.',
             'photo.file' => 'Choose a JPEG, PNG or WebP image.',
             'imageUrl.*' => 'Enter a full web address to an image, starting with https://.',
+            'postUrl.*' => 'Paste the full link of a post, starting with https://.',
         ];
     }
 
     /**
-     * The photo as the editor shows it: the one chosen, or the saved one
-     * unless Save takes it off, with what it is.
+     * The plan's photo as the editor shows it, with what it is; none while
+     * the plan has none.
      *
-     * @return array{url: ?string, state: string, name: ?string, details: list<string>}
+     * @return array{url: ?string, name: ?string, details: list<string>}|null
      */
-    private function photoDetails(?MediaAsset $saved): array
+    private function photoDetails(?MediaAsset $saved): ?array
     {
-        $chosen = $this->chosenPhoto();
-
-        if ($chosen !== null && ! $this->getErrorBag()->has('photo')) {
-            $size = null;
-
-            try {
-                $dimensions = @getimagesize((string) $chosen->getRealPath());
-                $size = is_array($dimensions) ? $dimensions[0].' × '.$dimensions[1] : null;
-                $url = $chosen->isPreviewable() ? $chosen->temporaryUrl() : null;
-            } catch (Throwable) {
-                $url = null;
-            }
-
-            return [
-                'url' => $url,
-                'state' => 'chosen',
-                'name' => $chosen->getClientOriginalName(),
-                'details' => array_values(array_filter([$size, Number::fileSize((int) $chosen->getSize(), precision: 1), $chosen->getMimeType()])),
-            ];
+        if ($saved === null) {
+            return null;
         }
 
-        if ($saved !== null && ! $this->removeImage) {
-            return [
-                'url' => app(PostImagePresenter::class)->assetPreviewUrl($saved),
-                'state' => 'saved',
-                'name' => $saved->original_filename,
-                'details' => array_values(array_filter([
-                    $saved->width !== null && $saved->height !== null ? $saved->width.' × '.$saved->height : null,
-                    Number::fileSize((int) $saved->byte_size, precision: 1),
-                    $saved->mime_type,
-                ])),
-            ];
-        }
-
-        return ['url' => null, 'state' => $saved !== null ? 'removing' : 'none', 'name' => null, 'details' => []];
+        return [
+            'url' => app(PostImagePresenter::class)->assetPreviewUrl($saved),
+            'name' => $saved->original_filename,
+            'details' => array_values(array_filter([
+                $saved->width !== null && $saved->height !== null ? $saved->width.' × '.$saved->height : null,
+                Number::fileSize((int) $saved->byte_size, precision: 1),
+                $saved->mime_type,
+            ])),
+        ];
     }
 
     /**

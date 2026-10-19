@@ -174,9 +174,6 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
 })->with([
     'rating group create' => [fn (): string => RatingGroupResource::getUrl('create'), 'Rating groups'],
     'rating group edit' => [fn (): string => RatingGroupResource::getUrl('edit', ['record' => RatingGroup::factory()->create()]), 'Rating groups'],
-    'user edit' => [fn (): string => UserResource::getUrl('edit', ['record' => User::factory()->create()]), 'Users'],
-    'persona create' => [fn (): string => PersonaResource::getUrl('create'), 'Personas'],
-    'persona edit' => [fn (): string => PersonaResource::getUrl('edit', ['record' => User::factory()->persona()->create()]), 'Personas'],
     'publication create' => [fn (): string => StudioPlanResource::getUrl('create'), 'Publications & plans'],
     'publication edit' => [fn (): string => StudioPlanResource::getUrl('edit', ['record' => StudioPlan::factory()->create()]), 'Publications & plans'],
 ]);

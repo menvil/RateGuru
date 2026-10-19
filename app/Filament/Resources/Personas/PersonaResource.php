@@ -16,8 +16,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Content Studio's Personas: the list (ListPersonas), a new Persona
- * (CreatePersona) and one Persona's editor (EditPersona), drawn in Admin v2.
+ * Content Studio's Personas: the list (ListPersonas), drawn in Admin v2, with
+ * a Persona — new or existing — edited in the drawer over it (PersonaEditor);
+ * CreatePersona and EditPersona keep the old addresses leading there.
  * A Persona is an ordinary account with the Persona role, so the resource is
  * over User, narrowed to that role; there is no second kind of account.
  *

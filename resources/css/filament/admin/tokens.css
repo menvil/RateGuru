@@ -146,6 +146,7 @@
     --rg-admin-card-gap: 24px;
     --rg-admin-detail-panel-width: 448px;
     --rg-admin-detail-panel-width-wide: 480px;
+    --rg-admin-editor-panel-width: 680px;
 
     /* Sizing */
     --rg-admin-control-sm: 32px;

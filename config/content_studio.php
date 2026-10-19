@@ -12,7 +12,8 @@
 | CONTENT_STUDIO_OPENAI_ENABLED is true and CONTENT_STUDIO_OPENAI_API_KEY is
 | set — the local, CI and freshly provisioned state is off — and while it is
 | off the application, its queues and the admin run exactly as they do with
-| it on; only Analyze photo says it is not configured, and nothing is sent.
+| it on; a photo is stored without an analysis, the editor's photo analysis
+| card says it is not configured, and nothing is sent.
 |
 */
 

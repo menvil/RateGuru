@@ -6,6 +6,7 @@ use App\Enums\PersonaEmojiFrequency;
 use App\Enums\PersonaEngagement;
 use App\Enums\UserStatus;
 use App\Filament\Resources\Personas\PersonaResource;
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\User;
@@ -13,13 +14,19 @@ use App\Queries\Personas\PersonasQuery;
 use App\Support\Media\AvatarUrlResolver;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 
 /**
  * Content Studio's Personas in Admin v2: every living Persona, searched and
  * narrowed by status and engagement on the server, 25 at a time, each with
- * its editor, its public profile and its moderation in Users. Status changes
- * there, through the moderation actions; this list only shows it.
+ * its public profile and its moderation in Users. Status changes there,
+ * through the moderation actions; this list only shows it.
+ *
+ * A Persona is made and edited in the drawer over the list (PersonaEditor),
+ * never on a page of its own: Create persona in the top bar opens it empty,
+ * a row's Edit on that Persona, and the address says which (`?persona=new`,
+ * `?persona=12`), so a link or a reload opens it again.
  */
 final class ListPersonas extends Page
 {
@@ -44,6 +51,10 @@ final class ListPersonas extends Page
 
     #[Url(as: 'page', except: 1)]
     public mixed $pageNumber = 1;
+
+    /** The Persona open in the drawer: 'new', a living Persona's id, or none. */
+    #[Url(as: 'persona', except: '')]
+    public mixed $editing = '';
 
     public static function canAccess(array $parameters = []): bool
     {
@@ -73,6 +84,33 @@ final class ListPersonas extends Page
     public function goToPage(mixed $page): void
     {
         $this->pageNumber = max(1, (int) $page);
+    }
+
+    #[On('create-persona')]
+    public function createPersona(): void
+    {
+        $this->editing = PersonaResource::canCreate() ? 'new' : '';
+    }
+
+    public function editPersona(mixed $id): void
+    {
+        $this->editing = is_numeric($id) ? (string) (int) $id : '';
+        $this->normalize();
+    }
+
+    #[On('close-persona')]
+    public function closePersona(): void
+    {
+        $this->editing = '';
+    }
+
+    /** Saved in the drawer: it closes — or opens on the Persona just made, when its photo is still to choose — and the list shows the save. */
+    #[On('persona-saved')]
+    public function personaSaved(mixed $message = '', mixed $tone = 'success', mixed $reopen = null): void
+    {
+        $this->editing = is_numeric($reopen) ? (string) (int) $reopen : '';
+        $this->normalize();
+        $this->dispatch('rg-admin-toast', message: (string) $message, tone: $tone === 'error' ? 'error' : 'success');
     }
 
     public function clearFilters(): void
@@ -116,8 +154,8 @@ final class ListPersonas extends Page
             'paginator' => $paginator,
             'rows' => array_map(fn (User $persona): array => $this->row($persona), $paginator->items()),
             'filtered' => trim((string) $this->q) !== '' || $status !== null || $engagement !== null,
-            'createUrl' => CreatePersona::getUrl(),
             'empty' => (int) $stats['total'] === 0,
+            'canCreate' => PersonaResource::canCreate(),
         ];
     }
 
@@ -143,9 +181,9 @@ final class ListPersonas extends Page
             'status' => ModerationListFormat::personStatus($persona),
             'engagement' => ($profile->engagement ?? PersonaEngagement::Off)->label(),
             'replies' => (int) ($profile->max_replies_per_day ?? 0),
-            'editUrl' => EditPersona::getUrl(['record' => $persona]),
+            'editUrl' => self::getUrl(['persona' => $persona->id]),
             'profileUrl' => route('profile.show', ['username' => $persona->username]),
-            'usersUrl' => UserResource::canEdit($persona) ? UserResource::getUrl('edit', ['record' => $persona]) : null,
+            'usersUrl' => UserResource::canEdit($persona) ? ListUsers::getUrl(['user' => $persona->id]) : null,
         ];
     }
 
@@ -159,5 +197,18 @@ final class ListPersonas extends Page
         $this->engagement = $engagement !== null ? $engagement->value : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
         $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->editing = $this->openable($this->editing);
+    }
+
+    /** What the drawer may open: a new Persona for whoever may make one, or a living Persona; nothing else. */
+    private function openable(mixed $editing): string
+    {
+        if ($editing === 'new') {
+            return PersonaResource::canCreate() ? 'new' : '';
+        }
+
+        $persona = is_numeric($editing) ? User::query()->find((int) $editing) : null;
+
+        return $persona !== null && PersonaResource::canEdit($persona) ? (string) $persona->id : '';
     }
 }

@@ -15,7 +15,7 @@
     (() => {
         const register = () => {
             if (! window.Alpine.store('adminEditor')) {
-                window.Alpine.store('adminEditor', { changes: 0, blocked: false })
+                window.Alpine.store('adminEditor', { changes: 0, blocked: false, saveLabel: null })
             }
         }
 

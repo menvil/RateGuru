@@ -98,8 +98,10 @@ the ordinary media lifecycle. See "A publication plan's photo" in
 An administrator can have a Draft's saved photo described by OpenAI, as
 structured technical context for the text generators — never shown to
 visitors, and never anything but a description: no title, text or post is made
-from it here. Nothing is sent unless an administrator asks, from the editor's
-Image step, and every request is a separate, paid call.
+from it here. A photo's first analysis is asked for by the editor's Image step
+the moment the photo is stored on the Draft; any other is asked for by an
+administrator, through Re-run analysis or Try again. Every request is a
+separate, paid call, and nothing is sent while analysis is not configured.
 
 ### What is kept
 
@@ -268,19 +270,32 @@ Administrators work with plans in Content Studio › Publications & plans (`Stud
 through `StudioPlansQuery`, a new publication and a publication's editor in four steps — Image, Post, Discussion
 and Publication — described in `docs/design/admin/design-contract.md`. The pages hold no rule of their own:
 
-- A new publication exists only once Create draft runs `CreateStudioPlanAction`, which an untouched editor may do
-  too; the page remembers the plan it made, so a second Save opens it rather than making another.
-- A save runs `UpdateStudioPlanAction` when the texts or settings changed, then `SetStudioPlanImageAction` or
-  `RemoveStudioPlanImageAction` when the photo did — each its own transaction, each handed the version the one
-  before it left, so a save never conflicts with itself, and none waits for a file inside a transaction.
+- A new publication exists once Create draft runs `CreateStudioPlanAction`, which an untouched editor may do too —
+  or once its first photo arrives, which makes one empty Draft to keep the photo on. The page remembers the plan
+  it has (`planId`): later photos replace that plan's photo, and Save draft writes the texts to it through
+  `UpdateStudioPlanAction` rather than making another.
+- Save draft runs `UpdateStudioPlanAction` when the texts or settings changed. The photo is no part of the draft:
+  one chosen from the computer — picked or dropped — or imported from a link or a social post is stored the moment
+  it arrives through `SetStudioPlanImageAction`, and Remove from draft runs `RemoveStudioPlanImageAction` at once.
+  Each is its own transaction, handed the version the editor last read or wrote, which the page then takes from
+  the plan; the texts on screen stay as typed and as unsaved as they were, so the next Save is no conflict with
+  the photo, while a photo from an editor drawn before somebody else's save is refused like any stale save. None
+  waits for a file inside a transaction, and an upload reported twice is stored once.
 - A photo from a link is downloaded by `StoreImportedImageAction::download()` — the importer's own safeguards,
   no client of the page's — passed in as `ImageInputSource::UrlImport`, and its temporary file removed with
-  `cleanup()` whatever happens. The link is the photo's; the post's `source_url` is set apart.
+  `cleanup()` whatever happens. A social post's image is found first by `ImportFromUrlAction`, the site's own
+  import, and downloaded the same way. The browser sends a link only once it is a whole address and typing has
+  paused, and the same address is never fetched twice running. The link is the photo's; the post's `source_url`
+  is set apart.
 - A photo is shown through `PostImagePresenter::assetThumbnailUrl()` in the list and `assetPreviewUrl()` in the
   editor — a variant on disk when there is one, the master otherwise — without a post to show it through.
 - Delete draft runs `DeleteStudioPlanDraftAction` with the version the page showed.
+- A stored photo's analysis is asked for at once through `RequestStudioImageAnalysisAction` — a new attempt for
+  the new photo, so nothing of the one before is shown for it, and a result of an earlier attempt that still
+  arrives finds nothing to claim. Not configured, or refused, it is not asked for, and the photo stays stored.
 - Photo analysis is a component of its own on the Image step (`StudioPlanImageAnalysisCard`), about the saved
-  photo the editor shows: Analyze photo, Re-run analysis and Try again run `RequestStudioImageAnalysisAction`,
-  apart from Save draft and touching nothing of the draft. It alone is read again every few seconds while an
-  attempt is queued or running, and stops when it ends. While a new photo waits to be saved it says to save the
-  draft first; a photo changed elsewhere is said to be, with Reload.
+  photo the editor shows: Re-run analysis and Try again run `RequestStudioImageAnalysisAction`, apart from Save
+  draft and touching nothing of the draft. It alone is read again every few seconds while an attempt is queued or
+  running, and stops when it ends. While a new photo is on its way it says so — Uploading photo…, Processing
+  photo… or Importing photo… — and shows nothing of the one before; a photo changed elsewhere is said to be, with
+  Reload.

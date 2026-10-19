@@ -15,16 +15,16 @@ use Illuminate\Support\Facades\Hash;
  */
 function accountChanges(User $user, array $changes = []): array
 {
-    return ['name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'role' => $user->role, 'trust_level' => (int) $user->trust_level, ...$changes];
+    return ['name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'role' => $user->role, 'trusted' => null, ...$changes];
 }
 
 it('saves the identity, the role, the trust and a new password, and leaves the status alone', function () {
     $admin = User::factory()->admin()->create();
-    $user = User::factory()->create(['status' => UserStatus::Limited]);
+    $user = User::factory()->create(['status' => UserStatus::Limited, 'trust_level' => 10]);
     $before = $user->password;
 
     app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, [
-        'name' => 'New Name', 'username' => 'new_name', 'role' => UserRole::Moderator, 'trust_level' => 0, 'password' => 'a-new-long-password',
+        'name' => 'New Name', 'username' => 'new_name', 'role' => UserRole::Moderator, 'trusted' => false, 'password' => 'a-new-long-password',
     ]));
 
     $fresh = $user->fresh();
@@ -100,7 +100,7 @@ it('gives a persona no password, no new address and no other change', function (
     'a password' => [['password' => 'a-new-long-password']],
     'a new address' => [['email' => 'real@example.com']],
     'a new name' => [['name' => 'Renamed']],
-    'no trust' => [['trust_level' => 0]],
+    'no trust' => [['trusted' => false]],
     'nothing at all' => [[]],
 ]);
 
@@ -114,4 +114,32 @@ it('decides on the locked row: an account made a persona since the page was draw
         ->toThrow(CannotUpdateUserAccountException::class);
 
     expect($user->fresh())->role->toBe(UserRole::Persona)->password->toBeNull();
+});
+
+it('reads trust on the locked row, moving the level only across the trusted threshold and only when asked', function (int $current, ?bool $trusted, int $expected) {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['trust_level' => $current]);
+
+    app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, ['trusted' => $trusted]));
+
+    expect($user->fresh()->trust_level)->toBe($expected);
+})->with([
+    'nothing asked keeps the level' => [3, null, 3],
+    'trusted asked of the untrusted' => [3, true, 10],
+    'trusted asked of the already trusted keeps their level' => [15, true, 15],
+    'untrusted asked of the trusted' => [15, false, 0],
+    'untrusted asked of the already untrusted keeps their level' => [3, false, 3],
+]);
+
+it('never puts back a trust level set since the editor read the account', function () {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create(['trust_level' => 0]);
+    $drawn = User::query()->findOrFail($user->id);
+
+    // Marked trusted by someone else after the editor was drawn.
+    User::query()->whereKey($user->id)->update(['trust_level' => 10]);
+
+    app(UpdateUserAccountAction::class)->handle($admin, $drawn, accountChanges($drawn, ['name' => 'Renamed']));
+
+    expect($user->fresh())->name->toBe('Renamed')->trust_level->toBe(10);
 });

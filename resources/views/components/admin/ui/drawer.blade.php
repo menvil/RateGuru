@@ -2,12 +2,14 @@
     'title',
     'subtitle' => null,
     'wide' => false,
+    'editor' => false,
     'id' => 'rg-admin-drawer',
 ])
 
 {{--
     OVL-02. A panel on the right, full height, over the drawer scrim: 448 wide,
-    480 with `wide` for long lists, never wider than the screen. Like the
+    480 with `wide` for long lists, 680 with `editor` for a whole record's
+    editor in sections, never wider than the screen. Like the
     confirmation dialog it is open for as long as it is rendered; Escape, the
     scrim and the close button hide it at once and dispatch `dismiss` for the
     screen to forget it, e.g. x-on:dismiss="$wire.closeDrawer()"
@@ -27,7 +29,7 @@
 
     <div
         id="{{ $id }}"
-        @class(['rg-admin-drawer', 'rg-admin-drawer--wide' => $wide])
+        @class(['rg-admin-drawer', 'rg-admin-drawer--wide' => $wide, 'rg-admin-drawer--editor' => $editor])
         role="dialog"
         aria-modal="true"
         aria-labelledby="{{ $id }}-title"

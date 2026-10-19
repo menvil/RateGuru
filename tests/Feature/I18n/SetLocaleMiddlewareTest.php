@@ -275,7 +275,7 @@ it('leaves the admin panel in English whatever the visitor chose', function () {
 
     $this->actingAs(User::factory()->admin()->create(['locale' => $chosen]))
         ->withHeaders(acceptLanguage($chosen))
-        ->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))
+        ->get(UserResource::getUrl('index', ['user' => User::factory()->create()->id]))
         ->assertOk()
         ->assertSee('lang="en"', false);
 });

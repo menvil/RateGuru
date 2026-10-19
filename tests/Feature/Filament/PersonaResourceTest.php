@@ -7,14 +7,13 @@ use App\Enums\PersonaEmojiFrequency;
 use App\Enums\PersonaEngagement;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
-use App\Filament\Resources\Personas\Pages\CreatePersona;
-use App\Filament\Resources\Personas\Pages\EditPersona;
 use App\Filament\Resources\Personas\Pages\ListPersonas;
 use App\Filament\Resources\Personas\PersonaResource;
-use App\Filament\Resources\Users\Pages\EditUser;
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Livewire\Admin\GlobalSearch;
+use App\Livewire\Admin\PersonaEditor;
 use App\Models\MediaAsset;
 use App\Models\PersonaProfile;
 use App\Models\User;
@@ -33,9 +32,10 @@ use Livewire\Livewire;
 
 /**
  * Content Studio's Personas in Admin v2: who may open them, the list and
- * what narrows it, a new Persona and one Persona's editor saved from the top
- * bar — refusing a draft drawn before somebody else's save — and the ways in
- * from Users and from the global search.
+ * what narrows it, a new Persona and one Persona's editor in the drawer over
+ * the list, saved from its footer — refusing a draft drawn before somebody
+ * else's save — and the ways in from the old addresses, Users and the global
+ * search.
  */
 function studioPersona(array $account = [], array $profile = []): User
 {
@@ -52,13 +52,22 @@ it('sits alone in the Content Studio section, with the list, a new persona and a
         ->and(PersonaResource::getUrl('index'))->toEndWith('/admin/personas');
 });
 
-it('opens every page for an active administrator, and for nobody else', function (Closure $user, int $status) {
+it('opens the list for an active administrator, and for nobody else, the old addresses leading to its drawer', function (Closure $user, int $status) {
     $persona = studioPersona();
     $this->actingAs($user());
 
     $this->get(PersonaResource::getUrl('index'))->assertStatus($status);
+
+    if ($status === 200) {
+        $this->get(PersonaResource::getUrl('create'))->assertRedirect(ListPersonas::getUrl(['persona' => 'new']));
+        $this->get(PersonaResource::getUrl('edit', ['record' => $persona]))->assertRedirect(ListPersonas::getUrl(['persona' => $persona->id]));
+
+        return;
+    }
+
     $this->get(PersonaResource::getUrl('create'))->assertStatus($status);
     $this->get(PersonaResource::getUrl('edit', ['record' => $persona]))->assertStatus($status);
+    Livewire::test(PersonaEditor::class)->assertForbidden();
 })->with([
     'an administrator' => [fn () => User::factory()->admin()->create(), 200],
     'a moderator' => [fn () => User::factory()->moderator()->create(), 403],
@@ -70,7 +79,7 @@ it('lets a moderator reach no persona page, nor save through Livewire on one ope
     $persona = studioPersona(['name' => 'Kept', 'display_name' => 'Kept']);
     $admin = User::factory()->admin()->create();
     $this->actingAs($admin);
-    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])->set('displayName', 'Taken over');
+    $page = Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])->set('displayName', 'Taken over');
 
     // The same session, demoted since the page was drawn.
     $admin->forceFill(['role' => UserRole::Moderator])->save();
@@ -103,9 +112,9 @@ it('draws the list in Admin v2, every column read on the server', function () {
         'engagement' => 'High',
         'replies' => 12,
         'avatar' => null,
-        'editUrl' => EditPersona::getUrl(['record' => $persona]),
+        'editUrl' => ListPersonas::getUrl(['persona' => $persona->id]),
         'profileUrl' => route('profile.show', ['username' => 'night_owl']),
-        'usersUrl' => UserResource::getUrl('edit', ['record' => $persona]),
+        'usersUrl' => ListUsers::getUrl(['user' => $persona->id]),
     ]);
 });
 
@@ -208,7 +217,7 @@ it('tells an empty section from an empty search', function () {
 
     Livewire::test(ListPersonas::class)
         ->assertSee('No personas yet')
-        ->assertSeeHtml('href="'.e(CreatePersona::getUrl()).'"');
+        ->assertSeeHtml('wire:click="createPersona"');
 
     studioPersona();
 
@@ -217,13 +226,26 @@ it('tells an empty section from an empty search', function () {
         ->assertSee('Clear filters');
 });
 
-it('draws a new persona\'s page with Create persona in the top bar', function () {
+it('opens a new persona in the drawer over the list, from Create persona in the top bar, with the address saying so', function () {
     $this->actingAs(User::factory()->admin()->create());
 
-    expect($this->get(PersonaResource::getUrl('create'))->assertOk()->getContent())
-        ->toContain('<h1 id="rg-admin-persona-title" class="rg-admin-page-header__title">New persona</h1>')
-        ->toContain("\$dispatch('save-persona')")
-        ->toMatch('/save-persona[^<]*>(?:\s|<!--.*?-->)*Create persona\s*</')
+    expect($this->get(PersonaResource::getUrl('index'))->assertOk()->getContent())
+        ->toContain("\$dispatch('create-persona')")
+        ->not->toContain('id="rg-admin-persona-editor"');
+
+    Livewire::test(ListPersonas::class)
+        ->dispatch('create-persona')
+        ->assertSet('editing', 'new')
+        ->assertSeeLivewire(PersonaEditor::class)
+        ->dispatch('close-persona')
+        ->assertSet('editing', '')
+        ->assertDontSeeLivewire(PersonaEditor::class);
+
+    expect($this->get(ListPersonas::getUrl(['persona' => 'new']))->assertOk()->getContent())
+        ->toContain('id="rg-admin-persona-editor"')
+        ->toContain('rg-admin-drawer--editor')
+        ->toContain('New persona')
+        ->toContain('Create persona')
         ->toContain('Short description')
         ->toContain('Never writes about')
         ->toContain('Max replies a day')
@@ -234,12 +256,12 @@ it('draws a new persona\'s page with Create persona in the top bar', function ()
         ->not->toContain('Active from');
 });
 
-it('creates a persona and opens its editor', function () {
+it('creates a persona from the drawer, which then closes on the list showing it', function () {
     Storage::fake('public');
     $admin = User::factory()->admin()->create();
     $this->actingAs($admin);
 
-    Livewire::test(CreatePersona::class)
+    Livewire::test(PersonaEditor::class)
         ->set('displayName', 'Night Owl')
         ->set('username', 'night_owl')
         ->set('bio', 'Up late.')
@@ -252,9 +274,10 @@ it('creates a persona and opens its editor', function () {
         ->set('engagement', 'low')
         ->set('maxRepliesPerDay', '5')
         ->set('photo', UploadedFile::fake()->image('owl.jpg', 300, 300))
-        ->dispatch('save-persona')
+        ->call('save')
         ->assertHasNoErrors()
-        ->assertRedirect(EditPersona::getUrl(['record' => User::query()->where('username', 'night_owl')->value('id')]));
+        ->assertNoRedirect()
+        ->assertDispatched('persona-saved', message: 'Night Owl created');
 
     $persona = User::query()->where('username', 'night_owl')->firstOrFail();
 
@@ -267,14 +290,44 @@ it('creates a persona and opens its editor', function () {
         ->engagement->toBe(PersonaEngagement::Low)
         ->max_replies_per_day->toBe(5)
         ->created_by_user_id->toBe($admin->id)
-        ->and(MediaAsset::query()->findOrFail($persona->avatar_asset_id)->owner_user_id)->toBe($persona->id)
-        ->and(session('rg-admin-toast'))->toBe(['message' => 'Night Owl created', 'tone' => 'success']);
+        ->and(MediaAsset::query()->findOrFail($persona->avatar_asset_id)->owner_user_id)->toBe($persona->id);
+
+    Livewire::withQueryParams(['persona' => 'new'])->test(ListPersonas::class)
+        ->dispatch('persona-saved', message: 'Night Owl created')
+        ->assertSet('editing', '')
+        ->assertDispatched('rg-admin-toast', message: 'Night Owl created', tone: 'success')
+        ->assertSee('Night Owl');
+});
+
+it('opens the drawer again on a persona made without its photo, for the photo to be chosen again', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona();
+
+    Livewire::test(ListPersonas::class)
+        ->dispatch('persona-saved', message: 'Owl created, but its photo wasn’t saved. Choose it again.', tone: 'error', reopen: $persona->id)
+        ->assertSet('editing', (string) $persona->id)
+        ->assertDispatched('rg-admin-toast', message: 'Owl created, but its photo wasn’t saved. Choose it again.', tone: 'error');
+});
+
+it('opens a persona from its row in the drawer, and ignores an address with nothing it may open', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona();
+    $member = User::factory()->create();
+
+    Livewire::test(ListPersonas::class)
+        ->call('editPersona', $persona->id)
+        ->assertSet('editing', (string) $persona->id)
+        ->assertSeeLivewire(PersonaEditor::class)
+        ->call('editPersona', $member->id)
+        ->assertSet('editing', '');
+
+    Livewire::withQueryParams(['persona' => 'nobody'])->test(ListPersonas::class)->assertSet('editing', '');
 });
 
 it('makes one persona however often Save reaches the page', function () {
     $this->actingAs(User::factory()->admin()->create());
 
-    Livewire::test(CreatePersona::class)
+    Livewire::test(PersonaEditor::class)
         ->set('displayName', 'Only Once')
         ->call('save')
         ->call('save')
@@ -287,7 +340,7 @@ it('says what is wrong by each field, creating nothing', function () {
     $this->actingAs(User::factory()->admin()->create());
     User::factory()->create(['username' => 'taken_name']);
 
-    Livewire::test(CreatePersona::class)
+    Livewire::test(PersonaEditor::class)
         ->set('displayName', '')
         ->set('username', 'Not Valid')
         ->set('maxRepliesPerDay', '51')
@@ -312,13 +365,13 @@ it('checks a new persona as it will be stored, so spaces around a name, a userna
     $this->actingAs(User::factory()->admin()->create());
     $name = str_repeat('Owl ', 20);
 
-    Livewire::test(CreatePersona::class)
+    Livewire::test(PersonaEditor::class)
         ->set('displayName', '  '.str_replace(' ', '   ', $name))
         ->set('username', ' night_owl ')
         ->set('bio', '  '.str_repeat('b', ProfileValidationRules::BIO_LIMIT).'  ')
         ->set('shortDescription', "\n".str_repeat('s', PersonaProfile::SHORT_DESCRIPTION_LIMIT)."\n")
         ->set('character', str_repeat('c', PersonaProfile::NOTES_LIMIT)."\n\n")
-        ->dispatch('save-persona')
+        ->call('save')
         ->assertHasNoErrors();
 
     $persona = User::query()->where('username', 'night_owl')->firstOrFail();
@@ -335,7 +388,7 @@ it('checks an edit as it will be stored, holding each text to its limit without 
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['username' => 'night_owl', 'display_name' => 'Night Owl']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('displayName', ' Night   Owl ')
         ->set('username', ' night_owl ')
         ->set('speechStyle', ' '.str_repeat('s', PersonaProfile::NOTES_LIMIT).' ')
@@ -352,7 +405,7 @@ it('checks an edit as it will be stored, holding each text to its limit without 
         ->never_writes_about->toBe(str_repeat('n', PersonaProfile::NOTES_LIMIT));
 
     // What is too long once trimmed is still refused, as the action refuses it.
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('shortDescription', ' '.str_repeat('s', PersonaProfile::SHORT_DESCRIPTION_LIMIT + 1).' ')
         ->call('save')
         ->assertHasErrors(['shortDescription' => 'max']);
@@ -361,7 +414,7 @@ it('checks an edit as it will be stored, holding each text to its limit without 
 it('takes no role, status, address or trust from a request', function (string $property, mixed $value) {
     $this->actingAs(User::factory()->admin()->create());
 
-    expect(fn () => Livewire::test(CreatePersona::class)->set('displayName', 'Forged')->set($property, $value))
+    expect(fn () => Livewire::test(PersonaEditor::class)->set('displayName', 'Forged')->set($property, $value))
         ->toThrow(Exception::class);
 
     expect(User::query()->where('role', UserRole::Persona)->exists())->toBeFalse();
@@ -371,42 +424,46 @@ it('takes no role, status, address or trust from a request', function (string $p
     'an address' => ['email', 'someone@example.com'],
     'trust' => ['trust_level', 99],
     'a password' => ['password', 'secret123'],
-    'what it made' => ['createdId', 1],
+    'which persona it edits' => ['personaId', 1],
 ]);
 
-it('puts the saved values back on Discard', function () {
+it('saves nothing when the drawer is closed with Cancel', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['name' => 'Kept', 'display_name' => 'Kept'], ['character' => 'Kept']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('displayName', 'Changed')
         ->set('character', 'Changed')
-        ->set('engagement', 'high')
-        ->dispatch('discard-persona')
-        ->assertSet('displayName', 'Kept')
-        ->assertSet('character', 'Kept')
-        ->assertSet('engagement', 'off');
+        ->assertSeeHtml('x-on:dismiss="$wire.dispatch(\'close-persona\')"');
+
+    Livewire::withQueryParams(['persona' => $persona->id])->test(ListPersonas::class)
+        ->dispatch('close-persona')
+        ->assertSet('editing', '');
+
+    expect($persona->fresh())->display_name->toBe('Kept')
+        ->and($persona->fresh()->personaProfile->character)->toBe('Kept');
 });
 
-it('draws a persona\'s editor with Save changes in the top bar and its account beside it', function () {
+it('draws a persona\'s editor in the drawer, with Save persona in its footer and its account under the draft', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['username' => 'night_owl', 'name' => 'Night Owl', 'display_name' => 'Night Owl'], ['character' => 'Grumpy but kind']);
 
-    expect($this->get(PersonaResource::getUrl('edit', ['record' => $persona]))->assertOk()->getContent())
-        ->toContain('<h1 id="rg-admin-persona-title" class="rg-admin-page-header__title">Night Owl</h1>')
-        ->toContain("\$dispatch('save-persona')")
-        ->toMatch('/save-persona[^<]*>(?:\s|<!--.*?-->)*Save changes\s*</')
+    expect($this->get(ListPersonas::getUrl(['persona' => $persona->id]))->assertOk()->getContent())
+        ->toContain('Edit Night Owl')
+        ->toContain('Save persona')
         ->toContain('Grumpy but kind')
         ->toContain('href="'.route('profile.show', ['username' => 'night_owl']).'"')
-        ->toContain('href="'.UserResource::getUrl('edit', ['record' => $persona]).'"')
-        ->toContain('Never signs in');
+        ->toContain('href="'.e(ListUsers::getUrl(['user' => $persona->id])).'"')
+        ->toContain('Never signs in')
+        // The rows stay under it.
+        ->toContain('<h1 id="rg-admin-personas-title" class="rg-admin-page-header__title">Personas</h1>');
 });
 
-it('saves the editor and stays on it, the saved values drawn again', function () {
+it('saves the editor, closing the drawer with the saved values drawn on the list', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['username' => 'old_name', 'name' => 'Old', 'display_name' => 'Old']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('displayName', 'New Name')
         ->set('username', 'new_name')
         ->set('engagement', 'normal')
@@ -414,7 +471,7 @@ it('saves the editor and stays on it, the saved values drawn again', function ()
         ->call('save')
         ->assertHasNoErrors()
         ->assertNoRedirect()
-        ->assertDispatched('rg-admin-toast', message: 'Changes to New Name saved', tone: 'success')
+        ->assertDispatched('persona-saved', message: 'Changes to New Name saved')
         ->assertSet('saved.displayName', 'New Name')
         ->assertSet('saved.username', 'new_name');
 
@@ -430,12 +487,12 @@ it('gives the persona a new photo with the rest of the draft, its own save no co
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
 
-    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])
+    $page = Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('character', 'Warmer')
         ->set('photo', UploadedFile::fake()->image('new.jpg', 200, 200))
         ->call('save')
         ->assertHasNoErrors()
-        ->assertDispatched('rg-admin-toast', message: 'Changes to Night Owl saved', tone: 'success')
+        ->assertDispatched('persona-saved', message: 'Changes to Night Owl saved')
         ->assertSet('stale', false)
         ->assertSet('photo', null);
 
@@ -457,7 +514,7 @@ it('refuses a photo alone chosen before somebody else\'s save, keeping their ava
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
 
-    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])
+    $page = Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('photo', UploadedFile::fake()->image('mine.jpg', 200, 200));
 
     $meanwhile($persona);
@@ -473,7 +530,7 @@ it('refuses a photo alone chosen before somebody else\'s save, keeping their ava
         ->and(MediaAsset::withTrashed()->count())->toBe($assets)
         ->and(Storage::disk('public')->allFiles())->toBe($files);
 
-    $page->dispatch('reload-persona')->assertSet('stale', false)->assertSet('photo', null)->assertSet('avatarAssetId', $theirs);
+    $page->call('reload')->assertSet('stale', false)->assertSet('photo', null)->assertSet('avatarAssetId', $theirs);
 })->with([
     'their profile' => [fn (User $persona) => PersonaProfile::query()->where('user_id', $persona->id)->update(['character' => 'Their edit'])],
     'their photo' => [fn (User $persona) => app(SetPersonaAvatarAction::class)->handle(User::factory()->admin()->create(), $persona, UploadedFile::fake()->image('theirs.jpg', 200, 200), PersonaData::of($persona, $persona->personaProfile)->fingerprint(), null)],
@@ -498,7 +555,7 @@ it('keeps the changes but not the photo when somebody saves the persona in betwe
         }
     });
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('character', 'Warmer')
         ->set('photo', UploadedFile::fake()->image('mine.jpg', 200, 200))
         ->call('save')
@@ -516,7 +573,7 @@ it('refuses a draft drawn before somebody else\'s save, and Reload draws what th
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['name' => 'Mine', 'display_name' => 'Mine'], ['character' => 'Original']);
 
-    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])->set('character', 'My edit');
+    $page = Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])->set('character', 'My edit');
 
     PersonaProfile::query()->where('user_id', $persona->id)->update(['character' => 'Their edit']);
 
@@ -527,14 +584,14 @@ it('refuses a draft drawn before somebody else\'s save, and Reload draws what th
 
     expect($persona->fresh()->personaProfile->character)->toBe('Their edit');
 
-    $page->dispatch('reload-persona')->assertSet('stale', false)->assertSet('character', 'Their edit');
+    $page->call('reload')->assertSet('stale', false)->assertSet('character', 'Their edit');
 });
 
 it('saves nothing to a persona deleted since its editor was drawn, and says so', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona();
 
-    $page = Livewire::test(EditPersona::class, ['record' => $persona->id])->set('character', 'Too late');
+    $page = Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])->set('character', 'Too late');
 
     User::query()->whereKey($persona->id)->update(['status' => UserStatus::Deleted]);
 
@@ -550,7 +607,7 @@ it('says what is wrong by each field on the editor, saving nothing', function ()
     User::factory()->create(['username' => 'taken_name']);
     $persona = studioPersona(['name' => 'Kept', 'display_name' => 'Kept']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('displayName', '')
         ->set('username', 'taken_name')
         ->set('engagement', 'always')
@@ -564,7 +621,7 @@ it('keeps a username older rules allowed when it is not changed', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['username' => 'old.style.name']);
 
-    Livewire::test(EditPersona::class, ['record' => $persona->id])
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
         ->set('username', ' old.style.name ')
         ->set('character', 'Saved anyway')
         ->call('save')
@@ -584,27 +641,27 @@ it('opens no editor for an account that is no persona, nor for a deleted one', f
     'a deleted persona' => fn () => User::factory()->persona()->tombstoned()->create(),
 ]);
 
-it('leads from a persona\'s page in Users to its editor', function () {
+it('leads from a persona\'s drawer in Users to its editor', function () {
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona();
 
-    expect($this->get(EditUser::getUrl(['record' => $persona]))->assertOk()->getContent())
-        ->toContain('href="'.EditPersona::getUrl(['record' => $persona]).'"')
+    expect($this->get(ListUsers::getUrl(['user' => $persona->id]))->assertOk()->getContent())
+        ->toContain('href="'.e(ListPersonas::getUrl(['persona' => $persona->id])).'"')
         ->toContain('Edit in Content Studio');
 });
 
-it('leads an administrator\'s search result for a persona to its editor, and a member\'s to their page', function () {
+it('leads an administrator\'s search result for a persona to its editor, and a member\'s to theirs', function () {
     Filament::setCurrentPanel(Filament::getPanel('admin'));
     $this->actingAs(User::factory()->admin()->create());
     $persona = studioPersona(['username' => 'searchable_owl']);
     $member = User::factory()->create(['username' => 'searchable_member']);
 
-    expect(UserResource::getGlobalSearchResultUrl($persona))->toBe(EditPersona::getUrl(['record' => $persona]))
-        ->and(UserResource::getGlobalSearchResultUrl($member))->toBe(EditUser::getUrl(['record' => $member]));
+    expect(UserResource::getGlobalSearchResultUrl($persona))->toBe(ListPersonas::getUrl(['persona' => $persona->id]))
+        ->and(UserResource::getGlobalSearchResultUrl($member))->toBe(ListUsers::getUrl(['user' => $member->id]));
 
     Livewire::test(GlobalSearch::class)
         ->set('search', 'searchable_owl')
-        ->assertSeeHtml('href="'.e(EditPersona::getUrl(['record' => $persona])).'"');
+        ->assertSeeHtml('href="'.e(ListPersonas::getUrl(['persona' => $persona->id])).'"');
 });
 
 it('leads a moderator\'s search result for a persona where it always did', function () {

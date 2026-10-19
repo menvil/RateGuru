@@ -3,6 +3,8 @@
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\ImportTransportResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -10,26 +12,30 @@ use Illuminate\Support\Facades\Storage;
 use function Pest\Laravel\actingAs;
 
 /**
- * Photo analysis on the publication editor's Image step, in a real browser:
- * Analyze photo queues an attempt, the card alone reads itself again until
- * the worker's result is there and then stops, the draft is never touched —
- * and while a new photo waits to be saved, the card says to save it first.
+ * The publication editor's Image step in a real browser: a link pasted is
+ * imported on its own once typing pauses — no Save — the photo is shown
+ * with Replace and Remove from draft in place of the sources, its analysis
+ * is asked for at once, and the card alone reads itself again until the
+ * worker's result is there and then stops; nothing typed is saved for it. On
+ * a new publication the first photo makes the Draft, and the editor goes on
+ * with it.
  *
- * The job runs in the test, as a worker would, with OpenAI faked.
+ * Files from the computer are left out: the browser test server hands the
+ * application no uploaded files (see AdminStudioPlansBrowserTest). The link
+ * goes through the import pipeline with only the network under it scripted,
+ * and the job runs in the test, as a worker would, with OpenAI faked.
  */
 beforeEach(function () {
     Storage::fake('public');
     Queue::fake();
     Http::preventStrayRequests();
     configureStudioImageAnalysis();
+    bindFakeHostResolver(['images.rateguru.test' => ['93.184.216.34']]);
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
+    ]));
     actingAs(User::factory()->admin()->create());
 });
-
-/** The card's state, as it draws it. */
-function analysisCardState(mixed $page): string
-{
-    return (string) $page->script("document.querySelector('[data-analysis]')?.dataset.analysis ?? ''");
-}
 
 /** Whether a notice saying this is on screen. */
 function analysisNoticeShown(string $text): string
@@ -37,52 +43,83 @@ function analysisNoticeShown(string $text): string
     return "[...document.querySelectorAll('.rg-admin-notice')].some((notice) => notice.textContent.includes(".json_encode($text).') && notice.offsetParent !== null)';
 }
 
-it('analyses the saved photo on request, polling until the worker\'s description is there and then stopping', function () {
-    $plan = studioPlanWithStoredPhoto(['title' => 'A harbour']);
+/** Pastes a link into the Image step's From link field, as a person would. */
+function pasteImageLink(mixed $page, string $url): void
+{
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__segmented [role=\"radio\"]')].find((option) => option.textContent.trim() === 'From link').click()");
+    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url')");
+    $page->script('(() => { const field = document.getElementById("rg-admin-studio-image-url"); field.value = '.json_encode($url).'; field.dispatchEvent(new Event("input", { bubbles: true })) })()');
+}
+
+it('imports a pasted link without Save, analyses the photo, and polls until the worker\'s description is there', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
     $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
 
-    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'current');
-    expect($page->script("document.querySelector('[data-analysis]').hasAttribute('wire:poll.3s.visible')"))->toBeFalse();
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+    expect($page->script(analysisNoticeShown('Photo analysis is not configured.')))->toBeFalse()
+        ->and($page->script("document.querySelector('.rg-admin-studio__analysis-idle')?.textContent.trim()"))->toBe('The analysis starts as soon as a photo is added.');
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__analysis .rg-admin-button')].find((button) => button.textContent.trim() === 'Analyze photo').click()");
-    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued');
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+
+    // Imported once typing paused: the photo is the plan's, and its analysis waits for a worker.
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued', 10.0);
     waitForScript($page, analysisNoticeShown('Waiting for analysis…'));
-    expect($page->script("document.querySelector('[data-analysis]').hasAttribute('wire:poll.3s.visible')"))->toBeTrue();
+
+    $plan->refresh();
+
+    expect($plan->image_asset_id)->not->toBeNull()
+        ->and($page->script("document.querySelector('.rg-admin-studio__photo-name')?.textContent.trim()"))->toBe('harbour.jpg')
+        ->and($page->script("[...document.querySelectorAll('.rg-admin-studio__photo-meta button')].map((button) => button.getAttribute('aria-label') ?? button.textContent.trim())"))->toBe(['Replace', 'Remove from draft'])
+        // The sources give way to the photo, until Replace.
+        ->and($page->script("document.querySelector('.rg-admin-studio__chooser').offsetParent === null"))->toBeTrue()
+        ->and($page->script("document.querySelector('[data-analysis]').hasAttribute('wire:poll.3s.visible')"))->toBeTrue()
+        // The photo is not Save: nothing is unsaved, and the texts are as they were.
+        ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false])
+        ->and($plan->only(['title', 'lock_version']))->toBe(['title' => 'A harbour', 'lock_version' => 2]);
 
     // A worker takes the job meanwhile.
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody(['summary' => 'Boats rest in a quiet harbour at dawn.']))]);
     runStudioImageAnalysisJob(StudioPlanImageAnalysis::query()->sole());
 
-    // The card reads itself again and finds it; nothing else on the page was asked.
     waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'completed', 10.0);
 
     expect($page->script("document.querySelector('.rg-admin-studio__analysis-sections').textContent"))->toContain('Boats rest in a quiet harbour at dawn.')
         ->and($page->script("document.querySelector('[data-analysis]').hasAttribute('wire:poll.3s.visible')"))->toBeFalse()
         ->and($page->script("[...document.querySelectorAll('.rg-admin-studio__analysis .rg-admin-button')].map((button) => button.textContent.trim())"))->toBe(['Re-run analysis'])
-        // Analyze photo is not Save: nothing is unsaved, and the plan is as it was.
-        ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false])
-        ->and(StudioPlan::query()->findOrFail($plan->id)->only(['title', 'lock_version']))->toBe(['title' => 'A harbour', 'lock_version' => 1]);
+        ->and($page->script("document.querySelector('.rg-admin-studio__analysis .rg-admin-badge')?.textContent.trim()"))->toBe('Done');
+
+    // Replace opens the sources again, and Cancel puts them away.
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__photo-meta button')].find((button) => button.textContent.trim() === 'Replace').click()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__chooser').offsetParent !== null");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__chooser-bar button')].find((button) => button.textContent.trim() === 'Cancel').click()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__chooser').offsetParent === null");
 });
 
-it('asks for the draft to be saved before a new photo is analysed, and shows the analysis again once the link is dropped', function () {
-    $plan = studioPlanWithStoredPhoto();
-    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+it('makes the draft for the first photo on a new publication, and goes on with it with what was typed', function () {
+    $page = visitAdminEditor('/admin/studio-plans/create');
 
-    waitForScript($page, "document.querySelector('[data-analysis]')?.offsetParent !== null");
-    expect($page->script(analysisNoticeShown('Save the draft first to analyse the new photo.')))->toBeFalse();
+    // A title typed first, on the Post step.
+    $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    $page->script("(() => { const field = document.getElementById('rg-admin-studio-title'); field.value = 'Harbour at dawn'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
+    $page->click('.rg-admin-studio__footer .rg-admin-button--secondary');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 1 of 4 · Image');
 
-    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:last-child').click()");
-    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url')");
-    $page->script("(() => { const field = document.getElementById('rg-admin-studio-image-url'); field.value = 'https://example.com/photo.jpg'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued', 10.0);
 
-    // Read from the draft as typed: no request is needed to say so.
-    waitForScript($page, analysisNoticeShown('Save the draft first to analyse the new photo.'));
-    waitForScript($page, "document.querySelector('[data-analysis]').offsetParent === null");
+    $plan = StudioPlan::query()->sole();
 
-    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:first-child').click()");
-    waitForScript($page, "document.querySelector('[data-analysis]')?.offsetParent !== null");
+    // One empty Draft holds the photo; the title is still only typed.
+    expect($plan->title)->toBeNull()
+        ->and($plan->image_asset_id)->not->toBeNull()
+        ->and($page->script("document.querySelector('.rg-admin-topbar__editor .rg-admin-button--primary').textContent.trim()"))->toBe('Save draft')
+        ->and($page->script("document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()"))->toBe('1 unsaved change');
 
-    expect($page->script(analysisNoticeShown('Save the draft first to analyse the new photo.')))->toBeFalse()
-        ->and(analysisCardState($page))->toBe('current');
-    Queue::assertNothingPushed();
+    $page->click('.rg-admin-topbar__editor .rg-admin-button--primary');
+
+    waitForScript($page, 'location.pathname', "/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('.rg-admin-toast .rg-admin-toast__text')?.textContent.trim()", 'Harbour at dawn saved');
+
+    expect(StudioPlan::query()->sole())->id->toBe($plan->id)->title->toBe('Harbour at dawn')->image_asset_id->toBe($plan->image_asset_id);
 });

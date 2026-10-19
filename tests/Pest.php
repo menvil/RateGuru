@@ -13165,7 +13165,7 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 ),
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
-                // Analyze photo; says which attempt it was given.
+                // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // What Release in Media diagnostics runs.
                 'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
@@ -13262,9 +13262,9 @@ function studioImageDescriptionBody(array $fields = [], array $overrides = []): 
 }
 
 /**
- * Analyze photo — or, with the attempt on screen as $replacing, Re-run
- * analysis or Try again — for the photo the editor shows: the plan's own
- * unless another is named.
+ * The analysis a photo asks for when the editor stores it — or, with the
+ * attempt on screen as $replacing, Re-run analysis or Try again — for the
+ * photo the editor shows: the plan's own unless another is named.
  */
 function requestStudioImageAnalysis(User $admin, StudioPlan $plan, ?int $imageAssetId = null, ?string $replacing = null): StudioPlanImageAnalysis
 {
