@@ -76,9 +76,9 @@ it('installs recover-host through the existing installer, and adds no second ins
 
     // The authoritative counts were updated honestly, not left stale.
     expect($installer)
-        ->toContain('thirty-two files')
-        ->toContain('all thirty-two source files are present regular files')
-        ->toContain('bash -n passed for all twenty-three source shell scripts')
+        ->toContain('thirty-seven files')
+        ->toContain('all thirty-seven source files are present regular files')
+        ->toContain('bash -n passed for all twenty-five source shell scripts')
         ->not->toContain('twenty-three files')
         ->not->toContain('all twenty-one source');
 
@@ -807,7 +807,7 @@ it('reads the one backup format common states, and defines no second one', funct
     // schema through the shared verification, never by parsing a manifest
     // itself.
     expect($common)
-        ->toContain('BACKUP_MANIFEST_SCHEMA_CURRENT=3')
+        ->toContain('BACKUP_MANIFEST_SCHEMA_CURRENT=4')
         ->toContain('TARGET_REGISTRY_SCHEMA_VERSION=1');
 
     expect($library)
