@@ -261,7 +261,7 @@ function offsiteRestoreOpsPatchedScript(string $scratch): string
 /**
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function offsiteRestoreOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', string $databaseName = 'parity_db'): array
+function offsiteRestoreOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', string $databaseName = 'parity_db', string $environmentClass = 'staging'): array
 {
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
@@ -298,7 +298,7 @@ function offsiteRestoreOpsParityRegistry(string $scratch, string $backupNamespac
             'parity-target' => [
                 'id' => 'parity-target',
                 'lifecycle' => 'active',
-                'environment_class' => 'staging',
+                'environment_class' => $environmentClass,
                 'application_root' => $scratch.'/unused-root',
                 'runtime_user' => $account,
                 'runtime_group' => $group,
@@ -394,7 +394,7 @@ function offsiteRestoreOpsBuildRemoteBackup(string $bucketRoot, string $namespac
     // its recovery material, checksummed in the position backup writes it:
     // every host-scope name by default, an explicit member map or raw bytes
     // on request, omitted only on purpose.
-    $schema3 = ($options['schema'] ?? null) === 3 || ($manifest['manifest_schema_version'] ?? null) === 3;
+    $schema3 = in_array($options['schema'] ?? null, [3, 4], true) || in_array($manifest['manifest_schema_version'] ?? null, [3, 4], true);
 
     if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
@@ -491,7 +491,7 @@ function offsiteRestoreOpsRunFullOffsiteRestoreTest(string $scratch, bool $usePa
 
     if ($useParityTarget) {
         $targetId = 'parity-target';
-        [$registryPath, $targetsPath] = offsiteRestoreOpsParityRegistry($scratch, $namespace, $databaseName);
+        [$registryPath, $targetsPath] = offsiteRestoreOpsParityRegistry($scratch, $namespace, $databaseName, $options['environment_class'] ?? 'staging');
         $env['RATEGURU_TARGET_REGISTRY_FILE'] = $registryPath;
         $env['RATEGURU_TARGETS_CLI'] = $targetsPath;
 
@@ -966,12 +966,12 @@ it('rejects an unsupported numeric manifest schema_version before creating the t
 
     try {
         $manifest = offsiteRestoreOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
-        $manifest['manifest_schema_version'] = 4;
+        $manifest['manifest_schema_version'] = 5;
 
         $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: false, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('unsupported backup manifest schema_version: 4');
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: 5');
         expect(trim(File::get($result['createdbLog'])))->toBe('');
     } finally {
         offsiteRestoreOpsCleanup($scratch);
@@ -1012,6 +1012,57 @@ it('restore-tests a schema 3 remote backup with all eight files, and refuses one
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])->toContain('missing downloaded backup file: recovery-material.tar.gz');
         expect(trim(File::get($result['createdbLog'])))->toBe('');
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+});
+
+it('restore-tests a schema 4 remote backup of a target whose mail is signed, certifying the DKIM key it carries, and refuses one whose key and manifest disagree', function () {
+    $key = mailIdentityKey('rsa2048');
+    $members = [];
+    foreach (recoveryMaterialProductionNames() as $name) {
+        $members[$name] = "material-{$name}-never-logged\n";
+    }
+    $members['mail-dkim-private-key'] = File::get($key);
+
+    $manifest = offsiteRestoreOpsManifestSchema2('target', 'parity-target', 'production', 'parity', 'parity_db');
+    $manifest['manifest_schema_version'] = 4;
+    $manifest['dkim_public_key_sha256'] = dkimPublicKeySha256($key);
+
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: [
+            'schema' => 4,
+            'environment_class' => 'production',
+            'recovery_material' => $members,
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Backup schema:  schema4 (exactly 8 files)')
+            ->toContain('Recovery material: OK (6 recovery-scope files for parity-target')
+            ->toContain('mail-dkim-private-key')
+            ->not->toContain('never-logged');
+        expectNoKeyMaterial($result['output'], $key);
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
+
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        // The archive carries the key, the manifest says it does not.
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: ['dkim_public_key_sha256' => null] + $manifest, options: [
+            'schema' => 4,
+            'environment_class' => 'production',
+            'recovery_material' => $members,
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('backup recovery material carries mail-dkim-private-key, but its manifest records no dkim_public_key_sha256');
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+        expectNoKeyMaterial($result['output'], $key);
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }

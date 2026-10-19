@@ -259,7 +259,7 @@ print(max(names) if names else "")
         --stats 10s
 
     # The downloaded manifest decides which closed file set this backup must
-    # carry (seven files for schema 1 and 2, eight for schema 3), so it has to
+    # carry (seven files for schema 1 and 2, eight for schema 3 and 4), so it has to
     # have arrived first, and it is proven to be a plain regular file before
     # it is read.
     [[ -e "${TEMP_DIRECTORY}/${BACKUP_MANIFEST_FILE}" ]] \
@@ -301,17 +301,19 @@ print(max(names) if names else "")
 
     validate_backup_manifest "${TEMP_DIRECTORY}/manifest.json"
 
-    # A schema 3 backup is CERTIFIED here, the same way local restore-test
-    # certifies it: the recovery material must be exactly what a clean-host
-    # recovery could be prepared from today — safe as data, covered by
-    # SHA256SUMS exactly once, and holding exactly the target's host-scope
-    # prerequisite names as the installed table states them. A nightly PASS
-    # on a backup a recovery could not use would be the worst kind of pass.
+    # A schema 3 or 4 backup is CERTIFIED here, the same way local
+    # restore-test certifies it: the recovery material must be exactly what a
+    # clean-host recovery could be prepared from today — safe as data, covered
+    # by SHA256SUMS exactly once, and holding exactly the target's prerequisite
+    # names in the scope it was captured in as the installed table states
+    # them, with a schema 4 manifest recording the DKIM key's fingerprint
+    # exactly when the archive carries the key. A nightly PASS on a backup a
+    # recovery could not use would be the worst kind of pass.
     if backup_schema_supports_clean_host_recovery "${BACKUP_SCHEMA}"; then
         log ""
         log "Checking recovery material against the prerequisite table"
 
-        backup_assert_recovery_material_certified "${TEMP_DIRECTORY}" "${TARGET_ID}"
+        backup_assert_recovery_material_certified "${TEMP_DIRECTORY}" "${TARGET_ID}" "${BACKUP_SCHEMA}"
 
         log "Recovery material: OK (${BACKUP_RECOVERY_MATERIAL_REPORT})"
     fi

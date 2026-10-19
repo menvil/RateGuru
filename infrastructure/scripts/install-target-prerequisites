@@ -56,6 +56,33 @@
 #   --scope all     Both, for direct operator use on an already-bootstrapped
 #                   host. prepare-host always passes an explicit scope.
 #
+#   --scope recovery
+#                   The closed set a backup's recovery material is written in,
+#                   and the only one a clean-host recovery takes back out of it:
+#                   every host-scope row, plus mail-dkim-private-key for a
+#                   target whose mail policy REQUIRES DKIM signing — the one
+#                   `mail-identity dkim-key` answers "required" for, because its
+#                   mail goes out signed. A replacement host has to sign with
+#                   the very key the published DKIM record names, and that key
+#                   exists nowhere but on the host it replaces. Nothing else of
+#                   the target scope belongs here: the environment file is a
+#                   backup member of its own, the deploy key is derived by the
+#                   recovery from the deploy credential, and the offsite
+#                   credential is the recovery's own. A held target's key is
+#                   not in it either — nothing signs with it yet.
+#
+#                   Prepare Host's recovery preparation installs this scope
+#                   BEFORE host bootstrap, because the signer bootstrap
+#                   installs refuses to verify while a required key is absent.
+#                   On a clean host the signer's group does not exist yet, so
+#                   the key goes in with the pre-signer layout, root:root 0600
+#                   in root:root 0700 directories, the one layout the signer's
+#                   own install-mail-signing --apply converts to
+#                   root:opendkim 0640 without touching its bytes. Where the
+#                   group already exists it goes in signing-ready, as the
+#                   target scope installs it. The target scope keeps its own
+#                   rule: a new key only once the signer exists.
+#
 # Modes (all require root — every destination is root-only or belongs to a
 # system account):
 #   --check   Report every prerequisite's state and what --apply would do.
@@ -68,17 +95,26 @@
 #             Read-only: the logical names in scope, one per line, and nothing
 #             else — the vocabulary a backup's recovery material is written in
 #             and checked against.
-#   --capture Read-only against the host: copy every host-scope prerequisite,
-#             as it is on this host and after the same safety checks --verify
-#             applies, into a root-only directory under its LOGICAL name. This
-#             is how `backup` gives a backup the material a clean-host
-#             recovery needs, without a second table ever describing it.
+#   --capture Read-only against the host: copy every recovery-scope
+#             prerequisite, as it is on this host and after the same safety
+#             checks --verify applies, into a root-only directory under its
+#             LOGICAL name. This is how `backup` gives a backup the material a
+#             clean-host recovery needs, without a second table ever describing
+#             it.
+#   --dkim-fingerprint
+#             Read-only: judge one file as the target's DKIM private key,
+#             against its reviewed policy, and print the SHA-256 of its PUBLIC
+#             half — what a backup's manifest records about the key its
+#             recovery material carries, and what a clean-host recovery proves
+#             the restored key against. Recovery scope only, and only for a
+#             target whose recovery scope carries the key.
 #   --validate-recovery-material
 #             Read-only: judge a recovery-material archive before anything
-#             extracts it — exactly the host-scope logical names, as top-level
-#             regular files, and nothing else.
+#             extracts it — exactly the logical names of the scope it was
+#             written in (recovery, or host for an archive written before the
+#             DKIM key joined it), as top-level regular files, and nothing else.
 #
-# THE SAME TABLE SERVES ALL SIX. The prerequisite table below is built once,
+# THE SAME TABLE SERVES EVERY MODE. The prerequisite table below is built once,
 # from the registry and the committed vhosts, and every mode reads it. That is
 # the whole point of putting capture and validation here rather than beside
 # `backup`: a backup can never be captured in a vocabulary the installer would
@@ -119,7 +155,9 @@
 # The one exception is the DKIM private key, and it is narrow: before one is
 # installed, and whenever one is found installed, `mail-identity check-key`
 # asks OpenSSL whether it is an unencrypted RSA private key of the reviewed
-# size. Only a fixed verdict comes back. Its content is still never printed,
+# size. Only a fixed verdict comes back. --dkim-fingerprint asks
+# `mail-identity key-fingerprint` for the digest of the key's PUBLIC half — the
+# value the published DKIM record encodes. Its content is still never printed,
 # logged, hashed or measured here.
 #
 # Destinations are never supplied by a caller. Registry-owned paths come from
@@ -237,6 +275,8 @@ OUTPUT_DIR=""
 OUTPUT_DIR_SEEN=false
 ARCHIVE=""
 ARCHIVE_SEEN=false
+KEY_FILE=""
+KEY_FILE_SEEN=false
 
 usage() {
     cat <<'USAGE'
@@ -245,8 +285,9 @@ Usage:
   install-target-prerequisites --apply  --target TARGET_ID [--scope SCOPE] [--material-dir DIR]
   install-target-prerequisites --verify --target TARGET_ID [--scope SCOPE]
   install-target-prerequisites --list-material-names --target TARGET_ID [--scope SCOPE]
-  install-target-prerequisites --capture --target TARGET_ID --scope host --output-dir DIR
-  install-target-prerequisites --validate-recovery-material --target TARGET_ID --scope host --archive FILE
+  install-target-prerequisites --capture --target TARGET_ID --scope recovery --output-dir DIR
+  install-target-prerequisites --dkim-fingerprint --target TARGET_ID --scope recovery --key FILE
+  install-target-prerequisites --validate-recovery-material --target TARGET_ID --scope recovery|host --archive FILE
 
 All modes require root. A lifecycle=active target, unless --provisioning
 names a planned production one.
@@ -257,6 +298,13 @@ names a planned production one.
                   target Material inside RateGuru identities and directories,
                          installable only AFTER install-bootstrap-host-layout has created them.
                   all    Both (default).
+                  recovery
+                         What a backup's recovery material carries: the host
+                         scope, plus mail-dkim-private-key for a target whose
+                         mail policy requires DKIM signing. Installed by a
+                         clean-host recovery BEFORE host bootstrap; a DKIM key
+                         goes in pre-signer (root:root 0600) while the
+                         signer's group does not exist yet.
   --material-dir  Root-owned 0700 directory holding operator-supplied material,
                   one file per logical prerequisite name. Read only; never
                   modified, and never left behind by this script.
@@ -270,9 +318,11 @@ names a planned production one.
                   registry, never activates anything. Without it the active-only
                   contract is exactly what it was.
   --output-dir    --capture only: an existing, EMPTY, root-owned 0700 directory
-                  that receives one file per host-scope logical name.
+                  that receives one file per recovery-scope logical name.
   --archive       --validate-recovery-material only: the recovery-material
                   archive to judge. Read only; never extracted.
+  --key           --dkim-fingerprint only: the DKIM private key file to judge
+                  and fingerprint. Read only; never printed.
 
 Installs only what is absent. Never overwrites, rotates or deletes existing
 material, and never generates any. A production target's DKIM private key
@@ -280,14 +330,16 @@ material, and never generates any. A production target's DKIM private key
 is outbound; a supplied or installed one must be an unencrypted RSA private key
 of the reviewed size. --list-material-names prints logical names
 only; --capture and --validate-recovery-material never print, log, hash or
-measure the content of any material.
+measure the content of any material. --dkim-fingerprint prints the SHA-256
+of a DKIM key's PUBLIC half — the value its published record encodes — and
+nothing of the key.
 USAGE
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--apply|--verify|--list-material-names|--capture|--validate-recovery-material)
+            --check|--apply|--verify|--list-material-names|--capture|--dkim-fingerprint|--validate-recovery-material)
                 if [[ "${MODE_SEEN}" == true ]]; then
                     usage >&2
                     fail "mode given more than once"
@@ -306,6 +358,17 @@ parse_args() {
 
                 OUTPUT_DIR="$2"
                 OUTPUT_DIR_SEEN=true
+                shift 2
+                ;;
+            --key)
+                if [[ "${KEY_FILE_SEEN}" == true ]]; then
+                    fail "--key given more than once"
+                fi
+
+                require_value "--key" "$#" "${2-}"
+
+                KEY_FILE="$2"
+                KEY_FILE_SEEN=true
                 shift 2
                 ;;
             --archive)
@@ -338,8 +401,8 @@ parse_args() {
                 require_value "--scope" "$#" "${2-}"
 
                 case "$2" in
-                    host|target|all) SCOPE="$2" ;;
-                    *) fail "--scope must be host, target or all (got: $2)" ;;
+                    host|target|all|recovery) SCOPE="$2" ;;
+                    *) fail "--scope must be host, target, all or recovery (got: $2)" ;;
                 esac
 
                 SCOPE_SEEN=true
@@ -373,7 +436,7 @@ parse_args() {
 
     if [[ "${MODE_SEEN}" != true ]]; then
         usage >&2
-        fail "one of --check, --apply, --verify, --list-material-names, --capture or --validate-recovery-material is required"
+        fail "one of --check, --apply, --verify, --list-material-names, --capture, --dkim-fingerprint or --validate-recovery-material is required"
     fi
 
     if [[ "${TARGET_SEEN}" != true ]]; then
@@ -402,21 +465,28 @@ parse_args() {
     fi
 
     case "${MODE}" in
-        list-material-names|capture|validate-recovery-material)
+        list-material-names|capture|dkim-fingerprint|validate-recovery-material)
             [[ "${MATERIAL_DIR_SEEN}" != true ]] \
                 || fail "--${MODE} never consults supplied material"
             ;;
     esac
 
-    # The two recovery-material modes are host-scope by construction. The
-    # environment file is a backup member of its own, and the deploy key and
-    # the rclone configuration are seed material a recovery supplies from
-    # GitHub; none of them is ever captured into, or expected from, a recovery
-    # archive, so a target or all scope here is a misunderstanding to refuse.
+    # The two recovery-material modes read the recovery scope, never the
+    # target or all scope. The environment file is a backup member of its own,
+    # and the deploy key and the rclone configuration are seed material a
+    # recovery supplies from GitHub; none of them is ever captured into, or
+    # expected from, a recovery archive, so a target or all scope here is a
+    # misunderstanding to refuse. A capture writes today's format only; an
+    # archive may still be judged in the host scope it was written in before
+    # the DKIM key joined the recovery material.
     case "${MODE}" in
-        capture|validate-recovery-material)
-            [[ "${SCOPE}" == host ]] \
-                || fail "--${MODE} is host-scope only (--scope host): the recovery material a backup carries is the host-scope external material, never the environment file, the deploy key or the rclone configuration"
+        capture|dkim-fingerprint)
+            [[ "${SCOPE}" == recovery ]] \
+                || fail "--${MODE} is recovery-scope only (--scope recovery): a backup's recovery material is the host-scope external material plus the DKIM key of a target whose mail is signed, never the environment file, the deploy key or the rclone configuration"
+            ;;
+        validate-recovery-material)
+            [[ "${SCOPE}" == recovery || "${SCOPE}" == host ]] \
+                || fail "--validate-recovery-material judges an archive in the scope it was written in (--scope recovery, or --scope host for one written before the DKIM key joined it): the recovery material a backup carries is never the environment file, the deploy key or the rclone configuration"
             ;;
     esac
 
@@ -430,6 +500,12 @@ parse_args() {
         [[ "${ARCHIVE_SEEN}" == true ]] || fail "--validate-recovery-material requires --archive"
     elif [[ "${ARCHIVE_SEEN}" == true ]]; then
         fail "--archive is only valid with --validate-recovery-material"
+    fi
+
+    if [[ "${MODE}" == dkim-fingerprint ]]; then
+        [[ "${KEY_FILE_SEEN}" == true ]] || fail "--dkim-fingerprint requires --key"
+    elif [[ "${KEY_FILE_SEEN}" == true ]]; then
+        fail "--key is only valid with --dkim-fingerprint"
     fi
 }
 
@@ -597,17 +673,17 @@ build_prerequisite_table() {
 
     build_target_prerequisite_rows "${target_root}" "${deploy_user}" "${runtime_user}" "${runtime_group}"
 
-    # The mail identity is read only when this run wants target rows: the
-    # installed copy of this script serves host-scope capture and validation
-    # beside no mail identity contract at all, and must never need one.
-    if target_scope_wanted; then
+    # The mail identity is read only when this run wants the DKIM row: a
+    # host-scope run, the judgement of an archive written in that scope
+    # included, never needs a mail identity contract at all.
+    if target_scope_wanted || [[ "${SCOPE}" == recovery ]]; then
         build_mail_identity_rows
     fi
 }
 
 # host_scope_wanted — whether this run needs the Nginx-derived host rows at all.
 host_scope_wanted() {
-    [[ "${SCOPE}" == host ]] || [[ "${SCOPE}" == all ]]
+    [[ "${SCOPE}" == host ]] || [[ "${SCOPE}" == all ]] || [[ "${SCOPE}" == recovery ]]
 }
 
 target_scope_wanted() {
@@ -917,16 +993,32 @@ emit_nginx_row() {
 }
 
 # rows_in_scope — the table filtered to the requested scope, one row per line.
+# The recovery scope is the host rows and, when the target's mail policy
+# requires it, the DKIM key's row — still the target row it always is, so every
+# rule about that key applies to it unchanged.
 rows_in_scope() {
-    local row scope
+    local row scope name
 
     for row in ${PREREQ_ROWS[@]+"${PREREQ_ROWS[@]}"}; do
         scope="${row%%|*}"
+        name="${row#*|}"
+        name="${name%%|*}"
 
         if [[ "${SCOPE}" == all ]] || [[ "${scope}" == "${SCOPE}" ]]; then
             printf '%s\n' "${row}"
+        elif [[ "${SCOPE}" == recovery ]] \
+            && { [[ "${scope}" == host ]] || dkim_row_is_recovery_material "${name}"; }
+        then
+            printf '%s\n' "${row}"
         fi
     done
+}
+
+# dkim_row_is_recovery_material NAME — NAME is the DKIM key, and the target's
+# mail policy requires it: its mail goes out signed, so a replacement host
+# that came back without it could not sign as the published record says.
+dkim_row_is_recovery_material() {
+    [[ "$1" == "${DKIM_KEY_NAME}" ]] && [[ "${DKIM_REQUIREMENT}" == required ]]
 }
 
 # --- Material directory ----------------------------------------------------------
@@ -1183,8 +1275,18 @@ classify_row() {
             fi
 
             if ! dkim_signer_group_exists; then
-                CLASSIFY_STATE=CONFLICT
-                CLASSIFY_REASON="cannot install ${name}: the host signer's group ${DKIM_SIGNER_GROUP} does not exist — the key is readable by root and the signer only, and the signer is installed by host bootstrap (install-mail-signing) before any target's key"
+                # The recovery scope runs before host bootstrap, on a host
+                # that has no signer yet, and installs the key in the one
+                # layout that signer converts. Every other scope keeps the
+                # rule: a new key only once the signer exists.
+                if [[ "${SCOPE}" != recovery ]]; then
+                    CLASSIFY_STATE=CONFLICT
+                    CLASSIFY_REASON="cannot install ${name}: the host signer's group ${DKIM_SIGNER_GROUP} does not exist — the key is readable by root and the signer only, and the signer is installed by host bootstrap (install-mail-signing) before any target's key"
+                    return 0
+                fi
+
+                CLASSIFY_STATE=INSTALLABLE
+                CLASSIFY_REASON="absent; will be installed from the supplied material, pre-signer root:root ${DKIM_PRESIGNER_KEY_MODE} until host bootstrap installs the signer, whose install-mail-signing --apply grants it read access without touching the key: ${destination}"
                 return 0
             fi
         fi
@@ -1215,9 +1317,21 @@ install_row() {
     dst_dir="$(dirname "${dst}")"
 
     # The DKIM key's directories are its own and are root-only: created here,
-    # where nothing else creates them, rather than by host bootstrap.
+    # where nothing else creates them, rather than by host bootstrap. Before
+    # the signer exists — reachable only in the recovery scope, which the
+    # classification above enforces — the key and its directories go in with
+    # the pre-signer layout, which the signer's own install converts.
     if [[ "${name}" == "${DKIM_KEY_NAME}" ]]; then
-        ensure_dkim_key_directories "$(dirname "${destination}")"
+        if dkim_signer_group_exists; then
+            ensure_dkim_key_directories "$(dirname "${destination}")" signing-ready
+        else
+            [[ "${SCOPE}" == recovery ]] \
+                || fail "internal: ${name} reached installation without the signer's group outside the recovery scope"
+
+            group=root
+            mode="${DKIM_PRESIGNER_KEY_MODE}"
+            ensure_dkim_key_directories "$(dirname "${destination}")" pre-signer
+        fi
     fi
 
     if [[ ! -d "${dst_dir}" ]]; then
@@ -1296,14 +1410,15 @@ install_row() {
     log "INSTALLED ${name} -> ${destination} (${owner}:${group} ${mode}; content never read or logged)"
 }
 
-# ensure_dkim_key_directories LOGICAL_DIR — /etc/opendkim (root:root 0755), its
-# keys directory and the target's own directory under it (both root:opendkim
-# 0750, enterable by the signer and by nobody else). Only what is missing is
-# created; an existing directory is never re-owned or re-moded — classification
-# already refused one that is neither signing-ready nor pre-signer — and a
-# symlink anywhere on the way is refused.
+# ensure_dkim_key_directories LOGICAL_DIR LAYOUT — /etc/opendkim (root:root
+# 0755), its keys directory and the target's own directory under it: both
+# root:opendkim 0750 when LAYOUT is signing-ready, enterable by the signer and
+# by nobody else, or root:root 0700 when it is pre-signer, before any signer
+# exists. Only what is missing is created; an existing directory is never
+# re-owned or re-moded — classification already refused one that is neither
+# signing-ready nor pre-signer — and a symlink anywhere on the way is refused.
 ensure_dkim_key_directories() {
-    local target_dir="$1"
+    local target_dir="$1" layout="$2"
     local keys_dir parent dir mode group
 
     keys_dir="$(dirname "${target_dir}")"
@@ -1319,8 +1434,12 @@ ensure_dkim_key_directories() {
             continue
         fi
 
-        mode="${DKIM_DIR_MODE}"
-        group="${DKIM_SIGNER_GROUP}"
+        case "${layout}" in
+            signing-ready) mode="${DKIM_DIR_MODE}" group="${DKIM_SIGNER_GROUP}" ;;
+            pre-signer)    mode="${DKIM_PRESIGNER_DIR_MODE}" group=root ;;
+            *)             fail "internal: unknown DKIM key layout: ${layout}" ;;
+        esac
+
         if [[ "${dir}" == "${parent}" ]]; then
             mode=0755
             group=root
@@ -1374,7 +1493,7 @@ report_rows() {
 # it had been installed.
 refuse_unrouted_dkim_material() {
     [[ -n "${MATERIAL_DIR}" ]] || return 0
-    target_scope_wanted || return 0
+    target_scope_wanted || [[ "${SCOPE}" == recovery ]] || return 0
 
     local supplied
     supplied="$(physical "${MATERIAL_DIR}")/${DKIM_KEY_NAME}"
@@ -1618,10 +1737,12 @@ run_verify() {
 # --- Recovery material -------------------------------------------------------------
 #
 # The three modes below are what let a backup carry, and a clean-host recovery
-# consume, the host-scope external material a target needs — TLS, Basic Auth,
-# the shared Nginx TLS material — without any of it being typed into GitHub or
-# copied off a working host by hand. They read the same table every other
-# mode reads. Nothing in them writes to a canonical destination.
+# consume, the external material a target needs before its host can be
+# rebuilt — TLS, Basic Auth, the shared Nginx TLS material and, for a target
+# whose mail goes out signed, the DKIM key its published record names — without
+# any of it being typed into GitHub or copied off a working host by hand. They
+# read the same table every other mode reads, in the recovery scope. Nothing in
+# them writes to a canonical destination.
 #
 # The archive vocabulary is LOGICAL NAMES ONLY. A backup never decides where a
 # file will be written: the archive names `tls-private-key`, and whichever
@@ -1682,17 +1803,19 @@ validate_output_dir() {
         || fail "--output-dir must be empty: ${OUTPUT_DIR}"
 }
 
-# run_capture — every host-scope prerequisite is proven present and safe with
-# the identical checks --verify applies (the certbot link rule included), then
-# its CONTENT is copied under its logical name. A link on the host becomes a
-# plain regular file in the capture: the archive carries material, never a
-# pointer. Content is never read by this script, never hashed, never measured
-# and never printed; the only thing logged is the logical name.
+# run_capture — every recovery-scope prerequisite is proven present and safe
+# with the identical checks --verify applies (the certbot link rule, and for
+# the DKIM key the reviewed key judgement, included), then its CONTENT is
+# copied under its logical name. A link on the host becomes a plain regular
+# file in the capture: the archive carries material, never a pointer. Content
+# is never read by this script, never hashed, never measured and never
+# printed; the only thing logged is the logical name.
 #
 # Fails closed on anything that is not a clean capture — an absent
-# prerequisite, a conflict, a disallowed link, drifted ownership or mode —
-# because a backup that silently lacked one of these would be a backup no
-# clean-host recovery could use, reported as a success.
+# prerequisite, a required DKIM key that is missing or unusable, a conflict, a
+# disallowed link, drifted ownership or mode — because a backup that silently
+# lacked one of these would be a backup no clean-host recovery could use,
+# reported as a success.
 run_capture() {
     require_root_mode
     check_required_tools
@@ -1754,9 +1877,50 @@ run_capture() {
     done < <(rows_in_scope)
 
     (( count > 0 )) \
-        || fail "no host-scope prerequisite was captured for ${TARGET_ID} — refusing to report an empty capture as recovery material"
+        || fail "no recovery-scope prerequisite was captured for ${TARGET_ID} — refusing to report an empty capture as recovery material"
 
-    log "captured ${count} host-scope prerequisites for ${TARGET_ID} into ${OUTPUT_DIR} (root-only, 0600 each): ${captured[*]}"
+    log "captured ${count} recovery-scope prerequisites for ${TARGET_ID} into ${OUTPUT_DIR} (root-only, 0600 each): ${captured[*]}"
+}
+
+# dkim_key_fingerprint PATH — the digest of the PUBLIC half of the DKIM key at
+# PATH, from the one judge of what a usable key is, against this target's
+# reviewed policy. Never any of the key.
+dkim_key_fingerprint() {
+    local fingerprint
+
+    fingerprint="$("${MAIL_IDENTITY_BIN}" key-fingerprint --target "${TARGET_ID}" --file "$1" \
+        --identity "${CONFIG_DIR}/mail-identity.json" \
+        --routing "${CONFIG_DIR}/mail-routing.json" \
+        --registry "${SOURCE_REGISTRY}" \
+        --outbound "${CONFIG_DIR}/mail-outbound.json")" \
+        || fail "${DKIM_KEY_NAME} of ${TARGET_ID} could not be fingerprinted (diagnostics above) — it is not the usable key the target's mail policy requires"
+
+    [[ "${fingerprint}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "internal: mail-identity named no public key fingerprint for ${DKIM_KEY_NAME} of ${TARGET_ID}"
+
+    printf '%s\n' "${fingerprint}"
+}
+
+# run_dkim_fingerprint — KEY_FILE judged as this target's DKIM private key and
+# the fingerprint of its public half printed, alone, on stdout. Only for a
+# target whose recovery scope carries the key: for any other there is no key a
+# backup records or a recovery proves, and a fingerprint would mean nothing.
+# KEY_FILE is a real path (a capture or an extraction), never relocated under
+# FS_ROOT, and never read here — mail-identity reads it, and prints nothing of
+# it.
+run_dkim_fingerprint() {
+    require_root_mode
+    check_required_tools
+    resolve_target
+
+    dkim_row_is_recovery_material "${DKIM_KEY_NAME}" \
+        || fail "${TARGET_ID}'s recovery scope carries no DKIM key: its mail policy does not require DKIM signing, so there is nothing to fingerprint"
+
+    [[ "${KEY_FILE}" == /* ]] || fail "--key must be an absolute path: ${KEY_FILE}"
+    [[ ! -L "${KEY_FILE}" ]] || fail "--key must not be a symlink: ${KEY_FILE}"
+    [[ -f "${KEY_FILE}" ]] || fail "--key must be a regular file: ${KEY_FILE}"
+
+    dkim_key_fingerprint "${KEY_FILE}"
 }
 
 # --- Recovery material archive validation ---------------------------------------------
@@ -1765,8 +1929,10 @@ run_capture() {
 # extraction would create. This is the pre-extraction gate for
 # recovery-material.tar.gz, and it is stricter than the storage archive's,
 # because the vocabulary is closed: every entry must be a TOP-LEVEL REGULAR
-# FILE named exactly as one of this target's host-scope prerequisites, each
-# name must appear once, every name must appear, and nothing else may.
+# FILE named exactly as one of this target's prerequisites in the scope the
+# archive was written in — recovery today, host for one written before the
+# DKIM key joined it — each name must appear once, every name must appear, and
+# nothing else may.
 #
 # Refused, each by its own diagnosis: an absolute path, a `..` or `.`
 # component, a nested path or a directory entry (any slash at all), a symlink,
@@ -1799,7 +1965,7 @@ run_validate_recovery_material() {
     mapfile -t expected < <(material_names_in_scope)
 
     (( ${#expected[@]} > 0 )) \
-        || fail "no host-scope prerequisite is defined for ${TARGET_ID} — refusing to judge an archive against an empty vocabulary"
+        || fail "no ${SCOPE}-scope prerequisite is defined for ${TARGET_ID} — refusing to judge an archive against an empty vocabulary"
 
     local listing
     listing="$(tar -tzf "${archive}" 2>/dev/null)" \
@@ -1845,7 +2011,7 @@ run_validate_recovery_material() {
         done
 
         [[ "${found}" == true ]] \
-            || fail "recovery material archive contains a file that is not a host-scope prerequisite of ${TARGET_ID}: ${entry}"
+            || fail "recovery material archive contains a file that is not a ${SCOPE}-scope prerequisite of ${TARGET_ID}: ${entry}"
 
         for known in "${seen[@]:-}"; do
             [[ "${known}" != "${entry}" ]] \
@@ -1865,7 +2031,7 @@ run_validate_recovery_material() {
         done
 
         [[ "${found}" == true ]] \
-            || fail "recovery material archive is missing the host-scope prerequisite ${known} of ${TARGET_ID} — a clean-host recovery could not be prepared from it"
+            || fail "recovery material archive is missing the ${SCOPE}-scope prerequisite ${known} of ${TARGET_ID} — a clean-host recovery could not be prepared from it"
     done
 
     local verbose line
@@ -1908,7 +2074,7 @@ run_validate_recovery_material() {
     # The last line is the machine-facing summary a caller may quote: names
     # only, never content, digest or size.
     log "recovery material archive is acceptable for ${TARGET_ID} (content never read)"
-    printf '%d host-scope files for %s: %s\n' "${#expected[@]}" "${TARGET_ID}" "${expected[*]}"
+    printf '%d %s-scope files for %s: %s\n' "${#expected[@]}" "${SCOPE}" "${TARGET_ID}" "${expected[*]}"
 }
 
 main() {
@@ -1926,6 +2092,7 @@ main() {
         verify)                     run_verify ;;
         list-material-names)        run_list_material_names ;;
         capture)                    run_capture ;;
+        dkim-fingerprint)           run_dkim_fingerprint ;;
         validate-recovery-material) run_validate_recovery_material ;;
     esac
 

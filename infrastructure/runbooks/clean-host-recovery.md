@@ -96,9 +96,10 @@ RateGuru-shaped things the preflight expects to find on an untouched machine.
 
 **Install nothing else by hand.** No packages, no Nginx, no PostgreSQL, no
 PHP, no Supervisor, no `.env`, no TLS certificate or key, no Basic Auth
-file, no rclone configuration, no RateGuru user or directory. Prepare Host
-installs the whole runtime, and it takes the environment file and every
-host-scope prerequisite out of the backup itself. A machine that already
+file, no DKIM key, no rclone configuration, no RateGuru user or directory.
+Prepare Host installs the whole runtime, and it takes the environment file and
+every recovery-scope prerequisite — the host material and, for a target whose
+mail is signed, its DKIM key — out of the backup itself. A machine that already
 carries RateGuru state is refused, by name, before anything on it changes
 (§G): the recovery would otherwise turn into a partial repair of unknown
 state.
@@ -207,15 +208,34 @@ Three things that are deliberately not on that list:
 
 ## E. Which backup qualifies
 
-* **Schema 3** — written after the recovery material joined the backup
-  format. Every backup `backup` writes today is schema 3; a backup written
-  before is refused by name ("not clean-host-recovery-capable … requires
-  schema 3"), with no fallback to hand-supplied material.
+* **Schema 4** — written after the recovery material joined the backup
+  format in its recovery scope. Every backup `backup` writes today is
+  schema 4. For `staging-main`, whose mail is never signed, an older
+  **Schema 3** backup qualifies too: its recovery material is the same. A
+  schema 1 or 2 backup is refused by name ("not clean-host-recovery-capable"),
+  with no fallback to hand-supplied material.
 * Named by its **exact timestamp** `YYYYMMDD-HHMMSS`. There is no "latest".
-* Carries `recovery-material.tar.gz` (the target's host-scope prerequisites
-  under their logical names) and a `release.json` with a **full 40-character
-  `source_sha`** — the exact commit the recovery rebuilds. A backup is only
-  written for a deployed target that can name it.
+* Carries `recovery-material.tar.gz` (the target's recovery-scope
+  prerequisites under their logical names) and a `release.json` with a
+  **full 40-character `source_sha`** — the exact commit the recovery
+  rebuilds. A backup is only written for a deployed target that can name it.
+* For a target whose mail is DKIM-signed — `tits-guru` — the backup must be
+  **schema 4**: its recovery material carries `mail-dkim-private-key`, and its
+  manifest records `dkim_public_key_sha256`, the fingerprint of that key's
+  public half. A recovered host must sign with the very key the published DKIM
+  record names, so a schema 3 backup of such a target is refused as
+  insufficient, by name, and no key is ever generated or substituted. The
+  preparation proves the extracted key against the recorded fingerprint and
+  the reviewed policy before anything is installed, installs it before host
+  bootstrap (where the signer requires it), and the signer leaves it
+  `root:opendkim 0640`. See [`backups.md`](backups.md).
+* **Not in place yet: a recovery-time outbound fence.** A host recovered for
+  a target whose mail goes out directly is prepared with that delivery
+  configured, and nothing yet stops it from sending before its own A, PTR and
+  SPF are re-accepted for its new address. That fence — outbound delivery
+  refused on a recovered machine until its address is proved and the release
+  is explicit — is the next, separate change. Until it exists, a production
+  recovery is not run as a rehearsal.
 * Has **passed the offsite restore test**: the nightly `offsite-restore-test`
   downloads the backup, verifies every checksum and certifies its recovery
   material against the installed prerequisite table. A backup it refused is
@@ -281,11 +301,12 @@ In order, and it stops at the first refusal:
 5. **deploy-identity** — derives the deploy public key from `DEPLOY_SSH_KEY`
    on the runner; the private key never leaves it.
 6. **prepare** — Prepare Host in its recovery form: runtime, then
-   `fetch-recovery-material` takes the environment file and the host-scope
-   material out of the backup (manifest first, so an older backup is refused
-   by name), host material, bootstrap, the **offsite-write hold**, target
-   material, database, then an independent verification that requires the
-   hold.
+   `fetch-recovery-material` takes the environment file and the
+   recovery-scope material out of the backup (manifest first, so an older
+   backup is refused by name), recovery-scope material — the host material,
+   and the DKIM key of a target whose mail is signed — bootstrap, the
+   **offsite-write hold**, target material, database, then an independent
+   verification that requires the hold.
 7. **recover** — `recover-host --apply`: the same exact backup, verified
    from scratch, the prepared `shared/.env` compared byte-for-byte with the
    backup's, database and storage restored, the host left deliberately not
@@ -365,7 +386,8 @@ Remove it afterwards. Nothing about the real DNS record changes either way.
 All of the following, and nothing less:
 
 * TARGET is still `staging-main`; HOST is the replacement machine.
-* The data, the storage and `shared/.env` are the exact backup's (schema 3).
+* The data, the storage and `shared/.env` are the exact backup's (schema 4, or
+  schema 3 for `staging-main`).
 * `current` is the backup's exact `source_sha`; `previous` is absent.
 * No migration ran.
 * Queue RUNNING, scheduler PRESENT, health PASS, no guard.
@@ -470,9 +492,10 @@ state in each.
   by hand to make a step pass.
 * Never run a migration on the recovered host during the recovery: the exact
   commit the data belongs to is what gets deployed.
-* Never copy `.env`, TLS material, Basic Auth hashes or an rclone
+* Never copy `.env`, TLS material, Basic Auth hashes, a DKIM key or an rclone
   configuration onto the host by hand; the backup and the runner supply
-  them.
+  them. Never generate a new DKIM key for a recovered host: the published
+  record names the old one.
 * Never weaken `StrictHostKeyChecking`, scan a host key from the workflow,
   or accept a key on first use.
 * Never run `backup-cycle`, `offsite-backup` or `offsite-retention` on the
@@ -543,5 +566,5 @@ the preparation this recovery already began rather than as a dirty host (§K).
   guard, the hold and the final contract
 * [`prepare-host.md`](prepare-host.md) — the preparation, including its
   recovery form
-* [`backups.md`](backups.md) — the backup format, schema 3 and the offsite
+* [`backups.md`](backups.md) — the backup format, schema 4 and the offsite
   restore test

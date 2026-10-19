@@ -247,7 +247,7 @@ function restoreTestOpsPsqlStub(string $scratch): string
  *
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function restoreTestOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', string $databaseName = 'parity_db'): array
+function restoreTestOpsParityRegistry(string $scratch, string $backupNamespace = 'parity', string $databaseName = 'parity_db', string $environmentClass = 'staging'): array
 {
     $account = trim((string) shell_exec('id -un'));
     $group = trim((string) shell_exec('id -gn'));
@@ -284,7 +284,7 @@ function restoreTestOpsParityRegistry(string $scratch, string $backupNamespace =
             'parity-target' => [
                 'id' => 'parity-target',
                 'lifecycle' => 'active',
-                'environment_class' => 'staging',
+                'environment_class' => $environmentClass,
                 'application_root' => $scratch.'/unused-root',
                 'runtime_user' => $account,
                 'runtime_group' => $group,
@@ -346,10 +346,10 @@ function restoreTestOpsBuildBackupDirectory(string $namespaceRoot, string $times
     // ([[ -f "${manifest_path}" ]] || fail ...), not just an empty one.
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
-    // A schema 3 backup carries its recovery material, checksummed in the
-    // position backup writes it — built from an explicit member map, raw
+    // A schema 3 or 4 backup carries its recovery material, checksummed in
+    // the position backup writes it — built from an explicit member map, raw
     // bytes, or every host-scope name by default; omitted only on purpose.
-    if (($options['schema'] ?? null) === 3 && maybeWriteRecoveryMaterial($dir, $options)) {
+    if (in_array($options['schema'] ?? null, [3, 4], true) && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -468,7 +468,7 @@ function restoreTestOpsRunFullRestore(string $scratch, ?array $manifest, array $
     $psqlLog = $scratch.'/psql-'.uniqid('', true).'.log';
     touch($psqlLog);
 
-    [$registryPath, $targetsPath] = restoreTestOpsParityRegistry($scratch, $namespace, $databaseName);
+    [$registryPath, $targetsPath] = restoreTestOpsParityRegistry($scratch, $namespace, $databaseName, $options['environment_class'] ?? 'staging');
 
     // The REAL external-material installer, pointed at a scratch checkout and
     // a scratch host tree, so a schema 3 backup's recovery material is judged
@@ -1082,7 +1082,7 @@ it('rejects a numeric manifest_schema_version beyond the current one before crea
         restoreTestOpsCleanup($scratch);
     }
 })->with([
-    'a future numeric schema' => [4, '4'],
+    'a future numeric schema' => [5, '5'],
     'schema zero' => [0, '0'],
     // The JSON string "3" is not the JSON number 3: type-first
     // classification is what keeps a string from passing as a schema.
@@ -1136,6 +1136,149 @@ it('refuses a schema 3 backup whose recovery material is missing, not checksumme
     ],
     'the archive is not a tar at all' => [['recovery_material_bytes' => "not a gzip archive\n"], 'unreadable'],
 ]);
+
+/**
+ * A schema 4 restore test of an active production parity-target, whose mail
+ * goes out signed: its recovery material carries the production host scope
+ * and a real DKIM key, and its manifest records the key's fingerprint — each
+ * of which a case may change.
+ *
+ * @param  array<string, mixed>  $manifestChanges  '__remove__' removes a field
+ * @param  array<string, string|null>  $memberChanges  null drops a member
+ * @return array{exit: int, output: string, createdbLog: string}
+ */
+function restoreTestOpsRunSignedRestore(string $scratch, string $key, array $manifestChanges = [], array $memberChanges = [], int $schema = 4): array
+{
+    $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'production', 'parity', 'parity_db');
+    $manifest['manifest_schema_version'] = $schema;
+
+    if ($schema === 4) {
+        $manifest['dkim_public_key_sha256'] = dkimPublicKeySha256($key);
+    }
+
+    foreach ($manifestChanges as $field => $value) {
+        if ($value === '__remove__') {
+            unset($manifest[$field]);
+        } else {
+            $manifest[$field] = $value;
+        }
+    }
+
+    $members = [];
+    foreach (recoveryMaterialProductionNames() as $name) {
+        $members[$name] = "material-{$name}-never-logged\n";
+    }
+
+    if ($schema === 4) {
+        $members['mail-dkim-private-key'] = File::get($key);
+    }
+
+    foreach ($memberChanges as $name => $content) {
+        if ($content === null) {
+            unset($members[$name]);
+        } else {
+            $members[$name] = $content;
+        }
+    }
+
+    return restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: [
+        'schema' => $schema,
+        'environment_class' => 'production',
+        'recovery_material' => $members,
+    ]);
+}
+
+it('certifies a schema 4 backup of a target whose mail is signed: its archive carries the DKIM key and its manifest records it', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $key = mailIdentityKey('rsa2048');
+        $result = restoreTestOpsRunSignedRestore($scratch, $key);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Backup schema: schema4')
+            ->toContain('Recovery material: OK (6 recovery-scope files for parity-target: '.implode(' ', [...recoveryMaterialProductionNames(), 'mail-dkim-private-key']).')')
+            ->not->toContain('never-logged');
+        expectNoKeyMaterial($result['output'], $key);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('refuses to certify a schema 4 backup whose DKIM key and manifest do not travel together', function (string $case, string $expected) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $key = mailIdentityKey('rsa2048');
+
+        [$manifest, $members] = match ($case) {
+            'no key in the archive' => [[], ['mail-dkim-private-key' => null]],
+            'a key the manifest does not record' => [['dkim_public_key_sha256' => null], []],
+            'a manifest without the field' => [['dkim_public_key_sha256' => '__remove__'], []],
+            'a malformed fingerprint' => [['dkim_public_key_sha256' => 'zz'], []],
+            'a stranger beside the key' => [[], ['rclone-config' => "[b2]\n"]],
+        };
+
+        $result = restoreTestOpsRunSignedRestore($scratch, $key, $manifest, $members);
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for a backup that cannot seed a recovery');
+        expectNoKeyMaterial($result['output'], $key);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with([
+    'no key in the archive' => ['no key in the archive', 'missing the recovery-scope prerequisite mail-dkim-private-key of parity-target'],
+    'a key the manifest does not record' => ['a key the manifest does not record', 'backup recovery material carries mail-dkim-private-key, but its manifest records no dkim_public_key_sha256'],
+    'a manifest without the field' => ['a manifest without the field', 'backup manifest does not record dkim_public_key_sha256'],
+    'a malformed fingerprint' => ['a malformed fingerprint', 'backup manifest dkim_public_key_sha256 is not a SHA-256 fingerprint: zz'],
+    'a stranger beside the key' => ['a stranger beside the key', 'not a recovery-scope prerequisite of parity-target: rclone-config'],
+]);
+
+it('still certifies a schema 3 backup of a target whose mail is signed for what it is, in the host scope it was written in', function () {
+    // A backup written before the DKIM key joined the recovery material stays
+    // a valid backup — restorable onto the live target. Only a clean-host
+    // recovery refuses it, where the key is actually needed.
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $result = restoreTestOpsRunSignedRestore($scratch, mailIdentityKey('rsa2048'), schema: 3);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('Backup schema: schema3')
+            ->toContain('Recovery material: OK (5 host-scope files for parity-target: '.implode(' ', recoveryMaterialProductionNames()).')');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
+
+it('refuses a schema 4 backup of a target whose mail is not signed when its manifest records a key it does not carry', function () {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'staging', 'parity', 'parity_db');
+        $manifest['manifest_schema_version'] = 4;
+        $manifest['dkim_public_key_sha256'] = str_repeat('b', 64);
+
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 4]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('backup manifest records a DKIM key fingerprint, but its recovery material carries no mail-dkim-private-key');
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+
+        // And the honest version of the same backup is certified.
+        $manifest['dkim_public_key_sha256'] = null;
+        $result = restoreTestOpsRunFullRestore($scratch, manifest: $manifest, options: ['schema' => 4, 'timestamp' => '20260115-130000']);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])->toContain('Recovery material: OK (7 recovery-scope files for parity-target');
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+});
 
 it('refuses a backup that carries anything beyond its closed file set, before the temporary database exists', function (array $options, string $expected) {
     $scratch = restoreTestOpsScratchDir();

@@ -194,7 +194,7 @@ perform_offsite_backup() {
     REMOTE_DIRECTORY="${REMOTE_ROOT}/${LATEST_BACKUP}"
 
     # The manifest decides which closed file set the backup must carry (seven
-    # files for schema 1 and 2, eight for schema 3), and it is proven to be a
+    # files for schema 1 and 2, eight for schema 3 and 4), and it is proven to be a
     # plain regular file before it is read. A backup that is missing one of
     # its own files is incomplete and is never uploaded.
     BACKUP_SCHEMA="$(backup_schema_of_directory "${LOCAL_DIRECTORY}")"

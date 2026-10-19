@@ -926,12 +926,12 @@ it('rejects an unsupported numeric manifest schema_version before rclone is ever
 
     try {
         $manifest = offsiteBackupOpsManifestSchema2('environment', null, 'staging', 'staging', 'rateguru_staging');
-        $manifest['manifest_schema_version'] = 4;
+        $manifest['manifest_schema_version'] = 5;
 
         $result = offsiteBackupOpsRunFullOffsiteBackup($scratch, manifest: $manifest);
 
         expect($result['exit'])->not->toBe(0);
-        expect($result['output'])->toContain('unsupported backup manifest schema_version: 4');
+        expect($result['output'])->toContain('unsupported backup manifest schema_version: 5');
         expect(is_dir($result['bucketRoot'].'/rateguru'))->toBeFalse();
     } finally {
         offsiteBackupOpsCleanup($scratch);

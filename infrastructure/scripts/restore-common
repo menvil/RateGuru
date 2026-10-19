@@ -114,7 +114,7 @@ RESTORE_SCHEDULER_RETRY_DELAY="$(restore_gated_default RATEGURU_RESTORE_SCHEDULE
 # backup is trusted:
 #
 #   schema 1 / schema 2   seven files, six of them checksummed
-#   schema 3              eight files, seven of them checksummed — the extra
+#   schema 3 / schema 4   eight files, seven of them checksummed — the extra
 #                         one is recovery-material.tar.gz
 #
 # For a LIVE restore only database.dump and storage-app.tar.gz are ever
@@ -124,7 +124,7 @@ RESTORE_SCHEDULER_RETRY_DELAY="$(restore_gated_default RATEGURU_RESTORE_SCHEDULE
 # then never read: a live restore must not rewrite shared/.env, TLS material,
 # authorized_keys, Nginx, PHP-FPM, Supervisor or cron. Reconstructing those
 # belongs to Prepare Host (which consumes the recovery material of a schema 3
-# backup on a clean host) and to Repair Target.
+# or 4 backup on a clean host) and to Repair Target.
 RESTORE_BACKUP_CHECKSUMMED_FILES=("${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}")
 
 RESTORE_BACKUP_REQUIRED_FILES=(
@@ -186,6 +186,7 @@ restore_backup_schema_number() {
         schema1) printf '1\n' ;;
         schema2) printf '2\n' ;;
         schema3) printf '3\n' ;;
+        schema4) printf '4\n' ;;
         *)       fail "internal: unrecognised manifest schema verdict: ${1-}" ;;
     esac
 }
@@ -1525,7 +1526,7 @@ restore_assert_manifest_identity() {
     case "${manifest_schema_status}" in
         schema1)
             ;;
-        schema2|schema3)
+        schema2|schema3|schema4)
             local manifest_backup_namespace
             manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -1540,9 +1541,9 @@ restore_assert_manifest_identity() {
                     # A schema 2 manifest predating the target-only cutover
                     # carries no target to compare. Historical manifest
                     # content is immutable and stays restorable. A schema 3
-                    # manifest is never written without one.
-                    [[ "${manifest_schema_status}" != schema3 ]] \
-                        || fail "backup manifest target is missing — a schema 3 manifest always names its target"
+                    # or 4 manifest is never written without one.
+                    [[ "${manifest_schema_status}" == schema2 ]] \
+                        || fail "backup manifest target is missing — a ${manifest_schema_status/schema/schema } manifest always names its target"
                     ;;
                 string)
                     local manifest_target

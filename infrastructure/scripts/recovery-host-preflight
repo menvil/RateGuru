@@ -914,9 +914,10 @@ IN ONE SCREEN — the whole operation; the numbered sections below explain it.
    - NO PREPARE_* value is read by a recovery. Do NOT change DEPLOY_HOST. Do NOT change DNS.
 
 5. A usable backup
-   - schema 3 (written after the recovery material joined the format), named by
+   - schema 4 (or schema 3 for a target whose mail is not DKIM-signed), named by
      its exact timestamp YYYYMMDD-HHMMSS — there is no "latest";
-   - carries recovery-material.tar.gz and a release.json with a full 40-character source_sha;
+   - carries recovery-material.tar.gz — with the DKIM signing key for a target
+     whose mail is signed — and a release.json with a full 40-character source_sha;
    - has passed the offsite restore test (offsite-restore-test certifies it).
 
 6. Dispatch

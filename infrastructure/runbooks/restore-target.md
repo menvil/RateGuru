@@ -27,8 +27,8 @@ These are different operations and must never be conflated.
 A restore guard blocks Repair Target in every state, so these two can never run
 against the same target at the same time.
 
-A backup contains seven files (manifest schema 1 and 2) or eight (schema 3,
-which adds `recovery-material.tar.gz`). A live restore **applies exactly two
+A backup contains seven files (manifest schema 1 and 2) or eight (schema 3
+and 4, which add `recovery-material.tar.gz`). A live restore **applies exactly two
 of them**, whichever the schema:
 
 ```
@@ -40,11 +40,11 @@ release.json               verified, never applied
 SHA256SUMS                 verified, never applied
 environment.env            verified, NEVER applied
 server-configuration.tar.gz  verified, NEVER applied
-recovery-material.tar.gz   verified (schema 3), NEVER applied
+recovery-material.tar.gz   verified (schema 3 and 4), NEVER applied
 ```
 
-`environment.env`, `server-configuration.tar.gz` and — for a schema 3 backup
-— `recovery-material.tar.gz` are required to be present and checksum-valid —
+`environment.env`, `server-configuration.tar.gz` and — for a schema 3 or 4
+backup — `recovery-material.tar.gz` are required to be present and checksum-valid —
 a backup missing any of them is incomplete and is refused — and are then never
 read again. A live restore therefore never changes
 `shared/.env`, `rclone.conf`, TLS material, `authorized_keys`, the Nginx
@@ -162,26 +162,27 @@ right now. In order:
 
 1. the manifest is a plain regular file and decides the schema, and the
    schema's closed file set — seven files for schema 1 and 2, eight for
-   schema 3 — exists exactly, as plain regular files, with nothing beyond it;
+   schema 3 and 4 — exists exactly, as plain regular files, with nothing beyond it;
 2. `SHA256SUMS` names exactly the checksummed backup files of that schema (six,
    or seven with `recovery-material.tar.gz`), once each, and nothing else —
    checked **before** `sha256sum --check` follows a single path, so an entry
    naming `/etc/shadow` or `../../something` never reaches it;
 3. every checksum matches;
 4. the manifest identifies THIS target — project, environment, database, and
-   (schema 2 and 3) backup namespace and target. The existing schema 1 /
+   (schema 2, 3 and 4) backup namespace and target. The existing schema 1 /
    schema 2 contract is reused unchanged, including its acceptance of
-   historical schema 2 manifests that predate the target field; a schema 3
-   manifest always names its target;
+   historical schema 2 manifests that predate the target field; a schema 3 or
+   4 manifest always names its target;
 5. the storage archive would create nothing but directories and regular files,
    all under `app/`;
-6. for schema 3, the recovery material archive is judged **as data**: a
+6. for schema 3 and 4, the recovery material archive is judged **as data**: a
    readable gzip tar of top-level regular files with plain names — no
    directory, link, device, FIFO, absolute, nested or parent-relative path,
    no duplicate — through `common`'s shared rule, never extracted, content
    never reported. Deliberately **not** against today's prerequisite table: a
-   live restore never applies the archive, so a schema 3 backup written under
-   an older table stays restorable. The vocabulary-aware judgement is
+   live restore never applies the archive, so a schema 3 or 4 backup written
+   under an older table stays restorable — a schema 3 backup of a target whose
+   mail is signed, which carries no DKIM key, included. The vocabulary-aware judgement is
    `restore-test`'s, `offsite-restore-test`'s and the recovery
    preparation's.
 

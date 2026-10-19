@@ -52,8 +52,11 @@
 # shell command and no secret. install-mail-gateway, run from the same bundle,
 # is the one reader that turns it into a gateway configuration.
 #
-# Repository tooling: run from a checkout by a developer or by CI, and
-# deliberately absent from the operational bundle installed on a host.
+# Repository tooling: run from a checkout by a developer or by CI. The
+# operational bundle installed on a host carries a copy for one reader only:
+# mail-identity, which a backup's capture asks whether a target's DKIM key is
+# part of its recovery material, and which reads every delivery mode through
+# this CLI. Nothing on the host runs it for anything else.
 #
 # The policy is data, never code. It is read with jq only — never sourced, never
 # eval'd — and every rule runs inside jq against the exact JSON values. Nothing

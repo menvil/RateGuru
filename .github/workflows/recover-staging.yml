@@ -36,10 +36,11 @@ name: Recover staging host
 #     -> deployment marker
 #
 # NO HAND-SUPPLIED MATERIAL. A start recovery reads no PREPARE_* secret at all.
-# The replacement machine is prepared from the SAME schema 3 backup the
-# recovery restores: its environment file and its host-scope material (TLS,
-# Basic Auth, the shared Nginx TLS material) are fetched out of that backup on
-# the host, through the recovery offsite credential. The only things GitHub
+# The replacement machine is prepared from the SAME backup the recovery
+# restores: its environment file and its recovery-scope material (TLS, Basic
+# Auth, the shared Nginx TLS material, and the DKIM signing key of a target
+# whose mail is signed) are fetched out of that backup on the host, through the
+# recovery offsite credential. The only things GitHub
 # seeds are that credential and the deploy PUBLIC key, derived here from the
 # deployment credential in a job that holds nothing else. Nothing is copied
 # off a working host by an operator, and a backup that carries no recovery
@@ -1862,7 +1863,7 @@ jobs:
             validate:*)
               action_required "the request was refused before any environment or secret was read" \
                 "mode, backup, replacement-host or replacement-port is malformed, or the target is not active (see the validate job log)" \
-                "use mode=start with backup=YYYYMMDD-HHMMSS (an exact schema 3 backup), replacement-host=<IP> and replacement-port=22" \
+                "use mode=start with backup=YYYYMMDD-HHMMSS (an exact schema 4 backup), replacement-host=<IP> and replacement-port=22" \
                 "for a continuation, use mode=continue-held with the operation ID from the earlier summary"
               ;;
             binding:*)
@@ -1936,8 +1937,8 @@ jobs:
                 "configure DEPLOY_SSH_KEY in the staging GitHub Environment as the deployment private key (a usable OpenSSH private key)"
               ;;
             prepare:*:backup-not-recovery-capable:*)
-              action_required "backup ${backup} is a schema 1 or 2 backup, written before the recovery material joined the format" \
-                "a clean-host recovery can only be prepared from a schema 3 backup; there is no fallback to hand-supplied material, and this backup stays restorable onto a LIVE target" \
+              action_required "backup ${backup} does not carry the recovery material this recovery needs: it is a schema 1 or 2 backup, or a schema 3 backup of a target whose mail is DKIM-signed" \
+                "a clean-host recovery can only be prepared from a backup that carries the target's recovery material — schema 4, or schema 3 for a target whose mail is not signed; there is no fallback to hand-supplied material, no DKIM key is ever generated or substituted, and this backup stays restorable onto a LIVE target" \
                 "take a new backup on the live host (backup --target staging-main, or the nightly backup-cycle) and let it reach the offsite namespace" \
                 "confirm it passed the offsite restore test, then use its exact timestamp"
               ;;
@@ -1945,11 +1946,11 @@ jobs:
               action_required "backup ${backup} could not be read from the offsite namespace" \
                 "no backup with that exact timestamp exists there, or RECOVERY_RCLONE_CONFIG cannot reach or read the namespace; nothing on the host was changed" \
                 "list the namespace with the recovery rclone configuration: rclone --config <cfg> lsf rateguru-b2:rateguru-database-backups/rateguru/<namespace>/" \
-                "use the exact timestamp of an existing schema 3 backup that passed the offsite restore test"
+                "use the exact timestamp of an existing schema 4 backup that passed the offsite restore test"
               ;;
             prepare:*:recovery-material-invalid:*)
               action_required "the recovery material of backup ${backup} is not acceptable for staging-main" \
-                "its archive is unsafe or does not hold exactly the target's host-scope prerequisites as the current prerequisite table states them; nothing was extracted or installed" \
+                "its archive is unsafe, does not hold exactly the target's recovery-scope prerequisites as the current prerequisite table states them, or carries a DKIM key that is not usable or not the one its manifest recorded; nothing was installed" \
                 "take a new backup on the live host so its recovery material matches the current prerequisite table" \
                 "confirm the new backup passed the offsite restore test, then use its exact timestamp"
               ;;
@@ -1972,15 +1973,15 @@ jobs:
                 "re-run against the same clean machine — or a new one if the preflight would now refuse it"
               ;;
             recover:*:backup-not-recovery-capable:*|recover:*:*:backup-not-recovery-capable:*)
-              action_required "backup ${backup} is a schema 1 or 2 backup" \
-                "recover-host requires a schema 3 backup and staged no data; nothing was activated" \
+              action_required "backup ${backup} does not carry the recovery material this recovery needs (schema 1 or 2, or a schema 3 backup of a target whose mail is DKIM-signed)" \
+                "recover-host requires a schema 4 backup — or schema 3 for a target whose mail is not signed — and staged no data; nothing was activated" \
                 "take a new backup on the live host and let it reach the offsite namespace" \
                 "confirm it passed the offsite restore test, then use its exact timestamp"
               ;;
             recover:*:*:backup-not-found:*)
               action_required "backup ${backup} could not be downloaded from the offsite namespace" \
                 "no backup with that exact timestamp exists there, or the host's rclone configuration cannot read it; nothing was staged" \
-                "list the namespace and use the exact timestamp of an existing schema 3 backup"
+                "list the namespace and use the exact timestamp of an existing schema 4 backup"
               ;;
             recover:*:*:recovery-material-invalid:*)
               action_required "the recovery material of backup ${backup} is not acceptable" \

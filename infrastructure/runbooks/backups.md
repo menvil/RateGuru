@@ -43,8 +43,8 @@ storage-app.tar.gz            storage/app
 environment.env               shared/.env
 release.json                  release identity and source_sha
 server-configuration.tar.gz   diagnostic snapshot of the target's own host configuration
-recovery-material.tar.gz      the target's host-scope external prerequisites, by logical name
-manifest.json                 identity, manifest_schema_version 3
+recovery-material.tar.gz      the target's recovery-scope material, by logical name
+manifest.json                 identity, manifest_schema_version 4
 SHA256SUMS                    the seven files above, in that order
 ```
 
@@ -63,33 +63,78 @@ A backup is written only for a **deployed** target: `current/release.json`
 must name a well-formed release and a full 40-character `source_sha`, or
 `backup` refuses before the first byte is dumped and writes nothing. A backup
 written today is the source of a clean-host recovery, which rebuilds exactly
-that commit; a schema 3 backup with an empty or abbreviated identity would be
+that commit; a backup with an empty or abbreviated identity would be
 reported as a success and found unusable on the worst day.
 
 **`recovery-material.tar.gz`** is what makes a backup usable for a clean-host
 recovery without any external material being supplied by hand. `backup`
 captures it through `install-target-prerequisites --capture --target T --scope
-host` — the same prerequisite table Prepare Host installs from, parsed from
-the committed Nginx vhosts, so the list is never written down a second time.
-For `staging-main` that is `basic-auth`, `tls-certificate`,
-`tls-private-key`, `tls-dhparams`, `nginx-tls-options`,
-`mail-tls-certificate` and `mail-tls-private-key`. Each is copied under its
-**logical name**; a certbot link on the host becomes a plain regular file in
-the archive; the archive holds top-level regular files only — no directory,
-symlink, hard link, device, FIFO, socket, absolute or nested path, unknown or
-duplicate name — and a recovery validates exactly that before extracting a
-byte. The destination owner and mode are the installer's decision, never the
-archive's. Content is never read, hashed, measured or logged; only names are.
-A capture that cannot be completed safely — a prerequisite missing, drifted or
-unsafe on the host — **fails the backup**, and no backup directory is written:
-a backup missing this material would be reported as a success and found
-unusable on the worst day.
+recovery` — the same prerequisite table Prepare Host installs from, so the
+list is never written down a second time. The **recovery scope** is closed:
+
+- every **host-scope** prerequisite, parsed from the committed Nginx vhosts.
+  For `staging-main` that is `basic-auth`, `tls-certificate`,
+  `tls-private-key`, `tls-dhparams`, `nginx-tls-options`,
+  `mail-tls-certificate` and `mail-tls-private-key`. A production target has
+  no committed vhost of its own, so for `tits-guru` it is the shared
+  mail-capture vhosts' material: `mail-basic-auth`, `mail-tls-certificate`,
+  `mail-tls-private-key`, `mail-nginx-tls-options` and `mail-tls-dhparams`;
+- plus **`mail-dkim-private-key`**, only for a target whose mail policy
+  requires DKIM signing — the target `mail-identity dkim-key` answers
+  `required` for, because its mail goes out signed. Today that is `tits-guru`,
+  whose key is `/etc/opendkim/keys/tits-guru/rg1.private`. Where the key
+  lives, how large it must be and whether it is required come from
+  `mail-identity` and nowhere else.
+
+A replacement host has to sign with the very key the published DKIM record
+names; that key exists nowhere but on the host it replaces, so it travels in
+the backup. Nothing else of the target scope does: `environment.env` is a
+backup member of its own, the deploy key is derived by a recovery from the
+deployment credential, and the offsite credential is the recovery's own.
+
+Each file is copied under its **logical name**; a certbot link on the host
+becomes a plain regular file in the archive; the archive holds top-level
+regular files only — no directory, symlink, hard link, device, FIFO, socket,
+absolute or nested path, unknown or duplicate name — and a recovery validates
+exactly that before extracting a byte. The destination owner and mode are the
+installer's decision, never the archive's. Content is never read, hashed,
+measured or logged; only names are. A capture that cannot be completed safely
+— a prerequisite missing, drifted or unsafe on the host, or a required DKIM
+key that is absent, not a usable key under the reviewed policy, or held with
+any access but root:opendkim 0640 (or the pre-signer root:root 0600) —
+**fails the backup**, and no backup directory is written: a backup missing
+this material would be reported as a success and found unusable on the worst
+day.
+
+The manifest records **`dkim_public_key_sha256`**: the SHA-256 of the
+captured key's PUBLIC half — the DER SubjectPublicKeyInfo the DKIM record's
+`p=` value encodes — from `install-target-prerequisites --dkim-fingerprint`,
+which asks `mail-identity key-fingerprint`. It is `null` when the archive
+carries no key. A clean-host recovery refuses a key that does not reproduce
+it. The digest of a public key discloses nothing the DNS does not, and it is
+what an operator compares with the published record:
+
+```bash
+dig +short TXT rg1._domainkey.tits.guru @1.1.1.1 \
+  | tr -d '" \n' | sed 's/.*p=//; s/;.*//' | base64 -d | sha256sum
+```
+
+The private key itself is never printed, logged or hashed by any of this.
 
 Never in the recovery material, and never in a backup at all: the rclone
 configuration or any B2 credential, the deploy private key, the deploy
 `authorized_keys` (a recovery derives the public key from the deployment
 credential on the runner), any bootstrap credential, any database password
-beyond the ones inside `environment.env`, and any application artifact.
+beyond the ones inside `environment.env`, and any application artifact. The
+DKIM key is the one target secret the recovery material carries, and only for
+a target whose mail is signed.
+
+The operational bundle carries `mail-identity` and `mail-routing`, with the
+three mail contracts they read, for exactly this: the nightly backup runs
+from the bundle, and the installed `install-target-prerequisites` asks the
+installed `mail-identity` whether the key belongs in the recovery material,
+whether it is a usable key, and what its fingerprint is. See
+[`install-target-operations.md`](install-target-operations.md).
 
 `server-configuration.tar.gz` is **not** replaced by the recovery material and
 the two are not supersets of each other: the snapshot is a forensic record of
@@ -151,40 +196,59 @@ beyond the minimum are kept while inside `local_retention_days`
 just-created backup is the newest entry and therefore always inside the
 protected minimum.
 
-### Manifest: schema 3, backward compatible with schema 1 and 2
+### Manifest: schema 4, backward compatible with schema 1, 2 and 3
 
-Every backup written today carries a `manifest_schema_version: 3` manifest
+Every backup written today carries a `manifest_schema_version: 4` manifest
 naming its `target`, `environment` and `backup_namespace`, alongside the
 pre-existing `project`, `database`, `release`, `postgres_version` and
-`php_version` fields, plus the leftover `selector` field described below. The
-three schemas differ only in the file set: schema 1 (no
-`manifest_schema_version` field at all) and schema 2 carry exactly **seven**
-files, without `recovery-material.tar.gz`; schema 3 carries exactly **eight**.
-`restore-test` validates whichever schema it finds on the backup it selects:
+`php_version` fields, the leftover `selector` field described below, and
+`dkim_public_key_sha256` (a fingerprint, or `null`). The schemas:
+
+| Schema | Files | Recovery material | Clean-host recovery |
+|---|---|---|---|
+| 1 (no `manifest_schema_version`) | seven | none | refused by name |
+| 2 | seven | none | refused by name |
+| 3 | eight | the host scope | only for a target whose mail is not signed |
+| 4 | eight | the recovery scope, and its key's fingerprint in the manifest | yes |
+
+Schema 3 and 4 carry the same eight files; they differ in what the archive
+holds and what the manifest records. `restore-test` validates whichever schema
+it finds on the backup it selects:
 
 - always required: `project == rateguru`, `environment` matching the target's
   environment class, `database` matching the resolved database;
-- additionally required for schema 2 and 3: `backup_namespace` matching the
-  resolved namespace, and a non-null manifest `target` matching the target ID
-  given (a schema 3 manifest always names its target);
-- additionally for schema 3: `recovery-material.tar.gz` present, covered by
-  `SHA256SUMS` exactly once, and **certified** by
-  `install-target-prerequisites --validate-recovery-material` — safe as data
-  and holding exactly the target's host-scope names as the installed
-  prerequisite table states them today, top-level regular files, nothing
-  else. Names are reported; content never is. `offsite-restore-test`
-  certifies the remote backup the same way, so a nightly PASS can never be
-  reported for a backup a clean-host recovery could not be prepared from;
+- additionally required for schema 2, 3 and 4: `backup_namespace` matching
+  the resolved namespace, and a non-null manifest `target` matching the
+  target ID given (a schema 3 or 4 manifest always names its target);
+- additionally for schema 3 and 4: `recovery-material.tar.gz` present,
+  covered by `SHA256SUMS` exactly once, and **certified** by
+  `install-target-prerequisites --validate-recovery-material` in the scope it
+  was captured in — the host scope for schema 3, the recovery scope for
+  schema 4 — safe as data and holding exactly the target's names as the
+  installed prerequisite table states them today, top-level regular files,
+  nothing else. For schema 4 the manifest must record
+  `dkim_public_key_sha256` exactly when the archive carries
+  `mail-dkim-private-key`, and `null` when it does not. Names are reported;
+  content never is. `offsite-restore-test` certifies the remote backup the
+  same way, so a nightly PASS can never be reported for a backup a clean-host
+  recovery could not be prepared from;
 - a schema 1 or 2 backup remains fully restorable onto a **live** target, as
   long as the fields above still match. It is **not** clean-host-recovery-
   capable: `recover-host --apply` and the recovery preparation refuse it by
-  name, and there is no fallback to hand-supplied material.
+  name, and there is no fallback to hand-supplied material;
+- a schema 3 backup also remains fully restorable onto a live target, and is
+  still certified for what it is. It stays a clean-host recovery source for a
+  target whose mail is not signed (`staging-main`). For a target whose mail is
+  signed (`tits-guru`) it carries no DKIM key, so the recovery preparation and
+  `recover-host --apply` refuse it as insufficient, by name — no key is ever
+  generated or substituted. The first schema 4 backup after the bundle is
+  reinstalled is the first one a `tits-guru` clean-host recovery accepts.
 
 Two levels of judgement for the recovery material, on purpose. A **live
 restore** (`restore-target`, through `verify-backup`) never applies the
 archive, so it judges it as **data only** — a readable archive of top-level
 regular files with plain names, through `common`'s shared rule — and
-deliberately not against today's prerequisite table: a schema 3 backup
+deliberately not against today's prerequisite table: a schema 3 or 4 backup
 written under an older table (a changed TLS scheme, a retired mail-capture
 vhost) is still a perfectly good source of database and storage, and a live
 restore that refused it over material it never installs would be a refusal
@@ -197,8 +261,9 @@ be sourced; a test pins the two together.
 
 `manifest_schema_version` is recognized strictly, by its JSON type: absent or
 JSON `null` is schema 1; a JSON *number* equal to `2` is schema 2; a JSON
-*number* equal to `3` is schema 3. Any other value — `4`, `0`, the JSON
-*string* `"2"` or `"3"`, an array, an object, a boolean — is rejected
+*number* equal to `3` is schema 3; a JSON *number* equal to `4` is schema 4.
+Any other value — `5`, `0`, the JSON *string* `"2"` or `"3"`, an array, an
+object, a boolean — is rejected
 outright, before the temporary database is created, with `unsupported backup
 manifest schema_version: ...` naming the offending value. The manifest is
 proven to be a plain regular file before it is read.
@@ -290,7 +355,7 @@ JSON `null` → schema 1; JSON number `2` → schema 2; JSON number `3` → sche
 outright). Schema 2 and 3 additionally require `backup_namespace` to match
 the resolved namespace, and a non-null manifest `target` to match the target
 ID given. The schema decides the closed file set — seven files for schema 1
-and 2, eight for schema 3 — and both scripts require exactly that set.
+and 2, eight for schema 3 and 4 — and both scripts require exactly that set.
 `offsite-backup` validates the manifest of the local backup it is about to
 upload before any Backblaze B2 access check; `offsite-restore-test` validates
 the manifest of the remote backup it downloads before creating the temporary

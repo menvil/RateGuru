@@ -134,7 +134,9 @@
 #     -> lifecycle gate
 #     -> fetch-recovery-material            the backup's bootstrap subset,
 #                                           verified, laid out by logical name
-#     -> host-scope prerequisites           from that material
+#     -> recovery-scope prerequisites       from that material: the host scope,
+#                                           plus the DKIM key of a target whose
+#                                           mail is signed
 #     -> bootstrap-host
 #     -> offsite-write hold                 before the offsite credential lands
 #     -> target-scope prerequisites         laravel-env from the backup, the
@@ -145,7 +147,12 @@
 # The pipeline underneath is the ordinary one, slice for slice, with the same
 # children, the same convergence rule and the same verifications. Recovery
 # mode only decides what the material directory contains and where in the
-# order it has to exist. The effective material lives in a root-only
+# order it has to exist — and so the host slice installs the RECOVERY scope:
+# a target whose mail goes out signed needs its DKIM key in place before host
+# bootstrap, because the signer bootstrap installs refuses to verify while a
+# required key is absent. Installed there before the signer exists, the key
+# takes the one pre-signer layout the signer converts to root:opendkim 0640,
+# and the target slice then finds it present and identical to the backup's. The effective material lives in a root-only
 # directory that is removed when this run ends, on success and on failure.
 #
 # THE OFFSITE-WRITE HOLD. A host prepared for a recovery ends up a complete
@@ -279,8 +286,10 @@ what must be configured before Recover, how to verify the result):
                      ever used to fill in what is ABSENT; existing material is
                      never overwritten or rotated.
   --recovery-backup  Recovery preparation. With --apply: take the target's
-                     environment file and every host-scope prerequisite out of
-                     this exact offsite backup (schema 3 required), through
+                     environment file and every recovery-scope prerequisite
+                     (the host scope, plus the DKIM key of a target whose
+                     mail is signed) out of this exact offsite backup (schema 4, or schema 3 for a
+                     target whose mail is not signed), through
                      fetch-recovery-material, instead of from supplied
                      material. --material-dir then names the SEED directory,
                      holding exactly rclone-config and deploy-authorized-keys.
@@ -326,7 +335,13 @@ TARGET_AGNOSTIC_SLICE=runtime
 slice_label() {
     case "$1" in
         runtime)              printf 'base runtime packages\n' ;;
-        host-prerequisites)   printf 'Nginx-referenced external material (required before 5.4)\n' ;;
+        host-prerequisites)
+            if recovery_mode; then
+                printf 'Nginx-referenced external material and the DKIM signing key, from the backup (required before 5.4)\n'
+            else
+                printf 'Nginx-referenced external material (required before 5.4)\n'
+            fi
+            ;;
         bootstrap)            printf 'host bootstrap (5.2 runtime -> 5.3 identities -> 5.4 services -> preflight)\n' ;;
         target-prerequisites) printf 'identity-scoped external material (.env, deploy key, rclone)\n' ;;
         database)             printf 'target PostgreSQL role and database\n' ;;
@@ -391,6 +406,12 @@ slice_args() {
             ;;
         host-prerequisites|target-prerequisites)
             scope="${slice_id%-prerequisites}"
+
+            # A recovery preparation installs, and verifies, what the backup
+            # carried before host bootstrap: the recovery scope, never more.
+            if [[ "${scope}" == host ]] && recovery_mode; then
+                scope=recovery
+            fi
 
             printf '%s\n' "--${mode}" --target "${TARGET_ID}" --scope "${scope}"
 
@@ -982,7 +1003,7 @@ run_apply() {
     gate_no_data_operation_hold
 
     if recovery_mode; then
-        printf 'Recovery preparation: the environment file and every host-scope prerequisite come from offsite backup %s, not from supplied material\n' "${RECOVERY_BACKUP}"
+        printf 'Recovery preparation: the environment file and every recovery-scope prerequisite come from offsite backup %s, not from supplied material\n' "${RECOVERY_BACKUP}"
         run_recovery_slices
 
         # Placed between the host and target slices above; proven again here,

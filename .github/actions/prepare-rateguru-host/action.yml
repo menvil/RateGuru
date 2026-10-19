@@ -45,10 +45,11 @@ description: >-
 # `rclone-config`, the recovery offsite credential the replacement machine
 # reads the backup through, and `deploy-authorized-keys`, the deploy PUBLIC
 # key the calling workflow derives on the runner — and every other material
-# input must be empty. The target's environment file and its host-scope
-# material (TLS, Basic Auth, the shared Nginx TLS material) are taken out of
-# the named schema 3 backup itself, on the host, by the server-side
-# prepare-host through fetch-recovery-material. Supplying them here is refused
+# input must be empty. The target's environment file and its recovery-scope
+# material (TLS, Basic Auth, the shared Nginx TLS material, and the DKIM
+# signing key of a target whose mail is signed) are taken out of the named
+# backup itself, on the host, by the server-side prepare-host through
+# fetch-recovery-material. Supplying them here is refused
 # rather than ignored: a recovery that could take its environment from a hand
 # is a recovery that could restore data under the wrong one.
 
