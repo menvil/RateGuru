@@ -68,8 +68,7 @@ it('lets an administrator edit a persona while sanctioning it, the two taking tu
     PersonaProfile::factory()->connection('committed_peer')->create(['user_id' => $persona->id, 'character' => 'Original']);
     expect($persona->id)->toBeLessThan($admin->id);
 
-    $barrierDir = sys_get_temp_dir().'/rateguru-persona-race-'.bin2hex(random_bytes(6));
-    File::ensureDirectoryExists($barrierDir.'/disk', 0o700);
+    $barrierDir = raceDirectory('persona');
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([

@@ -266,7 +266,7 @@ final class UploadPostForm extends Component
             return;
         }
 
-        if ($tagIds->count() >= 10) {
+        if ($tagIds->count() >= PostContentRules::MOST_TAGS) {
             return;
         }
 

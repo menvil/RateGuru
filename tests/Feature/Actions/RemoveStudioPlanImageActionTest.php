@@ -7,8 +7,6 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
-use App\Services\Media\MediaReferenceChecker;
-use Illuminate\Support\Collection;
 
 /**
  * Taking the photo off a Draft drops the plan's reference and, in the same
@@ -56,13 +54,7 @@ it('keeps the photo when the reference cannot be dropped and released together',
     $plan = StudioPlan::factory()->withImage()->create();
     $assetId = $plan->image_asset_id;
 
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated release failure.');
-        }
-    });
+    failingMediaReleases();
 
     expect(fn () => app(RemoveStudioPlanImageAction::class)->handle(User::factory()->admin()->create(), $plan, 1))
         ->toThrow(RuntimeException::class, 'Simulated release failure.');

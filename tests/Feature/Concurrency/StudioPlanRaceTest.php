@@ -31,15 +31,6 @@ use Illuminate\Support\Facades\Storage;
  * their first user lock.
  */
 
-/** A scratch directory for a race: its barriers, and the disk its photos land on. */
-function studioPlanRaceDirectory(): string
-{
-    $directory = sys_get_temp_dir().'/rateguru-studio-plan-race-'.bin2hex(random_bytes(6));
-    File::ensureDirectoryExists($directory.'/disk', 0o700);
-
-    return $directory;
-}
-
 /** Removes what the competitors committed, as they committed it: for real. */
 function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $directory): void
 {
@@ -114,7 +105,7 @@ it('lets two administrators save one draft in turn, refusing the save drawn from
     $db = committedConnection();
     [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
     $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $first->id, 'title' => 'Original']);
-    $directory = studioPlanRaceDirectory();
+    $directory = raceDirectory('studio-plan');
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([
@@ -142,7 +133,7 @@ it('lets a new photo and another write to one draft take turns, leaving no photo
     $db = committedConnection();
     [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
     $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $first->id, 'title' => 'Harbour']);
-    $directory = studioPlanRaceDirectory();
+    $directory = raceDirectory('studio-plan');
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([
@@ -197,7 +188,7 @@ it('leaves a deleted draft\'s photo released once when Media diagnostics release
     $admin = User::factory()->admin()->connection('committed_peer')->create();
     $asset = MediaAsset::factory()->postImage()->connection('committed_peer')->create(['owner_user_id' => $admin->id]);
     $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $admin->id, 'image_asset_id' => $asset->id]);
-    $directory = studioPlanRaceDirectory();
+    $directory = raceDirectory('studio-plan');
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([
@@ -232,7 +223,7 @@ it('lets an administrator choose a persona as a draft\'s author while sanctionin
     $admin = User::factory()->admin()->connection('committed_peer')->create();
     $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $admin->id, 'title' => 'Harbour']);
     expect($persona->id)->toBeLessThan($admin->id);
-    $directory = studioPlanRaceDirectory();
+    $directory = raceDirectory('studio-plan');
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([

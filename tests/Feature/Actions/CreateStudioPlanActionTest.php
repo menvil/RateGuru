@@ -156,7 +156,7 @@ it('asks again on the administrator\'s locked row, not the copy it was handed', 
     User::query()->whereKey($admin->id)->firstOrFail()->forceFill(['status' => 'banned'])->save();
 
     expect(fn () => app(CreateStudioPlanAction::class)->handle($admin, new StudioPlanData))
-        ->toThrow(fn (CannotManageStudioPlanException $exception) => expect($exception->getMessage())->toContain('not allowed'));
+        ->toThrow(fn (CannotManageStudioPlanException $exception) => expect($exception->isNotAllowed())->toBeTrue());
 
     expect(StudioPlan::query()->exists())->toBeFalse();
 });

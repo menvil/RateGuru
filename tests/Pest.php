@@ -21,6 +21,7 @@ use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
+use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Import\Dns\HostResolver;
@@ -54,6 +55,7 @@ use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
@@ -1043,6 +1045,22 @@ function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = nul
     app()->instance(ImageVariantProcessor::class, $processor);
 
     return $processor;
+}
+
+/**
+ * Makes every media release fail as a lost database connection would, at
+ * the reference check: what a write that releases a photo in its own
+ * transaction must survive by rolling the whole transaction back.
+ */
+function failingMediaReleases(): void
+{
+    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
+    {
+        public function referencedAssetIds(Collection $assetIds): Collection
+        {
+            throw new RuntimeException('Simulated release failure.');
+        }
+    });
 }
 
 /**
@@ -12755,6 +12773,19 @@ function committedConnection(): ConnectionInterface
     DB::purge('committed_peer');
 
     return DB::connection('committed_peer');
+}
+
+/**
+ * A scratch directory of its own for one race: its barriers, and a `disk`
+ * directory the competitors store their files on. The test removes it when
+ * the race is over.
+ */
+function raceDirectory(string $prefix): string
+{
+    $directory = sys_get_temp_dir().'/rateguru-'.$prefix.'-race-'.bin2hex(random_bytes(6));
+    File::ensureDirectoryExists($directory.'/disk', 0o700);
+
+    return $directory;
 }
 
 /**

@@ -7,9 +7,7 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
-use App\Services\Media\MediaReferenceChecker;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -112,13 +110,7 @@ it('keeps the draft and its photo when the release fails', function () {
     $plan = StudioPlan::factory()->withImage()->create();
     $assetId = $plan->image_asset_id;
 
-    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
-    {
-        public function referencedAssetIds(Collection $assetIds): Collection
-        {
-            throw new RuntimeException('Simulated release failure.');
-        }
-    });
+    failingMediaReleases();
 
     expect(fn () => app(DeleteStudioPlanDraftAction::class)->handle(User::factory()->admin()->create(), $plan, 1))
         ->toThrow(RuntimeException::class, 'Simulated release failure.');

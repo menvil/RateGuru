@@ -51,6 +51,12 @@ final class CannotManageStudioPlanException extends DomainException
         return new self('The chosen author is no longer a persona that can be chosen.', self::REASON_AUTHOR_UNAVAILABLE);
     }
 
+    /** Whether the administrator may not manage publication plans (any more). */
+    public function isNotAllowed(): bool
+    {
+        return $this->reason === self::REASON_NOT_ALLOWED;
+    }
+
     /** Whether the plan was deleted. */
     public function isGone(): bool
     {
