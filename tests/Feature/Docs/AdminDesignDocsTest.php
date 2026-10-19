@@ -341,6 +341,28 @@ it('describes Users on v2: status only through the moderation actions, said as t
         ->toContain('`UpdateUserAccountAction`');
 });
 
+it('describes Content Studio with Personas alone, built in Admin v2 and leaving out what does not work yet', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('| Content Studio | Personas |')
+        ->toContain('## Content Studio')
+        ->toContain('### Personas')
+        ->toContain('Its section holds only screens that work')
+        ->toContain('`PersonaResource` is over `User`, narrowed to the Persona role')
+        ->toContain('Status is changed only there: Content Studio has no moderation of its own and no Deactivate.')
+        ->toContain('an active administrator\'s (`manage-personas`)')
+        ->toContain('| Persona editor | a 680 wide drawer over the list | an Admin v2 editor page, saved from the top bar |')
+        ->toContain('| Personas status | Active or Inactive, with Deactivate and Activate in the row |');
+
+    expect($plan)
+        ->toContain('### Content Studio')
+        ->toContain('| 1 | Personas — the list, a new persona and a persona\'s editor | **done** |')
+        ->toContain('**Personas. Status: done.**')
+        ->toContain('`PersonasQuery`, a registered stable pagination boundary');
+});
+
 it('describes Reports on v2: the chain docked or over the list, closing apart from acting on the content', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));

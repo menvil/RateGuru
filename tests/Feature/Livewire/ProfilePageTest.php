@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\PersonaEngagement;
 use App\Livewire\Profile\ProfilePage;
+use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -290,4 +292,48 @@ it('does not create reports from report user placeholder', function () {
         ->assertSee('Report user');
 
     expect(Report::query()->count())->toBe(0);
+});
+
+/*
+ * A Persona's public profile is anyone's: the same page, its display name,
+ * bio and avatar — and none of what Content Studio keeps about it.
+ */
+it('shows a persona\'s public profile like anyone\'s, and nothing Content Studio keeps', function () {
+    Storage::fake('public');
+
+    $persona = User::factory()->persona()->withAvatar(path: 'avatars/night_owl.jpg')->create([
+        'username' => 'night_owl',
+        'name' => 'Night Owl',
+        'display_name' => 'Night Owl',
+        'bio' => 'Up late, every night.',
+    ]);
+    PersonaProfile::factory()->create([
+        'user_id' => $persona->id,
+        'short_description' => 'INTERNAL-SHORT',
+        'character' => 'INTERNAL-CHARACTER',
+        'speech_style' => 'INTERNAL-STYLE',
+        'topics' => 'INTERNAL-TOPICS',
+        'never_writes_about' => 'INTERNAL-LIMITS',
+        'engagement' => PersonaEngagement::High,
+        'max_replies_per_day' => 42,
+    ]);
+
+    $html = $this->get('/u/night_owl')->assertOk()->getContent();
+
+    expect($html)
+        ->toContain('Night Owl')
+        ->toContain('Up late, every night.')
+        ->toContain(Storage::disk('public')->url('avatars/night_owl.jpg'));
+
+    foreach (['INTERNAL-SHORT', 'INTERNAL-CHARACTER', 'INTERNAL-STYLE', 'INTERNAL-TOPICS', 'INTERNAL-LIMITS', 'persona.invalid'] as $internal) {
+        expect($html)->not->toContain($internal);
+    }
+});
+
+it('shows a persona without an avatar by its initials, as anyone', function () {
+    User::factory()->persona()->create(['username' => 'night_owl', 'name' => 'Night Owl', 'display_name' => 'Night Owl']);
+
+    expect(Livewire::test(ProfilePage::class, ['username' => 'night_owl'])->html())
+        ->toContain('data-testid="profile-avatar"')
+        ->not->toContain('<img');
 });

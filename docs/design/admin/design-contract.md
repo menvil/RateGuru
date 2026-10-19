@@ -187,6 +187,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
+  | Content Studio | Personas |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -209,7 +210,8 @@ This section is the target design from the prototype. Production builds it as de
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
 Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
-Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too.
+Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too. Content
+Studio's Personas was built in Admin v2 from the start.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -252,7 +254,8 @@ Tags, Rating groups, Project settings and Media diagnostics are migrated: their 
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
   step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
-  diagnostics when it was read, Refresh and Run full audit. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  diagnostics when it was read, Refresh and Run full audit; Personas Create persona, a link; a new persona's page
+  and a persona's editor their count of unsaved changes, Discard, and Create persona or Save changes. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -988,6 +991,52 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 - **Access:** project settings are an administrator's (`manage-project-settings`); every write goes through
   `SaveProjectSettingsAction`, which refuses translations and the offered languages.
 
+## Content Studio
+
+```text
+Content Studio
+└── Personas
+```
+
+Content Studio is where administrators run the accounts the site's editorial content comes from. Its section
+holds only screens that work: the prototype's Publications & plans, Reply rules, Reply log and Action queue arrive
+with their own screens, never as items before them.
+
+### Personas
+
+The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor (`EditPersona`) are drawn in
+Admin v2. `PersonaResource` is over `User`, narrowed to the Persona role — a persona is a regular account, not a
+second kind of one — and keeps the routes, the navigation item and the access check; global search stays with
+Users, whose result for a persona opens its editor for an administrator.
+
+- **List header band:** “Regular accounts run by Content Studio. They never sign in; their status changes only
+  through moderation in Users.” Stats: Total, Active, Restricted (limited, banned, shadowbanned) and Replies on
+  (engagement other than Off) — figures that can be counted now; none about plans or replies yet.
+- **Toolbar (TBL-02):** the search over the username, the names, the short description and the character; Status
+  (Active, Limited, Banned, Shadowbanned) and Engagement (Off, Low, Normal, High) as filter dropdowns with their
+  chips, in the URL, a value the list does not offer dropped; 25 a page, newest first (`PersonasQuery`, a
+  registered stable pagination boundary).
+- **Table (TBL-01):** the avatar or initials, the display name — a link to the editor — and the username; the
+  short description with the speech style and emoji under it; the status (STS-01); the engagement; Max a day;
+  Edit and the row menu — Edit persona, View public profile, and Moderate in Users (Limit, ban or restore access).
+  Status is changed only there: Content Studio has no moderation of its own and no Deactivate.
+- **Empty states (TBL-05):** “No personas yet” with Create persona; “No personas match” with Clear filters.
+- **The editor (NAV-02):** one Admin v2 page for a new persona and for an existing one, saved from the top bar
+  with the count of unsaved changes, Discard and Create persona or Save changes, and the browser's question before
+  a page with unsaved changes is left. Profile — the photo (Upload photo, kept with the draft until Save), Display
+  name (required), Username (made from the display name when left empty on create; the public profile address as
+  its hint) and Public bio; Character — Short description, Character, Speech style, Topics and typical jokes,
+  Never writes about (FRM-03 with counters) and Emoji (FRM-08: None, Occasional, Frequent), internal and never
+  shown on the site; Activity — Engagement (FRM-08: Off, Low, Normal, High, with what each means) and Max replies
+  a day (FRM-05, 0–50), kept as settings that start nothing yet. Beside it, the account: its status with Moderate
+  in Users, View public profile, and what it never does — sign in, receive mail, administer.
+- **Saving:** through `CreatePersonaAction`, `UpdatePersonaAction` and `SetPersonaAvatarAction`, which check
+  everything again whatever the page sent. Each error stays by its field; a draft drawn before somebody else's
+  save is refused with a toast and a warning notice whose Reload draws the persona as it is; a persona deleted
+  meanwhile can no longer be saved. A new persona's editor opens once it is created.
+- **Access:** an active administrator's (`manage-personas`): the navigation item, every page and every Livewire
+  request ask, and so do the actions. A moderator sees no Content Studio and moderates personas in Users.
+
 ## Moderation
 
 ### Posts
@@ -1177,7 +1226,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 ## Responsive rules
 
 - Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
-  groups and Project settings also at 768 and 390.
+  groups and Project settings also at 768 and 390; Personas and the persona editor also at 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1305,6 +1354,11 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
 | Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
+| Persona editor | a 680 wide drawer over the list | an Admin v2 editor page, saved from the top bar | the kit's drawer is at most 480 wide; one screen does not widen the kit, and an editor page is the contract's way to edit a record |
+| Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
+| Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
+| Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
+| Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the top bar, through the action that checks it |
 
 ### Tertiary text contrast
 

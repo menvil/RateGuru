@@ -306,6 +306,29 @@ reference.
 Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
 migration, and the prototype's Growth section — Games with the game editor, Experiments and Analytics.
 
+### Content Studio
+
+Content Studio is a section of its own, built one working screen at a time from the current prototype rather than
+migrated from v1; each screen brings its navigation item, and no item comes before its screen. The contract's
+[Content Studio](design-contract.md#content-studio) section describes what runs.
+
+| Order | Screen | Status |
+|---|---|---|
+| 1 | Personas — the list, a new persona and a persona's editor | **done** |
+| 2 | Publications & plans with the publication editor | planned |
+| 3 | Action queue | planned |
+| 4 | Reply rules and Reply log | planned |
+
+**Personas. Status: done.** The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor
+(`EditPersona`) are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
+(`manage-personas`): searched and narrowed by status and engagement on the server, 25 a page (`PersonasQuery`, a
+registered stable pagination boundary); the editor saves its public profile, its character and its activity
+settings from the top bar through `CreatePersonaAction` and `UpdatePersonaAction`, refusing a draft drawn before
+somebody else's save, and its photo through `SetPersonaAvatarAction`. The prototype's 680 drawer is an editor page,
+since the kit's drawer is at most 480 wide; geography, an hourly schedule, generated avatars and sample replies are
+left out. A persona's page in Users leads to its editor. No kit element was added: the avatar circle takes a photo
+and a 72 size.
+
 ## Definition of done for a migrated screen
 
 - Passes every item of [`ui-review-checklist.md`](ui-review-checklist.md).

@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Users;
 
+use App\Filament\Resources\Personas\Pages\EditPersona;
+use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Support\AdminNavigationGroup;
@@ -16,7 +18,8 @@ use Illuminate\Database\Eloquent\Model;
  * (EditUser), both drawn in Admin v2. The resource keeps the routes, the
  * navigation item, who may edit whom, and global search, whose results open
  * the person's page, or the list on them where the page is not theirs to
- * edit.
+ * edit — and a Persona's editor in Content Studio for whoever may manage
+ * Personas.
  */
 class UserResource extends Resource
 {
@@ -43,9 +46,11 @@ class UserResource extends Resource
 
     public static function getGlobalSearchResultUrl(Model $record): ?string
     {
-        return static::canEdit($record)
-            ? EditUser::getUrl(['record' => $record])
-            : ListUsers::getUrl(['q' => $record->getAttribute('username')]);
+        return match (true) {
+            PersonaResource::canEdit($record) => EditPersona::getUrl(['record' => $record]),
+            static::canEdit($record) => EditUser::getUrl(['record' => $record]),
+            default => ListUsers::getUrl(['q' => $record->getAttribute('username')]),
+        };
     }
 
     public static function getPages(): array

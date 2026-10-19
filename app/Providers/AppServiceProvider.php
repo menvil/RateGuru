@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
+use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
@@ -78,6 +79,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
         Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
+        Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

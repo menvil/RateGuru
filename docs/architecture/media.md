@@ -10,7 +10,10 @@ Every uploaded file — a post image or a user avatar — is represented by one
 `status`, `visibility`, and an optional `owner_user_id` (the uploader — not a
 substitute for the `posts.image_asset_id` / `users.avatar_asset_id`
 relationship, which is what actually attaches an asset to something). It is
-soft-deletable.
+soft-deletable. One exception to "the uploader": a Persona's avatar, uploaded
+by an administrator in Content Studio, is owned by the Persona whose avatar it
+is, so it follows that account's lifecycle — anonymization releases it — like
+any member's own avatar.
 
 ## MediaVariant is a derived file
 
@@ -70,6 +73,21 @@ replacements can't both read the same "previous" asset and leave one of them
 orphaned. It soft-deletes the previous avatar asset inline (unchanged by
 PR-07) — physical cleanup happens later, on its own schedule, once the grace
 period expires; see "Media lifecycle" below.
+
+A Persona's avatar takes the same path through `SetPersonaAvatarAction`:
+`ImageUploadStorer` checks, normalizes and stores the file under the Persona's
+id before any transaction; the transaction locks the administrator's row and
+the Persona's in ascending id order, asks again whether the administrator may
+manage Personas and whether the account is still a living Persona — so an
+avatar never lands on an account deleted during the upload — and whether it is
+still what the editor was drawn from (its profile fingerprint and its avatar),
+so a photo chosen before somebody else's save is refused; it then creates the
+`avatar` asset owned by the Persona and points `users.avatar_asset_id` at it,
+and only then releases the previous asset through
+`MediaLifecycleService::releaseUnreferenced()` (soft-deleted unless something
+else still references it). A failure or a refusal after the store removes the
+stored file through `StoredMediaCleaner`; the variants are generated after the
+commit (`GenerateMediaVariantsJob`, `afterCommit()`).
 
 ## Open Graph is a variant, not a post column
 

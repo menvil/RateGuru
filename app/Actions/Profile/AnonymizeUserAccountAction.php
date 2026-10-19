@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Follow;
 use App\Models\PasswordResetToken;
+use App\Models\PersonaProfile;
 use App\Models\PostSave;
 use App\Models\Session;
 use App\Models\SocialAccount;
@@ -29,7 +30,8 @@ use Illuminate\Support\Str;
  *
  * Everything here is DB-only: the avatar is detached and released through
  * MediaLifecycleService (soft-delete + the normal media:purge grace
- * period). No filesystem I/O happens inside the transaction.
+ * period). No filesystem I/O happens inside the transaction. A Persona's
+ * Content Studio profile is deleted with the rest of its private state.
  */
 final class AnonymizeUserAccountAction
 {
@@ -104,6 +106,12 @@ final class AnonymizeUserAccountAction
             // may recognise them by it, and "Log in with Google" must not
             // find the row again.
             SocialAccount::query()->where('user_id', $locked->id)->delete();
+
+            // What Content Studio kept about a Persona — its character, how it
+            // speaks, what it never writes about — is internal to the account
+            // and goes with it. The role is reset above, so the tombstone
+            // keeps no trace of having been run by Content Studio.
+            PersonaProfile::query()->where('user_id', $locked->id)->delete();
 
             $locked->notifications()->delete();
 

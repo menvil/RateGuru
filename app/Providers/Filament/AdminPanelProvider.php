@@ -7,6 +7,10 @@ use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Personas\Pages\CreatePersona;
+use App\Filament\Resources\Personas\Pages\EditPersona;
+use App\Filament\Resources\Personas\Pages\ListPersonas;
+use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\RatingGroups\Pages\CreateRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
@@ -90,6 +94,21 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::editorActions('Save changes', null, 'discard-project-settings', 'save-project-settings'),
                 scopes: ProjectSettingsPage::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => PersonaResource::canCreate() ? view('filament.pages.personas.topbar')->render() : '',
+                scopes: ListPersonas::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Create persona', null, 'discard-persona', 'save-persona'),
+                scopes: CreatePersona::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save changes', null, 'discard-persona', 'save-persona'),
+                scopes: EditPersona::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
