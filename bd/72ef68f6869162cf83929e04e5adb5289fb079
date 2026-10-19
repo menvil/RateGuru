@@ -1,0 +1,97 @@
+app/Livewire/Admin/UserEditor.php
+  s_0f80700cf0b8c6::t_24995a675cfe12 1-13,15-27,29-51,56-91,94,96-228,243-244,248,250-349
+  s_0f80700cf0b8c6::t_6ca9a6d186aa64 14,28,52-55,92-93,95,229-242,245-247,249
+app/Providers/Filament/AdminPanelProvider.php
+  s_0f80700cf0b8c6::t_ec61efd55a6285 99,102
+resources/views/filament/pages/users/row.blade.php
+  s_0f80700cf0b8c6::t_cbd1626cb32798 3-4,20,64,73
+resources/views/filament/pages/users.blade.php
+  s_0f80700cf0b8c6::t_cbd1626cb32798 7-8,15-16,112-115
+tests/Feature/Filament/PersonaResourceTest.php
+  s_0f80700cf0b8c6::t_bd669afab950bf 12,16,35-38,55,60-67,70,82,115,117,220,229,232-248,259,264,277,279-280,293-324,330,343,368,374,391,408,417,427,430,434,437-444,447,451-453,456-459,462,466,474,490,495,517,533,558,576,587,594,610,624,644,648-649,653,659-660,664
+resources/views/livewire/admin/user-editor.blade.php
+  s_0f80700cf0b8c6::t_60ea0b1bcd6b55 3-7,9-14,19-29,31-32,47-55,57-100,102-136,138-162,165,167-191,193-204,206-222,224-230,232-235,237-247
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_5c56067e4081e0 4980-4981,4983,4987-4991,4993-4994,4996-4997,5000-5002,5005-5006,5009-5010,5013-5014,5016-5018,5021-5022,5030,5080-5084,5091
+  s_0f80700cf0b8c6::t_03524f662ce88d 4935,4944,4950-4951,4954,5025-5027
+  s_0f80700cf0b8c6::t_757fe12e20adc0 3018-3021
+  s_0f80700cf0b8c6::t_3922b408bba0cf 4831
+resources/views/filament/pages/users/sanction.blade.php
+  s_0f80700cf0b8c6::t_26526faac56fcf 48
+  s_0f80700cf0b8c6::t_801750801b522d 4-6
+app/Filament/Resources/Personas/Pages/ListPersonas.php
+  s_0f80700cf0b8c6::t_0f819736077336 9,17,23-29,55-58,89-115,158,184,186,200-212
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_0f80700cf0b8c6::t_d06b63a53d646c 334,362
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_d06b63a53d646c 276-277,280-282,337-338,341-344
+app/Filament/Resources/Personas/Concerns/EditsPersona.php
+  s_0f80700cf0b8c6::t_5b2444913e9854 22-25,27-29
+resources/views/filament/pages/taxonomy/create-action.blade.php
+  s_0f80700cf0b8c6::t_b2f456bd077283 1
+tests/Feature/Filament/UserResourceTest.php
+  s_0f80700cf0b8c6::t_185931d566e1b9 11,21-24,40,58,62-65,68,72-91,114,144,149,156,165,181,187,196,200,202-206,212,229-231,240,252,257,277,330,351-353,355,360,366,383,385,395,398,403,409,413,418,425,428,434,444,463
+  s_0f80700cf0b8c6::t_67014b5db31eb2 334-337,346-347
+tests/Feature/I18n/AdminLocaleTest.php
+  s_0f80700cf0b8c6::t_8b56de490da956 3,66,81,83,87,125
+app/Filament/Resources/Users/Pages/ListUsers.php
+  s_0f80700cf0b8c6::t_494b54efe2a4ae 5,11,16,23-27,70-73,99-147,212,227-229
+tests/Browser/AdminUsersBrowserTest.php
+  s_0f80700cf0b8c6::t_d5aa4b74c85f40 10-12,73-74,76,78,81,83-86,88-89,91,94-95,99-100,105,109-112,114-129
+  s_0f80700cf0b8c6::t_131009be83f8c1 97,113
+  s_0f80700cf0b8c6::t_30135f955494a2 77
+resources/views/livewire/admin/persona-editor.blade.php
+  s_0f80700cf0b8c6::t_dea627d5f3faaf 3-7,9-13,16,19-24,27-35,37-61,63,65-98,100,102-141,143-146,148-150,152-219,221-223,225-232,234-247,249-288,290-305
+app/Filament/Resources/Users/UserResource.php
+  s_0f80700cf0b8c6::t_cbd1626cb32798 5,17-19,21-22,51-52
+tests/Browser/AdminStudioPlansBrowserTest.php
+  s_0f80700cf0b8c6::t_a789e75359b42c 192,200
+  s_0f80700cf0b8c6::t_d7fc067ee7ab69 194
+tests/Browser/AdminPersonasBrowserTest.php
+  s_0f80700cf0b8c6::t_131009be83f8c1 58
+  s_0f80700cf0b8c6::t_30135f955494a2 91,117
+  s_0f80700cf0b8c6::t_d5aa4b74c85f40 11-13,55-56,61-75,77-80,83,87-88,90,92,96,104,106,108-109,113-114,116,118,121-126,128-129,133-134,136
+app/Filament/Resources/Users/Concerns/ModeratesUsers.php
+  s_0f80700cf0b8c6::t_aaceb1ec148cf4 27-30
+app/Filament/Resources/Personas/PersonaResource.php
+  s_0f80700cf0b8c6::t_476b596508ff05 19-21
+app/Filament/Resources/Users/Pages/EditUser.php
+  s_0f80700cf0b8c6::t_cbd1626cb32798 10-13,19,28
+resources/views/components/admin/ui/drawer.blade.php
+  s_0f80700cf0b8c6::t_757fe12e20adc0 5,11-12,32
+tests/Feature/Filament/UserResourceActionsTest.php
+  s_0f80700cf0b8c6::t_185931d566e1b9 5,130,132-135,140-143
+  s_0f80700cf0b8c6::t_67014b5db31eb2 127,139
+app/Filament/Resources/Personas/Pages/EditPersona.php
+  s_0f80700cf0b8c6::t_b2f456bd077283 10-13,19,23,28
+resources/views/filament/pages/personas/row.blade.php
+  s_0f80700cf0b8c6::t_1efb63fd0c79e2 3-9,26,52,56
+resources/views/filament/pages/personas.blade.php
+  s_0f80700cf0b8c6::t_1efb63fd0c79e2 8-9,16-17,102,117-121
+tests/Feature/I18n/SetLocaleMiddlewareTest.php
+  s_0f80700cf0b8c6::t_d16fcda4402db4 278
+resources/css/filament/admin/tokens.css
+  s_0f80700cf0b8c6::t_757fe12e20adc0 149
+app/Filament/Resources/Personas/Pages/CreatePersona.php
+  s_0f80700cf0b8c6::t_b2f456bd077283 9-11,17,21,23
+app/Livewire/Admin/PersonaEditor.php
+  s_0f80700cf0b8c6::t_7f3bf95827bcd7 1-287
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_d06b63a53d646c 205-206,213,257-261,474-478,1083-1087,1096,1101-1105,1110-1111,1115-1116,1233-1238,1247,1259-1263,1266-1269,1368,1414,1418,1454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd72ef68f6869162cf83929e04e5adb5289fb079",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
