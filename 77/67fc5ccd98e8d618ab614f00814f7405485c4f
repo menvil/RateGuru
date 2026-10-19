@@ -1,0 +1,91 @@
+config/content_studio.php
+  s_0f80700cf0b8c6::t_9bf1f153447d40 15-16
+resources/views/filament/pages/editor/script.blade.php
+  s_0f80700cf0b8c6::t_afedb07524c318 18
+tests/Feature/Jobs/AnalyzeStudioPlanImageJobTest.php
+  s_0f80700cf0b8c6::t_f778ee0f094fed 23-26
+  s_0f80700cf0b8c6::t_587b0711983e2a 22
+tests/Browser/AdminStudioPlansBrowserTest.php
+  s_0f80700cf0b8c6::t_acb2d9ddb88ec0 170-171,173-176,178-185,187-188,190-206
+  s_0f80700cf0b8c6::t_95d659767acb0b 13-14,18-20
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_ca8bcc7c232332 1034-1055,1057,1066-1069,1071-1072,1434-1435
+  s_0f80700cf0b8c6::t_40954d5e226b0a 1056
+  s_0f80700cf0b8c6::t_0db14ec3450a4e 308-309
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_40954d5e226b0a 333-335
+  s_0f80700cf0b8c6::t_ca8bcc7c232332 327-330
+tests/Feature/Filament/EditStudioPlanPageTest.php
+  s_0f80700cf0b8c6::t_945711102d4aca 62
+resources/views/livewire/admin/studio-plan-image-analysis-card.blade.php
+  s_0f80700cf0b8c6::t_1161796171256e 3-6,8-11,15-19,23,25-26,29-34,36-41,43-113,115-127,130
+app/Filament/Resources/StudioPlans/Pages/EditStudioPlan.php
+  s_0f80700cf0b8c6::t_3038e1220d803c 19-23,25-28,141,143,149,151,156-157,179,187,219,223-238,240-241,243,252-253,257-259,269
+tests/Feature/Filament/StudioPlanImageAnalysisUiTest.php
+  s_0f80700cf0b8c6::t_49f5b077988f37 27-31,60-69,75,77-87,90,92-94,103,107,113-115,127,133,135,146,163,167-170,207,247,283
+  s_0f80700cf0b8c6::t_4b8291ccc569b5 171
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_b252b03a2e45d1 5,8,13-14,16,29,38,56-66,120-121,127,130,133-154,194-195,200,202-213,217-218,221,224-225,228-235,237-238,241,243-275,278-279,285-286,289-293,295-314,316-318,360,385-386,414,484-496,498-503,505-534,537-543,545-556,560-562,564,566-569,571-573,575-578,580-581,583-584,586,589-593,596-597
+  s_0f80700cf0b8c6::t_0148970ef771d7 82-83,315,601-604,608,612,614,621-624,649,706,738,751,756-757,759,761,763-764,767-775
+  s_0f80700cf0b8c6::t_9a100a2805418f 81,626-627
+  s_0f80700cf0b8c6::t_875bccc60b0621 239,242,281-284
+  s_0f80700cf0b8c6::t_4dcf356dccb243 34,625
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_0f80700cf0b8c6::t_c476c73fd36ef8 15,232,459-462
+  s_0f80700cf0b8c6::t_2d2c7c610b88a0 4-5,8,10-12,17,26-27,29,32-33,37-43,48,53-54,57,59-62,67-74,81-82,89,91-92,95-97,104-113,116-119,121-124,127-129,131-137,139-150,153-154,157-164,167-168,170,172-176,178-192,194,197-198,202,204-208,210-213,215-220,222-225,227-229,231,233,236-238,241,243-244,246-248,251-252,255,258-262,265-267,270,272-273,275,277-278,280-284,286-291,293-296,298-306,309-322,324-329,331,333-337,340-348,352,358-359,363,366-368,370-371,376-379,381-382,385,388,391,393-405,408-409,411-415,419-451,454-458,463-473
+  s_0f80700cf0b8c6::t_5dae432297ea50 200-201
+  s_0f80700cf0b8c6::t_366dc9b8e22729 360-361
+app/Livewire/Admin/StudioPlanImageAnalysisCard.php
+  s_0f80700cf0b8c6::t_cc248685a4114a 10,19,25-26,28-30,50,59-60,67-69,107,109,112,127,132,138,141,160-186,188
+  s_0f80700cf0b8c6::t_dfa65d47e3d02d 187
+  s_0f80700cf0b8c6::t_1161796171256e 73
+resources/views/filament/pages/editor/topbar.blade.php
+  s_0f80700cf0b8c6::t_fe9565da78500a 23
+  s_0f80700cf0b8c6::t_afedb07524c318 11-12
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_358904601e1b13 5545
+  s_0f80700cf0b8c6::t_760efb621c603f 5503,5505-5506
+  s_0f80700cf0b8c6::t_e0500623bff7a3 710-721,5286-5370,5435,5453-5461,5511-5544,5548-5557,5726-5735,5737-5739,5744,5746,5750-5756,5759,5762
+tests/Pest.php
+  s_0f80700cf0b8c6::t_9bf1f153447d40 12994,13091-13093
+tests/Browser/AdminStudioPlanImageAnalysisBrowserTest.php
+  s_0f80700cf0b8c6::t_760efb621c603f 105
+  s_0f80700cf0b8c6::t_234effb902d3a0 6-7,15-21,23-26,33-36,46-55,58-60,62-65,67-78,89-95,98-99,101-104,106,108-117,119,121-122,124
+resources/views/components/admin/ui/card.blade.php
+  ai_agent 15-33
+tests/Feature/Architecture/EnvironmentContractTest.php
+  s_0f80700cf0b8c6::t_9bf1f153447d40 241
+resources/views/components/admin/ui/icon.blade.php
+  ai_agent 106-111
+app/Actions/Studio/RequestStudioImageAnalysisAction.php
+  s_0f80700cf0b8c6::t_587b0711983e2a 22-25
+app/Filament/Resources/StudioPlans/Pages/CreateStudioPlan.php
+  s_0f80700cf0b8c6::t_c0cd980075b7e4 6,12,19-28,58-71,75-78,98-99,106,116-117,122,125-182
+  s_0f80700cf0b8c6::t_de14c417e868f9 84,87-88,90,92-93
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_ca8bcc7c232332 101-104,273-283,286-289,293-295,297-301
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_0f80700cf0b8c6::t_4dcf356dccb243 2-18,20-123,125,127,129-130,139-140,142-153,155-172,180,182,184,187,196,198,200-208,211,217,222-224,226-229,232-247,249-258,263-268
+resources/views/filament/pages/studio-plan.blade.php
+  s_0f80700cf0b8c6::t_afedb07524c318 6-8,12-16,33,43,118-126,128-130
+  s_0f80700cf0b8c6::t_e0500623bff7a3 41,127
+tests/Feature/Filament/CreateStudioPlanPageTest.php
+  s_0f80700cf0b8c6::t_37406ef6fc3734 3-4,11,17,20-25,32-33,38-41,108,110-111,113-119,123-129,133-178,181,193-195,205-265,309-311,313,317-319
+  s_0f80700cf0b8c6::t_b40f44d44bdf54 266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7767fc5ccd98e8d618ab614f00814f7405485c4f",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
