@@ -431,7 +431,7 @@ it('rejects an unsupported manifest schema version exactly as the existing backu
         removeScratchDir($scratch);
     }
 })->with([
-    'a future numeric schema' => 4,
+    'a future numeric schema' => 5,
     'schema zero' => 0,
     // The JSON *string* "2" is not the JSON number 2: without type-first
     // classification this silently passed as legacy schema 1.

@@ -17,7 +17,7 @@ getting them onto the host safely.
 
 ## What this installer owns — and does not
 
-Exactly thirty-two files:
+Exactly thirty-seven files:
 
 | Source (this repo) | Destination |
 |---|---|
@@ -52,12 +52,17 @@ Exactly thirty-two files:
 | `infrastructure/scripts/restore-target` | `/home/www/rateguru/bin/restore-target` |
 | `infrastructure/scripts/recover-host` | `/home/www/rateguru/bin/recover-host` |
 | `infrastructure/scripts/install-target-prerequisites` | `/home/www/rateguru/bin/install-target-prerequisites` |
+| `infrastructure/scripts/mail-identity` | `/home/www/rateguru/bin/mail-identity` |
+| `infrastructure/scripts/mail-routing` | `/home/www/rateguru/bin/mail-routing` |
+| `infrastructure/config/mail-identity.json` | `/home/www/rateguru/config/mail-identity.json` |
+| `infrastructure/config/mail-routing.json` | `/home/www/rateguru/config/mail-routing.json` |
+| `infrastructure/config/mail-outbound.json` | `/home/www/rateguru/config/mail-outbound.json` |
 | `infrastructure/scripts/verify-required-clis` | `/home/www/rateguru/bin/verify-required-clis` |
 
 These destinations are **fixed, hardcoded constants** in the installer — not
 configurable by environment variable or CLI argument, on purpose. This
-installer's entire job is putting these thirty-two files in these
-thirty-two places with these exact permissions. Nothing else. It never sources or
+installer's entire job is putting these thirty-seven files in these
+thirty-seven places with these exact permissions. Nothing else. It never sources or
 evaluates `deployment.conf` as shell — it installs it as plain file content,
 identically to every other file it manages.
 
@@ -73,6 +78,21 @@ target's host-scope prerequisite table from those vhosts, and on a live host
 host was prepared from, never a copy of the list. The installed vhost sources
 are never applied to Nginx by this bundle; `install-bootstrap-services` owns
 `/etc/nginx`.
+
+**`mail-identity` and `mail-routing`, with the three mail contracts, are there
+for the same backup.** A target whose mail goes out DKIM-signed carries its
+DKIM key in its recovery material, and the installed
+`install-target-prerequisites` decides that — whether the key belongs there,
+whether it is a usable key, and the fingerprint of its public half the
+manifest records — by asking `mail-identity` (`dkim-key`, `check-key`,
+`key-fingerprint`), which reads every delivery mode through `mail-routing`.
+The contracts are committed, non-secret configuration, installed
+`root:root 0644` beside the registry. No DKIM rule is copied into the bundle:
+the judge is. Nothing installed here runs either tool for anything else — no
+gateway, signer or activation runs from the bundle. `--apply` proves, staged
+and again installed, that `mail-identity validate` accepts the contracts
+against the registry; a bundle whose capture could not decide would make
+every nightly backup of a signed target fail.
 
 **`verify-required-clis` is a deployment prerequisite, not a convenience.**
 `deploy` invokes `/home/www/rateguru/bin/verify-required-clis` by absolute
@@ -95,7 +115,7 @@ check.
 
 `/home/www/rateguru/config` and `/home/www/rateguru/bin` are **not** owned by
 this installer, and it never creates, `chown`s or `chmod`s either one — only
-the thirty-two files inside them. `--apply` validates both directories before
+the thirty-seven files inside them. `--apply` validates both directories before
 it creates a backup or changes anything: each must exist, be a real
 directory (not a symlink), owned by `root:root`, and not group- or
 other-writable. `--apply` refuses to proceed — before touching anything — if
@@ -180,8 +200,8 @@ clear error before anything else runs.
 
 ### `--check` — repository-only, no root
 
-Validates the thirty-two source files (exist, regular, not a symlink), runs
-`bash -n` on the twenty-three shell scripts (every source file except the
+Validates the thirty-seven source files (exist, regular, not a symlink), runs
+`bash -n` on the twenty-five shell scripts (every source file except the
 registry, `deployment.conf`, the deployment protocol contract and the four
 Nginx vhost sources, none of which
 is shell), confirms `jq`
@@ -239,7 +259,7 @@ sudo infrastructure/scripts/install-target-operations --apply
    staging is already unhealthy, apply refuses to touch anything: there would
    be no way to tell whether a later failure was caused by this install or was
    already there.
-6. The thirty-two source files are copied into a private, root-only temporary
+6. The thirty-seven source files are copied into a private, root-only temporary
    staging directory, then run together there — using the `RATEGURU_*` test
    override contract, and **only** here — to prove the candidate set is
    internally consistent before anything real is touched: `targets validate`;
@@ -357,7 +377,7 @@ line — `--verify` never claims success after a step it didn't actually pass.
 | `common`, `restore-common` | `root:root` | `0644` | sourced libraries, never CLIs — must never be executable |
 | `nginx/rateguru-staging`, `nginx/rateguru-production`, `nginx/mailpit-staging`, `nginx/mailtrap-local-staging` | `root:root` | `0644` | the committed vhost sources, installed as data under `/home/www/rateguru/config/nginx/` (itself `root:root` `0755`) — never applied to Nginx. The installed `install-target-prerequisites` reads the one named by a target's registry `nginx.site_name`, plus the two mail vhosts; `rateguru-production` is named by no registered target and is carried for this installer's own byte-verification alone |
 
-None of the thirty-two may be group- or world-writable, and none may be a
+None of the thirty-seven may be group- or world-writable, and none may be a
 symlink — enforced both when installing and when verifying. Existing
 destinations must also be a plain regular file or absent — a directory,
 FIFO, socket or device is refused the same way a symlink is.
@@ -421,7 +441,7 @@ sudo cp -a \
     /home/www/rateguru/bin/common
 ```
 
-Repeat for each of the thirty-two destinations that need restoring. Confirm with:
+Repeat for each of the thirty-seven destinations that need restoring. Confirm with:
 
 ```bash
 sudo infrastructure/scripts/install-target-operations --verify

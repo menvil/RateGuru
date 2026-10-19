@@ -264,13 +264,14 @@ prerequisite installer is then fed:
 | material | comes from |
 |---|---|
 | `laravel-env` (`shared/.env`) | the backup's own `environment.env` |
-| `basic-auth`, `tls-certificate`, `tls-private-key`, `tls-dhparams`, `nginx-tls-options`, `mail-tls-certificate`, `mail-tls-private-key` | the backup's `recovery-material.tar.gz`, captured on the live host by the same prerequisite table |
+| `basic-auth`, `tls-certificate`, `tls-private-key`, `tls-dhparams`, `nginx-tls-options`, `mail-tls-certificate`, `mail-tls-private-key` (for `tits-guru`: the `mail-` prefixed shared mail-capture material) | the backup's `recovery-material.tar.gz`, captured on the live host by the same prerequisite table |
+| `mail-dkim-private-key` — only for a target whose mail is DKIM-signed (`tits-guru`) | the backup's `recovery-material.tar.gz`, proven against the `dkim_public_key_sha256` its manifest records before it is staged |
 | `deploy-authorized-keys` | the public half of `DEPLOY_SSH_KEY`, derived on the runner with `ssh-keygen -y`; the private key never leaves the runner and never reaches the host |
 | `rclone-config` | `RECOVERY_RCLONE_CONFIG` |
 
-Nothing is copied by hand — no `.env`, no TLS material, no Basic Auth file —
-and the action refuses hand-supplied material beside a recovery backup before
-it uploads anything. Because the environment file *is* the backup's, the
+Nothing is copied by hand — no `.env`, no TLS material, no Basic Auth file, no
+DKIM key — and the action refuses hand-supplied material beside a recovery
+backup before it uploads anything. Because the environment file *is* the backup's, the
 byte-for-byte `.env` comparison `recover-host --apply` performs
 ([`recover-host.md`](recover-host.md) §4) holds by construction; it is kept,
 and still fails closed, because it is the proof that the prepared host and the
@@ -278,13 +279,24 @@ backup agree rather than an assumption that they do.
 
 ### Which backups qualify
 
-Only a backup whose manifest is **schema 3** — the format that carries
-`recovery-material.tar.gz` — can recover a clean host. `recover-host --apply`
-and the recovery preparation both refuse anything older, by name:
+Only a backup whose manifest is **schema 4** — the format whose
+`recovery-material.tar.gz` holds the target's recovery scope — or, for a
+target whose mail is not signed, **schema 3**, can recover a clean host.
+`recover-host --apply` and the recovery preparation both refuse anything
+older, by name:
 
 ```text
 backup 20260115-023000 is not clean-host-recovery-capable: its manifest
-schema is 2, and a host recovery requires schema 3 …
+schema is 2, and a host recovery requires schema 3 or 4 …
+```
+
+A schema 3 backup of a target whose mail is DKIM-signed carries no key, and
+is refused the same way:
+
+```text
+backup 20260115-023000 is not clean-host-recovery-capable for tits-guru: it is
+a schema 3 backup, and tits-guru's recovery material also needs
+mail-dkim-private-key, which only a schema 4 backup carries …
 ```
 
 There is no fallback to hand-supplied material. An older backup stays fully
@@ -292,7 +304,7 @@ restorable onto a **live** target through Restore Target Data; for a
 clean-host recovery, take a new backup on a live host and recover from that.
 A backup is only written for a deployed target whose `release.json` names a
 full `source_sha`, and the nightly `restore-test` / `offsite-restore-test`
-certify a schema 3 backup's recovery material against the installed
+certify a schema 3 or 4 backup's recovery material against the installed
 prerequisite table — so a backup that passed its nightly test is one a
 recovery can be prepared from. See [`backups.md`](backups.md).
 
@@ -387,9 +399,10 @@ data before it does.
 2. Record the machine's host key, verified out of band, in
    `RECOVERY_KNOWN_HOSTS`; make sure `RECOVERY_RCLONE_CONFIG` can read the
    target's offsite namespace.
-3. Choose the exact backup: a **schema 3** backup, i.e. one written after the
-   recovery material joined the format (`backup --target staging-main` on the
-   live host, then the ordinary `backup-cycle` upload).
+3. Choose the exact backup: a **schema 4** backup (or, for staging, a
+   schema 3 one), i.e. one written after the recovery material joined the
+   format (`backup --target staging-main` on the live host, then the
+   ordinary `backup-cycle` upload).
 4. Open Actions → **Recover staging host** and dispatch `mode=start`,
    `backup=YYYYMMDD-HHMMSS`, `replacement-host`, `replacement-port` (22).
 5. Watch the chain: the presence of every GitHub value (a missing one is
@@ -397,12 +410,13 @@ data before it does.
    read-only clean-host preflight (refuses a machine that is not Ubuntu 22.04
    x86_64 or already carries RateGuru state, with nothing changed), deploy
    identity, Prepare Host from
-   the backup (runtime → material fetch → host material → bootstrap →
-   offsite-write hold → target material → database), `recover-host --apply`,
+   the backup (runtime → material fetch → recovery-scope material →
+   bootstrap → offsite-write hold → target material → database),
+   `recover-host --apply`,
    the historical build of the backup's `source_sha`, the controlled
    deployment with migrations forbidden, `--resume`, `--verify`.
-6. Read the summary: backup schema 3, offsite writes `held`, `DEPLOY_HOST`
-   unchanged, DNS unchanged, migrations none.
+6. Read the summary: backup schema 4 (or 3), offsite writes `held`,
+   `DEPLOY_HOST` unchanged, DNS unchanged, migrations none.
 7. Verify on the machine what §14 lists, and verify the long-lived host and
    the real offsite namespace are untouched.
 8. If the run stopped anywhere after `--apply`, finish it with
@@ -714,14 +728,20 @@ and the guard is what actually protects the host.
 * **No target activation.** A `planned` target stays planned.
 * **No durable artifact archive.** See §8.
 * **No hand-supplied material.** No `PREPARE_*` secret is read; the
-  environment file and every host-scope prerequisite come out of the backup.
+  environment file and every recovery-scope prerequisite — the DKIM key of a
+  target whose mail is signed included — come out of the backup.
   `server-configuration.tar.gz` stays a diagnostic snapshot and is never
   unpacked over `/`.
 * **No offsite write.** The recovered machine's backup cron, uploader and
   pruner are held until the machine is deliberately adopted (§9).
 * **No secret in a backup.** The rclone credential, the deploy private key,
   the bootstrap credential and the database password (beyond what
-  `environment.env` already carries) are never in the backup.
+  `environment.env` already carries) are never in the backup. The one target
+  secret the recovery material carries is the DKIM key of a target whose mail
+  is signed, because no other copy of it exists.
+* **No recovery-time outbound fence yet.** A replacement host for a target
+  whose mail goes out directly is not yet kept from sending until its A, PTR
+  and SPF are re-accepted; that fence is the next, separate change.
 * **No RPO/RTO claim.** Measuring real recovery duration is separate work.
 
 ---
@@ -742,9 +762,10 @@ end to end, in order, and collect the evidence as you go:
    environment. No `PREPARE_*` secret is involved.
 5. Confirm the long-lived staging host is healthy, and note its current release
    and source SHA so a comparison is possible afterwards.
-6. Create a fresh, exact staging offsite backup on the live host — a **schema 3**
-   backup, which carries the recovery material — and let the ordinary
-   `backup-cycle` upload it.
+6. Create a fresh, exact staging offsite backup on the live host — schema 4
+   once the host's operational bundle carries it, schema 3 before that; both
+   carry staging's recovery material, and its own manifest says which — and
+   let the ordinary `backup-cycle` upload it.
 7. Ideally plant a database sentinel and a storage/media sentinel **before**
    that backup is taken, so §16–17 can prove the data is the backup's.
 8. Dispatch **Recover staging host** with `mode=start`, that backup, and the

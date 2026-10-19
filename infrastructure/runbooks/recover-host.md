@@ -109,21 +109,32 @@ comes from the `release.json.source_sha` every backup already carries.
 
 **The backup must be clean-host-recovery-capable.** After `verify-backup` has
 proven the staged backup, and before anything is restored, `--apply` requires
-the manifest to be **schema 3** — the format that carries
-`recovery-material.tar.gz`, the target's host-scope external prerequisites
-under their logical names, which is what the recovery preparation was fed. An
-older backup is refused by name, before any mutation:
+the manifest to be **schema 3 or 4** — the formats that carry
+`recovery-material.tar.gz`, the target's external prerequisites under their
+logical names, which is what the recovery preparation was fed. An older backup
+is refused by name, before any mutation:
 
 ```text
 backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema
-is 2, and a host recovery requires schema 3 … No data was staged or activated
+is 2, and a host recovery requires schema 3 or 4 … No data was staged or activated
+```
+
+A schema 3 backup carries the host scope only. That is the whole recovery
+material of a target whose mail is not signed; for one whose mail is
+(`tits-guru`) it lacks the DKIM key, and `--apply` refuses it as well, asking
+the installed prerequisite table which names the target's recovery scope adds:
+
+```text
+backup 20260115-023000 is not clean-host-recovery-capable for tits-guru: it is a
+schema 3 backup, and tits-guru's recovery material also needs
+mail-dkim-private-key, which only a schema 4 backup carries …
 ```
 
 There is deliberately no fallback to hand-supplied material. A schema 1 or 2
 backup stays fully restorable onto a **live** target through Restore Target
 Data; for a clean-host recovery, take a new backup on a live host. The accepted
-schema is recorded (`BACKUP SCHEMA: 3`) in the state, the history and every
-report. The recovery material itself was already installed by the recovery
+schema is recorded (`BACKUP SCHEMA: 4`, or `3`) in the state, the history and
+every report. The recovery material itself was already installed by the recovery
 preparation, from this same backup, and certified against the prerequisite
 table there and by the nightly restore tests; `verify-backup` here judges it
 as data only, exactly as a live restore does. See [`backups.md`](backups.md)
@@ -820,7 +831,7 @@ found and leaves it for an operator to explain.
 
 Stated as the whole picture after a successful recovery: TARGET is still
 `staging-main`, HOST is the replacement machine, the data and the environment
-file are the exact backup's (schema 3), `current` is the exact `source_sha`,
+file are the exact backup's (schema 4, or 3), `current` is the exact `source_sha`,
 `previous` is absent, no migration ran, queue RUNNING, scheduler PRESENT, no
 guard, health PASS, offsite writers HELD, `DEPLOY_HOST` unchanged, DNS
 unchanged, and the old host untouched.

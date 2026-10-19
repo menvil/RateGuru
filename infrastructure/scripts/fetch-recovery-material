@@ -9,9 +9,10 @@
 #
 # THE ONE PROBLEM IT SOLVES. A clean-host recovery needs the target's external
 # material — its Laravel environment file, its TLS certificate and key, its
-# Basic Auth hashes, the shared Nginx TLS material — before the host can even
-# be bootstrapped, and all of it lives inside the backup the recovery is about
-# to restore. That backup lives in the offsite bucket, and reaching the bucket
+# Basic Auth hashes, the shared Nginx TLS material and, for a target whose mail
+# goes out signed, the DKIM key its published record names — before the host
+# can even be bootstrapped, and all of it lives inside the backup the recovery
+# is about to restore. That backup lives in the offsite bucket, and reaching the bucket
 # needs a working rclone and a credential. This helper is the narrow bridge
 # across that gap: given rclone (installed by the runtime slice), a seed
 # credential and a backup ID, it downloads the SMALL bootstrap subset of that
@@ -27,8 +28,19 @@
 #   manifest.json               which backup, whose, which schema
 #   release.json                which commit the data belongs to
 #   environment.env             becomes the `laravel-env` material
-#   recovery-material.tar.gz    becomes the host-scope material
+#   recovery-material.tar.gz    becomes the recovery-scope material: the host
+#                               scope, plus mail-dkim-private-key for a target
+#                               whose mail policy requires DKIM signing
 #   SHA256SUMS                  proves the four above are the backup's own
+#
+# THE DKIM KEY. A replacement host must sign with the very key the published
+# DKIM record names; a new key would need a DNS change and would break every
+# signature receivers already trust. So a target whose mail goes out signed is
+# only ever recovered from a schema 4 backup, whose manifest records the
+# fingerprint of the key's public half: the extracted key is judged against
+# the target's reviewed policy and must reproduce that fingerprint exactly, or
+# nothing is staged. A schema 3 backup carries no key, and is refused for such
+# a target by name. Nothing here — or anywhere — generates or substitutes one.
 #
 # database.dump and storage-app.tar.gz are never fetched here: they are
 # recover-host's business, through the same fetch-backup every restore uses,
@@ -125,8 +137,8 @@ BOOTSTRAP_SUBSET=("${MANIFEST_FILE}" release.json environment.env recovery-mater
 # The four of them SHA256SUMS covers (SHA256SUMS never covers itself).
 BOOTSTRAP_SUBSET_CHECKSUMMED=(manifest.json release.json environment.env recovery-material.tar.gz)
 
-# The complete checksummed set of a schema 3 backup, in SHA256SUMS order — the
-# closed list SHA256SUMS itself is held to before a single line of it is
+# The complete checksummed set of a schema 3 or 4 backup, in SHA256SUMS order
+# — the closed list SHA256SUMS itself is held to before a single line of it is
 # trusted. Stated here because this script cannot source common; a test pins
 # it to common's own BACKUP_CHECKSUMMED_FILES_SCHEMA3.
 SCHEMA3_CHECKSUMMED_FILES=(
@@ -146,9 +158,15 @@ SEED_FILES=(rclone-config deploy-authorized-keys)
 # The logical name the backup's environment file is installed under.
 LARAVEL_ENV_NAME=laravel-env
 
-# The manifest schema a clean-host recovery requires, and the only one that
-# carries recovery material.
-REQUIRED_MANIFEST_SCHEMA=3
+# The manifest schemas that carry recovery material: 3, written in the host
+# scope, and 4, written in the recovery scope with the DKIM key's fingerprint.
+RECOVERY_MANIFEST_SCHEMAS=(3 4)
+
+# The logical name a DKIM key carries in recovery material, and the schema 4
+# manifest field that names its public half. Stated here because this script
+# cannot source common; a test pins both to common and to the installer.
+DKIM_KEY_NAME=mail-dkim-private-key
+MANIFEST_DKIM_FIELD=dkim_public_key_sha256
 
 RELEASE_ID_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
 SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
@@ -209,8 +227,10 @@ Usage:
 
 Root only. Downloads the bootstrap subset (manifest.json, release.json,
 environment.env, recovery-material.tar.gz, SHA256SUMS) of ONE exact offsite
-backup through the seed rclone configuration, proves it is a schema 3 backup
-of this target, and lays the recovery material out under logical names in the
+backup through the seed rclone configuration, proves it is a backup of this
+target that carries everything its recovery needs (schema 4; or schema 3 for
+a target whose mail is not signed), proves a carried DKIM key is the one the
+backup recorded, and lays the recovery material out under logical names in the
 output directory, alongside the two seed files.
 
   --target      Deployment target ID from the RateGuru target registry.
@@ -218,7 +238,7 @@ output directory, alongside the two seed files.
   --seed-dir    Root-owned 0700 directory holding exactly rclone-config and
                 deploy-authorized-keys. Read only; never modified.
   --output-dir  Existing, EMPTY, root-owned 0700 directory that receives the
-                effective material: laravel-env, every host-scope logical
+                effective material: laravel-env, every recovery-scope logical
                 name from the backup, deploy-authorized-keys and rclone-config.
 
 Never restores data, never deploys, never touches a canonical destination and
@@ -518,7 +538,7 @@ download_manifest() {
         action_required \
             "backup ${BACKUP_ID} could not be read from the offsite namespace ${REMOTE_DIRECTORY}" \
             "either no backup with that exact timestamp exists there, or RECOVERY_RCLONE_CONFIG cannot reach or read the namespace; nothing on this host was changed" \
-            "re-run \"$(recovery_workflow_name)\" with mode=start and the exact timestamp of an existing schema 3 backup" \
+            "re-run \"$(recovery_workflow_name)\" with mode=start and the exact timestamp of an existing schema 4 backup" \
             "list the namespace ${RCLONE_REMOTE}:${RCLONE_BUCKET}/rateguru/${BACKUP_NAMESPACE}/ with the same rclone configuration (the runbook shows the command)" \
             "confirm the backup passed the nightly offsite restore test, and that RECOVERY_RCLONE_CONFIG holds a key that can read the bucket"
         fail "could not download ${MANIFEST_FILE} of backup ${BACKUP_ID} from the offsite remote — the backup may not exist, may be incomplete, or the seed rclone configuration may not reach it"
@@ -532,7 +552,8 @@ download_manifest() {
 }
 
 # download_bootstrap_subset — the rest of the fixed subset, one object each,
-# once the manifest has proven the backup is this target's schema 3 backup.
+# once the manifest has proven the backup is this target's and carries what
+# its recovery needs.
 download_bootstrap_subset() {
     log "downloading the bootstrap subset of offsite backup ${BACKUP_ID}"
 
@@ -550,10 +571,10 @@ download_bootstrap_subset() {
 BACKUP_RELEASE=""
 BACKUP_SOURCE_SHA=""
 
-# verify_manifest — the backup is THIS target's, and it is a schema 3 backup.
-# The schema is classified by JSON type first, exactly as every manifest
-# reader in this repository does, so a JSON string "3" or a number 3 hidden
-# in an array can never pass as recovery-capable.
+# verify_manifest — the backup is THIS target's, and its schema carries
+# recovery material (3 or 4). The schema is classified by JSON type first,
+# exactly as every manifest reader in this repository does, so a JSON string
+# "3" or a number 3 hidden in an array can never pass as recovery-capable.
 verify_manifest() {
     local manifest="${SCRATCH}/subset/manifest.json"
 
@@ -575,16 +596,25 @@ verify_manifest() {
             ;;
     esac
 
-    [[ "${schema_type}" == number ]] && [[ "${schema_value}" == "${REQUIRED_MANIFEST_SCHEMA}" ]] \
+    local supported=false known
+    if [[ "${schema_type}" == number ]]; then
+        for known in "${RECOVERY_MANIFEST_SCHEMAS[@]}"; do
+            [[ "${schema_value}" != "${known}" ]] || supported=true
+        done
+    fi
+
+    [[ "${supported}" == true ]] \
         || {
             action_required \
                 "backup ${BACKUP_ID} is a schema ${schema_value} backup, written before the recovery material joined the format" \
-                "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema ${REQUIRED_MANIFEST_SCHEMA}); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
+                "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 4, or schema 3 for a target whose mail is not signed); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
                 "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
                 "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
-                "confirm it is schema ${REQUIRED_MANIFEST_SCHEMA} and passed the offsite restore test"
-            fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${schema_value}, and a clean-host recovery requires schema ${REQUIRED_MANIFEST_SCHEMA} — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. Take a new backup on a live host and recover from that; this backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
+                "confirm it is schema 4 and passed the offsite restore test"
+            fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${schema_value}, and a clean-host recovery requires a format that carries the target's recovery material inside the backup (schema 4, or schema 3 for a target whose mail is not signed). Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. Take a new backup on a live host and recover from that; this backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
         }
+
+    BACKUP_SCHEMA="${schema_value}"
 
     local project environment target namespace database
     project="$(jq -r '.project // empty' "${manifest}")"
@@ -604,7 +634,53 @@ verify_manifest() {
     [[ "${database}" == "${DATABASE_NAME}" ]] \
         || fail "backup manifest database mismatch: expected ${DATABASE_NAME}, got '${database}'"
 
-    log "  manifest: schema ${REQUIRED_MANIFEST_SCHEMA}, project/environment/target/namespace/database identify ${TARGET_ID}"
+    log "  manifest: schema ${BACKUP_SCHEMA}, project/environment/target/namespace/database identify ${TARGET_ID}"
+}
+
+# verify_schema_covers_recovery_scope — the scope the backup's recovery
+# material was captured in, and whether that is everything this target's
+# recovery has to put back. A schema 4 backup was captured in the recovery
+# scope. A schema 3 backup was captured in the host scope, before the DKIM key
+# joined the recovery material: enough for a target whose mail is not signed,
+# never for one whose mail is — the installer is asked for both vocabularies,
+# so the difference is today's rules, never a list kept here. Decided before
+# anything but the manifest is downloaded.
+verify_schema_covers_recovery_scope() {
+    if [[ "${BACKUP_SCHEMA}" == 4 ]]; then
+        MATERIAL_SCOPE=recovery
+        return 0
+    fi
+
+    MATERIAL_SCOPE=host
+
+    local listing name known
+    local -a host_names=() recovery_names=() missing=()
+
+    listing="$("${PREREQUISITES_BIN}" --list-material-names --target "${TARGET_ID}" --scope host)" \
+        || fail "the host-scope material of ${TARGET_ID} could not be listed (see the installer's own diagnosis above)"
+    mapfile -t host_names <<<"${listing}"
+
+    listing="$("${PREREQUISITES_BIN}" --list-material-names --target "${TARGET_ID}" --scope recovery)" \
+        || fail "the recovery-scope material of ${TARGET_ID} could not be listed (see the installer's own diagnosis above)"
+    mapfile -t recovery_names <<<"${listing}"
+
+    for name in "${recovery_names[@]}"; do
+        [[ -n "${name}" ]] || continue
+        for known in "${host_names[@]}"; do
+            [[ "${known}" != "${name}" ]] || continue 2
+        done
+        missing+=("${name}")
+    done
+
+    (( ${#missing[@]} == 0 )) && return 0
+
+    action_required \
+        "backup ${BACKUP_ID} is a schema 3 backup, written before the DKIM signing key joined the recovery material" \
+        "${TARGET_ID}'s outbound mail is DKIM-signed, and a recovered host must sign with the very key its published DNS record names; this backup does not carry it (${missing[*]}). It stays restorable onto a LIVE target, and no key is generated or substituted" \
+        "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
+        "take a new backup on the live host (the nightly backup-cycle) once its bundle writes schema 4, and let it reach the offsite namespace" \
+        "confirm it is schema 4 and passed the offsite restore test"
+    fail "backup ${BACKUP_ID} is not clean-host-recovery-capable for ${TARGET_ID}: it is a schema 3 backup, and ${TARGET_ID}'s recovery material also needs ${missing[*]}, which only a schema 4 backup carries — a replacement host must sign with the key its published DKIM record names, and none is ever generated or substituted. This backup stays restorable onto a live target through Restore Target Data. Nothing on this host was changed"
 }
 
 # verify_release_identity — the commit the data belongs to is a full commit,
@@ -643,7 +719,7 @@ verify_release_identity() {
 
 # verify_checksums — SHA256SUMS is content from the backup, not a trusted
 # index. It is validated as a closed set first: every line "<64 hex>  <name>",
-# every name one of the schema 3 checksummed files, none repeated, none
+# every name one of the schema 3/4 checksummed files, none repeated, none
 # missing, nothing else — so an entry naming an absolute path or a ../ escape
 # is refused before sha256sum follows a single one. Then exactly the four
 # downloaded members are checked, quietly: a digest of environment.env is a
@@ -670,7 +746,7 @@ verify_checksums() {
         done
 
         [[ "${found}" == true ]] \
-            || fail "SHA256SUMS references a file that is not part of a schema 3 RateGuru backup: ${name}"
+            || fail "SHA256SUMS references a file that is not part of a schema ${BACKUP_SCHEMA} RateGuru backup: ${name}"
 
         for known in "${seen[@]:-}"; do
             [[ "${known}" != "${name}" ]] \
@@ -712,29 +788,34 @@ verify_checksums() {
 
 # --- Recovery material ----------------------------------------------------------------
 
-HOST_MATERIAL_NAMES=()
+BACKUP_SCHEMA=""
+MATERIAL_SCOPE=""
+MATERIAL_NAMES=()
 
 # verify_and_extract_recovery_material — the archive is judged by the sibling
 # installer's own structural validation (the same table Prepare Host installs
-# from) before a byte is extracted, extracted into a fresh root-only 0700
-# directory, and then re-checked on disk: only regular files, exactly the
-# expected names, mode 0600 each. The archive never decides where anything
-# is written — that is the installer's table, later.
+# from), in the scope it was captured in, before a byte is extracted,
+# extracted into a fresh root-only 0700 directory, and then re-checked on
+# disk: only regular files, exactly the expected names, mode 0600 each. The
+# archive never decides where anything is written — that is the installer's
+# table, later.
 verify_and_extract_recovery_material() {
     local archive="${SCRATCH}/subset/recovery-material.tar.gz"
-    local output status=0
+    local output listing status=0
 
-    output="$("${PREREQUISITES_BIN}" --validate-recovery-material --target "${TARGET_ID}" --scope host --archive "${archive}" 2>&1)" || status=$?
+    output="$("${PREREQUISITES_BIN}" --validate-recovery-material --target "${TARGET_ID}" --scope "${MATERIAL_SCOPE}" --archive "${archive}" 2>&1)" || status=$?
 
     if (( status != 0 )); then
         printf '%s\n' "${output}" >&2
         fail "the recovery material archive of backup ${BACKUP_ID} is not acceptable for ${TARGET_ID} (see the installer's own diagnosis above) — nothing was extracted"
     fi
 
-    mapfile -t HOST_MATERIAL_NAMES < <("${PREREQUISITES_BIN}" --list-material-names --target "${TARGET_ID}" --scope host)
+    listing="$("${PREREQUISITES_BIN}" --list-material-names --target "${TARGET_ID}" --scope "${MATERIAL_SCOPE}")" \
+        || fail "the ${MATERIAL_SCOPE}-scope material of ${TARGET_ID} could not be listed (see the installer's own diagnosis above)"
+    mapfile -t MATERIAL_NAMES <<<"${listing}"
 
-    (( ${#HOST_MATERIAL_NAMES[@]} > 0 )) \
-        || fail "no host-scope prerequisite is defined for ${TARGET_ID}"
+    [[ -n "${MATERIAL_NAMES[0]:-}" ]] \
+        || fail "no ${MATERIAL_SCOPE}-scope prerequisite is defined for ${TARGET_ID}"
 
     tar -xzf "${archive}" -C "${SCRATCH}/material" \
         || fail "could not extract the recovery material archive of backup ${BACKUP_ID}"
@@ -750,20 +831,68 @@ verify_and_extract_recovery_material() {
     while IFS= read -r entry; do
         [[ -n "${entry}" ]] || continue
         found=false
-        for name in "${HOST_MATERIAL_NAMES[@]}"; do
+        for name in "${MATERIAL_NAMES[@]}"; do
             [[ "${entry}" != "${name}" ]] || { found=true; break; }
         done
         [[ "${found}" == true ]] \
-            || fail "the extracted recovery material holds a file that is not a host-scope prerequisite: ${entry}"
+            || fail "the extracted recovery material holds a file that is not a ${MATERIAL_SCOPE}-scope prerequisite: ${entry}"
     done < <(find "${SCRATCH}/material" -mindepth 1 -maxdepth 1 -printf '%f\n')
 
-    for name in "${HOST_MATERIAL_NAMES[@]}"; do
+    for name in "${MATERIAL_NAMES[@]}"; do
         [[ -f "${SCRATCH}/material/${name}" ]] && [[ ! -L "${SCRATCH}/material/${name}" ]] \
             || fail "the extracted recovery material is missing ${name}"
         chmod 0600 "${SCRATCH}/material/${name}"
     done
 
     log "  recovery material: OK ($(tail -n 1 <<<"${output}"))"
+
+    verify_dkim_key_matches_manifest
+}
+
+# verify_dkim_key_matches_manifest — a schema 4 manifest records the
+# fingerprint of the DKIM key its recovery material carries, and null when it
+# carries none; never one without the other. A carried key is judged by the
+# installer against the target's reviewed policy and must reproduce the
+# recorded fingerprint exactly: anything else is not the key the published
+# record names, and nothing is staged. The key is never printed; only the
+# fingerprint of its public half, which the DNS publishes anyway.
+verify_dkim_key_matches_manifest() {
+    [[ "${BACKUP_SCHEMA}" == 4 ]] || return 0
+
+    local manifest="${SCRATCH}/subset/manifest.json"
+    local key="${SCRATCH}/material/${DKIM_KEY_NAME}"
+    local carries=false name field_type recorded actual
+
+    for name in "${MATERIAL_NAMES[@]}"; do
+        [[ "${name}" != "${DKIM_KEY_NAME}" ]] || carries=true
+    done
+
+    jq -e --arg field "${MANIFEST_DKIM_FIELD}" 'has($field)' "${manifest}" >/dev/null 2>&1 \
+        || fail "backup ${BACKUP_ID}'s manifest records no ${MANIFEST_DKIM_FIELD} — a schema 4 manifest always states whether its recovery material carries a DKIM key"
+
+    field_type="$(jq -r --arg field "${MANIFEST_DKIM_FIELD}" '.[$field] | type' "${manifest}")"
+
+    if [[ "${carries}" != true ]]; then
+        [[ "${field_type}" == null ]] \
+            || fail "backup ${BACKUP_ID}'s manifest records a DKIM key fingerprint, but the extracted recovery material carries no ${DKIM_KEY_NAME} for ${TARGET_ID}"
+        return 0
+    fi
+
+    [[ "${field_type}" == string ]] \
+        || fail "the extracted recovery material carries ${DKIM_KEY_NAME}, but backup ${BACKUP_ID}'s manifest records no fingerprint for it (${MANIFEST_DKIM_FIELD} is ${field_type}) — nothing proves it is the key the published record names, so nothing was staged"
+
+    recorded="$(jq -r --arg field "${MANIFEST_DKIM_FIELD}" '.[$field]' "${manifest}")"
+
+    [[ "${recorded}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "backup ${BACKUP_ID}'s manifest ${MANIFEST_DKIM_FIELD} is not a SHA-256 fingerprint — nothing was staged"
+
+    actual="$("${PREREQUISITES_BIN}" --dkim-fingerprint --target "${TARGET_ID}" --scope recovery --key "${key}")" \
+        || fail "the extracted recovery material's ${DKIM_KEY_NAME} is not a usable DKIM key under ${TARGET_ID}'s reviewed policy (see the installer's own diagnosis above) — nothing was staged, and no key is generated or substituted"
+
+    [[ "${actual}" == "${recorded}" ]] \
+        || fail "the extracted recovery material's ${DKIM_KEY_NAME} is not the key backup ${BACKUP_ID} recorded: the sha256 of its public half is ${actual}, the manifest records ${recorded} — it is not the key the published DKIM record names, so nothing was staged"
+
+    log "  DKIM key: OK (usable under ${TARGET_ID}'s reviewed policy; the sha256 of its public half is the recorded ${recorded})"
 }
 
 # --- Effective material -----------------------------------------------------------------
@@ -800,14 +929,14 @@ compose_effective_material() {
     place "${LARAVEL_ENV_NAME}" "${SCRATCH}/subset/environment.env" "backup environment.env"
 
     local name
-    for name in "${HOST_MATERIAL_NAMES[@]}"; do
+    for name in "${MATERIAL_NAMES[@]}"; do
         place "${name}" "${SCRATCH}/material/${name}" "backup recovery-material.tar.gz"
     done
 
     place deploy-authorized-keys "${SEED_DIR}/deploy-authorized-keys" "seed material (the deploy public key derived on the runner)"
     place rclone-config "${SEED_DIR}/rclone-config" "seed material (the recovery offsite credential)"
 
-    local total=$(( 1 + ${#HOST_MATERIAL_NAMES[@]} + 2 ))
+    local total=$(( 1 + ${#MATERIAL_NAMES[@]} + 2 ))
     printf '  effective material: %d files, root-only, mode 0600 each, in %s\n' "${total}" "${OUTPUT_DIR}"
     printf '  content never read, hashed, measured or printed\n'
 }
@@ -827,6 +956,7 @@ main() {
 
     download_manifest
     verify_manifest
+    verify_schema_covers_recovery_scope
     download_bootstrap_subset
     verify_release_identity
     verify_checksums

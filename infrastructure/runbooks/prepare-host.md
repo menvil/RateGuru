@@ -126,7 +126,7 @@ where the external material comes from — and it changes the pipeline into:
 install-bootstrap-runtime                       base packages, rclone, jq
   → lifecycle gate (target must be active)
   → fetch-recovery-material                     the backup's bootstrap subset → effective material
-  → install-target-prerequisites --scope host    from the effective material
+  → install-target-prerequisites --scope recovery  from the effective material
   → bootstrap-host
   → OFFSITE-WRITE HOLD                           /home/www/rateguru/run/offsite-write-hold
   → install-target-prerequisites --scope target  from the effective material
@@ -142,13 +142,31 @@ environment and host material from the backup itself, never from a supplied
 file. `fetch-recovery-material` downloads only `manifest.json`,
 `release.json`, `environment.env`, `recovery-material.tar.gz` and `SHA256SUMS`
 of the named backup from the fixed remote (never the data, never "latest",
-never an arbitrary path), verifies the manifest is the target's own and is
-**schema 3**, verifies the subset's checksums, has the prerequisite installer
-judge the recovery material archive before extracting a byte, and composes a
-root-only 0700 effective material directory under `/root`: `laravel-env` from
-`environment.env`, every host-scope logical name from the archive, and the two
-seeds. The prerequisite slices are fed that directory, and it is removed when
-the run ends, however it ends.
+never an arbitrary path), verifies the manifest is the target's own and
+carries what the target's recovery needs — **schema 4**, or schema 3 for a
+target whose mail is not signed — verifies the subset's checksums, has the
+prerequisite installer judge the recovery material archive before extracting
+a byte, and composes a root-only 0700 effective material directory under
+`/root`: `laravel-env` from `environment.env`, every recovery-scope logical
+name from the archive, and the two seeds. The prerequisite slices are fed that
+directory, and it is removed when the run ends, however it ends.
+
+**The DKIM key of a target whose mail is signed.** For `tits-guru` the
+recovery scope carries `mail-dkim-private-key`, and the host slice installs
+the **recovery** scope rather than the host scope, before host bootstrap.
+Before anything is staged, `fetch-recovery-material` has the installer judge
+the extracted key against the target's reviewed policy (`mail-identity`) and
+requires its public half to reproduce the `dkim_public_key_sha256` the backup's
+manifest recorded; a missing, unusable or different key stops the recovery
+with nothing installed, and no key is ever generated or substituted. The key
+goes in before host bootstrap because `install-mail-signing`, which bootstrap
+runs, refuses to verify while a required key is absent. On a clean host the
+signer's group does not exist yet, so the key is installed in the pre-signer
+layout, `root:root 0600` in `root:root 0700` directories — the one layout
+`install-mail-signing --apply` converts to `root:opendkim 0640` in `0750`
+directories without touching its bytes. The target slice afterwards finds it
+present and identical to the backup's. The ordinary, non-recovery preparation
+is unchanged: the target scope installs a new key only once the signer exists.
 
 The **offsite-write hold** is placed after host bootstrap created the run root
 and before the target slice installs the offsite credential, so the replacement

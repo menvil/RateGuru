@@ -34,8 +34,8 @@ description: >-
 # NO SECRETS, BY CONSTRUCTION. This action has no material inputs at all — not
 # a Laravel environment file, not authorized_keys, not an rclone config, not
 # Basic Auth hashes, not a TLS certificate or key. Prepare Host is what puts
-# external material on the replacement machine — out of the same schema 3
-# backup this recovery restores, for a clean-host recovery. Recovery COMPARES
+# external material on the replacement machine — out of the same backup this
+# recovery restores, for a clean-host recovery. Recovery COMPARES
 # the prepared environment file against the backup's and refuses on a
 # difference; it never writes one, never rotates a secret and never alters a
 # database password.

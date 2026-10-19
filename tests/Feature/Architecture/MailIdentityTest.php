@@ -145,11 +145,30 @@ it('changes nothing: no file, no service, no record, no mail', function () {
     }
 });
 
-it('is repository tooling, never installed onto a host', function () {
+it('is repository tooling that the operational bundle carries only for a backup to decide its DKIM key', function () {
     expect(repositoryOnlyScriptNames())->toContain('mail-identity');
     expect(requiredCliManifestNames())->not->toContain('mail-identity');
-    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations'))))
-        ->not->toContain('mail-identity');
+
+    // The bundle installs it, because a nightly backup captures a signed
+    // target's DKIM key through the installed prerequisite installer, which
+    // asks it — and runs it for nothing but proving it accepts the contracts.
+    $installer = executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations')));
+
+    expect($installer)
+        ->toContain('SRC_MAIL_IDENTITY="${REPO_ROOT}/infrastructure/scripts/mail-identity"')
+        ->toContain('DST_MAIL_IDENTITY="${DST_BIN_ROOT}/mail-identity"');
+
+    preg_match_all('/no_overrides_env "\$\{bin\}" (\S+)/', $installer, $runs);
+    expect($runs[1])->toBe(['validate']);
+
+    // Of everything the bundle installs, only the prerequisite installer
+    // reaches it.
+    foreach (['backup', 'common', 'restore-common', 'restore-test', 'offsite-backup', 'offsite-restore-test', 'verify-backup', 'fetch-backup', 'backup-cycle', 'recover-host', 'deploy', 'rollback'] as $script) {
+        expect(executableSourceLines(File::get(base_path('infrastructure/scripts/'.$script))))->not->toContain('mail-identity');
+    }
+
+    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-prerequisites'))))
+        ->toContain('"${SCRIPT_DIR}/mail-identity"');
 });
 
 // =============================================================================

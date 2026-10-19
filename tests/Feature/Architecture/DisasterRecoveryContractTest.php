@@ -204,7 +204,7 @@ it('prepares the replacement machine out of the backup, from no hand-supplied ma
     // the prerequisite installers comes from the backup and the runner-derived
     // seed, never from a value an operator was asked to keep.
     expect(disasterRecoveryScript('prepare-host'))->toContain('--recovery-backup');
-    expect(disasterRecoveryScript('fetch-recovery-material'))->toContain('REQUIRED_MANIFEST_SCHEMA=3');
+    expect(disasterRecoveryScript('fetch-recovery-material'))->toContain('RECOVERY_MANIFEST_SCHEMAS=(3 4)');
 });
 
 // =============================================================================
@@ -215,9 +215,9 @@ it('recovers only from a backup that carries the host material, and never applie
     $common = disasterRecoveryScript('common');
 
     // One closed file set, defined once, in SHA256SUMS order. Eight files for
-    // schema 3: the seven a live restore has always needed, plus the host
-    // material that makes a clean-host recovery possible without a person
-    // carrying anything.
+    // schema 3 and 4: the seven a live restore has always needed, plus the
+    // recovery material that makes a clean-host recovery possible without a
+    // person carrying anything.
     foreach ([
         'database.dump',
         'storage-app.tar.gz',
@@ -231,7 +231,7 @@ it('recovers only from a backup that carries the host material, and never applie
     }
 
     expect($common)
-        ->toContain('BACKUP_MANIFEST_SCHEMA_CURRENT=3')
+        ->toContain('BACKUP_MANIFEST_SCHEMA_CURRENT=4')
         // Diagnostic, forensic, and never a reconstruction input. The two
         // archives are deliberately not one archive, and the difference is
         // that one of them is applied to a machine and the other never is.

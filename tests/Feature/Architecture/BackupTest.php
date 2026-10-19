@@ -328,7 +328,7 @@ function backupOpsDeploymentConfForFixture(string $scratch): string
  * @param  array{root: string}  $fixture
  * @return array{0: string, 1: string} [registryPath, targetsCliPath]
  */
-function backupOpsParityRegistry(string $scratch, array $fixture, int $localRetentionDays = 14, int $minimumRetainedBackups = 2): array
+function backupOpsParityRegistry(string $scratch, array $fixture, int $localRetentionDays = 14, int $minimumRetainedBackups = 2, string $environmentClass = 'staging'): array
 {
     $account = backupOpsCurrentAccount();
     $group = backupOpsCurrentGroup();
@@ -365,7 +365,7 @@ function backupOpsParityRegistry(string $scratch, array $fixture, int $localRete
             'parity-target' => [
                 'id' => 'parity-target',
                 'lifecycle' => 'active',
-                'environment_class' => 'staging',
+                'environment_class' => $environmentClass,
                 'application_root' => $fixture['root'],
                 'runtime_user' => $account,
                 'runtime_group' => $group,
@@ -448,9 +448,13 @@ function backupOpsBuildSystemRoot(string $scratch): string
  * Runs a real, full perform_backup pass (against the root-bypassed patched
  * script) using --target parity-target.
  *
+ * SIGNED makes parity-target an active production target, whose mail goes
+ * out signed, so its DKIM key is part of its recovery scope; PREPARE_HOST is
+ * handed the scratch host root before the run, to plant (or not) that key.
+ *
  * @return array{exit: int, output: string, fixture: array, backupBase: string, runRoot: string, sysroot: string, pgDumpLog: string}
  */
-function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = [], ?callable $reshapeFixture = null, ?string $backupBase = null): array
+function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, bool $failPgDump = false, int $minimumRetainedBackups = 2, array $extraEnv = [], ?callable $reshapeFixture = null, ?string $backupBase = null, bool $signed = false, ?callable $prepareHost = null): array
 {
     $fixture = backupOpsBuildFixture($scratch);
 
@@ -470,7 +474,7 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
     $backupBase ??= $scratch.'/backups-'.uniqid('', true);
     $runRoot = $scratch.'/run-'.uniqid('', true);
 
-    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays, $minimumRetainedBackups);
+    [$registryPath, $targetsPath] = backupOpsParityRegistry($scratch, $fixture, $localRetentionDays, $minimumRetainedBackups, $signed ? 'production' : 'staging');
 
     // The REAL external-material installer captures the recovery material,
     // from a scratch host tree holding every host-scope prerequisite, through
@@ -486,6 +490,10 @@ function backupOpsRunFullBackup(string $scratch, int $localRetentionDays = 14, b
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
     ]);
+
+    if ($prepareHost !== null) {
+        $prepareHost($env['RATEGURU_TARGETPREREQ_FS_ROOT']);
+    }
 
     [$exit, $output] = backupOpsRunHarness(
         $scratch,
@@ -837,7 +845,7 @@ it('cannot run two backups concurrently against the same namespace', function ()
 // Full pipeline (root-bypassed via backupOpsPatchedScript)
 // =============================================================================
 
-it('creates exactly the eight files of a schema 3 backup, with a passing SHA256SUMS that covers the recovery material once', function () {
+it('creates exactly the eight files of a schema 4 backup, with a passing SHA256SUMS that covers the recovery material once', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -915,10 +923,14 @@ it('captures the recovery material under logical names, from the prerequisite ta
 
         // Logical names are logged; content is not, and neither is a digest.
         expect($result['output'])
-            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' host-scope files')
+            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' recovery-scope files')
             ->toContain('tls-private-key')
             ->not->toContain('never-logged')
             ->not->toMatch('/[0-9a-f]{64}/');
+
+        // A staging target's mail is never signed: no DKIM key, and none
+        // recorded.
+        expect($listing)->not->toContain('mail-dkim-private-key');
 
         // Nothing that must never be in a backup's recovery material is.
         foreach (['rclone-config', 'rclone.conf', 'deploy-authorized-keys', 'laravel-env', 'environment.env', 'id_ed25519', 'bootstrap'] as $forbidden) {
@@ -966,11 +978,11 @@ it('captures the recovery material into an exactly 0700 directory even under a s
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
-            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' host-scope files')
+            ->toContain('Recovery material captured: '.count(recoveryMaterialNames()).' recovery-scope files')
             ->not->toContain('must be mode 0700');
 
         $backupDir = backupOpsLatestBackupDir($backupBase, 'parity');
-        expect(is_file($backupDir.'/recovery-material.tar.gz'))->toBeTrue('the schema 3 backup must carry its recovery material');
+        expect(is_file($backupDir.'/recovery-material.tar.gz'))->toBeTrue('the schema 4 backup must carry its recovery material');
 
         // And the run really went through the setgid tree: the finished
         // backup directory, created by the producer under it, carries the
@@ -1036,7 +1048,8 @@ it('derives the captured vocabulary from the prerequisite installer and carries 
     $source = backupOpsSource();
 
     expect($source)
-        ->toContain('"${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}"')
+        ->toContain('"${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope recovery --output-dir "${capture_dir}"')
+        ->toContain('"${prerequisites_bin}" --dkim-fingerprint --target "${TARGET_ID}" --scope recovery --key "${capture_dir}/${name}"')
         ->toContain('prerequisites_bin="$(backup_prerequisites_bin)"');
 
     // The installer is resolved by common, once, for the capture here and
@@ -1053,6 +1066,114 @@ it('derives the captured vocabulary from the prerequisite installer and carries 
     expect($source)->toContain('sha256sum "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" > SHA256SUMS')
         ->toContain('--argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}"');
 });
+
+// =============================================================================
+// A target whose mail is signed: its DKIM key travels in the recovery material
+// =============================================================================
+
+it('carries the DKIM key of a target whose mail is signed in its schema 4 recovery material, byte for byte, and records the fingerprint of its public half', function (int $keyMode, int $dirMode) {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $key = '';
+        $result = backupOpsRunFullBackup($scratch, signed: true, prepareHost: function (string $fsRoot) use (&$key, $keyMode, $dirMode): void {
+            $key = recoveryMaterialPlantDkimKey($fsRoot, 'parity-target', 'rsa2048', $keyMode, $dirMode);
+        });
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        $backupDir = backupOpsLatestBackupDir($result['backupBase'], 'parity');
+
+        // Still the eight files, still internally consistent.
+        $present = array_values(array_diff(scandir($backupDir), ['.', '..']));
+        expect($present)->toHaveCount(8);
+        exec('cd '.escapeshellarg($backupDir).' && sha256sum --check SHA256SUMS 2>&1', $checkOutput, $checkExit);
+        expect($checkExit)->toBe(0, implode("\n", $checkOutput));
+
+        // The recovery scope of a production target: the shared mail-capture
+        // vhosts' host material, plus its DKIM key — and nothing else of the
+        // target scope. The environment file is a backup member of its own;
+        // the deploy key and the offsite credential are never in a backup.
+        exec('tar -tzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz'), $listing);
+        sort($listing);
+        $expected = ['mail-basic-auth', 'mail-dkim-private-key', 'mail-nginx-tls-options', 'mail-tls-certificate', 'mail-tls-dhparams', 'mail-tls-private-key'];
+        expect($listing)->toBe($expected);
+
+        foreach (['laravel-env', 'deploy-authorized-keys', 'rclone-config', 'environment.env'] as $notRecoveryMaterial) {
+            expect($listing)->not->toContain($notRecoveryMaterial);
+        }
+
+        exec('tar -tvzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz'), $verbose);
+        foreach ($verbose as $line) {
+            expect($line)->toStartWith('-');
+        }
+
+        // Exactly the key the host signs with.
+        $extracted = $scratch.'/extracted-'.uniqid('', true);
+        mkdir($extracted, 0o700);
+        exec('tar -xzf '.escapeshellarg($backupDir.'/recovery-material.tar.gz').' -C '.escapeshellarg($extracted));
+        expect(File::get($extracted.'/mail-dkim-private-key'))->toBe(File::get($key));
+
+        // The manifest names that key by its public half, the value the
+        // published record encodes, as an independent witness derives it.
+        $manifest = json_decode(File::get($backupDir.'/manifest.json'), true);
+        expect($manifest['manifest_schema_version'])->toBe(4);
+        expect($manifest['environment'])->toBe('production');
+        expect($manifest['dkim_public_key_sha256'])->toBe(dkimPublicKeySha256($key));
+
+        // The fingerprint is logged; the key never is.
+        expect($result['output'])
+            ->toContain('mail-dkim-private-key')
+            ->toContain('DKIM key captured; the sha256 of its public half is '.dkimPublicKeySha256($key));
+        expectNoKeyMaterial($result['output'], $key);
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+})->with([
+    'signing-ready (root:opendkim 0640 in 0750)' => [0o640, 0o750],
+    'pre-signer (root:root 0600 in 0700)' => [0o600, 0o700],
+]);
+
+it('writes no backup for a target whose mail is signed when its DKIM key is absent, unusable or exposed', function (string $case, string $expected) {
+    $scratch = backupOpsScratchDir();
+
+    try {
+        $key = null;
+        $result = backupOpsRunFullBackup($scratch, signed: true, prepareHost: function (string $fsRoot) use (&$key, $case): void {
+            $key = match ($case) {
+                'absent' => null,
+                'too small' => recoveryMaterialPlantDkimKey($fsRoot, 'parity-target', 'rsa1024'),
+                'not a key' => recoveryMaterialPlantDkimKey($fsRoot, 'parity-target', 'junk'),
+                'passphrase-protected' => recoveryMaterialPlantDkimKey($fsRoot, 'parity-target', 'encrypted'),
+                'world-readable' => recoveryMaterialPlantDkimKey($fsRoot, 'parity-target', 'rsa2048', 0o644),
+            };
+        });
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('external prerequisite mail-dkim-private-key cannot be captured')
+            ->toContain($expected)
+            ->toContain('refusing to write a backup that a clean-host recovery could not use');
+
+        // Nothing is generated in its place, and nothing half-written stays.
+        expect(glob($result['backupBase'].'/parity/*'))->toBe([], 'no final backup directory may exist after a refused capture');
+        expect(glob($result['backupBase'].'/parity/.*.tmp'))->toBe([], 'the temporary working directory must be removed');
+
+        if ($key !== null) {
+            expectNoKeyMaterial($result['output'], $key);
+        } else {
+            expect(file_exists($scratch.'/prereq-host/etc/opendkim/keys/parity-target/rg1.private'))->toBeFalse('a missing key was invented');
+        }
+    } finally {
+        backupOpsCleanup($scratch);
+    }
+})->with([
+    'absent' => ['absent', 'absent and no material supplied: /etc/opendkim/keys/parity-target/rg1.private'],
+    'too small' => ['too small', 'is not a usable DKIM private key: it is a 1024-bit RSA key, below the reviewed minimum of 2048 bits'],
+    'not a key' => ['not a key', 'is not a usable DKIM private key: it is not PEM'],
+    'passphrase-protected' => ['passphrase-protected', 'is not a usable DKIM private key: it is passphrase-protected'],
+    'world-readable' => ['world-readable', 'is mode 644, neither the signing-ready root:opendkim 0640 nor the pre-signer root:root 0600'],
+]);
 
 it('database dump command receives the resolved target database name', function () {
     $scratch = backupOpsScratchDir();
@@ -1184,7 +1305,7 @@ it('refuses to write a backup for a target that cannot name the exact commit its
     ],
 ]);
 
-it('writes a schema 3 manifest with the correct selector, target, environment, namespace and database', function () {
+it('writes a schema 4 manifest with the correct selector, target, environment, namespace and database, recording no DKIM key for a target whose mail is not signed', function () {
     $scratch = backupOpsScratchDir();
 
     try {
@@ -1195,7 +1316,7 @@ it('writes a schema 3 manifest with the correct selector, target, environment, n
         $manifest = json_decode(File::get($backupDir.'/manifest.json'), true);
 
         expect($manifest)->toMatchArray([
-            'manifest_schema_version' => 3,
+            'manifest_schema_version' => 4,
             'project' => 'rateguru',
             'selector' => 'target',
             'target' => 'parity-target',
@@ -1203,6 +1324,10 @@ it('writes a schema 3 manifest with the correct selector, target, environment, n
             'backup_namespace' => 'parity',
             'database' => 'parity_db',
         ]);
+
+        // The field is always there in schema 4, and null says "no key".
+        expect($manifest)->toHaveKey('dkim_public_key_sha256');
+        expect($manifest['dkim_public_key_sha256'])->toBeNull();
     } finally {
         backupOpsCleanup($scratch);
     }

@@ -1470,6 +1470,192 @@ it('feeds the prerequisite slices the effective material, never the seed, and re
     }
 });
 
+it('installs the recovery scope in a recovery preparation\'s host slice, and the host scope in an ordinary one', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), prepFixture($scratch));
+        expect($exit)->toBe(0, $output);
+
+        $prerequisiteCalls = array_values(array_filter(
+            prepLog($scratch, 'children'),
+            static fn (string $line): bool => str_starts_with($line, 'prerequisites '),
+        ));
+
+        // Before host bootstrap: the host scope plus the DKIM key of a target
+        // whose mail is signed, so the signer bootstrap installs finds it.
+        // After: the target scope, unchanged.
+        foreach ($prerequisiteCalls as $call) {
+            expect($call)->not->toContain('--scope host');
+        }
+
+        expect(implode("\n", $prerequisiteCalls))
+            ->toContain('--apply --target staging-main --scope recovery --material-dir')
+            ->toContain('--verify --target staging-main --scope recovery')
+            ->toContain('--apply --target staging-main --scope target --material-dir');
+        expect($output)->toContain('Nginx-referenced external material and the DKIM signing key, from the backup (required before 5.4)');
+    } finally {
+        prepCleanup($scratch);
+    }
+
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(['--apply', '--target', 'staging-main'], prepFixture($scratch));
+        expect($exit)->toBe(0, $output);
+
+        $calls = implode("\n", prepLog($scratch, 'children'));
+        expect($calls)->toContain('--apply --target staging-main --scope host')->not->toContain('--scope recovery');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+/**
+ * A recovery preparation of an empty, simulated replacement host for an
+ * active production parity-target whose mail is signed, through the REAL
+ * fetch-recovery-material and the REAL install-target-prerequisites: the
+ * backup comes from the fake offsite remote, the material lands on a scratch
+ * filesystem root that holds nothing, and only the runtime, host bootstrap
+ * and database children are stubs. What host bootstrap would lay out for the
+ * target scope — the target's shared directory, the deploy user's .ssh, root's
+ * rclone directory — is laid out here.
+ *
+ * @return array{0: array<string, string>, 1: string}
+ */
+function prepCleanHostRecovery(string $scratch): array
+{
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch, ['environment_class' => 'production']);
+
+    offsiteRcloneStub($scratch);
+    touch($scratch.'/rclone.log');
+
+    $host = $scratch.'/clean-host';
+    foreach (['/target/shared', '/home/parity-deploy/.ssh', '/root/.config/rclone'] as $dir) {
+        $path = $host.(str_starts_with($dir, '/target') ? $scratch.$dir : $dir);
+        expect(@mkdir($path, 0o755, true))->toBeTrue("could not lay out {$path}");
+    }
+
+    // The installer reads the material directory at its logical path under
+    // the filesystem root, which is / on a real host. The scratch host reaches
+    // the directory prepare-host stages under root's scratch home through a
+    // link at that same logical path; the material directory itself is never
+    // a link.
+    @mkdir(dirname($host.$scratch.'/root-home'), 0o755, true);
+    @mkdir($scratch.'/root-home', 0o700, true);
+    symlink($scratch.'/root-home', $host.$scratch.'/root-home');
+
+    $env = prepFixture($scratch, [
+        'registry' => $registryPath,
+        'targets_cli' => $targetsPath,
+        'env' => [
+            'RATEGURU_PREPAREHOST_PREREQUISITES_INSTALLER_BIN' => base_path('infrastructure/scripts/install-target-prerequisites'),
+            'RATEGURU_PREPAREHOST_RECOVERY_MATERIAL_BIN' => base_path('infrastructure/scripts/fetch-recovery-material'),
+            'RATEGURU_RECOVERYMATERIAL_EUID' => '0',
+            'RATEGURU_RECOVERYMATERIAL_TARGETS_CLI_BIN' => $targetsPath,
+            'RATEGURU_RECOVERYMATERIAL_PREREQUISITES_BIN' => base_path('infrastructure/scripts/install-target-prerequisites'),
+            'RATEGURU_RECOVERYMATERIAL_SOURCE_REGISTRY' => $registryPath,
+            'RATEGURU_RECOVERYMATERIAL_SCRATCH_PARENT' => $scratch.'/root-home',
+            'RATEGURU_RECOVERYMATERIAL_ENFORCE_OWNERSHIP' => 'false',
+            'RATEGURU_RCLONE_BIN' => $scratch.'/bin/rclone',
+            'RGTEST_RCLONE_LOG' => $scratch.'/rclone.log',
+            'RGTEST_REMOTE_ROOT' => $scratch.'/remote',
+        ] + array_merge(recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath), [
+            // An empty machine: nothing of the target exists on it yet.
+            'RATEGURU_TARGETPREREQ_FS_ROOT' => $host,
+        ]),
+    ]);
+
+    return [$env, $host];
+}
+
+it('prepares a simulated clean replacement host from a schema 4 backup and puts back the exact DKIM key the backup recorded, signing-ready', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$env, $host] = prepCleanHostRecovery($scratch);
+        $original = mailIdentityKey('rsa2048');
+        recoveryOffsiteSignedBackupFixture($scratch, $original);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'parity-target', '--material-dir', prepSeedDir($scratch), '--recovery-backup', '20260115-023000'], $env);
+
+        expect($exit)->toBe(0, $output);
+
+        // The very key: the same bytes, the same public half the published
+        // record names, at the place the identity derives, readable by root
+        // and the signer only.
+        $restored = $host.'/etc/opendkim/keys/parity-target/rg1.private';
+        expect(File::get($restored))->toBe(File::get($original));
+        expect(dkimPublicKeySha256($restored))->toBe(dkimPublicKeySha256($original));
+        expect(substr(sprintf('%o', fileperms($restored)), -4))->toBe('0640');
+        expect(substr(sprintf('%o', fileperms($host.'/etc/opendkim/keys/parity-target')), -4))->toBe('0750');
+        expect(substr(sprintf('%o', fileperms($host.'/etc/opendkim/keys')), -4))->toBe('0750');
+
+        // The rest of the recovery scope came back from the same backup, the
+        // environment file from its own member, the seeds from the seed.
+        expect(File::get($host.'/etc/nginx/rateguru-staging.htpasswd'))->toBe("material-mail-basic-auth-never-logged\n");
+        expect(File::get($host.$scratch.'/target/shared/.env'))->toBe(preparedEnvironmentContents());
+        expect(File::get($host.'/home/parity-deploy/.ssh/authorized_keys'))->toBe(File::get($scratch.'/seed/deploy-authorized-keys'));
+
+        // The key went in BEFORE host bootstrap — where the signer bootstrap
+        // installs requires it — and the target slice found it converged.
+        expect($output)
+            ->toContain("DKIM key: OK (usable under parity-target's reviewed policy; the sha256 of its public half is the recorded ".dkimPublicKeySha256($original).')')
+            ->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/parity-target/rg1.private (root:opendkim 0640; content never read or logged)')
+            ->toContain('RECOVERY PREPARATION: HELD')
+            ->toContain('TARGET PREPARED');
+        expect(strpos($output, 'INSTALLED mail-dkim-private-key'))->toBeLessThan(strpos($output, 'SLICE bootstrap'));
+
+        // Never a byte of the key in the log, and the staged material is gone.
+        expectNoKeyMaterial($output, $original);
+        expect(glob($scratch.'/root-home/rateguru-recovery-material.*'))->toBe([]);
+        expect(glob($scratch.'/root-home/rateguru-recovery-fetch.*'))->toBe([]);
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('stops a clean-host recovery before anything is installed when the backup cannot put back the key the published record names', function (string $case, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        [$env, $host] = prepCleanHostRecovery($scratch);
+        $key = mailIdentityKey('rsa2048');
+
+        match ($case) {
+            'a schema 3 backup' => recoveryOffsiteBackupFixture($scratch, options: [
+                'manifest' => backupManifestFixture(['manifest_schema_version' => 3, 'environment' => 'production']),
+                'recovery_material' => array_combine(
+                    recoveryMaterialProductionNames(),
+                    array_map(static fn (string $name): string => "material-{$name}-never-logged\n", recoveryMaterialProductionNames()),
+                ),
+            ]),
+            'another key than the one recorded' => recoveryOffsiteSignedBackupFixture($scratch, $key, ['dkim_public_key_sha256' => dkimPublicKeySha256(mailIdentityKey('rsa3072'))]),
+            'a key below the reviewed size' => recoveryOffsiteSignedBackupFixture($scratch, mailIdentityKey('rsa1024')),
+        };
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'parity-target', '--material-dir', prepSeedDir($scratch), '--recovery-backup', '20260115-023000'], $env);
+
+        expect($exit)->not->toBe(0, $output);
+        expect($output)->toContain($expected);
+
+        // Only the target-agnostic runtime slice ran; the empty machine is
+        // still empty — no key generated, no host material, no hold.
+        $order = array_map(static fn (string $line): string => explode(' ', $line)[0], prepLog($scratch, 'mutations'));
+        expect($order)->toBe(['runtime']);
+        expect(file_exists($host.'/etc'))->toBeFalse('nothing may be installed from a backup that cannot put back the key');
+        expect(File::exists($scratch.'/run/offsite-write-hold'))->toBeFalse();
+        expect(glob($scratch.'/root-home/rateguru-recovery-material.*'))->toBe([]);
+        expectNoKeyMaterial($output, $key);
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a schema 3 backup' => ['a schema 3 backup', "it is a schema 3 backup, and parity-target's recovery material also needs mail-dkim-private-key, which only a schema 4 backup carries"],
+    'another key than the one recorded' => ['another key than the one recorded', "the extracted recovery material's mail-dkim-private-key is not the key backup 20260115-023000 recorded"],
+    'a key below the reviewed size' => ['a key below the reviewed size', 'it is a 1024-bit RSA key, below the reviewed minimum of 2048 bits'],
+]);
+
 it('accepts --recovery-backup only as an exact timestamp, only with --apply, and only beside a seed directory', function (array $arguments, string $expected) {
     $scratch = prepScratchDir();
 

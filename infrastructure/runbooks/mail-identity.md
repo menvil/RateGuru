@@ -13,7 +13,8 @@ is [`mail-signing.md`](mail-signing.md).
 |------|-------|
 | Host MTA identity (`config/mail-outbound.json`) | **`mta1.tits.guru`, reviewed** — the committed contract enables direct delivery, and the shared host has applied it since its activation on 2026-10-08 |
 | `tits-guru` identity (`config/mail-identity.json`) | **Reviewed**: DKIM selector `rg1`, `rsa-sha256`, at least 2048 bits; DMARC `p=none`, `adkim=s`, `aspf=s`, no report address |
-| `infrastructure/scripts/mail-identity` | **Implemented**: `validate`, `dkim-key`, `check-key`, `show-dns`, `verify-dns`, `readiness`, `render-signing-plan` |
+| `infrastructure/scripts/mail-identity` | **Implemented**: `validate`, `dkim-key`, `check-key`, `key-fingerprint`, `show-dns`, `verify-dns`, `readiness`, `render-signing-plan` |
+| DKIM key in backup and recovery material | **Implemented in the repository**: a schema 4 backup of a target whose mail is signed carries the key and records its public fingerprint; a clean-host recovery restores exactly that key — see [`backups.md`](backups.md) |
 | DKIM private key on the production host | **Installed and validated** at `/etc/opendkim/keys/tits-guru/rg1.private` — supplied by the operator, never generated or committed |
 | Public DNS (A, PTR, SPF, DKIM, DMARC) | **Published; production verification PASS** for all five, through both public resolvers (the resolver isolation is production-accepted) |
 | DKIM signing (OpenDKIM + Postfix milter) | **Production-accepted** by **Verify production mail signing** — see [`mail-signing.md`](mail-signing.md) |
@@ -116,6 +117,25 @@ the key.
 target is ready as it is configured today, because nothing signs with the key.
 Once its mail is `outbound` an absent key is `MISSING`, and an outbound target
 is never ready without it.
+
+### In backups and recovery
+
+The key exists nowhere but on the host that signs with it, so a target whose
+mail goes out signed carries it in every backup's recovery material, as
+`mail-dkim-private-key` (`install-target-prerequisites --scope recovery`). A
+held target's key is not carried: nothing signs with it yet. The nightly
+backup runs from the operational bundle, so the bundle carries this script,
+`mail-routing` and the three contracts — and the capture judges the key here,
+never anywhere else.
+
+`mail-identity key-fingerprint --target T --file KEY` judges KEY as T's DKIM
+key against its reviewed policy, as `check-key` does, and prints the SHA-256 of
+its **public** half — the DER SubjectPublicKeyInfo the record's `p=` value
+encodes — as 64 hex digits, and nothing of the key. A backup records it as
+`dkim_public_key_sha256`; a clean-host recovery requires the restored key to
+reproduce it, so a recovered host signs with exactly the key the published
+record names. No key is ever generated or substituted. The same digest is
+computable from public DNS alone — see [`backups.md`](backups.md).
 
 ## Creating and supplying the key (operator, after merge)
 

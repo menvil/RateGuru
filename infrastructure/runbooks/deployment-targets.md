@@ -1137,20 +1137,28 @@ backup root      = /home/www/rateguru/backups/staging
 lock             = /home/www/rateguru/run/backup-staging.lock
 ```
 
-### Manifest: schema 3, backward compatible with schema 1 and 2
+### Manifest: schema 4, backward compatible with schema 1, 2 and 3
 
-Every backup carries a `manifest_schema_version: 3` manifest recording
+A backup written by this repository's `backup` carries a
+`manifest_schema_version: 4` manifest recording
 `target`, `environment`, and `backup_namespace` alongside the pre-existing
-fields, and — the one thing schema 3 adds — the eighth backup file,
-`recovery-material.tar.gz`, the target's host-scope external prerequisites by
-logical name (see [`backups.md`](backups.md)). `restore-test` requires
+fields, the eighth backup file, `recovery-material.tar.gz` — the target's
+recovery-scope material by logical name: its host-scope external
+prerequisites and, for a target whose mail is DKIM-signed, its DKIM private
+key — and `dkim_public_key_sha256`, the fingerprint of that key's public half
+or `null` (see [`backups.md`](backups.md)). Schema 3 carried the same eight
+files, with only the host scope in the archive. `restore-test` requires
 `project`/`environment`/`database` always, `backup_namespace` and a matching
-`target` for schema 2 and 3, and a safe recovery material archive for schema
-3. A schema 1 backup — everything produced before the registry-based model
-existed, with none of the new fields — and a schema 2 backup remain fully
-restorable onto a live target; only a schema 3 backup can recover a clean
-host. Manifest validation, like checksum and storage-archive validation,
-always completes before the temporary database is created.
+`target` for schema 2, 3 and 4, and a certified recovery material archive for
+schema 3 and 4. A schema 1 backup — everything produced before the
+registry-based model existed, with none of the new fields — and a schema 2
+backup remain fully restorable onto a live target, and so does a schema 3
+one; a clean host is recovered from schema 4, or from schema 3 for a target
+whose mail is not signed. A host writes schema 4 only once Prepare Host has
+reinstalled the operational bundle that carries it — until then its backups
+are still schema 3 — so the schema is read from the backup's own manifest,
+never assumed. Manifest validation, like checksum and storage-archive
+validation, always completes before the temporary database is created.
 
 ### Target-specific server configuration snapshot
 
@@ -1187,8 +1195,8 @@ lock (offsite-restore-test)  = /home/www/rateguru/run/offsite-restore-test-stagi
 `createdb` — both using the identical strict, type-based
 `manifest_schema_version` classification `restore-test` uses: absent or JSON
 `null` is schema 1; a JSON *number* equal to `2` is schema 2 and a JSON
-*number* equal to `3` is schema 3 (both additionally checking
-`backup_namespace` and a non-null manifest `target`); any other value — `4`,
+*number* equal to `3` or `4` is schema 3 or 4 (each additionally checking
+`backup_namespace` and a non-null manifest `target`); any other value — `5`,
 `0`, the JSON *string* `"2"` or `"3"`, an array, an object, a boolean — is
 rejected outright, before any mutation, with `unsupported backup manifest
 schema_version: ...` naming the offending value. The classifier

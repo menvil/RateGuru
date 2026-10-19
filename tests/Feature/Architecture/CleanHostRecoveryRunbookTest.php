@@ -201,10 +201,13 @@ it('names the real target: the hostname, the paths and the service names come fr
     expect(File::get(base_path('infrastructure/scripts/fetch-recovery-material')))
         ->toContain('RATEGURU_RCLONE_REMOTE rateguru-b2)')
         ->toContain('RATEGURU_RCLONE_BUCKET rateguru-database-backups)')
-        ->toContain('REQUIRED_MANIFEST_SCHEMA=3');
+        ->toContain('RECOVERY_MANIFEST_SCHEMAS=(3 4)');
 
     expect($runbook)
+        ->toContain('**Schema 4**')
         ->toContain('**Schema 3**')
+        ->toContain('`mail-dkim-private-key`')
+        ->toContain('`dkim_public_key_sha256`')
         ->toContain('`YYYYMMDD-HHMMSS`')
         ->toContain('`recovery-material.tar.gz`')
         ->toContain('full 40-character')

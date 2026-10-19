@@ -1721,7 +1721,10 @@ function parityRegistryFixture(string $scratch, array $options = []): array
             'parity-target' => [
                 'id' => 'parity-target',
                 'lifecycle' => $options['lifecycle'] ?? 'active',
-                'environment_class' => 'staging',
+                // An active production parity-target's mail goes out signed
+                // (recoveryMaterialMailWorld), so its DKIM key is part of its
+                // recovery material.
+                'environment_class' => $options['environment_class'] ?? 'staging',
                 'application_root' => $scratch.'/target',
                 'runtime_user' => $account,
                 'runtime_group' => $group,
@@ -5613,9 +5616,12 @@ function maybeWriteRecoveryMaterial(string $dir, array $options): bool
 /**
  * Everything the REAL install-target-prerequisites needs to capture, list or
  * judge parity-target's recovery material without a real host: a scratch
- * checkout carrying the parity registry and the committed vhosts under the
- * target's own site name, and a scratch filesystem root where every
- * host-scope prerequisite is present with the mode the table declares.
+ * checkout carrying the parity registry, the committed vhosts under the
+ * target's own site name and the mail contracts the recovery scope's DKIM row
+ * is decided by (recoveryMaterialMailWorld), and a scratch filesystem root
+ * where every host-scope prerequisite is present with the mode the table
+ * declares. An active production target's mail goes out signed, so its DKIM
+ * key is part of its recovery scope.
  *
  * Used by the backup, restore-test, verify-backup and recovery suites, so the
  * vocabulary those scripts capture in and check against is the shipped
@@ -5646,7 +5652,7 @@ function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath,
         recoveryMaterialHostFixture($fsRoot);
     }
 
-    return [
+    return recoveryMaterialMailWorld($scratch, $repoRoot.'/infrastructure/config', $registryPath, $targetsPath) + [
         'RATEGURU_PREREQUISITES_BIN' => infraScript('install-target-prerequisites'),
         'RATEGURU_TARGETPREREQ_REPO_ROOT' => $repoRoot,
         'RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN' => $targetsPath,
@@ -5654,6 +5660,86 @@ function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath,
         'RATEGURU_TARGETPREREQ_FS_ROOT' => $fsRoot,
         'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
     ];
+}
+
+/**
+ * The mail judge a recovery-scope run consults, laid out the way the
+ * installed operational bundle carries it: copies of the shipped
+ * mail-identity and mail-routing beside the world's own targets CLI — which
+ * accepts its scratch registry — and the three mail contracts in CONFIG_DIR,
+ * written for every target REGISTRY declares, the way the committed ones
+ * treat staging-main and tits-guru. A staging target's mail is captured and a
+ * planned production target's held: neither carries a DKIM key in its
+ * recovery scope. An ACTIVE production target's mail goes out signed under the
+ * committed tits-guru identity (selector rg1) — the routing policy accepts no
+ * other route for one — so its key at /etc/opendkim/keys/<target>/rg1.private
+ * is part of its recovery material.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialMailWorld(string $scratch, string $configDir, string $registryPath, string $targetsPath): array
+{
+    $bin = $scratch.'/prereq-bundle-bin';
+    @mkdir($bin, 0o755, true);
+    @mkdir($configDir, 0o755, true);
+
+    foreach (['mail-identity', 'mail-routing'] as $tool) {
+        copy(base_path('infrastructure/scripts/'.$tool), $bin.'/'.$tool);
+        chmod($bin.'/'.$tool, 0o755);
+    }
+
+    copy($targetsPath, $bin.'/targets');
+    chmod($bin.'/targets', 0o755);
+
+    $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+    $committedRouting = $read('mail-routing.json');
+    $committedIdentity = $read('mail-identity.json');
+    $registry = json_decode(File::get($registryPath), true, 512, JSON_THROW_ON_ERROR);
+
+    $routing = ['schema_version' => $committedRouting['schema_version'], 'targets' => []];
+    $identity = ['schema_version' => $committedIdentity['schema_version'], 'targets' => []];
+    $signed = [];
+    $port = 2525;
+
+    foreach ($registry['targets'] as $id => $target) {
+        if ($target['environment_class'] === 'production') {
+            $policy = [
+                'submission' => ['host' => '127.0.0.1', 'port' => $port],
+                'delivery_mode' => 'held',
+                'mail_domain' => "{$id}.example",
+                'default_from' => "noreply@{$id}.example",
+                'bounce_domain' => "bounce.{$id}.example",
+                'reply_domain' => "reply.{$id}.example",
+            ];
+
+            if ($target['lifecycle'] === 'active') {
+                $policy['delivery_mode'] = 'outbound';
+                $policy['outbound'] = ['kind' => 'direct'];
+                $identity['targets'][$id] = $committedIdentity['targets']['tits-guru'];
+                $signed[] = $id;
+            }
+        } else {
+            $policy = $committedRouting['targets']['staging-main'];
+            $policy['submission']['port'] = $port;
+        }
+
+        $routing['targets'][$id] = $policy;
+        $port++;
+    }
+
+    // The host contract's reviewed MTA name, with direct delivery on exactly
+    // when some target's mail goes out.
+    $outbound = $read('mail-outbound.json');
+    $outbound['direct']['enabled'] = $signed !== [];
+
+    // An identity contract with no target is an empty JSON object, never [].
+    $identity['targets'] = $identity['targets'] === [] ? new stdClass : $identity['targets'];
+
+    foreach (['mail-routing' => $routing, 'mail-identity' => $identity, 'mail-outbound' => $outbound] as $name => $data) {
+        file_put_contents("{$configDir}/{$name}.json", mailRoutingJson($data));
+    }
+
+    return ['RATEGURU_TARGETPREREQ_MAIL_IDENTITY_BIN' => $bin.'/mail-identity'];
 }
 
 /**
@@ -5694,17 +5780,49 @@ function recoveryMaterialHostFixture(string $fsRoot): array
 }
 
 /**
+ * A target's DKIM private key installed on a scratch host the way the
+ * prerequisite table expects it: /etc/opendkim/keys/<target>/rg1.private, a
+ * real key of KIND (mailIdentityKey), signing-ready (0640 in 0750 directories)
+ * unless other modes are given. Returns the key's path.
+ */
+function recoveryMaterialPlantDkimKey(string $fsRoot, string $target, string $kind = 'rsa2048', int $keyMode = 0o640, int $dirMode = 0o750): string
+{
+    $dir = $fsRoot.'/etc/opendkim/keys/'.$target;
+    @mkdir($dir, $dirMode, true);
+    chmod($fsRoot.'/etc/opendkim/keys', $dirMode);
+    chmod($dir, $dirMode);
+
+    $key = $dir.'/rg1.private';
+    copy(mailIdentityKey($kind), $key);
+    chmod($key, $keyMode);
+
+    return $key;
+}
+
+/**
+ * The SHA-256 of a private key's public half — the DER SubjectPublicKeyInfo
+ * the DKIM record's p= value encodes — derived by PHP's own OpenSSL binding:
+ * an independent witness for the fingerprint a backup records.
+ */
+function dkimPublicKeySha256(string $privateKeyPath): string
+{
+    return hash('sha256', base64_decode(mailIdentityPublicKey($privateKeyPath), true));
+}
+
+/**
  * A real, on-disk backup directory in exactly the shape
  * infrastructure/scripts/backup produces: a genuine gzip storage archive, the
  * checksummed files of its schema, and a genuine SHA256SUMS computed with real
  * sha256sum, so every checksum check downstream is a real check.
  *
- * Schema 2 (seven files) by default. `'schema' => 3`, or an explicit schema 3
- * manifest, adds recovery-material.tar.gz — built from `recovery_material`
- * (logical name => content, defaulting to every host-scope name), or from raw
- * `recovery_material_bytes` for a malformed archive — and checksums it in the
- * position backup writes it. `omit_recovery_material` builds a schema 3
- * manifest whose archive is missing, for the refusal that must catch it.
+ * Schema 2 (seven files) by default. `'schema' => 3` or `4`, or an explicit
+ * schema 3 or 4 manifest, adds recovery-material.tar.gz — built from
+ * `recovery_material` (logical name => content, defaulting to every host-scope
+ * name), or from raw `recovery_material_bytes` for a malformed archive — and
+ * checksums it in the position backup writes it. A schema 4 manifest records
+ * `dkim_public_key_sha256` (null unless given). `omit_recovery_material`
+ * builds a manifest whose archive is missing, for the refusal that must catch
+ * it.
  */
 function buildBackupFixture(string $namespaceRoot, string $timestamp, array $options = []): string
 {
@@ -5748,15 +5866,20 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
         is_string($releaseJson) ? $releaseJson : json_encode($releaseJson, JSON_PRETTY_PRINT),
     );
 
-    $schema3 = ($options['schema'] ?? null) === 3;
+    $schema = $options['schema'] ?? null;
 
     $manifest = array_key_exists('manifest', $options)
         ? $options['manifest']
-        : backupManifestFixture($schema3 ? ['manifest_schema_version' => 3] : []);
+        : backupManifestFixture(match ($schema) {
+            3 => ['manifest_schema_version' => 3],
+            4 => ['manifest_schema_version' => 4, 'dkim_public_key_sha256' => $options['dkim_public_key_sha256'] ?? null],
+            default => [],
+        });
 
-    if (is_array($manifest) && ($manifest['manifest_schema_version'] ?? null) === 3) {
-        $schema3 = true;
-    }
+    // Schema 3 and 4 carry recovery material; the manifest decides which a
+    // fixture is, whether it came from the options or was given whole.
+    $carriesRecoveryMaterial = in_array($schema, [3, 4], true)
+        || (is_array($manifest) && in_array($manifest['manifest_schema_version'] ?? null, [3, 4], true));
 
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
@@ -5764,7 +5887,7 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
-    if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
+    if ($carriesRecoveryMaterial && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -7014,6 +7137,57 @@ function recoveryOffsiteBackupFixture(string $scratch, string $backupId = '20260
         'environment' => preparedEnvironmentContents(),
         'schema' => 3,
     ], $options));
+}
+
+/**
+ * The host-scope logical names of a production parity-target: it has no
+ * committed vhost of its own, so its host scope is the shared mail-capture
+ * vhosts' material alone, in the order the prerequisite table lists it.
+ *
+ * @return list<string>
+ */
+function recoveryMaterialProductionNames(): array
+{
+    return ['mail-basic-auth', 'mail-tls-certificate', 'mail-tls-private-key', 'mail-nginx-tls-options', 'mail-tls-dhparams'];
+}
+
+/**
+ * A schema 4 offsite backup of an active production parity-target, whose mail
+ * goes out signed (parityRegistryFixture with environment_class production):
+ * its recovery material carries the production host scope and KEY as
+ * mail-dkim-private-key, and its manifest records KEY's public fingerprint.
+ * MANIFEST overrides and MEMBERS (logical name => content, or null to drop
+ * one) let a test make any part of it wrong.
+ *
+ * @param  array<string, mixed>  $manifest
+ * @param  array<string, string|null>  $members
+ */
+function recoveryOffsiteSignedBackupFixture(string $scratch, string $keyPath, array $manifest = [], array $members = [], string $backupId = '20260115-023000'): string
+{
+    $material = [];
+
+    foreach (recoveryMaterialProductionNames() as $name) {
+        $material[$name] = "material-{$name}-never-logged\n";
+    }
+
+    $material['mail-dkim-private-key'] = File::get($keyPath);
+
+    foreach ($members as $name => $content) {
+        if ($content === null) {
+            unset($material[$name]);
+        } else {
+            $material[$name] = $content;
+        }
+    }
+
+    return recoveryOffsiteBackupFixture($scratch, $backupId, [
+        'manifest' => backupManifestFixture(array_merge([
+            'manifest_schema_version' => 4,
+            'environment' => 'production',
+            'dkim_public_key_sha256' => dkimPublicKeySha256($keyPath),
+        ], $manifest)),
+        'recovery_material' => $material,
+    ]);
 }
 
 /**

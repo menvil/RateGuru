@@ -118,8 +118,7 @@ append_history() {
 # constants rather than carrying its own list, so "which files make up a
 # backup" cannot come to mean two different things in two privileged scripts.
 #
-# Three manifest schemas exist, and the set of files is the only thing that
-# differs between them:
+# Four manifest schemas exist:
 #
 #   schema 1   the historical format: no manifest_schema_version field at all
 #   schema 2   adds the selector/target/backup_namespace manifest fields
@@ -128,10 +127,23 @@ append_history() {
 #              captured under their logical names — which is what makes a
 #              backup usable for a clean-host recovery without any external
 #              material being supplied by hand
+#   schema 4   the same eight files; recovery-material.tar.gz now holds the
+#              target's RECOVERY scope — the host scope, plus the DKIM private
+#              key (mail-dkim-private-key) of a target whose mail policy
+#              requires DKIM signing — and the manifest records
+#              dkim_public_key_sha256, the fingerprint of that key's public
+#              half, or null when the archive carries no key
 #
-# Schema 1 and 2 backups carry exactly seven top-level files; schema 3 carries
-# exactly eight. Every set is CLOSED: a backup with a file missing from its
-# schema's set, or with any file beyond it, is refused wherever it is read.
+# Schema 1 and 2 backups carry exactly seven top-level files; schema 3 and 4
+# carry exactly eight. Every set is CLOSED: a backup with a file missing from
+# its schema's set, or with any file beyond it, is refused wherever it is read.
+#
+# A schema 3 backup stays restorable onto a live target forever, and stays a
+# clean-host recovery source for a target whose recovery scope is its host
+# scope. It is never one for a target whose mail goes out signed: it carries
+# no DKIM key, and a replacement host must sign with the key the published
+# record names — so that recovery refuses it, and nothing generates or
+# substitutes a key.
 #
 # recovery-material.tar.gz is deliberately NOT a superset of
 # server-configuration.tar.gz and does not replace it. The server snapshot is
@@ -154,8 +166,10 @@ BACKUP_CHECKSUMMED_FILES_LEGACY=(
     manifest.json
 )
 
-# The checksummed files of a schema 3 backup, in the exact order backup
-# writes them into SHA256SUMS.
+# The checksummed files of a schema 3 or schema 4 backup, in the exact order
+# backup writes them into SHA256SUMS. The two schemas differ in what the
+# recovery material archive holds and what the manifest records, never in
+# which files a backup is made of.
 BACKUP_CHECKSUMMED_FILES_SCHEMA3=(
     database.dump
     storage-app.tar.gz
@@ -167,17 +181,23 @@ BACKUP_CHECKSUMMED_FILES_SCHEMA3=(
 )
 
 # The manifest schema a backup written today carries.
-BACKUP_MANIFEST_SCHEMA_CURRENT=3
+BACKUP_MANIFEST_SCHEMA_CURRENT=4
+
+# The logical name a target's DKIM private key carries in recovery material,
+# and the schema 4 manifest field naming its public half. The name is
+# install-target-prerequisites' own; a test pins the two together.
+BACKUP_RECOVERY_DKIM_KEY_NAME=mail-dkim-private-key
+BACKUP_MANIFEST_DKIM_FIELD=dkim_public_key_sha256
 
 # backup_checksummed_files_for_schema SCHEMA — the checksummed files of one
 # schema, one per line, in SHA256SUMS order. SCHEMA is a classifier verdict:
-# schema1, schema2 or schema3. Anything else is a hard failure, never an
-# empty list: an empty closed set would make every "exactly these files"
+# schema1, schema2, schema3 or schema4. Anything else is a hard failure, never
+# an empty list: an empty closed set would make every "exactly these files"
 # check pass on nothing.
 backup_checksummed_files_for_schema() {
     case "${1-}" in
         schema1|schema2) printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_LEGACY[@]}" ;;
-        schema3)         printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" ;;
+        schema3|schema4) printf '%s\n' "${BACKUP_CHECKSUMMED_FILES_SCHEMA3[@]}" ;;
         *)               fail "internal: no backup file set is defined for manifest schema '${1-}'" ;;
     esac
 }
@@ -190,11 +210,77 @@ backup_required_files_for_schema() {
 }
 
 # backup_schema_supports_clean_host_recovery SCHEMA — whether a backup of this
-# schema carries the recovery material a clean-host recovery needs. Only
-# schema 3 does: the older schemas stay fully restorable onto a LIVE target,
-# and are refused, by name, as the source of a clean-host recovery.
+# schema carries recovery material at all. Schema 3 and 4 do: the older
+# schemas stay fully restorable onto a LIVE target, and are refused, by name,
+# as the source of a clean-host recovery. Whether the material is ENOUGH for a
+# given target is backup_schema_covers_recovery_scope's question.
 backup_schema_supports_clean_host_recovery() {
-    [[ "${1-}" == schema3 ]]
+    [[ "${1-}" == schema3 || "${1-}" == schema4 ]]
+}
+
+# backup_recovery_scope_for_schema SCHEMA — the prerequisite scope a backup of
+# this schema captured its recovery material in, which is the scope it is
+# judged in: host for schema 3, written before the DKIM key joined it, and
+# recovery for schema 4.
+backup_recovery_scope_for_schema() {
+    case "${1-}" in
+        schema3) printf 'host\n' ;;
+        schema4) printf 'recovery\n' ;;
+        *)       fail "internal: a ${1-} backup carries no recovery material" ;;
+    esac
+}
+
+# backup_schema_covers_recovery_scope SCHEMA TARGET_ID — whether a backup of
+# this schema carries everything a clean-host recovery of TARGET_ID has to put
+# back. A schema 4 backup does by construction. A schema 3 one does only when
+# the target's recovery scope is its host scope — that is, when its mail is not
+# signed: the installed prerequisite table is asked for both vocabularies, so
+# the answer is today's rules, never a list kept here. On a refusal,
+# BACKUP_RECOVERY_SCOPE_GAP names what the backup lacks.
+BACKUP_RECOVERY_SCOPE_GAP=""
+
+backup_schema_covers_recovery_scope() {
+    local schema="$1" target_id="$2" bin name known listing
+    local -a host_names=() recovery_names=() missing=()
+
+    BACKUP_RECOVERY_SCOPE_GAP=""
+
+    case "${schema}" in
+        schema4) return 0 ;;
+        schema3) ;;
+        *)       return 1 ;;
+    esac
+
+    bin="$(backup_prerequisites_bin)"
+
+    [[ -x "${bin}" ]] \
+        || fail "the external-material installer is not available at ${bin} — whether a schema 3 backup is enough for a clean-host recovery of ${target_id} cannot be decided without it"
+
+    # Captured before it is split, so the installer's own refusal is the
+    # refusal here: a process substitution's failure would be lost.
+    listing="$("${bin}" --list-material-names --target "${target_id}" --scope host)" \
+        || fail "the host-scope material of ${target_id} could not be listed"
+    mapfile -t host_names <<<"${listing}"
+
+    listing="$("${bin}" --list-material-names --target "${target_id}" --scope recovery)" \
+        || fail "the recovery-scope material of ${target_id} could not be listed"
+    mapfile -t recovery_names <<<"${listing}"
+
+    [[ -n "${recovery_names[0]:-}" ]] \
+        || fail "the recovery-scope material of ${target_id} could not be listed"
+
+    for name in "${recovery_names[@]}"; do
+        for known in "${host_names[@]:-}"; do
+            [[ "${known}" != "${name}" ]] || continue 2
+        done
+
+        missing+=("${name}")
+    done
+
+    (( ${#missing[@]} == 0 )) && return 0
+
+    BACKUP_RECOVERY_SCOPE_GAP="${missing[*]}"
+    return 1
 }
 
 # Shared, strict backup-manifest schema classifier. infrastructure/scripts/
@@ -212,6 +298,7 @@ backup_schema_supports_clean_host_recovery() {
 #   schema1        - the field is absent or JSON null
 #   schema2        - the field is a JSON number equal to 2
 #   schema3        - the field is a JSON number equal to 3
+#   schema4        - the field is a JSON number equal to 4
 #   invalid:<value> - anything else, with the offending value's own JSON
 #                     representation appended (quoted for a string, compact
 #                     for an array/object) — callers turn this into their own
@@ -236,6 +323,7 @@ manifest_schema_classify() {
             case "${manifest_schema_version}" in
                 2) printf 'schema2\n' ;;
                 3) printf 'schema3\n' ;;
+                4) printf 'schema4\n' ;;
                 *) printf 'invalid:%s\n' "${manifest_schema_version}" ;;
             esac
             ;;
@@ -270,7 +358,7 @@ backup_schema_of_directory() {
     schema="$(manifest_schema_classify "${manifest_path}")"
 
     case "${schema}" in
-        schema1|schema2|schema3)
+        schema1|schema2|schema3|schema4)
             printf '%s\n' "${schema}"
             ;;
         invalid:*)
@@ -329,7 +417,7 @@ validate_backup_manifest() {
     case "${manifest_schema_status}" in
         schema1)
             ;;
-        schema2|schema3)
+        schema2|schema3|schema4)
             local manifest_backup_namespace
             manifest_backup_namespace="$(jq -r '.backup_namespace // empty' "${manifest_path}")"
 
@@ -343,9 +431,9 @@ validate_backup_manifest() {
                 null)
                     # Absent or explicit JSON null — a schema 2 manifest
                     # predating the target-only cutover; no target to compare.
-                    # A schema 3 manifest is never written without one.
-                    [[ "${manifest_schema_status}" != schema3 ]] \
-                        || fail "backup manifest target is missing — a schema 3 manifest always names its target"
+                    # A schema 3 or 4 manifest is never written without one.
+                    [[ "${manifest_schema_status}" == schema2 ]] \
+                        || fail "backup manifest target is missing — a ${manifest_schema_status/schema/schema } manifest always names its target"
                     ;;
                 string)
                     local manifest_target
@@ -587,19 +675,28 @@ backup_prerequisites_bin() {
     printf '%s\n' "${bin}"
 }
 
-# backup_assert_recovery_material_certified DIR TARGET_ID — the STRICT
+# backup_assert_recovery_material_certified DIR TARGET_ID SCHEMA — the STRICT
 # judgement: the archive is safe as data, SHA256SUMS covers it exactly once,
-# and it holds exactly the host-scope prerequisite names the installed table
-# states for TARGET_ID today — proven by the installer itself, which never
-# reads a member's content. This is what a backup verification must fail on,
-# because a backup that passes it and nothing else is one a clean-host
-# recovery could not be prepared from. Sets BACKUP_RECOVERY_MATERIAL_REPORT
-# to the installer's one-line summary (names only).
+# and it holds exactly the prerequisite names the installed table states for
+# TARGET_ID today in the scope SCHEMA captured it in (host for schema 3,
+# recovery for schema 4) — proven by the installer itself, which never reads a
+# member's content. A schema 4 manifest must also record the fingerprint of
+# the DKIM key exactly when the archive carries one, and a carried key must
+# reproduce it. This is what a backup verification must fail on, because a
+# backup that fails it is one a clean-host recovery could not be prepared
+# from. Passing it is not the converse: it certifies the material the
+# backup's own schema carries, and whether that schema covers the target's
+# recovery scope today is judged where a recovery starts (a schema 3 backup of
+# a target whose mail is signed is certified here, and refused there). Sets
+# BACKUP_RECOVERY_MATERIAL_REPORT to the installer's one-line summary (names
+# only).
 backup_assert_recovery_material_certified() {
-    local dir="$1" target_id="$2"
+    local dir="$1" target_id="$2" schema="$3"
     local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
-    local bin listed output status=0
+    local bin listed output scope status=0
     local pattern="^[0-9a-f]{64}  ${BACKUP_RECOVERY_MATERIAL_FILE//./\\.}\$"
+
+    scope="$(backup_recovery_scope_for_schema "${schema}")"
 
     backup_assert_recovery_material_archive_safe "${archive}"
 
@@ -611,16 +708,104 @@ backup_assert_recovery_material_certified() {
     bin="$(backup_prerequisites_bin)"
 
     [[ -x "${bin}" ]] \
-        || fail "the external-material installer is not available at ${bin} — a schema 3 backup's recovery material cannot be checked against the prerequisite table without it"
+        || fail "the external-material installer is not available at ${bin} — a backup's recovery material cannot be checked against the prerequisite table without it"
 
-    output="$("${bin}" --validate-recovery-material --target "${target_id}" --scope host --archive "${archive}" 2>&1)" || status=$?
+    output="$("${bin}" --validate-recovery-material --target "${target_id}" --scope "${scope}" --archive "${archive}" 2>&1)" || status=$?
 
     if (( status != 0 )); then
         printf '%s\n' "${output}" >&2
         fail "recovery material archive is not acceptable for ${target_id}: ${BACKUP_RECOVERY_MATERIAL_FILE} (see the installer's own diagnosis above)"
     fi
 
+    if [[ "${schema}" == schema4 ]]; then
+        backup_assert_manifest_names_dkim_key "${dir}" "${target_id}" "${bin}"
+    fi
+
     BACKUP_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
+}
+
+# backup_dkim_key_fingerprint_in_archive ARCHIVE BIN TARGET_ID — the
+# fingerprint of the public half of the DKIM key ARCHIVE carries, printed
+# alone on stdout, as the installer BIN judges it against TARGET_ID's reviewed
+# policy. ARCHIVE has already been proven safe as data and to hold exactly
+# that one key member. The member alone is streamed into a private directory
+# made for it, which is removed before this returns on every path; nothing of
+# the key is ever printed. Returns non-zero when the member cannot be read or
+# the installer refuses the key, whose own diagnosis is on stderr.
+backup_dkim_key_fingerprint_in_archive() {
+    local archive="$1" bin="$2" target_id="$3"
+
+    (
+        umask 077
+
+        key_dir="$(mktemp -d)" || exit 1
+        trap 'rm -rf -- "${key_dir}"' EXIT
+
+        tar -xzOf "${archive}" -- "${BACKUP_RECOVERY_DKIM_KEY_NAME}" \
+            >"${key_dir}/${BACKUP_RECOVERY_DKIM_KEY_NAME}" 2>/dev/null \
+            || exit 1
+
+        "${bin}" --dkim-fingerprint --target "${target_id}" --scope recovery \
+            --key "${key_dir}/${BACKUP_RECOVERY_DKIM_KEY_NAME}"
+    )
+}
+
+# backup_assert_manifest_names_dkim_key DIR TARGET_ID BIN — a schema 4
+# manifest records the fingerprint of the DKIM key its recovery material
+# carries, and records null when it carries none: never one without the
+# other, and never a value of any other shape. A carried key is judged by the
+# installer BIN against TARGET_ID's reviewed policy and must reproduce the
+# recorded fingerprint exactly — the same proof a clean-host recovery makes
+# before it stages anything, so a key a recovery would refuse is never
+# certified. Sets BACKUP_MANIFEST_DKIM_FINGERPRINT to the recorded
+# fingerprint, or to nothing.
+BACKUP_MANIFEST_DKIM_FINGERPRINT=""
+
+backup_assert_manifest_names_dkim_key() {
+    local dir="$1" target_id="$2" bin="$3"
+    local manifest="${dir}/${BACKUP_MANIFEST_FILE}"
+    local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
+    local field_type carries_key=false listing actual
+
+    BACKUP_MANIFEST_DKIM_FINGERPRINT=""
+
+    jq -e --arg field "${BACKUP_MANIFEST_DKIM_FIELD}" 'has($field)' "${manifest}" >/dev/null 2>&1 \
+        || fail "backup manifest does not record ${BACKUP_MANIFEST_DKIM_FIELD} — a schema 4 manifest always states whether its recovery material carries a DKIM key"
+
+    field_type="$(jq -r --arg field "${BACKUP_MANIFEST_DKIM_FIELD}" '.[$field] | type' "${manifest}")"
+
+    listing="$(tar -tzf "${archive}" 2>/dev/null)" \
+        || fail "recovery material archive is unreadable: ${archive}"
+
+    if grep -Fxq -- "${BACKUP_RECOVERY_DKIM_KEY_NAME}" <<<"${listing}"; then
+        carries_key=true
+    fi
+
+    case "${field_type}:${carries_key}" in
+        null:false)
+            ;;
+        string:true)
+            BACKUP_MANIFEST_DKIM_FINGERPRINT="$(jq -r --arg field "${BACKUP_MANIFEST_DKIM_FIELD}" '.[$field]' "${manifest}")"
+
+            [[ "${BACKUP_MANIFEST_DKIM_FINGERPRINT}" =~ ^[0-9a-f]{64}$ ]] \
+                || fail "backup manifest ${BACKUP_MANIFEST_DKIM_FIELD} is not a SHA-256 fingerprint: ${BACKUP_MANIFEST_DKIM_FINGERPRINT}"
+
+            actual="$(backup_dkim_key_fingerprint_in_archive "${archive}" "${bin}" "${target_id}")" \
+                || fail "backup recovery material's ${BACKUP_RECOVERY_DKIM_KEY_NAME} is not a usable DKIM key under ${target_id}'s reviewed policy (see the installer's own diagnosis above) — a clean-host recovery would refuse it"
+
+            [[ "${actual}" == "${BACKUP_MANIFEST_DKIM_FINGERPRINT}" ]] \
+                || fail "backup recovery material's ${BACKUP_RECOVERY_DKIM_KEY_NAME} is not the key its manifest records: the sha256 of its public half is ${actual}, the manifest records ${BACKUP_MANIFEST_DKIM_FINGERPRINT} — a clean-host recovery would refuse it"
+            ;;
+        string:false)
+            fail "backup manifest records a DKIM key fingerprint, but its recovery material carries no ${BACKUP_RECOVERY_DKIM_KEY_NAME}"
+            ;;
+        null:true)
+            fail "backup recovery material carries ${BACKUP_RECOVERY_DKIM_KEY_NAME}, but its manifest records no ${BACKUP_MANIFEST_DKIM_FIELD} — a recovery could not prove the key is the one the backup took"
+            ;;
+        *)
+            fail "backup manifest ${BACKUP_MANIFEST_DKIM_FIELD} has unexpected type: $(jq -c --arg field "${BACKUP_MANIFEST_DKIM_FIELD}" '.[$field]' "${manifest}")"
+            ;;
+    esac
 }
 
 # A backup names the exact commit its data belongs to: the full 40-character
@@ -630,8 +815,8 @@ BACKUP_SOURCE_SHA_REGEX='^[0-9a-f]{40}$'
 # backup_assert_release_identity FILE REASON — FILE is a release.json naming
 # a well-formed release and a full source_sha. A backup written today is the
 # source of a clean-host recovery, which rebuilds exactly that commit, so a
-# target that cannot name it is not backed up at all: a schema 3 backup with
-# an empty or partial identity would be reported as a success and found
+# target that cannot name it is not backed up at all: a backup with an empty
+# or partial identity would be reported as a success and found
 # unusable on the worst day. REASON is appended to every refusal. Sets
 # BACKUP_RELEASE and BACKUP_SOURCE_SHA.
 backup_assert_release_identity() {
