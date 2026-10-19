@@ -3,6 +3,7 @@
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\StudioPlan;
 use App\Models\User;
 use App\Services\Media\MediaAssetInspector;
 use Illuminate\Support\Carbon;
@@ -34,7 +35,8 @@ it('reports master existence, reference state, and variant existence for a healt
         ->and($inspection->variants)->toHaveCount(1)
         ->and($inspection->variants->first()['exists'])->toBeTrue()
         ->and($inspection->referencingPosts->pluck('id')->all())->toBe([$post->id])
-        ->and($inspection->referencingUsers)->toBeEmpty();
+        ->and($inspection->referencingUsers)->toBeEmpty()
+        ->and($inspection->referencingPlans)->toBeEmpty();
 });
 
 it('reports a missing master and missing variant file as not existing', function () {
@@ -60,6 +62,17 @@ it('reports the referencing user for an avatar asset', function () {
     expect($inspection->referenced)->toBeTrue()
         ->and($inspection->referencingUsers->pluck('id')->all())->toBe([$user->id])
         ->and($inspection->referencingPosts)->toBeEmpty();
+});
+
+it('reports the publication plan holding a draft\'s photo', function () {
+    $plan = StudioPlan::factory()->withImage()->create();
+
+    $inspection = app(MediaAssetInspector::class)->inspect($plan->imageAsset);
+
+    expect($inspection->referenced)->toBeTrue()
+        ->and($inspection->referencingPlans->pluck('id')->all())->toBe([$plan->id])
+        ->and($inspection->referencingPosts)->toBeEmpty()
+        ->and($inspection->referencingUsers)->toBeEmpty();
 });
 
 it('reports lifecycle state for an active asset with no purgeable-at date', function () {

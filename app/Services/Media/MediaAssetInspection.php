@@ -5,6 +5,7 @@ namespace App\Services\Media;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\StudioPlan;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -19,6 +20,7 @@ final readonly class MediaAssetInspection
      * @param  Collection<int, array{variant: MediaVariant, exists: bool}>  $variants
      * @param  Collection<int, Post>  $referencingPosts
      * @param  Collection<int, User>  $referencingUsers
+     * @param  Collection<int, StudioPlan>  $referencingPlans
      */
     public function __construct(
         public MediaAsset $asset,
@@ -27,6 +29,7 @@ final readonly class MediaAssetInspection
         public Collection $variants,
         public Collection $referencingPosts,
         public Collection $referencingUsers,
+        public Collection $referencingPlans,
         public bool $graceExpired,
         public bool $purgeable,
         public ?Carbon $purgeableAt,

@@ -1,10 +1,13 @@
 <?php
 
+use App\Actions\Studio\DeleteStudioPlanDraftAction;
 use App\Enums\MediaAuditIssueType;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\StudioPlan;
+use App\Models\User;
 use App\Services\Media\MediaAuditIssueData;
 use App\Services\Media\MediaAuditService;
 use Illuminate\Support\Carbon;
@@ -89,6 +92,49 @@ it('reports an active, unreferenced asset as an issue', function () {
     $matching = array_filter($issues, fn (MediaAuditIssueData $i) => $i->issueType === MediaAuditIssueType::ActiveUnreferencedAsset);
     expect($matching)->toHaveCount(1);
     expect(array_values($matching)[0]->mediaAssetId)->toBe($asset->id);
+});
+
+it('counts a draft\'s photo as used, not as an active unreferenced asset', function () {
+    $plan = StudioPlan::factory()->withImage()->create();
+    Storage::disk('public')->put($plan->imageAsset->path, 'bytes');
+
+    $issues = [];
+    $summary = app(MediaAuditService::class)->run(onIssue: function (MediaAuditIssueData $issue) use (&$issues): void {
+        $issues[] = $issue;
+    });
+
+    expect($summary->healthyAssets)->toBe(1)
+        ->and($summary->activeUnreferencedAssets)->toBe(0)
+        ->and($issues)->toBeEmpty();
+});
+
+it('reports a draft\'s photo as released once the draft is deleted, and purgeable only after the grace period', function () {
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $plan = StudioPlan::factory()->withImage()->create();
+    $assetId = $plan->image_asset_id;
+    Storage::disk('public')->put($plan->imageAsset->path, 'bytes');
+    $audit = function (): array {
+        $issues = [];
+        $summary = app(MediaAuditService::class)->run(onIssue: function (MediaAuditIssueData $issue) use (&$issues): void {
+            $issues[] = $issue;
+        });
+
+        return [$summary, $issues];
+    };
+
+    [$before] = $audit();
+    app(DeleteStudioPlanDraftAction::class)->handle(User::factory()->admin()->create(), $plan, 1);
+    [$released, $releasedIssues] = $audit();
+    Carbon::setTestNow(Carbon::parse('2026-01-20 12:00:00'));
+    [$expired, $expiredIssues] = $audit();
+
+    expect($before->healthyAssets)->toBe(1)
+        ->and($released->healthyAssets)->toBe(0)
+        ->and($released->activeUnreferencedAssets)->toBe(0)
+        ->and($released->softDeletedWithinGrace)->toBe(1)
+        ->and($releasedIssues)->toBeEmpty()
+        ->and($expired->purgeableAssets)->toBe(1)
+        ->and(array_map(fn (MediaAuditIssueData $issue): ?int => $issue->mediaAssetId, $expiredIssues))->toBe([$assetId]);
 });
 
 it('reports a grace-expired, unreferenced, soft-deleted asset as purgeable, not as a plain soft-delete', function () {

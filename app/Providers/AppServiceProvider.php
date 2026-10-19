@@ -10,6 +10,7 @@ use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
+use App\Policies\StudioPlanPolicy;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
@@ -80,6 +81,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
         Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
         Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
+        Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

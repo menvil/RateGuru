@@ -312,6 +312,17 @@ never "follower first", which would deadlock against the opposite pair.
 Cheap pre-checks on the caller's instance remain but are never
 authoritative.
 
+Content Studio's publication plan actions take the same order: the
+administrator's row and, when a Persona is chosen as the author, the
+author's, in ascending primary-key order, then the `studio_plans` row
+(`LocksStudioPlanDraft`). Which users a write locks is known before it
+starts, so no user row is locked once the plan is held; a plan changed in
+between is refused by its `lock_version` rather than followed. A sanction of
+the chosen Persona locks the same two users in the same order, so the two
+take turns instead of deadlocking. The author is asked again on its locked
+row — still a Persona, not deleted; a Limited, Banned or Shadowbanned Persona
+may still be a Draft's author, since saving a Draft publishes nothing.
+
 The same rule covers **content moderation as privileged participation**:
 `ModerationPolicy::moderateContent`, `PostPolicy`/`CommentPolicy`
 moderation abilities and `ReportPolicy` processing all require role AND
