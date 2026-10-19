@@ -681,9 +681,13 @@ backup_prerequisites_bin() {
 # TARGET_ID today in the scope SCHEMA captured it in (host for schema 3,
 # recovery for schema 4) — proven by the installer itself, which never reads a
 # member's content. A schema 4 manifest must also record the fingerprint of
-# the DKIM key exactly when the archive carries one. This is what a backup
-# verification must fail on, because a backup that passes it and nothing else
-# is one a clean-host recovery could not be prepared from. Sets
+# the DKIM key exactly when the archive carries one, and a carried key must
+# reproduce it. This is what a backup verification must fail on, because a
+# backup that fails it is one a clean-host recovery could not be prepared
+# from. Passing it is not the converse: it certifies the material the
+# backup's own schema carries, and whether that schema covers the target's
+# recovery scope today is judged where a recovery starts (a schema 3 backup of
+# a target whose mail is signed is certified here, and refused there). Sets
 # BACKUP_RECOVERY_MATERIAL_REPORT to the installer's one-line summary (names
 # only).
 backup_assert_recovery_material_certified() {
@@ -714,25 +718,54 @@ backup_assert_recovery_material_certified() {
     fi
 
     if [[ "${schema}" == schema4 ]]; then
-        backup_assert_manifest_names_dkim_key "${dir}"
+        backup_assert_manifest_names_dkim_key "${dir}" "${target_id}" "${bin}"
     fi
 
     BACKUP_RECOVERY_MATERIAL_REPORT="$(tail -n 1 <<<"${output}")"
 }
 
-# backup_assert_manifest_names_dkim_key DIR — a schema 4 manifest records the
-# fingerprint of the DKIM key its recovery material carries, and records null
-# when it carries none: never one without the other, and never a value of any
-# other shape. The archive is listed, never extracted, and only the member's
-# NAME is looked for. Sets BACKUP_MANIFEST_DKIM_FINGERPRINT to the recorded
+# backup_dkim_key_fingerprint_in_archive ARCHIVE BIN TARGET_ID — the
+# fingerprint of the public half of the DKIM key ARCHIVE carries, printed
+# alone on stdout, as the installer BIN judges it against TARGET_ID's reviewed
+# policy. ARCHIVE has already been proven safe as data and to hold exactly
+# that one key member. The member alone is streamed into a private directory
+# made for it, which is removed before this returns on every path; nothing of
+# the key is ever printed. Returns non-zero when the member cannot be read or
+# the installer refuses the key, whose own diagnosis is on stderr.
+backup_dkim_key_fingerprint_in_archive() {
+    local archive="$1" bin="$2" target_id="$3"
+
+    (
+        umask 077
+
+        key_dir="$(mktemp -d)" || exit 1
+        trap 'rm -rf -- "${key_dir}"' EXIT
+
+        tar -xzOf "${archive}" -- "${BACKUP_RECOVERY_DKIM_KEY_NAME}" \
+            >"${key_dir}/${BACKUP_RECOVERY_DKIM_KEY_NAME}" 2>/dev/null \
+            || exit 1
+
+        "${bin}" --dkim-fingerprint --target "${target_id}" --scope recovery \
+            --key "${key_dir}/${BACKUP_RECOVERY_DKIM_KEY_NAME}"
+    )
+}
+
+# backup_assert_manifest_names_dkim_key DIR TARGET_ID BIN — a schema 4
+# manifest records the fingerprint of the DKIM key its recovery material
+# carries, and records null when it carries none: never one without the
+# other, and never a value of any other shape. A carried key is judged by the
+# installer BIN against TARGET_ID's reviewed policy and must reproduce the
+# recorded fingerprint exactly — the same proof a clean-host recovery makes
+# before it stages anything, so a key a recovery would refuse is never
+# certified. Sets BACKUP_MANIFEST_DKIM_FINGERPRINT to the recorded
 # fingerprint, or to nothing.
 BACKUP_MANIFEST_DKIM_FINGERPRINT=""
 
 backup_assert_manifest_names_dkim_key() {
-    local dir="$1"
+    local dir="$1" target_id="$2" bin="$3"
     local manifest="${dir}/${BACKUP_MANIFEST_FILE}"
     local archive="${dir}/${BACKUP_RECOVERY_MATERIAL_FILE}"
-    local field_type carries_key=false listing
+    local field_type carries_key=false listing actual
 
     BACKUP_MANIFEST_DKIM_FINGERPRINT=""
 
@@ -756,6 +789,12 @@ backup_assert_manifest_names_dkim_key() {
 
             [[ "${BACKUP_MANIFEST_DKIM_FINGERPRINT}" =~ ^[0-9a-f]{64}$ ]] \
                 || fail "backup manifest ${BACKUP_MANIFEST_DKIM_FIELD} is not a SHA-256 fingerprint: ${BACKUP_MANIFEST_DKIM_FINGERPRINT}"
+
+            actual="$(backup_dkim_key_fingerprint_in_archive "${archive}" "${bin}" "${target_id}")" \
+                || fail "backup recovery material's ${BACKUP_RECOVERY_DKIM_KEY_NAME} is not a usable DKIM key under ${target_id}'s reviewed policy (see the installer's own diagnosis above) — a clean-host recovery would refuse it"
+
+            [[ "${actual}" == "${BACKUP_MANIFEST_DKIM_FINGERPRINT}" ]] \
+                || fail "backup recovery material's ${BACKUP_RECOVERY_DKIM_KEY_NAME} is not the key its manifest records: the sha256 of its public half is ${actual}, the manifest records ${BACKUP_MANIFEST_DKIM_FINGERPRINT} — a clean-host recovery would refuse it"
             ;;
         string:false)
             fail "backup manifest records a DKIM key fingerprint, but its recovery material carries no ${BACKUP_RECOVERY_DKIM_KEY_NAME}"

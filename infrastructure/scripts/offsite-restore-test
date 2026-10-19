@@ -307,8 +307,11 @@ print(max(names) if names else "")
     # by SHA256SUMS exactly once, and holding exactly the target's prerequisite
     # names in the scope it was captured in as the installed table states
     # them, with a schema 4 manifest recording the DKIM key's fingerprint
-    # exactly when the archive carries the key. A nightly PASS on a backup a
-    # recovery could not use would be the worst kind of pass.
+    # exactly when the archive carries the key, and a carried key reproducing
+    # it. A nightly PASS on a backup whose material a recovery would refuse
+    # would be the worst kind of pass. It certifies the material this
+    # backup's own schema carries; whether that schema covers the target's
+    # recovery scope is judged where a recovery starts.
     if backup_schema_supports_clean_host_recovery "${BACKUP_SCHEMA}"; then
         log ""
         log "Checking recovery material against the prerequisite table"

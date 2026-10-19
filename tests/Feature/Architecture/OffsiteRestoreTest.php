@@ -1066,6 +1066,26 @@ it('restore-tests a schema 4 remote backup of a target whose mail is signed, cer
     } finally {
         offsiteRestoreOpsCleanup($scratch);
     }
+
+    $scratch = offsiteRestoreOpsScratchDir();
+
+    try {
+        // The archive carries another key than the one the manifest records.
+        $other = mailIdentityKey('rsa3072');
+
+        $result = offsiteRestoreOpsRunFullOffsiteRestoreTest($scratch, useParityTarget: true, manifest: $manifest, options: [
+            'schema' => 4,
+            'environment_class' => 'production',
+            'recovery_material' => ['mail-dkim-private-key' => File::get($other)] + $members,
+        ]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain("backup recovery material's mail-dkim-private-key is not the key its manifest records: the sha256 of its public half is ".dkimPublicKeySha256($other).', the manifest records '.dkimPublicKeySha256($key));
+        expect(trim(File::get($result['createdbLog'])))->toBe('');
+        expectNoKeyMaterial($result['output'], $other);
+    } finally {
+        offsiteRestoreOpsCleanup($scratch);
+    }
 });
 
 it('refuses a schema 3 remote backup whose recovery material a clean-host recovery could not use, before the temporary database exists', function (array $options, string $expected) {

@@ -762,9 +762,10 @@ end to end, in order, and collect the evidence as you go:
    environment. No `PREPARE_*` secret is involved.
 5. Confirm the long-lived staging host is healthy, and note its current release
    and source SHA so a comparison is possible afterwards.
-6. Create a fresh, exact staging offsite backup on the live host — a **schema 4**
-   backup, which carries the recovery material — and let the ordinary
-   `backup-cycle` upload it.
+6. Create a fresh, exact staging offsite backup on the live host — schema 4
+   once the host's operational bundle carries it, schema 3 before that; both
+   carry staging's recovery material, and its own manifest says which — and
+   let the ordinary `backup-cycle` upload it.
 7. Ideally plant a database sentinel and a storage/media sentinel **before**
    that backup is taken, so §16–17 can prove the data is the backup's.
 8. Dispatch **Recover staging host** with `mode=start`, that backup, and the

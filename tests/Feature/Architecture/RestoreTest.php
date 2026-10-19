@@ -488,7 +488,7 @@ function restoreTestOpsRunFullRestore(string $scratch, ?array $manifest, array $
         'RESTORE_STUB_MIGRATION_COUNT' => (string) ($options['migration_count'] ?? 12),
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
-    ]);
+    ] + ($options['env'] ?? []));
 
     [$exit, $output] = restoreTestOpsRunHarness(
         $scratch,
@@ -1145,9 +1145,10 @@ it('refuses a schema 3 backup whose recovery material is missing, not checksumme
  *
  * @param  array<string, mixed>  $manifestChanges  '__remove__' removes a field
  * @param  array<string, string|null>  $memberChanges  null drops a member
+ * @param  array<string, string>  $env  added to the restore test's environment
  * @return array{exit: int, output: string, createdbLog: string}
  */
-function restoreTestOpsRunSignedRestore(string $scratch, string $key, array $manifestChanges = [], array $memberChanges = [], int $schema = 4): array
+function restoreTestOpsRunSignedRestore(string $scratch, string $key, array $manifestChanges = [], array $memberChanges = [], int $schema = 4, array $env = []): array
 {
     $manifest = restoreTestOpsManifestSchema2('target', 'parity-target', 'production', 'parity', 'parity_db');
     $manifest['manifest_schema_version'] = $schema;
@@ -1185,6 +1186,7 @@ function restoreTestOpsRunSignedRestore(string $scratch, string $key, array $man
         'schema' => $schema,
         'environment_class' => 'production',
         'recovery_material' => $members,
+        'env' => $env,
     ]);
 }
 
@@ -1193,7 +1195,10 @@ it('certifies a schema 4 backup of a target whose mail is signed: its archive ca
 
     try {
         $key = mailIdentityKey('rsa2048');
-        $result = restoreTestOpsRunSignedRestore($scratch, $key);
+        $tmp = $scratch.'/certification-tmp';
+        mkdir($tmp, 0o700);
+
+        $result = restoreTestOpsRunSignedRestore($scratch, $key, env: ['TMPDIR' => $tmp]);
 
         expect($result['exit'])->toBe(0, $result['output']);
         expect($result['output'])
@@ -1201,10 +1206,48 @@ it('certifies a schema 4 backup of a target whose mail is signed: its archive ca
             ->toContain('Recovery material: OK (6 recovery-scope files for parity-target: '.implode(' ', [...recoveryMaterialProductionNames(), 'mail-dkim-private-key']).')')
             ->not->toContain('never-logged');
         expectNoKeyMaterial($result['output'], $key);
+
+        // The key was taken out of the archive to be fingerprinted, and
+        // nothing of it is left behind.
+        expect(array_diff(scandir($tmp), ['.', '..']))->toBe([]);
     } finally {
         restoreTestOpsCleanup($scratch);
     }
 });
+
+it('refuses to certify a schema 4 backup whose DKIM key a clean-host recovery would refuse, leaving nothing of the key behind', function (string $case) {
+    $scratch = restoreTestOpsScratchDir();
+
+    try {
+        $recorded = mailIdentityKey('rsa2048');
+        $carried = $case === 'another key' ? mailIdentityKey('rsa3072') : mailIdentityKey('rsa1024');
+        $tmp = $scratch.'/certification-tmp';
+        mkdir($tmp, 0o700);
+
+        // The manifest records a well-formed fingerprint: of another key, or
+        // honestly of a key the reviewed policy refuses.
+        $fingerprint = dkimPublicKeySha256($case === 'another key' ? $recorded : $carried);
+
+        $result = restoreTestOpsRunSignedRestore(
+            $scratch,
+            $recorded,
+            ['dkim_public_key_sha256' => $fingerprint],
+            ['mail-dkim-private-key' => File::get($carried)],
+            env: ['TMPDIR' => $tmp],
+        );
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($case === 'another key'
+            ? "backup recovery material's mail-dkim-private-key is not the key its manifest records: the sha256 of its public half is ".dkimPublicKeySha256($carried).", the manifest records {$fingerprint}"
+            : "backup recovery material's mail-dkim-private-key is not a usable DKIM key under parity-target's reviewed policy");
+        expect(trim(File::get($result['createdbLog'])))->toBe('', 'createdb must never run for a backup that cannot seed a recovery');
+        expect(array_diff(scandir($tmp), ['.', '..']))->toBe([]);
+        expectNoKeyMaterial($result['output'], $carried);
+        expectNoKeyMaterial($result['output'], $recorded);
+    } finally {
+        restoreTestOpsCleanup($scratch);
+    }
+})->with(['another key', 'a 1024-bit key']);
 
 it('refuses to certify a schema 4 backup whose DKIM key and manifest do not travel together', function (string $case, string $expected) {
     $scratch = restoreTestOpsScratchDir();

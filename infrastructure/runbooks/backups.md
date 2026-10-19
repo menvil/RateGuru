@@ -198,11 +198,16 @@ protected minimum.
 
 ### Manifest: schema 4, backward compatible with schema 1, 2 and 3
 
-Every backup written today carries a `manifest_schema_version: 4` manifest
-naming its `target`, `environment` and `backup_namespace`, alongside the
-pre-existing `project`, `database`, `release`, `postgres_version` and
-`php_version` fields, the leftover `selector` field described below, and
-`dkim_public_key_sha256` (a fingerprint, or `null`). The schemas:
+A backup written by this repository's `backup` carries a
+`manifest_schema_version: 4` manifest naming its `target`, `environment` and
+`backup_namespace`, alongside the pre-existing `project`, `database`,
+`release`, `postgres_version` and `php_version` fields, the leftover
+`selector` field described below, and `dkim_public_key_sha256` (a
+fingerprint, or `null`). A host writes that schema only once Prepare Host has
+reinstalled the operational bundle from a `main` that carries it: until then
+its nightly backups are still schema 3. So the schema a host writes is never
+assumed — read it from the backup itself (`jq .manifest_schema_version
+manifest.json`) before choosing one. The schemas:
 
 | Schema | Files | Recovery material | Clean-host recovery |
 |---|---|---|---|
@@ -228,10 +233,20 @@ it finds on the backup it selects:
   installed prerequisite table states them today, top-level regular files,
   nothing else. For schema 4 the manifest must record
   `dkim_public_key_sha256` exactly when the archive carries
-  `mail-dkim-private-key`, and `null` when it does not. Names are reported;
-  content never is. `offsite-restore-test` certifies the remote backup the
-  same way, so a nightly PASS can never be reported for a backup a clean-host
-  recovery could not be prepared from;
+  `mail-dkim-private-key`, and `null` when it does not; a carried key must be
+  a usable key under the target's reviewed policy, and the fingerprint of its
+  public half must be the recorded one — the same proof a clean-host recovery
+  makes before it stages anything. Names and that public fingerprint are
+  reported; private content never is. `offsite-restore-test` certifies the
+  remote backup the same way. A PASS certifies the material the backup's
+  **own schema** carries, and nothing more: it is not a judgement that the
+  schema covers the target's recovery scope today. A schema 3 backup of
+  `tits-guru` passes both restore tests — it is a sound backup of the host
+  scope — and is still refused by a clean-host recovery, which needs the DKIM
+  key only schema 4 carries. A backup the tests refuse is one a clean-host
+  recovery could not be prepared from; a backup they pass qualifies for one
+  only when its schema also meets the recovery's own requirement (the table
+  above);
 - a schema 1 or 2 backup remains fully restorable onto a **live** target, as
   long as the fields above still match. It is **not** clean-host-recovery-
   capable: `recover-host --apply` and the recovery preparation refuse it by
@@ -351,10 +366,10 @@ from its own locked, authoritative recomputation.
 backup they select using the identical strict, type-based
 `manifest_schema_version` classification as local `restore-test` (absent or
 JSON `null` → schema 1; JSON number `2` → schema 2; JSON number `3` → schema
-3; anything else, including the JSON string `"2"` or `"3"`, is rejected
-outright). Schema 2 and 3 additionally require `backup_namespace` to match
-the resolved namespace, and a non-null manifest `target` to match the target
-ID given. The schema decides the closed file set — seven files for schema 1
+3; JSON number `4` → schema 4; anything else, including `5` and the JSON
+string `"2"`, `"3"` or `"4"`, is rejected outright). Schema 2, 3 and 4
+additionally require `backup_namespace` to match the resolved namespace, and
+a non-null manifest `target` to match the target ID given. The schema decides the closed file set — seven files for schema 1
 and 2, eight for schema 3 and 4 — and both scripts require exactly that set.
 `offsite-backup` validates the manifest of the local backup it is about to
 upload before any Backblaze B2 access check; `offsite-restore-test` validates

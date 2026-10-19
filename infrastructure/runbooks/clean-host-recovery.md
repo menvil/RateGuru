@@ -209,11 +209,18 @@ Three things that are deliberately not on that list:
 ## E. Which backup qualifies
 
 * **Schema 4** — written after the recovery material joined the backup
-  format in its recovery scope. Every backup `backup` writes today is
-  schema 4. For `staging-main`, whose mail is never signed, an older
-  **Schema 3** backup qualifies too: its recovery material is the same. A
-  schema 1 or 2 backup is refused by name ("not clean-host-recovery-capable"),
-  with no fallback to hand-supplied material.
+  format in its recovery scope. A host writes schema 4 only once Prepare Host
+  has reinstalled the operational bundle from a `main` that carries it;
+  before that its nightly backups are still schema 3. Never assume which one
+  a backup is. While the live host still exists, confirm its installed bundle
+  is current: from a checkout of `main` on that host,
+  `sudo infrastructure/scripts/install-target-operations --verify` passes.
+  Either way, read the chosen backup's own manifest before you pass it (the
+  command is below) — the manifest is the authority, and a live host may be
+  exactly what is lost. For `staging-main`, whose mail is never signed, an
+  older **Schema 3** backup qualifies too: its recovery material is the same.
+  A schema 1 or 2 backup is refused by name ("not
+  clean-host-recovery-capable"), with no fallback to hand-supplied material.
 * Named by its **exact timestamp** `YYYYMMDD-HHMMSS`. There is no "latest".
 * Carries `recovery-material.tar.gz` (the target's recovery-scope
   prerequisites under their logical names) and a `release.json` with a
@@ -239,12 +246,19 @@ Three things that are deliberately not on that list:
 * Has **passed the offsite restore test**: the nightly `offsite-restore-test`
   downloads the backup, verifies every checksum and certifies its recovery
   material against the installed prerequisite table. A backup it refused is
-  one a recovery could not be prepared from.
+  one a recovery could not be prepared from. Passing it is necessary, not
+  sufficient: the test certifies the material the backup's own schema
+  carries, not that the schema meets this recovery's requirement. A schema 3
+  backup of `tits-guru` passes it and is still refused here, because it
+  carries no DKIM key — so the schema rule above is checked as well.
 
-To list what is in the namespace, with the recovery rclone configuration:
+To list what is in the namespace, and to read one backup's schema, with the
+recovery rclone configuration:
 
 ```bash
 rclone --config <recovery rclone config> lsf rateguru-b2:rateguru-database-backups/rateguru/staging/
+rclone --config <recovery rclone config> cat rateguru-b2:rateguru-database-backups/rateguru/staging/YYYYMMDD-HHMMSS/manifest.json \
+  | jq '{manifest_schema_version, dkim_public_key_sha256}'
 ```
 
 ---

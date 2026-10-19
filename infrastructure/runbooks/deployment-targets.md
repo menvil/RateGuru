@@ -1139,7 +1139,8 @@ lock             = /home/www/rateguru/run/backup-staging.lock
 
 ### Manifest: schema 4, backward compatible with schema 1, 2 and 3
 
-Every backup carries a `manifest_schema_version: 4` manifest recording
+A backup written by this repository's `backup` carries a
+`manifest_schema_version: 4` manifest recording
 `target`, `environment`, and `backup_namespace` alongside the pre-existing
 fields, the eighth backup file, `recovery-material.tar.gz` — the target's
 recovery-scope material by logical name: its host-scope external
@@ -1153,8 +1154,11 @@ schema 3 and 4. A schema 1 backup — everything produced before the
 registry-based model existed, with none of the new fields — and a schema 2
 backup remain fully restorable onto a live target, and so does a schema 3
 one; a clean host is recovered from schema 4, or from schema 3 for a target
-whose mail is not signed. Manifest validation, like checksum and storage-archive validation,
-always completes before the temporary database is created.
+whose mail is not signed. A host writes schema 4 only once Prepare Host has
+reinstalled the operational bundle that carries it — until then its backups
+are still schema 3 — so the schema is read from the backup's own manifest,
+never assumed. Manifest validation, like checksum and storage-archive
+validation, always completes before the temporary database is created.
 
 ### Target-specific server configuration snapshot
 
