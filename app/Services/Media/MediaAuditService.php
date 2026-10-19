@@ -53,9 +53,9 @@ final class MediaAuditService
                 &$softDeletedWithinGrace, &$purgeableAssets, &$missingMasters, &$missingVariantFiles,
                 $onIssue,
             ): void {
-                // Two queries per chunk (via referencedAssetIds()), not two
-                // per asset — the same batching MediaAuditCommand already
-                // relied on before this extraction.
+                // Three queries per chunk (via referencedAssetIds()), not
+                // three per asset — the same batching MediaAuditCommand
+                // already relied on before this extraction.
                 $referencedIds = $this->referenceChecker->referencedAssetIds($assets->pluck('id'));
 
                 foreach ($assets as $asset) {

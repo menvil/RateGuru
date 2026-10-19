@@ -27,8 +27,9 @@ use Throwable;
  * (UpdateUserProfileAction, unchanged by this class), and
  * releaseUnreferenced() is the hook lifecycle boundaries call once a
  * reference just disappeared: DeleteUserAccountAction after a user's
- * posts/avatar become unreferenced, and PostRetentionPurgeService after a
- * post is hard-purged. This class only ever
+ * posts/avatar become unreferenced, PostRetentionPurgeService after a
+ * post is hard-purged, and the Content Studio plan actions once a Draft's
+ * photo is replaced or removed or the Draft deleted. This class only ever
  * decides/executes what happens *after* an asset is already soft-deleted:
  * whether it's purgeable yet, and performing the purge itself.
  */
@@ -56,7 +57,7 @@ final class MediaLifecycleService
      * The trashed/grace-period half of isPurgeable(), without also querying
      * references — exposed separately for batch reporting callers
      * (media:audit) that have already resolved a referenced-id set in bulk
-     * to avoid issuing MediaReferenceChecker's two queries per asset.
+     * to avoid issuing MediaReferenceChecker's three queries per asset.
      */
     public function isGraceExpired(MediaAsset $asset, ?int $graceDays = null): bool
     {

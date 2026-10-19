@@ -10,6 +10,7 @@ use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\Post;
+use App\Models\StudioPlan;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
@@ -240,6 +241,9 @@ it('treats a stale running run older than the lock ttl as not blocking a new aud
 });
 
 it('reads everything again on Refresh, and answers with the time it did', function () {
+    // One instant for the page and the assertion: a minute turning over
+    // between the two would read as a different time.
+    $this->freezeTime();
     $admin = User::factory()->admin()->create();
     $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->assertSee('Unknown');
 
@@ -530,6 +534,61 @@ it('does not release an asset that has since become referenced again, checking a
         ->call('confirm');
 
     expect(MediaAsset::find($asset->id)->trashed())->toBeFalse();
+});
+
+it('does not release a draft\'s photo, whatever an older audit said about it', function () {
+    $admin = User::factory()->admin()->create();
+    $plan = StudioPlan::factory()->withImage()->create();
+    $asset = $plan->imageAsset;
+    Storage::disk('public')->put($asset->path, 'bytes');
+    // Found unreferenced before the plan took the photo.
+    $issue = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::ActiveUnreferencedAsset)->create([
+        'media_audit_run_id' => MediaAuditRun::factory()->create(['completed_at' => now()])->id,
+        'media_asset_id' => $asset->id,
+    ]);
+
+    $page = Livewire::actingAs($admin)
+        ->test(MediaDiagnosticsPage::class)
+        ->call('inspect', $issue->id)
+        ->assertSee('Publication plan #'.$plan->id.' (draft)')
+        ->assertSee('Active · referenced');
+
+    expect($page->viewData('inspector')['canRelease'])->toBeFalse();
+
+    $page->call('askToRelease', $asset->id)->call('confirm');
+
+    expect(MediaAsset::query()->find($asset->id))->not->toBeNull()
+        ->and($plan->fresh()->image_asset_id)->toBe($asset->id);
+});
+
+it('names the account an avatar belongs to when no post uses it', function () {
+    $admin = User::factory()->admin()->create();
+    $asset = MediaAsset::factory()->avatar()->create();
+    $member = User::factory()->create(['avatar_asset_id' => $asset->id, 'username' => 'harbour_keeper']);
+    $issue = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::MissingMasterFile)->create([
+        'media_audit_run_id' => MediaAuditRun::factory()->create(['completed_at' => now()])->id,
+        'media_asset_id' => $asset->id,
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(MediaDiagnosticsPage::class)
+        ->call('inspect', $issue->id)
+        ->assertSee('@'.$member->username.' (avatar)');
+});
+
+it('releases a former draft photo once no plan holds it any more', function () {
+    $admin = User::factory()->admin()->create();
+    $plan = StudioPlan::factory()->withImage()->create();
+    $assetId = $plan->image_asset_id;
+    // Let go of without a release: what an audit then finds active and unreferenced.
+    $plan->forceFill(['image_asset_id' => null])->save();
+
+    Livewire::actingAs($admin)
+        ->test(MediaDiagnosticsPage::class)
+        ->call('askToRelease', $assetId)
+        ->call('confirm');
+
+    expect(MediaAsset::withTrashed()->find($assetId)->trashed())->toBeTrue();
 });
 
 it('purges only once the irreversibility is acknowledged, and only an asset still purgeable', function () {

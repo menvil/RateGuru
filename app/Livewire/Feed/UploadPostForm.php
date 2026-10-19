@@ -12,6 +12,7 @@ use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -162,8 +163,8 @@ final class UploadPostForm extends Component
         $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return [
-            'title' => ['required', 'string', 'min:3', 'max:120'],
-            'description' => ['nullable', 'string', 'max:2000'],
+            'title' => ['required', 'string', 'min:'.PostContentRules::TITLE_MIN_LENGTH, 'max:'.PostContentRules::TITLE_LIMIT],
+            'description' => ['nullable', 'string', 'max:'.PostContentRules::DESCRIPTION_LIMIT],
             'image' => [
                 'required',
                 'image',
@@ -173,8 +174,8 @@ final class UploadPostForm extends Component
                     ->maxWidth((int) config('uploads.images.max_width', 6000))
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
-            'sourceUrl' => ['nullable', 'url', 'max:2048'],
-            'tagIds' => ['array', 'max:10'],
+            'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
+            'tagIds' => ['array', 'max:'.PostContentRules::MOST_TAGS],
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryId' => [
                 'nullable',
@@ -265,7 +266,7 @@ final class UploadPostForm extends Component
             return;
         }
 
-        if ($tagIds->count() >= 10) {
+        if ($tagIds->count() >= PostContentRules::MOST_TAGS) {
             return;
         }
 
