@@ -7909,6 +7909,30 @@ function listedRow(Testable $page, Model $record): ?array
 }
 
 /**
+ * The sidebar as rendered: section label => [destination label => href].
+ *
+ * @return array<string, array<string, string>>
+ */
+function adminShellNavigation(string $html): array
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML($html);
+    $xpath = new DOMXPath($dom);
+    $sections = [];
+
+    foreach ($xpath->query('//nav[@aria-label="Admin navigation"]//div[contains(@class, "rg-admin-nav-section")]') as $section) {
+        $label = trim((string) $xpath->query('.//p[contains(@class, "rg-admin-nav-section__label")]', $section)->item(0)?->textContent);
+
+        foreach ($xpath->query('.//a[contains(@class, "rg-admin-nav-item")]', $section) as $link) {
+            $name = trim((string) $xpath->query('.//span[contains(@class, "rg-admin-nav-item__label")]', $link)->item(0)?->textContent);
+            $sections[$label][$name] = (string) $link->getAttribute('href');
+        }
+    }
+
+    return $sections;
+}
+
+/**
  * Opens an Admin v2 editor — a screen saved from the top bar — at this size,
  * once Livewire, and with it Alpine, has started on it: until then the top
  * bar does not know what is unsaved.

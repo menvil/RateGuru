@@ -5132,6 +5132,415 @@
         line-height: var(--rg-admin-leading-micro);
     }
 
+    /* Publications & plans (ListStudioPlans) and the publication editor (CreateStudioPlan, EditStudioPlan) */
+    .rg-admin-studio-plans__untitled {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio-plans__thumb {
+        overflow: hidden;
+        padding: 0;
+    }
+
+    .rg-admin-studio-plans__thumb-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-admin-studio__title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__title-row .rg-admin-page-header__title {
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-studio__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 6px;
+    }
+
+    /* The four steps, under the title: two a row on a phone, every step still a full target. */
+    .rg-admin-studio__steps {
+        display: grid;
+        flex: 1 1 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--rg-admin-space-2);
+    }
+
+    @media (max-width: 767.98px) {
+        .rg-admin-studio__steps {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    .rg-admin-studio__step {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__step:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__step:focus-visible,
+    .rg-admin-studio__choice:focus-visible,
+    .rg-admin-studio__chip-add:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-studio__step--current {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__step-number {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-full);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__step--current .rg-admin-studio__step-number {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__step-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__step-label,
+    .rg-admin-studio__step-caption {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .rg-admin-studio__step-label {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__step-caption {
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-studio__step-body {
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .rg-admin-studio__columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+        align-items: start;
+        gap: var(--rg-admin-space-4);
+        max-width: 1320px;
+    }
+
+    .rg-admin-studio__column,
+    .rg-admin-studio__stack {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__column {
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__stack {
+        gap: 18px;
+    }
+
+    .rg-admin-studio__empty {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    /* The photo, whole, inside a frame that never grows past the card or the screen. */
+    .rg-admin-studio__preview {
+        display: grid;
+        place-items: center;
+        height: clamp(200px, 45vw, 420px);
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__preview-image {
+        display: block;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .rg-admin-studio__preview-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+    }
+
+    .rg-admin-studio__photo-meta,
+    .rg-admin-studio__author {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__photo-text {
+        flex: 1 1 200px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__photo-name {
+        margin: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__photo-details {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-studio__segmented {
+        align-self: flex-start;
+        max-width: 100%;
+    }
+
+    .rg-admin-studio__dropzone {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--rg-admin-space-2);
+        min-height: 200px;
+        padding: var(--rg-admin-space-6);
+        border: 1px dashed var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+        text-align: center;
+    }
+
+    .rg-admin-studio__dropzone--dragging {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-studio__dropzone-icon {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__dropzone-title {
+        margin: var(--rg-admin-space-1) 0 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__dropzone-hint {
+        margin: 0 0 var(--rg-admin-space-2);
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-studio__dropzone .rg-admin-hint,
+    .rg-admin-studio__dropzone .rg-admin-error {
+        margin: 0;
+    }
+
+    .rg-admin-studio__author-clear {
+        margin-left: auto;
+    }
+
+    .rg-admin-studio__choices,
+    .rg-admin-studio__chips {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-studio__choices {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-studio__choice {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-width: 0;
+        padding: var(--rg-admin-space-2) 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__choice:hover {
+        border-color: var(--rg-admin-border-strong);
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-studio__choice .rg-admin-table__stack {
+        flex: 1 1 auto;
+    }
+
+    .rg-admin-studio__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__chip-add {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px dashed var(--rg-admin-border-strong);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__chip-add:hover {
+        border-style: solid;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__card {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .rg-admin-studio__card-image {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 96px;
+        height: 96px;
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__card-image .rg-admin-studio__preview-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-admin-studio__card-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__card-title {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__card-description {
+        display: -webkit-box;
+        margin: var(--rg-admin-space-1) 0 0;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        white-space: pre-line;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 4;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-studio__footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px var(--rg-admin-space-4);
+        max-width: 1320px;
+        padding-top: var(--rg-admin-space-3);
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__position {
+        flex: 1;
+        min-width: 120px;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        text-align: center;
+    }
+
     /* Media diagnostics (MediaDiagnosticsPage): the overview's figures, the issues, the cards and the asset inspector */
     /* Every figure draws its own top and left rule; pulled under the card's frame, the outer ones vanish. */
     .rg-admin-media__tiles {

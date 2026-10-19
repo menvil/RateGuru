@@ -17,6 +17,10 @@ use App\Filament\Resources\RatingGroups\Pages\EditRatingGroup;
 use App\Filament\Resources\RatingGroups\Pages\ManageRatingGroups;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Reports\Pages\ListReports;
+use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
+use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
+use App\Filament\Resources\StudioPlans\Pages\ListStudioPlans;
+use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Resources\Users\Pages\EditUser;
@@ -112,6 +116,23 @@ class AdminPanelProvider extends PanelProvider
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
+                fn (): string => StudioPlanResource::canCreate() ? view('filament.pages.studio-plans.topbar')->render() : '',
+                scopes: ListStudioPlans::class,
+            )
+            // A new publication may be created empty, so Create draft does
+            // not wait for a change the way Save does on other editors.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Create draft', null, 'discard-studio-plan', 'save-studio-plan', savesUnchanged: true),
+                scopes: CreateStudioPlan::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save draft', null, 'discard-studio-plan', 'save-studio-plan'),
+                scopes: EditStudioPlan::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
                 fn (): string => view('filament.pages.posts.topbar', ['at' => now()->format('H:i')])->render(),
                 scopes: ListPosts::class,
             )
@@ -176,10 +197,11 @@ class AdminPanelProvider extends PanelProvider
 
     /**
      * An editor page's top bar: its unsaved state, Discard and Save, which
-     * dispatch these events for the page to handle.
+     * dispatch these events for the page to handle. Save waits for a change
+     * unless the page saves an unchanged draft too.
      */
-    private static function editorActions(string $label, ?string $unsaved, string $discard, string $save): string
+    private static function editorActions(string $label, ?string $unsaved, string $discard, string $save, bool $savesUnchanged = false): string
     {
-        return view('filament.pages.editor.topbar', ['label' => $label, 'unsaved' => $unsaved, 'discard' => $discard, 'save' => $save])->render();
+        return view('filament.pages.editor.topbar', ['label' => $label, 'unsaved' => $unsaved, 'discard' => $discard, 'save' => $save, 'savesUnchanged' => $savesUnchanged])->render();
     }
 }

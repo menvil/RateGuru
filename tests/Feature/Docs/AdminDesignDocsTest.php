@@ -341,15 +341,21 @@ it('describes Users on v2: status only through the moderation actions, said as t
         ->toContain('`UpdateUserAccountAction`');
 });
 
-it('describes Content Studio with Personas alone, built in Admin v2 and leaving out what does not work yet', function () {
+it('describes Content Studio with Publications & plans and Personas, built in Admin v2 and leaving out what does not work yet', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
 
     expect($contract)
-        ->toContain('| Content Studio | Personas |')
+        ->toContain('| Content Studio | Publications & plans · Personas |')
         ->toContain('## Content Studio')
+        ->toContain('### Publications & plans')
         ->toContain('### Personas')
         ->toContain('Its section holds only screens that work')
+        ->toContain('A plan is a draft of a post, never a post')
+        ->toContain('`StudioPlansQuery`, a registered stable pagination boundary')
+        ->toContain('an active administrator\'s (`manage-studio-plans`)')
+        ->toContain('| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step |')
+        ->toContain('| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis |')
         ->toContain('`PersonaResource` is over `User`, narrowed to the Persona role')
         ->toContain('Status is changed only there: Content Studio has no moderation of its own and no Deactivate.')
         ->toContain('an active administrator\'s (`manage-personas`)')
@@ -359,7 +365,9 @@ it('describes Content Studio with Personas alone, built in Admin v2 and leaving 
     expect($plan)
         ->toContain('### Content Studio')
         ->toContain('| 1 | Personas — the list, a new persona and a persona\'s editor | **done** |')
+        ->toContain('| 2 | Publications & plans with the publication editor | **done** |')
         ->toContain('**Personas. Status: done.**')
+        ->toContain('**Publications & plans. Status: done.**')
         ->toContain('`PersonasQuery`, a registered stable pagination boundary');
 });
 

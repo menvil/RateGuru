@@ -315,9 +315,19 @@ migrated from v1; each screen brings its navigation item, and no item comes befo
 | Order | Screen | Status |
 |---|---|---|
 | 1 | Personas — the list, a new persona and a persona's editor | **done** |
-| 2 | Publications & plans with the publication editor | planned |
+| 2 | Publications & plans with the publication editor | **done** |
 | 3 | Action queue | planned |
 | 4 | Reply rules and Reply log | planned |
+
+**Publications & plans. Status: done.** The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a
+publication's editor (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan`, for an active administrator
+(`manage-studio-plans`): searched over the title, the id and the author and narrowed by state and photo on the
+server, 25 a page (`StudioPlansQuery`, a registered stable pagination boundary); the editor's four steps — Image,
+Post, Discussion, Publication — save a draft from the top bar through the plan's actions, refusing one drawn before
+somebody else's save, with its photo uploaded or imported from a direct link through the existing media path, and
+Delete draft asks first. Everything a later stage brings is left out rather than drawn: photo analysis, AI texts,
+votes, the discussion, approval, the action plan and the queue; the editor says where each will come. The kit
+gained the `newspaper` and `arrow-left` icons and nothing else: the steps and the drop zone are the screen's own.
 
 **Personas. Status: done.** The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor
 (`EditPersona`) are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

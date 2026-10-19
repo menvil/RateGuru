@@ -67,6 +67,8 @@ The reviewed boundaries are:
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `MatchedUsersQuery` for literal LIKE searches.
 - `RatingVoteCountsQuery` for grouped rating counts.
+- `StudioPlansQuery` for literal LIKE searches over publication plan titles and
+  over their authors' usernames, display names and names.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the

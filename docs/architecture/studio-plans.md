@@ -91,3 +91,21 @@ plan points at it, the media audit counts it as used and no Release or purge
 removes it; replacing it, taking it off or deleting the Draft releases it to
 the ordinary media lifecycle. See "A publication plan's photo" in
 `docs/architecture/media.md`.
+
+## The editor
+
+Administrators work with plans in Content Studio › Publications & plans (`StudioPlanResource`): a list read
+through `StudioPlansQuery`, a new publication and a publication's editor in four steps — Image, Post, Discussion
+and Publication — described in `docs/design/admin/design-contract.md`. The pages hold no rule of their own:
+
+- A new publication exists only once Create draft runs `CreateStudioPlanAction`, which an untouched editor may do
+  too; the page remembers the plan it made, so a second Save opens it rather than making another.
+- A save runs `UpdateStudioPlanAction` when the texts or settings changed, then `SetStudioPlanImageAction` or
+  `RemoveStudioPlanImageAction` when the photo did — each its own transaction, each handed the version the one
+  before it left, so a save never conflicts with itself, and none waits for a file inside a transaction.
+- A photo from a link is downloaded by `StoreImportedImageAction::download()` — the importer's own safeguards,
+  no client of the page's — passed in as `ImageInputSource::UrlImport`, and its temporary file removed with
+  `cleanup()` whatever happens. The link is the photo's; the post's `source_url` is set apart.
+- A photo is shown through `PostImagePresenter::assetThumbnailUrl()` in the list and `assetPreviewUrl()` in the
+  editor — a variant on disk when there is one, the master otherwise — without a post to show it through.
+- Delete draft runs `DeleteStudioPlanDraftAction` with the version the page showed.

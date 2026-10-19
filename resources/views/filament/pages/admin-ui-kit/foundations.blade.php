@@ -30,7 +30,7 @@
         'hard-drive', 'search', 'search-x', 'check', 'check-check', 'minus', 'x', 'ellipsis', 'chevron-down', 'chevron-left',
         'chevron-right', 'chevrons-up-down', 'arrow-up-right', 'arrow-right', 'arrow-down', 'info', 'circle-alert', 'circle-check',
         'triangle-alert', 'lock', 'eye-off', 'ban', 'trash-2', 'refresh-cw', 'save', 'sparkles',
-        'panel-left-open', 'menu', 'log-out', 'circle', 'ruler', 'text', 'braces',
+        'panel-left-open', 'menu', 'log-out', 'circle', 'ruler', 'text', 'braces', 'newspaper', 'arrow-left',
     ];
 @endphp
 

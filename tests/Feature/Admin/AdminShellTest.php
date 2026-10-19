@@ -12,6 +12,7 @@ use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Reports\ReportResource;
+use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
@@ -20,6 +21,7 @@ use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
+use App\Models\StudioPlan;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Livewire\Sidebar as FilamentSidebar;
@@ -39,35 +41,11 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Overview' => ['Dashboard'],
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
-    'Content Studio' => ['Personas'],
+    'Content Studio' => ['Publications & plans', 'Personas'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
 ];
-
-/**
- * The sidebar as rendered: section label => [destination label => href].
- *
- * @return array<string, array<string, string>>
- */
-function adminShellNavigation(string $html): array
-{
-    $dom = new DOMDocument;
-    @$dom->loadHTML($html);
-    $xpath = new DOMXPath($dom);
-    $sections = [];
-
-    foreach ($xpath->query('//nav[@aria-label="Admin navigation"]//div[contains(@class, "rg-admin-nav-section")]') as $section) {
-        $label = trim((string) $xpath->query('.//p[contains(@class, "rg-admin-nav-section__label")]', $section)->item(0)?->textContent);
-
-        foreach ($xpath->query('.//a[contains(@class, "rg-admin-nav-item")]', $section) as $link) {
-            $name = trim((string) $xpath->query('.//span[contains(@class, "rg-admin-nav-item__label")]', $link)->item(0)?->textContent);
-            $sections[$label][$name] = (string) $link->getAttribute('href');
-        }
-    }
-
-    return $sections;
-}
 
 /** The label of the destination the sidebar marks as the current page. */
 function adminShellCurrent(string $html): ?string
@@ -176,6 +154,7 @@ it('marks the destination of the current page', function (string $path, string $
     'project settings' => ['/admin/project-settings', 'Project settings'],
     'media diagnostics' => ['/admin/media-diagnostics', 'Media diagnostics'],
     'personas' => ['/admin/personas', 'Personas'],
+    'publications and plans' => ['/admin/studio-plans', 'Publications & plans'],
 ]);
 
 it('keeps a resource marked on its create and edit pages, with a breadcrumb back to its list', function (Closure $url, string $active) {
@@ -198,6 +177,8 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     'user edit' => [fn (): string => UserResource::getUrl('edit', ['record' => User::factory()->create()]), 'Users'],
     'persona create' => [fn (): string => PersonaResource::getUrl('create'), 'Personas'],
     'persona edit' => [fn (): string => PersonaResource::getUrl('edit', ['record' => User::factory()->persona()->create()]), 'Personas'],
+    'publication create' => [fn (): string => StudioPlanResource::getUrl('create'), 'Publications & plans'],
+    'publication edit' => [fn (): string => StudioPlanResource::getUrl('edit', ['record' => StudioPlan::factory()->create()]), 'Publications & plans'],
 ]);
 
 it('names the section and page in the breadcrumb without loading any record', function () {
@@ -222,6 +203,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Categories' => CategoryResource::canAccess(),
         'Tags' => TagResource::canAccess(),
         'Rating groups' => RatingGroupResource::canAccess(),
+        'Publications & plans' => StudioPlanResource::canAccess(),
         'Personas' => PersonaResource::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
@@ -240,6 +222,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
     $this->get(LanguagesPage::getUrl())->assertForbidden();
     $this->get(ProjectSettingsPage::getUrl())->assertForbidden();
     $this->get(PersonaResource::getUrl('index'))->assertForbidden();
+    $this->get(StudioPlanResource::getUrl('index'))->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -268,7 +251,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(14);
+    expect($keys)->toHaveCount(15);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -283,6 +266,7 @@ it('has an Admin v2 icon for every production destination', function () {
         CategoryResource::class => 'folder',
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
+        StudioPlanResource::class => 'newspaper',
         PersonaResource::class => 'bot',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
