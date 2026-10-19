@@ -1,8 +1,8 @@
 <?php
 
 use App\Enums\UserStatus;
-use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Livewire\Admin\UserEditor;
 use App\Models\ModerationLog;
 use App\Models\User;
 use Livewire\Livewire;
@@ -124,12 +124,21 @@ it('lets a moderator see the list but take no moderation action', function () {
     expect($person->fresh()->status)->toBe(UserStatus::Active);
 });
 
-it('moderates from the person\'s page too', function () {
+it('moderates from the person\'s drawer too, the list behind told, and Undo run by the list', function () {
     $person = User::factory()->create();
 
-    Livewire::test(EditUser::class, ['record' => $person->id])
+    Livewire::test(UserEditor::class, ['userId' => $person->id])
         ->call('askToSanction', 'shadowban', $person->id)
-        ->call('confirmSanction');
+        ->assertSeeHtml('Shadowban '.$person->username.'?')
+        ->call('confirmSanction')
+        ->assertDispatched('user-changed')
+        ->assertDispatched('rg-admin-toast', message: $person->username.' is now shadowbanned');
 
     expect($person->fresh()->status)->toBe(UserStatus::Shadowbanned);
+
+    // Undo is the list's, which is there under the drawer, so it runs once.
+    Livewire::withQueryParams(['user' => $person->id])->test(ListUsers::class)
+        ->dispatch('restore-user-access', id: $person->id)
+        ->assertDispatched('user-changed');
+    expect($person->fresh()->status)->toBe(UserStatus::Active);
 });

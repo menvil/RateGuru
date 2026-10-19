@@ -15,7 +15,6 @@ use App\Models\User;
 use App\Queries\Users\ModerationUsersQuery;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
-use Livewire\Attributes\On;
 
 /**
  * The moderation actions on a person, wherever their screen offers them —
@@ -25,8 +24,10 @@ use Livewire\Attributes\On;
  * transition and writes the moderation log.
  *
  * A sanction on an active person toasts with Undo, which restores access;
- * restoring access toasts with Undo, which applies the sanction again.
- * Marking someone trusted has no Undo: nothing takes trust back but an edit.
+ * restoring access toasts with Undo, which applies the sanction again — run
+ * by the Users list (ListUsers), which is there whichever screen offered the
+ * action, so Undo runs once. Marking someone trusted has no Undo: nothing
+ * takes trust back but an edit.
  */
 trait ModeratesUsers
 {
@@ -120,29 +121,6 @@ trait ModeratesUsers
         }
 
         $this->moderationToast('Access restored for '.$person->username, ['label' => 'Undo', 'event' => 'sanction-user-again', 'params' => ['id' => $id, 'kind' => $previous]]);
-    }
-
-    /** Undo after a sanction: access is restored. */
-    #[On('restore-user-access')]
-    public function undoSanction(int $id): void
-    {
-        $person = User::query()->find($id);
-
-        if ($person !== null && $this->attemptModeration(fn () => app(RestoreUserAccessAction::class)->handle($this->moderatingAdmin(), $person))) {
-            $this->moderationToast('Access restored for '.$person->username);
-        }
-    }
-
-    /** Undo after restoring access: the sanction it lifted applies again. */
-    #[On('sanction-user-again')]
-    public function sanctionAgain(int $id, string $kind): void
-    {
-        $person = User::query()->find($id);
-
-        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban'], true)
-            && $this->attemptModeration(fn () => $this->sanctionAction($kind)->handle($this->moderatingAdmin(), $person))) {
-            $this->moderationToast($person->username.' is '.['ban' => 'banned', 'limit' => 'limited', 'shadowban' => 'shadowbanned'][$kind].' again');
-        }
     }
 
     /**

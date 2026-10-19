@@ -7,8 +7,6 @@ use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
-use App\Filament\Resources\Personas\Pages\CreatePersona;
-use App\Filament\Resources\Personas\Pages\EditPersona;
 use App\Filament\Resources\Personas\Pages\ListPersonas;
 use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\Pages\ListPosts;
@@ -23,7 +21,6 @@ use App\Filament\Resources\StudioPlans\Pages\ListStudioPlans;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
-use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
@@ -99,20 +96,11 @@ class AdminPanelProvider extends PanelProvider
                 fn (): string => self::editorActions('Save changes', null, 'discard-project-settings', 'save-project-settings'),
                 scopes: ProjectSettingsPage::class,
             )
+            // A Persona is made and edited in the drawer over the list.
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
-                fn (): string => PersonaResource::canCreate() ? view('filament.pages.personas.topbar')->render() : '',
+                fn (): string => self::createAction(PersonaResource::canCreate(), 'Create persona', 'create-persona'),
                 scopes: ListPersonas::class,
-            )
-            ->renderHook(
-                PanelsRenderHook::TOPBAR_END,
-                fn (): string => self::editorActions('Create persona', null, 'discard-persona', 'save-persona'),
-                scopes: CreatePersona::class,
-            )
-            ->renderHook(
-                PanelsRenderHook::TOPBAR_END,
-                fn (): string => self::editorActions('Save changes', null, 'discard-persona', 'save-persona'),
-                scopes: EditPersona::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,
@@ -140,11 +128,6 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => view('filament.pages.reports.topbar')->render(),
                 scopes: ListReports::class,
-            )
-            ->renderHook(
-                PanelsRenderHook::TOPBAR_END,
-                fn (): string => self::editorActions('Save changes', null, 'discard-user', 'save-user'),
-                scopes: EditUser::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,

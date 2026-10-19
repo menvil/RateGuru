@@ -331,7 +331,7 @@ it('describes Users on v2: status only through the moderation actions, said as t
 
     expect($contract)
         ->toContain('### Users')
-        ->toContain('Users (`ListUsers`) and a person\'s page (`EditUser`) are drawn entirely in Admin v2')
+        ->toContain('Users (`ListUsers`) is drawn entirely in Admin v2, with a person edited in the drawer over the list (`UserEditor`)')
         ->toContain('never a locked account')
         ->toContain('| What Limit and Shadowban do |')
         ->toContain('`x-admin.ui.radio-cards`');
@@ -359,7 +359,7 @@ it('describes Content Studio with Publications & plans and Personas, built in Ad
         ->toContain('`PersonaResource` is over `User`, narrowed to the Persona role')
         ->toContain('Status is changed only there: Content Studio has no moderation of its own and no Deactivate.')
         ->toContain('an active administrator\'s (`manage-personas`)')
-        ->toContain('| Persona editor | a 680 wide drawer over the list | an Admin v2 editor page, saved from the top bar |')
+        ->toContain('a persona — new or existing — edited in the drawer over it (`PersonaEditor`)')
         ->toContain('| Personas status | Active or Inactive, with Deactivate and Activate in the row |');
 
     expect($plan)

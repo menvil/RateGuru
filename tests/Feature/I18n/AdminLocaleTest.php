@@ -1,7 +1,6 @@
 <?php
 
-use App\Filament\Resources\Users\Pages\EditUser;
-use App\Filament\Resources\Users\UserResource;
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -64,7 +63,7 @@ it('renders the admin panel in English for any account or site language', functi
     siteDefaultsTo($locale);
 
     $this->actingAs(panelAdmin($locale))
-        ->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))
+        ->get(ListUsers::getUrl(['user' => User::factory()->create()->id]))
         ->assertOk()
         ->assertSee('lang="en"', false)
         ->assertSee(__('filament-panels::layout.actions.logout.label', [], 'en'));
@@ -79,13 +78,13 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     siteDefaultsTo($locale);
     $this->actingAs(panelAdmin($locale));
 
-    $html = $this->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))->assertOk()->getContent();
+    $html = $this->get(ListUsers::getUrl(['user' => User::factory()->create()->id]))->assertOk()->getContent();
 
-    // Saving a password too short to keep: the panel says why in English.
+    // Saving a password too short to keep, in a person's drawer: the panel says why in English.
     $response = $this->withHeaders(['X-Livewire' => '1'])
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
-                'snapshot' => adminPageSnapshot($html, EditUser::class),
+                'snapshot' => adminPageSnapshot($html, 'admin.user-editor'),
                 'updates' => ['password' => 'short'],
                 'calls' => [['path' => '', 'method' => 'save', 'params' => []]],
             ]],
@@ -123,7 +122,7 @@ it('leaves the public language untouched after working in the panel', function (
         ->get(route('feed'))
         ->assertSee('lang="'.$locale.'"', false);
 
-    $this->get(UserResource::getUrl('edit', ['record' => User::factory()->create()]))
+    $this->get(ListUsers::getUrl(['user' => User::factory()->create()->id]))
         ->assertOk()
         ->assertSee('lang="en"', false);
 

@@ -7,8 +7,9 @@ use function Pest\Laravel\actingAs;
 
 /**
  * People in a real browser: the list at each width, a sanction from the row
- * menu with the keyboard and Undo, and a person's page — the unsaved count
- * in the top bar, Discard, and saving a change of role after confirming it.
+ * menu with the keyboard and Undo, and a person's editor in the drawer over
+ * the list — its unsaved count, Cancel, a change of role saved after
+ * confirming it, and a sanction from it with Undo.
  *
  * One kind of page per test: the test server reads the top bar's actions
  * from the first page it drew.
@@ -69,33 +70,61 @@ it('limits someone from the row menu with the keyboard, and Undo restores access
     expect($this->member->fresh()->status)->toBe(UserStatus::Active);
 });
 
-it('counts the unsaved changes on a person\'s page, and puts them back on Discard', function () {
-    $page = visitAdminEditor("/admin/users/{$this->member->id}/edit");
+it('counts the unsaved changes in a person\'s drawer, and keeps nothing on Cancel', function () {
+    $page = visitAdminEditor('/admin/users');
 
-    expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+    $page->click("#rg-admin-user-{$this->member->id} .rg-admin-table__name");
+    waitForScript($page, "document.querySelector('#rg-admin-user-editor .rg-admin-drawer__title')?.textContent.trim()", 'grumpy_max', 10.0);
+    waitForScript($page, 'location.search', "?user={$this->member->id}");
 
     $page->type('#rg-admin-user-name', 'Max W.');
-    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
+    waitForScript($page, "document.querySelector('.rg-admin-editor-drawer__unsaved')?.textContent.trim()", '1 unsaved change');
     $page->click('.rg-admin-radio-card:last-child');
-    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '2 unsaved changes');
+    waitForScript($page, "document.querySelector('.rg-admin-editor-drawer__unsaved')?.textContent.trim()", '2 unsaved changes');
 
-    $page->click('.rg-admin-topbar__editor button:first-of-type');
-    waitForScript($page, "document.getElementById('rg-admin-user-name').value", 'Max Wagner');
-    waitForScript($page, "getComputedStyle(document.querySelector('.rg-admin-topbar__unsaved')).display === 'none'");
+    $page->click('#rg-admin-user-editor .rg-admin-drawer__footer .rg-admin-button--secondary');
+    waitForScript($page, "document.getElementById('rg-admin-user-editor') === null");
 
-    expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+    $page->click("#rg-admin-user-{$this->member->id} .rg-admin-table__name");
+    waitForScript($page, "document.getElementById('rg-admin-user-name')?.value", 'Max Wagner');
+
+    expect($this->member->fresh()->name)->toBe('Max Wagner');
 });
 
-it('saves a change of role from the top bar once it is confirmed', function () {
-    $page = visitAdminEditor("/admin/users/{$this->member->id}/edit");
+it('saves a change of role from the drawer once it is confirmed over it', function () {
+    $page = visitAdminEditor("/admin/users?user={$this->member->id}");
 
+    waitForScript($page, "!! document.getElementById('rg-admin-user-editor')", true, 10.0);
     $page->click('.rg-admin-user__role [role="radio"]:nth-child(2)');
-    waitForScript($page, "! document.querySelector('.rg-admin-topbar__editor .rg-admin-button--primary').disabled");
-    $page->click('.rg-admin-topbar__editor .rg-admin-button--primary');
+    waitForScript($page, "! document.querySelector('#rg-admin-user-editor .rg-admin-drawer__footer .rg-admin-button--primary').disabled");
+    $page->click('#rg-admin-user-editor .rg-admin-drawer__footer .rg-admin-button--primary');
 
     waitForScript($page, "document.querySelector('.rg-admin-dialog__title')?.textContent.trim()", 'Change role to Moderator?');
     confirmAdminDialog($page);
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Changes to grumpy_max saved');
+    waitForScript($page, "document.getElementById('rg-admin-user-editor') === null");
 
     expect($this->member->fresh()->role->value)->toBe('moderator');
+});
+
+it('limits someone from their drawer, the drawer and the row both showing it, and Undo restores access', function () {
+    $page = visitAdminEditor("/admin/users?user={$this->member->id}");
+
+    waitForScript($page, "!! document.getElementById('rg-admin-user-editor')", true, 10.0);
+    $page->script("[...document.querySelectorAll('#rg-admin-user-editor .rg-admin-reports__actions .rg-admin-button')].find((button) => button.textContent.trim() === 'Limit').click()");
+
+    waitForScript($page, "document.querySelector('.rg-admin-dialog__title')?.textContent.trim()", 'Limit grumpy_max?');
+    confirmAdminDialog($page);
+
+    // The drawer stays open, over a list that shows the change too.
+    waitForScript($page, "document.querySelector('#rg-admin-user-editor .rg-admin-user__status .rg-admin-badge')?.textContent.trim()", 'Limited');
+    waitForScript($page, "document.querySelector('#rg-admin-user-{$this->member->id} .rg-admin-badge')?.textContent.trim()", 'Limited');
+
+    expect($this->member->fresh()->status)->toBe(UserStatus::Limited);
+
+    $page->click('.rg-admin-toast .rg-admin-toast__action');
+    waitForScript($page, "document.querySelector('#rg-admin-user-{$this->member->id} .rg-admin-badge')?.textContent.trim()", 'Active');
+    waitForScript($page, "document.querySelector('#rg-admin-user-editor .rg-admin-user__status .rg-admin-badge')?.textContent.trim()", 'Active');
+
+    expect($this->member->fresh()->status)->toBe(UserStatus::Active);
 });

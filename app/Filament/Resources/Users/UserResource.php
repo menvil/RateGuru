@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources\Users;
 
-use App\Filament\Resources\Personas\Pages\EditPersona;
+use App\Filament\Resources\Personas\Pages\ListPersonas;
 use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
@@ -14,11 +14,12 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * People in the admin: the list (ListUsers) and a person's own page
- * (EditUser), both drawn in Admin v2. The resource keeps the routes, the
+ * People in the admin: the list (ListUsers), drawn in Admin v2, with a
+ * person's editor in the drawer over it (UserEditor); EditUser keeps a
+ * person's old address leading there. The resource keeps the routes, the
  * navigation item, who may edit whom, and global search, whose results open
- * the person's page, or the list on them where the page is not theirs to
- * edit — and a Persona's editor in Content Studio for whoever may manage
+ * the person's editor, or the list on them where they are not the viewer's
+ * to edit — and a Persona's editor in Content Studio for whoever may manage
  * Personas.
  */
 class UserResource extends Resource
@@ -47,8 +48,8 @@ class UserResource extends Resource
     public static function getGlobalSearchResultUrl(Model $record): ?string
     {
         return match (true) {
-            PersonaResource::canEdit($record) => EditPersona::getUrl(['record' => $record]),
-            static::canEdit($record) => EditUser::getUrl(['record' => $record]),
+            PersonaResource::canEdit($record) => ListPersonas::getUrl(['persona' => $record->getKey()]),
+            static::canEdit($record) => ListUsers::getUrl(['user' => $record->getKey()]),
             default => ListUsers::getUrl(['q' => $record->getAttribute('username')]),
         };
     }

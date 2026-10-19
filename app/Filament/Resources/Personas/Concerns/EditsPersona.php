@@ -7,7 +7,6 @@ use App\Data\Personas\PersonaData;
 use App\Enums\PersonaEmojiFrequency;
 use App\Enums\PersonaEngagement;
 use App\Exceptions\Personas\CannotManagePersonaException;
-use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\PersonaProfile;
 use App\Models\User;
@@ -20,14 +19,14 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
 
 /**
- * A Persona as its editor holds it (CreatePersona, EditPersona): the public
- * profile — photo, display name, username, bio — and what Content Studio keeps
- * about it — its character, speech, topics, what it never writes about, its
- * emoji, and how readily it would reply on its own.
+ * A Persona as its editor holds it (PersonaEditor, the drawer over
+ * Personas): the public profile — photo, display name, username, bio — and
+ * what Content Studio keeps about it — its character, speech, topics, what it
+ * never writes about, its emoji, and how readily it would reply on its own.
  *
- * What is typed is a draft until Save in the top bar (NAV-02): the browser
- * compares it to `saved` to count what is unsaved, and Discard puts the saved
- * values back. A chosen photo is part of the draft. The draft is checked with
+ * What is typed is a draft until Save in the drawer's footer: the browser
+ * compares it to `saved` to count what is unsaved. A chosen photo is part of
+ * the draft. The draft is checked with
  * the rules the Content Studio actions check it with again
  * (PersonaValidationRules); nothing in it can carry a role, a status or an
  * address.
@@ -78,11 +77,6 @@ trait EditsPersona
         'normal' => 'Replies on its own at the usual rate.',
         'high' => 'Replies on its own more often than most.',
     ];
-
-    public static function canAccess(array $parameters = []): bool
-    {
-        return PersonaResource::canAccess();
-    }
 
     /** Takes the photo off the draft. */
     public function clearPhoto(): void

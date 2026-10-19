@@ -189,13 +189,15 @@ it('keeps the footer at the foot of the window, and holds Continue back while a 
 
     // What the Image step announces while a file is uploaded.
     $page->script("window.dispatchEvent(new CustomEvent('rg-studio-photo-phase', { detail: { phase: 'uploading' } }))");
-    waitForScript($page, "document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled && document.querySelector('.rg-admin-studio__reason [role=\"status\"]').offsetParent !== null");
+
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__analysis .rg-admin-notice')].some((notice) => notice.offsetParent !== null)");
 
     expect($footer())->toBe(['atFoot' => true, 'back' => false, 'next' => false, 'reason' => true])
         ->and($page->script("[...document.querySelectorAll('.rg-admin-studio__analysis .rg-admin-notice')].filter((notice) => notice.offsetParent !== null).map((notice) => notice.textContent.trim())"))->toBe(['Uploading photo…']);
 
     $page->script("window.dispatchEvent(new CustomEvent('rg-studio-photo-phase', { detail: { phase: '' } }))");
-    waitForScript($page, "! document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled");
+    waitForScript($page, "! document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled && document.querySelector('.rg-admin-studio__reason [role=\"status\"]').offsetParent === null");
 
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');

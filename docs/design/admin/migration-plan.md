@@ -273,13 +273,13 @@ there is not; J and K step through reports; Resolve and Ignore close one report 
 target and Ban author leave it open. One action is new: `ReopenReportAction`, behind Reopen and Undo, which
 clears who closed the report, when and why.
 
-**Users. Status: done.** The list (`ListUsers`) and a person's page (`EditUser`) are drawn in Admin v2, as the
-contract's [Users](design-contract.md#users) section describes: everyone by status or trust, narrowed to a role or
+**Users. Status: done.** The list (`ListUsers`) is drawn in Admin v2 with a person's editor in the drawer over it
+(`UserEditor`), as the contract's [Users](design-contract.md#users) section describes: everyone by status or trust, narrowed to a role or
 to the suspicious and searched on the server, 25 a page (`ModerationUsersQuery`, a registered stable pagination
 boundary); Limit, Shadowban, Ban and Mark trusted after a confirmation that says what they really do, Restore access
-at once, with Undo where it reverses exactly; and a person's page that edits their profile, role, trust and
-password from the top bar through the new `UpdateUserAccountAction`, beside their status, account and moderation
-history. The kit gained the radio cards (FRM-09).
+at once, with Undo where it reverses exactly; and a person's editor that edits their profile, role, trust and
+password from the drawer's footer through the new `UpdateUserAccountAction`, with their status, account and
+moderation history under it. The kit gained the radio cards (FRM-09) and the drawer's 680 editor width.
 
 **Media diagnostics. Status: done.** One screen (`MediaDiagnosticsPage`) drawn in Admin v2, as the contract's
 [Media diagnostics](design-contract.md#media-diagnostics) section describes: the library's health in the header
@@ -334,15 +334,14 @@ gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
 kept at the foot of the window are the screen's own.
 
-**Personas. Status: done.** The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor
-(`EditPersona`) are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
+**Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
+(`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
 (`manage-personas`): searched and narrowed by status and engagement on the server, 25 a page (`PersonasQuery`, a
 registered stable pagination boundary); the editor saves its public profile, its character and its activity
-settings from the top bar through `CreatePersonaAction` and `UpdatePersonaAction`, refusing a draft drawn before
-somebody else's save, and its photo through `SetPersonaAvatarAction`. The prototype's 680 drawer is an editor page,
-since the kit's drawer is at most 480 wide; geography, an hourly schedule, generated avatars and sample replies are
-left out. A persona's page in Users leads to its editor. No kit element was added: the avatar circle takes a photo
-and a 72 size.
+settings from the drawer's footer through `CreatePersonaAction` and `UpdatePersonaAction`, refusing a draft drawn
+before somebody else's save, and its photo through `SetPersonaAvatarAction`. The drawer is the prototype's, 680
+wide; geography, an hourly schedule, generated avatars and sample replies are left out. A persona's drawer in Users
+leads to its editor. The avatar circle takes a photo and a 72 size.
 
 ## Definition of done for a migrated screen
 

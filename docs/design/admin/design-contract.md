@@ -202,14 +202,15 @@ This section is the target design from the prototype. Production builds it as de
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
   actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
-  bottom save bar.
+  bottom save bar. A record edited in a drawer over its list — a persona, a person — saves from the drawer's
+  footer instead, which counts its own unsaved changes.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
 
 ### Production shell
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
+Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's editor, Categories,
 Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too. Content
 Studio's Publications & plans and Personas were built in Admin v2 from the start.
 
@@ -253,11 +254,11 @@ Studio's Publications & plans and Personas were built in Admin v2 from the start
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
-  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
-  diagnostics when it was read, Refresh and Run full audit; Publications & plans Create publication, a link; a new publication's page and a publication's editor
-  their count of unsaved changes, Discard, and Create draft — which runs with nothing changed, since a draft may be
-  saved empty — or Save draft; Personas Create persona, a link; a new persona's page
-  and a persona's editor their count of unsaved changes, Discard, and Create persona or Save changes. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  step through reports (J, K); Media diagnostics when it was read, Refresh and Run full audit; Publications & plans
+  Create publication, a link; a new publication's page and a publication's editor their count of unsaved changes,
+  Discard, and Create draft — which runs with nothing changed, since a draft may be saved empty, and becomes Save
+  draft once the draft exists — or Save draft; Personas Create persona, which asks the page by a browser event to
+  open its drawer. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -470,10 +471,11 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   offers the alternative; no confirm). The confirm label repeats the action (“Hide post”, never “OK”); the footer
   says where the action is recorded (“Recorded in the moderation log as …”). Reversible, low-risk actions are never
   confirmed; they get a toast with Undo.
-- **Drawer (OVL-02):** 448 wide (480 for long lists), full height on the right, drawer scrim; header 62 high
-  with title 15/500, 12px subtitle and close; scrolling body split by hairlines; footer with actions on the right
-  and destructive actions on the left. Escape or the scrim closes it. Reports docks the same 448 panel inside the
-  layout.
+- **Drawer (OVL-02):** 448 wide (480 for long lists, 680 for a whole record's editor in sections — a persona, a
+  person), full height on the right, drawer scrim; header 62 high with title 15/500, 12px subtitle and close;
+  scrolling body split by hairlines; footer with actions on the right and destructive actions on the left. Escape
+  or the scrim closes it. Reports docks the same 448 panel inside the layout. A confirmation asked from an
+  editor's drawer opens over it, as the reference draws it, and closing the confirmation leaves the drawer open.
 - **Toast (FBK-01):** ink surface, white 14px, radius 12, popover shadow; icon green for success, `#FF9AA2` for
   errors, gray-400 for info (on ink); Undo only for reversible actions.
 - **Inline notice (FBK-02):** radius 10, padding 10 12, 13/18, icon 16. Info (`info`), warning (`circle-alert`),
@@ -1078,10 +1080,11 @@ actions (`docs/architecture/studio-plans.md`).
 
 ### Personas
 
-The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor (`EditPersona`) are drawn in
-Admin v2. `PersonaResource` is over `User`, narrowed to the Persona role — a persona is a regular account, not a
-second kind of one — and keeps the routes, the navigation item and the access check; global search stays with
-Users, whose result for a persona opens its editor for an administrator.
+The list (`ListPersonas`) is drawn in Admin v2, with a persona — new or existing — edited in the drawer over it
+(`PersonaEditor`), as the reference draws it; the old addresses of a new persona and of a persona's editor
+(`CreatePersona`, `EditPersona`) lead there. `PersonaResource` is over `User`, narrowed to the Persona role — a
+persona is a regular account, not a second kind of one — and keeps the routes, the navigation item and the access
+check; global search stays with Users, whose result for a persona opens its editor for an administrator.
 
 - **List header band:** “Regular accounts run by Content Studio. They never sign in; their status changes only
   through moderation in Users.” Stats: Total, Active, Restricted (limited, banned, shadowbanned) and Replies on
@@ -1090,24 +1093,27 @@ Users, whose result for a persona opens its editor for an administrator.
   (Active, Limited, Banned, Shadowbanned) and Engagement (Off, Low, Normal, High) as filter dropdowns with their
   chips, in the URL, a value the list does not offer dropped; 25 a page, newest first (`PersonasQuery`, a
   registered stable pagination boundary).
-- **Table (TBL-01):** the avatar or initials, the display name — a link to the editor — and the username; the
+- **Table (TBL-01):** the avatar or initials, the display name — which opens the editor — and the username; the
   short description with the speech style and emoji under it; the status (STS-01); the engagement; Max a day;
   Edit and the row menu — Edit persona, View public profile, and Moderate in Users (Limit, ban or restore access).
   Status is changed only there: Content Studio has no moderation of its own and no Deactivate.
 - **Empty states (TBL-05):** “No personas yet” with Create persona; “No personas match” with Clear filters.
-- **The editor (NAV-02):** one Admin v2 page for a new persona and for an existing one, saved from the top bar
-  with the count of unsaved changes, Discard and Create persona or Save changes, and the browser's question before
-  a page with unsaved changes is left. Profile — the photo (Upload photo, kept with the draft until Save), Display
+- **The editor (OVL-02, 680):** one drawer over the list for a new persona and for an existing one — opened by
+  Create persona in the top bar or a row's Edit, the address saying which (`?persona=new`, `?persona=12`) — titled
+  “New persona” or “Edit Night Owl”, “A regular account on the site, run by Content Studio”. Its footer counts the
+  unsaved changes, with Cancel and Create persona or Save persona, and the browser asks before a page with unsaved
+  changes is left. Profile — the photo (Upload photo, kept with the draft until Save), Display
   name (required), Username (made from the display name when left empty on create; the public profile address as
   its hint) and Public bio; Character — Short description, Character, Speech style, Topics and typical jokes,
   Never writes about (FRM-03 with counters) and Emoji (FRM-08: None, Occasional, Frequent), internal and never
   shown on the site; Activity — Engagement (FRM-08: Off, Low, Normal, High, with what each means) and Max replies
-  a day (FRM-05, 0–50), kept as settings that start nothing yet. Beside it, the account: its status with Moderate
-  in Users, View public profile, and what it never does — sign in, receive mail, administer.
+  a day (FRM-05, 0–50), kept as settings that start nothing yet; Account — its status with Moderate in Users, View
+  public profile, and what it never does — sign in, receive mail, administer.
 - **Saving:** through `CreatePersonaAction`, `UpdatePersonaAction` and `SetPersonaAvatarAction`, which check
   everything again whatever the page sent. Each error stays by its field; a draft drawn before somebody else's
   save is refused with a toast and a warning notice whose Reload draws the persona as it is; a persona deleted
-  meanwhile can no longer be saved. A new persona's editor opens once it is created.
+  meanwhile can no longer be saved. Saved, the drawer closes on the list showing it; a new persona whose photo
+  could not be kept opens again on itself for the photo to be chosen again.
 - **Access:** an active administrator's (`manage-personas`): the navigation item, every page and every Livewire
   request ask, and so do the actions. A moderator sees no Content Studio and moderates personas in Users.
 
@@ -1224,11 +1230,12 @@ resource keeps the route, the navigation item — with the open reports, warning
 
 ### Users
 
-Users (`ListUsers`) and a person's page (`EditUser`) are drawn entirely in Admin v2. The list reads everyone with an
-account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the moderation actions,
-which go through their actions and log themselves. The resource keeps the routes, the navigation item, who may edit
-whom (`UserPolicy::manage`) and global search, whose results open the person's page — or the list on them where the
-page is not theirs to edit.
+Users (`ListUsers`) is drawn entirely in Admin v2, with a person edited in the drawer over the list
+(`UserEditor`) in the style of a persona's; a person's old address (`EditUser`) leads there. The list reads
+everyone with an account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the
+moderation actions, which go through their actions and log themselves. The resource keeps the routes, the
+navigation item, who may edit whom (`UserPolicy::manage`) and global search, whose results open the person's
+editor — or the list on them where they are not the viewer's to edit.
 
 - **List header band:** “Status changes only through moderation actions. Trust decides whether a person’s posts
   skip review.” Stats: Total, Restricted (limited, banned, shadowbanned) and Staff.
@@ -1237,7 +1244,7 @@ page is not theirs to edit.
 - **Toolbar (TBL-02):** the search over the username, the name and the email address; Role as a filter dropdown;
   the Role and Suspicious chips — Suspicious, as the dashboard's Suspicious users opens the list
   (`?suspicious=1`): shadowbanned, or with reported posts or comments.
-- **Table (TBL-01):** the avatar, the username — a link to the person's page for whoever may edit it — the name
+- **Table (TBL-01):** the avatar, the username — which opens the person's editor for whoever may edit it — the name
   and when they joined; the email address (“Removed on deletion” for a deleted account); the role, staff as an
   outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
   reports on their posts and comments (STS-02); Edit and the row menu.
@@ -1249,13 +1256,17 @@ page is not theirs to edit.
   no new posts, comments, votes, reports or follows, the content kept, never a locked account — with an optional
   reason; Mark trusted (light) has no reason to give. A sanction on an active person toasts with Undo, which
   restores access; Restore access is immediate and toasts with Undo, which applies the sanction again. The same
-  actions and dialogs are on the person's page.
-- **A person's page — header band:** the avatar, the username and status, the name and when they joined; stats
-  Posts, Comments and Reports (on their content).
+  actions and dialogs are in the person's editor, the dialogs over it; Undo is the list's, which shows the change
+  in its row and in the drawer.
+- **A person's editor (OVL-02, 680):** a row's Edit or username opens it, the address saying on whom
+  (`?user=12`); titled with the username, the name and when they joined under it, then stats Posts, Comments and
+  Reports (on their content).
 - **The draft (NAV-02):** Profile — Name, Username (“Public as @name”), Email (a new address has to be confirmed
   again); Role & trust — Role as a segmented control (FRM-08) with what it allows, Trust as radio cards (FRM-09):
-  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The top bar counts the
-  unsaved changes; a change of role is asked about first (warning). Saved through `UpdateUserAccountAction`.
+  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The drawer's footer
+  counts the unsaved changes, with Cancel and Save changes; a change of role is asked about first (warning). Saved
+  through `UpdateUserAccountAction`, after which the drawer closes. A persona's account is drawn read-only, with
+  Edit in Content Studio and Close.
 - **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
   that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
   joined, posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
@@ -1354,7 +1365,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Categories and Tags locale chips | every language the prototype knows | the languages the project offers besides English; for categories, missing counted over active ones | visitors meet the offered languages, and Translation Center lists only what visitors can see |
 | Merge into… | merges a tag into another, and a tag in use offers “Merge into another tag” | unavailable (“Not available yet”); a tag in use is a blocked dialog | merging tags needs a domain action of its own, to be designed once every section is on v2 (migration plan) |
 | Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
-| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | OVL-02: one overlay at a time; a dialog opened from a drawer replaces it |
+| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | Categories and Tags: the drawer's one destructive action replaces it; an editor's drawer keeps its confirmations over it |
 | Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
 | Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 10 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
 | Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 10 | the limits the content had before the redesign, which its translations are held to |
@@ -1400,11 +1411,11 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Trust levels | New, Regular and Trusted, with upload caps | Not trusted and Trusted | trust is one threshold: at or above it a person's posts publish at once, once their email is confirmed; nothing caps uploads |
 | What Limit and Shadowban do | Limit: posts reviewed, uploads capped; Shadowban: activity visible only to them, not notified | both stop new posts, comments, votes, reports and follows, and keep the content visible | the lifecycle as it is (docs/architecture/user-lifecycle.md): no viewer-dependent visibility exists |
 | Sanctioning staff | “Change the role to User first” | moderators can be sanctioned; administrators can’t, and nobody their own account | UserPolicy as it is |
-| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person's page |
+| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person |
 | Sanction Undo | Undo after any sanction | Undo from an active account only | restoring access returns someone to Active, not to the sanction they had before |
 | Last active | “Last active Today 08:15” | not shown | nothing records when someone was last active |
 | New password | at least 10 characters; signs other sessions out | the application's password rule; other sessions stay | the rule people's own passwords follow, and saving does not end sessions |
-| Person's page top bar | Cancel and Save changes | Discard and Save changes | as every Admin v2 editor |
+| Person's editor | User edit, a page of its own with Cancel and Save changes in the top bar | a 680 drawer over the list, Cancel and Save changes in its footer | edited the way a persona is, over the list it is opened from |
 | Users grid | `minmax(200px,1fr) 220px 110px 140px 120px 70px 80px 110px`, 1050 | Trust 150, 1080 | “Not trusted” beside its bar fits without wrapping |
 | Next scheduled audit | “Next scheduled audit Tomorrow 04:00” in the header band | not shown | no audit is scheduled; one runs from the top bar or `media:audit` |
 | Asset ids | “A-208113” | “#208113”, and the search finds “#208113” or “208113” | the id as stored, as the other lists show theirs |
@@ -1437,11 +1448,10 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
 | Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
-| Persona editor | a 680 wide drawer over the list | an Admin v2 editor page, saved from the top bar | the kit's drawer is at most 480 wide; one screen does not widen the kit, and an editor page is the contract's way to edit a record |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
 | Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
-| Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the top bar, through the action that checks it |
+| Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the editor, through the action that checks it |
 
 ### Tertiary text contrast
 

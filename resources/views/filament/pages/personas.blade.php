@@ -5,13 +5,16 @@
      * short description and the character, Status and Engagement, read on the
      * server; the table and its pages. Header and rows share one grid; where
      * the card is narrower than the grid, the card scrolls sideways and every
-     * column stays (TBL-01).
+     * column stays (TBL-01). A Persona is made and edited in the drawer over
+     * the list (PersonaEditor).
      */
     $columns = '--rg-admin-table-columns: minmax(220px, 1fr) minmax(240px, 1.4fr) 130px 110px 100px 150px; --rg-admin-table-min-width: 960px';
     $total = $paginator->total();
 @endphp
 
 <div class="rg-admin rg-admin-screen" x-data>
+    @include('filament.pages.editor.script')
+
     <section class="rg-admin-page-header" aria-labelledby="rg-admin-personas-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-personas-title" class="rg-admin-page-header__title">Personas</h1>
@@ -96,7 +99,7 @@
                 <x-admin.ui.empty-state icon="bot" title="No personas yet">
                     A persona is a regular account that Content Studio runs. Create the first one to give it a voice.
                     <x-slot:action>
-                        <x-admin.ui.button size="sm" variant="primary" icon="plus" :href="$createUrl">Create persona</x-admin.ui.button>
+                        <x-admin.ui.button size="sm" variant="primary" icon="plus" wire:click="createPersona">Create persona</x-admin.ui.button>
                     </x-slot:action>
                 </x-admin.ui.empty-state>
             @else
@@ -111,4 +114,9 @@
             @endif
         </div>
     </div>
+
+    {{-- The editor, over the list: drawn afresh for each Persona it opens on. --}}
+    @if ($editing !== '')
+        <livewire:admin.persona-editor :persona-id="$editing === 'new' ? 0 : (int) $editing" :key="'persona-editor-'.$editing" />
+    @endif
 </div>

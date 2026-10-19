@@ -3015,6 +3015,10 @@
         width: var(--rg-admin-detail-panel-width-wide);
     }
 
+    .rg-admin-drawer--editor {
+        width: var(--rg-admin-editor-panel-width);
+    }
+
     .rg-admin-drawer__header {
         display: flex;
         align-items: center;
@@ -4824,7 +4828,7 @@
         font-weight: var(--rg-admin-weight-medium);
     }
 
-    /* Users (ListUsers) and a person's page (EditUser) */
+    /* Users (ListUsers) and a person's editor (UserEditor) */
     .rg-admin-users__username {
         font-weight: var(--rg-admin-weight-medium);
     }
@@ -4883,47 +4887,16 @@
         line-height: var(--rg-admin-leading-micro);
     }
 
-    .rg-admin-user__header {
-        align-items: center;
-    }
-
-    .rg-admin-user__identity {
-        display: flex;
-        align-items: center;
-        gap: var(--rg-admin-space-4);
-        min-width: 0;
-    }
-
     .rg-admin-user__title-row {
         display: flex;
         align-items: center;
         gap: var(--rg-admin-space-3);
     }
 
-    .rg-admin-user__meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 2px 6px;
-    }
-
-    .rg-admin-user__columns {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
-        align-items: start;
-        gap: var(--rg-admin-space-4);
-        max-width: 1320px;
-    }
-
     .rg-admin-user__main {
         display: flex;
         flex-direction: column;
         gap: var(--rg-admin-space-4);
-        min-width: 0;
-    }
-
-    .rg-admin-user__side {
-        width: 100%;
-        max-width: 520px;
         min-width: 0;
     }
 
@@ -4939,12 +4912,6 @@
 
     .rg-admin-user__role {
         align-self: flex-start;
-    }
-
-    .rg-admin-user__stack {
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
     }
 
     .rg-admin-user__password {
@@ -4963,37 +4930,28 @@
         margin-top: 28px;
     }
 
-    .rg-admin-user__section + .rg-admin-user__section {
-        border-top: 1px solid var(--rg-admin-border-default);
-    }
-
     .rg-admin-user__status {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 10px;
-        margin-top: var(--rg-admin-space-3);
-    }
-
-    .rg-admin-user__section .rg-admin-reports__message,
-    .rg-admin-user__section .rg-admin-reports__actions {
-        margin-top: 10px;
     }
 
     .rg-admin-user__lock {
         display: flex;
         align-items: center;
         gap: var(--rg-admin-space-2);
-        margin: 10px 0 0;
+        margin: 0;
         color: var(--rg-admin-text-tertiary);
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);
     }
 
-    .rg-admin-user__history {
-        margin-top: 14px;
+    .rg-admin-editor-drawer__section .rg-admin-reports__message {
+        margin: 0;
     }
 
-    /* Personas (ListPersonas) and a persona's editor (CreatePersona, EditPersona) */
+    /* Personas (ListPersonas) and a persona's editor (PersonaEditor) */
     /* An avatar with a photo: the image fills the circle the initials would. */
     .rg-admin-avatar__image {
         width: 100%;
@@ -5019,62 +4977,57 @@
         line-height: var(--rg-admin-leading-caption);
     }
 
-    .rg-admin-persona__header {
-        align-items: center;
-    }
-
-    .rg-admin-persona__identity {
-        display: flex;
-        align-items: center;
-        gap: var(--rg-admin-space-4);
-        min-width: 0;
-    }
-
-    .rg-admin-persona__title-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--rg-admin-space-3);
-        min-width: 0;
-    }
-
-    .rg-admin-persona__title-row .rg-admin-page-header__title {
-        overflow-wrap: anywhere;
-    }
-
-    .rg-admin-persona__meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 2px 6px;
-    }
-
-    .rg-admin-persona__columns {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
-        align-items: start;
-        gap: var(--rg-admin-space-4);
-        max-width: 1320px;
-    }
-
-    .rg-admin-persona__main {
+    /* A record's editor in the drawer (OVL-02 at the editor's width): its sections one under another, each under its label. */
+    .rg-admin-editor-drawer {
         display: flex;
         flex-direction: column;
-        gap: var(--rg-admin-space-4);
         min-width: 0;
     }
 
-    .rg-admin-persona__side {
-        width: 100%;
-        max-width: 520px;
-        min-width: 0;
+    .rg-admin-editor-drawer__notice {
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) 0;
     }
 
-    .rg-admin-persona__stack {
+    .rg-admin-editor-drawer__section {
         display: flex;
         flex-direction: column;
-        gap: 18px;
+        gap: 14px;
+        min-width: 0;
+        padding: 18px var(--rg-admin-space-5) 20px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
     }
 
+    .rg-admin-editor-drawer__section:last-child {
+        padding-bottom: var(--rg-admin-space-6);
+        border-bottom: 0;
+    }
+
+    .rg-admin-editor-drawer__section .rg-admin-section-label__text {
+        margin: 0;
+    }
+
+    .rg-admin-editor-drawer__section > .rg-admin-hint {
+        margin: -6px 0 0;
+    }
+
+    .rg-admin-editor-drawer__note {
+        flex: 1;
+        min-width: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-editor-drawer__unsaved {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-editor-drawer__stats {
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    /* A Persona in its editor (PersonaEditor) */
     .rg-admin-persona__fields {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
@@ -5124,21 +5077,18 @@
         line-height: var(--rg-admin-leading-micro);
     }
 
-    .rg-admin-persona__section + .rg-admin-persona__section {
-        border-top: 1px solid var(--rg-admin-border-default);
-    }
-
-    .rg-admin-persona__section .rg-admin-persona__note,
-    .rg-admin-persona__status,
-    .rg-admin-persona__links {
-        margin-top: var(--rg-admin-space-3);
+    .rg-admin-persona__status {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-3);
     }
 
     .rg-admin-persona__lock {
         display: flex;
         align-items: center;
         gap: var(--rg-admin-space-2);
-        margin: 10px 0 0;
+        margin: 0;
         color: var(--rg-admin-text-tertiary);
         font-size: var(--rg-admin-text-micro);
         line-height: var(--rg-admin-leading-micro);

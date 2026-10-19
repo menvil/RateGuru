@@ -1,8 +1,9 @@
 @php
     /*
      * The moderation confirmations on a person (OVL-01), shared by the Users
-     * list and the person's page: Limit (warning), Shadowban and Ban (danger),
-     * each with what it does — as the lifecycle has it: a sanction stops
+     * list and the person's editor in its drawer — opened over it, and closed
+     * without closing it: Limit (warning), Shadowban and Ban (danger), each
+     * with what it does — as the lifecycle has it: a sanction stops
      * taking part and never locks anyone out of their account — and an
      * optional reason; Mark trusted (light), with no reason to give.
      */
@@ -44,7 +45,7 @@
     :icon="$icon"
     :title="$title"
     wire:key="sanction-{{ $kind }}-{{ $name }}"
-    x-on:dismiss="$wire.closeConfirmation()"
+    x-on:dismiss.stop="$wire.closeConfirmation()"
 >
     <p>{{ $body }}</p>
 
