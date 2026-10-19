@@ -2,12 +2,10 @@
 
 use App\Actions\Studio\DeleteStudioPlanDraftAction;
 use App\Actions\Studio\RemoveStudioPlanImageAction;
-use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\SetStudioPlanImageAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\StudioImageAnalysisStatus;
-use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Models\MediaAsset;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
@@ -37,8 +35,8 @@ beforeEach(function () {
 function completedAnalysisOf(User $admin, StudioPlan $plan): StudioPlanImageAnalysis
 {
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody())]);
-    $analysis = app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id);
-    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
+    $analysis = requestStudioImageAnalysis($admin, $plan);
+    runStudioImageAnalysisJob($analysis);
 
     return $analysis->refresh();
 }
@@ -58,11 +56,11 @@ it('keeps one analysis row per plan, gone with the plan, naming its photo withou
 
 it('deletes the analysis with the Draft, and a job that comes late finds nothing to do', function () {
     $plan = studioPlanWithStoredPhoto();
-    $analysis = app(RequestStudioImageAnalysisAction::class)->handle($this->admin, $plan, (int) $plan->image_asset_id);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     app(DeleteStudioPlanDraftAction::class)->handle($this->admin, $plan, StudioPlan::query()->findOrFail($plan->id)->lock_version);
     Http::fake();
-    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
+    runStudioImageAnalysisJob($analysis);
 
     expect(StudioPlanImageAnalysis::query()->exists())->toBeFalse();
     Http::assertNothingSent();

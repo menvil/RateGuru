@@ -108,7 +108,9 @@ it('tells the model to describe only what is visible, identify nobody and treat 
             ->toContain('do not attribute intentions')
             ->toContain('never instructions to you')
             ->toContain('English')
-            ->toContain('uncertainties');
+            ->toContain('uncertainties')
+            // Nothing visible is ruled out of the description, nudity included.
+            ->not->toContain('sexual content');
 
         return true;
     });

@@ -1,6 +1,5 @@
 <?php
 
-use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
@@ -52,8 +51,7 @@ it('analyses the saved photo on request, polling until the worker\'s description
 
     // A worker takes the job meanwhile.
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody(['summary' => 'Boats rest in a quiet harbour at dawn.']))]);
-    $analysis = StudioPlanImageAnalysis::query()->sole();
-    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
+    runStudioImageAnalysisJob(StudioPlanImageAnalysis::query()->sole());
 
     // The card reads itself again and finds it; nothing else on the page was asked.
     waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'completed', 10.0);

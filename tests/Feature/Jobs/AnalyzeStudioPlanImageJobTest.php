@@ -1,6 +1,5 @@
 <?php
 
-use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Enums\StudioImageAnalysisError;
 use App\Enums\StudioImageAnalysisStatus;
 use App\Enums\StudioPlanStatus;
@@ -34,18 +33,6 @@ beforeEach(function () {
     $this->admin = User::factory()->admin()->create();
 });
 
-/** An attempt queued for the plan's photo, as Analyze photo queues one. */
-function queuedAnalysis(User $admin, StudioPlan $plan, ?string $replacing = null): StudioPlanImageAnalysis
-{
-    return app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, $replacing);
-}
-
-/** Runs the job of that attempt, as a worker would. */
-function runAnalysisJob(StudioPlanImageAnalysis $analysis): void
-{
-    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
-}
-
 it('runs within the queue\'s timings, once, failing on its timeout', function () {
     $job = new AnalyzeStudioPlanImageJob(1, 'attempt');
 
@@ -58,9 +45,9 @@ it('runs within the queue\'s timings, once, failing on its timeout', function ()
 it('analyses the photo and keeps the description with the call\'s metadata', function () {
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody())]);
     $plan = studioPlanWithStoredPhoto(['lock_version' => 3]);
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     $analysis->refresh();
     expect($analysis->status)->toBe(StudioImageAnalysisStatus::Completed)
@@ -86,16 +73,16 @@ it('analyses the photo and keeps the description with the call\'s metadata', fun
 it('sends nothing when the job is delivered again, or after its attempt was replaced', function () {
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody())]);
     $plan = studioPlanWithStoredPhoto();
-    $first = queuedAnalysis($this->admin, $plan);
+    $first = requestStudioImageAnalysis($this->admin, $plan);
 
-    runAnalysisJob($first);
-    runAnalysisJob($first);
+    runStudioImageAnalysisJob($first);
+    runStudioImageAnalysisJob($first);
 
     Http::assertSentCount(1);
 
     // Re-run, then the first attempt's job turns up once more: nothing to claim.
-    $second = queuedAnalysis($this->admin, $plan, $first->attempt_id);
-    runAnalysisJob($first);
+    $second = requestStudioImageAnalysis($this->admin, $plan, replacing: $first->attempt_id);
+    runStudioImageAnalysisJob($first);
 
     Http::assertSentCount(1);
     expect($second->refresh()->status)->toBe(StudioImageAnalysisStatus::Queued);
@@ -104,10 +91,10 @@ it('sends nothing when the job is delivered again, or after its attempt was repl
 it('sends nothing for a plan deleted before the job ran', function () {
     Http::fake();
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
     StudioPlan::query()->whereKey($plan->id)->delete();
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     Http::assertNothingSent();
     expect(StudioPlanImageAnalysis::query()->exists())->toBeFalse();
@@ -116,10 +103,10 @@ it('sends nothing for a plan deleted before the job ran', function () {
 it('sends nothing, and ends the attempt with the reason, when the plan changed before the job ran', function (Closure $change, StudioImageAnalysisError $error) {
     Http::fake();
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
     $change($plan);
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     Http::assertNothingSent();
     expect($analysis->refresh()->status)->toBe(StudioImageAnalysisStatus::Failed)
@@ -134,9 +121,9 @@ it('sends nothing, and ends the attempt with the reason, when the plan changed b
 it('sends nothing, and says the photo is unavailable, when its file cannot be read', function () {
     Http::fake();
     $plan = StudioPlan::factory()->withImage()->create();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     Http::assertNothingSent();
     expect($analysis->refresh()->error_code)->toBe(StudioImageAnalysisError::ImageUnavailable);
@@ -146,9 +133,9 @@ it('ends the attempt with the provider\'s reason, the plan and its photo untouch
     Http::fake(['api.openai.com/*' => Http::response(['error' => ['message' => 'nope']], $status)]);
     $plan = studioPlanWithStoredPhoto(['title' => 'A harbour']);
     $before = StudioPlan::query()->findOrFail($plan->id)->getAttributes();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     expect($analysis->refresh()->status)->toBe(StudioImageAnalysisStatus::Failed)
         ->and($analysis->error_code)->toBe($error)
@@ -166,8 +153,8 @@ it('keeps the last result for the photo when a re-run of it fails', function () 
     $completed = StudioPlanImageAnalysisFactory::new()->forPlan($plan)->completed()->create();
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody(['summary' => '']))]);
 
-    $rerun = queuedAnalysis($this->admin, $plan, $completed->attempt_id);
-    runAnalysisJob($rerun);
+    $rerun = requestStudioImageAnalysis($this->admin, $plan, replacing: $completed->attempt_id);
+    runStudioImageAnalysisJob($rerun);
 
     expect($rerun->refresh()->status)->toBe(StudioImageAnalysisStatus::Failed)
         ->and($rerun->error_code)->toBe(StudioImageAnalysisError::InvalidProviderResponse)
@@ -181,8 +168,8 @@ it('replaces the last result with the new one when a re-run succeeds', function 
     $completed = StudioPlanImageAnalysisFactory::new()->forPlan($plan)->completed()->create();
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody(['summary' => 'A grey cat sleeps on a windowsill.']))]);
 
-    $rerun = queuedAnalysis($this->admin, $plan, $completed->attempt_id);
-    runAnalysisJob($rerun);
+    $rerun = requestStudioImageAnalysis($this->admin, $plan, replacing: $completed->attempt_id);
+    runStudioImageAnalysisJob($rerun);
 
     expect($rerun->refresh()->status)->toBe(StudioImageAnalysisStatus::Completed)
         ->and($rerun->result['summary'])->toBe('A grey cat sleeps on a windowsill.')
@@ -191,7 +178,7 @@ it('replaces the last result with the new one when a re-run succeeds', function 
 
 it('holds no transaction open while it waits for the provider', function () {
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
     $outside = DB::transactionLevel();
     $during = null;
 
@@ -201,14 +188,14 @@ it('holds no transaction open while it waits for the provider', function () {
         return Http::response(studioImageDescriptionBody());
     });
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     expect($during)->toBe($outside);
 });
 
 it('drops a result that came back after the photo was replaced, keeping the new photo unanalysed', function (Closure $change) {
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     Http::fake(function () use ($plan, $change) {
         $change($plan);
@@ -216,7 +203,7 @@ it('drops a result that came back after the photo was replaced, keeping the new 
         return Http::response(studioImageDescriptionBody());
     });
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     $analysis->refresh();
     $plan->refresh();
@@ -231,7 +218,7 @@ it('drops a result that came back after the photo was replaced, keeping the new 
 
 it('leaves nothing behind for a plan deleted while its photo was being analysed', function () {
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     Http::fake(function () use ($plan) {
         StudioPlan::query()->whereKey($plan->id)->delete();
@@ -239,7 +226,7 @@ it('leaves nothing behind for a plan deleted while its photo was being analysed'
         return Http::response(studioImageDescriptionBody());
     });
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     expect(StudioPlanImageAnalysis::query()->exists())->toBeFalse()
         ->and(StudioPlan::query()->exists())->toBeFalse();
@@ -247,7 +234,7 @@ it('leaves nothing behind for a plan deleted while its photo was being analysed'
 
 it('keeps the result when only the texts were saved meanwhile, writing nothing of the plan', function () {
     $plan = studioPlanWithStoredPhoto(['title' => 'Before', 'lock_version' => 1]);
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     Http::fake(function () use ($plan) {
         // An editor's save landing while the request is out.
@@ -256,7 +243,7 @@ it('keeps the result when only the texts were saved meanwhile, writing nothing o
         return Http::response(studioImageDescriptionBody());
     });
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     $plan->refresh();
     expect($analysis->refresh()->status)->toBe(StudioImageAnalysisStatus::Completed)
@@ -266,7 +253,7 @@ it('keeps the result when only the texts were saved meanwhile, writing nothing o
 
 it('ends its attempt, and only its own unfinished one, when the job fails', function () {
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     (new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id))->failed(new RuntimeException('Worker timed out'));
 
@@ -288,9 +275,9 @@ it('logs the attempt\'s start and end with metadata only — no key, no photo, n
     });
     Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody())]);
     $plan = studioPlanWithStoredPhoto();
-    $analysis = queuedAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
-    runAnalysisJob($analysis);
+    runStudioImageAnalysisJob($analysis);
 
     $events = array_column($logged, 'message');
     expect($events)->toContain('studio.image_analysis.requested', 'studio.image_analysis.started', 'studio.image_analysis.completed');
@@ -336,11 +323,11 @@ it('logs a failure with its reason and a dropped result as discarded', function 
         return Http::response(studioImageDescriptionBody());
     });
 
-    runAnalysisJob(queuedAnalysis($this->admin, $plan));
+    runStudioImageAnalysisJob(requestStudioImageAnalysis($this->admin, $plan));
 
     expect($logged['studio.image_analysis.failed'])->toMatchArray(['studio_plan_id' => $plan->id, 'error_code' => 'rate_limited', 'http_status' => 429]);
 
-    runAnalysisJob(queuedAnalysis($this->admin, $plan, StudioPlanImageAnalysis::query()->sole()->attempt_id));
+    runStudioImageAnalysisJob(requestStudioImageAnalysis($this->admin, $plan, replacing: StudioPlanImageAnalysis::query()->sole()->attempt_id));
 
     expect($logged['studio.image_analysis.discarded'])->toMatchArray(['studio_plan_id' => $plan->id, 'reason' => 'image_changed', 'error_code' => 'stale_image', 'total_tokens' => 150]);
 });

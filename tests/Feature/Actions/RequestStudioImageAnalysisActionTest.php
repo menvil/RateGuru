@@ -1,6 +1,5 @@
 <?php
 
-use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Enums\StudioImageAnalysisError;
 use App\Enums\StudioImageAnalysisStatus;
 use App\Enums\StudioPlanStatus;
@@ -35,15 +34,10 @@ afterEach(function () {
     Carbon::setTestNow();
 });
 
-function requestAnalysis(User $admin, StudioPlan $plan, ?int $imageAssetId = null, ?string $replacing = null): StudioPlanImageAnalysis
-{
-    return app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $replacing);
-}
-
 it('queues one attempt for the photo, its job carrying only the analysis and attempt ids', function () {
     $plan = StudioPlan::factory()->withImage()->create();
 
-    $analysis = requestAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     expect($analysis->studio_plan_id)->toBe($plan->id)
         ->and($analysis->source_image_asset_id)->toBe($plan->image_asset_id)
@@ -72,7 +66,7 @@ it('leaves the plan as it was — its fields, its version and its time', functio
     $before = StudioPlan::query()->findOrFail($plan->id)->getAttributes();
 
     Carbon::setTestNow('2026-10-19 10:05:00');
-    requestAnalysis($this->admin, $plan);
+    requestStudioImageAnalysis($this->admin, $plan);
 
     expect(StudioPlan::query()->findOrFail($plan->id)->getAttributes())->toBe($before);
 });
@@ -81,7 +75,7 @@ it('logs the request with its plan, attempt and status and nothing else', functi
     Log::spy();
     $plan = StudioPlan::factory()->withImage()->create();
 
-    $analysis = requestAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     Log::shouldHaveReceived('info')->with('studio.image_analysis.requested', Mockery::on(fn (array $context): bool => $context['studio_plan_id'] === $plan->id
         && $context['attempt_id'] === $analysis->attempt_id
@@ -92,11 +86,11 @@ it('logs the request with its plan, attempt and status and nothing else', functi
 
 it('starts nothing new while an attempt for the photo is on its way — a double click, or a second administrator', function (string $status) {
     $plan = StudioPlan::factory()->withImage()->create();
-    $first = requestAnalysis($this->admin, $plan);
+    $first = requestStudioImageAnalysis($this->admin, $plan);
     StudioPlanImageAnalysis::query()->whereKey($first->id)->update(['status' => $status]);
 
-    $again = requestAnalysis($this->admin, $plan);
-    $another = requestAnalysis(User::factory()->admin()->create(), $plan, replacing: $first->attempt_id);
+    $again = requestStudioImageAnalysis($this->admin, $plan);
+    $another = requestStudioImageAnalysis(User::factory()->admin()->create(), $plan, replacing: $first->attempt_id);
 
     expect($again->attempt_id)->toBe($first->attempt_id)
         ->and($another->attempt_id)->toBe($first->attempt_id)
@@ -109,7 +103,7 @@ it('starts nothing for a photo that already has a result, unless that result is 
     $plan = StudioPlan::factory()->withImage()->create();
     $completed = StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create();
 
-    $analyze = requestAnalysis($this->admin, $plan);
+    $analyze = requestStudioImageAnalysis($this->admin, $plan);
 
     expect($analyze->attempt_id)->toBe($completed->attempt_id)
         ->and($analyze->status)->toBe(StudioImageAnalysisStatus::Completed);
@@ -120,7 +114,7 @@ it('re-runs a result once, keeping it until a new one replaces it', function () 
     $plan = StudioPlan::factory()->withImage()->create();
     $completed = StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create();
 
-    $rerun = requestAnalysis($this->admin, $plan, replacing: $completed->attempt_id);
+    $rerun = requestStudioImageAnalysis($this->admin, $plan, replacing: $completed->attempt_id);
 
     expect($rerun->id)->toBe($completed->id)
         ->and($rerun->attempt_id)->not->toBe($completed->attempt_id)
@@ -130,7 +124,7 @@ it('re-runs a result once, keeping it until a new one replaces it', function () 
         ->and($rerun->finished_at?->equalTo($completed->finished_at))->toBeTrue();
 
     // A second administrator re-running the same result, after the first did, starts nothing.
-    $second = requestAnalysis(User::factory()->admin()->create(), $plan, replacing: $completed->attempt_id);
+    $second = requestStudioImageAnalysis(User::factory()->admin()->create(), $plan, replacing: $completed->attempt_id);
 
     expect($second->attempt_id)->toBe($rerun->attempt_id);
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);
@@ -140,7 +134,7 @@ it('starts nothing when the result asked to be replaced has already been replace
     $plan = StudioPlan::factory()->withImage()->create();
     $newer = StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create();
 
-    $stale = requestAnalysis($this->admin, $plan, replacing: '00000000-0000-4000-8000-000000000000');
+    $stale = requestStudioImageAnalysis($this->admin, $plan, replacing: '00000000-0000-4000-8000-000000000000');
 
     expect($stale->attempt_id)->toBe($newer->attempt_id);
     Queue::assertNothingPushed();
@@ -151,7 +145,7 @@ it('tries a failed attempt again on request, keeping the last result for the pho
     $failed = StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create();
     $failed->forceFill(['status' => StudioImageAnalysisStatus::Failed, 'error_code' => StudioImageAnalysisError::RateLimited])->save();
 
-    $retry = requestAnalysis($this->admin, $plan, replacing: $failed->attempt_id);
+    $retry = requestStudioImageAnalysis($this->admin, $plan, replacing: $failed->attempt_id);
 
     expect($retry->status)->toBe(StudioImageAnalysisStatus::Queued)
         ->and($retry->error_code)->toBeNull()
@@ -171,10 +165,10 @@ it('lets a lost attempt be replaced only once it has waited or run longer than a
     ]);
 
     Carbon::setTestNow('2026-10-19 12:02:59');
-    expect(requestAnalysis($this->admin, $plan, replacing: $lost->attempt_id)->attempt_id)->toBe($lost->attempt_id);
+    expect(requestStudioImageAnalysis($this->admin, $plan, replacing: $lost->attempt_id)->attempt_id)->toBe($lost->attempt_id);
 
     Carbon::setTestNow('2026-10-19 12:03:00');
-    $replaced = requestAnalysis($this->admin, $plan, replacing: $lost->attempt_id);
+    $replaced = requestStudioImageAnalysis($this->admin, $plan, replacing: $lost->attempt_id);
 
     expect($replaced->attempt_id)->not->toBe($lost->attempt_id)
         ->and($replaced->status)->toBe(StudioImageAnalysisStatus::Queued);
@@ -190,7 +184,7 @@ it('starts afresh for a new photo, dropping the result of the previous one', fun
     $newPhoto = MediaAsset::factory()->postImage()->create();
     $plan->forceFill(['image_asset_id' => $newPhoto->id])->save();
 
-    $analysis = requestAnalysis($this->admin, $plan, $newPhoto->id);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan, $newPhoto->id);
 
     expect($analysis->id)->toBe($old->id)
         ->and($analysis->source_image_asset_id)->toBe($newPhoto->id)
@@ -208,7 +202,7 @@ it('refuses a photo other than the one the editor showed, and a plan with no pho
     $plan = $plan();
 
     try {
-        app(RequestStudioImageAnalysisAction::class)->handle($this->admin, $plan, $shown($plan));
+        requestStudioImageAnalysis($this->admin, $plan, $shown($plan));
         $this->fail('The request was not refused.');
     } catch (CannotRequestStudioImageAnalysisException $exception) {
         expect($exception->error)->toBe($error);
@@ -226,7 +220,7 @@ it('refuses, queueing nothing and writing nothing, while analysis is not configu
     $plan = StudioPlan::factory()->withImage()->create();
 
     try {
-        requestAnalysis($this->admin, $plan);
+        requestStudioImageAnalysis($this->admin, $plan);
         $this->fail('The request was not refused.');
     } catch (CannotRequestStudioImageAnalysisException $exception) {
         expect($exception->error)->toBe(StudioImageAnalysisError::NotConfigured)
@@ -244,7 +238,7 @@ it('refuses, queueing nothing and writing nothing, while analysis is not configu
 it('queues nothing for a plan that is gone or past its Draft, nor for anyone but an active administrator', function (Closure $admin, Closure $plan) {
     $plan = $plan();
 
-    expect(fn () => requestAnalysis($admin(), $plan))->toThrow(CannotManageStudioPlanException::class);
+    expect(fn () => requestStudioImageAnalysis($admin(), $plan))->toThrow(CannotManageStudioPlanException::class);
 
     expect(StudioPlanImageAnalysis::query()->exists())->toBeFalse();
     Queue::assertNothingPushed();
@@ -260,7 +254,7 @@ it('asks again on the locked row whether the administrator may still manage plan
     // Demoted after the copy in hand was read: only the row says so.
     User::query()->whereKey($this->admin->id)->update(['role' => 'user']);
 
-    expect(fn () => requestAnalysis($this->admin, $plan))->toThrow(CannotManageStudioPlanException::class);
+    expect(fn () => requestStudioImageAnalysis($this->admin, $plan))->toThrow(CannotManageStudioPlanException::class);
 
     expect(StudioPlanImageAnalysis::query()->exists())->toBeFalse();
     Queue::assertNothingPushed();
@@ -272,7 +266,7 @@ it('ends the attempt as an unexpected failure when the queue cannot take its job
     config(['queue.default' => 'nowhere']);
     $plan = StudioPlan::factory()->withImage()->create();
 
-    $analysis = requestAnalysis($this->admin, $plan);
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
 
     expect($analysis->status)->toBe(StudioImageAnalysisStatus::Failed)
         ->and($analysis->error_code)->toBe(StudioImageAnalysisError::UnexpectedFailure);

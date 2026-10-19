@@ -1,12 +1,14 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
+use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -17,6 +19,7 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanImageAnalysis;
 use App\Models\Tag;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
@@ -13082,6 +13085,22 @@ function studioImageDescriptionBody(array $fields = [], array $overrides = []): 
         json_encode(StudioPlanImageAnalysisFactory::description($fields), JSON_THROW_ON_ERROR),
         array_replace(['id' => 'resp_studio_analysis_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
     );
+}
+
+/**
+ * Analyze photo — or, with the attempt on screen as $replacing, Re-run
+ * analysis or Try again — for the photo the editor shows: the plan's own
+ * unless another is named.
+ */
+function requestStudioImageAnalysis(User $admin, StudioPlan $plan, ?int $imageAssetId = null, ?string $replacing = null): StudioPlanImageAnalysis
+{
+    return app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $replacing);
+}
+
+/** Runs the job of that attempt, as a worker would. */
+function runStudioImageAnalysisJob(StudioPlanImageAnalysis $analysis): void
+{
+    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
 }
 
 /**
