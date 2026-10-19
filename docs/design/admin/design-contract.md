@@ -1035,8 +1035,15 @@ actions (`docs/architecture/studio-plans.md`).
   draft.
   - **Image:** the photo with its file name, dimensions, size and type; a new one from the computer — Upload
     image, or dropped on the drop zone — or from a direct link, either stored only on Save; Remove image, taken
-    off on Save; the upload limit read from `uploads.images.max_kilobytes`. Photo analysis says it is not built
-    yet.
+    off on Save; the upload limit read from `uploads.images.max_kilobytes`. Beside it, Photo analysis of the saved
+    photo, its own component: “This photo has not been analysed yet.” with Analyze photo and “The selected photo
+    will be sent to OpenAI for analysis.”; “Waiting for analysis…” and “Analysing photo…” (FBK-02 info, read again
+    every few seconds, and only then); the description under Scene summary, Subjects, Actions, Setting,
+    Composition, Notable details, Visible text and Uncertainties, with the date and the model in a hint and
+    Re-run analysis, “a new, paid request”; a failure in its own words (FBK-02 warning) with Try again, the last
+    result kept under it. “Save a photo to this draft before analysing it.” with Analyze photo disabled, “Photo
+    analysis is not configured.”, and, while a new photo waits to be saved, “Save the draft first to analyse the
+    new photo.” Analyze photo is never part of Save draft.
   - **Post:** Final title (3 to 120, with its counter), Final description (up to 2,000), Source URL — never the
     link a photo is imported from —, the author chosen from living personas found on the server (a restricted one
     with “This persona cannot publish while restricted.”), the category (an inactive one kept and marked), up to
@@ -1414,7 +1421,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
 | Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
 | Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none | nothing confirms or publishes a plan yet; the draft saves from the top bar |
-| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | Upload and From link, the limit `uploads.images.max_kilobytes` sets; analysis not built | social posts need an importer of their own; the upload limit is the site's; no button is drawn that does nothing |
+| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | Upload and From link, the limit `uploads.images.max_kilobytes` sets; Analyze photo, then Re-run analysis or Try again, each a request of its own | social posts need an importer of their own; the upload limit is the site's; every analysis is a paid call, so the first one is asked for too |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more; Final description up to 500 | Final title and Final description, up to 2,000, with a note that suggestions come later | AI texts are not built yet; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |

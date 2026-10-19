@@ -325,8 +325,10 @@ publication's editor (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan`,
 server, 25 a page (`StudioPlansQuery`, a registered stable pagination boundary); the editor's four steps — Image,
 Post, Discussion, Publication — save a draft from the top bar through the plan's actions, refusing one drawn before
 somebody else's save, with its photo uploaded or imported from a direct link through the existing media path, and
-Delete draft asks first. Everything a later stage brings is left out rather than drawn: photo analysis, AI texts,
-votes, the discussion, approval, the action plan and the queue; the editor says where each will come. The kit
+Delete draft asks first. The Image step analyses the saved photo through OpenAI when an administrator asks — a
+card of its own that alone polls while an analysis runs. Everything else a later stage brings is left out rather
+than drawn: AI texts, votes, the discussion, approval, the action plan and the queue; the editor says where each
+will come. The kit
 gained the `newspaper` and `arrow-left` icons and nothing else: the steps and the drop zone are the screen's own.
 
 **Personas. Status: done.** The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor

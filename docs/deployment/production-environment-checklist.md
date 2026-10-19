@@ -42,6 +42,13 @@
   `FACEBOOK_CLIENT_ID` and `FACEBOOK_CLIENT_SECRET`, with the callbacks
   registered at each provider for the production `APP_URL` — see
   [social login docs](../dev/social-login.md).
+- Content Studio's photo analysis needs `CONTENT_STUDIO_OPENAI_ENABLED`,
+  `CONTENT_STUDIO_OPENAI_API_KEY`, `CONTENT_STUDIO_OPENAI_MODEL` and
+  `CONTENT_STUDIO_OPENAI_BASE_URL` declared in `shared/.env` — the deploy's
+  environment contract check asks for all four. Off with a blank key is a
+  valid state; to turn it on, set `CONTENT_STUDIO_OPENAI_ENABLED=true` and a key
+  of its own, never the translation engine's — see
+  [Content Studio publication plans](../architecture/studio-plans.md#configuration).
 
 ## Queues
 

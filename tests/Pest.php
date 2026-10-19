@@ -1,12 +1,14 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
+use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -16,6 +18,8 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
+use App\Models\StudioPlan;
+use App\Models\StudioPlanImageAnalysis;
 use App\Models\Tag;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
@@ -45,6 +49,7 @@ use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
+use Database\Factories\StudioPlanImageAnalysisFactory;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -12863,11 +12868,14 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
         $app = require_once $base.'/bootstrap/app.php';
         $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
-        // A stored photo lands in the test's scratch directory, and nothing is queued.
+        // A stored photo lands in the test's scratch directory, and nothing is
+        // queued — so photo analysis, switched on here, never sends anything.
         config([
             'filesystems.disks.'.config('media.disks.public').'.root' => $job['disk'],
             'queue.connections.null' => ['driver' => 'null'],
             'queue.default' => 'null',
+            'content_studio.image_analysis.enabled' => true,
+            'content_studio.image_analysis.api_key' => 'race-test-credential-never-real',
         ]);
 
         $db = Illuminate\Support\Facades\DB::connection();
@@ -12983,6 +12991,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 ),
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
+                // Analyze photo; says which attempt it was given.
+                'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // What Release in Media diagnostics runs.
                 'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
             };
@@ -13039,4 +13049,82 @@ function finishedRace(array $competitors): array
     expect(preg_match('/never (reached|started|took)|neither/', $report))->toBe(0, "a competitor raced nobody:\n{$report}");
 
     return ['results' => $results, 'report' => $report];
+}
+
+// =============================================================================
+// Content Studio photo analysis
+// =============================================================================
+
+/** Never a real key: what the tests switch photo analysis on with. */
+const STUDIO_ANALYSIS_TEST_API_KEY = 'studio-analysis-test-credential-never-real-7b2e';
+
+/**
+ * Photo analysis switched on with the test key and the given settings
+ * replaced — so a test reads as "analysis, configured", whatever .env holds.
+ *
+ * @param  array<string, mixed>  $overrides  keys of content_studio.image_analysis
+ */
+function configureStudioImageAnalysis(array $overrides = []): void
+{
+    foreach (array_replace(['enabled' => true, 'api_key' => STUDIO_ANALYSIS_TEST_API_KEY], $overrides) as $key => $value) {
+        config(["content_studio.image_analysis.{$key}" => $value]);
+    }
+}
+
+/**
+ * A completed Responses API body whose structured output is a description —
+ * the factory's, with these fields replaced.
+ *
+ * @param  array<string, mixed>  $fields  description fields replaced
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioImageDescriptionBody(array $fields = [], array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode(StudioPlanImageAnalysisFactory::description($fields), JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_analysis_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * Analyze photo — or, with the attempt on screen as $replacing, Re-run
+ * analysis or Try again — for the photo the editor shows: the plan's own
+ * unless another is named.
+ */
+function requestStudioImageAnalysis(User $admin, StudioPlan $plan, ?int $imageAssetId = null, ?string $replacing = null): StudioPlanImageAnalysis
+{
+    return app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $replacing);
+}
+
+/** Runs the job of that attempt, as a worker would. */
+function runStudioImageAnalysisJob(StudioPlanImageAnalysis $analysis): void
+{
+    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
+}
+
+/**
+ * A Draft whose photo is really stored, on the faked public disk: its master
+ * and, unless told otherwise, its ~1280 px feed variant — what analysis reads.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function studioPlanWithStoredPhoto(array $attributes = [], bool $withFeedVariant = true): StudioPlan
+{
+    $plan = StudioPlan::factory()->withImage()->create($attributes);
+    $asset = MediaAsset::query()->findOrFail($plan->image_asset_id);
+
+    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(48, 32));
+
+    if ($withFeedVariant) {
+        $variant = MediaVariant::factory()->named(MediaVariantName::PostFeed1280)->create([
+            'media_asset_id' => $asset->id,
+            'width' => 36,
+            'height' => 24,
+        ]);
+
+        Storage::disk($variant->disk)->put($variant->path, jpegMarkerBytes(36, 24));
+    }
+
+    return $plan;
 }

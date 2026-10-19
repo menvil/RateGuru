@@ -3,7 +3,8 @@
     saved one unless Save takes it off — with what it is and how to change
     it, and where a new one comes from: the computer, through the button or
     by dropping a file, or a direct link to an image. Nothing is stored until
-    the draft is saved. Beside it, photo analysis, which is not built yet.
+    the draft is saved. Beside it, photo analysis of the saved photo
+    (StudioPlanImageAnalysisCard), asked for on its own and never by Save.
 --}}
 <div class="rg-admin-studio__columns">
     <x-admin.ui.card title="Photo for the publication" description="Upload a file or use a direct link to an image. It is stored when the draft is saved.">
@@ -117,7 +118,35 @@
         </div>
     </x-admin.ui.card>
 
+    @php
+        // Whether the draft is about to change the photo — a new one chosen,
+        // a link to import one from, or the saved one taken off — read from
+        // the draft as typed, like the count of unsaved changes.
+        $newPhoto = "(\$wire.imageSource === 'upload' && \$wire.photo) || (\$wire.imageSource === 'link' && (\$wire.imageUrl ?? '').trim() !== '')";
+        $photoPending = "({$newPhoto}) || \$wire.removeImage";
+    @endphp
     <x-admin.ui.card title="Photo analysis" description="Technical context for the text generators. Not shown to visitors.">
-        <x-admin.ui.inline-notice tone="info">Photo analysis will be available in the next phase.</x-admin.ui.inline-notice>
+        <div class="rg-admin-studio__stack" x-data>
+            <div x-show="{{ $newPhoto }}" x-cloak>
+                <x-admin.ui.inline-notice tone="info">Save the draft first to analyse the new photo.</x-admin.ui.inline-notice>
+            </div>
+            <div x-show="! ({{ $newPhoto }}) && $wire.removeImage" x-cloak>
+                <x-admin.ui.inline-notice tone="info">The photo is taken off this draft when you save, so there is nothing to analyse.</x-admin.ui.inline-notice>
+            </div>
+            @if ($creating || $plan === null)
+                <div x-show="! ({{ $photoPending }})">
+                    <x-admin.ui.inline-notice tone="info">Save a photo to this draft before analysing it.</x-admin.ui.inline-notice>
+                </div>
+            @else
+                {{-- Drawn afresh for every saved photo, so it is always about the one shown. --}}
+                <div x-show="! ({{ $photoPending }})">
+                    <livewire:admin.studio-plan-image-analysis-card
+                        :plan-id="$plan['id']"
+                        :image-asset-id="$plan['imageAssetId']"
+                        :wire:key="'studio-plan-image-analysis-'.$plan['id'].'-'.($plan['imageAssetId'] ?? 'none')"
+                    />
+                </div>
+            @endif
+        </div>
     </x-admin.ui.card>
 </div>

@@ -5291,6 +5291,48 @@
         color: var(--rg-admin-text-tertiary);
     }
 
+    /* Photo analysis: the description, field by field, each label over its text or list. */
+    .rg-admin-studio__analysis-sections {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin: 0;
+    }
+
+    .rg-admin-studio__analysis-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__analysis-label {
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__analysis-value {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+    }
+
+    .rg-admin-studio__analysis-list {
+        margin: 0;
+        padding-left: 18px;
+        list-style: disc;
+    }
+
+    .rg-admin-studio__analysis-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+    }
+
     /* The photo, whole, inside a frame that never grows past the card or the screen. */
     .rg-admin-studio__preview {
         display: grid;

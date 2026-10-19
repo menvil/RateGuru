@@ -27,6 +27,8 @@ use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\StudioAi\OpenAiStudioImageAnalyzer;
+use App\Support\StudioAi\StudioImageAnalyzer;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
@@ -65,6 +67,10 @@ class AppServiceProvider extends ServiceProvider
         // A singleton, so a provider call is recorded once however often its
         // result is handed to the recorder within a request or a worker.
         $this->app->singleton(TranslationAiCallRecorder::class);
+
+        // Reads its settings on every call, so it holds nothing worth keeping
+        // and needs none of them to be built: a missing key never fails boot.
+        $this->app->bind(StudioImageAnalyzer::class, OpenAiStudioImageAnalyzer::class);
     }
 
     /**

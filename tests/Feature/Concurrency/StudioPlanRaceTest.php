@@ -183,6 +183,39 @@ it('lets a new photo and another write to one draft take turns, leaving no photo
     'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
 );
 
+it('queues one photo analysis when two administrators ask for it at once, both given the same attempt', function () {
+    $db = committedConnection();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $asset = MediaAsset::factory()->postImage()->connection('committed_peer')->create(['owner_user_id' => $first->id]);
+    $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $first->id, 'image_asset_id' => $asset->id, 'lock_version' => 3]);
+    $directory = raceDirectory('studio-plan');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            lockRaceCompetitor($directory, 'a', ['action' => 'plan-analysis', 'sync' => 'lead', 'admin' => $first->id, 'plan' => $plan->id, 'disk' => $directory.'/disk']),
+            lockRaceCompetitor($directory, 'b', ['action' => 'plan-analysis', 'sync' => 'follow', 'admin' => $second->id, 'plan' => $plan->id, 'disk' => $directory.'/disk']),
+        ]);
+
+        foreach ($results as $index => $result) {
+            expect($result['status'])->toBe(0, "competitor {$index} must finish:\n{$report}");
+        }
+
+        $analyses = $db->table('studio_plan_image_analyses')->where('studio_plan_id', $plan->id)->get();
+        preg_match_all('/attempt (\S+)/', $report, $attempts);
+
+        expect($analyses)->toHaveCount(1)
+            ->and($analyses[0]->status)->toBe('queued')
+            ->and($attempts[1])->toBe([$analyses[0]->attempt_id, $analyses[0]->attempt_id])
+            // Asking wrote nothing of the plan.
+            ->and((int) $db->table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe(3);
+    } finally {
+        forgetStudioPlanRace($db, [$first->id, $second->id], $directory);
+    }
+})->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
 it('leaves a deleted draft\'s photo released once when Media diagnostics releases it meanwhile', function () {
     $db = committedConnection();
     $admin = User::factory()->admin()->connection('committed_peer')->create();
