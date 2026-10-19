@@ -1,0 +1,66 @@
+docs/architecture/content-studio-phase-0.md
+  s_a71cdc56fbeeb1::t_5dff38d217a73f 1249-1252,1254-1255,1257-1261
+  s_a71cdc56fbeeb1::t_4da13d7badb1da 735-739,742-747
+  s_a71cdc56fbeeb1::t_ead7a04ee90b46 285-286,288-289
+  s_a71cdc56fbeeb1::t_cdc35c7c223bc0 876-877
+  s_a71cdc56fbeeb1::t_ec7c2b15c89e9f 9-13
+  s_a71cdc56fbeeb1::t_82d55138dfd041 291
+  s_a71cdc56fbeeb1::t_3b0e1585fa0de9 1324,1326-1328
+  s_a71cdc56fbeeb1::t_32d3ad04f27349 460-461,464-477
+  s_a71cdc56fbeeb1::t_3ca09b9f111211 999-1009
+  s_a71cdc56fbeeb1::t_0f3919e5adb4b2 925-934
+  s_a71cdc56fbeeb1::t_1be81e6563a7ce 193
+  s_a71cdc56fbeeb1::t_f18df9d1188502 1634-1639
+  s_a71cdc56fbeeb1::t_211b183291d0a6 487-490
+  s_a71cdc56fbeeb1::t_5804bdbcd9c843 725
+  s_a71cdc56fbeeb1::t_345ccb6de1b64b 116-125
+  s_a71cdc56fbeeb1::t_bf012ca1cb93fb 1271-1276,1278-1280,1282-1286
+  s_a71cdc56fbeeb1::t_e775d9106c8b35 1368
+  s_a71cdc56fbeeb1::t_390e5d412a03e5 652-653,655-657
+  s_a71cdc56fbeeb1::t_0f177a26f87a83 186-188
+  s_a71cdc56fbeeb1::t_abdd582c48a66c 222
+  s_a71cdc56fbeeb1::t_cb489899467624 21
+  s_a71cdc56fbeeb1::t_25c3abf9704923 863
+  s_a71cdc56fbeeb1::t_ee6f66943ce5c9 1367
+  s_a71cdc56fbeeb1::t_c7bf4a566429b2 68-69
+  s_a71cdc56fbeeb1::t_88f0aba866262e 203
+  s_a71cdc56fbeeb1::t_401fd44ed1818e 369-377,380,383-397
+  s_a71cdc56fbeeb1::t_b793dac8341d31 765-769
+  s_a71cdc56fbeeb1::t_4e2dc0923af806 1366
+  s_a71cdc56fbeeb1::t_c35867a723fec9 1584-1587
+  s_a71cdc56fbeeb1::t_9c73eb37e145f1 132-136,139-147
+  s_a71cdc56fbeeb1::t_ca18b7dd66255f 217
+  s_a71cdc56fbeeb1::t_2cea5250b3191a 545-547,550-581
+  s_a71cdc56fbeeb1::t_1468b4419a63cc 1848-1849
+  s_a71cdc56fbeeb1::t_c91233f1b74d06 1210-1218,1220-1226,1228-1235
+  s_a71cdc56fbeeb1::t_a21c63f45c320c 184
+  s_a71cdc56fbeeb1::t_1fcbee75c242e7 296
+  s_a71cdc56fbeeb1::t_24f8d58b966be9 757-761,771-804,807-811,815-832,837-857,862,865-875,878-883,885-886,937-942,944-961,969-971,973-981,984
+  s_a71cdc56fbeeb1::t_a1608127b33cd2 293
+  s_a71cdc56fbeeb1::t_3c7967ef96f66a 1542-1545
+  s_a71cdc56fbeeb1::t_6557e7ba251384 1377-1450,1454-1476
+  s_a71cdc56fbeeb1::t_9c4a880a4e51d9 298
+  s_a71cdc56fbeeb1::t_6f3ea5ac331b83 1083-1087
+  s_a71cdc56fbeeb1::t_5678e34de06856 282-283
+  s_a71cdc56fbeeb1::t_a8924eb51a05ef 89-91
+  s_a71cdc56fbeeb1::t_e51b10ba0ca698 427-439
+  s_a71cdc56fbeeb1::t_74969dbe5e7c84 191
+  s_a71cdc56fbeeb1::t_4641927ee2457d 273
+  s_a71cdc56fbeeb1::t_0e42d4d93e16e1 943
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7b3f1e1671ff17fe2918de0ac64f066af350c3b2",
+  "prompts": {},
+  "sessions": {
+    "s_a71cdc56fbeeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04c66e0c-8a1a-4b03-94c7-85b7dda1a8a0",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

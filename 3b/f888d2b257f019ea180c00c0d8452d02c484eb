@@ -1,0 +1,71 @@
+app/Enums/AuthModalMode.php
+  s_e673602b49c9b2::t_ad6f7a0afdb01b 6-8,14
+lang/bg/auth.php
+  s_e673602b49c9b2::t_b30c20b863cf8c 13-15,38-39
+resources/views/components/auth/modal.blade.php
+  s_e673602b49c9b2::t_d267ca6f646880 5,7-10
+  s_e673602b49c9b2::t_73512c0ddc90df 27-28,31-32,50
+tests/Pest.php
+  s_e673602b49c9b2::t_ce9429a80cc948 12799,12817
+resources/views/components/auth/login-form.blade.php
+  s_e673602b49c9b2::t_937839907f9684 4-6
+  s_e673602b49c9b2::t_6a14b5f75c68a4 23
+  s_e673602b49c9b2::t_2b116d387f517e 77-84,86-87,89
+docs/dev/auth-modal.md
+  s_e673602b49c9b2::t_bb3a0cf17e5a1c 3-6,8-12,29,31-37,45-48,54-55,64,78,88-90
+tests/Feature/Auth/AuthModalRenderingTest.php
+  s_e673602b49c9b2::t_28169d9070cc40 7,42,83,89,91,114,123,141,175-195,207,210-224,239,242-244
+  s_e673602b49c9b2::t_2dd0cdbe23ddb0 208-209
+tests/Browser/AuthModalBrowserTest.php
+  s_e673602b49c9b2::t_243d910338d150 14,21,78-102
+resources/views/components/auth/panel.blade.php
+  s_e673602b49c9b2::t_7a39b3e685f825 10-13,33-35,41-45,48,58,60-61,64,70,88-101
+resources/views/auth/forgot-password.blade.php
+  s_e673602b49c9b2::t_c79b8af2edfa91 5
+app/Http/Requests/Auth/SendPasswordResetLinkRequest.php
+  s_e673602b49c9b2::t_c4c62a5b76af03 5-6,11-12,17,20-23
+lang/en/auth.php
+  s_e673602b49c9b2::t_b30c20b863cf8c 13-15,38-39
+app/Support/Auth/AuthModalState.php
+  s_e673602b49c9b2::t_e1186ec82e37a8 12,14-17
+app/Http/Requests/Auth/Concerns/CarriesAuthSurface.php
+  s_e673602b49c9b2::t_7614c5e81c8afd 11
+  s_e673602b49c9b2::t_ccd6b26d59bb8e 12-13
+tests/Feature/Auth/AuthModalPasswordResetTest.php
+  s_e673602b49c9b2::t_93d4f2945dc789 1-42,45-47,50-61,64-65,67,73-112
+  s_e673602b49c9b2::t_2dd0cdbe23ddb0 43-44,48-49,63,68-69,72
+  s_e673602b49c9b2::t_d4ea9206eeccef 62,66,70-71
+tests/Feature/Auth/SignInProviderSwitchesTest.php
+  s_e673602b49c9b2::t_4d7d1234b3da5a 201,211-214,218-219
+  s_e673602b49c9b2::t_beb91cb7782ed4 205,209-210,216,220
+  s_e673602b49c9b2::t_f98a360b98dde9 215,217
+lang/ru/auth.php
+  s_e673602b49c9b2::t_b30c20b863cf8c 13-15,38-39
+resources/views/components/auth/forgot-password-form.blade.php
+  s_e673602b49c9b2::t_ad4b40ff9ae9b7 1-32,34-36,38-53,55-56
+app/Support/Auth/AuthSurfaceContext.php
+  s_e673602b49c9b2::t_6ccacccbf94698 14-15
+  s_e673602b49c9b2::t_f88807b078a838 16-18
+  s_e673602b49c9b2::t_f38f8059ece838 166-179
+resources/js/auth-modal.js
+  s_e673602b49c9b2::t_b30c20b863cf8c 4-6
+app/Http/Controllers/Auth/PasswordResetLinkController.php
+  s_e673602b49c9b2::t_8e3b8c755ef845 6,9
+  s_e673602b49c9b2::t_0679f849261050 32,34,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3bf888d2b257f019ea180c00c0d8452d02c484eb",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

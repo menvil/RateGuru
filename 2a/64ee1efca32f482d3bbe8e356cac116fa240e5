@@ -1,0 +1,31 @@
+docs/architecture/http-and-database-boundaries.md
+  s_0f80700cf0b8c6::t_0a73fd72a341a4 70-71
+tests/Feature/Filament/EditStudioPlanPageTest.php
+  s_0f80700cf0b8c6::t_e0ce060266042c 285-314,375
+tests/Feature/Filament/ListStudioPlansTest.php
+  s_0f80700cf0b8c6::t_e0ce060266042c 223-235
+tests/Feature/Queries/StudioPlansQueryTest.php
+  s_0f80700cf0b8c6::t_0a73fd72a341a4 104-115
+resources/views/filament/pages/studio-plans.blade.php
+  s_0f80700cf0b8c6::t_0a73fd72a341a4 70
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_0a73fd72a341a4 67-72
+app/Filament/Resources/StudioPlans/Pages/EditStudioPlan.php
+  s_0f80700cf0b8c6::t_0a73fd72a341a4 93-98,106,108-109,111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2a64ee1efca32f482d3bbe8e356cac116fa240e5",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

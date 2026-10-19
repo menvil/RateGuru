@@ -1,0 +1,27 @@
+tests/PHPStan/Rules/NoDirectControllerPermissionCheckRuleTest.php
+  s_0f80700cf0b8c6::t_49eed16baa16c9 56-63
+tests/Feature/Filament/UserResourceTest.php
+  s_0f80700cf0b8c6::t_18d71ee0a51dd4 320-324,337,349-376
+app/Exceptions/Users/CannotUpdateUserAccountException.php
+  s_0f80700cf0b8c6::t_f899201cbc80ce 9-15,23-29
+tests/PHPStan/Fixtures/Controllers/DirectPermissionCheck.php
+  s_0f80700cf0b8c6::t_8fae4228beb433 132-155
+app/Filament/Resources/Users/Pages/EditUser.php
+  s_0f80700cf0b8c6::t_f899201cbc80ce 40-42,155-158,245-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ee9597e65517f3aee62d7a61fe5a6216829412b3",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

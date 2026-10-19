@@ -1,0 +1,40 @@
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_0f80700cf0b8c6::t_2c63fbfbd9e381 234-339
+tests/Feature/Filament/DeleteStudioPlanUiTest.php
+  s_0f80700cf0b8c6::t_921f8e072eff3c 28,47,63,70,72-97,104-105,108-121,124-125,134
+tests/Feature/Filament/ListStudioPlansTest.php
+  s_0f80700cf0b8c6::t_921f8e072eff3c 103-105
+app/Filament/Resources/StudioPlans/Pages/ListStudioPlans.php
+  s_0f80700cf0b8c6::t_36c3b9e366f8ab 107-113,115,124-129,131,237
+resources/views/filament/pages/studio-plan.blade.php
+  s_0f80700cf0b8c6::t_f7447f03a60b65 11-12,26-27
+tests/Feature/Filament/StudioPlanResourceTest.php
+  s_0f80700cf0b8c6::t_921f8e072eff3c 89
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_f7447f03a60b65 630-632,636,638,646-647
+  s_0f80700cf0b8c6::t_16b1fb252eb8a9 104-108,154-158,161-162,167-184,188-189,195,201,349-350,394-406,421-422,424,426,433,437,578-587
+resources/views/filament/pages/studio-plans/row.blade.php
+  s_0f80700cf0b8c6::t_36c3b9e366f8ab 8-10,85
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_0f80700cf0b8c6::t_f7447f03a60b65 42
+  s_0f80700cf0b8c6::t_202df4f039678c 54,57,98,115
+  s_0f80700cf0b8c6::t_8d7680cab69dbf 99-114
+tests/Browser/AdminStudioPlansBrowserTest.php
+  s_0f80700cf0b8c6::t_ab0b6ec5dcbb22 168-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4e57643487b30180105d1f1b6dfb7eec594b105b",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
