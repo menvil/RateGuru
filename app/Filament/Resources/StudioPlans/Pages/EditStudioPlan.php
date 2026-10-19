@@ -16,16 +16,16 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 
 /**
- * One publication's editor in Admin v2, saved from the top bar: its texts and
- * settings through UpdateStudioPlanAction, then its photo through
- * SetStudioPlanImageAction or RemoveStudioPlanImageAction — each its own
- * atomic write, each handed the version the one before it left, so a save is
- * never in conflict with itself.
+ * One publication's editor in Admin v2: its texts and settings saved from the
+ * top bar through UpdateStudioPlanAction, its photo stored, replaced or taken
+ * off the moment it is chosen (EditsStudioPlan) — each its own atomic write,
+ * handed the version the one before it left, so neither is in conflict with
+ * the other.
  *
- * The editor remembers the version it was drawn from (`lockVersion`): a save
- * after somebody else's is refused, keeps what was typed and says so, and
- * Reload draws the plan as it is now. A plan deleted meanwhile can no longer
- * be saved, and one past its Draft opens closed.
+ * The editor remembers the version it last read or wrote (`lockVersion`): a
+ * save or a photo after somebody else's save is refused, keeps what was typed
+ * and says so, and Reload draws the plan as it is now. A plan deleted
+ * meanwhile can no longer be saved, and one past its Draft opens closed.
  */
 final class EditStudioPlan extends Page
 {
@@ -37,13 +37,6 @@ final class EditStudioPlan extends Page
 
     // A screen drawn in Admin v2 brings its own header band and gutter.
     protected Width|string|null $maxContentWidth = 'rg-admin-main';
-
-    #[Locked]
-    public int $planId = 0;
-
-    /** The plan's lock_version as the draft was drawn from it. */
-    #[Locked]
-    public int $lockVersion = 0;
 
     /** The plan's texts and settings as the draft was drawn from them, in one value. */
     #[Locked]
@@ -144,49 +137,24 @@ final class EditStudioPlan extends Page
         }
 
         $data = $this->validateDraft();
-        $changed = self::fingerprintOf($data) !== $this->fingerprint;
-        $version = $this->lockVersion;
 
-        if ($changed) {
-            try {
-                app(UpdateStudioPlanAction::class)->handle($this->admin(), $plan, $data, $version);
-            } catch (CannotManageStudioPlanException $exception) {
-                $this->refuse($exception);
-
-                return;
-            }
-
-            // The photo is saved against what this save has just written, so
-            // the save is no conflict with itself.
-            $version = $plan->lock_version;
-            $this->settle($plan);
-        }
-
-        if (! $this->changesImage()) {
+        if (self::fingerprintOf($data) === $this->fingerprint) {
             $this->draw($plan);
-            $this->toast($changed ? 'Draft saved' : 'Nothing to save');
+            $this->toast('Nothing to save');
 
             return;
         }
 
         try {
-            $imageSaved = $this->saveImage($plan, $version);
+            app(UpdateStudioPlanAction::class)->handle($this->admin(), $plan, $data, $this->lockVersion);
         } catch (CannotManageStudioPlanException $exception) {
-            $this->refuse($exception, $changed);
+            $this->refuse($exception);
 
             return;
         }
 
-        if (! $imageSaved) {
-            // What this save wrote stands — settled above — and the photo is
-            // all it lost; it stays in the draft to try again.
-            $this->toast($changed ? 'Changes saved, but the photo wasn’t.' : 'The photo wasn’t saved.', 'error');
-
-            return;
-        }
-
-        // The plan as this save left it: the actions keep the copy they were
-        // handed in step with the row they wrote.
+        // The plan as this save left it: the action keeps the copy it was
+        // handed in step with the row it wrote.
         $this->draw($plan);
         $this->toast('Draft saved');
     }
@@ -208,7 +176,7 @@ final class EditStudioPlan extends Page
         $plan = StudioPlan::query()->find($this->planId);
 
         if ($plan === null) {
-            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), false, 'deleted');
+            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'deleted');
 
             return;
         }
@@ -216,7 +184,7 @@ final class EditStudioPlan extends Page
         try {
             app(DeleteStudioPlanDraftAction::class)->handle($this->admin(), $plan, $this->lockVersion);
         } catch (CannotManageStudioPlanException $exception) {
-            $this->refuse($exception, false, 'deleted');
+            $this->refuse($exception, 'deleted');
 
             return;
         }
@@ -246,18 +214,33 @@ final class EditStudioPlan extends Page
                 'created' => $plan->created_at?->format('d M Y'),
                 'createdBy' => $plan->createdBy !== null && ! $plan->createdBy->isTombstoned() ? (string) $plan->createdBy->username : null,
                 'updated' => $plan->updated_at?->format('d M Y, H:i'),
-                'imageAssetId' => $plan->image_asset_id,
             ],
             'readOnly' => $this->closed || $this->gone,
-            ...$this->editorViewData($plan?->imageAsset),
+            ...$this->editorViewData($plan),
         ];
     }
 
+    protected function photoPlan(): ?StudioPlan
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+
+        if ($plan === null) {
+            $this->refusePhoto(CannotManageStudioPlanException::becausePlanIsGone());
+        }
+
+        return $plan;
+    }
+
+    protected function refusePhoto(CannotManageStudioPlanException $exception, string $what = 'saved'): void
+    {
+        $this->refuse($exception, $what, 'the photo');
+    }
+
     /**
-     * Says why nothing — or, once the texts were saved, only the photo — was
-     * saved or deleted, keeping the draft as it is until Reload.
+     * Says why nothing — or the photo — was saved, removed or deleted,
+     * keeping the draft as it is until Reload.
      */
-    private function refuse(CannotManageStudioPlanException $exception, bool $restSaved = false, string $what = 'saved'): void
+    private function refuse(CannotManageStudioPlanException $exception, string $what = 'saved', ?string $subject = null): void
     {
         if ($exception->isAuthorUnavailable()) {
             $this->step = 'post';
@@ -266,14 +249,14 @@ final class EditStudioPlan extends Page
             return;
         }
 
+        $nothing = $subject !== null ? "{$subject} wasn’t {$what}" : "nothing was {$what}";
+
         if ($exception->isStale()) {
             $this->stale = true;
             $this->dispatch('rg-admin-toast',
-                message: match (true) {
-                    $restSaved => 'Changes saved, but someone else saved this draft meanwhile, so the photo wasn’t.',
-                    $what === 'deleted' => 'Someone saved this draft after you opened it, so it wasn’t deleted.',
-                    default => 'Someone saved this draft after you opened it, so nothing was saved.',
-                },
+                message: $what === 'deleted' && $subject === null
+                    ? 'Someone saved this draft after you opened it, so it wasn’t deleted.'
+                    : "Someone saved this draft after you opened it, so {$nothing}.",
                 tone: 'error',
                 action: ['label' => 'Reload', 'event' => 'reload-studio-plan', 'params' => []],
             );
@@ -281,11 +264,9 @@ final class EditStudioPlan extends Page
             return;
         }
 
-        $nothing = $restSaved ? 'the photo wasn’t saved' : "nothing was {$what}";
-
         if ($exception->isGone()) {
             $this->gone = true;
-            $what === 'deleted'
+            $what === 'deleted' && $subject === null
                 ? $this->toast('This draft was already deleted.', 'info')
                 : $this->toast("This draft was deleted, so {$nothing}.", 'error');
 

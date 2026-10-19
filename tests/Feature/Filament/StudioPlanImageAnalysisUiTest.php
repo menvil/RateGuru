@@ -24,9 +24,11 @@ use Livewire\Livewire;
 
 /**
  * Photo analysis on the editor's Image step: what the card says in each
- * state of the saved photo's analysis, the one action each state offers, the
- * polling only while an attempt is on its way — and Analyze photo as a
- * request of its own, never part of Save draft and never touching the draft.
+ * state of the saved photo's analysis, its badge, what the photo is, the one
+ * action each state offers, the polling only while an attempt is on its way
+ * — and Re-run analysis and Try again as requests of their own, never part
+ * of Save draft and never touching the draft. The first analysis of a photo
+ * is asked for when it is stored (StudioPlanImageUiTest).
  */
 beforeEach(function () {
     Storage::fake('public');
@@ -55,29 +57,41 @@ it('draws the card on the Image step of a saved draft, about the photo the edito
     expect($html)
         ->toContain('Photo analysis')
         ->toContain('Technical context for the text generators. Not shown to visitors.')
-        ->toContain('Analyze photo')
-        ->toContain('The selected photo will be sent to OpenAI for analysis.')
-        ->not->toContain('Photo analysis will be available in the next phase.')
-        // Said while a new photo waits to be saved, read from the draft as typed.
-        ->toContain('Save the draft first to analyse the new photo.')
-        ->toContain('The photo is taken off this draft when you save, so there is nothing to analyse.');
+        ->toContain('Not started')
+        ->toContain('Re-run analysis')
+        // Nothing waits for Save: no button asks for a first analysis, and no notice asks for a save.
+        ->not->toContain('Analyze photo')
+        ->not->toContain('Save the draft first to analyse the new photo.')
+        ->not->toContain('Save a photo to this draft before analysing it.')
+        // Said while a new photo is on its way, as the Image step announces.
+        ->toContain('Uploading photo…')
+        ->toContain('Processing photo…')
+        ->toContain('x-on:rg-studio-photo-phase.window');
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->assertSeeLivewire(StudioPlanImageAnalysisCard::class);
 });
 
-it('asks for a saved photo first on a new publication, and has nothing to analyse', function () {
+it('says on a new publication that the analysis starts as soon as a photo is added', function () {
     Livewire::test(CreateStudioPlan::class)
-        ->assertSee('Save a photo to this draft before analysing it.')
-        ->assertSee('Save the draft first to analyse the new photo.')
-        ->assertDontSeeLivewire(StudioPlanImageAnalysisCard::class);
+        ->assertSeeLivewire(StudioPlanImageAnalysisCard::class)
+        ->assertViewHas('analysisPlanId', 0);
+
+    Livewire::test(StudioPlanImageAnalysisCard::class)
+        ->assertSee('The analysis starts as soon as a photo is added.')
+        ->assertSee('Not started')
+        ->assertDontSee('Re-run analysis')
+        ->assertDontSeeHtml('wire:poll')
+        ->call('analyze');
+
+    Queue::assertNothingPushed();
 });
 
-it('asks for a saved photo first, with Analyze photo held back', function () {
+it('says the analysis starts with the photo for a draft with none, offering nothing to send', function () {
     analysisCard(StudioPlan::factory()->create())
-        ->assertSee('Save a photo to this draft before analysing it.')
-        ->assertSeeHtml('disabled')
-        ->assertDontSeeHtml('wire:click="analyze"')
+        ->assertSee('The analysis starts as soon as a photo is added.')
+        ->assertDontSee('Re-run analysis')
+        ->assertDontSeeHtml('wire:click="analyze')
         ->assertDontSeeHtml('wire:poll');
 });
 
@@ -86,18 +100,19 @@ it('says analysis is not configured, and offers nothing to send', function () {
 
     analysisCard(StudioPlan::factory()->withImage()->create())
         ->assertSee('Photo analysis is not configured.')
-        ->assertDontSee('Analyze photo')
+        ->assertSee('Not configured')
         ->assertDontSee('Re-run analysis');
 });
 
-it('offers Analyze photo for a photo not analysed yet, saying where it goes', function (Closure $existing) {
+it('offers Re-run analysis for a photo with no analysis of its own, saying it is a paid request', function (Closure $existing) {
     $plan = StudioPlan::factory()->withImage()->create();
     $existing($plan);
 
     analysisCard($plan)
         ->assertSee('This photo has not been analysed yet.')
-        ->assertSee('Analyze photo')
-        ->assertSee('The selected photo will be sent to OpenAI for analysis.')
+        ->assertSee('Not started')
+        ->assertSee('Re-run analysis')
+        ->assertSee('Re-running sends the photo to OpenAI again — a new, paid request.')
         ->assertSeeHtml('data-analysis="current"')
         ->assertDontSeeHtml('wire:poll');
 })->with([
@@ -109,14 +124,15 @@ it('offers Analyze photo for a photo not analysed yet, saying where it goes', fu
     ])],
 ]);
 
-it('queues the analysis on Analyze photo, then polls while it waits and runs', function () {
+it('queues the analysis on Re-run analysis for a photo with none, then polls while it waits and runs', function () {
     $plan = StudioPlan::factory()->withImage()->create(['title' => 'Saved title']);
 
     $card = analysisCard($plan)->call('analyze')
         ->assertNotDispatched('rg-admin-toast')
         ->assertSee('Waiting for analysis…')
+        ->assertSee('Analysing')
         ->assertSeeHtml('wire:poll.'.StudioPlanImageAnalysisCard::POLL_SECONDS.'s.visible')
-        ->assertDontSee('Analyze photo');
+        ->assertDontSee('Re-run analysis');
 
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);
     Http::assertNothingSent();
@@ -127,7 +143,7 @@ it('queues the analysis on Analyze photo, then polls while it waits and runs', f
         ->assertSee('Analysing photo…')
         ->assertSeeHtml('wire:poll');
 
-    // Analyze photo is not Save: the plan is as it was.
+    // Re-run analysis is not Save: the plan is as it was.
     expect(StudioPlan::query()->findOrFail($plan->id)->only(['title', 'lock_version']))->toBe(['title' => 'Saved title', 'lock_version' => 1]);
 });
 
@@ -144,8 +160,15 @@ it('shows the description once it is there, and stops polling', function () {
         ->assertSee('Analysed 19 Oct 2026, 09:30 with gpt-4.1-mini-2025-04-14.')
         ->assertSee('Re-run analysis')
         ->assertSee('Re-running sends the photo to OpenAI again — a new, paid request.')
-        ->assertDontSee('Analyze photo')
+        ->assertSee('Done')
         ->assertDontSeeHtml('wire:poll');
+});
+
+it('says what the analysed photo is, row by row', function () {
+    $plan = StudioPlan::factory()->withImage()->create();
+    MediaAsset::query()->whereKey($plan->image_asset_id)->update(['original_filename' => 'harbour.jpg', 'width' => 1600, 'height' => 900, 'byte_size' => 2048, 'mime_type' => 'image/jpeg']);
+
+    analysisCard($plan)->assertSeeInOrder(['File', 'harbour.jpg', 'Dimensions', '1600 × 900', 'Size', '2.0 KB', 'Format', 'JPEG']);
 });
 
 it('analyses the photo end to end when the queue runs at once', function () {
@@ -181,6 +204,7 @@ it('says why an attempt failed, in words of its own, and offers Try again', func
     $card = analysisCard($plan)
         ->assertSee('OpenAI is limiting requests right now. Try again in a few minutes.')
         ->assertSee('Try again')
+        ->assertSee('Failed')
         ->assertDontSeeHtml('wire:poll');
 
     $card->call('analyze', $failed->attempt_id)->assertSee('Waiting for analysis…');
@@ -220,7 +244,7 @@ it('says a photo changed elsewhere was, sending nothing for a photo the editor d
     analysisCard($plan, $shown)
         ->assertSee('The photo was changed after this draft was opened. Reload the draft to analyse the photo it has now.')
         ->assertSeeHtml('reload-studio-plan')
-        ->assertDontSee('Analyze photo')
+        ->assertDontSee('Re-run analysis')
         ->call('analyze')
         ->assertDispatched('rg-admin-toast', message: 'The photo was changed meanwhile, so it wasn’t sent. Reload the draft to analyse the photo it has now.', tone: 'error');
 
@@ -256,7 +280,7 @@ it('shows a closed plan\'s analysis without anything to send', function () {
     analysisCard($plan)
         ->assertSee('Scene summary')
         ->assertDontSee('Re-run analysis')
-        ->assertDontSee('Analyze photo');
+        ->assertDontSee('Try again');
 });
 
 it('draws the description as text, never as markup', function () {

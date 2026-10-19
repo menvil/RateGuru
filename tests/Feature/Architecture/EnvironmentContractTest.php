@@ -238,7 +238,7 @@ it('accepts the translation settings with the API key blank, and with one set, p
 
 it('accepts the photo analysis settings off with the API key blank, and on with one set, printing neither', function (string $enabled, string $key) {
     // Off with a blank key is the state every target starts in: the
-    // application boots, and only Analyze photo says it is not configured.
+    // application boots, and only photo analysis says it is not configured.
     $scratch = envContractScratch();
 
     try {

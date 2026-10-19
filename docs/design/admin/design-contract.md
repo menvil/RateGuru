@@ -305,7 +305,8 @@ These are the current migration state, not changes to the target design:
 - **Status tabs (NAV-03):** 40 high above the table card; 15px labels with a 12/500 count; 2px ink underline on the
   active tab. Counts are totals across all pages. Default tab: Posts → Pending, Reports → Open, others → All.
 - **Card (LAY-02):** white, hairline, radius 16, no shadow. Header 16 20 with title 15/500 and subtitle 13
-  tertiary; sections split by full-width hairlines; a sunken footer for read-only notes. Edit screens use two
+  tertiary, and a status such as a badge beside them when there is one (`aside`); sections split by full-width
+  hairlines; a sunken footer for read-only notes. Edit screens use two
   columns: fluid plus a 448 panel, gap 24.
 - **Detail rows (LAY-03):** min 36; icon 16 tertiary, label 14 gray-600, value 14/500 right-aligned; IDs and paths
   in 12px mono with ellipsis and a title. Section labels are 11px overlines with an optional rule and a 13px
@@ -1030,20 +1031,30 @@ actions (`docs/architecture/studio-plans.md`).
 - **The editor (NAV-02):** one Admin v2 page for a new publication and for an existing one, saved from the top bar
   with the count of unsaved changes, Discard and Create draft or Save draft, and the browser's question before a
   page with unsaved changes is left. Four steps under the title — Image (Upload & analysis), Post (Texts, author &
-  votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back, “Step n of 4” and
-  Continue under each; moving between them saves nothing and loses nothing, and none is locked by an incomplete
-  draft.
-  - **Image:** the photo with its file name, dimensions, size and type; a new one from the computer — Upload
-    image, or dropped on the drop zone — or from a direct link, either stored only on Save; Remove image, taken
-    off on Save; the upload limit read from `uploads.images.max_kilobytes`. Beside it, Photo analysis of the saved
-    photo, its own component: “This photo has not been analysed yet.” with Analyze photo and “The selected photo
-    will be sent to OpenAI for analysis.”; “Waiting for analysis…” and “Analysing photo…” (FBK-02 info, read again
-    every few seconds, and only then); the description under Scene summary, Subjects, Actions, Setting,
-    Composition, Notable details, Visible text and Uncertainties, with the date and the model in a hint and
-    Re-run analysis, “a new, paid request”; a failure in its own words (FBK-02 warning) with Try again, the last
-    result kept under it. “Save a photo to this draft before analysing it.” with Analyze photo disabled, “Photo
-    analysis is not configured.”, and, while a new photo waits to be saved, “Save the draft first to analyse the
-    new photo.” Analyze photo is never part of Save draft.
+  votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back (disabled on the first),
+  “Step n of 4” and Continue in a footer kept at the foot of the window; moving between them saves nothing and
+  loses nothing, and none is locked by an incomplete draft. Continue waits only while a photo is on its way,
+  saying “Wait for the photo to finish uploading.”
+  - **Image:** nothing waits for Save. While there is no photo, its sources (FRM-08): Upload — Upload image, or a
+    file dropped on the drop zone, the limit read from `uploads.images.max_kilobytes` —, From link — a direct link
+    to an image — and From social post — a public post's link, with the sites read directly (Instagram, X,
+    Facebook, Pinterest) and the one the link is for marked. A file is previewed at once, uploaded (“Uploading
+    photo…” with its progress), stored (“Processing photo…”) and analysed; a link is imported (“Importing
+    photo…”) once it is a whole address and typing has paused, never twice running. On a new publication the
+    first photo makes its Draft, and the top bar's Create draft becomes Save draft. Once there is a photo, the
+    sources give way to it: the photo, its file name, dimensions, size and type, a Saved or Replaced badge, Replace
+    — the sources again, with Cancel — a file dropped on the photo to replace it, and Remove from draft, taken off
+    at once. A failed upload or import is said by its source (FBK-02 warning, “Upload failed.”) with Try again,
+    apart from the analysis. Beside it, Photo analysis of the saved photo, its own component, with a badge (Not
+    started, Analysing, Done, Failed, Not configured): “The analysis starts as soon as a photo is added.”;
+    “Uploading photo…”, “Processing photo…” or “Importing photo…” while a new one is on its way, nothing of the
+    old one shown; “Waiting for analysis…” and “Analysing photo…” (FBK-02 info, read again every few seconds, and
+    only then); the description under Scene summary, Subjects, Actions, Setting, Composition, Notable details,
+    Visible text and Uncertainties, with the date and the model in a hint and Re-run analysis, “a new, paid
+    request”; a failure in its own words (FBK-02 warning) with Try again, the last result kept under it; “This
+    photo has not been analysed yet.” with Re-run analysis for a photo stored before analysis was on; “Photo
+    analysis is not configured.”; and the photo's File, Dimensions, Size and Format (LAY-03). Neither is part of
+    Save draft.
   - **Post:** Final title (3 to 120, with its counter), Final description (up to 2,000), Source URL — never the
     link a photo is imported from —, the author chosen from living personas found on the server (a restricted one
     with “This persona cannot publish while restricted.”), the category (an inactive one kept and marked), up to
@@ -1052,13 +1063,13 @@ actions (`docs/architecture/studio-plans.md`).
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
     zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
     saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
-- **Saving:** through `CreateStudioPlanAction` or `UpdateStudioPlanAction`, then `SetStudioPlanImageAction` or
-  `RemoveStudioPlanImageAction` — each handed the version the one before it left, so a save is never in conflict
-  with itself. Each error stays by its field, and Save shows the step it is on. A save drawn before somebody else's
+- **Saving:** the texts through `CreateStudioPlanAction` or `UpdateStudioPlanAction`; the photo the moment it is
+  chosen through `SetStudioPlanImageAction` or `RemoveStudioPlanImageAction` — each handed the version the editor
+  last read or wrote, so neither is in conflict with the other, and the texts typed stay unsaved until Save. Each
+  error stays by its field, and Save shows the step it is on. A save or a photo drawn before somebody else's save
   is refused with a toast and a warning notice whose Reload draws the plan as it is, keeping what was typed until
-  then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A photo that fails
-  leaves the rest saved and says so. A new publication's editor opens once it is created, and Save sent twice
-  makes one plan.
+  then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A new publication's
+  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan.
 - **Delete draft (OVL-01):** from the row menu and the editor's header, “Delete this draft?” — “The draft will be
   removed. Its image will be released if nothing else uses it.” — Cancel and Delete draft, through
   `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
@@ -1420,8 +1431,8 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
 | Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
 | Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
-| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none | nothing confirms or publishes a plan yet; the draft saves from the top bar |
-| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | Upload and From link, the limit `uploads.images.max_kilobytes` sets; Analyze photo, then Re-run analysis or Try again, each a request of its own | social posts need an importer of their own; the upload limit is the site's; every analysis is a paid call, so the first one is asked for too |
+| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
+| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more; Final description up to 500 | Final title and Final description, up to 2,000, with a note that suggestions come later | AI texts are not built yet; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |

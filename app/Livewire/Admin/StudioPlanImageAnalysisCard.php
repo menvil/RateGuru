@@ -7,6 +7,7 @@ use App\Enums\StudioImageAnalysisError;
 use App\Enums\StudioImageAnalysisStatus;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
+use App\Models\MediaAsset;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
@@ -15,15 +16,18 @@ use App\Support\StudioAi\StudioImageDescription;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Number;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
  * Photo analysis, beside the photo on the editor's Image step: whether the
- * saved photo is analysed, the description when it is, and Analyze photo,
- * Re-run analysis or Try again — each an explicit request
+ * saved photo is analysed, the description when it is, what the photo is,
+ * and Re-run analysis or Try again — each an explicit, paid request
  * (RequestStudioImageAnalysisAction), apart from Save draft and changing
- * nothing of the draft.
+ * nothing of the draft. The first analysis of a photo is asked for by the
+ * editor the moment the photo is stored; while a new one is on its way up,
+ * the card says so instead of showing anything about the one before.
  *
  * A component of its own, so that while an attempt is queued or running it
  * alone is read again every few seconds — never the editor, whose draft is
@@ -43,7 +47,7 @@ final class StudioPlanImageAnalysisCard extends Component
     #[Locked]
     public int $planId = 0;
 
-    /** The saved photo the editor showed: the one Analyze photo sends. */
+    /** The saved photo the editor showed: the one Re-run analysis sends. */
     #[Locked]
     public ?int $imageAssetId = null;
 
@@ -52,19 +56,21 @@ final class StudioPlanImageAnalysisCard extends Component
         abort_unless(Gate::allows('manage-studio-plans'), 403);
     }
 
-    public function mount(int $planId, ?int $imageAssetId = null): void
+    /** @param  int  $planId  0 on a new publication, before a photo has made its Draft */
+    public function mount(int $planId = 0, ?int $imageAssetId = null): void
     {
         $this->planId = $planId;
         $this->imageAssetId = $imageAssetId;
     }
 
     /**
-     * Asks for the photo to be analysed: for the first time, or — with the
-     * attempt on screen — again, in place of that result or failure.
+     * Asks for the photo to be analysed again — with the attempt on screen,
+     * in place of that result or failure — or, for a photo that has none,
+     * for the first time.
      */
     public function analyze(mixed $replacing = null): void
     {
-        if ($this->imageAssetId === null) {
+        if ($this->planId === 0 || $this->imageAssetId === null) {
             return;
         }
 
@@ -98,10 +104,12 @@ final class StudioPlanImageAnalysisCard extends Component
 
     public function render(): View
     {
-        $plan = StudioPlan::query()->with('imageAnalysis')->find($this->planId);
+        $plan = $this->planId !== 0 ? StudioPlan::query()->with('imageAnalysis')->find($this->planId) : null;
         $now = CarbonImmutable::now();
+        $configured = app(StudioImageAnalyzer::class)->isConfigured();
 
         $state = match (true) {
+            $this->planId === 0 => 'no_image',
             $plan === null => 'gone',
             $plan->image_asset_id === null && $this->imageAssetId === null => 'no_image',
             $plan->image_asset_id !== $this->imageAssetId => 'changed',
@@ -116,18 +124,21 @@ final class StudioPlanImageAnalysisCard extends Component
 
         $phase = $analysis === null ? null : self::phaseOf($analysis, $now);
         $description = $analysis?->result !== null ? StudioImageDescription::from($analysis->result) : null;
+        $photo = $state === 'current' && $this->imageAssetId !== null ? MediaAsset::query()->find($this->imageAssetId) : null;
 
         return view('livewire.admin.studio-plan-image-analysis-card', [
             'state' => $state,
             'phase' => $phase,
+            'badge' => self::badge($state === 'current' ? $phase : null, $configured),
             'attemptId' => $analysis?->attempt_id,
             'error' => $phase === 'failed' ? ($analysis->error_code ?? StudioImageAnalysisError::UnexpectedFailure)->message() : null,
             'sections' => $description !== null ? self::sections($description) : null,
             'analysedAt' => $analysis?->finished_at?->format('d M Y, H:i'),
             'model' => $analysis?->model,
-            'configured' => app(StudioImageAnalyzer::class)->isConfigured(),
+            'configured' => $configured,
             'draft' => $plan?->isDraft() === true,
             'polling' => $phase === 'queued' || $phase === 'running',
+            'photo' => $photo !== null ? self::photoRows($photo) : [],
         ]);
     }
 
@@ -144,6 +155,37 @@ final class StudioPlanImageAnalysisCard extends Component
             StudioImageAnalysisStatus::Failed => 'failed',
             StudioImageAnalysisStatus::Completed => 'completed',
         };
+    }
+
+    /**
+     * The badge in the card's header: how far the photo's analysis has got.
+     *
+     * @return array{label: string, tone: string, dot: bool}
+     */
+    private static function badge(?string $phase, bool $configured): array
+    {
+        return match (true) {
+            $phase === 'queued', $phase === 'running' => ['label' => 'Analysing', 'tone' => 'info', 'dot' => false],
+            $phase === 'completed' => ['label' => 'Done', 'tone' => 'success', 'dot' => true],
+            $phase === 'failed', $phase === 'stale' => ['label' => 'Failed', 'tone' => 'warning', 'dot' => false],
+            ! $configured => ['label' => 'Not configured', 'tone' => 'outline', 'dot' => false],
+            default => ['label' => 'Not started', 'tone' => 'outline', 'dot' => false],
+        };
+    }
+
+    /**
+     * What the analysed photo is, row by row: icon, label and value.
+     *
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    private static function photoRows(MediaAsset $photo): array
+    {
+        return array_values(array_filter([
+            $photo->original_filename !== null ? ['file', 'File', (string) $photo->original_filename] : null,
+            $photo->width !== null && $photo->height !== null ? ['ruler', 'Dimensions', $photo->width.' × '.$photo->height] : null,
+            ['hard-drive', 'Size', Number::fileSize((int) $photo->byte_size, precision: 1)],
+            ['file-image', 'Format', strtoupper(str_replace('image/', '', $photo->mime_type))],
+        ]));
     }
 
     /**

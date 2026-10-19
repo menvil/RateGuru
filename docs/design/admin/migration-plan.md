@@ -324,12 +324,15 @@ publication's editor (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan`,
 (`manage-studio-plans`): searched over the title, the id and the author and narrowed by state and photo on the
 server, 25 a page (`StudioPlansQuery`, a registered stable pagination boundary); the editor's four steps — Image,
 Post, Discussion, Publication — save a draft from the top bar through the plan's actions, refusing one drawn before
-somebody else's save, with its photo uploaded or imported from a direct link through the existing media path, and
-Delete draft asks first. The Image step analyses the saved photo through OpenAI when an administrator asks — a
-card of its own that alone polls while an analysis runs. Everything else a later stage brings is left out rather
+somebody else's save, and Delete draft asks first. The Image step stores a photo the moment it is uploaded,
+dropped, or imported from a direct link or a social post, through the existing media path — a new publication's
+Draft made for its first photo — and has it analysed through OpenAI at once, in a card of its own that alone polls
+while an analysis runs; Re-run analysis and Try again are an administrator's. Everything else a later stage brings is left out rather
 than drawn: AI texts, votes, the discussion, approval, the action plan and the queue; the editor says where each
 will come. The kit
-gained the `newspaper` and `arrow-left` icons and nothing else: the steps and the drop zone are the screen's own.
+gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
+the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
+kept at the foot of the window are the screen's own.
 
 **Personas. Status: done.** The list (`ListPersonas`), a new persona (`CreatePersona`) and a persona's editor
 (`EditPersona`) are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

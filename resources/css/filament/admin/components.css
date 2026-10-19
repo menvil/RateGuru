@@ -707,6 +707,18 @@
         border-top: 1px solid var(--rg-admin-border-default);
     }
 
+    /* A status beside the title, such as a badge. */
+    .rg-admin-card__header--aside {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-card__heading {
+        flex: 1;
+        min-width: 0;
+    }
+
     .rg-admin-card__footer {
         padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
         border-top: 1px solid var(--rg-admin-border-default);
@@ -5271,6 +5283,91 @@
         max-width: 1320px;
     }
 
+    /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */
+    .rg-admin-studio__columns--photo {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .rg-admin-studio__columns--photo > :first-child {
+        flex: 1.4 1 520px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__columns--photo > :last-child {
+        flex: 1 1 380px;
+        min-width: 0;
+    }
+
+    /* A photo on its way: what is happening, and how far it has got. */
+    .rg-admin-studio__progress {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__progress-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-studio__progress-text {
+        display: flex;
+        flex: 1;
+        gap: 6px;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__progress-name {
+        overflow: hidden;
+        color: var(--rg-admin-text-secondary);
+        text-overflow: ellipsis;
+    }
+
+    .rg-admin-studio__progress-value {
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__progress-track {
+        height: 6px;
+        overflow: hidden;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-studio__progress-bar {
+        height: 100%;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-inverse);
+        transition: width 160ms ease;
+    }
+
+    .rg-admin-studio__progress-bar--waiting {
+        animation: rg-admin-pulse 1.2s ease-in-out infinite;
+    }
+
+    .rg-admin-studio__spinner {
+        flex: none;
+        animation: rg-admin-translation-spin 1.2s linear infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rg-admin-studio__progress-bar--waiting,
+        .rg-admin-studio__spinner {
+            animation: none;
+        }
+    }
+
     .rg-admin-studio__column,
     .rg-admin-studio__stack {
         display: flex;
@@ -5335,6 +5432,7 @@
 
     /* The photo, whole, inside a frame that never grows past the card or the screen. */
     .rg-admin-studio__preview {
+        position: relative;
         display: grid;
         place-items: center;
         height: clamp(200px, 45vw, 420px);
@@ -5350,6 +5448,17 @@
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;
+    }
+
+    /* A file dragged over the photo replaces it when dropped. */
+    .rg-admin-studio__preview-drop {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgb(255 255 255 / 0.86);
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
     }
 
     .rg-admin-studio__preview-empty {
@@ -5391,9 +5500,59 @@
         line-height: var(--rg-admin-leading-micro);
     }
 
+    /* Three sources wrap onto a second line on a phone rather than run off the card. */
     .rg-admin-studio__segmented {
+        flex-wrap: wrap;
+        flex-shrink: 1;
         align-self: flex-start;
         max-width: 100%;
+    }
+
+    .rg-admin-studio__chooser-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    /* The social sites whose posts are read directly; the one a link is for stands out. */
+    .rg-admin-studio__platforms {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-studio__platform {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 9px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__platform--detected {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__analysis-idle {
+        padding: 36px var(--rg-admin-space-3);
+        text-align: center;
+    }
+
+    .rg-admin-studio__analysis-fact {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .rg-admin-studio__dropzone {
@@ -5564,23 +5723,43 @@
         line-height: var(--rg-admin-leading-caption);
     }
 
+    /* The editor's footer stays at the foot of the window, the way the steps stay above it. */
+    .rg-admin-studio {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rg-admin-studio .rg-admin-studio__body {
+        flex: 1 0 auto;
+    }
+
     .rg-admin-studio__footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 10px var(--rg-admin-space-4);
-        max-width: 1320px;
-        padding-top: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3) var(--rg-admin-page-gutter);
         border-top: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-card);
     }
 
     .rg-admin-studio__position {
-        flex: 1;
-        min-width: 120px;
         color: var(--rg-admin-text-secondary);
         font-size: var(--rg-admin-text-caption);
         line-height: var(--rg-admin-leading-caption);
-        text-align: center;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__reason {
+        flex: 1;
+        min-width: 120px;
+        color: var(--rg-admin-status-due-fg);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        text-align: right;
     }
 
     /* Media diagnostics (MediaDiagnosticsPage): the overview's figures, the issues, the cards and the asset inspector */

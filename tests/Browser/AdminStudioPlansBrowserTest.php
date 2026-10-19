@@ -10,13 +10,14 @@ use function Pest\Laravel\actingAs;
 /**
  * Content Studio's Publications & plans in a real browser: the list and the
  * editor at each width, every step of the editor, creating an empty draft
- * from the top bar, the unsaved count, Discard and Save, opening a draft
- * from the list, and deleting one.
+ * from the top bar, the unsaved count, Discard and Save, the footer at the
+ * foot of the window, opening a draft from the list, and deleting one.
  *
  * No photo is chosen from a file here: the browser test server hands the
  * application no uploaded files, so a Livewire upload never arrives. Photos
- * are covered through Livewire in StudioPlanImageUiTest and
- * CreateStudioPlanPageTest, and on their own in SetStudioPlanImageActionTest.
+ * from a file are covered through Livewire in StudioPlanImageUiTest and
+ * CreateStudioPlanPageTest, and on their own in SetStudioPlanImageActionTest;
+ * a photo from a link in AdminStudioPlanImageAnalysisBrowserTest.
  *
  * One kind of page per test: the test server reads the top bar's actions
  * from the first page it drew.
@@ -166,19 +167,41 @@ it('deletes a draft from its editor once confirmed, and lands on the list withou
         ->and($page->script("document.querySelector('.rg-admin-empty-state__title')?.textContent.trim()"))->toBe('No publication plans yet');
 });
 
-it('counts a link as unsaved only while the link is the source', function () {
-    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit");
+it('keeps the footer at the foot of the window, and holds Continue back while a photo is on its way', function () {
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit", 1280, 640);
 
-    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:last-child').click()");
-    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url')");
+    $footer = fn (): array => $page->script(<<<'JS'
+        (() => {
+            const footer = document.querySelector('.rg-admin-studio__footer')
+            const [back, next] = footer.querySelectorAll('button')
 
-    $page->script("(() => { const field = document.getElementById('rg-admin-studio-image-url'); field.value = 'https://example.com/photo.jpg'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
-    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
+            return {
+                atFoot: Math.abs(footer.getBoundingClientRect().bottom - window.innerHeight) < 1,
+                back: ! back.disabled,
+                next: ! next.disabled,
+                reason: footer.querySelector('.rg-admin-studio__reason [role="status"]').offsetParent !== null,
+            }
+        })()
+    JS);
 
-    // Back to the computer: the link is dropped, and nothing is left unsaved.
-    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:first-child').click()");
-    waitForScript($page, "!! document.querySelector('.rg-admin-studio__dropzone')");
-    waitForScript($page, "getComputedStyle(document.querySelector('.rg-admin-topbar__unsaved')).display === 'none'");
+    // On the first step there is nowhere to go back to.
+    expect($footer())->toBe(['atFoot' => true, 'back' => false, 'next' => true, 'reason' => false]);
 
-    expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+    // What the Image step announces while a file is uploaded.
+    $page->script("window.dispatchEvent(new CustomEvent('rg-studio-photo-phase', { detail: { phase: 'uploading' } }))");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled");
+
+    expect($footer())->toBe(['atFoot' => true, 'back' => false, 'next' => false, 'reason' => true])
+        ->and($page->script("[...document.querySelectorAll('.rg-admin-studio__analysis .rg-admin-notice')].filter((notice) => notice.offsetParent !== null).map((notice) => notice.textContent.trim())"))->toBe(['Uploading photo…']);
+
+    $page->script("window.dispatchEvent(new CustomEvent('rg-studio-photo-phase', { detail: { phase: '' } }))");
+    waitForScript($page, "! document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled");
+
+    $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+
+    // Scrolled to the end of the longer Post step, it is still at the foot.
+    $page->script('window.scrollTo(0, document.body.scrollHeight)');
+
+    expect($footer())->toBe(['atFoot' => true, 'back' => true, 'next' => true, 'reason' => false]);
 });

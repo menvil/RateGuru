@@ -19,10 +19,10 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * An administrator asks for a Draft's saved photo to be analysed — Analyze
- * photo, Re-run analysis or Try again in the editor. Nothing is sent from
- * here: an attempt is queued, and AnalyzeStudioPlanImageJob makes the one
- * request after the commit.
+ * A Draft's saved photo is to be analysed — asked for by the editor the
+ * moment it stores the photo, or by an administrator through Re-run analysis
+ * or Try again. Nothing is sent from here: an attempt is queued, and
+ * AnalyzeStudioPlanImageJob makes the one request after the commit.
  *
  * In one transaction, in the project's locking order: the administrator's
  * row (LocksStudioPlanDraft) — who may still manage plans — then the plan,

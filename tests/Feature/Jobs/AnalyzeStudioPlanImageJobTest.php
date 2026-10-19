@@ -19,11 +19,11 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * The queued job behind Analyze photo: it claims its attempt before anything
- * else, so a job delivered twice — or one of an attempt replaced since — sends
- * nothing; it checks the plan as it is now; it makes one request with no
- * transaction open; and it keeps the result only while it still describes
- * the plan's photo, never touching the plan itself.
+ * The queued job behind a photo's analysis: it claims its attempt before
+ * anything else, so a job delivered twice — or one of an attempt replaced
+ * since — sends nothing; it checks the plan as it is now; it makes one
+ * request with no transaction open; and it keeps the result only while it
+ * still describes the plan's photo, never touching the plan itself.
  */
 beforeEach(function () {
     Storage::fake('public');

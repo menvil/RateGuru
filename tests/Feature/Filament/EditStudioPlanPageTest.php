@@ -59,7 +59,7 @@ it('draws the editor with Save draft in the top bar and every field as saved', f
         ->toContain('Save draft')
         ->toContain('Step 1 of 4 · Image')
         ->toContain('Upload &amp; analysis')
-        ->toContain('Save a photo to this draft before analysing it.');
+        ->toContain('Drop a photo here');
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->assertSet('postTitle', 'A quiet harbour')
@@ -135,8 +135,6 @@ it('saves the texts and settings, and draws them as saved', function () {
     expect($page->get('saved'))->toMatchArray([
         'title' => 'A new title',
         'publishAt' => '2031-12-24T18:30',
-        'photo' => '',
-        'removeImage' => '',
     ]);
 
     // Drawn again from the database, the editor shows what was saved.
@@ -270,13 +268,9 @@ it('puts the saved values back on Discard', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->set('postTitle', 'Changed')
         ->set('publicationMode', 'now')
-        ->call('removeSavedImage')
-        ->set('imageUrl', 'https://example.com/other.jpg')
         ->dispatch('discard-studio-plan')
         ->assertSet('postTitle', 'A quiet harbour')
         ->assertSet('publicationMode', 'at_date')
-        ->assertSet('removeImage', false)
-        ->assertSet('imageUrl', '')
         ->assertHasNoErrors();
 
     expect($plan->fresh()->lock_version)->toBe(1);

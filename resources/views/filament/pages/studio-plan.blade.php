@@ -3,15 +3,17 @@
      * One publication's editor (CreateStudioPlan, EditStudioPlan). The header
      * band with what the plan is, and its four steps — Image, Post,
      * Discussion, Publication — which only change what is on screen. Under
-     * it the step on screen, then Back, where the editor is, and Continue.
+     * it the step on screen, and the footer kept at the foot of the window:
+     * Back, where the editor is, and Continue, held back only while a photo
+     * is on its way.
      *
      * The browser counts what is unsaved from the draft against `saved`
      * (filament.pages.editor.script) and asks before a page with unsaved
-     * changes is left; moving between steps is never a change, while a
-     * chosen photo, a link to import one from — each only while its source is
-     * the one on screen — and taking the saved one off each count as one. An editor drawn before somebody else's save, of a
-     * plan deleted meanwhile or of one past its Draft holds Save back and
-     * says so.
+     * changes is left; moving between steps is never a change, and neither
+     * is the photo, which is saved the moment it is chosen. An editor drawn
+     * before somebody else's save, of a plan deleted meanwhile or of one past
+     * its Draft holds Save back and says so. Once a photo has made a new
+     * publication's Draft, the top bar's Create draft becomes Save draft.
      */
     $draft = '{
         title: $wire.postTitle,
@@ -23,14 +25,12 @@
         authorAnswers: Object.values($wire.authorAnswers ?? {}).filter((option) => option !== \'\' && option !== null).map(Number).sort((a, b) => a - b).join(\',\'),
         publicationMode: $wire.publicationMode,
         publishAt: $wire.publicationMode === \'at_date\' ? $wire.publishAt : \'\',
-        photo: $wire.imageSource === \'upload\' && $wire.photo ? \'new\' : \'\',
-        imageUrl: $wire.imageSource === \'link\' ? ($wire.imageUrl ?? \'\').trim() : \'\',
-        removeImage: $wire.removeImage ? \'yes\' : \'\',
     }';
     // One line: Alpine reads a handler that starts with `if` as a statement
     // only when its condition closes on the first line.
     $draft = (string) preg_replace('/\s+/', ' ', $draft);
     $blocked = $creating ? 'false' : '$wire.stale || $wire.gone || $wire.closed';
+    $saveLabel = $creating ? "\$wire.planId ? 'Save draft' : null" : 'null';
     $title = $creating ? 'New publication' : ($plan['title'] ?? 'Publication');
     $stepKeys = array_column($steps, 'key');
     $first = $step === $stepKeys[0];
@@ -38,9 +38,9 @@
 @endphp
 
 <div
-    class="rg-admin rg-admin-screen"
+    class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
@@ -115,17 +115,19 @@
             @include('filament.pages.studio-plan.'.$step)
         </fieldset>
 
-        <div class="rg-admin-studio__footer">
-            @if ($first)
-                <x-admin.ui.button icon="arrow-left" :href="\App\Filament\Resources\StudioPlans\Pages\ListStudioPlans::getUrl()">Back</x-admin.ui.button>
-            @else
-                <x-admin.ui.button icon="arrow-left" wire:click="previousStep">Back</x-admin.ui.button>
-            @endif
-            <span class="rg-admin-studio__position">Step {{ $stepNumber }} of 4 · {{ $stepLabel }}</span>
-            @unless ($last)
-                <x-admin.ui.button variant="primary" trailing-icon="arrow-right" wire:click="nextStep">Continue</x-admin.ui.button>
-            @endunless
-        </div>
+    </div>
+
+    <div
+        class="rg-admin-studio__footer"
+        x-data="{ busy: false }"
+        x-on:rg-studio-photo-phase.window="busy = ($event.detail?.phase ?? '') !== ''"
+    >
+        <x-admin.ui.button icon="arrow-left" :disabled="$first" wire:click="previousStep">Back</x-admin.ui.button>
+        <span class="rg-admin-studio__position">Step {{ $stepNumber }} of 4 · {{ $stepLabel }}</span>
+        <span class="rg-admin-studio__reason"><span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span></span>
+        @unless ($last)
+            <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" wire:click="nextStep">Continue</x-admin.ui.button>
+        @endunless
     </div>
 
     @if (! $creating && $confirmingDelete && $plan !== null)
