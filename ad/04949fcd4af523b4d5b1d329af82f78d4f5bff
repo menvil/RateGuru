@@ -1,0 +1,113 @@
+app/Exceptions/Studio/CannotManageStudioPlanException.php
+  s_0f80700cf0b8c6::t_64f89321cf17ad 1-77
+tests/Feature/Actions/RemoveStudioPlanImageActionTest.php
+  s_0f80700cf0b8c6::t_af4b812a960e18 1-33,36-38,41-87
+  s_0f80700cf0b8c6::t_1ea83dceebe6b1 34-35,39-40
+tests/Feature/Policies/StudioPlanPolicyTest.php
+  s_0f80700cf0b8c6::t_be8e57f51b6ce1 1-35
+app/Services/Media/MediaReferenceChecker.php
+  s_0f80700cf0b8c6::t_79688a5279d11f 7,13-18,35-36,41-43,53-56,59
+tests/Feature/Services/Media/MediaReferenceCheckerTest.php
+  s_0f80700cf0b8c6::t_85070b4db6bc8d 5,54-102,113-116,118-120,122,129-136
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_73b944e3ffcc13 1-93
+app/Actions/Studio/UpdateStudioPlanAction.php
+  s_0f80700cf0b8c6::t_5c3b2d98564bea 1-72
+app/Actions/Studio/RemoveStudioPlanImageAction.php
+  s_0f80700cf0b8c6::t_d3cb7698268b09 1-75
+tests/Unit/Enums/StudioPlanEnumsTest.php
+  s_0f80700cf0b8c6::t_90e9eeef843a46 1-20
+app/Actions/Studio/Concerns/LocksStudioPlanDraft.php
+  s_0f80700cf0b8c6::t_3327ade8c28443 1-81
+app/Services/Media/MediaAuditService.php
+  s_0f80700cf0b8c6::t_7c91dedd860faf 56-58
+tests/Pest.php
+  s_0f80700cf0b8c6::t_dd90d4c271a974 12759-12971
+app/Models/StudioPlan.php
+  s_0f80700cf0b8c6::t_604823d3b17bbb 1-120
+app/Data/Studio/StudioPlanData.php
+  s_0f80700cf0b8c6::t_daf0c2919d0826 1-61,65-112,121-154
+  s_0f80700cf0b8c6::t_6b547d4a0872d1 62-64,113-120
+app/Actions/Studio/SetStudioPlanImageAction.php
+  s_0f80700cf0b8c6::t_8736217133c9eb 1-145
+app/Enums/StudioPlanPublicationMode.php
+  s_0f80700cf0b8c6::t_71cea826b15cbc 1-22
+tests/Feature/Models/StudioPlanTest.php
+  s_0f80700cf0b8c6::t_20af2ad60f0d02 1-170
+tests/Feature/Services/Media/MediaAuditServiceTest.php
+  s_0f80700cf0b8c6::t_ada1764de0a31c 3,9-10,97-137
+tests/Feature/Actions/SetStudioPlanImageActionTest.php
+  s_0f80700cf0b8c6::t_7b6831c7514d92 1-309
+app/Support/Studio/StudioPlanValidationRules.php
+  s_0f80700cf0b8c6::t_e43e7ec13c6061 1-118
+tests/Feature/Filament/MediaDiagnosticsPageTest.php
+  s_0f80700cf0b8c6::t_33283709f05493 13,536-560,576-588
+  s_0f80700cf0b8c6::t_5aa235aee3dbf1 561-575
+tests/Feature/Actions/DeleteStudioPlanDraftActionTest.php
+  s_0f80700cf0b8c6::t_e0aae940392e46 1-143
+docs/architecture/media.md
+  s_0f80700cf0b8c6::t_613178ff1aa62b 16-18,51-55,99-139,662-667
+  s_0f80700cf0b8c6::t_0bcc53b6b111ee 699-702
+docs/architecture/user-lifecycle.md
+  s_0f80700cf0b8c6::t_9c7beb614c8e4c 315-325
+app/Support/Posts/PostContentRules.php
+  s_0f80700cf0b8c6::t_8daeb0dc665efa 1-26
+database/factories/StudioPlanFactory.php
+  s_0f80700cf0b8c6::t_01cebcbbae8024 54-56
+  s_0f80700cf0b8c6::t_a28a02c90fb647 1-53,57-65
+tests/Feature/Actions/UpdateStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_17cc8e71c26407 121,123-125
+  s_0f80700cf0b8c6::t_48890cfc067d0e 1-120,122,126-216
+tests/Feature/Concurrency/StudioPlanRaceTest.php
+  s_0f80700cf0b8c6::t_260fcdbfbdb749 1-9,11-197,200-263
+  s_0f80700cf0b8c6::t_16db767bd94fe2 10,198-199
+app/Services/Media/MediaLifecycleService.php
+  s_0f80700cf0b8c6::t_7c91dedd860faf 30-32,60
+docs/architecture/community-fk-safety.md
+  s_0f80700cf0b8c6::t_9c7beb614c8e4c 61-63
+database/migrations/2026_10_19_100000_create_studio_plans_table.php
+  s_0f80700cf0b8c6::t_0f73dca309a511 1-62
+app/Policies/StudioPlanPolicy.php
+  s_0f80700cf0b8c6::t_76042b723ab64e 1-23
+tests/Feature/Concurrency/PersonaAndSanctionLockOrderTest.php
+  s_0f80700cf0b8c6::t_81bad282f6795a 24,75-78
+app/Services/Media/MediaAssetInspection.php
+  s_0f80700cf0b8c6::t_bf5c57507a7702 8,23,32
+app/Services/Media/MediaAssetInspector.php
+  s_0f80700cf0b8c6::t_bf5c57507a7702 8,44
+app/Livewire/Feed/UploadPostForm.php
+  s_0f80700cf0b8c6::t_bb6ba1a9ed80b9 15,166-167,177-178
+app/Actions/Studio/DeleteStudioPlanDraftAction.php
+  s_0f80700cf0b8c6::t_2b50aa6da3f2f3 1-71
+tests/Feature/Services/Media/MediaAssetInspectorTest.php
+  s_0f80700cf0b8c6::t_33283709f05493 6,38-39,67-75
+tests/Feature/Actions/CreateStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_c7e65c4138ab60 1-229
+app/Actions/Studio/CreateStudioPlanAction.php
+  s_0f80700cf0b8c6::t_c8a5e94b6889bc 1-73
+app/Enums/StudioPlanStatus.php
+  s_0f80700cf0b8c6::t_8f8b52a71178e6 1-30
+app/Providers/AppServiceProvider.php
+  s_0f80700cf0b8c6::t_76042b723ab64e 13,84
+app/Filament/Pages/MediaDiagnosticsPage.php
+  s_0f80700cf0b8c6::t_bf5c57507a7702 604-606,738,746
+  s_0f80700cf0b8c6::t_a7b1e5f5a8540b 742-744
+tests/Feature/Services/Media/MediaLifecycleServicePurgeTest.php
+  s_0f80700cf0b8c6::t_d0691b5f522879 3,9-10,170-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ad04949fcd4af523b4d5b1d329af82f78d4f5bff",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
