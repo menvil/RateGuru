@@ -80,3 +80,26 @@ it('has no thumbnail for a post without an image or with a private one', functio
     expect(thumbnailOf($private))->toBeNull()
         ->and(thumbnailOf($none))->toBeNull();
 });
+
+it('draws a post image no post holds yet the same way, at thumbnail and at preview size', function () {
+    $post = storeVariantFiles(postWithVariants([
+        MediaVariantName::PostDetail1920->value => [1920, 1280],
+        MediaVariantName::PostFeed1280->value => [1280, 853],
+        MediaVariantName::PostFeed640->value => [640, 427],
+    ]), MediaVariantName::PostDetail1920, MediaVariantName::PostFeed1280, MediaVariantName::PostFeed640);
+    $presenter = app(PostImagePresenter::class);
+
+    expect($presenter->assetThumbnailUrl($post->imageAsset))->toBe(variantUrl($post, MediaVariantName::PostFeed640))
+        // An editor's preview is larger than a row's thumbnail, never the original when a variant is there.
+        ->and($presenter->assetPreviewUrl($post->imageAsset))->toBe(variantUrl($post, MediaVariantName::PostFeed1280))
+        ->and($presenter->assetThumbnailUrl(null))->toBeNull()
+        ->and($presenter->assetPreviewUrl(null))->toBeNull();
+});
+
+it('shows the original as the preview while no variant is on disk, and nothing for a private image', function () {
+    $post = postWithVariants([MediaVariantName::PostFeed1280->value => [1280, 853]]);
+    $private = MediaAsset::factory()->postImage()->create(['visibility' => MediaVisibility::Private])->load('variants');
+
+    expect(app(PostImagePresenter::class)->assetPreviewUrl($post->imageAsset))->toBe(Storage::disk('public')->url($post->imageAsset->path))
+        ->and(app(PostImagePresenter::class)->assetPreviewUrl($private))->toBeNull();
+});

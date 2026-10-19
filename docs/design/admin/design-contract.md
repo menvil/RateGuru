@@ -187,7 +187,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
-  | Content Studio | Personas |
+  | Content Studio | Publications & plans · Personas |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -211,7 +211,7 @@ Every admin page except the developer kit is drawn inside the Admin v2 shell. Pa
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
 Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
 Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too. Content
-Studio's Personas was built in Admin v2 from the start.
+Studio's Publications & plans and Personas were built in Admin v2 from the start.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -254,7 +254,9 @@ Studio's Personas was built in Admin v2 from the start.
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
   step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
-  diagnostics when it was read, Refresh and Run full audit; Personas Create persona, a link; a new persona's page
+  diagnostics when it was read, Refresh and Run full audit; Publications & plans Create publication, a link; a new publication's page and a publication's editor
+  their count of unsaved changes, Discard, and Create draft — which runs with nothing changed, since a draft may be
+  saved empty — or Save draft; Personas Create persona, a link; a new persona's page
   and a persona's editor their count of unsaved changes, Discard, and Create persona or Save changes. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
@@ -995,12 +997,66 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 
 ```text
 Content Studio
+├── Publications & plans
 └── Personas
 ```
 
-Content Studio is where administrators run the accounts the site's editorial content comes from. Its section
-holds only screens that work: the prototype's Publications & plans, Reply rules, Reply log and Action queue arrive
-with their own screens, never as items before them.
+Content Studio is where administrators run the accounts the site's editorial content comes from and prepare what
+they publish. Its section holds only screens that work: the prototype's Reply rules, Reply log and Action queue
+arrive with their own screens, never as items before them.
+
+### Publications & plans
+
+The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a publication's editor
+(`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan` (`StudioPlanResource`). A plan is a draft of a post, never
+a post: nothing on these pages publishes, schedules or queues anything, and every write goes through the plan's
+actions (`docs/architecture/studio-plans.md`).
+
+- **List header band:** “Prepare publication drafts before reviewing and publishing them.” Stats: Total plans,
+  Drafts, With image and With author — figures that can be counted now; nothing about scheduled or published posts,
+  comments or votes, which no plan has yet.
+- **Toolbar (TBL-02):** the search over the title, the id (`#123` or `123`) and the author's username and names —
+  never a deleted author's; State (All, Draft) and Image (With image, Without image) as filter dropdowns with their
+  chips, in the URL, a value the list does not offer dropped; 25 a page, the most recently saved first
+  (`StudioPlansQuery`, a registered stable pagination boundary); a page past the end shows the last one.
+- **Table (TBL-01):** the title — a link to the editor — or “Untitled draft #ID”, with the id; the author with
+  avatar and username, “No author selected”, or “Deleted user” and nothing else of a deleted account; the photo at
+  thumbnail size from its smallest variant, or a placeholder; the publication date — “When approved” for a plan
+  published once it is approved, the date it will carry, or “Date not selected”; the state (STS-01, Draft
+  outline); Last updated. A draft has Edit and the row menu — Edit draft and Delete draft; a plan past its draft
+  has the two disabled with the reason.
+- **Empty states (TBL-05):** “No publication plans yet” with Create publication; “No plans match” with Clear
+  filters.
+- **The editor (NAV-02):** one Admin v2 page for a new publication and for an existing one, saved from the top bar
+  with the count of unsaved changes, Discard and Create draft or Save draft, and the browser's question before a
+  page with unsaved changes is left. Four steps under the title — Image (Upload & analysis), Post (Texts, author &
+  votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back, “Step n of 4” and
+  Continue under each; moving between them saves nothing and loses nothing, and none is locked by an incomplete
+  draft.
+  - **Image:** the photo with its file name, dimensions, size and type; a new one from the computer — Upload
+    image, or dropped on the drop zone — or from a direct link, either stored only on Save; Remove image, taken
+    off on Save; the upload limit read from `uploads.images.max_kilobytes`. Photo analysis says it is not built
+    yet.
+  - **Post:** Final title (3 to 120, with its counter), Final description (up to 2,000), Source URL — never the
+    link a photo is imported from —, the author chosen from living personas found on the server (a restricted one
+    with “This persona cannot publish while restricted.”), the category (an inactive one kept and marked), up to
+    ten tags, and the author's answer in each active rating group. AI suggestions say they are not built yet.
+  - **Discussion:** says what will come in a later phase; nothing else.
+  - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
+    zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
+    saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
+- **Saving:** through `CreateStudioPlanAction` or `UpdateStudioPlanAction`, then `SetStudioPlanImageAction` or
+  `RemoveStudioPlanImageAction` — each handed the version the one before it left, so a save is never in conflict
+  with itself. Each error stays by its field, and Save shows the step it is on. A save drawn before somebody else's
+  is refused with a toast and a warning notice whose Reload draws the plan as it is, keeping what was typed until
+  then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A photo that fails
+  leaves the rest saved and says so. A new publication's editor opens once it is created, and Save sent twice
+  makes one plan.
+- **Delete draft (OVL-01):** from the row menu and the editor's header, “Delete this draft?” — “The draft will be
+  removed. Its image will be released if nothing else uses it.” — Cancel and Delete draft, through
+  `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
+- **Access:** an active administrator's (`manage-studio-plans`): the navigation item, every page and every
+  Livewire request ask, and so do the actions.
 
 ### Personas
 
@@ -1226,7 +1282,8 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 ## Responsive rules
 
 - Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
-  groups and Project settings also at 768 and 390; Personas and the persona editor also at 390.
+  groups and Project settings also at 768 and 390; Personas and the persona editor, and Publications & plans with
+  every step of the publication editor, also at 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1354,6 +1411,14 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
 | Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
+| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
+| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
+| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none | nothing confirms or publishes a plan yet; the draft saves from the top bar |
+| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | Upload and From link, the limit `uploads.images.max_kilobytes` sets; analysis not built | social posts need an importer of their own; the upload limit is the site's; no button is drawn that does nothing |
+| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more; Final description up to 500 | Final title and Final description, up to 2,000, with a note that suggestions come later | AI texts are not built yet; a post's description takes 2,000 characters |
+| Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
+| Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
+| Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
 | Persona editor | a 680 wide drawer over the list | an Admin v2 editor page, saved from the top bar | the kit's drawer is at most 480 wide; one screen does not widen the kit, and an editor page is the contract's way to edit a record |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\Database\LikePattern;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Content Studio's Personas, as its list reads them: every account with the
@@ -39,6 +40,29 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
             ->orderByDesc('users.created_at')
             ->orderByDesc('users.id')
             ->paginate(self::PER_PAGE, ['users.*'], 'page', max(1, $page));
+    }
+
+    /**
+     * The Personas a publication plan's author is chosen from: every living
+     * one matching the search as the list's does, newest first, at most
+     * $limit of them — never every Persona at once.
+     *
+     * @return Collection<int, User>
+     */
+    public function choices(string $search, int $limit): Collection
+    {
+        return $this->narrowed($search, null, null)
+            ->with('avatarAsset.variants')
+            ->orderByDesc('users.created_at')
+            ->orderByDesc('users.id')
+            ->limit(max(1, $limit))
+            ->get(['users.*']);
+    }
+
+    /** The living Persona with this id, if there is one: what a publication plan's author may be. */
+    public function choosable(int $id): ?User
+    {
+        return $this->personas()->whereKey($id)->first();
     }
 
     /**

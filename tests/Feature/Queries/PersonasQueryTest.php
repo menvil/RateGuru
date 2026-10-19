@@ -99,3 +99,29 @@ it('keeps personas made at the same moment in their place across pages', functio
         ->and(array_intersect($first, $second))->toBe([])
         ->and([...$first, ...$second])->toBe($expected);
 });
+
+it('offers living personas as a plan\'s author, searched as the list is, a few at a time', function () {
+    $owl = listedPersona(['username' => 'night_owl', 'created_at' => now()->subDay()]);
+    $limited = listedPersona(['username' => 'grumpy_max', 'status' => UserStatus::Limited]);
+    User::factory()->persona()->tombstoned()->create(['username' => 'gone_owl']);
+    User::factory()->create(['username' => 'owl_member']);
+    User::factory()->admin()->create(['username' => 'owl_admin']);
+    $query = app(PersonasQuery::class);
+
+    expect($query->choices('', 10)->pluck('id')->all())->toBe([$limited->id, $owl->id])
+        ->and($query->choices('owl', 10)->pluck('id')->all())->toBe([$owl->id])
+        ->and($query->choices('', 1)->pluck('id')->all())->toBe([$limited->id])
+        ->and($query->choices('', 10)->first()->relationLoaded('avatarAsset'))->toBeTrue();
+});
+
+it('finds a persona by id only while it is a living one', function () {
+    $owl = listedPersona();
+    $gone = User::factory()->persona()->tombstoned()->create();
+    $member = User::factory()->create();
+    $query = app(PersonasQuery::class);
+
+    expect($query->choosable($owl->id)?->id)->toBe($owl->id)
+        ->and($query->choosable($gone->id))->toBeNull()
+        ->and($query->choosable($member->id))->toBeNull()
+        ->and($query->choosable(2_000_000_000))->toBeNull();
+});
