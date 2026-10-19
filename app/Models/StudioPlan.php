@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * One publication prepared in Content Studio: the photo, the post's texts and
@@ -111,6 +112,18 @@ class StudioPlan extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    /**
+     * Its photo analysis — about the photo it has now, or about one it no
+     * longer has, which is no analysis of the current photo at all
+     * (StudioPlanImageAnalysis::isFor()).
+     *
+     * @return HasOne<StudioPlanImageAnalysis, $this>
+     */
+    public function imageAnalysis(): HasOne
+    {
+        return $this->hasOne(StudioPlanImageAnalysis::class);
     }
 
     public function isDraft(): bool

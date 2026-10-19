@@ -246,6 +246,7 @@ final class EditStudioPlan extends Page
                 'created' => $plan->created_at?->format('d M Y'),
                 'createdBy' => $plan->createdBy !== null && ! $plan->createdBy->isTombstoned() ? (string) $plan->createdBy->username : null,
                 'updated' => $plan->updated_at?->format('d M Y, H:i'),
+                'imageAssetId' => $plan->image_asset_id,
             ],
             'readOnly' => $this->closed || $this->gone,
             ...$this->editorViewData($plan?->imageAsset),

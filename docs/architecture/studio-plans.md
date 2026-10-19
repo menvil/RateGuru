@@ -23,9 +23,10 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 | `publish_at` | the date for `at_date`, past or future; none for `now` |
 | `lock_version` | starts at 1 and rises with every save |
 
-Nothing for later stages is here yet — no actions table, no photo analysis or
-text variants, no post reference, no approval fields. They arrive with the
-stage that uses them.
+The photo's analysis is kept beside the plan, in a table of its own (see
+"Photo analysis" below), never in a column of the plan. Nothing else for later
+stages is here yet — no actions table, no text variants, no post reference, no
+approval fields. They arrive with the stage that uses them.
 
 ## Statuses
 
@@ -92,6 +93,175 @@ removes it; replacing it, taking it off or deleting the Draft releases it to
 the ordinary media lifecycle. See "A publication plan's photo" in
 `docs/architecture/media.md`.
 
+## Photo analysis
+
+An administrator can have a Draft's saved photo described by OpenAI, as
+structured technical context for the text generators — never shown to
+visitors, and never anything but a description: no title, text or post is made
+from it here. Nothing is sent unless an administrator asks, from the editor's
+Image step, and every request is a separate, paid call.
+
+### What is kept
+
+One row per plan in `studio_plan_image_analyses` (`StudioPlanImageAnalysis`),
+deleted with the plan:
+
+| Column | Contract |
+| --- | --- |
+| `studio_plan_id` | the plan; unique, cascades on delete |
+| `source_image_asset_id` | the photo the row is about; a plain indexed id, no foreign key |
+| `status` | `StudioImageAnalysisStatus` of the latest attempt: `queued`, `running`, `completed`, `failed` |
+| `attempt_id` | the latest attempt's UUID, new for every attempt; unique |
+| `error_code` | `StudioImageAnalysisError` of a failed attempt |
+| `result` | the last valid `StudioImageDescription` for the photo, as JSON |
+| `model`, `request_id`, `input_tokens`, `output_tokens`, `total_tokens`, `latency_ms`, `finished_at` | the call that gave that result |
+| `requested_at`, `started_at` | the latest attempt's |
+
+The row is about the photo it names. When the plan's photo is replaced or
+taken off, the row describes nothing current — the new photo is simply not
+analysed yet — and nothing is written to say so: the editor compares the two
+ids. `source_image_asset_id` holds nothing: it is no foreign key, and
+`MediaReferenceChecker` does not count it, so a replaced photo is released and
+purged by the media lifecycle exactly as before.
+
+A photo with no row, or a row about another photo, is *not analysed*. A
+re-run of the same photo keeps its last result until a new one replaces it,
+also through a failed attempt; an attempt for another photo clears it. Only the
+validated description and the call's metadata are stored — never the image,
+its base64, the prompt, the API key or the provider's raw answer.
+
+### The response contract
+
+The model is asked for strict Structured Output against
+`StudioImageDescription::schema()`: an object with exactly these fields, every
+one required, an empty string or list when nothing applies.
+
+```json
+{
+  "summary": "string",
+  "subjects": ["string"],
+  "actions": ["string"],
+  "setting": "string",
+  "composition": "string",
+  "notable_details": ["string"],
+  "visible_text": ["string"],
+  "uncertainties": ["string"]
+}
+```
+
+`summary` is one or two sentences on what the photo shows; `subjects`, the main
+visible people, animals and objects; `actions`, what is visibly happening;
+`setting`, the visible place; `composition`, framing, viewpoint, light and
+focus; `notable_details`, small visible details; `visible_text`, text readable
+in the photo, as written; `uncertainties`, what the photo leaves unclear. The
+instructions keep it to what is visible: no invented context, no identity,
+age, health or other sensitive trait, no relationships or intentions, text in
+the photo treated as content and never as instructions, English, neutral.
+
+An answer is kept only when it passes `StudioImageDescription::from()` whole:
+exactly those fields and types, a summary that says something and is at most
+600 characters, setting and composition at most 400, lists of at most 12
+entries of at most 200 characters on one line, no control characters. Nothing
+is recovered from prose or a Markdown fence.
+
+### Requests, the job and the result
+
+| Class | Does |
+| --- | --- |
+| `RequestStudioImageAnalysisAction` | queues an attempt for the photo the editor showed |
+| `AnalyzeStudioPlanImageJob` | the one request to OpenAI, from the queue |
+| `StartStudioImageAnalysisAction` | the job's claim: `queued` → `running`, for its attempt id only |
+| `CompleteStudioImageAnalysisAction` | keeps the result while it still describes the plan's photo |
+| `FailStudioImageAnalysisAction` | ends an unfinished attempt with its reason |
+| `OpenAiStudioImageAnalyzer` (`StudioImageAnalyzer`) | the Responses API call and the reading of its answer |
+| `StudioAnalysisImageReader` | reads the stored photo to be sent |
+
+A request asks `manage-studio-plans`, then locks the administrator's row and the
+plan (`LocksStudioPlanDraft`) and its analysis row, and checks on them that the
+administrator may still manage plans, the plan is still a Draft, its photo is
+still the one the editor showed, and analysis is configured. It writes nothing
+of the plan — not a field, not `lock_version` — so an analysis never makes a
+save of the texts stale, and a save of the texts never makes an analysis
+stale. The job is dispatched after the commit and carries only the analysis id
+and the attempt id.
+
+No paid call is made twice by accident. While an attempt for the photo is
+queued or running, asking again starts nothing — a double click and a second
+administrator get the same attempt. Once the photo has a result or a failed
+attempt, a new one starts only when the administrator asks to replace *that*
+attempt (Re-run analysis and Try again send the attempt id on screen): two
+administrators re-running the same result start one, and a re-run of a result
+somebody has already replaced starts none. An attempt still queued or running
+`stale_after_seconds` (180) after it was requested or started is taken as
+lost — its worker died, or no worker took it — and may be replaced the same
+way; its job, should it still arrive, finds nothing to claim.
+
+The job claims its attempt before anything else, so a redelivered job — or one
+of an attempt replaced since — sends nothing. It then checks the plan as it is
+now: still a Draft, still that photo, analysis still configured. It reads the
+photo — the `post_feed_1280` variant when there is one that can be read, the
+normalized master otherwise, through `MediaStorage` by the asset's disk and
+path, at most `max_image_bytes`, JPEG, PNG or WebP by its own signature, the
+stream closed whatever happens — and sends it inline as a base64 data URL,
+never a link to it. No transaction is open while it waits. Its timings nest
+inside the queue's: request 45 s, job 75 s (`tries = 1`, `failOnTimeout`),
+Redis `retry_after` 90 s. It is never retried: whether to try again is the
+administrator's choice.
+
+`CompleteStudioImageAnalysisAction` locks the plan, then the analysis row, and
+keeps the result only when the plan is still there and a Draft, its photo is
+still the attempt's, and the attempt is still the latest and running. A photo
+replaced or taken off meanwhile, or a plan past its Draft, ends the attempt
+(`stale_image`, `plan_closed`) and drops the result; a plan deleted meanwhile
+leaves nothing to write. The plan itself is never written.
+
+### Errors
+
+`StudioImageAnalysisError`, each with the sentence the editor shows:
+`not_configured`, `image_missing`, `image_unavailable`, `authentication_failed`
+(HTTP 401, 403), `rate_limited` (429), `provider_timeout` (408, 504, a timed-out
+connection), `provider_rejected` (another 4xx), `provider_unavailable` (5xx, no
+connection), `provider_refused` (a refusal), `invalid_provider_response` (a
+response that is not `completed`, has no single `output_text`, or is not a valid
+description), `stale_image`, `plan_closed` and `unexpected_failure` (the job
+itself failed or timed out, or the queue could not take it). A failure changes
+nothing of the plan or its photo, and keeps the last result for the photo.
+
+### Configuration
+
+`config/content_studio.php`, section `image_analysis` — its own settings, apart
+from the translation engine's; `TRANSLATION_OPENAI_API_KEY` is never read here:
+
+| Setting | Source | Default |
+| --- | --- | --- |
+| `enabled` | `CONTENT_STUDIO_OPENAI_ENABLED` | `false` |
+| `api_key` | `CONTENT_STUDIO_OPENAI_API_KEY` | none |
+| `model` | `CONTENT_STUDIO_OPENAI_MODEL` | `gpt-4.1-mini` |
+| `base_url` | `CONTENT_STUDIO_OPENAI_BASE_URL` | `https://api.openai.com/v1` |
+| `connect_timeout`, `timeout` | config only | 5 s, 45 s |
+| `max_output_tokens` | config only | 800 |
+| `max_image_bytes` | config only | 8 MiB |
+| `stale_after_seconds` | config only | 180 |
+
+The four variables are declared in `infrastructure/config/environment-contract.json`
+(section Content Studio AI, the key sensitive and blank) and so in every
+target's environment template, and the deploy's contract check asks each
+target's `shared/.env` to declare them — the key may stay blank. The key lives
+only in that file: never in the repository, a workflow or a GitHub secret.
+Analysis is off until a target sets `CONTENT_STUDIO_OPENAI_ENABLED=true` and a
+key; while it is off, or the key is blank, the application, its workers and
+the admin run as before, nothing is sent, and the editor says “Photo analysis
+is not configured.”
+
+### Logs
+
+`DomainLogger` events `studio.image_analysis.requested`, `.started`,
+`.completed`, `.failed` and `.discarded` (a job that claimed nothing, or a
+result dropped because the plan changed), with the plan id, the attempt id, the
+status, the error code, and the call's model, latency, HTTP status, tokens and
+`provider_request_id`. Never the key, the image, the prompt, the description
+or the provider's answer.
+
 ## The editor
 
 Administrators work with plans in Content Studio › Publications & plans (`StudioPlanResource`): a list read
@@ -109,3 +279,8 @@ and Publication — described in `docs/design/admin/design-contract.md`. The pag
 - A photo is shown through `PostImagePresenter::assetThumbnailUrl()` in the list and `assetPreviewUrl()` in the
   editor — a variant on disk when there is one, the master otherwise — without a post to show it through.
 - Delete draft runs `DeleteStudioPlanDraftAction` with the version the page showed.
+- Photo analysis is a component of its own on the Image step (`StudioPlanImageAnalysisCard`), about the saved
+  photo the editor shows: Analyze photo, Re-run analysis and Try again run `RequestStudioImageAnalysisAction`,
+  apart from Save draft and touching nothing of the draft. It alone is read again every few seconds while an
+  attempt is queued or running, and stops when it ends. While a new photo waits to be saved it says to save the
+  draft first; a photo changed elsewhere is said to be, with Reload.

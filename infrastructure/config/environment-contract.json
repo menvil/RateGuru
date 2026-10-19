@@ -68,6 +68,10 @@
         {
             "name": "Translation AI",
             "description": "The provider the translation engine sends machine translation to, and its\ncredentials. An empty API key is a valid state: the application boots and its\nqueues and admin run, and only an actual translation is refused as not\nconfigured, before any request is sent.\n\nThe key is supplied here, in this host's .env, and nowhere else: never in the\nrepository, a workflow, or a GitHub environment secret."
+        },
+        {
+            "name": "Content Studio AI",
+            "description": "Photo analysis in Content Studio's publication editor: OpenAI describes a\ndraft's saved photo when an administrator asks. Its own key and settings,\nindependent of Translation AI's. Off unless enabled and given a key; while it\nis off the application, its queues and the admin run as before, and the editor\nsays photo analysis is not configured.\n\nThe key is supplied here, in this host's .env, and nowhere else: never in the\nrepository, a workflow, or a GitHub environment secret."
         }
     ],
     "keys": [
@@ -731,6 +735,31 @@
         {
             "key": "TRANSLATION_OPENAI_BASE_URL",
             "section": "Translation AI",
+            "classification": "target",
+            "value": "https://api.openai.com/v1"
+        },
+        {
+            "key": "CONTENT_STUDIO_OPENAI_ENABLED",
+            "section": "Content Studio AI",
+            "classification": "target",
+            "value": "false"
+        },
+        {
+            "key": "CONTENT_STUDIO_OPENAI_API_KEY",
+            "section": "Content Studio AI",
+            "classification": "target",
+            "value": "",
+            "sensitive": true
+        },
+        {
+            "key": "CONTENT_STUDIO_OPENAI_MODEL",
+            "section": "Content Studio AI",
+            "classification": "target",
+            "value": "gpt-4.1-mini"
+        },
+        {
+            "key": "CONTENT_STUDIO_OPENAI_BASE_URL",
+            "section": "Content Studio AI",
             "classification": "target",
             "value": "https://api.openai.com/v1"
         },

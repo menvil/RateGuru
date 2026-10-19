@@ -59,7 +59,7 @@ it('draws the editor with Save draft in the top bar and every field as saved', f
         ->toContain('Save draft')
         ->toContain('Step 1 of 4 · Image')
         ->toContain('Upload &amp; analysis')
-        ->toContain('Photo analysis will be available in the next phase.');
+        ->toContain('Save a photo to this draft before analysing it.');
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->assertSet('postTitle', 'A quiet harbour')
