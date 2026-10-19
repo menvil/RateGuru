@@ -23,10 +23,11 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 | `publish_at` | the date for `at_date`, past or future; none for `now` |
 | `lock_version` | starts at 1 and rises with every save |
 
-The photo's analysis is kept beside the plan, in a table of its own (see
-"Photo analysis" below), never in a column of the plan. Nothing else for later
-stages is here yet — no actions table, no text variants, no post reference, no
-approval fields. They arrive with the stage that uses them.
+The photo's analysis and the text suggestions written from it are kept beside
+the plan, each in a table of its own (see "Photo analysis" and "Post text
+suggestions" below), never in a column of the plan. Nothing else for later
+stages is here yet — no actions table, no post reference, no approval fields.
+They arrive with the stage that uses them.
 
 ## Statuses
 
@@ -264,6 +265,166 @@ status, the error code, and the call's model, latency, HTTP status, tokens and
 `provider_request_id`. Never the key, the image, the prompt, the description
 or the provider's answer.
 
+## Post text suggestions
+
+An administrator can have OpenAI write title and description options for a
+Draft, from its photo's stored analysis: ten titles and ten descriptions a
+batch, in one of five tones (`StudioPostTextTone`: Playful, Humour, Cheeky —
+the default — Irony, Neutral). They are options, never the post's texts:
+Use this title and Use this description put one in the editor's final field,
+unsaved, and the plan's `title` and `description` change only with Save draft.
+Nothing is written by itself — not on opening the editor, not on Save draft,
+not when a photo or its analysis arrives — and nothing written ever replaces
+a final text. Every batch is a separate, paid call, asked for by Generate
+suggestions, Generate 10 more or Try again.
+
+A batch is written from the analysis alone, never the photo, which is not sent
+again. The Persona is not part of it. It can be asked for only while the plan
+is a Draft whose photo has a completed analysis — the row about that very photo,
+its stored result passing `StudioImageDescription::from()` again — and text
+suggestions are configured; until then the editor says “Text suggestions will
+be available when photo analysis is complete.”
+
+### What is kept
+
+One row per batch in `studio_plan_text_generations` (`StudioPlanTextGeneration`),
+every batch of a plan kept, deleted with the plan:
+
+| Column | Contract |
+| --- | --- |
+| `studio_plan_id` | the plan; cascades on delete |
+| `source_image_asset_id` | the photo the batch was written for; a plain id, no foreign key |
+| `source_analysis_hash` | SHA-256 of the analysis it was written from (`StudioImageDescription::hash()`) |
+| `tone` | `StudioPostTextTone` |
+| `status` | `StudioPostTextGenerationStatus`: `queued`, `running`, `completed`, `failed` |
+| `attempt_id` | the batch's UUID; unique |
+| `error_code` | `StudioPostTextGenerationError` of a failed batch |
+| `titles`, `descriptions` | the validated texts of a completed batch, as JSON lists |
+| `model`, `request_id`, `input_tokens`, `output_tokens`, `total_tokens`, `latency_ms` | the call that wrote it |
+| `requested_at`, `started_at`, `finished_at` | its timings |
+
+A batch belongs to the photo and the analysis it names: the editor shows, and
+lets an administrator use, only the completed batches whose image id and hash
+match the plan's photo and that photo's analysis now. A replaced photo, or an
+analysis re-run with a different result, leaves the earlier batches stored but
+no longer shown or usable; a re-run that gives the very same description keeps
+them. `source_image_asset_id` holds nothing, like the analysis row's: the media
+lifecycle releases and purges a replaced photo as before. Only the validated
+texts and the call's metadata are stored — never the prompt, the analysis sent,
+the API key or the provider's raw answer.
+
+### The response contract
+
+One request to the Responses API per batch: `store` false, no conversation,
+tool or web search, the answer required as strict Structured Output named
+`studio_post_texts` against `StudioPostTextSuggestions::schema()`:
+
+```json
+{
+  "titles": ["string"],
+  "descriptions": ["string"]
+}
+```
+
+The instructions are fixed text — the rules, then the tone's own instruction
+from `StudioPostTextTone`, then how many of each and how long. The analysis
+travels in the input as JSON inside a `<photo_analysis>` block, `<` and `>`
+escaped so nothing in it can close the block, and is declared data, never
+instructions: text quoted from the photo cannot change the rules, the tone,
+the count or the format. The rules keep to what the analysis says is visible,
+English, no hashtags, emoji or numbering; suggestive humour is allowed for
+adults where the photo invites it, never explicit, never about anyone who is
+or may be a minor, and never humiliating a person shown.
+
+An answer is kept only when it passes `StudioPostTextSuggestions::from()` whole:
+exactly those two fields, each a list of exactly `batch_size` strings, valid
+UTF-8 with no control characters; titles 3 to 120 characters on one line,
+descriptions 1 to 2,000 (a line feed allowed), the post's own bounds
+(`PostContentRules`); and no two in a list the same or nearly so — the same
+words in any order, case or punctuation, or nine in ten words shared. Nothing
+is trimmed into shape, dropped or padded: an answer that fails one check
+stores nothing.
+
+### Requests, the job and the result
+
+| Class | Does |
+| --- | --- |
+| `RequestStudioPostTextGenerationAction` | queues a batch for the photo the editor showed, in the chosen tone |
+| `GenerateStudioPostTextsJob` | the one request to OpenAI, from the queue |
+| `StartStudioPostTextGenerationAction` | the job's claim: `queued` → `running`, for its attempt id only |
+| `CompleteStudioPostTextGenerationAction` | keeps the texts while the photo and analysis are still the batch's |
+| `FailStudioPostTextGenerationAction` | ends an unfinished batch with its reason |
+| `OpenAiStudioPostTextGenerator` (`StudioPostTextGenerator`) | the Responses API call and the reading of its answer |
+| `StudioPostTextContext` | the plan's photo, its analysis and the analysis's hash, as a batch is checked against them |
+
+A request asks `manage-studio-plans`, checks the configuration, then locks the
+administrator's row, the plan (`LocksStudioPlanDraft`), the analysis row and
+the plan's batches, in that order, and checks on them that the plan is still a
+Draft, its photo is still the one the editor showed and its analysis is
+complete and valid. It writes nothing of the plan — not a field, not
+`lock_version` — so a batch never makes a save of the texts stale. The job is
+dispatched after the commit and carries only the batch id and the attempt id.
+
+No paid call is made twice by accident: one batch per plan is on its way at a
+time. While one is queued or running, asking again — a double click, another
+tab, another administrator — starts nothing and is given that batch. A batch
+still queued or running `stale_after_seconds` (180) after it was requested or
+started is taken as lost and failed (`unexpected_failure`), and another may
+then be asked for; its job, should it still arrive, finds nothing to claim.
+
+The job claims its batch before anything else, so a redelivered job sends
+nothing. It then checks the plan as it is now — still a Draft, still that
+photo, an analysis still with that hash, still configured — and sends the
+request with no transaction open. Its timings nest inside the queue's: request
+45 s, job 75 s (`tries = 1`, `failOnTimeout`), Redis `retry_after` 90 s. It is
+never retried: whether to try again is the administrator's choice.
+
+`CompleteStudioPostTextGenerationAction` locks the plan, then the analysis row,
+then the batch, and keeps the texts only when the plan is still there and a
+Draft, its photo and analysis hash are still the batch's, and the batch is still
+running. Otherwise the batch ends (`stale_analysis`, `plan_closed`) and its texts
+are dropped. The plan itself is never written.
+
+### Errors
+
+`StudioPostTextGenerationError`, each with the sentence the editor shows:
+`not_configured`, `analysis_missing`, `stale_analysis`, `plan_closed`,
+`authentication_failed` (HTTP 401, 403), `rate_limited` (429),
+`provider_timeout` (408, 504, a timed-out connection), `provider_unavailable`
+(5xx, no connection), `provider_rejected` (another 4xx), `provider_refused` (a
+refusal), `invalid_provider_response` (a response that is not `completed`, has
+no single `output_text`, or is not a valid batch) and `unexpected_failure` (the
+job itself failed or timed out, the queue could not take it, or the batch was
+lost). A failure changes nothing of the plan, keeps every earlier batch, and
+leaves the final texts as they are.
+
+### Configuration
+
+The same Content Studio integration as photo analysis — `enabled`, `api_key`,
+`model` and `base_url` of `content_studio.image_analysis`, so the same four
+variables in `shared/.env` switch both on — with the settings particular to
+texts in `content_studio.post_text_generation`, config only:
+
+| Setting | Default |
+| --- | --- |
+| `batch_size` | 10 |
+| `connect_timeout`, `timeout` | 5 s, 45 s |
+| `max_output_tokens` | 4000 |
+| `stale_after_seconds` | 180 |
+
+While analysis is off, or the key is blank, nothing is sent and the editor
+says “Text suggestions are not configured.” — the Post step works as before.
+No key is in the repository, and tests send nothing to OpenAI.
+
+### Logs
+
+`DomainLogger` events `studio.post_text_generation.requested`, `.started`,
+`.completed`, `.failed` and `.discarded` (a job that claimed nothing, or texts
+dropped because the plan changed), with the plan id, the attempt id, the tone,
+the status, the error code, and the call's model, latency, HTTP status, tokens
+and `provider_request_id`. Never the key, the analysis, the prompt, the texts
+or the provider's answer.
+
 ## The editor
 
 Administrators work with plans in Content Studio › Publications & plans (`StudioPlanResource`): a list read
@@ -299,3 +460,10 @@ and Publication — described in `docs/design/admin/design-contract.md`. The pag
   running, and stops when it ends. While a new photo is on its way it says so — Uploading photo…, Processing
   photo… or Importing photo… — and shows nothing of the one before; a photo changed elsewhere is said to be, with
   Reload.
+- AI text suggestions are a component of its own on the Post step (`StudioPlanTextSuggestionsCard`), about the
+  saved photo the editor shows: Generate suggestions, Generate 10 more and Try again run
+  `RequestStudioPostTextGenerationAction` in the tone chosen, apart from Save draft. It alone is read again every
+  few seconds while a batch is queued or running, or the photo's analysis is on its way. Use this title and Use
+  this description check on the server that the batch is still the photo's and its analysis's and hand the text
+  to the editor (`use-studio-suggestion`), which sets its final field as typing would: unsaved, counted among the
+  unsaved changes, editable, and saved only by Save draft.

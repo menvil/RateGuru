@@ -9,6 +9,7 @@ use App\Data\Studio\StudioPlanData;
 use App\Enums\UserStatus;
 use App\Models\MediaAsset;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Events\QueryExecuted;
@@ -206,6 +207,40 @@ it('queues one photo analysis when two administrators ask for it at once, both g
         expect($analyses)->toHaveCount(1)
             ->and($analyses[0]->status)->toBe('queued')
             ->and($attempts[1])->toBe([$analyses[0]->attempt_id, $analyses[0]->attempt_id])
+            // Asking wrote nothing of the plan.
+            ->and((int) $db->table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe(3);
+    } finally {
+        forgetStudioPlanRace($db, [$first->id, $second->id], $directory);
+    }
+})->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
+it('queues one batch of text suggestions when two administrators ask for it at once, both given the same attempt', function () {
+    $db = committedConnection();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $asset = MediaAsset::factory()->postImage()->connection('committed_peer')->create(['owner_user_id' => $first->id]);
+    $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $first->id, 'image_asset_id' => $asset->id, 'lock_version' => 3]);
+    StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->connection('committed_peer')->create();
+    $directory = raceDirectory('studio-plan');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            lockRaceCompetitor($directory, 'a', ['action' => 'plan-texts', 'sync' => 'lead', 'admin' => $first->id, 'plan' => $plan->id, 'disk' => $directory.'/disk']),
+            lockRaceCompetitor($directory, 'b', ['action' => 'plan-texts', 'sync' => 'follow', 'admin' => $second->id, 'plan' => $plan->id, 'disk' => $directory.'/disk']),
+        ]);
+
+        foreach ($results as $index => $result) {
+            expect($result['status'])->toBe(0, "competitor {$index} must finish:\n{$report}");
+        }
+
+        $batches = $db->table('studio_plan_text_generations')->where('studio_plan_id', $plan->id)->get();
+        preg_match_all('/attempt (\S+)/', $report, $attempts);
+
+        expect($batches)->toHaveCount(1)
+            ->and($batches[0]->status)->toBe('queued')
+            ->and($attempts[1])->toBe([$batches[0]->attempt_id, $batches[0]->attempt_id])
             // Asking wrote nothing of the plan.
             ->and((int) $db->table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe(3);
     } finally {

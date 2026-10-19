@@ -1,15 +1,22 @@
 {{--
-    Step 2 · Post. What the post will be: its final title and description and
-    its source address; the Persona it is published as, chosen from living
-    Personas found on the server; its category and tags; and the author's own
-    answers to the rating questions. AI suggestions are not built yet, and
-    nothing here is a vote.
+    Step 2 · Post. AI text suggestions first (StudioPlanTextSuggestionsCard),
+    written from the photo's analysis, drawn afresh for every photo; then what
+    the post will be: its final title and description — a suggestion used
+    lands here, unsaved, and stays editable — and its source address; the
+    Persona it is published as, chosen from living Personas found on the
+    server; its category and tags; and the author's own answers to the rating
+    questions. Nothing here is a vote.
 --}}
+<livewire:admin.studio-plan-text-suggestions-card
+    :plan-id="$analysisPlanId"
+    :image-asset-id="$analysisImageId"
+    :wire:key="'studio-plan-text-suggestions-'.$analysisPlanId.'-'.($analysisImageId ?? 'none')"
+/>
+
 <div class="rg-admin-studio__columns">
     <div class="rg-admin-studio__column">
-        <x-admin.ui.card title="Texts" description="The title and description the post is published with.">
+        <x-admin.ui.card title="Final texts" description="The title and description the post is published with. Pick a suggestion above or write your own; both stay editable.">
             <div class="rg-admin-studio__stack">
-                <x-admin.ui.inline-notice tone="info">AI title and description suggestions will be available in the next phase.</x-admin.ui.inline-notice>
                 <x-admin.ui.textarea
                     label="Final title"
                     id="rg-admin-studio-title"

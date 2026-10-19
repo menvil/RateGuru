@@ -1057,10 +1057,24 @@ actions (`docs/architecture/studio-plans.md`).
     photo has not been analysed yet.” with Re-run analysis for a photo stored before analysis was on; “Photo
     analysis is not configured.”; and the photo's File, Dimensions, Size and Format (LAY-03). Neither is part of
     Save draft.
-  - **Post:** Final title (3 to 120, with its counter), Final description (up to 2,000), Source URL — never the
-    link a photo is imported from —, the author chosen from living personas found on the server (a restricted one
-    with “This persona cannot publish while restricted.”), the category (an inactive one kept and marked), up to
-    ten tags, and the author's answer in each active rating group. AI suggestions say they are not built yet.
+  - **Post:** first, AI text suggestions, a component of its own about the saved photo: Tone of new variants
+    (Playful, Humour, Cheeky — chosen at first —, Irony, Neutral; a radio group whose choice changes nothing until
+    the next batch) and Generate suggestions, “One request to OpenAI for 10 titles and 10 descriptions — a paid
+    call.”; then Generate 10 more, or Try again after a failure. “Waiting for text suggestions…” and “Generating
+    suggestions…” (FBK-02 info, the button disabled, read again every few seconds, and only then); a failure in
+    its own words with “The final title and description are unchanged.” (FBK-02 warning), every earlier batch
+    kept under it. The batches for the photo and its analysis as they are now, newest first, each “Set n · tone ·
+    date”, in two columns — Titles and Descriptions, numbered, each with Use this title or Use this description,
+    the one in the final field marked In use. Using one puts it in Final title or Final description as typing
+    would: unsaved, counted in the top bar, editable, saved only by Save draft; nothing is generated or saved by
+    itself. Until the photo's analysis is complete, “Text suggestions will be available when photo analysis is
+    complete.”; with no photo, “Add a photo on the Image step first: suggestions are written from its analysis.”;
+    unconfigured, “Text suggestions are not configured.”, the step working as before. Batches written for an
+    earlier photo or analysis are neither shown nor used. Then Final texts: Final title (3 to 120, with its
+    counter), Final description (up to 2,000), Source URL — never the link a photo is imported from —, the author
+    chosen from living personas found on the server (a restricted one with “This persona cannot publish while
+    restricted.”), the category (an inactive one kept and marked), up to ten tags, and the author's answer in each
+    active rating group.
   - **Discussion:** says what will come in a later phase; nothing else.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
     zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
@@ -1444,7 +1458,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
 | Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
-| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more; Final description up to 500 | Final title and Final description, up to 2,000, with a note that suggestions come later | AI texts are not built yet; a post's description takes 2,000 characters |
+| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column; Final description up to 500 | one Generate for both columns, every batch kept newest first under Set n · tone · date, Use this title and Use this description with an In use mark; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
 | Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |

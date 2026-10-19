@@ -2,13 +2,16 @@
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
+use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
+use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -20,6 +23,7 @@ use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
+use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
@@ -50,6 +54,7 @@ use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
 use Database\Factories\StudioPlanImageAnalysisFactory;
+use Database\Factories\StudioPlanTextGenerationFactory;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -13043,7 +13048,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
         $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
         // A stored photo lands in the test's scratch directory, and nothing is
-        // queued — so photo analysis, switched on here, never sends anything.
+        // queued — so photo analysis and text suggestions, switched on here,
+        // never send anything.
         config([
             'filesystems.disks.'.config('media.disks.public').'.root' => $job['disk'],
             'queue.connections.null' => ['driver' => 'null'],
@@ -13167,6 +13173,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
+                // The text suggestions an analysed photo asks for; says which attempt it was given.
+                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
                 // What Release in Media diagnostics runs.
                 'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
             };
@@ -13301,4 +13309,52 @@ function studioPlanWithStoredPhoto(array $attributes = [], bool $withFeedVariant
     }
 
     return $plan;
+}
+
+// =============================================================================
+// Content Studio post text suggestions
+// =============================================================================
+
+/**
+ * A completed Responses API body whose structured output is a batch of post
+ * texts — the factory's ten titles and ten descriptions, unless others are given.
+ *
+ * @param  list<string>|null  $titles
+ * @param  list<string>|null  $descriptions
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioPostTextsBody(?array $titles = null, ?array $descriptions = null, array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode(['titles' => $titles ?? StudioPlanTextGenerationFactory::titles(), 'descriptions' => $descriptions ?? StudioPlanTextGenerationFactory::descriptions()], JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_texts_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * A Draft with a photo whose analysis has finished — the factory's
+ * description, or this one — so post texts may be written for it.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @param  array<string, mixed>|null  $description
+ */
+function studioPlanWithFinishedAnalysis(array $attributes = [], ?array $description = null): StudioPlan
+{
+    $plan = StudioPlan::factory()->withImage()->create($attributes);
+    StudioPlanImageAnalysis::factory()->forPlan($plan)->completed($description)->create();
+
+    return $plan;
+}
+
+/** Generate suggestions for the photo the editor shows — the plan's own — in a tone. */
+function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTone $tone = StudioPostTextTone::Cheeky, ?int $imageAssetId = null): StudioPlanTextGeneration
+{
+    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $tone);
+}
+
+/** Runs the job of that batch, as a worker would. */
+function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
+{
+    app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
 }

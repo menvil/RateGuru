@@ -153,6 +153,15 @@ final readonly class StudioImageDescription
         ];
     }
 
+    /**
+     * The description in one value, to tell whether two are the same: a hash
+     * of every field, in the fixed order of toArray().
+     */
+    public function hash(): string
+    {
+        return hash('sha256', json_encode($this->toArray(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
     /** A trimmed string within the limit, with no control characters; null when it is not one. */
     private static function text(mixed $value, int $maxChars): ?string
     {

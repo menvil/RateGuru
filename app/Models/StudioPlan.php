@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -124,6 +125,18 @@ class StudioPlan extends Model
     public function imageAnalysis(): HasOne
     {
         return $this->hasOne(StudioPlanImageAnalysis::class);
+    }
+
+    /**
+     * Every batch of post text suggestions it asked for — those written from
+     * its photo and analysis as they are now, and those from earlier ones,
+     * kept as history (StudioPlanTextGeneration::isFor()).
+     *
+     * @return HasMany<StudioPlanTextGeneration, $this>
+     */
+    public function textGenerations(): HasMany
+    {
+        return $this->hasMany(StudioPlanTextGeneration::class);
     }
 
     public function isDraft(): bool

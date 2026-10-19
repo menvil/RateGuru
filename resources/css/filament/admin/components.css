@@ -5233,6 +5233,174 @@
         max-width: 1320px;
     }
 
+    /* Post: AI text suggestions — the tone and Generate above, titles and descriptions side by side until they no longer fit. */
+    .rg-admin-studio__suggestions {
+        max-width: 1320px;
+        margin-bottom: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__suggestions-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-4) var(--rg-admin-space-6);
+    }
+
+    .rg-admin-studio__suggestions-bar > .rg-admin-field {
+        flex: 1 1 380px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__suggestions-action {
+        display: flex;
+        flex: 0 1 280px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__suggestions-action .rg-admin-hint,
+    .rg-admin-studio__suggestions-bar .rg-admin-hint {
+        margin: 0;
+    }
+
+    .rg-admin-studio__tones {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__tone {
+        height: 30px;
+        padding: 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__tone:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__tone:focus-visible {
+        outline: 2px solid var(--rg-admin-surface-inverse);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-studio__tone[aria-checked="true"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__tone:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+
+    .rg-admin-studio__suggestion-columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+        gap: var(--rg-admin-space-4) var(--rg-admin-space-6);
+    }
+
+    .rg-admin-studio__suggestion-column {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__suggestion-heading {
+        margin: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__suggestion-set {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__suggestion-meta {
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+    }
+
+    .rg-admin-studio__suggestion-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    /* Each suggestion whole, never cut short: the text wraps, the action beside it or under it. */
+    .rg-admin-studio__suggestion {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2) 10px;
+        padding: 9px 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-studio__suggestion--used {
+        border-color: var(--rg-admin-surface-inverse);
+        box-shadow: 0 0 0 1px var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-studio__suggestion-number {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__suggestion-text {
+        flex: 1 1 200px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        white-space: pre-line;
+    }
+
+    .rg-admin-studio__suggestion-used {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--rg-admin-status-success-fg);
+        font-size: var(--rg-admin-text-micro);
+        line-height: 22px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__suggestion-use {
+        margin-left: auto;
+    }
+
     /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */
     .rg-admin-studio__columns--photo {
         display: flex;
