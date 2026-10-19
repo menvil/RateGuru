@@ -282,6 +282,36 @@ it('puts the saved values back on Discard', function () {
     expect($plan->fresh()->lock_version)->toBe(1);
 });
 
+it('puts back on Discard what is saved now, with its version, so the next save is no conflict', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'Original']);
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->set('postTitle', 'Mine');
+
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $plan, new StudioPlanData(title: 'Theirs'), 1);
+    $page->call('save')->assertSet('stale', true);
+
+    $page->dispatch('discard-studio-plan')
+        ->assertSet('postTitle', 'Theirs')
+        ->assertSet('lockVersion', 2)
+        ->assertSet('stale', false);
+
+    expect($page->get('saved')['title'])->toBe('Theirs');
+
+    $page->set('postTitle', 'Mine, after all')->call('save')->assertSet('stale', false)->assertHasNoErrors();
+
+    expect($plan->fresh())->title->toBe('Mine, after all')->lock_version->toBe(3);
+});
+
+it('leaves an empty draft that can no longer be saved when Discard finds the plan deleted', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'Original']);
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->set('postTitle', 'Mine');
+
+    StudioPlan::query()->whereKey($plan->id)->delete();
+
+    $page->dispatch('discard-studio-plan')
+        ->assertSet('gone', true)
+        ->assertSet('postTitle', '');
+});
+
 it('refuses a save drawn before somebody else\'s, keeps what was typed, and Reload draws theirs', function () {
     $plan = StudioPlan::factory()->create(['title' => 'Original']);
     $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->set('postTitle', 'Mine');
@@ -342,6 +372,7 @@ it('takes no status, version or identity from a request', function (string $prop
     'what it was drawn from' => ['fingerprint', 'forged'],
     'what is saved' => ['saved', []],
     'a closed plan' => ['closed', false],
+    'the step on screen' => ['step', 'nowhere'],
 ]);
 
 it('publishes, queues and asks AI for nothing', function () {

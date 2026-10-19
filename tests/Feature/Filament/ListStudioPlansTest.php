@@ -220,3 +220,16 @@ it('reads a page of plans in the same few queries however many it shows', functi
 
     expect($count())->toBe($few);
 });
+
+it('says how many plans match a search in words that agree with the count', function () {
+    StudioPlan::factory()->create(['title' => 'Harbour at dawn']);
+    StudioPlan::factory()->create(['title' => 'Harbour at dusk']);
+    StudioPlan::factory()->create(['title' => 'Owls']);
+
+    Livewire::test(ListStudioPlans::class)
+        ->assertSeeHtml('role="status">3 plans</span>')
+        ->set('q', 'harbour')
+        ->assertSeeHtml('role="status">2 plans match</span>')
+        ->set('q', 'dawn')
+        ->assertSeeHtml('role="status">1 plan matches</span>');
+});

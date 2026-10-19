@@ -101,3 +101,15 @@ it('counts every plan, the drafts, and those with a photo and with an author', f
 
     expect(app(StudioPlansQuery::class)->stats())->toBe(['total' => 3, 'drafts' => 2, 'withImage' => 2, 'withAuthor' => 1]);
 });
+
+it('keeps plans saved at the same moment in one place across pages, none twice and none left out', function () {
+    $plans = StudioPlan::factory()->count(27)->create(['updated_at' => now()->subHour()]);
+
+    $first = studioPlansPage(page: 1);
+    $second = studioPlansPage(page: 2);
+
+    expect($first)->toHaveCount(25)
+        ->and($second)->toHaveCount(2)
+        ->and(array_intersect($first, $second))->toBe([])
+        ->and([...$first, ...$second])->toBe($plans->pluck('id')->sortDesc()->values()->all());
+});

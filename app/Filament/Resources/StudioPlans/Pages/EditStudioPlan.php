@@ -90,17 +90,26 @@ final class EditStudioPlan extends Page
         return $plan !== null ? StudioPlanFormat::title($plan) : 'Publication';
     }
 
+    /**
+     * Puts back what is saved: the plan as it is now, with its version and
+     * what the draft is compared to, so nothing on the page is drawn from one
+     * save and compared to another. A plan deleted meanwhile leaves an empty
+     * draft that can no longer be saved.
+     */
     #[On('discard-studio-plan')]
     public function discard(): void
     {
         $plan = StudioPlan::query()->find($this->planId);
-
-        $this->fillDraft(StudioPlanData::of($plan ?? new StudioPlan));
         $this->resetErrorBag();
 
         if ($plan === null) {
+            $this->fillDraft(new StudioPlanData);
             $this->gone = true;
+
+            return;
         }
+
+        $this->draw($plan);
     }
 
     /** Draws the plan as it is now: its version, its photo and the draft with them. */

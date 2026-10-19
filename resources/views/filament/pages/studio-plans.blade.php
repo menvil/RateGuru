@@ -67,7 +67,7 @@
                     </span>
                 @endif
                 {{-- Always present, so a screen reader hears the new count while focus stays in the field. --}}
-                <span class="rg-admin-toolbar__count" role="status">{{ number_format($total) }} {{ \Illuminate\Support\Str::plural('plan', $total) }}{{ $filtered ? ' match' : '' }}</span>
+                <span class="rg-admin-toolbar__count" role="status">{{ number_format($total) }} {{ \Illuminate\Support\Str::plural('plan', $total) }}{{ $filtered ? ($total === 1 ? ' matches' : ' match') : '' }}</span>
             </div>
 
             @if ($rows !== [])

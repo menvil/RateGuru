@@ -64,7 +64,12 @@ trait EditsStudioPlan
     /** The most Personas, and tags, offered at once to choose from. */
     private const CHOICES = 8;
 
-    /** The step on screen. Not part of the draft. */
+    /**
+     * The step on screen. Not part of the draft, and changed only through
+     * goToStep() and the save that shows a step with something to fix, never
+     * set from the browser.
+     */
+    #[Locked]
     public string $step = 'image';
 
     /** The post's title. Not `$title`, which is the page's own. */
