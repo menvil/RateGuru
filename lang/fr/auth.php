@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Vous n\'avez pas de compte ?',
         'have_account' => 'Vous avez déjà un compte ?',
+        'remembered_password' => 'Vous vous souvenez de votre mot de passe ?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'ou',
 
     'forgot_password' => [
+        'title' => 'Réinitialiser le mot de passe',
         'intro' => 'Mot de passe oublié ? Aucun problème. Indiquez-nous simplement votre adresse e-mail et nous vous enverrons un lien de réinitialisation qui vous permettra d\'en choisir un nouveau.',
         'action' => 'Envoyer le lien de réinitialisation',
     ],

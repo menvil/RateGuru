@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Ertu ekki með aðgang?',
         'have_account' => 'Ertu nú þegar með aðgang?',
+        'remembered_password' => 'Manstu lykilorðið?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'eða',
 
     'forgot_password' => [
+        'title' => 'Endurstilla lykilorð',
         'intro' => 'Gleymdirðu lykilorðinu? Ekkert mál. Gefðu okkur upp netfangið þitt og við sendum þér tölvupóst með hlekk til að endurstilla lykilorðið svo þú getir valið nýtt.',
         'action' => 'Senda hlekk til að endurstilla lykilorð',
     ],

@@ -11,11 +11,11 @@ use Illuminate\Validation\ValidationException;
 /**
  * Where an authentication attempt started, and therefore where it ends.
  *
- * There are two surfaces. The standalone pages (/login, /register) behave
- * exactly as they always have. The modal marks its requests explicitly —
- * surface, mode and the page the person was on — and everything started
- * there comes back to that page: a success lands on it, a failure lands on
- * it with the modal open again.
+ * There are two surfaces. The standalone pages (/login, /register,
+ * /forgot-password) behave exactly as they always have. The modal marks its
+ * requests explicitly — surface, mode and the page the person was on — and
+ * everything started there comes back to that page: a success lands on it,
+ * a failure lands on it with the modal open again.
  *
  * This class only decides where responses go. It authenticates nobody,
  * links nothing and never looks at credentials; the actions it wraps are
@@ -161,6 +161,22 @@ final readonly class AuthSurfaceContext
         redirect()->setIntendedUrl($this->returnPath);
 
         return redirect()->intended($default);
+    }
+
+    /**
+     * The reset link is on its way. The standalone page says so where it
+     * always has; the modal comes back in the same state, saying it there.
+     */
+    public function redirectAfterPasswordResetLinkRequest(string $status): RedirectResponse
+    {
+        if (! $this->modal) {
+            return back()->with('status', $status);
+        }
+
+        return redirect($this->returnPath)->with(self::FLASH_KEY, [
+            'mode' => AuthModalMode::ForgotPassword->value,
+            'notice' => $status,
+        ]);
     }
 
     /** An expected social sign-in failure, shown on the surface it started from. */

@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Wala ka pang account?',
         'have_account' => 'May account ka na?',
+        'remembered_password' => 'Naalala mo na ang iyong password?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'o',
 
     'forgot_password' => [
+        'title' => 'I-reset ang password',
         'intro' => 'Nakalimutan ang iyong password? Walang problema. Ibigay lang sa amin ang iyong email address at padadalhan ka namin ng link para i-reset ang password, kung saan makakapili ka ng bago.',
         'action' => 'I-email ang Link para I-reset ang Password',
     ],

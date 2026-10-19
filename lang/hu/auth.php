@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Még nincs fiókod?',
         'have_account' => 'Már van fiókod?',
+        'remembered_password' => 'Eszedbe jutott a jelszavad?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'vagy',
 
     'forgot_password' => [
+        'title' => 'Jelszó visszaállítása',
         'intro' => 'Elfelejtetted a jelszavad? Semmi gond. Add meg az e-mail-címed, és küldünk egy jelszó-visszaállító linket, amellyel új jelszót választhatsz.',
         'action' => 'Jelszó-visszaállító link küldése',
     ],

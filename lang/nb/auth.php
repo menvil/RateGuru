@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Har du ikke en konto?',
         'have_account' => 'Har du allerede en konto?',
+        'remembered_password' => 'Husker du passordet?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'eller',
 
     'forgot_password' => [
+        'title' => 'Tilbakestill passord',
         'intro' => 'Glemt passordet? Ikke noe problem. Oppgi e-postadressen din, så sender vi deg en lenke der du kan velge et nytt passord.',
         'action' => 'Send lenke for tilbakestilling av passord',
     ],

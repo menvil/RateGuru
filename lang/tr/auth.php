@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Hesabınız yok mu?',
         'have_account' => 'Zaten hesabınız var mı?',
+        'remembered_password' => 'Şifrenizi hatırladınız mı?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'veya',
 
     'forgot_password' => [
+        'title' => 'Şifre sıfırlama',
         'intro' => 'Şifrenizi mi unuttunuz? Sorun değil. E-posta adresinizi bize bildirin, size yeni bir şifre seçmenizi sağlayacak bir şifre sıfırlama bağlantısı gönderelim.',
         'action' => 'Şifre sıfırlama bağlantısı gönder',
     ],

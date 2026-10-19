@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Sul pole veel kontot?',
         'have_account' => 'Sul on juba konto?',
+        'remembered_password' => 'Meenus parool?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'või',
 
     'forgot_password' => [
+        'title' => 'Parooli lähtestamine',
         'intro' => 'Unustasid parooli? Pole probleemi. Sisesta oma e-posti aadress ja me saadame sulle parooli lähtestamise lingi, mille kaudu saad valida uue parooli.',
         'action' => 'Saada parooli lähtestamise link',
     ],

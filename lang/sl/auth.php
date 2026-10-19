@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Še nimaš računa?',
         'have_account' => 'Že imaš račun?',
+        'remembered_password' => 'Se spomniš gesla?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'ali',
 
     'forgot_password' => [
+        'title' => 'Ponastavitev gesla',
         'intro' => 'Pozabljeno geslo? Ni težav. Vpiši svoj e-poštni naslov in poslali ti bomo povezavo za ponastavitev, s katero lahko nastaviš novo geslo.',
         'action' => 'Pošlji povezavo za ponastavitev gesla',
     ],

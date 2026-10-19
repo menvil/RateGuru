@@ -9,11 +9,12 @@ use Illuminate\Http\Request;
  * Whether the authentication modal starts open on this page load, and in
  * which mode.
  *
- * It opens by itself for exactly two reasons, both explicit: the previous
+ * It opens by itself for exactly three reasons, all explicit: the previous
  * request was a form post that marked itself as coming from the modal and
- * failed validation, or a social round trip that started in the modal ended
- * in an expected failure or a pending link. The mere presence of validation
- * errors on a page never opens it — those may belong to any other form.
+ * failed validation, a reset link requested from the modal went out, or a
+ * social round trip that started in the modal ended in an expected failure
+ * or a pending link. The mere presence of validation errors on a page never
+ * opens it — those may belong to any other form.
  */
 final readonly class AuthModalState
 {

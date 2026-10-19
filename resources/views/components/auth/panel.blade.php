@@ -7,8 +7,10 @@
     it, and only those available right now — with none, the "or" goes too.
     A provider switched off while accounts still sign in with it is named
     in a notice on the login side, pointing those people to setting a
-    password. The standalone pages and both modes of the modal are this
-    component, so the two surfaces cannot drift apart.
+    password. The reset-link request is the same screen without providers:
+    its form, then the way back to logging in. The standalone pages and
+    every mode of the modal are this component, so the two surfaces cannot
+    drift apart.
 
     $socialProviders and $unavailableSocialProviders come from the view
     composer in AppServiceProvider.
@@ -28,14 +30,22 @@
 @php
     $mode = AuthModalMode::fromInput($mode);
     $isModal = $surface === AuthSurfaceContext::MODAL;
+    $offersProviders = $mode !== AuthModalMode::ForgotPassword && $socialProviders !== [];
+
+    // Login and sign-up point at each other; a reset-link request leads back to login.
     $other = $mode === AuthModalMode::Login ? AuthModalMode::Register : AuthModalMode::Login;
     $socialErrors = $active
         ? ($errors ?? new ViewErrorBag)->getBag($isModal ? AuthSurfaceContext::ERROR_BAG : 'default')->get('social')
         : [];
 
-    $prompt = $mode === AuthModalMode::Login ? __('auth.prompts.no_account') : __('auth.prompts.have_account');
-    $switchLabel = $mode === AuthModalMode::Login ? __('auth.register.action') : __('auth.login.action');
+    $prompt = match ($mode) {
+        AuthModalMode::Login => __('auth.prompts.no_account'),
+        AuthModalMode::Register => __('auth.prompts.have_account'),
+        AuthModalMode::ForgotPassword => __('auth.prompts.remembered_password'),
+    };
+    $switchLabel = $other === AuthModalMode::Register ? __('auth.register.action') : __('auth.login.action');
     $switchClasses = 'cursor-pointer rounded-md font-semibold text-rg-accent2 hover:text-rg-text focus:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent';
+    $setPasswordClasses = 'cursor-pointer rounded-sm font-semibold text-rg-accent2 underline hover:text-rg-text focus:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent';
 @endphp
 
 <div {{ $attributes }}>
@@ -45,17 +55,19 @@
 
     @if ($mode === AuthModalMode::Login)
         <x-auth.login-form :surface="$surface" :return-to="$returnTo" :active="$active" />
-    @else
+    @elseif ($mode === AuthModalMode::Register)
         <x-auth.register-form :surface="$surface" :return-to="$returnTo" :active="$active" />
+    @else
+        <x-auth.forgot-password-form :surface="$surface" :return-to="$returnTo" :active="$active" />
     @endif
 
-    @if ($socialProviders !== [])
+    @if ($offersProviders)
         <x-auth.divider class="mt-6" />
     @endif
 
     <x-input-error :messages="$socialErrors" class="mt-4" data-testid="social-error" />
 
-    @if ($socialProviders !== [])
+    @if ($offersProviders)
         <x-auth.social-buttons
             class="mt-4"
             :providers="$socialProviders"
@@ -73,11 +85,20 @@
             @foreach ($unavailableSocialProviders as $provider)
                 <p>
                     {{ __('auth.social.unavailable_notice', ['provider' => $provider->label()]) }}
-                    <a
-                        class="rounded-sm font-semibold text-rg-accent2 underline hover:text-rg-text focus:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-                        href="{{ route('password.request') }}"
-                        data-testid="social-unavailable-set-password"
-                    >{{ __('auth.social.unavailable_set_password') }}</a>
+                    @if ($isModal)
+                        <button
+                            type="button"
+                            class="{{ $setPasswordClasses }}"
+                            data-testid="social-unavailable-set-password"
+                            x-on:click="$dispatch('open-auth-modal', { mode: '{{ AuthModalMode::ForgotPassword->value }}' })"
+                        >{{ __('auth.social.unavailable_set_password') }}</button>
+                    @else
+                        <a
+                            class="{{ $setPasswordClasses }}"
+                            href="{{ route('password.request') }}"
+                            data-testid="social-unavailable-set-password"
+                        >{{ __('auth.social.unavailable_set_password') }}</a>
+                    @endif
                 </p>
             @endforeach
         </div>

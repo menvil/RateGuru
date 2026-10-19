@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Vai jums nav konta?',
         'have_account' => 'Vai jums jau ir konts?',
+        'remembered_password' => 'Atcerējāties paroli?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'vai',
 
     'forgot_password' => [
+        'title' => 'Paroles atiestatīšana',
         'intro' => 'Aizmirsāt paroli? Nekas. Norādiet savu e-pasta adresi, un mēs nosūtīsim paroles atiestatīšanas saiti, ar kuru varēsiet izvēlēties jaunu paroli.',
         'action' => 'Nosūtīt paroles atiestatīšanas saiti',
     ],
