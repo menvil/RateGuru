@@ -5,8 +5,9 @@
      * deleted, never what it was called; its photo at thumbnail size; when it
      * is to be published, in words that promise nothing a draft does not do;
      * its state (STS-01); when it was last saved. A draft has Edit inline and
-     * Delete draft in the row menu (TBL-04); a plan past its draft has
-     * neither, and the menu says why.
+     * Delete draft in the row menu (TBL-04), which asks about the version
+     * this row shows; a plan past its draft has neither, and the menu says
+     * why.
      */
     $id = 'rg-admin-studio-plan-'.$row['id'];
     $author = $row['author'];
@@ -81,7 +82,7 @@
             <p class="rg-admin-menu__caption">{{ $row['title'] }} · {{ $row['state']['label'] }}</p>
             @if ($row['draft'])
                 <x-admin.ui.menu-item icon="pencil" :href="$row['editUrl']">Edit draft</x-admin.ui.menu-item>
-                <x-admin.ui.menu-item icon="trash-2" tone="danger" wire:click="askToDelete({{ $row['id'] }})">Delete draft</x-admin.ui.menu-item>
+                <x-admin.ui.menu-item icon="trash-2" tone="danger" wire:click="askToDelete({{ $row['id'] }}, {{ $row['version'] }})">Delete draft</x-admin.ui.menu-item>
             @else
                 <x-admin.ui.menu-item icon="pencil" :disabled="true" hint="Only a draft can be edited">Edit draft</x-admin.ui.menu-item>
                 <x-admin.ui.menu-item icon="trash-2" tone="danger" :disabled="true" hint="Only a draft can be deleted">Delete draft</x-admin.ui.menu-item>

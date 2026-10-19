@@ -165,3 +165,20 @@ it('deletes a draft from its editor once confirmed, and lands on the list withou
     expect(StudioPlan::query()->find($this->plan->id))->toBeNull()
         ->and($page->script("document.querySelector('.rg-admin-empty-state__title')?.textContent.trim()"))->toBe('No publication plans yet');
 });
+
+it('counts a link as unsaved only while the link is the source', function () {
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit");
+
+    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:last-child').click()");
+    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url')");
+
+    $page->script("(() => { const field = document.getElementById('rg-admin-studio-image-url'); field.value = 'https://example.com/photo.jpg'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
+    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
+
+    // Back to the computer: the link is dropped, and nothing is left unsaved.
+    $page->script("document.querySelector('.rg-admin-studio__segmented [role=\"radio\"]:first-child').click()");
+    waitForScript($page, "!! document.querySelector('.rg-admin-studio__dropzone')");
+    waitForScript($page, "getComputedStyle(document.querySelector('.rg-admin-topbar__unsaved')).display === 'none'");
+
+    expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+});

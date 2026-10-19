@@ -104,20 +104,31 @@ final class ListStudioPlans extends Page
         $this->pageNumber = 1;
     }
 
-    /** Asks before a Draft is deleted, remembering the version the row showed. */
-    public function askToDelete(mixed $id): void
+    /**
+     * Asks before a Draft is deleted — the Draft as its row showed it
+     * (`$version`), never as it is by the time Delete is pressed: a draft
+     * somebody saved since the list was drawn is not offered for deletion
+     * unseen, and the confirmation deletes only the version it asked about.
+     */
+    public function askToDelete(mixed $id, mixed $version): void
     {
+        $this->closeConfirmation();
         $plan = is_numeric($id) ? StudioPlan::query()->find((int) $id) : null;
 
         if ($plan === null || ! $plan->isDraft()) {
-            $this->closeConfirmation();
             $this->dispatch('rg-admin-toast', message: $plan === null ? 'This draft was already deleted.' : 'Only a draft can be deleted.', tone: 'info');
 
             return;
         }
 
+        if (! is_numeric($version) || (int) $version !== $plan->lock_version) {
+            $this->dispatch('rg-admin-toast', message: 'Someone changed this draft since the list was drawn. Refresh the list and check it before deleting.', tone: 'error');
+
+            return;
+        }
+
         $this->confirmingId = $plan->id;
-        $this->confirmingVersion = $plan->lock_version;
+        $this->confirmingVersion = (int) $version;
     }
 
     public function closeConfirmation(): void
@@ -223,6 +234,7 @@ final class ListStudioPlans extends Page
             'when' => StudioPlanFormat::publication($plan->publication_mode, $plan->publish_at),
             'state' => StudioPlanFormat::state($plan->status),
             'draft' => $plan->isDraft(),
+            'version' => $plan->lock_version,
             'updated' => $plan->updated_at !== null ? ModerationListFormat::when($plan->updated_at) : '—',
         ];
     }

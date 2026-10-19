@@ -8,8 +8,8 @@
      * The browser counts what is unsaved from the draft against `saved`
      * (filament.pages.editor.script) and asks before a page with unsaved
      * changes is left; moving between steps is never a change, while a
-     * chosen photo, a link to import one from and taking the saved one off
-     * each count as one. An editor drawn before somebody else's save, of a
+     * chosen photo, a link to import one from — each only while its source is
+     * the one on screen — and taking the saved one off each count as one. An editor drawn before somebody else's save, of a
      * plan deleted meanwhile or of one past its Draft holds Save back and
      * says so.
      */
@@ -23,8 +23,8 @@
         authorAnswers: Object.values($wire.authorAnswers ?? {}).filter((option) => option !== \'\' && option !== null).map(Number).sort((a, b) => a - b).join(\',\'),
         publicationMode: $wire.publicationMode,
         publishAt: $wire.publicationMode === \'at_date\' ? $wire.publishAt : \'\',
-        photo: $wire.photo ? \'new\' : \'\',
-        imageUrl: ($wire.imageUrl ?? \'\').trim(),
+        photo: $wire.imageSource === \'upload\' && $wire.photo ? \'new\' : \'\',
+        imageUrl: $wire.imageSource === \'link\' ? ($wire.imageUrl ?? \'\').trim() : \'\',
         removeImage: $wire.removeImage ? \'yes\' : \'\',
     }';
     // One line: Alpine reads a handler that starts with `if` as a statement

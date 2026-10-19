@@ -86,7 +86,7 @@ it('saves and deletes nothing through Livewire for a session demoted since the p
     $saving = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->set('postTitle', 'Taken over');
     $deleting = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->call('askToDelete');
     $creating = Livewire::test(CreateStudioPlan::class)->set('postTitle', 'Not mine');
-    $listing = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id);
+    $listing = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id, $plan->lock_version);
 
     $admin->forceFill(['role' => UserRole::Moderator])->save();
 

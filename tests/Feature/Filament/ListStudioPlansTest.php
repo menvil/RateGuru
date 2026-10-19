@@ -100,8 +100,9 @@ it('offers a draft Edit and Delete draft, and a plan past its draft neither, say
     $page = Livewire::test(ListStudioPlans::class);
 
     expect(listedRow($page, $approved))->toMatchArray(['draft' => false, 'state' => ['label' => 'Approved', 'tone' => 'info', 'dot' => false]]);
-    $page->assertSeeHtml('wire:click="askToDelete('.$draft->id.')"')
-        ->assertDontSeeHtml('wire:click="askToDelete('.$approved->id.')"')
+    // Delete draft asks about the version the row shows.
+    $page->assertSeeHtml('wire:click="askToDelete('.$draft->id.', 1)"')
+        ->assertDontSeeHtml('wire:click="askToDelete('.$approved->id.',')
         ->assertSee('Only a draft can be deleted')
         ->assertDontSee('Unschedule')
         ->assertDontSee('View post');

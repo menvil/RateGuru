@@ -25,7 +25,7 @@ it('asks first, and Cancel changes nothing', function () {
     $plan = StudioPlan::factory()->create(['title' => 'Harbour']);
 
     Livewire::test(ListStudioPlans::class)
-        ->call('askToDelete', $plan->id)
+        ->call('askToDelete', $plan->id, $plan->lock_version)
         ->assertSet('confirmingId', $plan->id)
         ->assertSee('Delete this draft?')
         ->assertSee('The draft will be removed. Its image will be released if nothing else uses it.')
@@ -44,7 +44,7 @@ it('deletes a draft from the list, releasing its photo and touching no persona o
     $assetId = $plan->image_asset_id;
 
     Livewire::test(ListStudioPlans::class)
-        ->call('askToDelete', $plan->id)
+        ->call('askToDelete', $plan->id, $plan->lock_version)
         ->call('delete')
         ->assertDispatched('rg-admin-toast', message: 'Harbour deleted', tone: 'success')
         ->assertSet('confirmingId', null)
@@ -60,29 +60,69 @@ it('offers no deletion for a plan past its draft, and refuses one asked for by h
     $plan = StudioPlan::factory()->status(StudioPlanStatus::Approved)->create();
 
     Livewire::test(ListStudioPlans::class)
-        ->call('askToDelete', $plan->id)
+        ->call('askToDelete', $plan->id, $plan->lock_version)
         ->assertSet('confirmingId', null)
         ->assertDispatched('rg-admin-toast', message: 'Only a draft can be deleted.', tone: 'info');
 
     expect($plan->fresh())->not->toBeNull();
 });
 
-it('deletes nothing over somebody else\'s save made since the list was drawn', function () {
+it('asks about no draft somebody saved after the list was drawn, and deletes nothing', function () {
     $plan = StudioPlan::factory()->create(['title' => 'Harbour']);
-    $page = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id);
+    // The list is drawn here: its row shows version 1.
+    $page = Livewire::test(ListStudioPlans::class);
+    $shown = listedRow($page, $plan)['version'];
+
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $plan, new StudioPlanData(title: 'Harbour, edited'), 1);
+
+    // Delete pressed on the row as it was drawn.
+    $page->call('askToDelete', $plan->id, $shown)
+        ->assertSet('confirmingId', null)
+        ->assertSet('confirmingVersion', null)
+        ->assertDispatched('rg-admin-toast', message: 'Someone changed this draft since the list was drawn. Refresh the list and check it before deleting.', tone: 'error')
+        ->assertDontSee('Delete this draft?')
+        // Nothing was asked, so nothing is deleted however the confirmation is reached.
+        ->call('delete');
+
+    expect($shown)->toBe(1)
+        ->and($plan->fresh())->not->toBeNull()
+        ->and($plan->fresh()->title)->toBe('Harbour, edited');
+});
+
+it('deletes nothing when somebody saves the draft while its deletion is being confirmed', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'Harbour']);
+    $page = Livewire::test(ListStudioPlans::class);
+    $page->call('askToDelete', $plan->id, listedRow($page, $plan)['version'])
+        ->assertSet('confirmingVersion', 1)
+        ->assertSee('Delete this draft?');
 
     app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $plan, new StudioPlanData(title: 'Harbour, edited'), 1);
 
     $page->call('delete')
         ->assertDispatched('rg-admin-toast', message: 'Someone changed this draft since the list was drawn, so it wasn’t deleted. Check it and try again.', tone: 'error');
 
-    expect($plan->fresh())->title->toBe('Harbour, edited');
+    expect($plan->fresh())->not->toBeNull()
+        ->and($plan->fresh()->title)->toBe('Harbour, edited');
 });
+
+it('asks about no version it is not shown', function (mixed $version) {
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(ListStudioPlans::class)
+        ->call('askToDelete', $plan->id, $version)
+        ->assertSet('confirmingId', null);
+
+    expect($plan->fresh())->not->toBeNull();
+})->with([
+    'a later version' => [2],
+    'no version at all' => [null],
+    'something that is no number' => ['latest'],
+]);
 
 it('says a draft is already gone rather than failing, however it was asked', function () {
     $plan = StudioPlan::factory()->withImage()->create();
-    $page = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id);
-    $other = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id);
+    $page = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id, $plan->lock_version);
+    $other = Livewire::test(ListStudioPlans::class)->call('askToDelete', $plan->id, $plan->lock_version);
 
     $page->call('delete')->assertSuccessful();
     $released = MediaAsset::withTrashed()->findOrFail($plan->image_asset_id)->deleted_at;
@@ -91,7 +131,7 @@ it('says a draft is already gone rather than failing, however it was asked', fun
         ->assertSuccessful()
         ->assertDispatched('rg-admin-toast', message: 'This draft was already deleted.', tone: 'info');
     Livewire::test(ListStudioPlans::class)
-        ->call('askToDelete', $plan->id)
+        ->call('askToDelete', $plan->id, $plan->lock_version)
         ->assertDispatched('rg-admin-toast', message: 'This draft was already deleted.', tone: 'info');
 
     expect(MediaAsset::withTrashed()->findOrFail($plan->image_asset_id)->deleted_at->equalTo($released))->toBeTrue();

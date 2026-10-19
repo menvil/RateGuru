@@ -101,7 +101,11 @@ trait EditsStudioPlan
      */
     public $photo = null;
 
-    /** Where a new photo comes from: the computer, or a link. Not part of the draft. */
+    /**
+     * Where a new photo comes from: the computer, or a link. Only this source
+     * is ever saved, and only its value counts as a change. Not part of the
+     * draft.
+     */
     public string $imageSource = 'upload';
 
     /** A direct link to an image to import when the draft is saved. */
@@ -147,30 +151,54 @@ trait EditsStudioPlan
         $this->goToStep($this->stepAt(-1));
     }
 
-    /** A chosen photo is checked as soon as it arrives, so a wrong file is said before Save. */
+    /**
+     * A chosen photo is checked as soon as it arrives, so a wrong file is said
+     * before Save. A file comes from the computer, so the computer becomes the
+     * source and a link typed before is dropped.
+     */
     public function updatedPhoto(): void
     {
+        $this->imageSource = 'upload';
+        $this->dropImageUrl();
         $this->removeImage = false;
         $this->validateOnly('photo', $this->imageRules(), $this->imageMessages());
     }
 
+    /** A link typed makes the link the source, and drops a file chosen before. */
+    public function updatedImageUrl(): void
+    {
+        if (trim($this->imageUrl) === '') {
+            return;
+        }
+
+        $this->imageSource = 'link';
+        $this->dropPhoto();
+        $this->removeImage = false;
+    }
+
+    /**
+     * Only the source on screen is ever saved: switching drops what the other
+     * one held — a file chosen before switching to a link, a link typed before
+     * switching back — rather than keeping it out of sight to win on Save. The
+     * saved photo stays as it is either way.
+     */
     public function updatedImageSource(): void
     {
         $this->imageSource = $this->imageSource === 'link' ? 'link' : 'upload';
+
+        $this->imageSource === 'link' ? $this->dropPhoto() : $this->dropImageUrl();
     }
 
     /** Takes the chosen photo off the draft; the saved one stays. */
     public function clearPhoto(): void
     {
-        $this->photo = null;
-        $this->resetErrorBag('photo');
+        $this->dropPhoto();
     }
 
     /** Takes the link off the draft; the saved photo stays. */
     public function clearImageUrl(): void
     {
-        $this->imageUrl = '';
-        $this->resetErrorBag('imageUrl');
+        $this->dropImageUrl();
     }
 
     /** Save takes the saved photo off the plan; until then it stays. */
@@ -318,7 +346,8 @@ trait EditsStudioPlan
                 'authorAnswers.*' => ['nullable', 'regex:/\A[0-9]{0,18}\z/'],
                 'publicationMode' => ['required', Rule::enum(StudioPlanPublicationMode::class)],
                 'publishAt' => ['nullable', 'date_format:Y-m-d\TH:i,Y-m-d\TH:i:s'],
-                ...$this->imageRules(),
+                // The source on screen alone: the other holds nothing to save.
+                ...array_intersect_key($this->imageRules(), [$this->imageSource === 'link' ? 'imageUrl' : 'photo' => true]),
             ], [
                 'authorUserId.*' => 'Choose a persona as the author.',
                 'categoryId.*' => 'Choose a category from the list.',
@@ -362,7 +391,19 @@ trait EditsStudioPlan
     /** Whether Save has anything to do with the photo. */
     protected function changesImage(): bool
     {
-        return $this->photo !== null || $this->imageUrl !== '' || $this->removeImage;
+        return $this->chosenPhoto() !== null || $this->chosenImageUrl() !== '' || $this->removeImage;
+    }
+
+    /** The file Save stores: one chosen while the computer is the source, and only then. */
+    protected function chosenPhoto(): ?TemporaryUploadedFile
+    {
+        return $this->imageSource === 'upload' && $this->photo instanceof TemporaryUploadedFile ? $this->photo : null;
+    }
+
+    /** The link Save imports from: one typed while a link is the source, and only then. */
+    protected function chosenImageUrl(): string
+    {
+        return $this->imageSource === 'link' ? trim($this->imageUrl) : '';
     }
 
     /**
@@ -377,21 +418,23 @@ trait EditsStudioPlan
     protected function saveImage(StudioPlan $plan, int $version): bool
     {
         $admin = $this->admin();
+        $photo = $this->chosenPhoto();
+        $imageUrl = $this->chosenImageUrl();
 
-        if ($this->photo !== null) {
+        if ($photo !== null) {
             try {
-                app(SetStudioPlanImageAction::class)->handle($admin, $plan, $this->photo, $version);
+                app(SetStudioPlanImageAction::class)->handle($admin, $plan, $photo, $version);
             } catch (ImageIngestException $exception) {
                 report($exception);
                 $this->addError('photo', 'This image can’t be used. Choose another JPEG, PNG or WebP image.');
 
                 return false;
             }
-        } elseif ($this->imageUrl !== '') {
+        } elseif ($imageUrl !== '') {
             $importer = app(StoreImportedImageAction::class);
 
             try {
-                $file = $importer->download($this->imageUrl);
+                $file = $importer->download($imageUrl);
             } catch (Throwable $exception) {
                 report($exception);
                 $this->addError('imageUrl', 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
@@ -532,6 +575,18 @@ trait EditsStudioPlan
         return $keys[max(0, min(count($keys) - 1, ($at === false ? 0 : $at) + $offset))];
     }
 
+    private function dropPhoto(): void
+    {
+        $this->photo = null;
+        $this->resetErrorBag('photo');
+    }
+
+    private function dropImageUrl(): void
+    {
+        $this->imageUrl = '';
+        $this->resetErrorBag('imageUrl');
+    }
+
     /** @return list<int> */
     private function chosenTagIds(): array
     {
@@ -572,13 +627,15 @@ trait EditsStudioPlan
      */
     private function photoDetails(?MediaAsset $saved): array
     {
-        if ($this->photo !== null && ! $this->getErrorBag()->has('photo')) {
+        $chosen = $this->chosenPhoto();
+
+        if ($chosen !== null && ! $this->getErrorBag()->has('photo')) {
             $size = null;
 
             try {
-                $dimensions = @getimagesize((string) $this->photo->getRealPath());
+                $dimensions = @getimagesize((string) $chosen->getRealPath());
                 $size = is_array($dimensions) ? $dimensions[0].' × '.$dimensions[1] : null;
-                $url = $this->photo->isPreviewable() ? $this->photo->temporaryUrl() : null;
+                $url = $chosen->isPreviewable() ? $chosen->temporaryUrl() : null;
             } catch (Throwable) {
                 $url = null;
             }
@@ -586,8 +643,8 @@ trait EditsStudioPlan
             return [
                 'url' => $url,
                 'state' => 'chosen',
-                'name' => $this->photo->getClientOriginalName(),
-                'details' => array_values(array_filter([$size, Number::fileSize((int) $this->photo->getSize(), precision: 1), $this->photo->getMimeType()])),
+                'name' => $chosen->getClientOriginalName(),
+                'details' => array_values(array_filter([$size, Number::fileSize((int) $chosen->getSize(), precision: 1), $chosen->getMimeType()])),
             ];
         }
 

@@ -231,3 +231,109 @@ it('keeps the saved text when the photo fails, says what was saved, and takes th
 
     expect($plan->fresh()->image_asset_id)->not->toBeNull()->and(StudioPlan::query()->count())->toBe(1);
 });
+
+it('saves the link once the source is switched to it, the file chosen before dropped', function () {
+    bindFakeHostResolver();
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(300, 200)),
+    ]));
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('photo', UploadedFile::fake()->image('local.jpg', 64, 64))
+        ->set('imageSource', 'link')
+        ->assertSet('photo', null)
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($plan->fresh()->imageAsset)->width->toBe(300)->height->toBe(200)
+        ->and(MediaAsset::query()->count())->toBe(1);
+});
+
+it('saves the file once the source is switched back to the computer, the link typed before dropped', function () {
+    $importer = $this->mock(StoreImportedImageAction::class);
+    $importer->shouldNotReceive('download');
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageSource', 'link')
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->set('imageSource', 'upload')
+        ->assertSet('imageUrl', '')
+        ->set('photo', UploadedFile::fake()->image('local.jpg', 120, 90))
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($plan->fresh()->imageAsset)->width->toBe(120)->height->toBe(90)
+        ->and(MediaAsset::query()->count())->toBe(1);
+});
+
+it('downloads no link left behind by switching back to the computer, and saves nothing for it', function () {
+    $importer = $this->mock(StoreImportedImageAction::class);
+    $importer->shouldNotReceive('download');
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageSource', 'link')
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->set('imageSource', 'upload')
+        ->assertDontSee('The image at this link is downloaded')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'Nothing to save', tone: 'success');
+
+    expect($plan->fresh())->image_asset_id->toBeNull()->lock_version->toBe(1)
+        ->and(MediaAsset::query()->exists())->toBeFalse();
+});
+
+it('leaves the saved photo as it is through every switch of the source until a save succeeds', function () {
+    bindFakeHostResolver();
+    app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(300, 200)),
+    ]));
+    $plan = StudioPlan::factory()->create();
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('photo', UploadedFile::fake()->image('first.jpg', 64, 64))
+        ->call('save');
+    $saved = $plan->fresh()->imageAsset;
+    $files = Storage::disk('public')->allFiles();
+    $unchanged = function () use ($plan, $saved, $files): void {
+        expect($plan->fresh())->image_asset_id->toBe($saved->id)->lock_version->toBe(2)
+            ->and($saved->fresh()->trashed())->toBeFalse()
+            ->and(MediaAsset::withTrashed()->count())->toBe(1)
+            ->and(Storage::disk('public')->allFiles())->toBe($files);
+    };
+
+    $page->set('photo', UploadedFile::fake()->image('second.jpg', 80, 80));
+    $unchanged();
+    $page->set('imageSource', 'link')->assertViewHas('shownPhoto', fn (array $photo): bool => $photo['state'] === 'saved');
+    $unchanged();
+    $page->set('imageUrl', 'https://example.com/photo.jpg');
+    $unchanged();
+    $page->set('imageSource', 'upload')->assertViewHas('shownPhoto', fn (array $photo): bool => $photo['state'] === 'saved');
+    $unchanged();
+    $page->set('imageSource', 'link')->set('imageUrl', 'https://example.com/photo.jpg');
+    $unchanged();
+
+    $page->call('save')->assertHasNoErrors();
+
+    expect($plan->fresh()->imageAsset)->width->toBe(300)
+        ->and(MediaAsset::withTrashed()->find($saved->id)->trashed())->toBeTrue();
+});
+
+it('keeps the link and its source for another try when the download fails', function () {
+    bindFakeHostResolver();
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageSource', 'link')
+        ->set('imageUrl', 'https://nowhere.invalid/photo.jpg')
+        ->call('save')
+        ->assertHasErrors('imageUrl')
+        ->assertSet('imageSource', 'link')
+        ->assertSet('imageUrl', 'https://nowhere.invalid/photo.jpg')
+        ->assertSet('step', 'image');
+
+    expect($plan->fresh()->image_asset_id)->toBeNull();
+});

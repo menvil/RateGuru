@@ -39,7 +39,7 @@
                 </x-admin.ui.inline-notice>
             @endif
 
-            @if ($imageUrl !== '' && $shownPhoto['state'] !== 'chosen' && ! $errors->has('imageUrl'))
+            @if ($imageSource === 'link' && trim($imageUrl) !== '' && ! $errors->has('imageUrl'))
                 <x-admin.ui.inline-notice tone="info">
                     The image at this link is downloaded, checked and stored when you save{{ $shownPhoto['state'] === 'saved' ? ', and replaces the photo above' : '' }}.
                 </x-admin.ui.inline-notice>
@@ -51,8 +51,10 @@
             </div>
 
             @if ($imageSource === 'upload')
+                {{-- Keyed apart from the link field, so switching sources draws each afresh with its own Alpine state. --}}
                 <div
                     class="rg-admin-studio__dropzone"
+                    wire:key="studio-plan-image-upload"
                     x-data="{
                         dragging: false,
                         drop(event) {
@@ -93,22 +95,24 @@
                     @enderror
                 </div>
             @else
-                <x-admin.ui.text-field
-                    label="Image URL"
-                    id="rg-admin-studio-image-url"
-                    type="url"
-                    icon="link"
-                    :value="$imageUrl"
-                    placeholder="https://example.com/photo.jpg"
-                    hint="A direct link to a JPEG, PNG or WebP file, downloaded when you save. The post’s source address is set on the Post step."
-                    :error="$errors->first('imageUrl') ?: null"
-                    autocomplete="off"
-                    spellcheck="false"
-                    wire:model="imageUrl"
-                />
-                @if ($imageUrl !== '')
-                    <div><x-admin.ui.button size="sm" variant="ghost" wire:click="clearImageUrl">Don’t use this link</x-admin.ui.button></div>
-                @endif
+                <div class="rg-admin-studio__stack" wire:key="studio-plan-image-link">
+                    <x-admin.ui.text-field
+                        label="Image URL"
+                        id="rg-admin-studio-image-url"
+                        type="url"
+                        icon="link"
+                        :value="$imageUrl"
+                        placeholder="https://example.com/photo.jpg"
+                        hint="A direct link to a JPEG, PNG or WebP file, downloaded when you save. The post’s source address is set on the Post step."
+                        :error="$errors->first('imageUrl') ?: null"
+                        autocomplete="off"
+                        spellcheck="false"
+                        wire:model="imageUrl"
+                    />
+                    @if ($imageUrl !== '')
+                        <div><x-admin.ui.button size="sm" variant="ghost" wire:click="clearImageUrl">Don’t use this link</x-admin.ui.button></div>
+                    @endif
+                </div>
             @endif
         </div>
     </x-admin.ui.card>
