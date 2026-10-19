@@ -528,6 +528,12 @@ trait EditsStudioPlan
         // The action keeps the copy it was handed in step with the row it
         // wrote: only the photo and the version moved.
         $this->lockVersion = $plan->lock_version;
+
+        // A file replaced whatever a link brought, so that link may bring it back.
+        if ($source === ImageInputSource::Upload) {
+            $this->importedFrom = '';
+        }
+
         $this->forgetPhotoInputs();
         $this->replacedPhoto = $previous;
         $this->dispatch('rg-studio-photo-kept');

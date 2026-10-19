@@ -12,7 +12,9 @@
     stores it — and an import's, announced as `rg-studio-photo-phase` to the
     analysis card beside it and to Continue. One photo at a time: nothing new
     is taken while one is on its way. A link is sent only once it is a whole
-    address, after typing has paused, and never twice running.
+    address, after typing has paused, and never twice running — the server
+    says what was kept, and the browser forgets what it sent once a photo is
+    kept or removed.
 
     Beside it, Photo analysis of the saved photo (StudioPlanImageAnalysisCard),
     drawn afresh for every photo so it is always about the one shown.
@@ -83,7 +85,7 @@
             this.$wire.retryImport().finally(() => this.finish())
         },
     }"
-    x-on:rg-studio-photo-kept.window="replacing = false"
+    x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: '', post: '' }"
 >
     <x-admin.ui.card flush title="Photo for the publication" description="Upload a file, paste an image link or import from a social post. The upload rules and checks every post's image goes through apply.">
         @if ($hasPhoto)

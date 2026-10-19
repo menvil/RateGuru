@@ -472,3 +472,35 @@ it('keeps the source on screen apart: switching it clears the other one\'s error
         ->set('imageSource', 'anything else')
         ->assertSet('imageSource', 'upload');
 });
+
+it('imports a link it kept once more after the photo was removed or replaced by a file, never while it is still the photo', function (Closure $between) {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(300, 200)),
+        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(300, 200)),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->call('importImage', 'link')
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->call('importImage', 'link');
+
+    expect($transport->calls)->toHaveCount(1);
+
+    $between($page)->assertSet('importedFrom', '');
+    $page->set('imageUrl', 'https://example.com/photo.jpg')->call('importImage', 'link')->assertHasNoErrors();
+
+    expect($transport->calls)->toHaveCount(2)
+        ->and($plan->fresh()->imageAsset)->width->toBe(300);
+})->with([
+    'removed' => [fn ($page) => $page->call('removePhoto')],
+    'replaced by a file' => [fn ($page) => $page->upload('photo', [UploadedFile::fake()->image('file.jpg', 64, 64)])],
+]);
+
+it('forgets in the browser what it sent once a photo is kept or removed', function () {
+    expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])->html())
+        ->toContain('x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: \'\', post: \'\' }"');
+});

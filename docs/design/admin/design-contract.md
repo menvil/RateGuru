@@ -143,7 +143,7 @@ Sentence case everywhere; uppercase only in 11px overlines. No sizes outside the
 | Top bar | 62 |
 | Page gutter | 28 |
 | Card gap | 24 |
-| Detail panel | 448 (drawer, docked panel); 480 for long lists |
+| Detail panel | 448 (drawer, docked panel); 480 for long lists; 680 for a record's editor |
 | Controls | sm 32 · md 36 · input 40 · nav item 40 · badge 24 |
 | Rows | table 56–64 (60 default) · table header 40 · menu item 36 · detail row 36 |
 | Radii | 5 checkbox and locale chip · 6 badge · 8 item (menu items, chips, text actions, thumbnails) · 10 control · 12 popover · 16 card · full pill |
@@ -498,7 +498,7 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
   blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
   acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
-  section label. The drawer is 448 wide, or 480 with `wide`,
+  section label. The drawer is 448 wide, 480 with `wide`, or 680 with `editor` for a whole record's editor,
   never wider than the screen, with an optional `leading` and `footer`.
 - **`x-admin.ui.toast-stack` (FBK-01)** is drawn once per page by the shell. A page raises a toast with a browser
   event — `$this->dispatch('rg-admin-toast', message: '…', tone: 'success')` from Livewire, or `$dispatch` from

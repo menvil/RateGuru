@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Admin;
 
-use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Actions\Users\UpdateUserAccountAction;
 use App\Enums\ModerationActionType;
 use App\Enums\SocialProvider;
@@ -141,12 +140,8 @@ final class UserEditor extends Component
                 'username' => $this->username,
                 'email' => $this->email,
                 'role' => UserRole::from($this->role),
-                // Trust moves only across the trusted level: a level that already reads the same is kept.
-                'trust_level' => match (true) {
-                    $this->trust === $this->saved['trust'] => (int) $person->trust_level,
-                    $this->trust === 'trusted' => MarkUserTrustedAction::TRUSTED_LEVEL,
-                    default => 0,
-                },
+                // Asked only when changed here; the action reads the level on the locked row.
+                'trusted' => $this->trust === $this->saved['trust'] ? null : $this->trust === 'trusted',
                 'password' => $this->password !== '' ? $this->password : null,
             ]);
         } catch (CannotUpdateUserAccountException $exception) {
