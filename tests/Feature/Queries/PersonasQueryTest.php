@@ -17,11 +17,17 @@ function personasPage(string $search = '', ?UserStatus $status = null, ?PersonaE
     return app(PersonasQuery::class)->paginate($search, $status, $engagement, $page)->pluck('id')->all();
 }
 
+/**
+ * A Persona whose searched fields say only what the test gives them: the
+ * factory's random names and text could hold any word a search looks for.
+ */
 function listedPersona(array $account = [], array $profile = []): User
 {
+    $account = ['username' => 'persona_'.fake()->unique()->numerify('######'), 'name' => 'Plain Persona', 'display_name' => 'Plain Persona', ...$account];
+
     return PersonaProfile::factory()
         ->for(User::factory()->persona()->state($account), 'user')
-        ->create($profile)
+        ->create(['short_description' => 'Plain', 'character' => 'Plain', ...$profile])
         ->user;
 }
 
