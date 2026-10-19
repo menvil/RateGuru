@@ -241,6 +241,9 @@ it('treats a stale running run older than the lock ttl as not blocking a new aud
 });
 
 it('reads everything again on Refresh, and answers with the time it did', function () {
+    // One instant for the page and the assertion: a minute turning over
+    // between the two would read as a different time.
+    $this->freezeTime();
     $admin = User::factory()->admin()->create();
     $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->assertSee('Unknown');
 
