@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Har du ikke en konto?',
         'have_account' => 'Har du allerede en konto?',
+        'remembered_password' => 'Kan du huske din adgangskode?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'eller',
 
     'forgot_password' => [
+        'title' => 'Nulstil adgangskode',
         'intro' => 'Har du glemt din adgangskode? Intet problem. Oplys blot din e-mailadresse, så sender vi dig et link til nulstilling af adgangskoden, hvor du kan vælge en ny.',
         'action' => 'Send link til nulstilling af adgangskode',
     ],

@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Chưa có tài khoản?',
         'have_account' => 'Đã có tài khoản?',
+        'remembered_password' => 'Đã nhớ ra mật khẩu?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'hoặc',
 
     'forgot_password' => [
+        'title' => 'Đặt lại mật khẩu',
         'intro' => 'Quên mật khẩu? Không sao cả. Chỉ cần cho chúng tôi biết địa chỉ email của bạn, chúng tôi sẽ gửi cho bạn một liên kết đặt lại mật khẩu để bạn có thể chọn mật khẩu mới.',
         'action' => 'Gửi liên kết đặt lại mật khẩu',
     ],

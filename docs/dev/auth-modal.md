@@ -1,13 +1,15 @@
 # Authentication modal
 
-Guests sign in and sign up in one dialog that opens over the page they are
-on. `/login` and `/register` stay fully functional: they are the fallback
-for a direct URL, a new tab, a browser without JavaScript and an error page.
+Guests sign in, sign up and ask for a password reset link in one dialog
+that opens over the page they are on. `/login`, `/register` and
+`/forgot-password` stay fully functional: they are the fallback for a
+direct URL, a new tab, a browser without JavaScript and an error page.
 
-The modal is presentation only. It posts to the same `POST /login` and
-`POST /register`, links to the same `/auth/google` and `/auth/facebook`,
-and runs the same controllers and actions as the standalone pages. It adds
-no endpoint, no JSON API and no second way to authenticate.
+The modal is presentation only. It posts to the same `POST /login`,
+`POST /register` and `POST /forgot-password`, links to the same
+`/auth/google` and `/auth/facebook`, and runs the same controllers and
+actions as the standalone pages. It adds no endpoint, no JSON API and no
+second way to authenticate.
 
 ## Opening it
 
@@ -24,11 +26,15 @@ click is left to the browser, and a page without a dialog navigates to the
 standalone page instead. The header links and the guest upload button use
 it; later guest actions (votes, comments, follows) can do the same.
 
-## Two states, no tabs
+## Three states, no tabs
 
-Login and registration are two states of the one dialog. The link at the
-bottom switches between them without navigation, reload or URL change. Each
-state is the same composition, `<x-auth.panel>`, in a fixed order:
+Login, registration and the reset-link request are three states of the one
+dialog (`App\Enums\AuthModalMode`). The link at the bottom switches between
+login and registration without navigation, reload or URL change; "Forgot
+your password?" in the login form, and "Set a password" in the notice about
+a switched-off provider, switch to the reset-link state the same way. Login
+and registration are the same composition, `<x-auth.panel>`, in a fixed
+order:
 
 1. the email/password form (`<x-auth.login-form>` / `<x-auth.register-form>`)
 2. its primary button
@@ -36,13 +42,17 @@ state is the same composition, `<x-auth.panel>`, in a fixed order:
 4. Google, then Facebook (`<x-auth.social-buttons>`)
 5. the switch to the other state
 
+The reset-link state is that panel without providers: its form
+(`<x-auth.forgot-password-form>`), its primary button, and the way back to
+login.
+
 The standalone pages render the very same panel, so the two surfaces cannot
 drift apart. Email/password stays the primary path; the providers come
 after it and read "Log in with …" in both states, because the provider flow
 decides on its own whether it signs in, signs up or links.
 
-Both forms are in the DOM at once, so ids are prefixed by surface and mode
-(`modal-login-email`, `page-register-name`, …).
+All forms are in the DOM at once, so ids are prefixed by surface and mode
+(`modal-login-email`, `page-register-name`, `modal-forgot-password-email`, …).
 
 ## Coming back to the same page
 
@@ -51,7 +61,7 @@ A modal submission marks itself and says where it was opened:
 | field | value |
 |---|---|
 | `_auth_surface` | `modal` |
-| `_auth_mode` | `login` or `register` |
+| `_auth_mode` | `login`, `register` or `forgot-password` |
 | `_auth_return_to` | the current path and query string |
 
 The return path is a claim from the browser, never a destination.
@@ -65,6 +75,7 @@ backslash, control character or whitespace. Anything else becomes `/`.
 |---|---|---|
 | success | as before (`intended`, or the dashboard) | the page it was opened on, through Laravel's intended URL |
 | validation failure | back to the page, default error bag | the page it was opened on, `authModal` error bag |
+| reset link sent | back to the page with the status | the page it was opened on, modal open in the reset-link state, saying so |
 | expected provider failure | `/login` with the message | the page it was opened on, modal open in the mode it started in |
 | pending social link | `/login` with the message | the page it was opened on, modal open in **login** mode |
 
@@ -74,8 +85,9 @@ server-side session and is consumed by the callback.
 ## When it opens by itself
 
 Only for an explicit reason: the previous request was a form post carrying
-`_auth_surface=modal` that failed validation, or a provider round trip that
-started in the modal ended in an expected failure or a pending link
+`_auth_surface=modal` that failed validation, a reset link requested from
+the modal went out, or a provider round trip that started in the modal
+ended in an expected failure or a pending link
 (`App\Support\Auth\AuthModalState`). Validation errors of any other form on
 the page never open it, and its own errors live in the `authModal` bag so
 they never appear in another form.

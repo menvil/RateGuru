@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nog geen account?',
         'have_account' => 'Heb je al een account?',
+        'remembered_password' => 'Weet je je wachtwoord weer?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'of',
 
     'forgot_password' => [
+        'title' => 'Wachtwoord opnieuw instellen',
         'intro' => 'Wachtwoord vergeten? Geen probleem. Laat ons je e-mailadres weten, dan sturen we je een link waarmee je een nieuw wachtwoord kunt kiezen.',
         'action' => 'Link voor wachtwoordherstel versturen',
     ],

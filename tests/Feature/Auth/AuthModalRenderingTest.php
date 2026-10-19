@@ -4,7 +4,7 @@ use App\Models\Post;
 use App\Models\User;
 
 /*
- * What the pages render: one modal per guest page, two states inside it,
+ * What the pages render: one modal per guest page, three states inside it,
  * the same form components on the standalone pages, and the fixed order —
  * email/password first, providers after it, the switch last.
  */
@@ -39,6 +39,7 @@ it('renders the modal exactly once for a guest, closed, in login mode', function
         ->and(substr_count($html, 'data-testid="auth-modal"'))->toBe(1)
         ->and(substr_count($html, 'data-testid="auth-modal-login-form"'))->toBe(1)
         ->and(substr_count($html, 'data-testid="auth-modal-register-form"'))->toBe(1)
+        ->and(substr_count($html, 'data-testid="auth-modal-forgot-password-form"'))->toBe(1)
         ->and($modal->getAttribute('data-auth-modal-open'))->toBe('false')
         ->and($modal->getAttribute('data-auth-modal-mode'))->toBe('login');
 })->with(['/', '/about', '/contact']);
@@ -79,13 +80,15 @@ it('tells every modal form and provider link which page it was opened on', funct
     $modal = authModalElement($this->get('/?sort=top&page=2')->assertOk()->getContent());
     $xpath = new DOMXPath($modal->ownerDocument);
 
-    foreach (['login', 'register'] as $mode) {
+    foreach (['login', 'register', 'forgot-password'] as $mode) {
         $form = './/form[@data-testid="auth-modal-'.$mode.'-form"]';
 
         expect($xpath->evaluate('string('.$form.'//input[@name="_auth_surface"]/@value)', $modal))->toBe('modal')
             ->and($xpath->evaluate('string('.$form.'//input[@name="_auth_mode"]/@value)', $modal))->toBe($mode)
             ->and($xpath->evaluate('string('.$form.'//input[@name="_auth_return_to"]/@value)', $modal))->toBe('/?sort=top&page=2');
+    }
 
+    foreach (['login', 'register'] as $mode) {
         foreach (['google', 'facebook'] as $provider) {
             $href = $xpath->evaluate('string(.//*[@data-testid="auth-modal-'.$mode.'-panel"]//a[@data-testid="social-'.$provider.'"]/@href)', $modal);
             parse_str((string) parse_url($href, PHP_URL_QUERY), $query);
@@ -108,6 +111,7 @@ it('gives every field of the modal its own id and a label that points at it', fu
     expect($ids)->toContain(
         'modal-login-email', 'modal-login-password', 'modal-login-remember',
         'modal-register-name', 'modal-register-email', 'modal-register-password', 'modal-register-password-confirmation',
+        'modal-forgot-password-email',
     )->and(array_unique($ids))->toHaveCount(count($ids));
 
     foreach ($xpath->query('.//label[@for]', $modal) as $label) {
@@ -116,7 +120,7 @@ it('gives every field of the modal its own id and a label that points at it', fu
         expect($target->length)->toBe(1, 'label for="'.$label->getAttribute('for').'" points at nothing');
     }
 
-    expect($xpath->query('.//label[@for]', $modal)->length)->toBe(7);
+    expect($xpath->query('.//label[@for]', $modal)->length)->toBe(8);
 });
 
 it('does not reuse the ids of the modal on the standalone pages', function (string $path, array $ids) {
@@ -134,6 +138,7 @@ it('does not reuse the ids of the modal on the standalone pages', function (stri
 })->with([
     ['/login', ['page-login-email', 'page-login-password', 'page-login-remember']],
     ['/register', ['page-register-name', 'page-register-email', 'page-register-password', 'page-register-password-confirmation']],
+    ['/forgot-password', ['page-forgot-password-email']],
 ]);
 
 it('keeps email and password first, the providers after them and the switch last', function (string $surface, string $mode) {
@@ -167,7 +172,27 @@ it('keeps email and password first, the providers after them and the switch last
     ]);
 })->with(['modal', 'page'])->with(['login', 'register']);
 
-it('has no tabs: the two states are switched by the link at the bottom', function () {
+it('asks for a reset link without providers and leads back to login', function (string $surface) {
+    if ($surface === 'modal') {
+        $modal = authModalElement($this->get('/')->assertOk()->getContent());
+        $panel = (new DOMXPath($modal->ownerDocument))->query('.//*[@data-testid="auth-modal-forgot-password-panel"]', $modal)->item(0);
+        $prefix = 'auth-modal-forgot-password';
+    } else {
+        $panel = pageDocument($this->get('/forgot-password')->assertOk()->getContent())->documentElement;
+        $prefix = 'forgot-password';
+    }
+
+    $ids = testIdsIn($panel);
+
+    expect(array_values(array_intersect($ids, [$prefix.'-email', $prefix.'-submit', 'auth-switch-to-login'])))
+        ->toBe([$prefix.'-email', $prefix.'-submit', 'auth-switch-to-login'])
+        ->and($ids)->not->toContain('auth-divider')
+        ->and($ids)->not->toContain('social-buttons')
+        ->and($ids)->not->toContain('auth-switch-to-register')
+        ->and(trim($panel->ownerDocument->saveHTML($panel)))->toContain(e(trans('auth.prompts.remembered_password')));
+})->with(['modal', 'page']);
+
+it('has no tabs: the states are switched by the links inside the dialog', function () {
     $modal = authModalElement($this->get('/')->assertOk()->getContent());
     $xpath = new DOMXPath($modal->ownerDocument);
 
@@ -179,7 +204,24 @@ it('has no tabs: the two states are switched by the link at the bottom', functio
         ->and(trim($xpath->evaluate('string(.//*[@data-testid="auth-modal-login-panel"]//p[last()])', $modal)))
         ->toContain(trans('auth.prompts.no_account'))
         ->and(trim($xpath->evaluate('string(.//*[@data-testid="auth-modal-register-panel"]//p[last()])', $modal)))
-        ->toContain(trans('auth.prompts.have_account'));
+        ->toContain(trans('auth.prompts.have_account'))
+        // The reset-link form has a paragraph of its own: the switch is the panel's last one.
+        ->and(trim($xpath->evaluate('string((.//*[@data-testid="auth-modal-forgot-password-panel"]//p)[last()])', $modal)))
+        ->toContain(trans('auth.prompts.remembered_password'));
+});
+
+it('opens the reset-link state from the login form instead of leaving the page', function () {
+    $modal = authModalElement($this->get('/')->assertOk()->getContent());
+    $xpath = new DOMXPath($modal->ownerDocument);
+    $forgot = $xpath->query('.//*[@data-testid="auth-modal-login-forgot-password"]', $modal)->item(0);
+
+    expect($forgot->nodeName)->toBe('button')
+        ->and($forgot->getAttribute('type'))->toBe('button')
+        ->and($forgot->getAttribute('x-on:click'))->toBe("\$dispatch('open-auth-modal', { mode: 'forgot-password' })")
+        ->and(trim($xpath->evaluate('string(.//*[@data-testid="auth-modal-title-forgot-password"])', $modal)))
+        ->toBe(trans('auth.forgot_password.title'))
+        // No link inside the dialog leads to the standalone page any more.
+        ->and($xpath->query('.//a[contains(@href, "/forgot-password")]', $modal)->length)->toBe(0);
 });
 
 it('labels the provider buttons the same in both states and on both pages', function (string $path) {
@@ -194,9 +236,12 @@ it('labels the provider buttons the same in both states and on both pages', func
 it('switches between the standalone pages with plain links', function () {
     $login = new DOMXPath(pageDocument($this->get('/login')->assertOk()->getContent()));
     $register = new DOMXPath(pageDocument($this->get('/register')->assertOk()->getContent()));
+    $forgot = new DOMXPath(pageDocument($this->get('/forgot-password')->assertOk()->getContent()));
 
     expect($login->evaluate('string(//a[@data-testid="auth-switch-to-register"]/@href)'))->toBe(route('register'))
-        ->and($register->evaluate('string(//a[@data-testid="auth-switch-to-login"]/@href)'))->toBe(route('login'));
+        ->and($login->evaluate('string(//a[@data-testid="login-forgot-password"]/@href)'))->toBe(route('password.request'))
+        ->and($register->evaluate('string(//a[@data-testid="auth-switch-to-login"]/@href)'))->toBe(route('login'))
+        ->and($forgot->evaluate('string(//a[@data-testid="auth-switch-to-login"]/@href)'))->toBe(route('login'));
 });
 
 it('does not open because some other form on the page has errors', function () {

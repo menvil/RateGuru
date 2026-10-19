@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nie masz konta?',
         'have_account' => 'Masz już konto?',
+        'remembered_password' => 'Pamiętasz hasło?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'lub',
 
     'forgot_password' => [
+        'title' => 'Resetowanie hasła',
         'intro' => 'Nie pamiętasz hasła? Nie ma problemu. Podaj swój adres e-mail, a wyślemy Ci link do zresetowania hasła, dzięki któremu ustawisz nowe.',
         'action' => 'Wyślij link do resetowania hasła',
     ],

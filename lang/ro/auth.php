@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nu ai cont?',
         'have_account' => 'Ai deja cont?',
+        'remembered_password' => 'Ți-ai amintit parola?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'sau',
 
     'forgot_password' => [
+        'title' => 'Resetare parolă',
         'intro' => 'Ai uitat parola? Nicio problemă. Spune-ne adresa ta de e-mail și îți vom trimite un link de resetare a parolei, cu care îți poți alege una nouă.',
         'action' => 'Trimite linkul de resetare a parolei',
     ],

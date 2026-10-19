@@ -7551,9 +7551,9 @@ function socialCallbackUrl(string $provider, array $query = []): string
 }
 
 /**
- * The marker fields the authentication modal adds to a login or registration
- * post — and to a provider link — so a test can act "from the modal, opened
- * on this page".
+ * The marker fields the authentication modal adds to a login, registration
+ * or reset-link post — and to a provider link — so a test can act "from the
+ * modal, opened on this page".
  *
  * @return array{_auth_surface: string, _auth_mode: string, _auth_return_to: string}
  */
@@ -7565,6 +7565,22 @@ function authModalFields(string $mode, string $returnTo = '/'): array
         '_auth_return_to' => $returnTo,
     ];
 }
+
+/**
+ * Return paths the modal's marker field must never be allowed to follow:
+ * every one of them has to end on the safe fallback instead.
+ */
+dataset('hostile return paths', [
+    'absolute https' => ['https://evil.example'],
+    'absolute http' => ['http://evil.example/posts/1'],
+    'protocol relative' => ['//evil.example'],
+    'backslash pair' => ['\\\\evil.example'],
+    'slash then backslash' => ['/\\evil.example'],
+    'javascript scheme' => ['javascript:alert(1)'],
+    'data scheme' => ['data:text/html,<script>alert(1)</script>'],
+    'header injection' => ["/posts/1\r\nLocation: https://evil.example"],
+    'relative path' => ['posts/123'],
+]);
 
 /**
  * The authentication modal as the page rendered it, for assertions that must

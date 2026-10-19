@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Eikö sinulla ole tiliä?',
         'have_account' => 'Onko sinulla jo tili?',
+        'remembered_password' => 'Muistitko salasanasi?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'tai',
 
     'forgot_password' => [
+        'title' => 'Salasanan palautus',
         'intro' => 'Unohditko salasanasi? Ei hätää. Kerro meille sähköpostiosoitteesi, niin lähetämme sinulle linkin, jonka avulla voit valita uuden salasanan.',
         'action' => 'Lähetä salasanan palautuslinkki',
     ],

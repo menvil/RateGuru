@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => '¿No tienes una cuenta?',
         'have_account' => '¿Ya tienes una cuenta?',
+        'remembered_password' => '¿Recordaste tu contraseña?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'o',
 
     'forgot_password' => [
+        'title' => 'Restablecer contraseña',
         'intro' => '¿Olvidaste tu contraseña? No hay problema. Indícanos tu dirección de correo electrónico y te enviaremos un enlace para restablecerla y elegir una nueva.',
         'action' => 'Enviar enlace para restablecer la contraseña',
     ],

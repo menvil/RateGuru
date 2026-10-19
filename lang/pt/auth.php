@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Não tem uma conta?',
         'have_account' => 'Já tem uma conta?',
+        'remembered_password' => 'Lembrou sua senha?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'ou',
 
     'forgot_password' => [
+        'title' => 'Redefinir senha',
         'intro' => 'Esqueceu sua senha? Sem problemas. Informe seu endereço de e-mail e enviaremos um link de redefinição de senha para você escolher uma nova.',
         'action' => 'Enviar link de redefinição de senha',
     ],

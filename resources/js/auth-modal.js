@@ -1,7 +1,9 @@
 // Alpine.js component data for the global authentication modal
 // (resources/views/components/auth/modal.blade.php).
 window.rgAuthModal = function ({ open = false, mode = 'login' } = {}) {
-    const normalize = (value) => (value === 'register' ? 'register' : 'login');
+    // The states of the dialog (App\Enums\AuthModalMode); anything else is login.
+    const modes = ['login', 'register', 'forgot-password'];
+    const normalize = (value) => (modes.includes(value) ? value : 'login');
 
     return {
         open: Boolean(open),

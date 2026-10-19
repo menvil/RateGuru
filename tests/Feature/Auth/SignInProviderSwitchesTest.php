@@ -198,16 +198,26 @@ it('does not complete a pending link for a provider switched off since it was pa
 
 // Nobody is locked out silently.
 
-it('tells people who signed in with a switched-off provider how to set a password', function (string $path) {
+it('tells people who signed in with a switched-off provider how to set a password', function (string $path, string $attribute, string $target) {
     SocialAccount::factory()->facebook()->create();
     switchSignInProviders(['facebook' => false]);
 
-    $this->get($path)
+    $html = $this->get($path)
         ->assertOk()
         ->assertSee('data-testid="social-unavailable-notice"', false)
         ->assertSee(e(__('auth.social.unavailable_notice', ['provider' => 'Facebook'])), false)
-        ->assertSee(route('password.request'), false);
-})->with(['/login', '/about']);
+        ->getContent();
+
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NOERROR | LIBXML_NOWARNING);
+    $setPassword = (new DOMXPath($document))->query('//*[@data-testid="social-unavailable-set-password"]')->item(0);
+
+    expect($setPassword?->getAttribute($attribute))->toBe($target);
+})->with([
+    'the login page links to the reset page' => ['/login', 'href', fn () => route('password.request')],
+    // The modal stays on the page and shows its reset-link state instead.
+    'the modal switches state' => ['/about', 'x-on:click', "\$dispatch('open-auth-modal', { mode: 'forgot-password' })"],
+]);
 
 it('names a provider only when someone signs in with it and only on the login side', function () {
     switchSignInProviders(['facebook' => false]);

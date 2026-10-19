@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Belum ada akaun?',
         'have_account' => 'Sudah ada akaun?',
+        'remembered_password' => 'Sudah ingat kata laluan?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'atau',
 
     'forgot_password' => [
+        'title' => 'Tetapkan semula kata laluan',
         'intro' => 'Lupa kata laluan? Tiada masalah. Beritahu kami alamat e-mel anda dan kami akan menghantar pautan tetapan semula kata laluan melalui e-mel supaya anda boleh memilih kata laluan baharu.',
         'action' => 'Hantar pautan tetapan semula kata laluan',
     ],

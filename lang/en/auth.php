@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => "Don't have an account?",
         'have_account' => 'Already have an account?',
+        'remembered_password' => 'Remembered your password?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'or',
 
     'forgot_password' => [
+        'title' => 'Reset password',
         'intro' => 'Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.',
         'action' => 'Email Password Reset Link',
     ],
