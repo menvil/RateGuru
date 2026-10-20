@@ -27,9 +27,9 @@ function fetchRecoveryMaterialScript(): string
  *
  * @return array<string, string>
  */
-function fetchRecoveryMaterialEnv(string $scratch, array $overrides = []): array
+function fetchRecoveryMaterialEnv(string $scratch, array $overrides = [], array $registryOptions = []): array
 {
-    [$registryPath, $targetsPath] = parityRegistryFixture($scratch);
+    [$registryPath, $targetsPath] = parityRegistryFixture($scratch, $registryOptions);
 
     @mkdir($scratch.'/root-home', 0o700, true);
     @mkdir($scratch.'/bin', 0o755, true);
@@ -82,9 +82,9 @@ function fetchRecoveryMaterialOutputDir(string $scratch): string
 /**
  * @return array{exit: int, output: string}
  */
-function fetchRecoveryMaterialRun(string $scratch, array $arguments, array $envOverrides = []): array
+function fetchRecoveryMaterialRun(string $scratch, array $arguments, array $envOverrides = [], array $registryOptions = []): array
 {
-    [$exit, $output] = runInfraScript(fetchRecoveryMaterialScript(), $arguments, fetchRecoveryMaterialEnv($scratch, $envOverrides));
+    [$exit, $output] = runInfraScript(fetchRecoveryMaterialScript(), $arguments, fetchRecoveryMaterialEnv($scratch, $envOverrides, $registryOptions));
 
     return ['exit' => $exit, 'output' => $output];
 }
@@ -203,7 +203,7 @@ it('refuses a backup that carries no recovery material, by name, with no fallbac
 
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])
-            ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a clean-host recovery requires schema 3')
+            ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a clean-host recovery requires a format that carries the target\'s recovery material inside the backup (schema 4, or schema 3 for a target whose mail is not signed)')
             ->toContain('there is deliberately no fallback to hand-supplied material')
             ->toContain('Nothing on this host was changed')
             // And the operator is told what to do, in the one shared format.
@@ -509,4 +509,157 @@ it('never restores data, deploys, activates, or touches a service', function () 
     // The remote is composed from the fixed defaults and the target's own
     // namespace, never from an argument.
     expect($source)->toContain('REMOTE_DIRECTORY="${RCLONE_REMOTE}:${RCLONE_BUCKET}/rateguru/${BACKUP_NAMESPACE}/${BACKUP_ID}"');
+});
+
+// =============================================================================
+// A target whose mail is signed: the DKIM key comes back, proven
+// =============================================================================
+
+/** An active production parity-target: its mail goes out signed. */
+const FETCH_SIGNED_TARGET = ['environment_class' => 'production'];
+
+it('recovers the DKIM key of a target whose mail is signed out of a schema 4 backup, byte for byte, after proving it against the fingerprint the backup recorded', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        $key = mailIdentityKey('rsa2048');
+        recoveryOffsiteSignedBackupFixture($scratch, $key);
+
+        $result = fetchRecoveryMaterialRun($scratch, fetchRecoveryMaterialDefaultArguments($scratch), registryOptions: FETCH_SIGNED_TARGET);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+
+        // The recovery scope of a production target, its key included, the
+        // environment file and the two seeds — and nothing else.
+        $out = $scratch.'/effective';
+        $present = array_values(array_diff(scandir($out), ['.', '..']));
+        sort($present);
+        $expected = ['laravel-env', 'deploy-authorized-keys', 'rclone-config', 'mail-dkim-private-key', ...recoveryMaterialProductionNames()];
+        sort($expected);
+        expect($present)->toBe($expected);
+
+        // The exact key: the same bytes, and so the same public half the
+        // published record names.
+        expect(File::get($out.'/mail-dkim-private-key'))->toBe(File::get($key));
+        expect(dkimPublicKeySha256($out.'/mail-dkim-private-key'))->toBe(dkimPublicKeySha256($key));
+        expect(substr(sprintf('%o', fileperms($out.'/mail-dkim-private-key')), -4))->toBe('0600');
+
+        expect($result['output'])
+            ->toContain('manifest: schema 4, project/environment/target/namespace/database identify parity-target')
+            ->toContain("DKIM key: OK (usable under parity-target's reviewed policy; the sha256 of its public half is the recorded ".dkimPublicKeySha256($key).')')
+            ->toContain('6 recovery-scope files for parity-target');
+        expectNoKeyMaterial($result['output'], $key);
+
+        expect(glob($scratch.'/root-home/*'))->toBe([]);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('stages nothing when a schema 4 backup\'s DKIM key is not the one it recorded, or not one at all', function (string $case, string $expected) {
+    $scratch = restoreScratchDir();
+
+    try {
+        $key = mailIdentityKey($case === 'a key the policy refuses' ? 'rsa1024' : 'rsa2048');
+
+        [$manifest, $members] = match ($case) {
+            'a manifest recording another key' => [['dkim_public_key_sha256' => dkimPublicKeySha256(mailIdentityKey('rsa3072'))], []],
+            'a manifest recording no key' => [['dkim_public_key_sha256' => null], []],
+            'a malformed fingerprint' => [['dkim_public_key_sha256' => 'not-a-digest'], []],
+            'a key the policy refuses' => [[], []],
+            'no key in the archive' => [[], ['mail-dkim-private-key' => null]],
+            'a stranger in the archive' => [[], ['laravel-env' => "APP_KEY=smuggled\n"]],
+        };
+
+        recoveryOffsiteSignedBackupFixture($scratch, $key, $manifest, $members);
+
+        $result = fetchRecoveryMaterialRun($scratch, fetchRecoveryMaterialDefaultArguments($scratch), registryOptions: FETCH_SIGNED_TARGET);
+
+        expect($result['exit'])->not->toBe(0, $result['output']);
+        expect($result['output'])->toContain($expected);
+
+        // Nothing staged, nothing generated in the key's place, nothing left
+        // behind, and the key never shown.
+        expect(array_diff(scandir($scratch.'/effective'), ['.', '..']))->toBe([]);
+        expect(glob($scratch.'/root-home/*'))->toBe([]);
+        expectNoKeyMaterial($result['output'], $key);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'a manifest recording another key' => ['a manifest recording another key', "the extracted recovery material's mail-dkim-private-key is not the key backup 20260115-023000 recorded"],
+    'a manifest recording no key' => ['a manifest recording no key', "the extracted recovery material carries mail-dkim-private-key, but backup 20260115-023000's manifest records no fingerprint for it"],
+    'a malformed fingerprint' => ['a malformed fingerprint', "backup 20260115-023000's manifest dkim_public_key_sha256 is not a SHA-256 fingerprint"],
+    'a key the policy refuses' => ['a key the policy refuses', "the extracted recovery material's mail-dkim-private-key is not a usable DKIM key under parity-target's reviewed policy"],
+    'no key in the archive' => ['no key in the archive', 'recovery material archive is missing the recovery-scope prerequisite mail-dkim-private-key of parity-target'],
+    'a stranger in the archive' => ['a stranger in the archive', 'recovery material archive contains a file that is not a recovery-scope prerequisite of parity-target: laravel-env'],
+]);
+
+it('refuses a schema 3 backup for a target whose mail is signed, by name, before downloading anything but the manifest', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        // What a backup written before the key joined the recovery material
+        // holds: a production target's host scope, and no key.
+        $members = [];
+        foreach (recoveryMaterialProductionNames() as $name) {
+            $members[$name] = "material-{$name}-never-logged\n";
+        }
+
+        recoveryOffsiteBackupFixture($scratch, options: [
+            'manifest' => backupManifestFixture(['manifest_schema_version' => 3, 'environment' => 'production']),
+            'recovery_material' => $members,
+        ]);
+
+        $result = fetchRecoveryMaterialRun($scratch, fetchRecoveryMaterialDefaultArguments($scratch), registryOptions: FETCH_SIGNED_TARGET);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain("backup 20260115-023000 is not clean-host-recovery-capable for parity-target: it is a schema 3 backup, and parity-target's recovery material also needs mail-dkim-private-key, which only a schema 4 backup carries")
+            ->toContain('none is ever generated or substituted')
+            ->toContain('This backup stays restorable onto a live target through Restore Target Data')
+            ->toContain('RECOVERY ACTION REQUIRED')
+            ->toContain('Cause: backup 20260115-023000 is a schema 3 backup, written before the DKIM signing key joined the recovery material')
+            ->toContain('Then: re-run "Recover production host" with mode=start and that backup\'s exact timestamp');
+
+        // The manifest alone decided it.
+        $calls = array_values(array_filter(preg_split('/\R/', File::get($scratch.'/rclone.log'))));
+        expect($calls)->toHaveCount(1);
+        expect($calls[0])->toContain('/manifest.json ');
+
+        expect(array_diff(scandir($scratch.'/effective'), ['.', '..']))->toBe([]);
+        expect(glob($scratch.'/root-home/*'))->toBe([]);
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('recovers a target whose mail is not signed from a schema 4 backup that records no key, and refuses one that claims a key it cannot carry', function () {
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryOffsiteBackupFixture($scratch, options: ['schema' => 4]);
+
+        $result = fetchRecoveryMaterialRun($scratch, fetchRecoveryMaterialDefaultArguments($scratch));
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(array_diff(scandir($scratch.'/effective'), ['.', '..']))->not->toContain('mail-dkim-private-key');
+        expect($result['output'])->toContain('manifest: schema 4')->not->toContain('DKIM key:');
+    } finally {
+        removeScratchDir($scratch);
+    }
+
+    $scratch = restoreScratchDir();
+
+    try {
+        recoveryOffsiteBackupFixture($scratch, options: ['schema' => 4, 'dkim_public_key_sha256' => str_repeat('a', 64)]);
+
+        $result = fetchRecoveryMaterialRun($scratch, fetchRecoveryMaterialDefaultArguments($scratch));
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain("backup 20260115-023000's manifest records a DKIM key fingerprint, but the extracted recovery material carries no mail-dkim-private-key for parity-target");
+        expect(array_diff(scandir($scratch.'/effective'), ['.', '..']))->toBe([]);
+    } finally {
+        removeScratchDir($scratch);
+    }
 });

@@ -139,6 +139,8 @@ it('installs every new primitive through the existing target-operations installe
         26 => 'twenty-six', 27 => 'twenty-seven', 28 => 'twenty-eight',
         29 => 'twenty-nine', 30 => 'thirty', 31 => 'thirty-one',
         32 => 'thirty-two', 33 => 'thirty-three', 34 => 'thirty-four',
+        35 => 'thirty-five', 36 => 'thirty-six', 37 => 'thirty-seven',
+        38 => 'thirty-eight', 39 => 'thirty-nine', 40 => 'forty',
     ];
 
     // toHaveKey's second argument is an expected VALUE, not a message.
@@ -149,17 +151,20 @@ it('installs every new primitive through the existing target-operations installe
         ->toContain($words[$installedFiles].' files')
         ->toContain('all '.$words[$installedFiles].' source files are present regular files');
 
-    // The registry, deployment.conf and the deployment protocol contract are
-    // data, and so are the committed vhost sources and the environment
-    // templates; everything else — the two sourced libraries included — is
-    // `bash -n`'d as a shell script.
+    // The registry, deployment.conf, the deployment protocol contract and the
+    // three mail contracts are data, and so are the committed vhost sources
+    // and the environment templates; everything else — the two sourced
+    // libraries included — is `bash -n`'d as a shell script.
     //
     // The families are counted by prefix, so a new vhost source or environment
     // template lands on the right side of the split without this derivation
     // being edited — which is the whole reason the count is derived at all. The
-    // three one-off config files are named, because that is what they are: a
-    // bare `- 3` here would be the hardcoded number this guard exists to catch.
-    $namedDataFiles = ['DST_REGISTRY', 'DST_DEPLOYMENT_CONF', 'DST_DEPLOYMENT_PROTOCOL'];
+    // one-off config files are named, because that is what they are: a bare
+    // `- 6` here would be the hardcoded number this guard exists to catch.
+    $namedDataFiles = [
+        'DST_REGISTRY', 'DST_DEPLOYMENT_CONF', 'DST_DEPLOYMENT_PROTOCOL',
+        'DST_MAIL_IDENTITY_CONTRACT', 'DST_MAIL_ROUTING_POLICY', 'DST_MAIL_OUTBOUND_CONTRACT',
+    ];
 
     $dataFiles = count(array_filter(
         $destinations[1],

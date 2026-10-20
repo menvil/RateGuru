@@ -1164,9 +1164,14 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     expect(repositoryOnlyScriptNames())->toContain('mail-routing');
     expect(requiredCliManifestNames())->not->toContain('mail-routing');
 
-    // Never part of the operational bundle installed on a host.
-    expect(executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations'))))
-        ->not->toContain('mail-routing');
+    // The operational bundle carries a copy for the identity judge it
+    // installs beside it, and never runs it: installing is not consuming.
+    $installer = executableSourceLines(File::get(base_path('infrastructure/scripts/install-target-operations')));
+
+    expect($installer)
+        ->toContain('SRC_MAIL_ROUTING="${REPO_ROOT}/infrastructure/scripts/mail-routing"')
+        ->toContain('install_regular_file_transactional "${STAGE_DIR}/mail-routing" "${DST_MAIL_ROUTING}"')
+        ->not->toContain('render-plan');
 
     // Its only consumers are the gateway's installer and its verifier, the
     // mail identity judge, the read-only infrastructure verifier, which reads
@@ -1193,11 +1198,12 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/mail-inbound',
     ];
     $bundled = ['infrastructure/scripts/activate-mail-inbound'];
+    $installers = ['infrastructure/scripts/install-target-operations'];
 
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled], true)) {
+        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled, ...$installers], true)) {
             continue;
         }
 

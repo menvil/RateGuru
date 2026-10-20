@@ -22,11 +22,16 @@ not reorganize unrelated infrastructure.
   answers 503 in `tls-ready`.
 - 8.6.1, the production mail environment, is done by hand by the operator.
 - 8.6.2, the activation of `tits-guru` for production deployments, is
-  implemented in the repository and not yet applied to the host: **Prepare
-  tits.guru host** from `main` applies it. It deploys nothing and is not GO
-  LIVE.
+  applied: the first production release,
+  `v0.5.0-20261017-162841-88381fb`, is installed. It is not GO LIVE.
+- The first production backup cycles passed on 18 and 19 October 2026: the
+  local backup and restore-test, the B2 upload, retention and the offsite
+  restore-test.
+- The DKIM key in backup and clean-host recovery is implemented in the
+  repository and applies when Prepare reinstalls the operational bundle from
+  `main`. The recovery-time outbound fence is the next, separate change.
 
-Then the first production release, the rest of 8.6, and 8.7 (GO LIVE). The aim is to launch
+Then the rest of 8.6, and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
 period of its own. Bounce and reply processing, the remaining inbound mail work
 and unified monitoring are deferred until after the first production launch —
@@ -1646,14 +1651,15 @@ is cheap and repeatable — in the provisioner's own tests, against a synthetic
 brand that exists nowhere in this repository — and then exercised for real on
 `tits-guru`.
 
-**Where it stands, 2026-10-14.**
+**Where it stands, 2026-10-19.**
 
 - **Done.** 8.2 ACCEPTED and 8.3 PRODUCTION-ACCEPTED.
 - **Mail.** Outbound mail has been PRODUCTION-ACCEPTED since 2026-10-08
   (8.4B.4.2). Inbound SMTP and its delivery into the inbound store were
   PRODUCTION-ACCEPTED on 2026-10-12 (8.4B.5.2).
 - **Still open, for the launch.** The production backup policy (8.4A) is
-  implemented and still inactive. 8.4 as a whole is not accepted.
+  active, and its first cycles passed on 18 and 19 October 2026. 8.4 as a
+  whole is not accepted.
 - **Deferred.** Bounce and reply processing, the remaining inbound mail work
   and unified monitoring are moved to after the first production launch. They
   are not implemented and not cancelled: see **Post-launch: Mail Processing &
@@ -1665,12 +1671,13 @@ brand that exists nowhere in this repository — and then exercised for real on
 - **Next.** **NEXT: Phase 8.6 — production operations acceptance**, then 8.7.
   Where 8.6 stands:
   - 8.6.1, the production mail environment, is done by hand by the operator.
-  - 8.6.2, the activation of `tits-guru`, is IMPLEMENTED in the repository
-    and not applied to the host.
-- **Not launched.** In the repository `tits-guru` is `lifecycle=active`; on
-  the host it stays `planned` until **Prepare tits.guru host** installs the
-  new registry. No application release is deployed, and the public site
-  answers 503. Phase 8 is not complete.
+  - 8.6.2, the activation of `tits-guru`, is applied; the first production
+    release, `v0.5.0-20261017-162841-88381fb`, is installed.
+  - The first production backup cycles passed on 18 and 19 October 2026.
+  - The DKIM key in backup and clean-host recovery is IMPLEMENTED in the
+    repository; the recovery-time outbound fence is next.
+- **Not launched.** The public site answers 503, and GO LIVE has not run.
+  Phase 8 is not complete.
 
 Slices, in order:
 
@@ -2703,10 +2710,62 @@ Slices, in order:
    - **Outbound mail.** Real mail sent by the deployed application is
      delivered through the accepted outbound route.
    - **The mail safeguards required before GO LIVE, carried from 8.4B.7.**
+     - **DKIM key in backup and clean-host recovery — IMPLEMENTED in the
+       repository, not yet applied to the host.** A recovered host must sign
+       with the same key the published DKIM record names, and that key
+       existed only on the production host: production backups captured the
+       host scope alone, and `mail-dkim-private-key` is target scope.
+       - **The recovery scope.** `install-target-prerequisites --scope
+         recovery` is a closed set: every host-scope row, plus
+         `mail-dkim-private-key` for a target whose mail policy requires DKIM
+         signing — the one `mail-identity dkim-key` answers `required` for.
+         Nothing else of the target scope: `.env` is a backup member of its
+         own, the deploy key and the offsite credential belong to the
+         recovery. Where the key lives, its size and whether it is required
+         come from `mail-identity` alone.
+       - **Schema 4.** The backup keeps its eight files.
+         `recovery-material.tar.gz` holds the recovery scope, and the
+         manifest records `dkim_public_key_sha256`, the SHA-256 of the
+         captured key's public half (`mail-identity key-fingerprint`), or
+         `null`. A required key that is absent, unusable or wrongly
+         permissioned fails the backup; nothing is printed of it.
+       - **The bundle.** The nightly backup runs from the operational
+         bundle, so `install-target-operations` now also installs
+         `mail-identity`, `mail-routing` and the three mail contracts —
+         thirty-seven files — and proves, staged and installed, that the
+         judge accepts the contracts.
+       - **Older backups.** Schema 1, 2 and 3 stay readable and restorable
+         onto the live target; restore-test and offsite-restore-test certify
+         a schema 3 backup in the host scope it was written in. A schema 3
+         backup is still a clean-host recovery source for `staging-main`; for
+         `tits-guru` it carries no key, and the recovery preparation and
+         `recover-host --apply` refuse it as insufficient, by name. No key is
+         generated or substituted.
+       - **Recovery.** `fetch-recovery-material` has the installer judge the
+         extracted key against the reviewed policy and requires its public
+         half to reproduce the manifest's fingerprint before anything is
+         staged. A recovery preparation installs the recovery scope before
+         host bootstrap — the signer bootstrap installs refuses to verify
+         without a required key — pre-signer (`root:root 0600`) while the
+         signer's group does not exist yet; `install-mail-signing --apply`
+         then makes it `root:opendkim 0640`.
+       - **Proved** by real runs of the shipped scripts against scratch
+         hosts (`BackupTest`, `InstallTargetPrerequisitesTest`,
+         `FetchRecoveryMaterialTest`, `RestoreTest`, `OffsiteRestoreTest`,
+         `PrepareHostOrchestratorTest`), including a simulated clean host
+         prepared from a schema 4 backup that puts back the exact key.
+       - **Applied when** Prepare tits.guru host and Prepare staging host
+         reinstall the bundle from `main`; the first nightly backup after
+         that is the first schema 4 one, and the first a `tits-guru`
+         clean-host recovery accepts. No Postfix, OpenDKIM, DNS, TLS or
+         `.env` change.
+       - **Not here: the recovery-time outbound fence.** A replacement host
+         for `tits-guru` is still prepared with direct delivery configured.
+         Refusing outbound delivery on a recovered machine until its A, PTR
+         and SPF are proved for its address and the release is explicit is
+         the next, separate change.
+
      Open:
-     - production backup and recovery carry the active DKIM signing key, so a
-       recovered host signs with the same key and mail identity the published
-       DNS names;
      - a recovery-time outbound fence, so a recovered host sends nothing
        before it is proved;
      - A, PTR and SPF re-accepted for a replacement host's address before

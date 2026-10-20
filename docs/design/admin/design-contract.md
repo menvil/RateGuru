@@ -143,7 +143,7 @@ Sentence case everywhere; uppercase only in 11px overlines. No sizes outside the
 | Top bar | 62 |
 | Page gutter | 28 |
 | Card gap | 24 |
-| Detail panel | 448 (drawer, docked panel); 480 for long lists |
+| Detail panel | 448 (drawer, docked panel); 480 for long lists; 680 for a record's editor |
 | Controls | sm 32 · md 36 · input 40 · nav item 40 · badge 24 |
 | Rows | table 56–64 (60 default) · table header 40 · menu item 36 · detail row 36 |
 | Radii | 5 checkbox and locale chip · 6 badge · 8 item (menu items, chips, text actions, thumbnails) · 10 control · 12 popover · 16 card · full pill |
@@ -187,6 +187,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
+  | Content Studio | Publications & plans · Personas |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -201,15 +202,17 @@ This section is the target design from the prototype. Production builds it as de
 - **Top bar (NAV-02):** padding 0 24 0 28, breadcrumb (section › page, last item current) on the left, page
   actions on the right with gap 10 and the primary action last. Meta text 13 tertiary (“Updated 09:41”); unsaved
   state 13 due-colour (“2 unsaved changes”) next to Save. Edit pages save from the top bar; there is no sticky
-  bottom save bar.
+  bottom save bar. A record edited in a drawer over its list — a persona, a person — saves from the drawer's
+  footer instead, which counts its own unsaved changes.
 - **Toasts (FBK-01):** bottom centre of the main column, 24 from the bottom, at most three stacked, 5.2 s.
 
 ### Production shell
 
 Every admin page except the developer kit is drawn inside the Admin v2 shell. Page content is still Filament's
 until each page is migrated, so a page can show both the shell's breadcrumb and its own legacy heading for now.
-Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's page, Categories,
-Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too.
+Languages, Translation Center, Translation AI, Posts, Comments, Reports, Users with a person's editor, Categories,
+Tags, Rating groups, Project settings and Media diagnostics are migrated: their content is Admin v2 too. Content
+Studio's Publications & plans and Personas were built in Admin v2 from the start.
 
 - **Components:** `App\Livewire\Admin\Sidebar` and `App\Livewire\Admin\Topbar`, registered with the panel's
   `sidebarLivewireComponent()` and `topbarLivewireComponent()`. Filament keeps everything else: routing,
@@ -251,8 +254,11 @@ Tags, Rating groups, Project settings and Media diagnostics are migrated: their 
   which asks the page by a browser event to open its drawer; Rating groups puts Create group there, a link, and
   the group editor its unsaved state, Discard and Save; Project settings puts its count of unsaved changes, Discard
   and Save changes there; Posts puts when its list was read (“Updated 09:41”) and Refresh; Reports the keys that
-  step through reports (J, K); a person's page its count of unsaved changes, Discard and Save changes; Media
-  diagnostics when it was read, Refresh and Run full audit. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
+  step through reports (J, K); Media diagnostics when it was read, Refresh and Run full audit; Publications & plans
+  Create publication, a link; a new publication's page and a publication's editor their count of unsaved changes,
+  Discard, and Create draft — which runs with nothing changed, since a draft may be saved empty, and becomes Save
+  draft once the draft exists — or Save draft; Personas Create persona, which asks the page by a browser event to
+  open its drawer. The editors share one top bar (`filament.pages.editor.topbar`), which reads what is
   unsaved from the page through the `adminEditor` Alpine store. A page without a permanent action, such as
   Languages, leaves it empty.
 - **Toasts (FBK-01):** the sidebar component carries the one toast stack of every admin page
@@ -300,7 +306,8 @@ These are the current migration state, not changes to the target design:
 - **Status tabs (NAV-03):** 40 high above the table card; 15px labels with a 12/500 count; 2px ink underline on the
   active tab. Counts are totals across all pages. Default tab: Posts → Pending, Reports → Open, others → All.
 - **Card (LAY-02):** white, hairline, radius 16, no shadow. Header 16 20 with title 15/500 and subtitle 13
-  tertiary; sections split by full-width hairlines; a sunken footer for read-only notes. Edit screens use two
+  tertiary, and a status such as a badge beside them when there is one (`aside`); sections split by full-width
+  hairlines; a sunken footer for read-only notes. Edit screens use two
   columns: fluid plus a 448 panel, gap 24.
 - **Detail rows (LAY-03):** min 36; icon 16 tertiary, label 14 gray-600, value 14/500 right-aligned; IDs and paths
   in 12px mono with ellipsis and a title. Section labels are 11px overlines with an optional rule and a 13px
@@ -427,7 +434,10 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   search, an ARIA `combobox` over a `listbox` whose active option is its `aria-activedescendant`; the search
   filters in the browser, Up and Down move, Enter chooses, Escape returns to the trigger, and an always-present
   status region says when nothing matches. Choosing dispatches a cancelable `choose` event before the value is
-  taken, so a screen can ask first or make the change on the server instead.
+  taken, so a screen can ask first or make the change on the server instead. The list opens under the trigger,
+  or over it when there is more room there — measured between the bars kept at the window's top and foot
+  (`data-admin-ceiling` on the top bar, `data-admin-floor` on the Content Studio editor's footer) — and is never
+  taller than its room, so all of it can be reached. The Post step's author panel opens the same way.
 
 ## Status
 
@@ -464,10 +474,11 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   offers the alternative; no confirm). The confirm label repeats the action (“Hide post”, never “OK”); the footer
   says where the action is recorded (“Recorded in the moderation log as …”). Reversible, low-risk actions are never
   confirmed; they get a toast with Undo.
-- **Drawer (OVL-02):** 448 wide (480 for long lists), full height on the right, drawer scrim; header 62 high
-  with title 15/500, 12px subtitle and close; scrolling body split by hairlines; footer with actions on the right
-  and destructive actions on the left. Escape or the scrim closes it. Reports docks the same 448 panel inside the
-  layout.
+- **Drawer (OVL-02):** 448 wide (480 for long lists, 680 for a whole record's editor in sections — a persona, a
+  person), full height on the right, drawer scrim; header 62 high with title 15/500, 12px subtitle and close;
+  scrolling body split by hairlines; footer with actions on the right and destructive actions on the left. Escape
+  or the scrim closes it. Reports docks the same 448 panel inside the layout. A confirmation asked from an
+  editor's drawer opens over it, as the reference draws it, and closing the confirmation leaves the drawer open.
 - **Toast (FBK-01):** ink surface, white 14px, radius 12, popover shadow; icon green for success, `#FF9AA2` for
   errors, gray-400 for info (on ink); Undo only for reversible actions.
 - **Inline notice (FBK-02):** radius 10, padding 10 12, 13/18, icon 16. Info (`info`), warning (`circle-alert`),
@@ -490,7 +501,7 @@ In production the confirmation dialog, the drawer and the toast stack are Blade 
   `warning` and `danger` tones — danger for a deletion that cannot be taken back, its confirm the danger button; a
   blocked dialog is one with no confirm action. In its `details`, `.rg-admin-dialog-subject` shows the record it
   acts on (an icon, its name, one line about it) and `.rg-admin-dialog-facts` what an alternative does, under a
-  section label. The drawer is 448 wide, or 480 with `wide`,
+  section label. The drawer is 448 wide, 480 with `wide`, or 680 with `editor` for a whole record's editor,
   never wider than the screen, with an optional `leading` and `footer`.
 - **`x-admin.ui.toast-stack` (FBK-01)** is drawn once per page by the shell. A page raises a toast with a browser
   event — `$this->dispatch('rg-admin-toast', message: '…', tone: 'success')` from Livewire, or `$dispatch` from
@@ -988,6 +999,149 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 - **Access:** project settings are an administrator's (`manage-project-settings`); every write goes through
   `SaveProjectSettingsAction`, which refuses translations and the offered languages.
 
+## Content Studio
+
+```text
+Content Studio
+├── Publications & plans
+└── Personas
+```
+
+Content Studio is where administrators run the accounts the site's editorial content comes from and prepare what
+they publish. Its section holds only screens that work: the prototype's Reply rules, Reply log and Action queue
+arrive with their own screens, never as items before them.
+
+### Publications & plans
+
+The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a publication's editor
+(`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan` (`StudioPlanResource`). A plan is a draft of a post, never
+a post: nothing on these pages publishes, schedules or queues anything, and every write goes through the plan's
+actions (`docs/architecture/studio-plans.md`).
+
+- **List header band:** “Prepare publication drafts before reviewing and publishing them.” Stats: Total plans,
+  Drafts, With image and With author — figures that can be counted now; nothing about scheduled or published posts,
+  comments or votes, which no plan has yet.
+- **Toolbar (TBL-02):** the search over the title, the id (`#123` or `123`) and the author's username and names —
+  never a deleted author's; State (All, Draft) and Image (With image, Without image) as filter dropdowns with their
+  chips, in the URL, a value the list does not offer dropped; 25 a page, the most recently saved first
+  (`StudioPlansQuery`, a registered stable pagination boundary); a page past the end shows the last one.
+- **Table (TBL-01):** the title — a link to the editor — or “Untitled draft #ID”, with the id; the author with
+  avatar and username, “No author selected”, or “Deleted user” and nothing else of a deleted account; the photo at
+  thumbnail size from its smallest variant, or a placeholder; the publication date — “When approved” for a plan
+  published once it is approved, the date it will carry, or “Date not selected”; the state (STS-01, Draft
+  outline); Last updated. A draft has Edit and the row menu — Edit draft and Delete draft; a plan past its draft
+  has the two disabled with the reason.
+- **Empty states (TBL-05):** “No publication plans yet” with Create publication; “No plans match” with Clear
+  filters.
+- **The editor (NAV-02):** one Admin v2 page for a new publication and for an existing one, saved from the top bar
+  with the count of unsaved changes, Discard and Create draft or Save draft, and the browser's question before a
+  page with unsaved changes is left. Four steps under the title — Image (Upload & analysis), Post (Texts, author &
+  votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back (disabled on the first),
+  “Step n of 4” and Continue in a footer kept at the foot of the window; moving between them saves nothing and
+  loses nothing, and none is locked by an incomplete draft. Continue waits only while a photo is on its way,
+  saying “Wait for the photo to finish uploading.”
+  - **Image:** nothing waits for Save. While there is no photo, its sources (FRM-08): Upload — Upload image, or a
+    file dropped on the drop zone, the limit read from `uploads.images.max_kilobytes` —, From link — a direct link
+    to an image — and From social post — a public post's link, with the sites read directly (Instagram, X,
+    Facebook, Pinterest) and the one the link is for marked. A file is previewed at once in place of the
+    sources, which stay out of the way until it is stored, uploaded (“Uploading photo…” with its progress),
+    stored (“Processing photo…”) and analysed, its preview kept until the saved photo has loaded in its place so
+    the photo never blinks out; a link is imported (“Importing
+    photo…”) once it is a whole address and typing has paused, never twice running. On a new publication the
+    first photo makes its Draft, and the top bar's Create draft becomes Save draft. Once there is a photo, the
+    sources give way to it: the photo, its file name, dimensions, size and type, a Saved or Replaced badge, Replace
+    — the sources again, with Cancel — a file dropped on the photo to replace it, and Remove from draft, taken off
+    at once. A failed upload or import is said by its source (FBK-02 warning, “Upload failed.”) with Try again,
+    apart from the analysis. Beside it, Photo analysis of the saved photo, its own component, with a badge (Not
+    started, Analysing, Done, Failed, Not configured): “The analysis starts as soon as a photo is added.”;
+    “Uploading photo…”, “Processing photo…” or “Importing photo…” while a new one is on its way, nothing of the
+    old one shown; “Waiting for analysis…” and “Analysing photo…” (FBK-02 info, read again every few seconds, and
+    only then); the description under Scene summary, Subjects, Actions, Setting, Composition, Notable details,
+    Visible text and Uncertainties, with the date and the model in a hint and Re-run analysis, “a new, paid
+    request”; a re-run shown as the first run was — the result before it gone from the card at once, three
+    placeholder lines over “Waiting for analysis…” or “Analysing photo…” —, and a failure in its own words (FBK-02
+    warning) with Try again, nothing of the result before it shown; “This
+    photo has not been analysed yet.” with Re-run analysis for a photo stored before analysis was on; “Photo
+    analysis is not configured.”; and the photo's File, Dimensions, Size and Format (LAY-03). Neither is part of
+    Save draft.
+  - **Post:** laid out as the prototype's Titles & texts. First, AI text suggestions, a component of its own about
+    the saved photo, in three cards side by side until they no longer fit. Context: the photo, the analysis's
+    summary under Photo analysis, Tone of new variants (Playful, Humour, Cheeky — chosen at first —, Irony,
+    Neutral; toggle buttons whose choice changes nothing until the next batch, a choice other than the tone the
+    lists were written in said in the hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10
+    descriptions — a paid call.”; then Generate 10 more — Generate 10 in the tone chosen, when it is another —, or
+    Try again after a failure. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
+    analysis as they are now under “Set n · written in tone”, numbered; choosing one puts it in Final title or
+    Final description as typing would — unsaved, counted in the top bar, editable, saved only by Save draft — and
+    marks it in use. A new batch takes the place of the one before: while it is on its way both cards wait for it
+    (“Waiting for text suggestions…” or “Generating suggestions…” over ten placeholders, the button disabled, read
+    again every few seconds, and only then), and a failure is said in their place (“Generation failed”, its own
+    words, “The final title and description are unchanged.”, Try again). Nothing is generated or saved by itself.
+    Until the photo's analysis is complete, “Text suggestions will be available when photo analysis is
+    complete.”; with no photo, “Add a photo on the Image step first: suggestions are written from its analysis.”;
+    unconfigured, “Text suggestions are not configured.”, the step working as before. Batches written for an
+    earlier photo or analysis are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
+    counter), Final description (up to 2,000) and Post author side by side — the persona chosen on a trigger, the
+    living personas found on the server in a panel under it (a restricted one with “This persona cannot publish
+    while restricted.”) —, then Source URL, never the link a photo is imported from. Last, Category and tags — the
+    category (an inactive one kept and marked) and up to ten tags — beside the author's answer in each active
+    rating group. The steps take the whole width, as the prototype's do.
+  - **Discussion:** says what will come in a later phase; nothing else.
+  - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
+    zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
+    saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
+- **Saving:** the texts through `CreateStudioPlanAction` or `UpdateStudioPlanAction`; the photo the moment it is
+  chosen through `SetStudioPlanImageAction` or `RemoveStudioPlanImageAction` — each handed the version the editor
+  last read or wrote, so neither is in conflict with the other, and the texts typed stay unsaved until Save. Each
+  error stays by its field, and Save shows the step it is on. A save or a photo drawn before somebody else's save
+  is refused with a toast and a warning notice whose Reload draws the plan as it is, keeping what was typed until
+  then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A new publication's
+  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan.
+- **Delete draft (OVL-01):** from the row menu and the editor's header, “Delete this draft?” — “The draft will be
+  removed. Its image will be released if nothing else uses it.” — Cancel and Delete draft, through
+  `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
+- **Access:** an active administrator's (`manage-studio-plans`): the navigation item, every page and every
+  Livewire request ask, and so do the actions.
+
+### Personas
+
+The list (`ListPersonas`) is drawn in Admin v2, with a persona — new or existing — edited in the drawer over it
+(`PersonaEditor`), as the reference draws it; the old addresses of a new persona and of a persona's editor
+(`CreatePersona`, `EditPersona`) lead there. `PersonaResource` is over `User`, narrowed to the Persona role — a
+persona is a regular account, not a second kind of one — and keeps the routes, the navigation item and the access
+check; global search stays with Users, whose result for a persona opens its editor for an administrator.
+
+- **List header band:** “Regular accounts run by Content Studio. They never sign in; their status changes only
+  through moderation in Users.” Stats: Total, Active, Restricted (limited, banned, shadowbanned) and Replies on
+  (engagement other than Off) — figures that can be counted now; none about plans or replies yet.
+- **Toolbar (TBL-02):** the search over the username, the names, the short description and the character; Status
+  (Active, Limited, Banned, Shadowbanned) and Engagement (Off, Low, Normal, High) as filter dropdowns with their
+  chips, in the URL, a value the list does not offer dropped; 25 a page, newest first (`PersonasQuery`, a
+  registered stable pagination boundary).
+- **Table (TBL-01):** the avatar or initials, the display name — which opens the editor — and the username; the
+  short description with the speech style and emoji under it; the status (STS-01); the engagement; Max a day;
+  Edit and the row menu — Edit persona, View public profile, and Moderate in Users (Limit, ban or restore access).
+  Status is changed only there: Content Studio has no moderation of its own and no Deactivate.
+- **Empty states (TBL-05):** “No personas yet” with Create persona; “No personas match” with Clear filters.
+- **The editor (OVL-02, 680):** one drawer over the list for a new persona and for an existing one — opened by
+  Create persona in the top bar or a row's Edit, the address saying which (`?persona=new`, `?persona=12`) — titled
+  “New persona” or “Edit Night Owl”, “A regular account on the site, run by Content Studio”. Its footer counts the
+  unsaved changes, with Cancel and Create persona or Save persona, and the browser asks before a page with unsaved
+  changes is left. Profile — the photo (Upload photo, kept with the draft until Save), Display
+  name (required), Username (made from the display name when left empty on create; the public profile address as
+  its hint) and Public bio; Character — Short description, Character, Speech style, Topics and typical jokes,
+  Never writes about (FRM-03 with counters) and Emoji (FRM-08: None, Occasional, Frequent), internal and never
+  shown on the site; Activity — Engagement (FRM-08: Off, Low, Normal, High, with what each means) and Max replies
+  a day (FRM-05, 0–50), kept as settings that start nothing yet; Account — its status with Moderate in Users, View
+  public profile, and what it never does — sign in, receive mail, administer.
+- **Saving:** through `CreatePersonaAction`, `UpdatePersonaAction` and `SetPersonaAvatarAction`, which check
+  everything again whatever the page sent. Each error stays by its field; a draft drawn before somebody else's
+  save is refused with a toast and a warning notice whose Reload draws the persona as it is; a persona deleted
+  meanwhile can no longer be saved. Saved, the drawer closes on the list showing it; a new persona whose photo
+  could not be kept opens again on itself for the photo to be chosen again.
+- **Access:** an active administrator's (`manage-personas`): the navigation item, every page and every Livewire
+  request ask, and so do the actions. A moderator sees no Content Studio and moderates personas in Users.
+
 ## Moderation
 
 ### Posts
@@ -1101,11 +1255,12 @@ resource keeps the route, the navigation item — with the open reports, warning
 
 ### Users
 
-Users (`ListUsers`) and a person's page (`EditUser`) are drawn entirely in Admin v2. The list reads everyone with an
-account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the moderation actions,
-which go through their actions and log themselves. The resource keeps the routes, the navigation item, who may edit
-whom (`UserPolicy::manage`) and global search, whose results open the person's page — or the list on them where the
-page is not theirs to edit.
+Users (`ListUsers`) is drawn entirely in Admin v2, with a person edited in the drawer over the list
+(`UserEditor`) in the style of a persona's; a person's old address (`EditUser`) leads there. The list reads
+everyone with an account a tab at a time on the server (`ModerationUsersQuery`); status changes only through the
+moderation actions, which go through their actions and log themselves. The resource keeps the routes, the
+navigation item, who may edit whom (`UserPolicy::manage`) and global search, whose results open the person's
+editor — or the list on them where they are not the viewer's to edit.
 
 - **List header band:** “Status changes only through moderation actions. Trust decides whether a person’s posts
   skip review.” Stats: Total, Restricted (limited, banned, shadowbanned) and Staff.
@@ -1114,7 +1269,7 @@ page is not theirs to edit.
 - **Toolbar (TBL-02):** the search over the username, the name and the email address; Role as a filter dropdown;
   the Role and Suspicious chips — Suspicious, as the dashboard's Suspicious users opens the list
   (`?suspicious=1`): shadowbanned, or with reported posts or comments.
-- **Table (TBL-01):** the avatar, the username — a link to the person's page for whoever may edit it — the name
+- **Table (TBL-01):** the avatar, the username — which opens the person's editor for whoever may edit it — the name
   and when they joined; the email address (“Removed on deletion” for a deleted account); the role, staff as an
   outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
   reports on their posts and comments (STS-02); Edit and the row menu.
@@ -1126,13 +1281,17 @@ page is not theirs to edit.
   no new posts, comments, votes, reports or follows, the content kept, never a locked account — with an optional
   reason; Mark trusted (light) has no reason to give. A sanction on an active person toasts with Undo, which
   restores access; Restore access is immediate and toasts with Undo, which applies the sanction again. The same
-  actions and dialogs are on the person's page.
-- **A person's page — header band:** the avatar, the username and status, the name and when they joined; stats
-  Posts, Comments and Reports (on their content).
+  actions and dialogs are in the person's editor, the dialogs over it; Undo is the list's, which shows the change
+  in its row and in the drawer.
+- **A person's editor (OVL-02, 680):** a row's Edit or username opens it, the address saying on whom
+  (`?user=12`); titled with the username, the name and when they joined under it, then stats Posts, Comments and
+  Reports (on their content).
 - **The draft (NAV-02):** Profile — Name, Username (“Public as @name”), Email (a new address has to be confirmed
   again); Role & trust — Role as a segmented control (FRM-08) with what it allows, Trust as radio cards (FRM-09):
-  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The top bar counts the
-  unsaved changes; a change of role is asked about first (warning). Saved through `UpdateUserAccountAction`.
+  Not trusted, Trusted; Password — a new one, shown or hidden, empty to keep the current one. The drawer's footer
+  counts the unsaved changes, with Cancel and Save changes; a change of role is asked about first (warning). Saved
+  through `UpdateUserAccountAction`, after which the drawer closes. A persona's account is drawn read-only, with
+  Edit in Content Studio and Close.
 - **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
   that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
   joined, posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
@@ -1177,7 +1336,8 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 ## Responsive rules
 
 - Verified widths: 1440, 1280 and 1024; Translation AI, Posts, Comments, Reports, Users, Categories, Tags, Rating
-  groups and Project settings also at 768 and 390.
+  groups and Project settings also at 768 and 390; Personas and the persona editor, and Publications & plans with
+  every step of the publication editor, also at 390.
 - At 1280 px and wider the sidebar is 300; below it collapses to the 68 rail.
 - Tables keep every column and scroll horizontally inside their card — except Languages, whose rows tighten and then
   stack into labelled blocks (see Localization), so it never scrolls at all.
@@ -1230,7 +1390,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Categories and Tags locale chips | every language the prototype knows | the languages the project offers besides English; for categories, missing counted over active ones | visitors meet the offered languages, and Translation Center lists only what visitors can see |
 | Merge into… | merges a tag into another, and a tag in use offers “Merge into another tag” | unavailable (“Not available yet”); a tag in use is a blocked dialog | merging tags needs a domain action of its own, to be designed once every section is on v2 (migration plan) |
 | Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
-| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | OVL-02: one overlay at a time; a dialog opened from a drawer replaces it |
+| Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | Categories and Tags: the drawer's one destructive action replaces it; an editor's drawer keeps its confirmations over it |
 | Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
 | Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 10 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
 | Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 10 | the limits the content had before the redesign, which its translations are held to |
@@ -1276,11 +1436,11 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Trust levels | New, Regular and Trusted, with upload caps | Not trusted and Trusted | trust is one threshold: at or above it a person's posts publish at once, once their email is confirmed; nothing caps uploads |
 | What Limit and Shadowban do | Limit: posts reviewed, uploads capped; Shadowban: activity visible only to them, not notified | both stop new posts, comments, votes, reports and follows, and keep the content visible | the lifecycle as it is (docs/architecture/user-lifecycle.md): no viewer-dependent visibility exists |
 | Sanctioning staff | “Change the role to User first” | moderators can be sanctioned; administrators can’t, and nobody their own account | UserPolicy as it is |
-| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person's page |
+| Mark trusted Undo | Undo after marking someone trusted | none | nothing takes trust back but an edit of the person |
 | Sanction Undo | Undo after any sanction | Undo from an active account only | restoring access returns someone to Active, not to the sanction they had before |
 | Last active | “Last active Today 08:15” | not shown | nothing records when someone was last active |
 | New password | at least 10 characters; signs other sessions out | the application's password rule; other sessions stay | the rule people's own passwords follow, and saving does not end sessions |
-| Person's page top bar | Cancel and Save changes | Discard and Save changes | as every Admin v2 editor |
+| Person's editor | User edit, a page of its own with Cancel and Save changes in the top bar | a 680 drawer over the list, Cancel and Save changes in its footer | edited the way a persona is, over the list it is opened from |
 | Users grid | `minmax(200px,1fr) 220px 110px 140px 120px 70px 80px 110px`, 1050 | Trust 150, 1080 | “Not trusted” beside its bar fits without wrapping |
 | Next scheduled audit | “Next scheduled audit Tomorrow 04:00” in the header band | not shown | no audit is scheduled; one runs from the top bar or `media:audit` |
 | Asset ids | “A-208113” | “#208113”, and the search finds “#208113” or “208113” | the id as stored, as the other lists show theirs |
@@ -1305,6 +1465,18 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
 | Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
+| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
+| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
+| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
+| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
+| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
+| Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
+| Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
+| Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
+| Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
+| Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
+| Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
+| Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the editor, through the action that checks it |
 
 ### Tertiary text contrast
 

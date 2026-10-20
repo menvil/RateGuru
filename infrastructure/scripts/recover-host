@@ -2024,14 +2024,28 @@ perform_recovery() {
     # names the format and offers no fallback: the fix is a new backup on a
     # live host, never a hand-supplied environment file.
     step "require a clean-host-recovery-capable backup"
-    [[ "${BACKUP_SCHEMA}" == "3" ]] || operator_action_required \
+    [[ "${BACKUP_SCHEMA}" == "3" || "${BACKUP_SCHEMA}" == "4" ]] || operator_action_required \
         "backup ${BACKUP_ID} is a schema ${BACKUP_SCHEMA:-unknown} backup, written before the recovery material joined the format" \
-        "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 3); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
+        "a clean-host recovery can only be prepared from a backup that carries the target's recovery material (schema 4, or schema 3 for a target whose mail is not signed); this backup stays restorable onto a LIVE target, and there is no fallback to hand-supplied material" \
         "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
         "take a new backup on the live host (backup --target ${TARGET_ID}, or the nightly backup-cycle) and let it reach the offsite namespace" \
-        "confirm it is schema 3 and passed the offsite restore test"
-    [[ "${BACKUP_SCHEMA}" == "3" ]] \
-        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 — the format that carries the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
+        "confirm it is schema 4 and passed the offsite restore test"
+    [[ "${BACKUP_SCHEMA}" == "3" || "${BACKUP_SCHEMA}" == "4" ]] \
+        || fail "backup ${BACKUP_ID} is not clean-host-recovery-capable: its manifest schema is ${BACKUP_SCHEMA:-unknown}, and a host recovery requires schema 3 or 4 — the formats that carry the target's recovery material inside the backup. Backups written before that format carry none, and there is deliberately no fallback to hand-supplied material. This backup stays restorable onto a LIVE target through Restore Target Data; for a clean-host recovery, take a new backup on a live host and recover from that. No data was staged or activated, and the offsite-write hold placed above stays in place"
+
+    # A schema 3 backup was captured before the DKIM key joined the recovery
+    # material. It is enough for a target whose mail is not signed, and never
+    # for one whose mail is: that recovery would come back unable to sign as
+    # the published record says, and no key is ever generated or substituted.
+    if ! backup_schema_covers_recovery_scope "schema${BACKUP_SCHEMA}" "${TARGET_ID}"; then
+        operator_action_required \
+            "backup ${BACKUP_ID} is a schema 3 backup, written before the DKIM signing key joined the recovery material" \
+            "${TARGET_ID}'s outbound mail is DKIM-signed, and a recovered host must sign with the very key its published DNS record names; this backup does not carry it (${BACKUP_RECOVERY_SCOPE_GAP}). It stays restorable onto a LIVE target, and no key is generated or substituted" \
+            "re-run \"$(recovery_workflow_name)\" with mode=start and that backup's exact timestamp" \
+            "take a new backup on the live host (the nightly backup-cycle) once its bundle writes schema 4, and let it reach the offsite namespace" \
+            "confirm it is schema 4 and passed the offsite restore test"
+        fail "backup ${BACKUP_ID} is not clean-host-recovery-capable for ${TARGET_ID}: it is a schema 3 backup, and ${TARGET_ID}'s recovery material also needs ${BACKUP_RECOVERY_SCOPE_GAP}, which only a schema 4 backup carries. This backup stays restorable onto a LIVE target through Restore Target Data. No data was staged or activated, and the offsite-write hold placed above stays in place"
+    fi
 
     [[ "${BACKUP_RELEASE}" =~ ${RESTORE_RELEASE_ID_REGEX} ]] \
         || fail "the verified backup identity carries no canonical RateGuru release: ${BACKUP_RELEASE:-<unset>}"

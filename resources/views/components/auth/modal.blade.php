@@ -2,11 +2,12 @@
     The one authentication dialog of the application, rendered once per page
     for guests. Anything that wants a guest to sign in only dispatches
 
-        $dispatch('open-auth-modal', { mode: 'login' | 'register' })
+        $dispatch('open-auth-modal', { mode: 'login' | 'register' | 'forgot-password' })
 
-    and knows nothing else about it. Login and registration are two states
-    of this dialog, switched by the link at the bottom — not tabs, and not a
-    second dialog. /login and /register stay the no-JavaScript fallback.
+    and knows nothing else about it. Login, registration and the reset-link
+    request are states of this dialog, switched by its own links — not tabs,
+    and not a second dialog. /login, /register and /forgot-password stay the
+    no-JavaScript fallback.
 --}}
 @use('App\Enums\AuthModalMode')
 @use('App\Support\Auth\AuthModalState')
@@ -23,6 +24,12 @@
     // The server's view of "this page"; the dialog refreshes it from the
     // address bar when it opens, because Livewire may have changed the URL.
     $returnTo = AuthReturnUrl::resolve(request()->getRequestUri());
+
+    $titles = [
+        AuthModalMode::Login->value => __('auth.login.title'),
+        AuthModalMode::Register->value => __('auth.register.title'),
+        AuthModalMode::ForgotPassword->value => __('auth.forgot_password.title'),
+    ];
 @endphp
 
 <div
@@ -40,7 +47,7 @@
                     x-show="mode === '{{ $mode->value }}'"
                     data-testid="auth-modal-title-{{ $mode->value }}"
                     @style(['display: none' => $state->mode !== $mode])
-                >{{ $mode === AuthModalMode::Login ? __('auth.login.title') : __('auth.register.title') }}</span>
+                >{{ $titles[$mode->value] }}</span>
             @endforeach
         </x-slot:title>
 

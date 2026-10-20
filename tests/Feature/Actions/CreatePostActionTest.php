@@ -9,6 +9,7 @@ use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
 use App\Enums\MediaVisibility;
 use App\Enums\PostStatus;
+use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\MediaAsset;
 use App\Models\Post;
@@ -135,6 +136,43 @@ it('publishes staff posts at once without a confirmed email, since staff could a
 
     expect($post->status)->toBe(PostStatus::Published);
 })->with(['moderator', 'admin']);
+
+/*
+ * A Persona's post always waits for moderation: it is published only by an
+ * administrator's approval, never by trust, a confirmed address or a staff
+ * exemption. Staff keep their exemption by name, not by "not a User".
+ */
+it('holds a persona\'s post for a moderator, trusted as it is', function () {
+    $persona = User::factory()->persona()->create();
+
+    $post = app(CreatePostAction::class)->handle($persona, new CreatePostData(title: 'Persona entry'));
+
+    expect($persona->trust_level)->toBe(MarkUserTrustedAction::TRUSTED_LEVEL)
+        ->and($persona->hasVerifiedEmail())->toBeFalse()
+        ->and($post->status)->toBe(PostStatus::Pending)
+        ->and($post->published_at)->toBeNull()
+        ->and($post->user_id)->toBe($persona->id);
+});
+
+it('holds a persona\'s post even with a confirmed address on its row', function () {
+    $persona = User::factory()->persona()->create();
+    User::query()->whereKey($persona->id)->update(['email_verified_at' => now()]);
+
+    $post = app(CreatePostAction::class)->handle($persona, new CreatePostData(title: 'Persona entry'));
+
+    expect($persona->fresh()->hasVerifiedEmail())->toBeTrue()
+        ->and($post->status)->toBe(PostStatus::Pending)
+        ->and($post->published_at)->toBeNull();
+});
+
+it('subjects a persona to the same lifecycle gate as anyone', function (string $state) {
+    $persona = User::factory()->persona()->create(['status' => UserStatus::from($state)]);
+
+    expect(fn () => app(CreatePostAction::class)->handle($persona, new CreatePostData(title: 'Persona entry')))
+        ->toThrow(CannotCreatePostException::class);
+
+    expect(Post::count())->toBe(0);
+})->with(['limited', 'banned', 'shadowbanned']);
 
 it('does not allow banned user to create post', function () {
     $user = User::factory()->banned()->create();

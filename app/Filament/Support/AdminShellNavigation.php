@@ -10,9 +10,11 @@ use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
+use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Reports\ReportResource;
+use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Resources\Users\UserResource;
 use Filament\Navigation\NavigationGroup;
@@ -48,6 +50,8 @@ final class AdminShellNavigation
         CategoryResource::class => 'folder',
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
+        StudioPlanResource::class => 'newspaper',
+        PersonaResource::class => 'bot',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',

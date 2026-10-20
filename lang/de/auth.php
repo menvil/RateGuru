@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Noch kein Konto?',
         'have_account' => 'Du hast bereits ein Konto?',
+        'remembered_password' => 'Passwort wieder eingefallen?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'oder',
 
     'forgot_password' => [
+        'title' => 'Passwort zurücksetzen',
         'intro' => 'Passwort vergessen? Kein Problem. Gib einfach deine E-Mail-Adresse an, und wir schicken dir einen Link, mit dem du ein neues Passwort festlegen kannst.',
         'action' => 'Link zum Zurücksetzen senden',
     ],

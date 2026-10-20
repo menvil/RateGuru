@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Neturite paskyros?',
         'have_account' => 'Jau turite paskyrą?',
+        'remembered_password' => 'Prisiminėte slaptažodį?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'arba',
 
     'forgot_password' => [
+        'title' => 'Slaptažodžio atkūrimas',
         'intro' => 'Pamiršote slaptažodį? Nieko tokio. Nurodykite savo el. pašto adresą ir atsiųsime slaptažodžio atkūrimo nuorodą, kuria galėsite pasirinkti naują slaptažodį.',
         'action' => 'Siųsti slaptažodžio atkūrimo nuorodą',
     ],

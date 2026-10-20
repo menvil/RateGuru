@@ -117,3 +117,31 @@ it('does not allow non-admins to mark users as trusted', function () {
 
     expect((new UserPolicy)->markTrusted($moderator, $target))->toBeFalse();
 });
+
+/*
+ * A Persona is an ordinary target of every sanction an administrator may
+ * apply to a member, but never staff and never marked trusted.
+ */
+it('lets an administrator manage and sanction a persona like a member', function (string $ability) {
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create();
+
+    expect((new UserPolicy)->{$ability}($admin, $persona))->toBeTrue();
+})->with(['manage', 'ban', 'limit', 'shadowban', 'restoreAccess']);
+
+it('never lets a persona be marked trusted', function () {
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create(['trust_level' => 0]);
+
+    expect((new UserPolicy)->markTrusted($admin, $persona))->toBeFalse();
+});
+
+it('gives a persona no admin ability of its own', function () {
+    $persona = User::factory()->persona()->create();
+    $member = User::factory()->create();
+
+    expect((new UserPolicy)->viewAdmin($persona))->toBeFalse()
+        ->and((new UserPolicy)->manage($persona, $member))->toBeFalse()
+        ->and((new UserPolicy)->ban($persona, $member))->toBeFalse()
+        ->and((new UserPolicy)->markTrusted($persona, $member))->toBeFalse();
+});

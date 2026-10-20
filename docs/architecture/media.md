@@ -10,7 +10,12 @@ Every uploaded file — a post image or a user avatar — is represented by one
 `status`, `visibility`, and an optional `owner_user_id` (the uploader — not a
 substitute for the `posts.image_asset_id` / `users.avatar_asset_id`
 relationship, which is what actually attaches an asset to something). It is
-soft-deletable.
+soft-deletable. One exception to "the uploader": a Persona's avatar, uploaded
+by an administrator in Content Studio, is owned by the Persona whose avatar it
+is, so it follows that account's lifecycle — anonymization releases it — like
+any member's own avatar. A Content Studio publication plan's photo is no
+exception: it is owned by the administrator who uploaded it, never by the
+Persona the plan is to be published as.
 
 ## MediaVariant is a derived file
 
@@ -43,6 +48,11 @@ polymorphic/many-to-many media library: only one primary post image and one
 primary avatar exist right now, so a direct FK is simpler than modeling a
 general attachment relationship nothing yet needs.
 
+A third reference came with Content Studio: `studio_plans.image_asset_id`, a
+publication plan's photo before any post has it (see "A publication plan's
+photo" below). It is `restrictOnDelete()`: only the media lifecycle removes an
+asset row, and it never removes one a plan still points at.
+
 Deleting a `Post` or `User` does not cascade-delete their asset via this FK —
 the FK's `nullOnDelete()` only ever fires on a real SQL `DELETE`. Soft-
 deleting a `Post` (the only kind of post deletion that exists in this app)
@@ -70,6 +80,62 @@ replacements can't both read the same "previous" asset and leave one of them
 orphaned. It soft-deletes the previous avatar asset inline (unchanged by
 PR-07) — physical cleanup happens later, on its own schedule, once the grace
 period expires; see "Media lifecycle" below.
+
+A Persona's avatar takes the same path through `SetPersonaAvatarAction`:
+`ImageUploadStorer` checks, normalizes and stores the file under the Persona's
+id before any transaction; the transaction locks the administrator's row and
+the Persona's in ascending id order, asks again whether the administrator may
+manage Personas and whether the account is still a living Persona — so an
+avatar never lands on an account deleted during the upload — and whether it is
+still what the editor was drawn from (its profile fingerprint and its avatar),
+so a photo chosen before somebody else's save is refused; it then creates the
+`avatar` asset owned by the Persona and points `users.avatar_asset_id` at it,
+and only then releases the previous asset through
+`MediaLifecycleService::releaseUnreferenced()` (soft-deleted unless something
+else still references it). A failure or a refusal after the store removes the
+stored file through `StoredMediaCleaner`; the variants are generated after the
+commit (`GenerateMediaVariantsJob`, `afterCommit()`).
+
+## A publication plan's photo
+
+A Content Studio publication plan (`studio_plans`, see
+`docs/architecture/studio-plans.md`) keeps its photo as an ordinary post image
+from the moment it is uploaded, through `SetStudioPlanImageAction` — the path a
+post's own image takes, not one of its own: `ImageUploadStorer` checks,
+normalizes and stores the file (`MediaStoreRequest::forPostImage()`) before any
+transaction; the transaction locks the administrator's row, then the plan, and
+asks again whether the administrator may manage plans and whether the plan is
+still a Draft at the version the editor was drawn from — so a photo chosen
+before somebody else's save, another photo included, is refused; it then
+creates the `post_image` asset (`MediaAssetCreator`, `Ready`), points
+`studio_plans.image_asset_id` at it, raises the plan's version, and only then
+releases the previous photo through `MediaLifecycleService::releaseUnreferenced()`.
+A failure or a refusal after the store removes the stored file through
+`StoredMediaCleaner::deleteIfUnclaimed()`; the variants are generated after the
+commit (`GenerateMediaVariantsJob`, `afterCommit()`). A photo imported from a
+web address arrives the same way: the caller downloads it with
+`StoreImportedImageAction::download()`, passes the file in with
+`ImageInputSource::UrlImport`, and calls `cleanup()` afterwards.
+
+- **Owner.** The administrator who uploaded it (`owner_user_id`), never the
+  Persona the plan is to be published as. A post image's path names no
+  account (`media/post-images/Y/m/{uuid}`), so changing the plan's author does
+  nothing to the photo: no new upload, no move, no new normalization, no new
+  variants.
+- **Reference.** `studio_plans.image_asset_id` is the third source
+  `MediaReferenceChecker` checks: while a plan points at the photo, `media:audit`
+  counts it as used — never `active_unreferenced_asset` — Media diagnostics
+  offers no Release for it, and neither a Release nor `media:purge` removes it,
+  whatever an older audit said.
+- **Release.** Replacing the photo, taking it off (`RemoveStudioPlanImageAction`)
+  or deleting the Draft (`DeleteStudioPlanDraftAction`) drops the plan's
+  reference and, in the same transaction, calls `releaseUnreferenced()`: the
+  photo is soft-deleted when no post, avatar or other plan still references
+  it, and its files are purged by `media:purge` once the grace period is over —
+  the ordinary lifecycle, with nothing removed at once.
+- **Publication.** When a plan's post is published it takes the same asset;
+  nothing is normalized again, and `GenerateMediaVariantsJob` skips the
+  variants that already exist.
 
 ## Open Graph is a variant, not a post column
 
@@ -593,9 +659,12 @@ feature.
 
 **`MediaReferenceChecker`** (`app/Services/Media/MediaReferenceChecker.php`)
 is the single source of truth for "is this asset still owned by anything" —
-checked against the only two real FK usages that exist anywhere in this app:
-`posts.image_asset_id` and `users.avatar_asset_id`. No reflection/schema
-scanning, no invented future relations. Critically, the post check uses
+checked against the only three real FK usages that exist anywhere in this app:
+`posts.image_asset_id`, `users.avatar_asset_id` and
+`studio_plans.image_asset_id` (a publication plan's photo). No
+reflection/schema scanning, no invented future relations. Its batched form,
+`referencedAssetIds()`, issues one query per source — three for any number of
+asset ids, and none for no ids at all. Critically, the post check uses
 `Post::withTrashed()`: a soft-deleted-but-restorable post must still count
 as referencing its image, or every soft-deleted post's image would look
 orphaned the instant the post itself is soft-deleted, even though both may
@@ -627,7 +696,10 @@ things with two different triggers.
   best-effort: `DeleteUserAccountAction` runs this inside the same DB
   transaction as the user delete itself, so a failure here propagates and
   rolls the whole transaction back rather than being swallowed — see
-  "`DeleteUserAccountAction`" below for why.
+  "`DeleteUserAccountAction`" below for why. Content Studio's plan actions
+  call it the same way, inside their own transaction, once a Draft's photo is
+  replaced or taken off or the Draft is deleted (see "A publication plan's
+  photo" above).
 - `purgeOrphanFile(MediaLocation $location): void` — deletes a physical
   orphan found by `MediaOrphanScanner`. No DB row is involved by definition.
 

@@ -29,6 +29,11 @@
      * outside closes it. The search is an ARIA combobox over a listbox; the
      * active option is its aria-activedescendant.
      *
+     * The list opens under the trigger, or over it when there is more room
+     * there — measured between the bars kept at the window's top and foot
+     * (`data-admin-ceiling`, `data-admin-floor`) — and is never taller than the
+     * room it has, so the whole of it can always be reached.
+     *
      * Choosing dispatches a cancelable `choose` event ({ value }) and then
      * takes the value — unless a listener cancelled the event, which is how a
      * screen asks before a change, or makes the change on the server:
@@ -64,6 +69,8 @@
         display: @js($display),
         searches: @js(array_column($options, 'search', 'value')),
         expanded: false,
+        upward: false,
+        room: 340,
         term: '',
         active: null,
         init() {
@@ -86,7 +93,21 @@
         get anyShown() {
             return Object.values(this.searches).some((search) => this.matches(search))
         },
+        place() {
+            const box = this.$refs.trigger.getBoundingClientRect()
+            const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+            const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+            // The search over the list, the gap to the trigger and a margin from the edge.
+            const chrome = 88
+            const below = floor - box.bottom - chrome
+            const above = box.top - ceiling - chrome
+            const wanted = Math.min(340, this.$refs.list.querySelectorAll('[role=option]').length * 44 + 12)
+
+            this.upward = below < wanted && above > below
+            this.room = Math.max(132, Math.min(340, this.upward ? above : below))
+        },
         show() {
+            this.place()
             this.expanded = true
             this.term = ''
             this.active = this.selected
@@ -190,6 +211,7 @@
         class="rg-admin-combobox__popover"
         x-cloak
         x-show="expanded"
+        x-bind:class="{ 'rg-admin-combobox__popover--up': upward }"
         x-on:keydown.escape.prevent.stop="close(true)"
         {{-- A press anywhere in the list keeps focus in the search, so the list stays open. --}}
         x-on:mousedown="if (! $event.target.closest('input')) $event.preventDefault()"
@@ -214,7 +236,7 @@
             />
         </div>
 
-        <div id="{{ $id }}-listbox" role="listbox" aria-label="{{ $label }}" class="rg-admin-combobox__list" x-ref="list">
+        <div id="{{ $id }}-listbox" role="listbox" aria-label="{{ $label }}" class="rg-admin-combobox__list" x-ref="list" x-bind:style="{ maxHeight: `${room}px` }">
             @foreach ($options as $index => $option)
                 <div
                     id="{{ $id }}-option-{{ $index }}"

@@ -11,13 +11,14 @@ use function Pest\Laravel\assertGuest;
 
 /*
  * The authentication modal as a person meets it: opened from the header or
- * the guest upload button, switched between its two states, closed again,
+ * the guest upload button, switched between its states, closed again,
  * and brought back by the server after a failed submission.
  */
 
 const AUTH_MODAL = '[data-testid="auth-modal"]';
 const LOGIN_PANEL = '[data-testid="auth-modal-login-panel"]';
 const REGISTER_PANEL = '[data-testid="auth-modal-register-panel"]';
+const FORGOT_PASSWORD_PANEL = '[data-testid="auth-modal-forgot-password-panel"]';
 
 /** Whether the dialog is on screen, as one expression a test can wait for. */
 const AUTH_MODAL_SHOWN = 'getComputedStyle(document.querySelector(\'[data-testid="auth-modal"]\')).display !== "none"';
@@ -72,6 +73,33 @@ it('switches between login and sign-up without navigating, reloading or closing'
         ->assertPathIs('/')
         ->assertQueryStringHas('sort', 'top')
         ->assertScript('window.__rgSameDocument', 'yes');
+});
+
+it('asks for a reset link in the same dialog and goes back to login', function () {
+    $page = visit(route('feed', ['sort' => 'top']))
+        ->click('[data-testid="header-login-link"]')
+        ->assertVisible('[data-testid="auth-modal-login-form"]');
+
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
+    $page->click(LOGIN_PANEL.' [data-testid="auth-modal-login-forgot-password"]')
+        ->assertVisible(AUTH_MODAL)
+        ->assertVisible('[data-testid="auth-modal-forgot-password-form"]')
+        ->assertMissing('[data-testid="auth-modal-login-form"]')
+        ->assertVisible('[data-testid="auth-modal-title-forgot-password"]')
+        ->assertNotPresent(FORGOT_PASSWORD_PANEL.' [data-testid="social-buttons"]');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-forgot-password-email');
+
+    $page->click(FORGOT_PASSWORD_PANEL.' [data-testid="auth-switch-to-login"]')
+        ->assertVisible('[data-testid="auth-modal-login-form"]')
+        ->assertMissing('[data-testid="auth-modal-forgot-password-form"]')
+        ->assertPathIs('/')
+        ->assertQueryStringHas('sort', 'top')
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
 });
 
 it('puts the focus in the first field and keeps it predictable when the mode changes', function () {

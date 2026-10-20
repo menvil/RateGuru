@@ -4,13 +4,16 @@
      * username, the name and the email address, the role and the suspicious,
      * read on the server; the table and its pages. Header and rows share one
      * grid; where the card is narrower than the grid, the card scrolls
-     * sideways and every column stays (TBL-01).
+     * sideways and every column stays (TBL-01). A person is edited in the
+     * drawer over the list (UserEditor).
      */
     $columns = '--rg-admin-table-columns: minmax(200px, 1fr) 220px 110px 140px 150px 70px 80px 110px; --rg-admin-table-min-width: 1080px';
     $total = $paginator->total();
 @endphp
 
 <div class="rg-admin rg-admin-screen" x-data>
+    @include('filament.pages.editor.script')
+
     <section class="rg-admin-page-header" aria-labelledby="rg-admin-users-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-users-title" class="rg-admin-page-header__title">Users</h1>
@@ -105,5 +108,10 @@
 
     @if ($dialog !== null)
         @include('filament.pages.users.sanction')
+    @endif
+
+    {{-- The editor, over the list: drawn afresh for each person it opens on. --}}
+    @if ($editing !== '')
+        <livewire:admin.user-editor :user-id="(int) $editing" :key="'user-editor-'.$editing" />
     @endif
 </div>

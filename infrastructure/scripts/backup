@@ -37,9 +37,9 @@ SYSTEM_ROOT_DEFAULT="/"
 PG_DUMP_BIN_DEFAULT="/usr/bin/pg_dump"
 PHP_BIN_DEFAULT="/usr/bin/php8.5"
 # The installed external-material installer. Its --capture mode is how a
-# backup gains the host-scope recovery material a clean-host recovery needs,
-# from the one prerequisite table Prepare Host installs from — this script
-# never lists that material itself. The installer is resolved by common
+# backup gains the recovery material a clean-host recovery needs, from the one
+# prerequisite table Prepare Host installs from — this script never lists that
+# material itself. The installer is resolved by common
 # (backup_prerequisites_bin), the same way every certifier of that material
 # resolves it.
 
@@ -207,13 +207,23 @@ build_server_configuration_archive() {
 
 # --- recovery material ----------------------------------------------------
 #
-# The host-scope external material a clean-host recovery has to put back
-# before the host can even serve TLS: the target's certificate and private
-# key, the Basic Auth hashes, the shared Nginx TLS material and the
-# mail-capture certificate. Captured through install-target-prerequisites
-# --capture — the same prerequisite table Prepare Host installs from — so the
-# archive is written in the exact vocabulary the recovery will read it in, and
-# this script never carries a list of its own.
+# The external material a clean-host recovery has to put back before the host
+# can even serve TLS or sign mail — the prerequisite installer's RECOVERY
+# scope: the target's certificate and private key, the Basic Auth hashes, the
+# shared Nginx TLS material and the mail-capture certificate, and, for a
+# target whose mail policy requires DKIM signing, the DKIM private key the
+# published record names (mail-dkim-private-key). Captured through
+# install-target-prerequisites --capture — the same prerequisite table Prepare
+# Host installs from, asking mail-identity whether the key belongs there and
+# whether it is one — so the archive is written in the exact vocabulary the
+# recovery will read it in, and this script never carries a list of its own.
+# A required key that is absent or not usable fails the capture, and with it
+# the backup.
+#
+# The manifest records the fingerprint of the captured key's PUBLIC half as
+# dkim_public_key_sha256 (null when the archive carries no key), from the same
+# installer's --dkim-fingerprint: what a recovery proves the restored key
+# against.
 #
 # Deliberately NOT in this archive, each for its own reason:
 #   environment.env         already a backup member of its own
@@ -221,6 +231,8 @@ build_server_configuration_archive() {
 #                           own, so a backup can never hand out the key to the
 #                           namespace it is stored in
 #   the deploy public key   derived by the recovery from the deploy credential
+#   a held target's DKIM key  nothing signs with it yet; once its mail is
+#                           outbound, the key is in the recovery scope
 #   any private SSH key, any bootstrap credential, any database password apart
 #   from the ones inside environment.env, and any application artifact
 #
@@ -230,6 +242,8 @@ build_server_configuration_archive() {
 # logical name. A capture that cannot be completed safely FAILS the backup:
 # a backup missing this material would be reported as a success and then
 # found unusable on the worst day, which is worse than no backup at all.
+DKIM_PUBLIC_KEY_SHA256=""
+
 build_recovery_material_archive() {
     local capture_dir="${TEMP_ROOT}/.recovery-material"
 
@@ -266,14 +280,30 @@ build_recovery_material_archive() {
     [[ -x "${prerequisites_bin}" ]] \
         || fail "the external-material installer is not available at ${prerequisites_bin} — a backup cannot capture the recovery material a clean-host recovery needs without it, so no backup is written"
 
-    "${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope host --output-dir "${capture_dir}" \
-        || fail "host-scope recovery material could not be captured for ${TARGET_ID} — refusing to write a backup that a clean-host recovery could not use"
+    "${prerequisites_bin}" --capture --target "${TARGET_ID}" --scope recovery --output-dir "${capture_dir}" \
+        || fail "recovery material could not be captured for ${TARGET_ID} — refusing to write a backup that a clean-host recovery could not use"
 
     local -a names=()
     mapfile -t names < <(find "${capture_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
 
     (( ${#names[@]} > 0 )) \
         || fail "the recovery material capture for ${TARGET_ID} produced no files — refusing to write a backup that a clean-host recovery could not use"
+
+    # The fingerprint of the captured copy itself, so the manifest names
+    # exactly the key the archive carries. The installer judges it against the
+    # target's reviewed policy first and prints nothing of it.
+    DKIM_PUBLIC_KEY_SHA256=""
+
+    local name
+    for name in "${names[@]}"; do
+        [[ "${name}" == "${BACKUP_RECOVERY_DKIM_KEY_NAME}" ]] || continue
+
+        DKIM_PUBLIC_KEY_SHA256="$("${prerequisites_bin}" --dkim-fingerprint --target "${TARGET_ID}" --scope recovery --key "${capture_dir}/${name}")" \
+            || fail "the captured ${name} of ${TARGET_ID} could not be fingerprinted — refusing to write a backup whose key a recovery could not prove"
+
+        [[ "${DKIM_PUBLIC_KEY_SHA256}" =~ ^[0-9a-f]{64}$ ]] \
+            || fail "the captured ${name} of ${TARGET_ID} produced no SHA-256 fingerprint — refusing to write the backup"
+    done
 
     # Named members from a fixed directory: the archive carries bare logical
     # names and nothing else — no directory entry, no path prefix, no link.
@@ -286,15 +316,22 @@ build_recovery_material_archive() {
 
     rm -rf -- "${capture_dir}"
 
-    log "Recovery material captured: ${#names[@]} host-scope files (${names[*]}); content never read or logged"
+    log "Recovery material captured: ${#names[@]} recovery-scope files (${names[*]}); content never read or logged"
+
+    if [[ -n "${DKIM_PUBLIC_KEY_SHA256}" ]]; then
+        log "DKIM key captured; the sha256 of its public half is ${DKIM_PUBLIC_KEY_SHA256}"
+    fi
 }
 
 # --- manifest -----------------------------------------------------------
 #
-# manifest_schema_version 3: the format that carries recovery-material.tar.gz,
-# which is what makes a backup usable for a clean-host recovery. Backward
-# compatible on the READ side with schema 2 (the same fields, seven files,
-# no recovery material) and schema 1 (no manifest_schema_version/selector/
+# manifest_schema_version 4: recovery-material.tar.gz holds the target's
+# recovery scope — the host scope, plus the DKIM key of a target whose mail is
+# signed — and the manifest records dkim_public_key_sha256, the fingerprint of
+# that key's public half, or null when the archive carries none. Backward
+# compatible on the READ side with schema 3 (the same eight files, a host-scope
+# archive, no fingerprint), schema 2 (the same fields, seven files, no
+# recovery material) and schema 1 (no manifest_schema_version/selector/
 # target/backup_namespace fields at all): every reader in this repository —
 # restore-test, the offsite scripts and the restore primitives — still
 # accepts those for a live restore, see common's backup format contract.
@@ -322,6 +359,7 @@ build_manifest() {
         --arg postgres_version "${postgres_version}" \
         --arg php_version "${php_version}" \
         --argjson manifest_schema_version "${BACKUP_MANIFEST_SCHEMA_CURRENT}" \
+        --arg dkim_public_key_sha256 "${DKIM_PUBLIC_KEY_SHA256}" \
         '{
             manifest_schema_version: $manifest_schema_version,
             project: $project,
@@ -334,7 +372,8 @@ build_manifest() {
             database: $database,
             release: $release,
             postgres_version: $postgres_version,
-            php_version: $php_version
+            php_version: $php_version,
+            dkim_public_key_sha256: (if $dkim_public_key_sha256 == "" then null else $dkim_public_key_sha256 end)
         }' \
         > "${TEMP_ROOT}/manifest.json"
 }
@@ -378,7 +417,7 @@ perform_backup() {
     # Before the first byte is dumped: a backup written today is the source of
     # a clean-host recovery, which rebuilds the EXACT commit the data belongs
     # to. A target with no deployed release, or a release that cannot name
-    # its full source_sha, is not backed up at all — a schema 3 backup with an
+    # its full source_sha, is not backed up at all — a backup with an
     # empty identity would be reported as a success and found unusable on the
     # worst day. The manifest's release is the one release.json names.
     backup_assert_release_identity "${TARGET_ROOT}/current/release.json" \
@@ -425,7 +464,7 @@ perform_backup() {
 
     build_server_configuration_archive
 
-    log "Capturing host-scope recovery material"
+    log "Capturing recovery material"
 
     build_recovery_material_archive
     build_manifest

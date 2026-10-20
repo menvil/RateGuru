@@ -13,7 +13,7 @@
 #
 # What it proves, in order (each gate before the next has anything to read):
 #   1. the manifest is a plain regular file whose schema decides the closed
-#      file set — seven files for schema 1 and 2, eight for schema 3 — and
+#      file set — seven files for schema 1 and 2, eight for schema 3 and 4 — and
 #      exactly those files exist as plain regular files, with nothing else
 #      beside them;
 #   2. SHA256SUMS names exactly the checksummed backup files of that schema,
@@ -21,12 +21,11 @@
 #      single path;
 #   3. every checksum matches;
 #   4. the manifest identifies THIS target (the existing schema 1/schema 2
-#      contract, extended to schema 3 unchanged);
+#      contract, extended to schema 3 and 4 unchanged);
 #   5. the storage archive would create nothing but directories and regular
 #      files, all under app/;
-#   6. for a schema 3 backup, the recovery material archive holds exactly the
-#      target's host-scope external prerequisites as top-level regular files,
-#      judged by the installer that owns that vocabulary and never extracted.
+#   6. for a schema 3 or 4 backup, the recovery material archive is safe as
+#      data: top-level regular files with plain names, never extracted.
 #
 # --for-restore adds the recovery-identity gate a DESTRUCTIVE live restore
 # needs and a read-only restore test does not: release.json must carry a
@@ -162,7 +161,7 @@ perform_verify_backup() {
     restore_assert_storage_archive_safe "${SELECTED_BACKUP_DIR}/storage-app.tar.gz"
     log "  storage archive: OK (directories and regular files under app/ only)"
 
-    # Only a schema 3 backup carries recovery material, and only a schema 3
+    # Only a schema 3 or 4 backup carries recovery material, and only such a
     # backup can seed a clean-host recovery. Here it is judged as DATA — a safe
     # archive of plain files, never extracted — and not against today's
     # prerequisite table: a live restore never applies it, so a backup written

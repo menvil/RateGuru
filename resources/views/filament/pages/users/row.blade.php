@@ -1,7 +1,7 @@
 @php
     /*
-     * One person (TBL-01): their avatar, username — a link to their page
-     * for whoever may edit it — name and when they joined; the email
+     * One person (TBL-01): their avatar, username — which opens their editor
+     * in the drawer for whoever may edit it — name and when they joined; the email
      * address; the role, staff as an outline badge; the status (STS-01);
      * whether they are trusted; their posts; the reports on their content
      * (STS-02). Edit is inline; the moderation actions are in the row menu
@@ -17,7 +17,7 @@
             <span class="rg-admin-avatar rg-admin-avatar--md" aria-hidden="true">{{ $row['initials'] }}</span>
             <div class="rg-admin-table__stack">
                 @if ($row['editUrl'] !== null)
-                    <a href="{{ $row['editUrl'] }}" class="rg-admin-table__name rg-admin-table__name--link rg-admin-users__username rg-admin-table__ellipsis">{{ $row['username'] }}</a>
+                    <a href="{{ $row['editUrl'] }}" wire:click.prevent="editUser({{ $row['id'] }})" class="rg-admin-table__name rg-admin-table__name--link rg-admin-users__username rg-admin-table__ellipsis">{{ $row['username'] }}</a>
                 @else
                     <span class="rg-admin-table__name rg-admin-users__username rg-admin-table__ellipsis">{{ $row['username'] }}</span>
                 @endif
@@ -61,7 +61,7 @@
 
     <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
         @if ($row['editUrl'] !== null)
-            <x-admin.ui.button size="sm" :href="$row['editUrl']">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
+            <x-admin.ui.button size="sm" :href="$row['editUrl']" wire:click.prevent="editUser({{ $row['id'] }})">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
         @else
             <x-admin.ui.button size="sm" disabled :title="$row['deleted'] ? 'The account was deleted' : 'Not yours to edit'">Edit<span class="rg-admin-sr-only"> {{ $row['username'] }}</span></x-admin.ui.button>
         @endif
@@ -70,7 +70,7 @@
             <x-admin.ui.row-menu :id="$id.'-actions'" :label="'Moderation actions for '.$row['username']">
                 <p class="rg-admin-menu__caption">{{ $row['username'] }} · {{ $row['status']['label'] }} · {{ $row['trust'] }}</p>
                 @if ($row['editUrl'] !== null)
-                    <x-admin.ui.menu-item icon="pencil" :href="$row['editUrl']">Edit user</x-admin.ui.menu-item>
+                    <x-admin.ui.menu-item icon="pencil" :href="$row['editUrl']" wire:click.prevent="editUser({{ $row['id'] }})">Edit user</x-admin.ui.menu-item>
                 @endif
                 @if ($row['postsUrl'] !== null)
                     <x-admin.ui.menu-item icon="image" :href="$row['postsUrl']">View posts</x-admin.ui.menu-item>

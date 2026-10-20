@@ -1,12 +1,17 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\RequestStudioImageAnalysisAction;
+use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
+use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
+use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -16,11 +21,15 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
+use App\Models\StudioPlan;
+use App\Models\StudioPlanImageAnalysis;
+use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
+use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Import\Dns\HostResolver;
@@ -44,6 +53,9 @@ use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\Translations\Generation\ProjectTranslationGenerationPlan;
 use App\Support\Translations\TranslationCatalogInspector;
 use Carbon\CarbonImmutable;
+use Database\Factories\StudioPlanImageAnalysisFactory;
+use Database\Factories\StudioPlanTextGenerationFactory;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
@@ -53,6 +65,7 @@ use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
@@ -1045,6 +1058,22 @@ function bindRecordingImageVariantProcessor(?MediaVariantName $failOnceFor = nul
 }
 
 /**
+ * Makes every media release fail as a lost database connection would, at
+ * the reference check: what a write that releases a photo in its own
+ * transaction must survive by rolling the whole transaction back.
+ */
+function failingMediaReleases(): void
+{
+    app()->instance(MediaReferenceChecker::class, new class extends MediaReferenceChecker
+    {
+        public function referencedAssetIds(Collection $assetIds): Collection
+        {
+            throw new RuntimeException('Simulated release failure.');
+        }
+    });
+}
+
+/**
  * A soft-deleted MediaAsset, with a master file and two variant files all
  * physically present, whose deleted_at is 19 days in the past — past the
  * 7-day default purge grace period and safely purgeable. Shared by
@@ -1697,7 +1726,10 @@ function parityRegistryFixture(string $scratch, array $options = []): array
             'parity-target' => [
                 'id' => 'parity-target',
                 'lifecycle' => $options['lifecycle'] ?? 'active',
-                'environment_class' => 'staging',
+                // An active production parity-target's mail goes out signed
+                // (recoveryMaterialMailWorld), so its DKIM key is part of its
+                // recovery material.
+                'environment_class' => $options['environment_class'] ?? 'staging',
                 'application_root' => $scratch.'/target',
                 'runtime_user' => $account,
                 'runtime_group' => $group,
@@ -5589,9 +5621,12 @@ function maybeWriteRecoveryMaterial(string $dir, array $options): bool
 /**
  * Everything the REAL install-target-prerequisites needs to capture, list or
  * judge parity-target's recovery material without a real host: a scratch
- * checkout carrying the parity registry and the committed vhosts under the
- * target's own site name, and a scratch filesystem root where every
- * host-scope prerequisite is present with the mode the table declares.
+ * checkout carrying the parity registry, the committed vhosts under the
+ * target's own site name and the mail contracts the recovery scope's DKIM row
+ * is decided by (recoveryMaterialMailWorld), and a scratch filesystem root
+ * where every host-scope prerequisite is present with the mode the table
+ * declares. An active production target's mail goes out signed, so its DKIM
+ * key is part of its recovery scope.
  *
  * Used by the backup, restore-test, verify-backup and recovery suites, so the
  * vocabulary those scripts capture in and check against is the shipped
@@ -5622,7 +5657,7 @@ function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath,
         recoveryMaterialHostFixture($fsRoot);
     }
 
-    return [
+    return recoveryMaterialMailWorld($scratch, $repoRoot.'/infrastructure/config', $registryPath, $targetsPath) + [
         'RATEGURU_PREREQUISITES_BIN' => infraScript('install-target-prerequisites'),
         'RATEGURU_TARGETPREREQ_REPO_ROOT' => $repoRoot,
         'RATEGURU_TARGETPREREQ_TARGETS_CLI_BIN' => $targetsPath,
@@ -5630,6 +5665,86 @@ function recoveryMaterialPrerequisitesEnv(string $scratch, string $registryPath,
         'RATEGURU_TARGETPREREQ_FS_ROOT' => $fsRoot,
         'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'false',
     ];
+}
+
+/**
+ * The mail judge a recovery-scope run consults, laid out the way the
+ * installed operational bundle carries it: copies of the shipped
+ * mail-identity and mail-routing beside the world's own targets CLI — which
+ * accepts its scratch registry — and the three mail contracts in CONFIG_DIR,
+ * written for every target REGISTRY declares, the way the committed ones
+ * treat staging-main and tits-guru. A staging target's mail is captured and a
+ * planned production target's held: neither carries a DKIM key in its
+ * recovery scope. An ACTIVE production target's mail goes out signed under the
+ * committed tits-guru identity (selector rg1) — the routing policy accepts no
+ * other route for one — so its key at /etc/opendkim/keys/<target>/rg1.private
+ * is part of its recovery material.
+ *
+ * @return array<string, string>
+ */
+function recoveryMaterialMailWorld(string $scratch, string $configDir, string $registryPath, string $targetsPath): array
+{
+    $bin = $scratch.'/prereq-bundle-bin';
+    @mkdir($bin, 0o755, true);
+    @mkdir($configDir, 0o755, true);
+
+    foreach (['mail-identity', 'mail-routing'] as $tool) {
+        copy(base_path('infrastructure/scripts/'.$tool), $bin.'/'.$tool);
+        chmod($bin.'/'.$tool, 0o755);
+    }
+
+    copy($targetsPath, $bin.'/targets');
+    chmod($bin.'/targets', 0o755);
+
+    $read = static fn (string $name): array => json_decode(File::get(base_path("infrastructure/config/{$name}")), true, 512, JSON_THROW_ON_ERROR);
+    $committedRouting = $read('mail-routing.json');
+    $committedIdentity = $read('mail-identity.json');
+    $registry = json_decode(File::get($registryPath), true, 512, JSON_THROW_ON_ERROR);
+
+    $routing = ['schema_version' => $committedRouting['schema_version'], 'targets' => []];
+    $identity = ['schema_version' => $committedIdentity['schema_version'], 'targets' => []];
+    $signed = [];
+    $port = 2525;
+
+    foreach ($registry['targets'] as $id => $target) {
+        if ($target['environment_class'] === 'production') {
+            $policy = [
+                'submission' => ['host' => '127.0.0.1', 'port' => $port],
+                'delivery_mode' => 'held',
+                'mail_domain' => "{$id}.example",
+                'default_from' => "noreply@{$id}.example",
+                'bounce_domain' => "bounce.{$id}.example",
+                'reply_domain' => "reply.{$id}.example",
+            ];
+
+            if ($target['lifecycle'] === 'active') {
+                $policy['delivery_mode'] = 'outbound';
+                $policy['outbound'] = ['kind' => 'direct'];
+                $identity['targets'][$id] = $committedIdentity['targets']['tits-guru'];
+                $signed[] = $id;
+            }
+        } else {
+            $policy = $committedRouting['targets']['staging-main'];
+            $policy['submission']['port'] = $port;
+        }
+
+        $routing['targets'][$id] = $policy;
+        $port++;
+    }
+
+    // The host contract's reviewed MTA name, with direct delivery on exactly
+    // when some target's mail goes out.
+    $outbound = $read('mail-outbound.json');
+    $outbound['direct']['enabled'] = $signed !== [];
+
+    // An identity contract with no target is an empty JSON object, never [].
+    $identity['targets'] = $identity['targets'] === [] ? new stdClass : $identity['targets'];
+
+    foreach (['mail-routing' => $routing, 'mail-identity' => $identity, 'mail-outbound' => $outbound] as $name => $data) {
+        file_put_contents("{$configDir}/{$name}.json", mailRoutingJson($data));
+    }
+
+    return ['RATEGURU_TARGETPREREQ_MAIL_IDENTITY_BIN' => $bin.'/mail-identity'];
 }
 
 /**
@@ -5670,17 +5785,49 @@ function recoveryMaterialHostFixture(string $fsRoot): array
 }
 
 /**
+ * A target's DKIM private key installed on a scratch host the way the
+ * prerequisite table expects it: /etc/opendkim/keys/<target>/rg1.private, a
+ * real key of KIND (mailIdentityKey), signing-ready (0640 in 0750 directories)
+ * unless other modes are given. Returns the key's path.
+ */
+function recoveryMaterialPlantDkimKey(string $fsRoot, string $target, string $kind = 'rsa2048', int $keyMode = 0o640, int $dirMode = 0o750): string
+{
+    $dir = $fsRoot.'/etc/opendkim/keys/'.$target;
+    @mkdir($dir, $dirMode, true);
+    chmod($fsRoot.'/etc/opendkim/keys', $dirMode);
+    chmod($dir, $dirMode);
+
+    $key = $dir.'/rg1.private';
+    copy(mailIdentityKey($kind), $key);
+    chmod($key, $keyMode);
+
+    return $key;
+}
+
+/**
+ * The SHA-256 of a private key's public half — the DER SubjectPublicKeyInfo
+ * the DKIM record's p= value encodes — derived by PHP's own OpenSSL binding:
+ * an independent witness for the fingerprint a backup records.
+ */
+function dkimPublicKeySha256(string $privateKeyPath): string
+{
+    return hash('sha256', base64_decode(mailIdentityPublicKey($privateKeyPath), true));
+}
+
+/**
  * A real, on-disk backup directory in exactly the shape
  * infrastructure/scripts/backup produces: a genuine gzip storage archive, the
  * checksummed files of its schema, and a genuine SHA256SUMS computed with real
  * sha256sum, so every checksum check downstream is a real check.
  *
- * Schema 2 (seven files) by default. `'schema' => 3`, or an explicit schema 3
- * manifest, adds recovery-material.tar.gz — built from `recovery_material`
- * (logical name => content, defaulting to every host-scope name), or from raw
- * `recovery_material_bytes` for a malformed archive — and checksums it in the
- * position backup writes it. `omit_recovery_material` builds a schema 3
- * manifest whose archive is missing, for the refusal that must catch it.
+ * Schema 2 (seven files) by default. `'schema' => 3` or `4`, or an explicit
+ * schema 3 or 4 manifest, adds recovery-material.tar.gz — built from
+ * `recovery_material` (logical name => content, defaulting to every host-scope
+ * name), or from raw `recovery_material_bytes` for a malformed archive — and
+ * checksums it in the position backup writes it. A schema 4 manifest records
+ * `dkim_public_key_sha256` (null unless given). `omit_recovery_material`
+ * builds a manifest whose archive is missing, for the refusal that must catch
+ * it.
  */
 function buildBackupFixture(string $namespaceRoot, string $timestamp, array $options = []): string
 {
@@ -5724,15 +5871,20 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
         is_string($releaseJson) ? $releaseJson : json_encode($releaseJson, JSON_PRETTY_PRINT),
     );
 
-    $schema3 = ($options['schema'] ?? null) === 3;
+    $schema = $options['schema'] ?? null;
 
     $manifest = array_key_exists('manifest', $options)
         ? $options['manifest']
-        : backupManifestFixture($schema3 ? ['manifest_schema_version' => 3] : []);
+        : backupManifestFixture(match ($schema) {
+            3 => ['manifest_schema_version' => 3],
+            4 => ['manifest_schema_version' => 4, 'dkim_public_key_sha256' => $options['dkim_public_key_sha256'] ?? null],
+            default => [],
+        });
 
-    if (is_array($manifest) && ($manifest['manifest_schema_version'] ?? null) === 3) {
-        $schema3 = true;
-    }
+    // Schema 3 and 4 carry recovery material; the manifest decides which a
+    // fixture is, whether it came from the options or was given whole.
+    $carriesRecoveryMaterial = in_array($schema, [3, 4], true)
+        || (is_array($manifest) && in_array($manifest['manifest_schema_version'] ?? null, [3, 4], true));
 
     if ($manifest !== null) {
         file_put_contents($dir.'/manifest.json', json_encode($manifest, JSON_PRETTY_PRINT));
@@ -5740,7 +5892,7 @@ function buildBackupFixture(string $namespaceRoot, string $timestamp, array $opt
 
     $files = ['database.dump', 'storage-app.tar.gz', 'environment.env', 'release.json', 'server-configuration.tar.gz'];
 
-    if ($schema3 && maybeWriteRecoveryMaterial($dir, $options)) {
+    if ($carriesRecoveryMaterial && maybeWriteRecoveryMaterial($dir, $options)) {
         $files[] = 'recovery-material.tar.gz';
     }
 
@@ -6993,6 +7145,57 @@ function recoveryOffsiteBackupFixture(string $scratch, string $backupId = '20260
 }
 
 /**
+ * The host-scope logical names of a production parity-target: it has no
+ * committed vhost of its own, so its host scope is the shared mail-capture
+ * vhosts' material alone, in the order the prerequisite table lists it.
+ *
+ * @return list<string>
+ */
+function recoveryMaterialProductionNames(): array
+{
+    return ['mail-basic-auth', 'mail-tls-certificate', 'mail-tls-private-key', 'mail-nginx-tls-options', 'mail-tls-dhparams'];
+}
+
+/**
+ * A schema 4 offsite backup of an active production parity-target, whose mail
+ * goes out signed (parityRegistryFixture with environment_class production):
+ * its recovery material carries the production host scope and KEY as
+ * mail-dkim-private-key, and its manifest records KEY's public fingerprint.
+ * MANIFEST overrides and MEMBERS (logical name => content, or null to drop
+ * one) let a test make any part of it wrong.
+ *
+ * @param  array<string, mixed>  $manifest
+ * @param  array<string, string|null>  $members
+ */
+function recoveryOffsiteSignedBackupFixture(string $scratch, string $keyPath, array $manifest = [], array $members = [], string $backupId = '20260115-023000'): string
+{
+    $material = [];
+
+    foreach (recoveryMaterialProductionNames() as $name) {
+        $material[$name] = "material-{$name}-never-logged\n";
+    }
+
+    $material['mail-dkim-private-key'] = File::get($keyPath);
+
+    foreach ($members as $name => $content) {
+        if ($content === null) {
+            unset($material[$name]);
+        } else {
+            $material[$name] = $content;
+        }
+    }
+
+    return recoveryOffsiteBackupFixture($scratch, $backupId, [
+        'manifest' => backupManifestFixture(array_merge([
+            'manifest_schema_version' => 4,
+            'environment' => 'production',
+            'dkim_public_key_sha256' => dkimPublicKeySha256($keyPath),
+        ], $manifest)),
+        'recovery_material' => $material,
+    ]);
+}
+
+/**
  * Every override a recover-host invocation needs on top of infraScriptEnv:
  * the four backup primitives it drives (patched, so they run without root),
  * the prepare-host verification it delegates to, the fake offsite remote, and
@@ -7532,9 +7735,9 @@ function socialCallbackUrl(string $provider, array $query = []): string
 }
 
 /**
- * The marker fields the authentication modal adds to a login or registration
- * post — and to a provider link — so a test can act "from the modal, opened
- * on this page".
+ * The marker fields the authentication modal adds to a login, registration
+ * or reset-link post — and to a provider link — so a test can act "from the
+ * modal, opened on this page".
  *
  * @return array{_auth_surface: string, _auth_mode: string, _auth_return_to: string}
  */
@@ -7546,6 +7749,22 @@ function authModalFields(string $mode, string $returnTo = '/'): array
         '_auth_return_to' => $returnTo,
     ];
 }
+
+/**
+ * Return paths the modal's marker field must never be allowed to follow:
+ * every one of them has to end on the safe fallback instead.
+ */
+dataset('hostile return paths', [
+    'absolute https' => ['https://evil.example'],
+    'absolute http' => ['http://evil.example/posts/1'],
+    'protocol relative' => ['//evil.example'],
+    'backslash pair' => ['\\\\evil.example'],
+    'slash then backslash' => ['/\\evil.example'],
+    'javascript scheme' => ['javascript:alert(1)'],
+    'data scheme' => ['data:text/html,<script>alert(1)</script>'],
+    'header injection' => ["/posts/1\r\nLocation: https://evil.example"],
+    'relative path' => ['posts/123'],
+]);
 
 /**
  * The authentication modal as the page rendered it, for assertions that must
@@ -7887,6 +8106,30 @@ function reportOn(Model $target, array $attributes = []): Report
 function listedRow(Testable $page, Model $record): ?array
 {
     return collect($page->viewData('rows'))->firstWhere('id', $record->getKey());
+}
+
+/**
+ * The sidebar as rendered: section label => [destination label => href].
+ *
+ * @return array<string, array<string, string>>
+ */
+function adminShellNavigation(string $html): array
+{
+    $dom = new DOMDocument;
+    @$dom->loadHTML($html);
+    $xpath = new DOMXPath($dom);
+    $sections = [];
+
+    foreach ($xpath->query('//nav[@aria-label="Admin navigation"]//div[contains(@class, "rg-admin-nav-section")]') as $section) {
+        $label = trim((string) $xpath->query('.//p[contains(@class, "rg-admin-nav-section__label")]', $section)->item(0)?->textContent);
+
+        foreach ($xpath->query('.//a[contains(@class, "rg-admin-nav-item")]', $section) as $link) {
+            $name = trim((string) $xpath->query('.//span[contains(@class, "rg-admin-nav-item__label")]', $link)->item(0)?->textContent);
+            $sections[$label][$name] = (string) $link->getAttribute('href');
+        }
+    }
+
+    return $sections;
 }
 
 /**
@@ -12687,4 +12930,431 @@ function publicHttpsCertbotTree(array $host): array
     ksort($tree);
 
     return $tree;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Races between processes on the test's own database
+|--------------------------------------------------------------------------
+|
+| A race between two transactions has to be run by two PROCESSES: the test's
+| own connection holds RefreshDatabase's transaction for the whole test, so a
+| second connection opened in-process cannot see its rows or waits on its
+| locks. Each competitor is a PHP process of its own that commits for real;
+| what it commits outlives the test's transaction, so the test removes it
+| through committedConnection().
+|
+*/
+
+/**
+ * The database the test itself is using, handed to the subprocesses so they
+ * compete in the same place rather than against whatever `.env` happens to say.
+ *
+ * @return array<string, string>
+ */
+function racingEnvironment(): array
+{
+    $name = (string) config('database.default');
+
+    // The database name comes from the LIVE connection, not from config: under
+    // --parallel each worker runs against its own database (rateguru_test_test_N)
+    // and the connection knows which one, while the configured value is still the
+    // base name. A subprocess sent to the base database finds no tables at all.
+    //
+    // APP_ENV is pinned so the children behave like a deployment rather than
+    // inheriting the worker's testing environment.
+    // The explicit values come FIRST: PHP's `+` keeps the left operand, so putting
+    // the inherited environment first would let the worker's own DB_DATABASE — the
+    // base name, not this worker's — override everything resolved here.
+    return array_filter([
+        'APP_ENV' => 'production',
+        'DB_CONNECTION' => $name,
+        'DB_HOST' => (string) config("database.connections.{$name}.host"),
+        'DB_PORT' => (string) config("database.connections.{$name}.port"),
+        'DB_DATABASE' => (string) DB::connection()->getDatabaseName(),
+        'DB_USERNAME' => (string) config("database.connections.{$name}.username"),
+        'DB_PASSWORD' => (string) config("database.connections.{$name}.password"),
+    ], fn (string $value): bool => $value !== '') + array_filter($_SERVER, 'is_string');
+}
+
+/**
+ * A connection outside the test's own transaction, for state that was committed
+ * by another process and therefore has to be read and removed for real.
+ */
+function committedConnection(): ConnectionInterface
+{
+    $default = (string) config('database.default');
+    $peer = config("database.connections.{$default}");
+
+    // Never a persistent connection. Tests keep one persistent PostgreSQL
+    // connection per worker (tests/TestCase.php), and PDO gives every
+    // persistent handle with the same DSN and credentials the SAME server
+    // connection: a persistent peer would sit inside the test's own
+    // transaction, and freeing it would roll that transaction back mid-test.
+    $peer['options'] = [PDO::ATTR_PERSISTENT => false] + ($peer['options'] ?? []);
+
+    config(['database.connections.committed_peer' => $peer]);
+    DB::purge('committed_peer');
+
+    return DB::connection('committed_peer');
+}
+
+/**
+ * A scratch directory of its own for one race: its barriers, and a `disk`
+ * directory the competitors store their files on. The test removes it when
+ * the race is over.
+ */
+function raceDirectory(string $prefix): string
+{
+    $directory = sys_get_temp_dir().'/rateguru-'.$prefix.'-race-'.bin2hex(random_bytes(6));
+    File::ensureDirectoryExists($directory.'/disk', 0o700);
+
+    return $directory;
+}
+
+/**
+ * One competitor in a race between processes: a PHP process of its own
+ * running one action against the test's database, stopped where the race is
+ * decided until the other competitor is there too. Nobody sleeps for a
+ * guessed length of time, and a peer that never arrives is a loud failure.
+ *
+ * How the two meet is `$job['sync']`:
+ *
+ * - `meet` (the default): both announce themselves just before their first
+ *   user lock and wait for each other, so both are demonstrably about to lock
+ *   before either does. Once its first lock is taken, each waits again —
+ *   until the other holds its own first lock, or is seen waiting for this one
+ *   (`pg_blocking_pids`). Locking the same row first, the second waits behind
+ *   the first and they take turns; locking different rows first, both hold
+ *   one and want the other, and PostgreSQL kills one of them with a deadlock.
+ * - `lead`: runs until it holds what the race is about — its first
+ *   `studio_plans` row lock, or with `hold` set to `release` its release of a
+ *   photo — then waits until the follower is seen waiting for it, or has
+ *   finished without needing to, and only then goes on to commit.
+ * - `follow`: starts its action only once the leader holds.
+ *
+ * The output says `ok`, or `failed:` with the exception's class and message.
+ *
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, persona?: int, plan?: int, version?: int, title?: string, asset?: int}  $job
+ * @return array{process: resource, pipes: array<int, resource>}
+ */
+function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
+{
+    $script = <<<'PHP'
+        <?php
+        [$barrierDir, $base, $label, $job] = [$argv[1], $argv[2], $argv[3], json_decode($argv[4], true, flags: JSON_THROW_ON_ERROR)];
+        require $base.'/vendor/autoload.php';
+        $app = require_once $base.'/bootstrap/app.php';
+        $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+        // A stored photo lands in the test's scratch directory, and nothing is
+        // queued — so photo analysis and text suggestions, switched on here,
+        // never send anything.
+        config([
+            'filesystems.disks.'.config('media.disks.public').'.root' => $job['disk'],
+            'queue.connections.null' => ['driver' => 'null'],
+            'queue.default' => 'null',
+            'content_studio.image_analysis.enabled' => true,
+            'content_studio.image_analysis.api_key' => 'race-test-credential-never-real',
+        ]);
+
+        $db = Illuminate\Support\Facades\DB::connection();
+        $peer = $label === 'a' ? 'b' : 'a';
+        $pid = (int) $db->selectOne('select pg_backend_pid() as pid')->pid;
+        file_put_contents("{$barrierDir}/pid-{$label}", (string) $pid);
+
+        $await = static function (Closure $arrived, string $failure): void {
+            $deadline = microtime(true) + 20;
+
+            while (microtime(true) < $deadline) {
+                if ($arrived()) {
+                    return;
+                }
+
+                usleep(1000);
+            }
+
+            throw new RuntimeException($failure);
+        };
+
+        $peerPid = static function () use ($await, $barrierDir, $peer): int {
+            $await(fn (): bool => is_file("{$barrierDir}/pid-{$peer}"), 'the other competitor never started');
+
+            return (int) file_get_contents("{$barrierDir}/pid-{$peer}");
+        };
+
+        // Whether $waiter is waiting for a lock $holder has.
+        $waitsFor = static fn (int $waiter, int $holder): bool => (bool) $db->selectOne('select ? = any(pg_blocking_pids(?)) as blocked', [$holder, $waiter])->blocked;
+
+        $locks = static fn (string $table, string $sql): bool => preg_match('/\bfrom\s+"?'.$table.'"?\s/i', $sql) === 1
+            && str_contains(strtolower($sql), 'for update');
+
+        $sync = $job['sync'] ?? 'meet';
+
+        if ($sync === 'meet') {
+            $stage = 'before';
+
+            $db->beforeExecuting(function (string $sql) use (&$stage, $locks, $await, $barrierDir, $label, $peer): void {
+                if ($stage !== 'before' || ! $locks('users', $sql)) {
+                    return;
+                }
+
+                $stage = 'locking';
+                touch("{$barrierDir}/ready-{$label}");
+                $await(fn (): bool => is_file("{$barrierDir}/ready-{$peer}"), 'the other competitor never reached its first user lock');
+            });
+
+            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$stage, $locks, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
+                if ($stage !== 'locking' || ! $locks('users', $query->sql)) {
+                    return;
+                }
+
+                $stage = 'holding';
+                touch("{$barrierDir}/holding-{$label}");
+                $other = $peerPid();
+
+                $await(
+                    fn (): bool => is_file("{$barrierDir}/holding-{$peer}") || $waitsFor($other, $pid),
+                    'the other competitor neither took its first user lock nor waited for this one',
+                );
+            });
+        }
+
+        if ($sync === 'lead') {
+            $held = false;
+            $holds = ($job['hold'] ?? 'plan') === 'release'
+                ? static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1
+                : static fn (string $sql): bool => $locks('studio_plans', $sql);
+
+            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$held, $holds, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
+                if ($held || ! $holds($query->sql)) {
+                    return;
+                }
+
+                $held = true;
+                touch("{$barrierDir}/holding-{$label}");
+                $other = $peerPid();
+
+                $await(
+                    fn (): bool => is_file("{$barrierDir}/done-{$peer}") || $waitsFor($other, $pid),
+                    'the follower neither waited for this competitor nor finished',
+                );
+            });
+        }
+
+        if ($sync === 'follow') {
+            $await(fn (): bool => is_file("{$barrierDir}/holding-{$peer}"), 'the leader never took what the race is about');
+        }
+
+        $admin = App\Models\User::query()->findOrFail($job['admin']);
+        $plan = isset($job['plan']) ? App\Models\StudioPlan::query()->findOrFail($job['plan']) : null;
+        $persona = isset($job['persona']) ? App\Models\User::query()->with('personaProfile')->findOrFail($job['persona']) : null;
+        $drawn = $persona !== null ? App\Data\Personas\PersonaData::of($persona, $persona->personaProfile) : null;
+        $photo = fn () => Illuminate\Http\UploadedFile::fake()->image('raced.jpg', 64, 64);
+
+        try {
+            match ($job['action']) {
+                'edit' => app(App\Actions\Personas\UpdatePersonaAction::class)->handle(
+                    $admin, $persona, new App\Data\Personas\PersonaData(displayName: $drawn->displayName, username: $drawn->username, character: 'Raced'), $drawn->fingerprint(),
+                ),
+                'photo' => app(App\Actions\Personas\SetPersonaAvatarAction::class)->handle(
+                    $admin, $persona, $photo(), $drawn->fingerprint(), $persona->avatar_asset_id,
+                ),
+                'ban' => app(App\Actions\Moderation\BanUserAction::class)->handle($admin, $persona, 'Raced'),
+                'limit' => app(App\Actions\Moderation\LimitUserAction::class)->handle($admin, $persona, 'Raced'),
+                'restore' => app(App\Actions\Moderation\RestoreUserAccessAction::class)->handle($admin, $persona, 'Raced'),
+                'plan-edit' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioPlanData(authorUserId: $plan->author_user_id, title: $job['title']), $job['version'],
+                ),
+                'plan-author' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioPlanData(authorUserId: $persona->id, title: $plan->title), $job['version'],
+                ),
+                'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
+                'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
+                // The analysis a stored photo asks for; says which attempt it was given.
+                'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
+                // The text suggestions an analysed photo asks for; says which attempt it was given.
+                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
+                // What Release in Media diagnostics runs.
+                'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
+            };
+
+            touch("{$barrierDir}/done-{$label}");
+            fwrite(STDOUT, "ok\n");
+            exit(0);
+        } catch (Throwable $e) {
+            touch("{$barrierDir}/done-{$label}");
+            fwrite(STDOUT, 'failed: '.get_class($e).': '.$e->getMessage()."\n");
+            exit(1);
+        }
+        PHP;
+
+    $scriptPath = $barrierDir."/competitor-{$label}.php";
+    file_put_contents($scriptPath, $script);
+
+    $process = proc_open(
+        [PHP_BINARY, $scriptPath, $barrierDir, base_path(), $label, json_encode($job, JSON_THROW_ON_ERROR)],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        base_path(),
+        racingEnvironment(),
+    );
+
+    expect($process)->not->toBeFalse("the {$label} competitor must start");
+
+    return ['process' => $process, 'pipes' => $pipes];
+}
+
+/**
+ * Waits for every competitor to finish and says how each did.
+ *
+ * @param  list<array{process: resource, pipes: array<int, resource>}>  $competitors
+ * @return array{results: list<array{output: string, stderr: string, status: int}>, report: string}
+ */
+function finishedRace(array $competitors): array
+{
+    $results = [];
+
+    foreach ($competitors as $competitor) {
+        $output = trim((string) stream_get_contents($competitor['pipes'][1]));
+        $stderr = trim((string) stream_get_contents($competitor['pipes'][2]));
+        fclose($competitor['pipes'][1]);
+        fclose($competitor['pipes'][2]);
+        $results[] = ['output' => $output, 'stderr' => $stderr, 'status' => proc_close($competitor['process'])];
+    }
+
+    $report = collect($results)
+        ->map(fn (array $result, int $index): string => "competitor {$index}: status={$result['status']} {$result['output']} {$result['stderr']}")
+        ->implode("\n");
+
+    // Both must have been where the race is decided together, or there was no race.
+    expect(preg_match('/never (reached|started|took)|neither/', $report))->toBe(0, "a competitor raced nobody:\n{$report}");
+
+    return ['results' => $results, 'report' => $report];
+}
+
+// =============================================================================
+// Content Studio photo analysis
+// =============================================================================
+
+/** Never a real key: what the tests switch photo analysis on with. */
+const STUDIO_ANALYSIS_TEST_API_KEY = 'studio-analysis-test-credential-never-real-7b2e';
+
+/**
+ * Photo analysis switched on with the test key and the given settings
+ * replaced — so a test reads as "analysis, configured", whatever .env holds.
+ *
+ * @param  array<string, mixed>  $overrides  keys of content_studio.image_analysis
+ */
+function configureStudioImageAnalysis(array $overrides = []): void
+{
+    foreach (array_replace(['enabled' => true, 'api_key' => STUDIO_ANALYSIS_TEST_API_KEY], $overrides) as $key => $value) {
+        config(["content_studio.image_analysis.{$key}" => $value]);
+    }
+}
+
+/**
+ * A completed Responses API body whose structured output is a description —
+ * the factory's, with these fields replaced.
+ *
+ * @param  array<string, mixed>  $fields  description fields replaced
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioImageDescriptionBody(array $fields = [], array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode(StudioPlanImageAnalysisFactory::description($fields), JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_analysis_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * The analysis a photo asks for when the editor stores it — or, with the
+ * attempt on screen as $replacing, Re-run analysis or Try again — for the
+ * photo the editor shows: the plan's own unless another is named.
+ */
+function requestStudioImageAnalysis(User $admin, StudioPlan $plan, ?int $imageAssetId = null, ?string $replacing = null): StudioPlanImageAnalysis
+{
+    return app(RequestStudioImageAnalysisAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $replacing);
+}
+
+/** Runs the job of that attempt, as a worker would. */
+function runStudioImageAnalysisJob(StudioPlanImageAnalysis $analysis): void
+{
+    app()->call([new AnalyzeStudioPlanImageJob($analysis->id, $analysis->attempt_id), 'handle']);
+}
+
+/**
+ * A Draft whose photo is really stored, on the faked public disk: its master
+ * and, unless told otherwise, its ~1280 px feed variant — what analysis reads.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function studioPlanWithStoredPhoto(array $attributes = [], bool $withFeedVariant = true): StudioPlan
+{
+    $plan = StudioPlan::factory()->withImage()->create($attributes);
+    $asset = MediaAsset::query()->findOrFail($plan->image_asset_id);
+
+    Storage::disk($asset->disk)->put($asset->path, jpegMarkerBytes(48, 32));
+
+    if ($withFeedVariant) {
+        $variant = MediaVariant::factory()->named(MediaVariantName::PostFeed1280)->create([
+            'media_asset_id' => $asset->id,
+            'width' => 36,
+            'height' => 24,
+        ]);
+
+        Storage::disk($variant->disk)->put($variant->path, jpegMarkerBytes(36, 24));
+    }
+
+    return $plan;
+}
+
+// =============================================================================
+// Content Studio post text suggestions
+// =============================================================================
+
+/**
+ * A completed Responses API body whose structured output is a batch of post
+ * texts — the factory's ten titles and ten descriptions, unless others are given.
+ *
+ * @param  list<string>|null  $titles
+ * @param  list<string>|null  $descriptions
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioPostTextsBody(?array $titles = null, ?array $descriptions = null, array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode(['titles' => $titles ?? StudioPlanTextGenerationFactory::titles(), 'descriptions' => $descriptions ?? StudioPlanTextGenerationFactory::descriptions()], JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_texts_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * A Draft with a photo whose analysis has finished — the factory's
+ * description, or this one — so post texts may be written for it.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @param  array<string, mixed>|null  $description
+ */
+function studioPlanWithFinishedAnalysis(array $attributes = [], ?array $description = null): StudioPlan
+{
+    $plan = StudioPlan::factory()->withImage()->create($attributes);
+    StudioPlanImageAnalysis::factory()->forPlan($plan)->completed($description)->create();
+
+    return $plan;
+}
+
+/** Generate suggestions for the photo the editor shows — the plan's own — in a tone. */
+function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTone $tone = StudioPostTextTone::Cheeky, ?int $imageAssetId = null): StudioPlanTextGeneration
+{
+    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $tone);
+}
+
+/** Runs the job of that batch, as a worker would. */
+function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
+{
+    app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
 }

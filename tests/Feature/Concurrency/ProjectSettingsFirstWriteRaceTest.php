@@ -1,8 +1,6 @@
 <?php
 
 use App\Models\ProjectSettings;
-use Illuminate\Database\ConnectionInterface;
-use Illuminate\Support\Facades\DB;
 
 /*
  * Two first saves of the project settings, racing for real.
@@ -112,59 +110,6 @@ function racingFirstWrite(string $barrierDir, string $label): array
     expect($process)->not->toBeFalse("the {$label} competitor must start");
 
     return ['process' => $process, 'pipes' => $pipes, 'script' => $scriptPath];
-}
-
-/**
- * The database the test itself is using, handed to the subprocesses so they
- * compete in the same place rather than against whatever `.env` happens to say.
- *
- * @return array<string, string>
- */
-function racingEnvironment(): array
-{
-    $name = (string) config('database.default');
-
-    // The database name comes from the LIVE connection, not from config: under
-    // --parallel each worker runs against its own database (rateguru_test_test_N)
-    // and the connection knows which one, while the configured value is still the
-    // base name. A subprocess sent to the base database finds no tables at all.
-    //
-    // APP_ENV is pinned so the children behave like a deployment rather than
-    // inheriting the worker's testing environment.
-    // The explicit values come FIRST: PHP's `+` keeps the left operand, so putting
-    // the inherited environment first would let the worker's own DB_DATABASE — the
-    // base name, not this worker's — override everything resolved here.
-    return array_filter([
-        'APP_ENV' => 'production',
-        'DB_CONNECTION' => $name,
-        'DB_HOST' => (string) config("database.connections.{$name}.host"),
-        'DB_PORT' => (string) config("database.connections.{$name}.port"),
-        'DB_DATABASE' => (string) DB::connection()->getDatabaseName(),
-        'DB_USERNAME' => (string) config("database.connections.{$name}.username"),
-        'DB_PASSWORD' => (string) config("database.connections.{$name}.password"),
-    ], fn (string $value): bool => $value !== '') + array_filter($_SERVER, 'is_string');
-}
-
-/**
- * A connection outside the test's own transaction, for state that was committed
- * by another process and therefore has to be read and removed for real.
- */
-function committedConnection(): ConnectionInterface
-{
-    $default = (string) config('database.default');
-    $peer = config("database.connections.{$default}");
-
-    // Never a persistent connection. Tests keep one persistent PostgreSQL
-    // connection per worker (tests/TestCase.php), and PDO gives every
-    // persistent handle with the same DSN and credentials the SAME server
-    // connection: a persistent peer would sit inside the test's own
-    // transaction, and freeing it would roll that transaction back mid-test.
-    $peer['options'] = [PDO::ATTR_PERSISTENT => false] + ($peer['options'] ?? []);
-
-    config(['database.connections.committed_peer' => $peer]);
-    DB::purge('committed_peer');
-
-    return DB::connection('committed_peer');
 }
 
 function committedSettingsRowCount(): int

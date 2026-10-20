@@ -172,15 +172,3 @@ it('keeps the standalone login exactly as it was', function () {
 
     $this->assertAuthenticatedAs($user);
 });
-
-dataset('hostile return paths', [
-    'absolute https' => ['https://evil.example'],
-    'absolute http' => ['http://evil.example/posts/1'],
-    'protocol relative' => ['//evil.example'],
-    'backslash pair' => ['\\\\evil.example'],
-    'slash then backslash' => ['/\\evil.example'],
-    'javascript scheme' => ['javascript:alert(1)'],
-    'data scheme' => ['data:text/html,<script>alert(1)</script>'],
-    'header injection' => ["/posts/1\r\nLocation: https://evil.example"],
-    'relative path' => ['posts/123'],
-]);

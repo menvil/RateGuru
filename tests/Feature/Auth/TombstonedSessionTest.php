@@ -3,9 +3,11 @@
 use App\Actions\Profile\AnonymizeUserAccountAction;
 use App\Actions\Profile\UpdateUserIdentityAction;
 use App\Actions\Profile\UpdateUserProfileAction;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 
 /*
  * Terminal-account enforcement: anonymization can only revoke
@@ -115,3 +117,35 @@ it('still allows living accounts to update identity and profile', function () {
         ->and($fresh->display_name)->toBe('Fresh Display')
         ->and($fresh->bio)->toBe('Fresh bio');
 });
+
+/*
+ * The same guard ends the session of an account that may no longer sign in
+ * for any reason: an account made a Persona outside every editor keeps no
+ * session it held from before.
+ */
+it('ends a surviving session on its next request once the account is made a persona', function () {
+    $user = User::factory()->create();
+    $this->post('/login', ['email' => $user->email, 'password' => 'password']);
+    $this->get(route('feed'))->assertOk();
+    $this->assertAuthenticatedAs($user);
+    $token = session()->token();
+
+    User::query()->whereKey($user->id)->update(['role' => UserRole::Persona->value]);
+    // The next request reads the account from its session, as a real one does.
+    Auth::forgetGuards();
+
+    $this->get(route('feed'))->assertRedirect('/');
+
+    $this->assertGuest();
+    expect(session()->token())->not->toBe($token);
+});
+
+it('force-logs-out a persona session on its next request, whatever its status', function (string $state) {
+    $persona = User::factory()->persona()->create(['status' => UserStatus::from($state)]);
+
+    $this->actingAs($persona)
+        ->get(route('feed'))
+        ->assertRedirect('/');
+
+    $this->assertGuest();
+})->with(['active', 'limited', 'banned', 'shadowbanned']);

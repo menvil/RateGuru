@@ -44,7 +44,9 @@
 - Vote rail
 - Image placeholder
 - Binary choice
-- Rating option chips
+- Rating option chips — until the visitor has voted, one row of buttons sharing the question's whole width
+  equally: two answers are two wide buttons, eleven split it eleven ways; on a phone they sit closer and in a
+  smaller type so a score's numbers still fit, and a longer label is cut short, whole in its title
 - Detail post
 - Results panel
 - Comments panel

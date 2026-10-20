@@ -5,9 +5,9 @@ namespace App\Actions\Auth\Concerns;
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Exceptions\Auth\CannotGenerateUsernameException;
 use App\Models\User;
+use App\Support\Database\UsernameUniqueViolation;
 use Closure;
 use Illuminate\Database\QueryException;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -49,33 +49,12 @@ trait CreatesUserWithUniqueUsername
             try {
                 return DB::transaction(fn (): User => $create($username));
             } catch (QueryException $exception) {
-                if (! $this->isUsernameUniqueConstraintViolation($exception)) {
+                if (! UsernameUniqueViolation::matches($exception)) {
                     throw $exception;
                 }
             }
         }
 
         throw CannotGenerateUsernameException::afterExhaustingAttempts();
-    }
-
-    private function isUsernameUniqueConstraintViolation(QueryException $exception): bool
-    {
-        if (! $exception instanceof UniqueConstraintViolationException) {
-            return false;
-        }
-
-        if ($exception->columns !== []) {
-            return in_array('username', $exception->columns, true);
-        }
-
-        if ($exception->index !== null) {
-            return str_contains(strtolower($exception->index), 'username');
-        }
-
-        $message = strtolower($exception->getPrevious()?->getMessage() ?? '');
-
-        return str_contains($message, 'users.username')
-            || str_contains($message, 'users_username_unique')
-            || str_contains($message, '(username)');
     }
 }

@@ -6,17 +6,18 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the twenty-three operational scripts
+#   --apply   Install the target registry, the twenty-five operational scripts
 #             (targets, common, restore-common, health-check, status,
 #             cleanup, deploy, rollback, backup, restore-test,
 #             offsite-backup, offsite-retention, offsite-restore-test,
 #             backup-cycle, fetch-backup, verify-backup, restore-database,
 #             restore-storage, restore-target, recover-host,
-#             install-target-prerequisites, verify-required-clis,
-#             verify-environment-contract), the two committed environment
-#             templates, the four
+#             install-target-prerequisites, mail-identity, mail-routing,
+#             verify-required-clis, verify-environment-contract), the two
+#             committed environment templates, the four
 #             committed Nginx vhost sources the prerequisite table is derived
-#             from, the host-global deployment.conf and the deployment protocol
+#             from, the three mail contracts the DKIM row is derived from, the
+#             host-global deployment.conf and the deployment protocol
 #             contract, verify a staged copy
 #             before touching anything, install transactionally, then verify
 #             the installed result against the real host before committing.
@@ -25,14 +26,16 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Thirty-two files: the registry, the twenty-three scripts — targets,
+#   * Thirty-seven files: the registry, the twenty-five scripts — targets,
 #     common and restore-common (sourced libraries), health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
 #     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
 #     The Restore Target Data restore primitives (fetch-backup, verify-backup,
 #     restore-database, restore-storage, restore-target), recover-host,
-#     install-target-prerequisites and verify-required-clis — the four
-#     committed Nginx vhost sources (config/nginx/*), deployment.conf, the
+#     install-target-prerequisites, mail-identity, mail-routing and
+#     verify-required-clis — the four committed Nginx vhost sources
+#     (config/nginx/*), the three mail contracts (config/mail-identity.json,
+#     config/mail-routing.json, config/mail-outbound.json), deployment.conf, the
 #     host-global (non-target-specific) configuration those scripts source, and
 #     the deployment protocol contract (config/deployment-protocol.json), which
 #     is where the installed engine's own `tooling.supported` comes from.
@@ -54,6 +57,15 @@
 #     relative layout the checkout has (`../config` from the script). Its
 #     --check/--apply/--verify still belong to Prepare Host, which runs it
 #     from the trusted checkout; nothing here invokes them.
+#   * mail-identity and mail-routing, with the three mail contracts they read,
+#     are installed for the same backup, and for nothing else. A target whose
+#     mail goes out signed has its DKIM key in its recovery material, and the
+#     installed prerequisite installer decides that — whether the key belongs
+#     there, whether it is a usable key, and the fingerprint the backup records
+#     — by asking mail-identity, the one judge of every DKIM rule, which reads
+#     the delivery mode through mail-routing. No rule is copied into the
+#     bundle; the judge is. Nothing installed here runs them for anything
+#     else: no gateway, signer or activation is ever run from the bundle.
 #   * recover-host is installed for one specific reason: `deploy` runs
 #     `recover-host --inspect` before a controlled recovery deployment, as its
 #     authoritative proof that the replacement host is STILL held — exactly as
@@ -87,8 +99,8 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these thirty-two files in these
-# thirty-two places with these exact permissions, nothing else. The one
+# this installer's whole job is to put these thirty-seven files in these
+# thirty-seven places with these exact permissions, nothing else. The one
 # directory it creates is config/nginx, which exists solely to hold four of
 # those files.
 #
@@ -135,6 +147,15 @@ SRC_RESTORE_STORAGE="${REPO_ROOT}/infrastructure/scripts/restore-storage"
 SRC_RESTORE_TARGET="${REPO_ROOT}/infrastructure/scripts/restore-target"
 SRC_RECOVER_HOST="${REPO_ROOT}/infrastructure/scripts/recover-host"
 SRC_TARGET_PREREQUISITES="${REPO_ROOT}/infrastructure/scripts/install-target-prerequisites"
+# The judge of every DKIM rule, the routing policy it reads delivery modes
+# through, and the three contracts they read — the prerequisite installer's
+# DKIM row comes from them, so the installed copy captures a backup's DKIM key
+# by exactly the rules a clean host installs it by.
+SRC_MAIL_IDENTITY="${REPO_ROOT}/infrastructure/scripts/mail-identity"
+SRC_MAIL_ROUTING="${REPO_ROOT}/infrastructure/scripts/mail-routing"
+SRC_MAIL_IDENTITY_CONTRACT="${REPO_ROOT}/infrastructure/config/mail-identity.json"
+SRC_MAIL_ROUTING_POLICY="${REPO_ROOT}/infrastructure/config/mail-routing.json"
+SRC_MAIL_OUTBOUND_CONTRACT="${REPO_ROOT}/infrastructure/config/mail-outbound.json"
 SRC_VERIFY_REQUIRED_CLIS="${REPO_ROOT}/infrastructure/scripts/verify-required-clis"
 SRC_VERIFY_ENV_CONTRACT="${REPO_ROOT}/infrastructure/scripts/verify-environment-contract"
 SRC_DEPLOYMENT_CONF="${REPO_ROOT}/infrastructure/templates/deployment.conf.example"
@@ -195,6 +216,11 @@ DST_RESTORE_STORAGE="${DST_BIN_ROOT}/restore-storage"
 DST_RESTORE_TARGET="${DST_BIN_ROOT}/restore-target"
 DST_RECOVER_HOST="${DST_BIN_ROOT}/recover-host"
 DST_TARGET_PREREQUISITES="${DST_BIN_ROOT}/install-target-prerequisites"
+DST_MAIL_IDENTITY="${DST_BIN_ROOT}/mail-identity"
+DST_MAIL_ROUTING="${DST_BIN_ROOT}/mail-routing"
+DST_MAIL_IDENTITY_CONTRACT="${DST_CONFIG_ROOT}/mail-identity.json"
+DST_MAIL_ROUTING_POLICY="${DST_CONFIG_ROOT}/mail-routing.json"
+DST_MAIL_OUTBOUND_CONTRACT="${DST_CONFIG_ROOT}/mail-outbound.json"
 DST_VERIFY_REQUIRED_CLIS="${DST_BIN_ROOT}/verify-required-clis"
 DST_VERIFY_ENV_CONTRACT="${DST_BIN_ROOT}/verify-environment-contract"
 DST_DEPLOYMENT_CONF="${DST_CONFIG_ROOT}/deployment.conf"
@@ -248,9 +274,13 @@ ENV_TEMPLATES_ROOT_MODE="0755"
 # it supports a protocol it does not would deploy an artifact its engine cannot
 # honour, which is the exact failure this handshake exists to prevent.
 DEPLOYMENT_PROTOCOL_MODE="0644"
+# The mail contracts are committed, non-secret configuration — no key, no
+# credential — read by root-run backups only. Like the protocol contract, what
+# matters is that nothing but root may write them.
+MAIL_CONTRACT_MODE="0644"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the thirty-two files it installs. A named constant (not a literal
+# about: the thirty-seven files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -417,13 +447,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_MAIL_IDENTITY_CONTRACT}" "${SRC_MAIL_ROUTING_POLICY}" "${SRC_MAIL_OUTBOUND_CONTRACT}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all thirty-two source files are present regular files"
+    log "all thirty-seven source files are present regular files"
 }
 
 # The inclusive upper bound on any protocol version, matching deploy's own
@@ -477,7 +507,7 @@ validate_source_deployment_protocol() {
 # validate_source_files already requires them to be readable regular files.
 validate_source_executable_modes() {
     local path
-    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
+    for path in "${SRC_SELF}" "${SRC_TARGETS}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
 
@@ -488,15 +518,15 @@ validate_source_executable_modes() {
         [[ ! -x "${path}" ]] || fail "sourced library must not be executable: ${path}"
     done
 
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all twenty-three source shell scripts"
+    log "bash -n passed for all twenty-five source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -579,6 +609,7 @@ verify_staged_candidates() {
     local staged_restore_target="${stage_dir}/restore-target"
     local staged_recover_host="${stage_dir}/recover-host"
     local staged_target_prerequisites="${stage_dir}/install-target-prerequisites"
+    local staged_mail_identity="${stage_dir}/mail-identity"
     local staged_verify_required_clis="${stage_dir}/verify-required-clis"
     local staged_deployment_conf="${stage_dir}/deployment.conf"
     local staged_deployment_protocol="${stage_dir}/deployment-protocol.json"
@@ -591,6 +622,12 @@ verify_staged_candidates() {
     no_overrides_env "${staged_target_prerequisites}" --help >/dev/null \
         || fail "staged install-target-prerequisites --help failed"
     log "  staged install-target-prerequisites --help: OK"
+
+    # The staged mail judge, with the staged routing CLI and targets beside it,
+    # accepts the staged contracts against the staged registry — the exact
+    # combination a backup's capture will ask once they are installed.
+    verify_mail_contracts "${staged_mail_identity}" "${stage_dir}/mail-identity.json" \
+        "${stage_dir}/mail-routing.json" "${staged_registry}" "${stage_dir}/mail-outbound.json" staged
 
     local -a override_env=(
         env
@@ -1044,6 +1081,19 @@ verify_nginx_sources_root() {
         || fail "vhost sources directory must not be group- or other-writable: ${DST_NGINX_SOURCES_ROOT} (mode ${mode})"
 }
 
+# verify_mail_contracts MAIL_IDENTITY IDENTITY ROUTING REGISTRY OUTBOUND LABEL —
+# the mail judge accepts the three contracts against the registry. It runs the
+# routing CLI and the targets CLI beside itself, so a pass also proves those
+# three sit together where it expects them. Read-only, no override honoured.
+verify_mail_contracts() {
+    local bin="$1" identity="$2" routing="$3" registry="$4" outbound="$5" label="$6"
+
+    no_overrides_env "${bin}" validate --identity "${identity}" --routing "${routing}" \
+        --registry "${registry}" --outbound "${outbound}" >/dev/null \
+        || fail "${label} mail-identity does not accept the ${label} mail contracts — a backup could not decide which DKIM key its recovery material carries"
+    log "  ${label} mail-identity validate: OK"
+}
+
 # The installed prerequisite installer answers --help; every other mode of it
 # needs root and a real filesystem, which is Prepare Host's business, so the
 # --help probe is the one thing an installer verification can honestly prove.
@@ -1078,6 +1128,8 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_RESTORE_TARGET}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_TARGET}"
     verify_installed_regular_file "${DST_RECOVER_HOST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RECOVER_HOST}"
     verify_installed_regular_file "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_TARGET_PREREQUISITES}"
+    verify_installed_regular_file "${DST_MAIL_IDENTITY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_MAIL_IDENTITY}"
+    verify_installed_regular_file "${DST_MAIL_ROUTING}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_MAIL_ROUTING}"
     verify_installed_regular_file "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_REQUIRED_CLIS}"
     verify_installed_regular_file "${DST_VERIFY_ENV_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_ENV_CONTRACT}"
 
@@ -1091,7 +1143,10 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_PRODUCTION}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILPIT}"
     verify_installed_regular_file "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${NGINX_SOURCE_MODE}" "${SRC_NGINX_SOURCE_MAILTRAP}"
-    log "  ownership, mode and content: OK for all thirty-two files"
+    verify_installed_regular_file "${DST_MAIL_IDENTITY_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_IDENTITY_CONTRACT}"
+    verify_installed_regular_file "${DST_MAIL_ROUTING_POLICY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_ROUTING_POLICY}"
+    verify_installed_regular_file "${DST_MAIL_OUTBOUND_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_OUTBOUND_CONTRACT}"
+    log "  ownership, mode and content: OK for all thirty-seven files"
 
     # common and restore-common are sourced libraries, never CLIs —
     # verify_installed_regular_file already proved their mode is exactly
@@ -1106,10 +1161,10 @@ verify_installed_files() {
     log "  common and restore-common are not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_VERIFY_REQUIRED_CLIS}" "${DST_VERIFY_ENV_CONTRACT}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_MAIL_IDENTITY}" "${DST_MAIL_ROUTING}" "${DST_VERIFY_REQUIRED_CLIS}" "${DST_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all twenty-three installed scripts"
+    log "  bash -n: OK for all twenty-five installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -1546,6 +1601,8 @@ verify_runtime_parity() {
     verify_restore_primitive_help
     verify_restore_primitive_refusal
     verify_target_prerequisites_help
+    verify_mail_contracts "${DST_MAIL_IDENTITY}" "${DST_MAIL_IDENTITY_CONTRACT}" \
+        "${DST_MAIL_ROUTING_POLICY}" "${DST_REGISTRY}" "${DST_MAIL_OUTBOUND_CONTRACT}" installed
     verify_required_clis_help
     log "runtime parity verification passed"
 }
@@ -1580,15 +1637,20 @@ run_check() {
     log "  ${DST_RESTORE_DATABASE}"
     log "  ${DST_RESTORE_STORAGE}"
     log "  ${DST_RESTORE_TARGET}"
+    log "  ${DST_MAIL_IDENTITY}"
+    log "  ${DST_MAIL_ROUTING}"
     log "  ${DST_VERIFY_REQUIRED_CLIS}"
     log "  ${DST_DEPLOYMENT_CONF}"
     log "  ${DST_DEPLOYMENT_PROTOCOL}"
+    log "  ${DST_MAIL_IDENTITY_CONTRACT}"
+    log "  ${DST_MAIL_ROUTING_POLICY}"
+    log "  ${DST_MAIL_OUTBOUND_CONTRACT}"
 
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The directories every one of the thirty-two destinations lives under.
-# This installer owns exactly thirty-two *files* — it never creates, chowns or chmods
+# The directories every one of the thirty-seven destinations lives under.
+# This installer owns exactly thirty-seven *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1923,6 +1985,11 @@ perform_apply() {
     install -m 0700 "${SRC_RESTORE_TARGET}" "${STAGE_DIR}/restore-target"
     install -m 0700 "${SRC_RECOVER_HOST}" "${STAGE_DIR}/recover-host"
     install -m 0700 "${SRC_TARGET_PREREQUISITES}" "${STAGE_DIR}/install-target-prerequisites"
+    install -m 0700 "${SRC_MAIL_IDENTITY}" "${STAGE_DIR}/mail-identity"
+    install -m 0700 "${SRC_MAIL_ROUTING}" "${STAGE_DIR}/mail-routing"
+    install -m 0600 "${SRC_MAIL_IDENTITY_CONTRACT}" "${STAGE_DIR}/mail-identity.json"
+    install -m 0600 "${SRC_MAIL_ROUTING_POLICY}" "${STAGE_DIR}/mail-routing.json"
+    install -m 0600 "${SRC_MAIL_OUTBOUND_CONTRACT}" "${STAGE_DIR}/mail-outbound.json"
     install -m 0700 "${SRC_VERIFY_REQUIRED_CLIS}" "${STAGE_DIR}/verify-required-clis"
     install -m 0700 "${SRC_VERIFY_ENV_CONTRACT}" "${STAGE_DIR}/verify-environment-contract"
     install -m 0600 "${SRC_ENV_TEMPLATE_STAGING}" "${STAGE_DIR}/env-template-staging"
@@ -1979,6 +2046,13 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/nginx-rateguru-production" "${DST_NGINX_SOURCE_PRODUCTION}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/nginx-mailpit-staging" "${DST_NGINX_SOURCE_MAILPIT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/nginx-mailtrap-local-staging" "${DST_NGINX_SOURCE_MAILTRAP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${NGINX_SOURCE_MODE}"
+    # The mail contracts and their judge before the prerequisite installer
+    # that asks it, the routing CLI before the judge that runs it.
+    install_regular_file_transactional "${STAGE_DIR}/mail-identity.json" "${DST_MAIL_IDENTITY_CONTRACT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${MAIL_CONTRACT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/mail-routing.json" "${DST_MAIL_ROUTING_POLICY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${MAIL_CONTRACT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/mail-outbound.json" "${DST_MAIL_OUTBOUND_CONTRACT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${MAIL_CONTRACT_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/mail-routing" "${DST_MAIL_ROUTING}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/mail-identity" "${DST_MAIL_IDENTITY}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/install-target-prerequisites" "${DST_TARGET_PREREQUISITES}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-required-clis" "${DST_VERIFY_REQUIRED_CLIS}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-environment-contract" "${DST_VERIFY_ENV_CONTRACT}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
@@ -2003,7 +2077,8 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_MAIL_IDENTITY}, ${DST_MAIL_ROUTING}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
+    log "  mail contracts: ${DST_MAIL_IDENTITY_CONTRACT}, ${DST_MAIL_ROUTING_POLICY}, ${DST_MAIL_OUTBOUND_CONTRACT}"
     log "  env templates: ${DST_ENV_TEMPLATE_STAGING}, ${DST_ENV_TEMPLATE_TITS_GURU}"
     log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"
     log "  deployment.conf: ${DST_DEPLOYMENT_CONF}"

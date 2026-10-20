@@ -1,10 +1,13 @@
 <?php
 
+use App\Actions\Studio\DeleteStudioPlanDraftAction;
 use App\Enums\MediaPurgeOutcome;
 use App\Enums\MediaVisibility;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\StudioPlan;
+use App\Models\User;
 use App\Services\Media\MediaLifecycleService;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaReferenceChecker;
@@ -162,6 +165,50 @@ it('does not purge a referenced asset even if it is old and soft-deleted', funct
     expect(MediaAsset::withTrashed()->find($asset->id)->trashed())->toBeTrue();
 
     Carbon::setTestNow();
+});
+
+it('does not purge a photo a publication plan still holds, however long ago it was released', function () {
+    $asset = createPurgeableAsset();
+    StudioPlan::factory()->create(['image_asset_id' => $asset->id]);
+
+    $result = app(MediaLifecycleService::class)->purge($asset);
+
+    expect($result->outcome)->toBe(MediaPurgeOutcome::NotEligible)
+        ->and(MediaAsset::withTrashed()->find($asset->id))->not->toBeNull();
+    Storage::disk('public')->assertExists($asset->path);
+});
+
+it('purges a deleted draft\'s photo only once the grace period is over', function () {
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $plan = StudioPlan::factory()->withImage()->create();
+    $asset = $plan->imageAsset;
+    Storage::disk('public')->put($asset->path, 'master-bytes');
+
+    app(DeleteStudioPlanDraftAction::class)->handle(User::factory()->admin()->create(), $plan, 1);
+
+    Carbon::setTestNow(Carbon::parse('2026-01-05 12:00:00'));
+    expect(app(MediaLifecycleService::class)->purge($asset->fresh())->outcome)->toBe(MediaPurgeOutcome::NotEligible);
+    Storage::disk('public')->assertExists($asset->path);
+
+    Carbon::setTestNow(Carbon::parse('2026-01-20 12:00:00'));
+    expect(app(MediaLifecycleService::class)->purge($asset->fresh())->outcome)->toBe(MediaPurgeOutcome::Purged)
+        ->and(MediaAsset::withTrashed()->find($asset->id))->toBeNull();
+    Storage::disk('public')->assertMissing($asset->path);
+});
+
+it('keeps a photo a published post still holds once the draft that shared it is deleted', function () {
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $plan = StudioPlan::factory()->withImage()->create();
+    $asset = $plan->imageAsset;
+    Storage::disk('public')->put($asset->path, 'master-bytes');
+    Post::factory()->published()->create(['image_asset_id' => $asset->id]);
+
+    app(DeleteStudioPlanDraftAction::class)->handle(User::factory()->admin()->create(), $plan, 1);
+    Carbon::setTestNow(Carbon::parse('2026-02-01 12:00:00'));
+
+    expect($asset->fresh()->trashed())->toBeFalse()
+        ->and(app(MediaLifecycleService::class)->purge($asset->fresh())->outcome)->toBe(MediaPurgeOutcome::NotEligible);
+    Storage::disk('public')->assertExists($asset->path);
 });
 
 it('completes cleanup when the master file is already missing', function () {

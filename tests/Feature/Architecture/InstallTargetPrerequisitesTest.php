@@ -925,7 +925,7 @@ it('lists exactly the host-scope logical names of the target, and nothing else',
     }
 });
 
-it('captures every host-scope prerequisite under its logical name, dereferencing certbot links, root-only, without reading content into its output', function () {
+it('captures every recovery-scope prerequisite of a target whose mail is not signed — its host scope — under its logical name, dereferencing certbot links, root-only, without reading content into its output', function () {
     $scratch = itpScratchDir();
 
     try {
@@ -933,7 +933,7 @@ it('captures every host-scope prerequisite under its logical name, dereferencing
         mkdir($scratch.'/capture', 0o700, true);
         chmod($scratch.'/capture', 0o700);
 
-        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'recovery', '--output-dir', $scratch.'/capture']);
 
         expect($exit)->toBe(0, $output);
 
@@ -960,7 +960,7 @@ it('captures every host-scope prerequisite under its logical name, dereferencing
         // Names and sources are reported; content, length and digest are not.
         expect($output)
             ->toContain('CAPTURED tls-private-key')
-            ->toContain('captured 7 host-scope prerequisites for staging-main')
+            ->toContain('captured 7 recovery-scope prerequisites for staging-main')
             ->toContain('content never read, hashed or logged')
             ->not->toContain('certbot-privkey')
             ->not->toContain('hashes')
@@ -984,7 +984,7 @@ it('captures nothing at all when any host-scope prerequisite is missing or unsaf
         mkdir($scratch.'/capture', 0o700, true);
         chmod($scratch.'/capture', 0o700);
 
-        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'recovery', '--output-dir', $scratch.'/capture']);
 
         expect($exit)->toBe(1);
         expect($output)->toContain('basic-auth');
@@ -1005,7 +1005,7 @@ it('captures nothing at all when any host-scope prerequisite is missing or unsaf
         mkdir($scratch.'/capture', 0o700, true);
         chmod($scratch.'/capture', 0o700);
 
-        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $scratch.'/capture']);
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'recovery', '--output-dir', $scratch.'/capture']);
 
         expect($exit)->toBe(1);
         expect($output)->toContain('basic-auth');
@@ -1022,7 +1022,7 @@ it('demands a root-only, empty, absolute output directory for a capture', functi
         itpValidHostScope($scratch);
         $outputDir = $arrange($scratch);
 
-        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', $outputDir]);
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'staging-main', '--scope', 'recovery', '--output-dir', $outputDir]);
 
         expect($exit)->toBe(1);
         expect($output)->toContain($expected);
@@ -1258,16 +1258,42 @@ it('keeps the recovery modes and the installing modes apart in what they accept'
     }
 })->with([
     'capture with material' => [
-        ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', '/root/capture', '--material-dir', '/root/material'],
+        ['--capture', '--target', 'staging-main', '--scope', 'recovery', '--output-dir', '/root/capture', '--material-dir', '/root/material'],
         '--capture never consults supplied material',
     ],
     'capture without an output directory' => [
-        ['--capture', '--target', 'staging-main', '--scope', 'host'],
+        ['--capture', '--target', 'staging-main', '--scope', 'recovery'],
         '--output-dir',
     ],
     'capture of the target scope' => [
         ['--capture', '--target', 'staging-main', '--scope', 'target', '--output-dir', '/root/capture'],
-        '--scope host',
+        '--capture is recovery-scope only (--scope recovery)',
+    ],
+    // A capture writes today's format only: the host scope is what a schema
+    // 3 archive was written in, never what a backup captures now.
+    'capture of the host scope' => [
+        ['--capture', '--target', 'staging-main', '--scope', 'host', '--output-dir', '/root/capture'],
+        '--capture is recovery-scope only (--scope recovery)',
+    ],
+    'validation of the target scope' => [
+        ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'target', '--archive', '/root/a.tar.gz'],
+        '--validate-recovery-material judges an archive in the scope it was written in',
+    ],
+    'fingerprint without a key' => [
+        ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery'],
+        '--dkim-fingerprint requires --key',
+    ],
+    'fingerprint of the target scope' => [
+        ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'target', '--key', '/root/k'],
+        '--dkim-fingerprint is recovery-scope only (--scope recovery)',
+    ],
+    'fingerprint with material' => [
+        ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery', '--key', '/root/k', '--material-dir', '/root/material'],
+        '--dkim-fingerprint never consults supplied material',
+    ],
+    'apply with a key' => [
+        ['--apply', '--target', 'tits-guru', '--scope', 'recovery', '--key', '/root/k'],
+        '--key is only valid with --dkim-fingerprint',
     ],
     'validation without an archive' => [
         ['--validate-recovery-material', '--target', 'staging-main', '--scope', 'host'],
@@ -2056,6 +2082,315 @@ it('never consults the mail identity in host scope, where the installed copy run
         [$target, $output] = itpRun($scratch, ['--check', '--scope', 'target', '--target', 'staging-main'], $absent);
         expect($target)->not->toBe(0);
         expect($output)->toContain('the mail identity CLI is not executable');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+// =============================================================================
+// The recovery scope: the host scope, plus the DKIM key of a signed target
+// =============================================================================
+
+/** tits-guru's host scope: the shared mail-capture vhosts' material alone. */
+const ITP_TITS_GURU_HOST_MATERIAL = [
+    'mail-basic-auth',
+    'mail-tls-certificate',
+    'mail-tls-private-key',
+    'mail-nginx-tls-options',
+    'mail-tls-dhparams',
+];
+
+/** @return list<string> */
+function itpListNames(string $scratch, string $target, string $scope, array $environment = []): array
+{
+    [$exit, $output] = itpRun($scratch, ['--list-material-names', '--target', $target, '--scope', $scope], $environment);
+    expect($exit)->toBe(0, $output);
+
+    return array_values(array_filter(preg_split('/\R/', $output)));
+}
+
+/** A root-only capture directory in the scratch tree. */
+function itpCaptureDir(string $scratch): string
+{
+    mkdir($scratch.'/capture', 0o700, true);
+    chmod($scratch.'/capture', 0o700);
+
+    return $scratch.'/capture';
+}
+
+it('reads the recovery scope as the host scope plus the DKIM key, only for a target whose mail policy requires DKIM signing, and nothing else of the target scope', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        // tits-guru's committed policy delivers outbound, signed: its key is
+        // recovery material.
+        expect(itpListNames($scratch, 'tits-guru', 'host'))->toBe(ITP_TITS_GURU_HOST_MATERIAL);
+        expect(itpListNames($scratch, 'tits-guru', 'recovery'))->toBe([...ITP_TITS_GURU_HOST_MATERIAL, 'mail-dkim-private-key']);
+
+        // staging-main's mail is captured, never signed: its recovery scope
+        // is exactly its host scope.
+        expect(itpListNames($scratch, 'staging-main', 'recovery'))->toBe(itpListNames($scratch, 'staging-main', 'host'));
+
+        // The rest of the target scope is never recovery material: the
+        // environment file is a backup member of its own, the deploy key and
+        // the offsite credential belong to the recovery.
+        foreach (['tits-guru', 'staging-main'] as $target) {
+            expect(array_intersect(itpListNames($scratch, $target, 'recovery'), ITP_TARGET_MATERIAL))->toBe([]);
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('captures the DKIM key of a target whose mail is signed, byte for byte and root-only, without ever printing it', function (int $keyMode, int $dirMode) {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+        $key = recoveryMaterialPlantDkimKey($scratch, 'tits-guru', 'rsa2048', $keyMode, $dirMode);
+        $capture = itpCaptureDir($scratch);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'tits-guru', '--scope', 'recovery', '--output-dir', $capture]);
+
+        expect($exit)->toBe(0, $output);
+
+        $captured = array_values(array_diff(scandir($capture), ['.', '..']));
+        sort($captured);
+        $expected = [...ITP_TITS_GURU_HOST_MATERIAL, 'mail-dkim-private-key'];
+        sort($expected);
+        expect($captured)->toBe($expected);
+
+        expect(File::get($capture.'/mail-dkim-private-key'))->toBe(File::get($key));
+        expect(itpMode($capture.'/mail-dkim-private-key'))->toBe('0600');
+
+        // The installed key is read, never touched.
+        expect(itpMode($key))->toBe(sprintf('%04o', $keyMode));
+
+        expect($output)
+            ->toContain('CAPTURED mail-dkim-private-key (from /etc/opendkim/keys/tits-guru/rg1.private; content never read, hashed or logged)')
+            ->toContain('captured 6 recovery-scope prerequisites for tits-guru');
+        expectNoKeyMaterial($output, $key);
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'signing-ready' => [0o640, 0o750],
+    'pre-signer' => [0o600, 0o700],
+]);
+
+it('captures nothing when the DKIM key a signed target requires is absent or not a usable key', function (?string $kind, string $expected) {
+    $scratch = itpScratchDir();
+
+    try {
+        itpValidHostScope($scratch);
+        $key = $kind === null ? null : recoveryMaterialPlantDkimKey($scratch, 'tits-guru', $kind);
+        $capture = itpCaptureDir($scratch);
+
+        [$exit, $output] = itpRun($scratch, ['--capture', '--target', 'tits-guru', '--scope', 'recovery', '--output-dir', $capture]);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)
+            ->toContain('external prerequisite mail-dkim-private-key cannot be captured')
+            ->toContain($expected);
+        expect(array_diff(scandir($capture), ['.', '..']))->toBe([], 'a refused capture writes nothing');
+
+        if ($key !== null) {
+            expectNoKeyMaterial($output, $key);
+        } else {
+            expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse('a missing key was generated or its place prepared');
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+})->with([
+    'absent' => [null, 'absent and no material supplied: /etc/opendkim/keys/tits-guru/rg1.private'],
+    'too small' => ['rsa1024', 'is not a usable DKIM private key: it is a 1024-bit RSA key'],
+    'not RSA' => ['ec', 'is not a usable DKIM private key'],
+    'a public key' => ['public', 'is not a usable DKIM private key: it is a public key, not a private key'],
+]);
+
+it('fingerprints a signed target\'s DKIM key by its public half, judged against the reviewed policy, and prints nothing else', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $key = $scratch.'/root/key.pem';
+        copy(mailIdentityKey('rsa2048'), $key);
+        chmod($key, 0o600);
+
+        [$exit, $output] = itpRun($scratch, ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery', '--key', $key]);
+
+        expect($exit)->toBe(0, $output);
+        // Exactly the digest, alone: a caller records it.
+        expect($output)->toBe(dkimPublicKeySha256($key)."\n");
+
+        // The same key in PKCS#1 form has the same public half.
+        $pkcs1 = $scratch.'/root/key-pkcs1.pem';
+        copy(mailIdentityKey('rsa2048-pkcs1'), $pkcs1);
+        [, $again] = itpRun($scratch, ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery', '--key', $pkcs1]);
+        expect($again)->toBe($output);
+
+        // A key the policy refuses has no fingerprint, and is not shown.
+        $small = $scratch.'/root/small.pem';
+        copy(mailIdentityKey('rsa1024'), $small);
+        [$exit, $refused] = itpRun($scratch, ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery', '--key', $small]);
+        expect($exit)->toBe(1);
+        expect($refused)->toContain('not a usable DKIM private key for tits-guru: it is a 1024-bit RSA key, below the reviewed minimum of 2048 bits');
+        expectNoKeyMaterial($refused, $small);
+
+        // A target whose mail is not signed has no key to fingerprint.
+        [$exit, $none] = itpRun($scratch, ['--dkim-fingerprint', '--target', 'staging-main', '--scope', 'recovery', '--key', $key]);
+        expect($exit)->toBe(1);
+        expect($none)->toContain("staging-main's recovery scope carries no DKIM key");
+        expectNoKeyMaterial($none, $key);
+
+        [$exit, $relative] = itpRun($scratch, ['--dkim-fingerprint', '--target', 'tits-guru', '--scope', 'recovery', '--key', 'key.pem']);
+        expect($exit)->toBe(1);
+        expect($relative)->toContain('--key must be an absolute path');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('judges an archive in the scope it was written in, so a host-scope archive is never a signed target\'s recovery material', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        $judge = static fn (string $archive, string $scope): array => itpRun($scratch, ['--validate-recovery-material', '--target', 'tits-guru', '--scope', $scope, '--archive', $archive]);
+
+        // What a backup written before the key joined the recovery material
+        // carries: acceptable as what it is, insufficient as recovery material.
+        $hostOnly = itpArchive($scratch, itpRegularMembers(ITP_TITS_GURU_HOST_MATERIAL), ITP_TITS_GURU_HOST_MATERIAL);
+
+        [$exit, $output] = $judge($hostOnly, 'host');
+        expect($exit)->toBe(0, $output);
+
+        [$exit, $output] = $judge($hostOnly, 'recovery');
+        expect($exit)->toBe(1);
+        expect($output)->toContain('recovery material archive is missing the recovery-scope prerequisite mail-dkim-private-key of tits-guru — a clean-host recovery could not be prepared from it');
+
+        // Today's recovery material: accepted, by name, never extracted.
+        $recovery = [...ITP_TITS_GURU_HOST_MATERIAL, 'mail-dkim-private-key'];
+        $full = itpArchive($scratch, itpRegularMembers($recovery), $recovery);
+
+        [$exit, $output] = $judge($full, 'recovery');
+        expect($exit)->toBe(0, $output);
+        $lines = array_values(array_filter(preg_split('/\R/', $output)));
+        expect(end($lines))->toBe('6 recovery-scope files for tits-guru: '.implode(' ', $recovery));
+        expect($output)->not->toContain('content-of-');
+
+        // The key is no host-scope name: a host-scope archive carrying it is
+        // not what it claims to be.
+        [$exit, $output] = $judge($full, 'host');
+        expect($exit)->toBe(1);
+        expect($output)->toContain('recovery material archive contains a file that is not a host-scope prerequisite of tits-guru: mail-dkim-private-key');
+
+        // And nothing else of the target scope may ride along.
+        foreach (ITP_TARGET_MATERIAL as $stranger) {
+            $members = [...$recovery, $stranger];
+            [$exit, $output] = $judge(itpArchive($scratch, itpRegularMembers($members), $members), 'recovery');
+            expect($exit)->toBe(1);
+            expect($output)->toContain("recovery material archive contains a file that is not a recovery-scope prerequisite of tits-guru: {$stranger}");
+        }
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('installs and verifies the recovery scope from supplied material, the DKIM key signing-ready once the signer exists', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpSupply($scratch, ITP_TITS_GURU_HOST_MATERIAL);
+        itpSupplyDkimKey($scratch, 'rsa2048');
+
+        [$check, $report] = itpRun($scratch, ['--check', '--target', 'tits-guru', '--scope', 'recovery', '--material-dir', '/root/material']);
+        expect($check)->toBe(1, $report);
+        expect($report)->toMatch('/^INSTALLABLE +target +mail-dkim-private-key +absent; will be installed from the supplied material: \/etc\/opendkim\/keys\/tits-guru\/rg1.private$/m');
+
+        // laravel-env and the rest of the target scope are not this scope's,
+        // and a material directory carrying them changes nothing about it.
+        expect($report)->not->toContain('laravel-env');
+
+        [$apply, $log] = itpRun($scratch, ['--apply', '--target', 'tits-guru', '--scope', 'recovery', '--material-dir', '/root/material']);
+        expect($apply)->toBe(0, $log);
+        expect($log)->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/tits-guru/rg1.private (root:opendkim 0640; content never read or logged)');
+
+        $installed = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+        expect(File::get($installed))->toBe(File::get($scratch.'/root/material/mail-dkim-private-key'));
+        expect(itpMode($installed))->toBe('0640');
+        expect(itpMode($scratch.'/etc/opendkim/keys/tits-guru'))->toBe('0750');
+        expectNoKeyMaterial($log, $installed);
+
+        [$verify, $verified] = itpRun($scratch, ['--verify', '--target', 'tits-guru', '--scope', 'recovery']);
+        expect($verify)->toBe(0, $verified);
+
+        // Safe to press twice: identical material converges, nothing is
+        // rewritten.
+        [$again, $report] = itpRun($scratch, ['--check', '--target', 'tits-guru', '--scope', 'recovery', '--material-dir', '/root/material']);
+        expect($again)->toBe(0, $report);
+        expect($report)->toMatch('/^CONVERGED +target +mail-dkim-private-key +already present and identical/m');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('installs a recovered DKIM key pre-signer when no signer exists yet, and only in the recovery scope', function () {
+    $scratch = itpScratchDir();
+
+    try {
+        itpSupplyDkimKey($scratch, 'rsa2048');
+        file_put_contents($scratch.'/group', "root:x:0:\nwww-data:x:33:\n");
+        file_put_contents($scratch.'/chown.log', '');
+        $chown = writeExecutable($scratch.'/chown-stub', "#!/usr/bin/env bash\nprintf '%s\\n' \"\$*\" >> ".escapeshellarg($scratch.'/chown.log')."\n");
+
+        // The shipped classifier and installer, with ownership enforced as on
+        // a host that has no signer yet; chown is recorded rather than run.
+        $run = static function (string $scope) use ($scratch, $chown): string {
+            $harness = 'source '.escapeshellarg(itpScript())
+                .' && SCOPE='.$scope.' MATERIAL_DIR=/root/material DKIM_MIN_BITS=2048 DKIM_REQUIREMENT=required TARGET_ID=tits-guru'
+                .' && classify_row mail-dkim-private-key /etc/opendkim/keys/tits-guru/rg1.private root opendkim 0640 "DKIM signing private key for tits-guru mail"'
+                .' && printf "%s|%s\n" "${CLASSIFY_STATE}" "${CLASSIFY_REASON}"'
+                .' && if [[ "${CLASSIFY_STATE}" == INSTALLABLE ]]; then install_row mail-dkim-private-key /etc/opendkim/keys/tits-guru/rg1.private root opendkim 0640 target; fi';
+
+            $process = proc_open(['bash', '-c', $harness], [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, [
+                'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+                'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true',
+                'RATEGURU_TARGETPREREQ_FS_ROOT' => $scratch,
+                'RATEGURU_TARGETPREREQ_ENFORCE_OWNERSHIP' => 'true',
+                'RATEGURU_TARGETPREREQ_GROUP_FILE' => $scratch.'/group',
+                'RATEGURU_TARGETPREREQ_CHOWN_BIN' => $chown,
+            ]);
+            $output = (string) stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            proc_close($process);
+
+            return $output;
+        };
+
+        // The target scope keeps its rule: no new key before the signer.
+        expect($run('target'))->toStartWith("CONFLICT|cannot install mail-dkim-private-key: the host signer's group opendkim does not exist");
+        expect(file_exists($scratch.'/etc/opendkim'))->toBeFalse();
+
+        // A recovery installs it before host bootstrap, in the one layout the
+        // signer's install converts: root:root 0600 in root:root 0700.
+        $output = $run('recovery');
+        expect($output)
+            ->toContain('INSTALLABLE|absent; will be installed from the supplied material, pre-signer root:root 0600 until host bootstrap installs the signer')
+            ->toContain('INSTALLED mail-dkim-private-key -> /etc/opendkim/keys/tits-guru/rg1.private (root:root 0600; content never read or logged)');
+
+        $installed = $scratch.'/etc/opendkim/keys/tits-guru/rg1.private';
+        expect(File::get($installed))->toBe(File::get($scratch.'/root/material/mail-dkim-private-key'));
+        expect(itpMode($installed))->toBe('0600');
+        expect(itpMode($scratch.'/etc/opendkim/keys/tits-guru'))->toBe('0700');
+        expect(itpMode($scratch.'/etc/opendkim/keys'))->toBe('0700');
+        expect(itpMode($scratch.'/etc/opendkim'))->toBe('0755');
+
+        $chowns = array_values(array_filter(preg_split('/\R/', File::get($scratch.'/chown.log'))));
+        foreach ($chowns as $call) {
+            expect($call)->toContain('root:root');
+        }
+        expect($chowns)->toHaveCount(4);
+        expectNoKeyMaterial($output, $installed);
     } finally {
         removeScratchDir($scratch);
     }

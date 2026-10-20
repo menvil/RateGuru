@@ -1,8 +1,9 @@
 {{--
     The one login form. The standalone /login page and the authentication
     modal both render this component; only the surface differs, and with it
-    the element ids (both modal forms live in the DOM at once), the error bag
-    and the marker fields that bring a modal submission back to its page.
+    the element ids (every modal form lives in the DOM at once), the error
+    bag, the marker fields that bring a modal submission back to its page,
+    and whether "Forgot your password?" is a page or a state of the dialog.
 --}}
 @use('App\Enums\AuthModalMode')
 @use('App\Support\Auth\AuthSurfaceContext')
@@ -19,6 +20,7 @@
     $idPrefix = ($isModal ? 'modal' : 'page').'-login';
     $testId = $isModal ? 'auth-modal-login' : 'login';
     $bag = ($errors ?? new ViewErrorBag)->getBag($isModal ? AuthSurfaceContext::ERROR_BAG : 'default');
+    $forgotClasses = 'cursor-pointer rounded-md text-sm text-rg-muted underline hover:text-rg-text2 focus:outline-none focus:ring-2 focus:ring-rg-accent';
 @endphp
 
 <form method="POST" action="{{ route('login') }}" data-testid="{{ $testId }}-form" {{ $attributes }}>
@@ -72,9 +74,19 @@
             <span class="ms-2 text-sm text-rg-text2">{{ __('auth.login.remember') }}</span>
         </label>
 
-        @if (Route::has('password.request'))
+        @if ($isModal)
+            {{-- Same dialog, other state, like the switch at the bottom. --}}
+            <button
+                type="button"
+                class="{{ $forgotClasses }}"
+                data-testid="{{ $testId }}-forgot-password"
+                x-on:click="$dispatch('open-auth-modal', { mode: '{{ AuthModalMode::ForgotPassword->value }}' })"
+            >
+                {{ __('auth.login.forgot_password') }}
+            </button>
+        @elseif (Route::has('password.request'))
             <a
-                class="rounded-md text-sm text-rg-muted underline hover:text-rg-text2 focus:outline-none focus:ring-2 focus:ring-rg-accent"
+                class="{{ $forgotClasses }}"
                 href="{{ route('password.request') }}"
                 data-testid="{{ $testId }}-forgot-password"
             >

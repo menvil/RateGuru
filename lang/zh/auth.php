@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => '还没有账号？',
         'have_account' => '已有账号？',
+        'remembered_password' => '想起密码了？',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => '或',
 
     'forgot_password' => [
+        'title' => '重置密码',
         'intro' => '忘记密码？没关系。只需告诉我们您的电子邮箱地址，我们会向您发送一封包含密码重置链接的邮件，您可以通过该链接设置新密码。',
         'action' => '发送密码重置链接',
     ],

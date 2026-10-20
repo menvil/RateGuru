@@ -8,7 +8,9 @@ use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
+use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
+use App\Policies\StudioPlanPolicy;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
@@ -25,6 +27,10 @@ use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
 use App\Support\Import\PinnedImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\StudioAi\OpenAiStudioImageAnalyzer;
+use App\Support\StudioAi\OpenAiStudioPostTextGenerator;
+use App\Support\StudioAi\StudioImageAnalyzer;
+use App\Support\StudioAi\StudioPostTextGenerator;
 use App\Support\Theme\ThemeManager;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
@@ -63,6 +69,11 @@ class AppServiceProvider extends ServiceProvider
         // A singleton, so a provider call is recorded once however often its
         // result is handed to the recorder within a request or a worker.
         $this->app->singleton(TranslationAiCallRecorder::class);
+
+        // Reads its settings on every call, so it holds nothing worth keeping
+        // and needs none of them to be built: a missing key never fails boot.
+        $this->app->bind(StudioImageAnalyzer::class, OpenAiStudioImageAnalyzer::class);
+        $this->app->bind(StudioPostTextGenerator::class, OpenAiStudioPostTextGenerator::class);
     }
 
     /**
@@ -78,6 +89,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
         Gate::define('manage-project-settings', [ProjectSettingsPolicy::class, 'manage']);
         Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
+        Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
+        Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

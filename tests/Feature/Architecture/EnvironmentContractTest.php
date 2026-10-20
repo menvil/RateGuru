@@ -236,6 +236,49 @@ it('accepts the translation settings with the API key blank, and with one set, p
     'set' => 'translation-key-NEVER-PRINT-THIS-VALUE',
 ]);
 
+it('accepts the photo analysis settings off with the API key blank, and on with one set, printing neither', function (string $enabled, string $key) {
+    // Off with a blank key is the state every target starts in: the
+    // application boots, and only photo analysis says it is not configured.
+    $scratch = envContractScratch();
+
+    try {
+        envContractWrite($scratch, envContractRuntime(['CONTENT_STUDIO_OPENAI_ENABLED' => $enabled, 'CONTENT_STUDIO_OPENAI_API_KEY' => $key]));
+
+        [$exit, $output] = envContractRun($scratch);
+
+        expect($exit)->toBe(0, $output);
+
+        if ($key !== '') {
+            expect($output)->not->toContain($key);
+        }
+    } finally {
+        envContractCleanup($scratch);
+    }
+})->with([
+    'off, blank' => ['false', ''],
+    'on, set' => ['true', 'photo-analysis-key-NEVER-PRINT-THIS-VALUE'],
+]);
+
+it('refuses a runtime file that predates the photo analysis settings, naming each one', function () {
+    $scratch = envContractScratch();
+    $keys = ['CONTENT_STUDIO_OPENAI_ENABLED', 'CONTENT_STUDIO_OPENAI_API_KEY', 'CONTENT_STUDIO_OPENAI_MODEL', 'CONTENT_STUDIO_OPENAI_BASE_URL'];
+
+    try {
+        envContractWrite($scratch, envContractRuntime(drop: $keys));
+
+        [$exit, $output] = envContractRun($scratch);
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('ENVIRONMENT CONTRACT: BROKEN');
+
+        foreach ($keys as $key) {
+            expect($output)->toContain($key);
+        }
+    } finally {
+        envContractCleanup($scratch);
+    }
+});
+
 it('refuses a runtime file that predates the translation settings, naming each one', function () {
     $scratch = envContractScratch();
     $keys = ['TRANSLATION_PROVIDER', 'TRANSLATION_OPENAI_API_KEY', 'TRANSLATION_OPENAI_MODEL', 'TRANSLATION_OPENAI_BASE_URL'];

@@ -5,6 +5,7 @@ namespace App\Services\Media;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\Post;
+use App\Models\StudioPlan;
 use App\Models\User;
 
 /**
@@ -40,6 +41,7 @@ final class MediaAssetInspector
             variants: $variants,
             referencingPosts: Post::withTrashed()->where('image_asset_id', $asset->id)->get(),
             referencingUsers: User::where('avatar_asset_id', $asset->id)->get(),
+            referencingPlans: StudioPlan::query()->where('image_asset_id', $asset->id)->get(),
             graceExpired: $graceExpired,
             purgeable: $this->lifecycle->isPurgeable($asset),
             purgeableAt: $asset->deleted_at?->clone()->addDays((int) config('media.lifecycle.purge_grace_days')),

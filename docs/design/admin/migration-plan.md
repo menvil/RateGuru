@@ -273,13 +273,13 @@ there is not; J and K step through reports; Resolve and Ignore close one report 
 target and Ban author leave it open. One action is new: `ReopenReportAction`, behind Reopen and Undo, which
 clears who closed the report, when and why.
 
-**Users. Status: done.** The list (`ListUsers`) and a person's page (`EditUser`) are drawn in Admin v2, as the
-contract's [Users](design-contract.md#users) section describes: everyone by status or trust, narrowed to a role or
+**Users. Status: done.** The list (`ListUsers`) is drawn in Admin v2 with a person's editor in the drawer over it
+(`UserEditor`), as the contract's [Users](design-contract.md#users) section describes: everyone by status or trust, narrowed to a role or
 to the suspicious and searched on the server, 25 a page (`ModerationUsersQuery`, a registered stable pagination
 boundary); Limit, Shadowban, Ban and Mark trusted after a confirmation that says what they really do, Restore access
-at once, with Undo where it reverses exactly; and a person's page that edits their profile, role, trust and
-password from the top bar through the new `UpdateUserAccountAction`, beside their status, account and moderation
-history. The kit gained the radio cards (FRM-09).
+at once, with Undo where it reverses exactly; and a person's editor that edits their profile, role, trust and
+password from the drawer's footer through the new `UpdateUserAccountAction`, with their status, account and
+moderation history under it. The kit gained the radio cards (FRM-09) and the drawer's 680 editor width.
 
 **Media diagnostics. Status: done.** One screen (`MediaDiagnosticsPage`) drawn in Admin v2, as the contract's
 [Media diagnostics](design-contract.md#media-diagnostics) section describes: the library's health in the header
@@ -305,6 +305,55 @@ reference.
 
 Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
 migration, and the prototype's Growth section — Games with the game editor, Experiments and Analytics.
+
+### Content Studio
+
+Content Studio is a section of its own, built one working screen at a time from the current prototype rather than
+migrated from v1; each screen brings its navigation item, and no item comes before its screen. The contract's
+[Content Studio](design-contract.md#content-studio) section describes what runs.
+
+| Order | Screen | Status |
+|---|---|---|
+| 1 | Personas — the list, a new persona and a persona's editor | **done** |
+| 2 | Publications & plans with the publication editor | **done** |
+| 3 | Action queue | planned |
+| 4 | Reply rules and Reply log | planned |
+
+**Publications & plans. Status: done.** The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a
+publication's editor (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan`, for an active administrator
+(`manage-studio-plans`): searched over the title, the id and the author and narrowed by state and photo on the
+server, 25 a page (`StudioPlansQuery`, a registered stable pagination boundary); the editor's four steps — Image,
+Post, Discussion, Publication — save a draft from the top bar through the plan's actions, refusing one drawn before
+somebody else's save, and Delete draft asks first. The Image step stores a photo the moment it is uploaded,
+dropped, or imported from a direct link or a social post, through the existing media path — a new publication's
+Draft made for its first photo — and has it analysed through OpenAI at once, in a card of its own that alone polls
+while an analysis runs; Re-run analysis and Try again are an administrator's. The Post step offers AI text
+suggestions written from that analysis — ten titles and ten descriptions a batch, in the tone chosen, one paid
+request asked for only by Generate, every batch kept for the photo and its analysis and the newest one shown —
+beside the photo's context, as the prototype lays out Titles & texts, in a component of its own that alone polls
+while a batch is on its way; choosing a title or a description puts it in the final field, unsaved, saved only
+by Save draft. Everything else a later stage brings is left out rather than drawn: votes, the
+discussion, approval, the action plan and the queue; the editor says where each will come. The kit
+gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
+the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
+kept at the foot of the window are the screen's own.
+
+**Content Studio Phase 3 — OpenAI image understanding and post texts. Status: done, pending its staging check.**
+The audit's Phase 3 (`docs/architecture/content-studio-phase-0.md`, section F) is complete in code: the photo's
+analysis on the Image step and the title and description suggestions on the Post step, the final text chosen and
+edited, both refused as not configured while the key is blank. It is recorded as finished once its staging
+criterion has been checked on staging: the analysis and the suggestions appear in the editor, the final text is
+chosen and edited, and with an empty key both say they are not configured while the rest of the application
+works.
+
+**Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
+(`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
+(`manage-personas`): searched and narrowed by status and engagement on the server, 25 a page (`PersonasQuery`, a
+registered stable pagination boundary); the editor saves its public profile, its character and its activity
+settings from the drawer's footer through `CreatePersonaAction` and `UpdatePersonaAction`, refusing a draft drawn
+before somebody else's save, and its photo through `SetPersonaAvatarAction`. The drawer is the prototype's, 680
+wide; geography, an hourly schedule, generated avatars and sample replies are left out. A persona's drawer in Users
+leads to its editor. The avatar circle takes a photo and a 72 size.
 
 ## Definition of done for a migrated screen
 

@@ -705,7 +705,7 @@ it('refuses a backup written before the recovery material existed, before stagin
         expect($result['exit'])->not->toBe(0);
         expect($result['output'])
             ->toContain('step: require a clean-host-recovery-capable backup')
-            ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a host recovery requires schema 3')
+            ->toContain('backup 20260115-023000 is not clean-host-recovery-capable: its manifest schema is 2, and a host recovery requires schema 3 or 4')
             ->toContain('No data was staged or activated')
             // The operator is told what to do, in the one shared format.
             ->toContain('RECOVERY ACTION REQUIRED')

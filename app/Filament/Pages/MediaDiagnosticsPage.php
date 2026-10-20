@@ -601,7 +601,9 @@ final class MediaDiagnosticsPage extends Page
             'filesSummary' => $inspection === null ? null : (! $inspection->masterExists ? 'Master missing' : ($missing > 0 ? $missing.' missing' : 'All present')),
             // A released asset is on its way out: nothing regenerates it.
             'canRegenerate' => $inspection !== null && $inspection->masterExists && ! $inspection->asset->trashed(),
-            'canRelease' => $issue->issue_type === MediaAuditIssueType::ActiveUnreferencedAsset && $inspection !== null,
+            // An issue found by an older audit may no longer hold: an asset
+            // something references now is not offered for release.
+            'canRelease' => $issue->issue_type === MediaAuditIssueType::ActiveUnreferencedAsset && $inspection !== null && ! $inspection->referenced,
             'canPurge' => $issue->issue_type === MediaAuditIssueType::PurgeableAsset && $inspection !== null,
         ];
     }
@@ -733,12 +735,15 @@ final class MediaDiagnosticsPage extends Page
 
     private static function references(?MediaAssetInspection $inspection): string
     {
-        if ($inspection === null || ($inspection->referencingPosts->isEmpty() && $inspection->referencingUsers->isEmpty())) {
+        if ($inspection === null || ($inspection->referencingPosts->isEmpty() && $inspection->referencingUsers->isEmpty() && $inspection->referencingPlans->isEmpty())) {
             return 'Nothing references it';
         }
 
-        return $inspection->referencingPosts->map(fn ($post): string => 'Post #'.$post->id.($post->trashed() ? ' (deleted)' : ''))
+        // A plain collection of labels: an Eloquent one, left empty by a
+        // mapping of no posts, cannot take strings merged into it.
+        return $inspection->referencingPosts->toBase()->map(fn ($post): string => 'Post #'.$post->id.($post->trashed() ? ' (deleted)' : ''))
             ->merge($inspection->referencingUsers->map(fn ($user): string => '@'.$user->username.' (avatar)'))
+            ->merge($inspection->referencingPlans->map(fn ($plan): string => 'Publication plan #'.$plan->id.' ('.Str::lower($plan->status->label()).')'))
             ->implode(', ');
     }
 

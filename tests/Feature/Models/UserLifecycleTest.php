@@ -77,3 +77,61 @@ it('grants panel access only to active admins and moderators', function (
     'deleted moderator' => [UserRole::Moderator, UserStatus::Deleted, false],
     'null-status admin' => [UserRole::Admin, null, false],
 ]);
+
+/*
+ * A Persona is never staff and never signs in for itself, whatever its
+ * status — but its lifecycle is anyone's: every participation capability
+ * is still the one its status gives.
+ */
+it('never grants a persona the panel, whatever its status', function (?UserStatus $status) {
+    $persona = User::factory()->persona()->make(['status' => $status]);
+
+    expect($persona->canAccessPanel(Filament::getPanel('admin')))->toBeFalse();
+})->with('lifecycle statuses');
+
+it('lets an account sign in only while it is living and not a persona', function (UserRole $role, ?UserStatus $status) {
+    $user = User::factory()->make(['role' => $role, 'status' => $status]);
+
+    expect($user->canSignIn())->toBe(($status?->canAuthenticate() ?? false) && $role !== UserRole::Persona)
+        ->and($user->canAuthenticate())->toBe($status?->canAuthenticate() ?? false);
+})->with(UserRole::cases())->with('lifecycle statuses');
+
+it('leaves a persona every capability its status gives', function (?UserStatus $status) {
+    $persona = User::factory()->persona()->make(['status' => $status]);
+
+    expect($persona->canCreateContent())->toBe($status?->canCreateContent() ?? false)
+        ->and($persona->canComment())->toBe($status?->canComment() ?? false)
+        ->and($persona->canVote())->toBe($status?->canVote() ?? false)
+        ->and($persona->canReport())->toBe($status?->canReport() ?? false)
+        ->and($persona->canFollow())->toBe($status?->canFollow() ?? false)
+        ->and($persona->canBeFollowed())->toBe($status?->canBeFollowed() ?? false)
+        ->and($persona->canManageContent())->toBe($status?->canManageContent() ?? false)
+        ->and($persona->canUpdateProfile())->toBe($status?->canUpdateProfile() ?? false)
+        ->and($persona->canAuthenticate())->toBe($status?->canAuthenticate() ?? false);
+})->with('lifecycle statuses');
+
+it('answers the role questions from UserRole, failing closed without a role', function (?UserRole $role, bool $staff, bool $persona) {
+    $user = User::factory()->make(['role' => $role]);
+
+    expect($user->isStaff())->toBe($staff)
+        ->and($user->isPersona())->toBe($persona);
+})->with([
+    'user' => [UserRole::User, false, false],
+    'persona' => [UserRole::Persona, false, true],
+    'moderator' => [UserRole::Moderator, true, false],
+    'admin' => [UserRole::Admin, true, false],
+    'no role' => [null, false, false],
+]);
+
+it('makes a test persona without a password, a confirmed address or a sign-in identity', function () {
+    $persona = User::factory()->persona()->create();
+
+    expect($persona->role)->toBe(UserRole::Persona)
+        ->and($persona->status)->toBe(UserStatus::Active)
+        ->and($persona->password)->toBeNull()
+        ->and($persona->remember_token)->toBeNull()
+        ->and($persona->hasVerifiedEmail())->toBeFalse()
+        ->and($persona->email)->toEndWith('.invalid')
+        ->and($persona->socialAccounts()->count())->toBe(0)
+        ->and(User::factory()->persona()->create()->email)->not->toBe($persona->email);
+});

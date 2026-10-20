@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nuk ke llogari?',
         'have_account' => 'Ke tashmë llogari?',
+        'remembered_password' => 'E kujtove fjalëkalimin?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'ose',
 
     'forgot_password' => [
+        'title' => 'Rivendos fjalëkalimin',
         'intro' => 'Ke harruar fjalëkalimin? S’ka problem. Na trego adresën tënde të email-it dhe do të të dërgojmë një lidhje për rivendosjen e fjalëkalimit, me të cilën mund të zgjedhësh një të ri.',
         'action' => 'Dërgo lidhjen për rivendosjen e fjalëkalimit',
     ],

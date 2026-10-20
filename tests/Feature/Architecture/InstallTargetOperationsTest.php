@@ -1035,6 +1035,14 @@ function installOpsBaseVars(
         'SRC_RESTORE_TARGET' => $scratch.'/src/restore-target',
         'SRC_RECOVER_HOST' => $scratch.'/src/recover-host',
         'SRC_TARGET_PREREQUISITES' => $scratch.'/src/install-target-prerequisites',
+        // The mail judge, its routing CLI and the three contracts travel as
+        // they are committed: the staged and the installed judge must accept
+        // exactly these, against the staged and the installed registry.
+        'SRC_MAIL_IDENTITY' => base_path('infrastructure/scripts/mail-identity'),
+        'SRC_MAIL_ROUTING' => base_path('infrastructure/scripts/mail-routing'),
+        'SRC_MAIL_IDENTITY_CONTRACT' => base_path('infrastructure/config/mail-identity.json'),
+        'SRC_MAIL_ROUTING_POLICY' => base_path('infrastructure/config/mail-routing.json'),
+        'SRC_MAIL_OUTBOUND_CONTRACT' => base_path('infrastructure/config/mail-outbound.json'),
         'SRC_VERIFY_REQUIRED_CLIS' => base_path('infrastructure/scripts/verify-required-clis'),
         'SRC_VERIFY_ENV_CONTRACT' => base_path('infrastructure/scripts/verify-environment-contract'),
         // The committed environment templates travel as-is for the same
@@ -1078,6 +1086,11 @@ function installOpsBaseVars(
         'DST_RESTORE_TARGET' => $scratch.'/dst-bin/restore-target',
         'DST_RECOVER_HOST' => $scratch.'/dst-bin/recover-host',
         'DST_TARGET_PREREQUISITES' => $scratch.'/dst-bin/install-target-prerequisites',
+        'DST_MAIL_IDENTITY' => $scratch.'/dst-bin/mail-identity',
+        'DST_MAIL_ROUTING' => $scratch.'/dst-bin/mail-routing',
+        'DST_MAIL_IDENTITY_CONTRACT' => $scratch.'/dst-config/mail-identity.json',
+        'DST_MAIL_ROUTING_POLICY' => $scratch.'/dst-config/mail-routing.json',
+        'DST_MAIL_OUTBOUND_CONTRACT' => $scratch.'/dst-config/mail-outbound.json',
         'DST_VERIFY_REQUIRED_CLIS' => $scratch.'/dst-bin/verify-required-clis',
         'DST_VERIFY_ENV_CONTRACT' => $scratch.'/dst-bin/verify-environment-contract',
         'DST_DEPLOYMENT_CONF' => $scratch.'/dst-config/deployment.conf',
@@ -1355,9 +1368,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all thirty-two source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not')
-        ->toContain('bash -n passed for all twenty-three source shell scripts')
+        ->toContain('all thirty-seven source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not')
+        ->toContain('bash -n passed for all twenty-five source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('source deployment protocol contract is valid')
         ->toContain('required host tools present')
@@ -1374,12 +1387,13 @@ it('--check succeeds read-only against the real repository, with no root require
 // =============================================================================
 
 /**
- * @return array<string, string> SRC_* overrides: nineteen executable dummy
- *                               CLI files plus two non-executable libraries.
+ * @return array<string, string> SRC_* overrides: an executable dummy for
+ *                               every managed CLI, plus the two
+ *                               non-executable libraries.
  */
 function installOpsExecutableModeVars(string $scratch): array
 {
-    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'recover-host', 'install-target-prerequisites', 'verify-required-clis', 'verify-environment-contract'] as $name) {
+    foreach (['self', 'targets', 'health-check', 'status', 'cleanup', 'deploy', 'rollback', 'backup', 'restore-test', 'offsite-backup', 'offsite-retention', 'offsite-restore-test', 'backup-cycle', 'fetch-backup', 'verify-backup', 'restore-database', 'restore-storage', 'restore-target', 'recover-host', 'install-target-prerequisites', 'mail-identity', 'mail-routing', 'verify-required-clis', 'verify-environment-contract'] as $name) {
         installOpsWriteExecutable("{$scratch}/{$name}", "#!/usr/bin/env bash\nexit 0\n");
     }
 
@@ -1412,6 +1426,8 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_RESTORE_TARGET' => "{$scratch}/restore-target",
         'SRC_RECOVER_HOST' => "{$scratch}/recover-host",
         'SRC_TARGET_PREREQUISITES' => "{$scratch}/install-target-prerequisites",
+        'SRC_MAIL_IDENTITY' => "{$scratch}/mail-identity",
+        'SRC_MAIL_ROUTING' => "{$scratch}/mail-routing",
         'SRC_VERIFY_REQUIRED_CLIS' => "{$scratch}/verify-required-clis",
         'SRC_VERIFY_ENV_CONTRACT' => "{$scratch}/verify-environment-contract",
         'SRC_COMMON' => $commonPath,
@@ -1426,6 +1442,9 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_NGINX_SOURCE_PRODUCTION' => base_path('infrastructure/config/nginx/rateguru-production'),
         'SRC_NGINX_SOURCE_MAILPIT' => base_path('infrastructure/config/nginx/mailpit-staging'),
         'SRC_NGINX_SOURCE_MAILTRAP' => base_path('infrastructure/config/nginx/mailtrap-local-staging'),
+        'SRC_MAIL_IDENTITY_CONTRACT' => base_path('infrastructure/config/mail-identity.json'),
+        'SRC_MAIL_ROUTING_POLICY' => base_path('infrastructure/config/mail-routing.json'),
+        'SRC_MAIL_OUTBOUND_CONTRACT' => base_path('infrastructure/config/mail-outbound.json'),
     ];
 }
 
@@ -1438,7 +1457,7 @@ it('validate_source_executable_modes passes when every managed CLI, including ve
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not');
+        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -1460,7 +1479,7 @@ it('validate_source_executable_modes requires common and restore-common to be no
 });
 
 it('validate_source_executable_modes fails, naming the specific file, for each required CLI', function () {
-    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_FETCH_BACKUP', 'SRC_VERIFY_BACKUP', 'SRC_RESTORE_DATABASE', 'SRC_RESTORE_STORAGE', 'SRC_RESTORE_TARGET', 'SRC_RECOVER_HOST', 'SRC_TARGET_PREREQUISITES', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
+    foreach (['SRC_SELF', 'SRC_TARGETS', 'SRC_HEALTH_CHECK', 'SRC_STATUS', 'SRC_CLEANUP', 'SRC_DEPLOY', 'SRC_ROLLBACK', 'SRC_BACKUP', 'SRC_RESTORE_TEST', 'SRC_OFFSITE_BACKUP', 'SRC_OFFSITE_RETENTION', 'SRC_OFFSITE_RESTORE_TEST', 'SRC_BACKUP_CYCLE', 'SRC_FETCH_BACKUP', 'SRC_VERIFY_BACKUP', 'SRC_RESTORE_DATABASE', 'SRC_RESTORE_STORAGE', 'SRC_RESTORE_TARGET', 'SRC_RECOVER_HOST', 'SRC_TARGET_PREREQUISITES', 'SRC_MAIL_IDENTITY', 'SRC_MAIL_ROUTING', 'SRC_VERIFY_REQUIRED_CLIS'] as $key) {
         $scratch = installOpsScratchDir();
 
         try {
@@ -2631,7 +2650,7 @@ it('verify_backup_cycle_refusal fails when the rejection happens for the wrong r
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all thirty-two files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all thirty-seven files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2673,8 +2692,16 @@ it('a successful apply installs all thirty-two files with correct ownership, mod
             ['DST_RESTORE_TARGET', 'SRC_RESTORE_TARGET', '0755'],
             ['DST_RECOVER_HOST', 'SRC_RECOVER_HOST', '0755'],
             ['DST_TARGET_PREREQUISITES', 'SRC_TARGET_PREREQUISITES', '0755'],
+            // The mail judge and its routing CLI: the installed prerequisite
+            // installer asks them which DKIM key a backup carries.
+            ['DST_MAIL_IDENTITY', 'SRC_MAIL_IDENTITY', '0755'],
+            ['DST_MAIL_ROUTING', 'SRC_MAIL_ROUTING', '0755'],
             ['DST_VERIFY_REQUIRED_CLIS', 'SRC_VERIFY_REQUIRED_CLIS', '0755'],
             ['DST_DEPLOYMENT_CONF', 'SRC_DEPLOYMENT_CONF', '0640'],
+            // The three mail contracts they read: committed, non-secret data.
+            ['DST_MAIL_IDENTITY_CONTRACT', 'SRC_MAIL_IDENTITY_CONTRACT', '0644'],
+            ['DST_MAIL_ROUTING_POLICY', 'SRC_MAIL_ROUTING_POLICY', '0644'],
+            ['DST_MAIL_OUTBOUND_CONTRACT', 'SRC_MAIL_OUTBOUND_CONTRACT', '0644'],
             // The committed vhost sources: data the installed prerequisite
             // installer reads, never executed.
             ['DST_NGINX_SOURCE_STAGING', 'SRC_NGINX_SOURCE_STAGING', '0644'],
@@ -2709,6 +2736,60 @@ it('a successful apply installs all thirty-two files with correct ownership, mod
         // they were found.
         expect(installOpsStatDir($vars['DST_CONFIG_ROOT']))->toBe($configDirBefore);
         expect(installOpsStatDir($vars['DST_BIN_ROOT']))->toBe($binDirBefore);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+});
+
+it('installs the mail judge beside the prerequisite installer, and proves it accepts the contracts staged and installed', function () {
+    $scratch = installOpsScratchDir();
+
+    try {
+        $vars = installOpsBaseVars($scratch);
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->toBe(0, $output);
+        expect($output)
+            ->toContain('staged mail-identity validate: OK')
+            ->toContain('installed mail-identity validate: OK');
+
+        // The installed copy, run as a backup runs it — beside its routing
+        // CLI and targets, against the installed contracts — decides the
+        // recovery scope.
+        exec(implode(' ', array_map('escapeshellarg', [
+            $vars['DST_MAIL_IDENTITY'], 'dkim-key', '--target', 'staging-main',
+            '--identity', $vars['DST_MAIL_IDENTITY_CONTRACT'],
+            '--routing', $vars['DST_MAIL_ROUTING_POLICY'],
+            '--registry', $vars['DST_REGISTRY'],
+            '--outbound', $vars['DST_MAIL_OUTBOUND_CONTRACT'],
+        ])).' 2>&1', $answer, $status);
+        expect($status)->toBe(0, implode("\n", $answer));
+        expect($answer)->toBe(['none']);
+    } finally {
+        installOpsCleanup($scratch);
+    }
+
+    $scratch = installOpsScratchDir();
+
+    try {
+        // A routing policy the judge refuses: a bundle whose backups could not
+        // decide what their recovery material carries is never installed.
+        $policy = json_decode(File::get(base_path('infrastructure/config/mail-routing.json')), true);
+        $policy['targets']['unknown-target'] = $policy['targets']['staging-main'];
+        file_put_contents($scratch.'/mail-routing.json', json_encode($policy));
+
+        $vars = installOpsBaseVars($scratch);
+        $vars['SRC_MAIL_ROUTING_POLICY'] = $scratch.'/mail-routing.json';
+        installOpsPlaceHealthyHealthCheck($vars);
+
+        [$exit, $output] = installOpsRunHarness($scratch, $vars, 'perform_apply');
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('staged mail-identity does not accept the staged mail contracts — a backup could not decide which DKIM key its recovery material carries');
+        expect(file_exists($vars['DST_MAIL_IDENTITY']))->toBeFalse('nothing may be installed after the staged judge refused');
+        expect(file_exists($vars['DST_TARGETS']))->toBeFalse('nothing may be installed after the staged judge refused');
     } finally {
         installOpsCleanup($scratch);
     }

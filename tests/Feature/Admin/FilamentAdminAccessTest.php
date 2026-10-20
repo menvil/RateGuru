@@ -1,7 +1,12 @@
 <?php
 
+use App\Enums\UserStatus;
 use App\Models\User;
+use Filament\Auth\Pages\Login;
+use Filament\Facades\Filament;
 use Filament\Panel;
+use Illuminate\Support\Facades\Hash;
+use Livewire\Livewire;
 
 it('redirects guest from admin panel to filament login', function () {
     $this->get('/admin')->assertRedirect(route('filament.admin.auth.login'));
@@ -52,4 +57,25 @@ it('allows admin to access /admin', function () {
     $this->actingAs($admin)
         ->get('/admin')
         ->assertOk();
+});
+
+it('never lets a persona into /admin, whatever its status', function (string $state) {
+    $persona = User::factory()->persona()->create(['status' => UserStatus::from($state)]);
+
+    $this->actingAs($persona)->get('/admin')->assertForbidden();
+})->with(['active', 'limited', 'banned', 'shadowbanned']);
+
+it('refuses a persona at the panel sign-in, even with a password written straight into its row', function () {
+    $persona = User::factory()->persona()->create();
+    User::query()->whereKey($persona->id)->update(['password' => Hash::make('password')]);
+
+    Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+    Livewire::test(Login::class)
+        ->set('data.email', $persona->email)
+        ->set('data.password', 'password')
+        ->call('authenticate')
+        ->assertHasErrors(['data.email' => __('filament-panels::auth/pages/login.messages.failed')]);
+
+    $this->assertGuest();
 });

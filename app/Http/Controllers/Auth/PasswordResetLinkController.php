@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Actions\Auth\SendPasswordResetLinkAction;
+use App\Enums\AuthModalMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\SendPasswordResetLinkRequest;
+use App\Support\Auth\AuthSurfaceContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 
@@ -27,9 +29,10 @@ class PasswordResetLinkController extends Controller
     ): RedirectResponse {
         /** @var array{email: string} $validated */
         $validated = $request->validated();
+        $surface = AuthSurfaceContext::fromInput($validated, AuthModalMode::ForgotPassword);
 
-        $status = $sendResetLink->execute($validated['email']);
+        $status = $surface->guard(fn () => $sendResetLink->execute($validated['email']));
 
-        return back()->with('status', __($status));
+        return $surface->redirectAfterPasswordResetLinkRequest(__($status));
     }
 }

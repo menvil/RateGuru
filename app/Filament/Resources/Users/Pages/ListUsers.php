@@ -2,22 +2,29 @@
 
 namespace App\Filament\Resources\Users\Pages;
 
+use App\Actions\Moderation\RestoreUserAccessAction;
 use App\Enums\UserRole;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Users\Concerns\ModeratesUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\ModerationListFormat;
+use App\Livewire\Admin\UserEditor;
 use App\Models\User;
 use App\Queries\Users\ModerationUsersQuery;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 
 /**
  * Users in Admin v2: everyone with an account, a tab at a time by status or
  * trust, narrowed to a role or to the suspicious and searched on the server,
  * 25 at a time. Status changes only through the moderation actions in each
- * row's menu; the rest of an account is edited on the person's own page.
+ * row's menu or in the person's editor.
+ *
+ * A person is edited in the drawer over the list (UserEditor), never on a
+ * page of its own: a row's Edit opens it, and the address says on whom
+ * (`?user=12`), so a link or a reload opens it again.
  */
 final class ListUsers extends Page
 {
@@ -60,6 +67,10 @@ final class ListUsers extends Page
     #[Url(as: 'page', except: 1)]
     public mixed $pageNumber = 1;
 
+    /** The person open in the drawer: the id of someone the viewer may edit, or none. */
+    #[Url(as: 'user', except: '')]
+    public mixed $editing = '';
+
     public function getTitle(): string
     {
         return 'Users';
@@ -83,6 +94,55 @@ final class ListUsers extends Page
     public function goToPage(mixed $page): void
     {
         $this->pageNumber = max(1, (int) $page);
+    }
+
+    public function editUser(mixed $id): void
+    {
+        $this->editing = is_numeric($id) ? (string) (int) $id : '';
+        $this->normalize();
+    }
+
+    #[On('close-user')]
+    public function closeUser(): void
+    {
+        $this->editing = '';
+    }
+
+    /** Saved in the drawer: it closes, and the list shows the save. */
+    #[On('user-saved')]
+    public function userSaved(mixed $message = ''): void
+    {
+        $this->editing = '';
+        $this->dispatch('rg-admin-toast', message: (string) $message, tone: 'success');
+    }
+
+    /** Moderated in the drawer: the list shows the person as they are now. */
+    #[On('user-changed')]
+    public function userChanged(): void {}
+
+    /** Undo after a sanction — here, or in the drawer: access is restored. */
+    #[On('restore-user-access')]
+    public function undoSanction(int $id): void
+    {
+        $person = User::query()->find($id);
+
+        if ($person !== null && $this->attemptModeration(fn () => app(RestoreUserAccessAction::class)->handle($this->moderatingAdmin(), $person))) {
+            $this->moderationToast('Access restored for '.$person->username);
+            $this->dispatch('user-changed')->to(UserEditor::class);
+        }
+    }
+
+    /** Undo after restoring access: the sanction it lifted applies again. */
+    #[On('sanction-user-again')]
+    public function sanctionAgain(int $id, string $kind): void
+    {
+        $person = User::query()->find($id);
+
+        if ($person !== null && in_array($kind, ['ban', 'limit', 'shadowban'], true)
+            && $this->attemptModeration(fn () => $this->sanctionAction($kind)->handle($this->moderatingAdmin(), $person))) {
+            $this->moderationToast($person->username.' is '.['ban' => 'banned', 'limit' => 'limited', 'shadowban' => 'shadowbanned'][$kind].' again');
+            $this->dispatch('user-changed')->to(UserEditor::class);
+        }
     }
 
     public function clearFilters(): void
@@ -117,11 +177,9 @@ final class ListUsers extends Page
             ],
             'roles' => [
                 ['value' => '', 'label' => 'All roles', 'trigger' => 'All'],
-                ['value' => UserRole::User->value, 'label' => 'User'],
-                ['value' => UserRole::Moderator->value, 'label' => 'Moderator'],
-                ['value' => UserRole::Admin->value, 'label' => 'Admin'],
+                ...array_map(fn (UserRole $role): array => ['value' => $role->value, 'label' => $role->label()], UserRole::cases()),
             ],
-            'roleName' => UserRole::tryFrom((string) $this->role) !== null ? self::roleLabel(UserRole::from((string) $this->role)) : null,
+            'roleName' => UserRole::tryFrom((string) $this->role)?->label(),
             'paginator' => $paginator,
             'rows' => array_map(fn (User $person): array => $this->row($person), $paginator->items()),
             'filtered' => trim((string) $this->q) !== '' || $this->role !== '' || (bool) $this->suspicious,
@@ -145,26 +203,17 @@ final class ListUsers extends Page
             'initials' => ModerationListFormat::initials((string) ($person->username ?? $person->name)),
             'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('M Y') : ''),
             'email' => $deleted ? 'Removed on deletion' : (string) $person->email,
-            'role' => self::roleLabel($person->role),
-            'staff' => $person->role !== UserRole::User,
+            'role' => (string) $person->role?->label(),
+            'staff' => $person->role?->isStaff() ?? false,
             'status' => ModerationListFormat::personStatus($person),
             'trust' => ModerationListFormat::trust($person),
             'posts' => (int) $person->posts_count,
             'reports' => (int) $person->getAttribute('reports_on_content'),
-            'editUrl' => UserResource::canEdit($person) ? UserResource::getUrl('edit', ['record' => $person]) : null,
+            'editUrl' => UserResource::canEdit($person) ? self::getUrl(['user' => $person->id]) : null,
             'postsUrl' => $person->username !== null ? ListPosts::getUrl(['status' => 'all', 'q' => $person->username]) : null,
             'deleted' => $deleted,
             'options' => $options,
         ];
-    }
-
-    private static function roleLabel(UserRole $role): string
-    {
-        return match ($role) {
-            UserRole::Admin => 'Admin',
-            UserRole::Moderator => 'Moderator',
-            UserRole::User => 'User',
-        };
     }
 
     /** Whatever a link or a forged update put here, read as something the page offers. */
@@ -175,5 +224,8 @@ final class ListUsers extends Page
         $this->suspicious = filter_var($this->suspicious, FILTER_VALIDATE_BOOL);
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
         $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+
+        $person = is_numeric($this->editing) ? User::query()->find((int) $this->editing) : null;
+        $this->editing = $person !== null && UserResource::canEdit($person) ? (string) $person->id : '';
     }
 }

@@ -7,6 +7,7 @@
 #   mail-identity check-outbound --plan PLAN [--outbound PATH]
 #   mail-identity dkim-key       --target TARGET [FILES]
 #   mail-identity check-key      --file KEY [--min-bits N]
+#   mail-identity key-fingerprint --target TARGET --file KEY [FILES]
 #   mail-identity show-dns       --target TARGET [--key KEY] [--ipv4 ADDRESS] [--json] [FILES]
 #   mail-identity verify-dns     --target TARGET [FILES]
 #   mail-identity readiness      --target TARGET [FILES]
@@ -48,6 +49,14 @@
 # ask OpenSSL whether it is an unencrypted RSA private key of sufficient size,
 # and `show-dns` derives only its PUBLIC half.
 #
+# `key-fingerprint` is how a backup names the key it carries without carrying
+# anything of it outside the archive: the SHA-256 of the key's PUBLIC half, the
+# exact bytes the DKIM record's p= value encodes, after the key is judged
+# against the target's reviewed policy as `check-key` judges it. A backup
+# records it, and a clean-host recovery refuses a key that does not reproduce
+# it. Anyone can compute the same digest from the published record, so it
+# discloses nothing the DNS does not.
+#
 # DNS. `show-dns` prints the records an operator publishes: A and PTR for the
 # host's MTA hostname, the target's DKIM public key, SPF and DMARC. The host's
 # IPv4 address is never committed: it is the address this host actually sends
@@ -66,8 +75,14 @@
 # no key and no signing service.
 #
 # Repository tooling, like mail-routing: run from a trusted checkout or bundle
-# by a developer, by CI, or by an operator on the host; never installed into
-# the operational bundle.
+# by a developer, by CI, or by an operator on the host. The operational bundle
+# carries a copy for one reason only: a nightly backup captures a target's DKIM
+# key into its recovery material through install-target-prerequisites, which
+# asks `dkim-key` whether the key belongs there, `check-key` whether it is one,
+# and `key-fingerprint` what the backup records — so the backup runs these
+# rules, never a copy of them. install-target-operations installs it, with
+# mail-routing and the three contracts both read, in the checkout's relative
+# layout.
 #
 # Test overrides: the RATEGURU_MAILIDENTITY_* variables below are honoured only
 # alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
@@ -152,6 +167,10 @@ Usage:
   check-key       Whether KEY is an unencrypted PEM RSA private key OpenSSL can
                   use, of at least --min-bits (default 2048). Prints a verdict,
                   never the key.
+  key-fingerprint Judge KEY as TARGET's DKIM private key, against its reviewed
+                  minimum size, and print the SHA-256 of its PUBLIC half (the
+                  bytes the DKIM record's p= value encodes) as 64 hex digits.
+                  Never the key.
   show-dns        Print the DNS records to publish for TARGET: A and PTR for the
                   host's MTA hostname, DKIM (public key derived from the
                   installed private key, or from --key), SPF and DMARC. With
@@ -208,7 +227,7 @@ parse_args() {
     fi
 
     case "$1" in
-        validate|check-outbound|dkim-key|check-key|show-dns|verify-dns|readiness|render-signing-plan)
+        validate|check-outbound|dkim-key|check-key|key-fingerprint|show-dns|verify-dns|readiness|render-signing-plan)
             COMMAND="$1"
             shift
             ;;
@@ -254,6 +273,7 @@ parse_args() {
         check-outbound) allowed="--plan --outbound" ;;
         dkim-key)       allowed="--target --identity --routing --registry --outbound" ;;
         check-key)      allowed="--file --min-bits" ;;
+        key-fingerprint) allowed="--target --file --identity --routing --registry --outbound" ;;
         show-dns)       allowed="--target --key --ipv4 --json --identity --routing --registry --outbound" ;;
         verify-dns)     allowed="--target --identity --routing --registry --outbound" ;;
         readiness)      allowed="--target --identity --routing --registry --outbound" ;;
@@ -265,12 +285,15 @@ parse_args() {
     done
 
     case "${COMMAND}" in
-        dkim-key|show-dns|verify-dns|readiness)
+        dkim-key|key-fingerprint|show-dns|verify-dns|readiness)
             [[ -n "${TARGET_ID}" ]] || fail "${COMMAND} requires --target"
             [[ "${TARGET_ID}" =~ ^[a-z0-9][a-z0-9-]{1,31}$ ]] || fail "invalid target ID: ${TARGET_ID}"
             ;;
-        check-key)
-            [[ -n "${KEY_FILE}" ]] || fail "check-key requires --file"
+    esac
+
+    case "${COMMAND}" in
+        check-key|key-fingerprint)
+            [[ -n "${KEY_FILE}" ]] || fail "${COMMAND} requires --file"
             ;;
         check-outbound)
             [[ -n "${PLAN_FILE}" ]] || fail "check-outbound requires --plan"
@@ -698,6 +721,16 @@ check_private_key() {
 dkim_public_key() {
     "${OPENSSL_BIN}" pkey -in "$1" -pubout -outform DER -passin pass: </dev/null 2>/dev/null \
         | "${OPENSSL_BIN}" base64 -A 2>/dev/null
+}
+
+# dkim_public_key_sha256 PATH — the SHA-256 of that same SubjectPublicKeyInfo,
+# as 64 lowercase hex digits: what a backup records about the key it carries.
+# Only ever called after check_private_key accepted PATH. The private key is
+# never digested; its public half is, and that half is published in DNS.
+dkim_public_key_sha256() {
+    "${OPENSSL_BIN}" pkey -in "$1" -pubout -outform DER -passin pass: </dev/null 2>/dev/null \
+        | "${OPENSSL_BIN}" dgst -sha256 -r 2>/dev/null \
+        | awk '{ print tolower($1) }'
 }
 
 # --- This host's address -------------------------------------------------------------
@@ -1276,6 +1309,28 @@ command_check_key() {
     fail "not a usable DKIM private key: ${KEY_PROBLEM}"
 }
 
+# key-fingerprint — KEY judged as TARGET's DKIM private key, against that
+# target's reviewed minimum size, and the fingerprint of its public half. A
+# target without a reviewed identity has no key to fingerprint.
+command_key_fingerprint() {
+    load_contracts
+    load_target
+    require_identity
+
+    command -v "${OPENSSL_BIN}" >/dev/null 2>&1 || fail "openssl is required"
+
+    check_private_key "${KEY_FILE}" "${T_MIN_BITS}" \
+        || fail "not a usable DKIM private key for ${TARGET_ID}: ${KEY_PROBLEM}"
+
+    local fingerprint
+    fingerprint="$(dkim_public_key_sha256 "${KEY_FILE}")"
+
+    [[ "${fingerprint}" =~ ^[0-9a-f]{64}$ ]] \
+        || fail "the public half of ${TARGET_ID}'s DKIM key could not be fingerprinted"
+
+    printf '%s\n' "${fingerprint}"
+}
+
 command_show_dns() {
     load_contracts
     load_target
@@ -1486,6 +1541,7 @@ main() {
         check-outbound) command_check_outbound ;;
         dkim-key)       command_dkim_key ;;
         check-key)      command_check_key ;;
+        key-fingerprint) command_key_fingerprint ;;
         show-dns)       command_show_dns ;;
         verify-dns)     command_verify_dns ;;
         readiness)      command_readiness ;;

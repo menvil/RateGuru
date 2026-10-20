@@ -82,26 +82,27 @@ final class PostImagePresenter
      */
     public function thumbnailUrl(Post $post): ?string
     {
-        $asset = $post->imageAsset;
+        return $this->assetThumbnailUrl($post->imageAsset);
+    }
 
-        if ($asset === null) {
-            return null;
-        }
+    /**
+     * thumbnailUrl() for a post image no post holds yet — a Content Studio
+     * plan's photo — so nothing has to pretend to be a post to show it.
+     */
+    public function assetThumbnailUrl(?MediaAsset $asset): ?string
+    {
+        return $this->smallestUrl($asset, [MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920]);
+    }
 
-        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
-
-        if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
-            return $masterUrl;
-        }
-
-        $smallest = $this->firstExistingOnDisk(
-            $asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value),
-            [MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920],
-        );
-
-        return $smallest === null
-            ? $masterUrl
-            : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
+    /**
+     * A post image at the size an editor shows it: a feed-sized variant when
+     * one is on disk, otherwise the master — never the 16-megapixel original
+     * when something smaller exists. Like thumbnailUrl(), it never lazy-loads
+     * `variants`: a caller that did not eager-load them gets the master.
+     */
+    public function assetPreviewUrl(?MediaAsset $asset): ?string
+    {
+        return $this->smallestUrl($asset, [MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920, MediaVariantName::PostFeed640]);
     }
 
     /**
@@ -258,6 +259,32 @@ final class PostImagePresenter
         }
 
         return new OpenGraphImage($masterUrl, $asset->mime_type, $asset->width, $asset->height);
+    }
+
+    /**
+     * The first of $names on disk for the asset, otherwise its master; no URL
+     * for an asset that has none, and the master for one whose variants were
+     * not loaded.
+     *
+     * @param  list<MediaVariantName>  $names
+     */
+    private function smallestUrl(?MediaAsset $asset, array $names): ?string
+    {
+        if ($asset === null) {
+            return null;
+        }
+
+        $masterUrl = $this->resolver->publicUrlOrNull(new MediaLocation($asset->disk, $asset->path), $asset->visibility);
+
+        if ($masterUrl === null || ! $asset->relationLoaded('variants')) {
+            return $masterUrl;
+        }
+
+        $smallest = $this->firstExistingOnDisk($asset->variants->keyBy(fn (MediaVariant $variant): string => $variant->name->value), $names);
+
+        return $smallest === null
+            ? $masterUrl
+            : $this->resolver->publicUrl(new MediaLocation($smallest->disk, $smallest->path), $asset->visibility);
     }
 
     /**

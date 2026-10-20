@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Non hai un account?',
         'have_account' => 'Hai già un account?',
+        'remembered_password' => 'Ricordi la password?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'oppure',
 
     'forgot_password' => [
+        'title' => 'Reimposta la password',
         'intro' => 'Hai dimenticato la password? Nessun problema. Indicaci il tuo indirizzo e-mail e ti invieremo un link per reimpostare la password e sceglierne una nuova.',
         'action' => 'Invia link per reimpostare la password',
     ],

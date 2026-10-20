@@ -1,7 +1,11 @@
 <?php
 
+use App\Actions\Auth\LinkSocialAccountAction;
 use App\Data\Auth\PendingSocialLink;
+use App\Data\Auth\SocialIdentity;
 use App\Enums\SocialProvider;
+use App\Enums\UserRole;
+use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\SocialAccount;
 use App\Models\User;
 use Laravel\Socialite\Facades\Socialite;
@@ -311,4 +315,44 @@ it('never stores an OAuth token in the pending link', function () {
     expect(array_keys((array) session(PendingSocialLink::SESSION_KEY)))
         ->toBe(['provider', 'provider_user_id', 'email', 'created_at'])
         ->and(json_encode(session()->all()))->not->toContain('super-secret-token');
+});
+
+/*
+ * A Persona gains no sign-in identity through any path: the link action
+ * refuses it on the locked row, so neither a connect nor a claim nor a
+ * pending link can attach one.
+ */
+it('never connects a provider to a persona', function () {
+    $persona = User::factory()->persona()->create();
+
+    expect(fn () => app(LinkSocialAccountAction::class)->execute(
+        $persona,
+        new SocialIdentity(SocialProvider::Google, 'g-1', null, 'Persona', null, false),
+    ))->toThrow(SocialAuthenticationException::class);
+
+    expect(SocialAccount::count())->toBe(0);
+});
+
+it('decides on the locked row: an account made a persona meanwhile gains no identity', function () {
+    $user = User::factory()->create();
+    $stale = User::query()->findOrFail($user->id);
+    User::query()->whereKey($user->id)->update(['role' => UserRole::Persona->value]);
+
+    expect(fn () => app(LinkSocialAccountAction::class)->execute(
+        $stale,
+        new SocialIdentity(SocialProvider::Facebook, 'fb-1', null, null, null, false),
+    ))->toThrow(SocialAuthenticationException::class);
+
+    expect(SocialAccount::count())->toBe(0);
+});
+
+it('ends a persona session before it can start connecting a provider', function () {
+    $persona = User::factory()->persona()->create();
+
+    $this->actingAs($persona)
+        ->post(route('profile.connected-accounts.store', ['provider' => 'google']))
+        ->assertRedirect('/');
+
+    $this->assertGuest();
+    expect(SocialAccount::count())->toBe(0);
 });

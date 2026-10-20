@@ -8,6 +8,7 @@ use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Livewire\Admin\UserEditor;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
@@ -17,10 +18,10 @@ use Livewire\Livewire;
 
 /**
  * People in Admin v2: the list — who may open it, what each tab holds and
- * how each row reads — and a person's page, where an administrator edits
- * their profile, role, trust and password from the top bar, a change of role
- * asked about first, while their status moves only through the moderation
- * actions.
+ * how each row reads — and a person's editor in the drawer over it, where an
+ * administrator edits their profile, role, trust and password, saved from
+ * the drawer's footer with a change of role asked about first, while their
+ * status moves only through the moderation actions.
  */
 it('opens the list for administrators and moderators, and for nobody else', function (string $role, int $status) {
     $user = match ($role) {
@@ -36,7 +37,7 @@ it('opens the list for administrators and moderators, and for nobody else', func
     'a member' => ['user', 403],
 ]);
 
-it('sits last in the Moderation section, with the list and a person\'s page', function () {
+it('sits last in the Moderation section, with the list and a person\'s old address', function () {
     expect(UserResource::getNavigationGroup())->toBe(AdminNavigationGroup::MODERATION)
         ->and(UserResource::getNavigationSort())->toBe(40)
         ->and(array_keys(UserResource::getPages()))->toBe(['index', 'edit']);
@@ -54,16 +55,38 @@ it('draws the list in Admin v2', function () {
         ->not->toContain('fi-ta-table');
 });
 
-it('draws a person\'s page in Admin v2, with Save changes in the top bar', function () {
+it('draws a person\'s editor in the drawer over the list, with Save changes in its footer', function () {
     $this->actingAs(User::factory()->admin()->create());
     $person = User::factory()->create(['username' => 'kotofey']);
 
-    expect($this->get(EditUser::getUrl(['record' => $person]))->assertOk()->getContent())
-        ->toContain('<h1 id="rg-admin-user-title" class="rg-admin-page-header__title">kotofey</h1>')
-        ->toContain("\$dispatch('save-user')")
+    expect($this->get(ListUsers::getUrl(['user' => $person->id]))->assertOk()->getContent())
+        ->toContain('id="rg-admin-user-editor"')
+        ->toContain('rg-admin-drawer--editor')
+        ->toContain('kotofey')
         ->toContain('Save changes')
         ->toContain('Moderation history')
+        ->toContain('<h1 id="rg-admin-users-title" class="rg-admin-page-header__title">Users</h1>')
         ->not->toContain('fi-section');
+});
+
+it('leads a person\'s old address to their drawer, opened from the row and closed again', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+
+    $this->get(EditUser::getUrl(['record' => $person]))->assertRedirect(ListUsers::getUrl(['user' => $person->id]));
+
+    Livewire::test(ListUsers::class)
+        ->call('editUser', $person->id)
+        ->assertSet('editing', (string) $person->id)
+        ->assertSeeLivewire(UserEditor::class)
+        ->dispatch('close-user')
+        ->assertSet('editing', '')
+        ->assertDontSeeLivewire(UserEditor::class);
+
+    Livewire::withQueryParams(['user' => $person->id])->test(ListUsers::class)
+        ->dispatch('user-saved', message: 'Changes to '.$person->username.' saved')
+        ->assertSet('editing', '')
+        ->assertDispatched('rg-admin-toast', message: 'Changes to '.$person->username.' saved', tone: 'success');
 });
 
 it('counts every tab, and reads each row: role, status, trust, posts and the reports on their content', function () {
@@ -88,7 +111,7 @@ it('counts every tab, and reads each row: role, status, trust, posts and the rep
             'trust' => 'Not trusted',
             'posts' => 1,
             'reports' => 1,
-            'editUrl' => EditUser::getUrl(['record' => $person]),
+            'editUrl' => ListUsers::getUrl(['user' => $person->id]),
             'postsUrl' => ListPosts::getUrl(['status' => 'all', 'q' => 'cheap_pet_meds']),
         ])
         ->and($row['meta'])->toStartWith('No name given · joined ')
@@ -118,19 +141,19 @@ it('opens the suspicious from the dashboard', function () {
         ->assertSeeHtml('Suspicious: shadowbanned or reported content');
 });
 
-it('saves the profile, the role, the trust and a new password from the top bar, the role change asked about first', function () {
+it('saves the profile, the role, the trust and a new password from the drawer, the role change asked about first', function () {
     $admin = User::factory()->admin()->create();
     $this->actingAs($admin);
     $person = User::factory()->create(['name' => 'Old Name', 'username' => 'old_name', 'email' => 'old@example.com', 'trust_level' => 10]);
 
-    $page = Livewire::test(EditUser::class, ['record' => $person->id])
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id])
         ->set('name', '  New   Name ')
         ->set('username', 'new_name')
         ->set('email', 'NEW@example.com')
         ->set('role', 'moderator')
         ->set('trust', 'reviewed')
         ->set('password', 'a-long-new-password-2026')
-        ->dispatch('save-user')
+        ->call('save')
         ->assertHasNoErrors()
         ->assertSet('confirmingRole', true)
         ->assertSeeHtml('Change role to Moderator?');
@@ -139,7 +162,7 @@ it('saves the profile, the role, the trust and a new password from the top bar, 
 
     $page->call('save')
         ->assertSet('confirmingRole', false)
-        ->assertDispatched('rg-admin-toast', message: 'Changes to new_name saved')
+        ->assertDispatched('user-saved', message: 'Changes to new_name saved')
         ->assertSet('password', '')
         ->assertSet('saved.role', 'moderator');
 
@@ -155,13 +178,13 @@ it('says what to change when the draft cannot be saved', function (array $draft,
     User::factory()->create(['username' => 'taken_name', 'email' => 'taken@example.com']);
     $person = User::factory()->create();
 
-    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
 
     foreach ($draft as $property => $value) {
         $page->set($property, $value);
     }
 
-    $page->dispatch('save-user')->assertHasErrors([$field]);
+    $page->call('save')->assertHasErrors([$field]);
 })->with([
     'a username in use' => [['username' => 'taken_name'], 'username'],
     'a username with capitals' => [['username' => 'Not Allowed'], 'username'],
@@ -170,22 +193,23 @@ it('says what to change when the draft cannot be saved', function (array $draft,
     'a role that does not exist' => [['role' => 'owner'], 'role'],
 ]);
 
-it('puts the saved values back on Discard', function () {
+it('saves nothing when the drawer is closed with Cancel', function () {
     $this->actingAs(User::factory()->admin()->create());
     $person = User::factory()->create(['name' => 'Kept Name']);
 
-    Livewire::test(EditUser::class, ['record' => $person->id])
+    Livewire::test(UserEditor::class, ['userId' => $person->id])
         ->set('name', 'Something else')
-        ->set('password', 'typed-but-discarded')
-        ->dispatch('discard-user')
-        ->assertSet('name', 'Kept Name')
-        ->assertSet('password', '');
+        ->assertSeeHtml('x-on:dismiss="$wire.dispatch(\'close-user\')"');
+
+    Livewire::withQueryParams(['user' => $person->id])->test(ListUsers::class)->dispatch('close-user')->assertSet('editing', '');
+
+    expect($person->fresh()->name)->toBe('Kept Name');
 });
 
 it('keeps what is saved and the person it edits on the server', function (string $property, mixed $value) {
     $this->actingAs(User::factory()->admin()->create());
 
-    Livewire::test(EditUser::class, ['record' => User::factory()->create()->id])->set($property, $value);
+    Livewire::test(UserEditor::class, ['userId' => User::factory()->create()->id])->set($property, $value);
 })->throws(CannotUpdateLockedPropertyException::class)
     ->with([
         'what is saved' => ['saved', ['role' => 'admin']],
@@ -202,6 +226,9 @@ it('lets nobody but an administrator edit someone else\'s account, never another
     };
 
     $this->actingAs($actor)->get(EditUser::getUrl(['record' => $target]))->assertForbidden();
+
+    Livewire::test(UserEditor::class, ['userId' => $target->id])->assertForbidden();
+    Livewire::withQueryParams(['user' => $target->id])->test(ListUsers::class)->assertSet('editing', '')->assertDontSeeLivewire(UserEditor::class);
 })->with(['a moderator', 'another administrator', 'their own account']);
 
 it('shows where the person stands: the decision behind their status, their account and their moderation history', function () {
@@ -210,7 +237,7 @@ it('shows where the person stands: the decision behind their status, their accou
     $person = User::factory()->create(['locale' => 'en']);
     app(LimitUserAction::class)->handle($admin, $person, 'Repeated vitamin promos.');
 
-    $page = Livewire::test(EditUser::class, ['record' => $person->id]);
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
     $view = $page->viewData('person');
     $history = $page->viewData('history');
 
@@ -222,11 +249,222 @@ it('shows where the person stands: the decision behind their status, their accou
         ->and($page->viewData('options')['restore'])->toBeTrue();
 });
 
-it('opens a person found by global search on their page, or the list where the page is not theirs to edit', function () {
+it('opens a person found by global search in their drawer, or the list where they are not the viewer\'s to edit', function () {
     $this->actingAs(User::factory()->admin()->create());
     $member = User::factory()->create(['username' => 'biscuit_mum']);
     $otherAdmin = User::factory()->admin()->create(['username' => 'daria_k']);
 
-    expect(UserResource::getGlobalSearchResultUrl($member))->toBe(EditUser::getUrl(['record' => $member]))
+    expect(UserResource::getGlobalSearchResultUrl($member))->toBe(ListUsers::getUrl(['user' => $member->id]))
         ->and(UserResource::getGlobalSearchResultUrl($otherAdmin))->toBe(ListUsers::getUrl(['q' => 'daria_k']));
 });
+
+/*
+ * A Persona among the people: listed and found by its role, never counted
+ * as staff, its page open to show its account but never to edit it — while
+ * the moderation actions treat it as they treat a member.
+ */
+it('lists a persona with its role, never as staff', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+    User::factory()->moderator()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect(listedRow($page, $persona))->toMatchArray([
+        'username' => 'chef_persona',
+        'role' => 'Persona',
+        'staff' => false,
+        'editUrl' => ListUsers::getUrl(['user' => $persona->id]),
+    ])
+        ->and($page->viewData('stats')['staff'])->toBe('2');
+});
+
+it('narrows the list to personas, from the role filter or a link', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+    User::factory()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect($page->viewData('roles'))->toContain(['value' => 'persona', 'label' => 'Persona'])
+        ->and(array_column($page->set('role', 'persona')->viewData('rows'), 'id'))->toBe([$persona->id])
+        ->and($page->viewData('roleName'))->toBe('Persona');
+
+    Livewire::withQueryParams(['role' => 'persona'])->test(ListUsers::class)
+        ->assertSet('role', 'persona')
+        ->assertSeeHtml('Role: Persona');
+});
+
+it('draws personas in every state, the deleted one included', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    foreach (['active', 'limited', 'banned', 'shadowbanned'] as $state) {
+        User::factory()->persona()->create(['username' => 'persona_'.$state, 'status' => UserStatus::from($state)]);
+    }
+
+    User::factory()->persona()->tombstoned()->create();
+
+    expect($this->get(UserResource::getUrl('index', ['role' => 'persona']))->assertOk()->getContent())
+        ->toContain('persona_active')
+        ->toContain('persona_limited')
+        ->toContain('persona_banned')
+        ->toContain('persona_shadowbanned')
+        ->toContain('Removed on deletion');
+});
+
+it('reads each persona row by its state, the deleted one read-only', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $personas = collect(['Active', 'Limited', 'Banned', 'Shadowbanned'])
+        ->mapWithKeys(fn (string $label): array => [$label => User::factory()->persona()->create(['status' => UserStatus::from(strtolower($label))])]);
+    $deleted = User::factory()->persona()->tombstoned()->create();
+
+    $page = Livewire::test(ListUsers::class)->set('role', 'persona');
+
+    foreach ($personas as $label => $persona) {
+        expect(listedRow($page, $persona))->status->label->toBe($label)->staff->toBeFalse();
+    }
+
+    expect(listedRow($page, $deleted))->toMatchArray(['deleted' => true, 'email' => 'Removed on deletion', 'editUrl' => null]);
+});
+
+it('opens a persona\'s drawer, showing its account and role with nothing to edit', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+
+    $this->get(ListUsers::getUrl(['user' => $persona->id]))->assertOk()
+        ->assertSee('<h2 id="rg-admin-user-editor-title" class="rg-admin-drawer__title">chef_persona</h2>', false);
+
+    expect(Livewire::test(UserEditor::class, ['userId' => $persona->id])->html())
+        ->toContain('A persona’s account can’t be edited here.')
+        ->toContain($persona->email)
+        ->toMatch('/rg-admin-user__role">(?:\s|<!--.*?-->)*Persona\s*</')
+        ->not->toContain('wire:model="name"')
+        ->not->toContain('wire:model="email"')
+        ->not->toContain('wire:model="role"')
+        ->not->toContain('wire:model="trust"')
+        ->not->toContain('New password')
+        ->not->toContain('Mark trusted')
+        ->not->toContain('Save changes');
+});
+
+/*
+ * Nothing in a Persona's drawer is a draft, and a forged request changes
+ * nothing either: UpdateUserAccountAction refuses the account, and the
+ * drawer says why.
+ */
+it('saves nothing on a persona\'s drawer, whatever the request carries', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['name' => 'Kept Name', 'trust_level' => 10]);
+    $email = $persona->email;
+
+    Livewire::test(UserEditor::class, ['userId' => $persona->id])
+        ->assertSet('role', 'persona')
+        ->set('name', 'Forged Name')
+        ->set('email', 'real@example.com')
+        ->set('trust', 'reviewed')
+        ->set('password', 'a-long-new-password-2026')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('confirmingRole', false)
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($persona->fresh())
+        ->name->toBe('Kept Name')
+        ->email->toBe($email)
+        ->role->toBe(UserRole::Persona)
+        ->trust_level->toBe(10)
+        ->password->toBeNull();
+});
+
+it('turns a persona into nobody else, even past the role confirmation', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+
+    Livewire::test(UserEditor::class, ['userId' => $persona->id])
+        ->set('role', 'user')
+        ->call('save')
+        ->assertSet('confirmingRole', true)
+        ->assertSeeHtml('Persona → User')
+        ->call('save')
+        ->assertSet('confirmingRole', false)
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($persona->fresh()->role)->toBe(UserRole::Persona);
+});
+
+it('saves nothing to an account made a persona since its drawer was drawn', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['name' => 'Kept Name']);
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
+
+    User::query()->whereKey($person->id)->update(['role' => UserRole::Persona->value]);
+
+    $page->set('name', 'Forged Name')
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'A persona’s account can’t be edited here, so nothing was saved.', tone: 'error');
+
+    expect($person->fresh())->name->toBe('Kept Name')->role->toBe(UserRole::Persona);
+});
+
+it('neither offers nor accepts the persona role in anyone else\'s drawer', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
+
+    expect($page->viewData('roles'))->toBe(['user' => 'User', 'moderator' => 'Moderator', 'admin' => 'Admin']);
+
+    $page->set('role', 'persona')
+        ->call('save')
+        ->assertHasErrors(['role'])
+        ->assertSet('confirmingRole', false);
+
+    expect($person->fresh()->role)->toBe(UserRole::User);
+});
+
+it('names any saved role in the role confirmation, one the drawer does not offer included', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['username' => 'chef_persona']);
+    $page = Livewire::test(UserEditor::class, ['userId' => $persona->id]);
+
+    // Turned back into a member elsewhere while the page stayed open.
+    User::query()->whereKey($persona->id)->update(['role' => UserRole::User->value]);
+
+    $page->set('role', 'moderator')
+        ->call('save')
+        ->assertSet('confirmingRole', true)
+        ->assertSeeHtml('Change role to Moderator?')
+        ->assertSeeHtml('Persona → Moderator');
+});
+
+it('moderates a persona like a member', function (string $kind, UserStatus $status) {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create();
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $persona->id])
+        ->call('askToSanction', $kind, $persona->id)
+        ->call('confirmSanction');
+
+    expect($persona->fresh()->status)->toBe($status);
+
+    $page->call('restoreAccess', $persona->id);
+
+    expect($persona->fresh())->status->toBe(UserStatus::Active)->role->toBe(UserRole::Persona);
+})->with([
+    'limit' => ['limit', UserStatus::Limited],
+    'shadowban' => ['shadowban', UserStatus::Shadowbanned],
+    'ban' => ['ban', UserStatus::Banned],
+]);
+
+it('never offers to mark a persona trusted', function (int $trustLevel) {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = User::factory()->persona()->create(['trust_level' => $trustLevel]);
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $persona->id]);
+
+    expect($page->viewData('options')['trust']['available'])->toBeFalse();
+
+    $page->call('askToSanction', 'trust', $persona->id)->assertSet('sanction', null);
+
+    expect($persona->fresh()->trust_level)->toBe($trustLevel);
+})->with(['not trusted' => 0, 'trusted' => 10]);

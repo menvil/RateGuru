@@ -7,8 +7,10 @@
     The Admin v2 top bar: where the user is on the left, page context on the
     right. Pages keep their own Filament headings and actions until each one
     is migrated; the TOPBAR_END hook is where a migrated page puts its actions.
+    It stays at the window's top, so a popover opening upward stops under it
+    (`data-admin-ceiling`).
 --}}
-<div class="rg-admin rg-admin-shell-topbar">
+<div class="rg-admin rg-admin-shell-topbar" data-admin-ceiling>
     <header class="rg-admin-topbar">
         <x-admin.ui.icon-button
             icon="menu"

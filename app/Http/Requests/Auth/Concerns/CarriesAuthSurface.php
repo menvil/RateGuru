@@ -8,9 +8,9 @@ use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Lets a login or registration form say which surface it was submitted
- * from. The marker fields are deliberately lenient — a missing or unusable
- * value means "standalone page" or "safe fallback", never a validation
+ * Lets a login, registration or reset-link form say which surface it was
+ * submitted from. The marker fields are deliberately lenient — a missing or
+ * unusable value means "standalone page" or "safe fallback", never a validation
  * error the person could not see or fix — and the return path is only ever
  * followed after AuthReturnUrl has vetted it.
  */

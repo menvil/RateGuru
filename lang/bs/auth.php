@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nemaš račun?',
         'have_account' => 'Već imaš račun?',
+        'remembered_password' => 'Sjećaš se lozinke?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'ili',
 
     'forgot_password' => [
+        'title' => 'Obnova lozinke',
         'intro' => 'Zaboravljena lozinka? Nema problema. Upiši svoju e-mail adresu i poslat ćemo ti link za poništavanje lozinke pomoću kojeg možeš odabrati novu.',
         'action' => 'Pošalji link za poništavanje lozinke',
     ],

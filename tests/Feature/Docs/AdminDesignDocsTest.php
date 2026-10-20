@@ -331,7 +331,7 @@ it('describes Users on v2: status only through the moderation actions, said as t
 
     expect($contract)
         ->toContain('### Users')
-        ->toContain('Users (`ListUsers`) and a person\'s page (`EditUser`) are drawn entirely in Admin v2')
+        ->toContain('Users (`ListUsers`) is drawn entirely in Admin v2, with a person edited in the drawer over the list (`UserEditor`)')
         ->toContain('never a locked account')
         ->toContain('| What Limit and Shadowban do |')
         ->toContain('`x-admin.ui.radio-cards`');
@@ -339,6 +339,36 @@ it('describes Users on v2: status only through the moderation actions, said as t
     expect($plan)
         ->toContain('**Users. Status: done.**')
         ->toContain('`UpdateUserAccountAction`');
+});
+
+it('describes Content Studio with Publications & plans and Personas, built in Admin v2 and leaving out what does not work yet', function () {
+    $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
+    $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
+
+    expect($contract)
+        ->toContain('| Content Studio | Publications & plans · Personas |')
+        ->toContain('## Content Studio')
+        ->toContain('### Publications & plans')
+        ->toContain('### Personas')
+        ->toContain('Its section holds only screens that work')
+        ->toContain('A plan is a draft of a post, never a post')
+        ->toContain('`StudioPlansQuery`, a registered stable pagination boundary')
+        ->toContain('an active administrator\'s (`manage-studio-plans`)')
+        ->toContain('| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step |')
+        ->toContain('| Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis |')
+        ->toContain('`PersonaResource` is over `User`, narrowed to the Persona role')
+        ->toContain('Status is changed only there: Content Studio has no moderation of its own and no Deactivate.')
+        ->toContain('an active administrator\'s (`manage-personas`)')
+        ->toContain('a persona — new or existing — edited in the drawer over it (`PersonaEditor`)')
+        ->toContain('| Personas status | Active or Inactive, with Deactivate and Activate in the row |');
+
+    expect($plan)
+        ->toContain('### Content Studio')
+        ->toContain('| 1 | Personas — the list, a new persona and a persona\'s editor | **done** |')
+        ->toContain('| 2 | Publications & plans with the publication editor | **done** |')
+        ->toContain('**Personas. Status: done.**')
+        ->toContain('**Publications & plans. Status: done.**')
+        ->toContain('`PersonasQuery`, a registered stable pagination boundary');
 });
 
 it('describes Reports on v2: the chain docked or over the list, closing apart from acting on the content', function () {

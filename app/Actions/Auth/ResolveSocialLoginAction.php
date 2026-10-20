@@ -64,10 +64,11 @@ final class ResolveSocialLoginAction
         if ($account !== null) {
             $user = $account->user;
 
-            // The same lifecycle gate as a password login: living sanctions
-            // may sign in, a Deleted tombstone may not — refused with the
-            // generic failure, never revealing that a tombstone exists.
-            if ($user === null || ! $user->canAuthenticate()) {
+            // The same sign-in gate as a password login: living sanctions
+            // may sign in, a Deleted tombstone or a Persona may not — even
+            // one that somehow carries an identity — refused with the
+            // generic failure, never revealing that either exists.
+            if ($user === null || ! $user->canSignIn()) {
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 
@@ -87,7 +88,9 @@ final class ResolveSocialLoginAction
         $existing = User::query()->where('email', $identity->email)->first();
 
         if ($existing !== null) {
-            if (! $existing->canAuthenticate()) {
+            // Refused before anything is claimed or parked: an address that
+            // belongs to an account nobody may sign in to is never a way in.
+            if (! $existing->canSignIn()) {
                 throw SocialAuthenticationException::accountUnavailable($identity->provider);
             }
 

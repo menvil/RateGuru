@@ -10,6 +10,7 @@ return [
     'prompts' => [
         'no_account' => 'Nemáš účet?',
         'have_account' => 'Už máš účet?',
+        'remembered_password' => 'Už si heslo pamätáš?',
     ],
 
     'fields' => [
@@ -35,6 +36,7 @@ return [
     'divider' => 'alebo',
 
     'forgot_password' => [
+        'title' => 'Obnovenie hesla',
         'intro' => 'Zabudnuté heslo? Žiadny problém. Zadaj svoju e-mailovú adresu a pošleme ti odkaz na obnovenie hesla, pomocou ktorého si nastavíš nové.',
         'action' => 'Poslať odkaz na obnovenie hesla',
     ],
