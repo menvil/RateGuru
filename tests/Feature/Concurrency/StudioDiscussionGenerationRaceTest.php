@@ -89,10 +89,11 @@ it('gives two administrators asking at once the same one generation', function (
     [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
     [$plan, $anna, $boris] = committedDiscussionPlan($first);
     $directory = raceDirectory('studio-generation');
-    $ask = fn (string $label, User $admin, string $sync) => lockRaceCompetitor($directory, $label, ['action' => 'discussion-request', 'sync' => $sync, 'admin' => $admin->id, 'plan' => $plan->id, 'version' => 1, 'personas' => [$anna->id], 'disk' => $directory.'/disk']);
+    // Both meet once each holds its own administrator's row, then go for the Persona's at once.
+    $ask = fn (string $label, User $admin) => lockRaceCompetitor($directory, $label, ['action' => 'discussion-request', 'sync' => 'meet', 'admin' => $admin->id, 'plan' => $plan->id, 'version' => 1, 'personas' => [$anna->id], 'disk' => $directory.'/disk']);
 
     try {
-        ['results' => $results, 'report' => $report] = finishedRace([$ask('a', $first, 'lead'), $ask('b', $second, 'follow')]);
+        ['results' => $results, 'report' => $report] = finishedRace([$ask('a', $first), $ask('b', $second)]);
 
         $generations = $db->table('studio_plan_discussion_generations')->where('studio_plan_id', $plan->id)->pluck('id')->all();
 
