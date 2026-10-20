@@ -3,8 +3,11 @@
     how far its analysis has got, what the analysis says, what the photo is,
     and the one action that fits — Re-run analysis or Try again, each a paid
     request of its own and never part of Save draft. The first analysis is
-    asked for the moment a photo is stored. Read again every few seconds while
-    an attempt is queued or running, and not at all otherwise.
+    asked for the moment a photo is stored. A re-run is shown as the first
+    run was: what the analysis said before is gone from the card the moment
+    it is asked for, and only the new result, or why there is none, takes its
+    place. Read again every few seconds while an attempt is queued or
+    running, and not at all otherwise.
 
     While a new photo is on its way — uploaded, processed or imported, as the
     Image step announces with `rg-studio-photo-phase` — the card says so, and
@@ -57,6 +60,14 @@
                         </x-slot:actions>
                     </x-admin.ui.inline-notice>
                 @else
+                    @if ($phase === 'queued' || $phase === 'running')
+                        <div class="rg-admin-studio__analysis-waiting" aria-hidden="true">
+                            <x-admin.ui.skeleton width="92%" />
+                            <x-admin.ui.skeleton width="78%" />
+                            <x-admin.ui.skeleton width="64%" />
+                        </div>
+                    @endif
+
                     @if ($phase === 'queued')
                         <x-admin.ui.inline-notice tone="info" icon="clock" role="status">Waiting for analysis…</x-admin.ui.inline-notice>
                     @elseif ($phase === 'running')
@@ -67,7 +78,7 @@
                         <x-admin.ui.inline-notice tone="warning" role="status">{{ $error }}</x-admin.ui.inline-notice>
                     @endif
 
-                    @if ($sections !== null)
+                    @if ($sections !== null && $phase === 'completed')
                         <dl class="rg-admin-studio__analysis-sections" aria-label="Photo analysis">
                             @foreach ($sections as $section)
                                 <div class="rg-admin-studio__analysis-section">

@@ -315,7 +315,7 @@ trait EditsStudioPlan
         $this->forgetPhotoInputs();
         $this->importedFrom = '';
         $this->replacedPhoto = null;
-        $this->dispatch('rg-studio-photo-kept');
+        $this->dispatch('rg-studio-photo-kept', saved: false);
         $this->toast('Photo removed from this draft', 'info');
     }
 
@@ -556,7 +556,7 @@ trait EditsStudioPlan
 
         $this->forgetPhotoInputs();
         $this->replacedPhoto = $previous;
-        $this->dispatch('rg-studio-photo-kept');
+        $this->dispatch('rg-studio-photo-kept', saved: true);
         $this->analysePhoto($plan);
     }
 

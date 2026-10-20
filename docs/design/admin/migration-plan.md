@@ -329,9 +329,10 @@ dropped, or imported from a direct link or a social post, through the existing m
 Draft made for its first photo — and has it analysed through OpenAI at once, in a card of its own that alone polls
 while an analysis runs; Re-run analysis and Try again are an administrator's. The Post step offers AI text
 suggestions written from that analysis — ten titles and ten descriptions a batch, in the tone chosen, one paid
-request asked for only by Generate, every batch kept for the photo and its analysis — in a card of its own that
-alone polls while a batch is on its way; Use this title and Use this description put one in the final field,
-unsaved, saved only by Save draft. Everything else a later stage brings is left out rather than drawn: votes, the
+request asked for only by Generate, every batch kept for the photo and its analysis and the newest one shown —
+beside the photo's context, as the prototype lays out Titles & texts, in a component of its own that alone polls
+while a batch is on its way; choosing a title or a description puts it in the final field, unsaved, saved only
+by Save draft. Everything else a later stage brings is left out rather than drawn: votes, the
 discussion, approval, the action plan and the queue; the editor says where each will come. The kit
 gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer

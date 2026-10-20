@@ -184,13 +184,13 @@ it('analyses the photo end to end when the queue runs at once', function () {
     Http::assertSentCount(1);
 });
 
-it('re-runs the result on screen, keeping it in view while the new one is made', function () {
+it('re-runs the result on screen as the first run was, the result before it gone from the card', function () {
     $plan = StudioPlan::factory()->withImage()->create();
     $completed = StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create();
 
     analysisCard($plan)->call('analyze', $completed->attempt_id)
         ->assertSee('Waiting for analysis…')
-        ->assertSee('A brown dog runs across a sandy beach towards the sea.')
+        ->assertDontSee('A brown dog runs across a sandy beach towards the sea.')
         ->assertDontSee('Re-run analysis');
 
     expect(StudioPlanImageAnalysis::query()->sole()->attempt_id)->not->toBe($completed->attempt_id);
@@ -211,14 +211,14 @@ it('says why an attempt failed, in words of its own, and offers Try again', func
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);
 });
 
-it('keeps the last result in view under a failed re-run', function () {
+it('says a failed re-run as a failed first run, showing nothing of the result before it', function () {
     $plan = StudioPlan::factory()->withImage()->create();
     StudioPlanImageAnalysis::factory()->forPlan($plan)->completed()->create()
         ->forceFill(['status' => StudioImageAnalysisStatus::Failed, 'error_code' => StudioImageAnalysisError::ProviderTimeout])->save();
 
     analysisCard($plan)
         ->assertSee('OpenAI did not answer in time. Try again.')
-        ->assertSee('A brown dog runs across a sandy beach towards the sea.')
+        ->assertDontSee('A brown dog runs across a sandy beach towards the sea.')
         ->assertSee('Try again')
         ->assertDontSee('Re-run analysis');
 });

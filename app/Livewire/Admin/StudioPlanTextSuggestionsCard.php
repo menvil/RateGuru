@@ -11,6 +11,7 @@ use App\Exceptions\Studio\CannotRequestStudioPostTextGenerationException;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\User;
+use App\Support\Media\PostImagePresenter;
 use App\Support\StudioAi\StudioPostTextContext;
 use App\Support\StudioAi\StudioPostTextGenerator;
 use Carbon\CarbonImmutable;
@@ -20,17 +21,19 @@ use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
- * AI text suggestions, on the editor's Post step: the tone of the next
- * batch, Generate suggestions — then Generate 10 more, or Try again after a
- * failure — each an explicit, paid request
- * (RequestStudioPostTextGenerationAction), and every batch written from the
- * photo and analysis the plan has now, titles and descriptions side by side.
+ * AI text suggestions, on the editor's Post step: the photo and what its
+ * analysis says, the tone of the next batch, Generate suggestions — then
+ * Generate 10 more, or Try again after a failure — each an explicit, paid
+ * request (RequestStudioPostTextGenerationAction), and the newest batch
+ * written from the photo and analysis the plan has now, its titles and its
+ * descriptions side by side. A new batch takes the place of the one before;
+ * the earlier ones stay stored, but are shown no more.
  *
- * Use this title and Use this description hand the chosen text to the
- * editor's draft (`use-studio-suggestion`), as typing it would: nothing is
- * saved, nothing else changes, and the final texts stay the editor's to
- * edit and to save with Save draft. A batch written for another photo or
- * another analysis is shown no more and used never.
+ * Choosing a title or a description hands it to the editor's draft
+ * (`use-studio-suggestion`), as typing it would: nothing is saved, nothing
+ * else changes, and the final texts stay the editor's to edit and to save
+ * with Save draft. A batch written for another photo or another analysis is
+ * shown no more and used never.
  *
  * A component of its own, so that while a batch — or the photo's analysis
  * it waits for — is on its way it alone is read again every few seconds,
@@ -107,7 +110,7 @@ final class StudioPlanTextSuggestionsCard extends Component
 
     public function render(): View
     {
-        $plan = $this->planId !== 0 ? StudioPlan::query()->with('imageAnalysis')->find($this->planId) : null;
+        $plan = $this->planId !== 0 ? StudioPlan::query()->with(['imageAnalysis', 'imageAsset.variants'])->find($this->planId) : null;
         $generator = app(StudioPostTextGenerator::class);
         $now = CarbonImmutable::now();
         $context = $plan !== null ? StudioPostTextContext::of($plan->image_asset_id, $plan->imageAnalysis) : null;
@@ -128,6 +131,7 @@ final class StudioPlanTextSuggestionsCard extends Component
             : collect();
 
         $batches = $generations->where('status', StudioPostTextGenerationStatus::Completed)->values();
+        $batch = $batches->first();
         $latest = $generations->first();
         $phase = match (true) {
             $latest === null, $latest->status === StudioPostTextGenerationStatus::Completed => null,
@@ -148,15 +152,17 @@ final class StudioPlanTextSuggestionsCard extends Component
             'configured' => $generator->isConfigured(),
             'count' => $generator->batchSize(),
             'draft' => $plan?->isDraft() === true,
+            'photo' => $plan?->imageAsset !== null && $plan->image_asset_id === $this->imageAssetId ? app(PostImagePresenter::class)->assetPreviewUrl($plan->imageAsset) : null,
+            'summary' => $state === 'ready' ? $context->description->summary : null,
             'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),
-            'batches' => $batches->map(fn (StudioPlanTextGeneration $batch, int $index): array => [
+            'chosenTone' => $this->chosenTone(),
+            'batch' => $batch === null ? null : [
                 'id' => (int) $batch->id,
-                'set' => $batches->count() - $index,
-                'tone' => $batch->tone->label(),
-                'at' => $batch->finished_at?->format('d M Y, H:i'),
+                'set' => $batches->count(),
+                'tone' => $batch->tone,
                 'titles' => array_values(array_filter((array) $batch->titles, is_string(...))),
                 'descriptions' => array_values(array_filter((array) $batch->descriptions, is_string(...))),
-            ])->all(),
+            ],
             'polling' => $phase === 'queued' || $phase === 'running' || ($state === 'analysis_pending' && $analysisOnItsWay),
         ]);
     }

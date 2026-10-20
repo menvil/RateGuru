@@ -14,10 +14,10 @@ use function Pest\Laravel\actingAs;
 /**
  * AI text suggestions on the publication editor's Post step, in a real
  * browser: a tone is picked, Generate suggestions asks for one batch, the
- * card alone reads itself again until the worker's texts are there and then
- * stops — and Use this title and Use this description put the chosen texts
- * in the final fields as typing would: unsaved, counted as unsaved changes,
- * editable, and kept only by Save draft.
+ * suggestions alone read themselves again until the worker's texts are there
+ * and then stop — and choosing a title or a description puts it in the final
+ * field as typing would: unsaved, counted as unsaved changes, editable, and
+ * kept only by Save draft.
  *
  * The job runs in the test, as a worker would, with OpenAI faked.
  */
@@ -29,16 +29,22 @@ beforeEach(function () {
     actingAs(User::factory()->admin()->create());
 });
 
-/** The texts of the suggestions in this column, in order. */
+/** The texts of the suggestions in this list, in order, without what a screen reader hears before each. */
 function suggestionTexts(string $kind): string
 {
-    return "[...document.querySelectorAll('#rg-admin-studio-suggestions-{$kind} ~ .rg-admin-studio__suggestion-set .rg-admin-studio__suggestion-text')].map((text) => text.textContent.trim())";
+    return "[...document.querySelectorAll('[data-suggestion-list=\"{$kind}\"] .rg-admin-studio__suggestion-text')].map((text) => text.lastChild.textContent.trim())";
 }
 
-/** Clicks this column's Use button on the suggestion at this place. */
+/** Chooses the suggestion at this place in this list. */
 function useSuggestion(mixed $page, string $kind, int $index): void
 {
-    $page->script("document.querySelectorAll('#rg-admin-studio-suggestions-{$kind} ~ .rg-admin-studio__suggestion-set .rg-admin-studio__suggestion-use')[{$index}].click()");
+    $page->script("document.querySelectorAll('[data-suggestion-list=\"{$kind}\"] .rg-admin-studio__suggestion')[{$index}].click()");
+}
+
+/** The Context card's Generate button. */
+function suggestionsGenerateButton(): string
+{
+    return "[...document.querySelectorAll('.rg-admin-studio__context .rg-admin-button')].find((button) => /Generate|Try again/.test(button.textContent))";
 }
 
 it('asks for a batch in the chosen tone, polls until it is written, and puts the texts used in the draft, unsaved', function () {
@@ -56,12 +62,13 @@ it('asks for a batch in the chosen tone, polls until it is written, and puts the
     // A tone picked, then Generate suggestions.
     $page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].find((tone) => tone.textContent.trim() === 'Playful').click()");
     waitForScript($page, "document.querySelector('.rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()", 'Playful');
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__suggestions-action button')].find((button) => button.textContent.trim() === 'Generate suggestions').click()");
+    $page->script(suggestionsGenerateButton().'.click()');
 
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'queued');
 
     expect($page->script("document.querySelector('[data-suggestions]').hasAttribute('wire:poll.3s.visible')"))->toBeTrue()
-        ->and($page->script("document.querySelector('.rg-admin-studio__suggestions-action button').disabled"))->toBeTrue()
+        ->and($page->script(suggestionsGenerateButton().'.disabled'))->toBeTrue()
+        ->and($page->script("document.querySelectorAll('[data-suggestion-list] .rg-admin-studio__suggestion-waiting').length"))->toBe(2)
         ->and(StudioPlanTextGeneration::query()->sole()->tone->value)->toBe('playful')
         ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
 
@@ -74,17 +81,17 @@ it('asks for a batch in the chosen tone, polls until it is written, and puts the
     expect($page->script(suggestionTexts('titles')))->toBe(StudioPlanTextGenerationFactory::titles())
         ->and($page->script(suggestionTexts('descriptions')))->toBe(StudioPlanTextGenerationFactory::descriptions())
         ->and($page->script("document.querySelector('[data-suggestions]').hasAttribute('wire:poll.3s.visible')"))->toBeFalse()
-        ->and($page->script("document.querySelector('.rg-admin-studio__suggestions-action button').textContent.trim()"))->toBe('Generate 10 more');
+        ->and($page->script(suggestionsGenerateButton().'.textContent.trim()'))->toBe('Generate 10 more');
 
-    // Use this title: in the field, marked in use, one unsaved change, nothing saved.
+    // A title chosen: in the field, marked in use, one unsaved change, nothing saved.
     useSuggestion($page, 'titles', 2);
     waitForScript($page, "document.getElementById('rg-admin-studio-title').value", 'Nobody told him it was cloudy');
     waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
 
-    expect($page->script("document.querySelectorAll('#rg-admin-studio-suggestions-titles ~ .rg-admin-studio__suggestion-set .rg-admin-studio__suggestion--used').length"))->toBe(1)
+    expect($page->script("document.querySelectorAll('[data-suggestion-list=\"titles\"] .rg-admin-studio__suggestion--used').length"))->toBe(1)
         ->and($plan->fresh()->title)->toBe('A harbour');
 
-    // Use this description, then edited by hand like any field.
+    // A description chosen, then edited by hand like any field.
     useSuggestion($page, 'descriptions', 5);
     waitForScript($page, "document.getElementById('rg-admin-studio-description').value", 'Low tide, high energy, zero hesitation.');
     waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '2 unsaved changes');
@@ -110,5 +117,6 @@ it('waits for the photo\'s analysis on a draft without one, offering nothing to 
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'analysis_pending');
 
     expect($page->script("document.querySelector('[data-suggestions]').textContent"))->toContain('Text suggestions will be available when photo analysis is complete.')
-        ->and($page->script("document.querySelectorAll('.rg-admin-studio__suggestions-action').length"))->toBe(0);
+        ->and($page->script("document.querySelectorAll('.rg-admin-studio__tones').length"))->toBe(0)
+        ->and($page->script(suggestionsGenerateButton()))->toBeNull();
 });

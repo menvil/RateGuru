@@ -7,14 +7,16 @@
     first) and analysed the moment it is chosen, and a link is imported once
     it is complete. A file dropped on the photo replaces it the same way.
 
-    The browser's half: the preview of a chosen file at once, the upload's
-    progress — Uploading photo…, then Processing photo… while the server
-    stores it — and an import's, announced as `rg-studio-photo-phase` to the
-    analysis card beside it and to Continue. One photo at a time: nothing new
-    is taken while one is on its way. A link is sent only once it is a whole
-    address, after typing has paused, and never twice running — the server
-    says what was kept, and the browser forgets what it sent once a photo is
-    kept or removed.
+    The browser's half: the preview of a chosen file at once, in place of
+    where photos come from until the upload is over, the upload's progress —
+    Uploading photo…, then Processing photo… while the server stores it — and
+    an import's, announced as `rg-studio-photo-phase` to the analysis card
+    beside it and to Continue. The chosen file stays shown until the photo
+    the server kept has loaded in its place, so the photo never blinks out.
+    One photo at a time: nothing new is taken while one is on its way. A link
+    is sent only once it is a whole address, after typing has paused, and
+    never twice running — the server says what was kept, and the browser
+    forgets what it sent once a photo is kept or removed.
 
     Beside it, Photo analysis of the saved photo (StudioPlanImageAnalysisCard),
     drawn afresh for every photo so it is always about the one shown.
@@ -28,7 +30,11 @@
         phase: '',
         progress: 0,
         name: '',
+        // The chosen file's address, kept until another is chosen — an image losing it would blank before it hides.
         preview: null,
+        previewing: false,
+        // Whether the plan has a saved photo, as the server last said.
+        saved: false,
         dragging: false,
         replacing: false,
         imported: { link: '', post: '' },
@@ -41,13 +47,20 @@
             window.dispatchEvent(new CustomEvent('rg-studio-photo-phase', { detail: { phase } }))
         },
         finish() {
-            if (this.preview) {
-                URL.revokeObjectURL(this.preview)
-            }
-
-            this.preview = null
             this.progress = 0
             this.begin('')
+
+            // The photo the server kept may still be loading: the chosen file stays in its place until it has.
+            const kept = this.$refs.kept
+
+            if (! this.previewing || ! kept || kept.complete) {
+                this.previewing = false
+
+                return
+            }
+
+            kept.addEventListener('load', () => this.previewing = false, { once: true })
+            kept.addEventListener('error', () => this.previewing = false, { once: true })
         },
         send(file) {
             this.dragging = false
@@ -56,8 +69,13 @@
                 return
             }
 
+            if (this.preview) {
+                URL.revokeObjectURL(this.preview)
+            }
+
             this.name = file.name
             this.preview = URL.createObjectURL(file)
+            this.previewing = true
             this.begin('uploading')
             this.$wire.upload('photo', file, () => this.finish(), () => this.finish(), (event) => {
                 this.progress = event.detail.progress
@@ -85,7 +103,8 @@
             this.$wire.retryImport().finally(() => this.finish())
         },
     }"
-    x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: '', post: '' }"
+    x-init="saved = {{ $hasPhoto ? 'true' : 'false' }}"
+    x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: '', post: '' }; saved = $event.detail.saved"
 >
     <x-admin.ui.card flush title="Photo for the publication" description="Upload a file, paste an image link or import from a social post. The upload rules and checks every post's image goes through apply.">
         @if ($hasPhoto)
@@ -114,23 +133,38 @@
             </div>
         </div>
 
-        @if ($hasPhoto)
-            {{-- Keyed by the photo, so a new one is drawn afresh. --}}
-            <div class="rg-admin-card__body rg-admin-studio__stack" wire:key="studio-plan-photo-{{ $analysisImageId }}">
-                <figure
-                    class="rg-admin-studio__preview"
-                    x-on:dragover.prevent="dragging = ! busy"
-                    x-on:dragleave.prevent="dragging = false"
-                    x-on:drop.prevent="send($event.dataTransfer?.files?.[0])"
-                >
-                    @if ($shownPhoto['url'] !== null)
-                        <img src="{{ $shownPhoto['url'] }}" alt="Photo for the publication" class="rg-admin-studio__preview-image" x-show="! preview" />
-                    @else
-                        <span class="rg-admin-studio__preview-empty" x-show="! preview"><x-admin.ui.icon name="image" :size="32" />Preview unavailable</span>
-                    @endif
-                    <img alt="The chosen photo" class="rg-admin-studio__preview-image" x-show="preview" x-bind:src="preview" x-cloak />
-                    <span class="rg-admin-studio__preview-drop" x-show="dragging" x-cloak>Drop to replace the photo</span>
-                </figure>
+        {{--
+            The photo: a chosen file at once while it is on its way, then the
+            saved photo once it has loaded. One block throughout, the chosen
+            file's image the same element all along, so nothing is drawn
+            afresh as a file becomes the saved photo; the saved photo is keyed
+            by itself, so a new one is. Whether it shows is the browser's to
+            say, from what the server last said of the photo, so a redraw
+            never hides or shows it out of turn.
+        --}}
+        <div
+            class="rg-admin-card__body rg-admin-studio__stack"
+            wire:key="studio-plan-photo"
+            wire:ignore.self
+            x-show="saved || previewing"
+            @unless ($hasPhoto) x-cloak @endunless
+        >
+            <figure
+                class="rg-admin-studio__preview"
+                x-on:dragover.prevent="dragging = ! busy"
+                x-on:dragleave.prevent="dragging = false"
+                x-on:drop.prevent="send($event.dataTransfer?.files?.[0])"
+            >
+                {{-- The browser's own: the server never draws it again, so its address is never taken away mid-upload. --}}
+                <img alt="The chosen photo" class="rg-admin-studio__preview-image" wire:key="studio-plan-photo-chosen" wire:ignore x-show="previewing" x-bind:src="preview" x-cloak />
+                @if ($hasPhoto && $shownPhoto['url'] !== null)
+                    <img src="{{ $shownPhoto['url'] }}" alt="Photo for the publication" class="rg-admin-studio__preview-image" wire:key="studio-plan-photo-{{ $analysisImageId }}" x-ref="kept" x-show="! previewing" />
+                @elseif ($hasPhoto)
+                    <span class="rg-admin-studio__preview-empty" x-show="! previewing"><x-admin.ui.icon name="image" :size="32" />Preview unavailable</span>
+                @endif
+                <span class="rg-admin-studio__preview-drop" x-show="dragging" x-cloak>Drop to replace the photo</span>
+            </figure>
+            @if ($hasPhoto)
                 <div class="rg-admin-studio__photo-meta">
                     <div class="rg-admin-studio__photo-text">
                         <p class="rg-admin-studio__photo-name">{{ $shownPhoto['name'] ?? 'Photo' }}</p>
@@ -144,21 +178,20 @@
                 @if ($replacedPhoto !== null)
                     <p class="rg-admin-hint">Replaced {{ $replacedPhoto }}.{{ $analysisConfigured ? ' The analysis runs again for the new photo.' : '' }}</p>
                 @endif
-            </div>
-        @else
-            {{-- A chosen file, at once, while it is on its way to a plan that has no photo yet. --}}
-            <div class="rg-admin-card__body" x-show="preview" x-cloak>
-                <figure class="rg-admin-studio__preview">
-                    <img alt="The chosen photo" class="rg-admin-studio__preview-image" x-bind:src="preview" />
-                </figure>
-            </div>
-        @endif
+            @endif
+        </div>
 
-        {{-- Where a new photo comes from: open while there is none, and on Replace. Keyed apart, so each case is drawn afresh. --}}
+        {{--
+            Where a new photo comes from: open while there is none, and on
+            Replace — and out of the way while a chosen file is on its way, so
+            only its preview and progress show. Keyed apart, so each case is
+            drawn afresh.
+        --}}
         <div
             class="rg-admin-card__body rg-admin-studio__stack rg-admin-studio__chooser"
             wire:key="studio-plan-photo-chooser-{{ $hasPhoto ? 'replace' : 'first' }}"
-            @if ($hasPhoto) x-show="replacing" x-cloak @endif
+            x-show="{{ $hasPhoto ? 'replacing && ! previewing' : '! previewing' }}"
+            @if ($hasPhoto) x-cloak @endif
         >
             <div class="rg-admin-studio__chooser-bar">
                 <x-admin.ui.segmented

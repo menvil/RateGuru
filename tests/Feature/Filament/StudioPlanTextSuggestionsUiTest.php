@@ -25,11 +25,12 @@ use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
 /**
- * AI text suggestions on the editor's Post step: what the card says in each
+ * AI text suggestions on the editor's Post step: what the cards say in each
  * state of the photo, its analysis and its batches, the tone and Generate,
- * the polling only while something is on its way — and Use this title and
- * Use this description, which put a text in the draft as typing would,
- * saving nothing, never from a batch written for another photo or analysis.
+ * the newest batch alone in view, the polling only while something is on its
+ * way — and choosing a title or a description, which puts it in the draft as
+ * typing would, saving nothing, never from a batch written for another photo
+ * or analysis.
  */
 beforeEach(function () {
     Storage::fake('public');
@@ -141,9 +142,11 @@ it('shows ten titles and ten descriptions once written, and Generate 10 more, po
     runStudioPostTextsJob(StudioPlanTextGeneration::query()->sole());
 
     $card->call('$refresh')
-        ->assertSee('Titles')
-        ->assertSee('Descriptions')
-        ->assertSee('Set 1 · Cheeky')
+        ->assertSee('Context')
+        ->assertSee('A brown dog runs across a sandy beach towards the sea.')
+        ->assertSee('10 titles')
+        ->assertSee('10 descriptions')
+        ->assertSee('Set 1 · written in Cheeky')
         ->assertSeeInOrder(StudioPlanTextGenerationFactory::titles())
         ->assertSeeInOrder(StudioPlanTextGenerationFactory::descriptions())
         ->assertSee('Generate 10 more')
@@ -153,31 +156,50 @@ it('shows ten titles and ten descriptions once written, and Generate 10 more, po
         ->and(substr_count($card->html(), 'Use this description'))->toBe(10);
 });
 
-it('adds a batch with Generate 10 more, newest first, every earlier one kept', function () {
+it('puts the batch Generate 10 more writes in place of the one before, which stays stored', function () {
     $plan = studioPlanWithFinishedAnalysis();
     StudioPlanTextGeneration::factory()->forPlan($plan)->completed()->create(['tone' => StudioPostTextTone::Playful]);
 
-    suggestionsCard($plan)->set('tone', 'irony')->call('generate');
+    suggestionsCard($plan)->assertSee('Generate 10 in Cheeky')->set('tone', 'irony')->call('generate')
+        // While it is on its way, the lists wait for it.
+        ->assertSee('Waiting for text suggestions…')
+        ->assertDontSee('Beach zoomies, level expert');
     Http::fake(['api.openai.com/*' => Http::response(studioPostTextsBody(StudioPlanTextGenerationFactory::titles('Again: '), StudioPlanTextGenerationFactory::descriptions('Again: ')))]);
     runStudioPostTextsJob(StudioPlanTextGeneration::query()->where('status', 'queued')->sole());
 
-    suggestionsCard($plan)
-        ->assertSeeInOrder(['Set 2 · Irony', 'Again: Beach zoomies, level expert', 'Set 1 · Playful', 'Beach zoomies, level expert'])
+    suggestionsCard($plan)->set('tone', 'irony')
+        ->assertSee('Set 2 · written in Irony')
+        ->assertSeeHtml('>Again: Beach zoomies, level expert</span>')
+        ->assertDontSeeHtml('>Beach zoomies, level expert</span>')
+        ->assertDontSee('Set 1 ·')
         ->assertSee('Generate 10 more');
 
     expect(StudioPlanTextGeneration::query()->where('status', 'completed')->count())->toBe(2);
 });
 
-it('says why a batch failed, keeping the earlier one, and offers Try again', function () {
+it('says when the lists were written in another tone than the one chosen, and offers the chosen one', function () {
+    $plan = studioPlanWithFinishedAnalysis();
+    StudioPlanTextGeneration::factory()->forPlan($plan)->completed()->create(['tone' => StudioPostTextTone::Playful]);
+
+    suggestionsCard($plan)->set('tone', 'neutral')
+        ->assertSee('The lists were written in Playful.')
+        ->assertSee('Generate 10 in Neutral')
+        ->set('tone', 'playful')
+        ->assertDontSee('The lists were written in')
+        ->assertSee('Generate 10 more');
+});
+
+it('says why a batch failed in place of the lists, and offers Try again', function () {
     $plan = studioPlanWithFinishedAnalysis();
     StudioPlanTextGeneration::factory()->forPlan($plan)->completed()->create(['requested_at' => now()->subMinute()]);
     StudioPlanTextGeneration::factory()->forPlan($plan)->failed(StudioPostTextGenerationError::RateLimited)->create();
 
     $card = suggestionsCard($plan)
+        ->assertSee('Generation failed')
         ->assertSee('OpenAI is limiting requests right now. Try again in a few minutes.')
         ->assertSee('The final title and description are unchanged.')
         ->assertSee('Try again')
-        ->assertSee('Beach zoomies, level expert')
+        ->assertDontSee('Beach zoomies, level expert')
         ->assertDontSeeHtml('wire:poll');
 
     $card->call('generate')->assertSee('Waiting for text suggestions…');

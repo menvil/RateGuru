@@ -129,7 +129,8 @@ purged by the media lifecycle exactly as before.
 
 A photo with no row, or a row about another photo, is *not analysed*. A
 re-run of the same photo keeps its last result until a new one replaces it,
-also through a failed attempt; an attempt for another photo clears it. Only the
+also through a failed attempt — stored, though the editor shows none of it once
+the re-run is asked for —; an attempt for another photo clears it. Only the
 validated description and the call's metadata are stored — never the image,
 its base64, the prompt, the API key or the provider's raw answer.
 
@@ -271,7 +272,7 @@ An administrator can have OpenAI write title and description options for a
 Draft, from its photo's stored analysis: ten titles and ten descriptions a
 batch, in one of five tones (`StudioPostTextTone`: Playful, Humour, Cheeky —
 the default — Irony, Neutral). They are options, never the post's texts:
-Use this title and Use this description put one in the editor's final field,
+choosing a title or a description puts it in the editor's final field,
 unsaved, and the plan's `title` and `description` change only with Save draft.
 Nothing is written by itself — not on opening the editor, not on Save draft,
 not when a photo or its analysis arrives — and nothing written ever replaces
@@ -303,9 +304,12 @@ every batch of a plan kept, deleted with the plan:
 | `model`, `request_id`, `input_tokens`, `output_tokens`, `total_tokens`, `latency_ms` | the call that wrote it |
 | `requested_at`, `started_at`, `finished_at` | its timings |
 
-A batch belongs to the photo and the analysis it names: the editor shows, and
-lets an administrator use, only the completed batches whose image id and hash
-match the plan's photo and that photo's analysis now. A replaced photo, or an
+A batch belongs to the photo and the analysis it names: the editor lets an
+administrator use only the completed batches whose image id and hash match the
+plan's photo and that photo's analysis now, and shows the newest of them — a
+new batch takes the place of the one before in view, while every earlier one
+stays stored. While a batch is on its way, or after it fails, none is shown:
+the lists wait for it, or say why there is none. A replaced photo, or an
 analysis re-run with a different result, leaves the earlier batches stored but
 no longer shown or usable; a re-run that gives the very same description keeps
 them. `source_image_asset_id` holds nothing, like the analysis row's: the media
@@ -395,8 +399,8 @@ are dropped. The plan itself is never written.
 refusal), `invalid_provider_response` (a response that is not `completed`, has
 no single `output_text`, or is not a valid batch) and `unexpected_failure` (the
 job itself failed or timed out, the queue could not take it, or the batch was
-lost). A failure changes nothing of the plan, keeps every earlier batch, and
-leaves the final texts as they are.
+lost). A failure changes nothing of the plan, keeps every earlier batch stored,
+and leaves the final texts as they are.
 
 ### Configuration
 
@@ -462,8 +466,9 @@ and Publication — described in `docs/design/admin/design-contract.md`. The pag
   Reload.
 - AI text suggestions are a component of its own on the Post step (`StudioPlanTextSuggestionsCard`), about the
   saved photo the editor shows: Generate suggestions, Generate 10 more and Try again run
-  `RequestStudioPostTextGenerationAction` in the tone chosen, apart from Save draft. It alone is read again every
-  few seconds while a batch is queued or running, or the photo's analysis is on its way. Use this title and Use
-  this description check on the server that the batch is still the photo's and its analysis's and hand the text
+  `RequestStudioPostTextGenerationAction` in the tone chosen, apart from Save draft. It shows the newest batch
+  alone; a new one takes its place, the earlier ones staying stored. It alone is read again every few seconds
+  while a batch is queued or running, or the photo's analysis is on its way. Choosing a title or a description
+  checks on the server that the batch is still the photo's and its analysis's and hands the text
   to the editor (`use-studio-suggestion`), which sets its final field as typing would: unsaved, counted among the
   unsaved changes, editable, and saved only by Save draft.

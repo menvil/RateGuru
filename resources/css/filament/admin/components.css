@@ -5225,44 +5225,91 @@
         border: 0;
     }
 
+    /* The editor's steps take the whole width, as the prototype does: cards share it and wrap when it runs out. */
     .rg-admin-studio__columns {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
         align-items: start;
         gap: var(--rg-admin-space-4);
-        max-width: 1320px;
     }
 
-    /* Post: AI text suggestions — the tone and Generate above, titles and descriptions side by side until they no longer fit. */
-    .rg-admin-studio__suggestions {
-        max-width: 1320px;
-        margin-bottom: var(--rg-admin-space-4);
+    /* Post: the suggestions over the final texts, over the category, tags and the author's answers. */
+    .rg-admin-studio__post {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
     }
 
-    .rg-admin-studio__suggestions-bar {
+    /* Post: AI text suggestions — Context, then the titles and the descriptions, side by side until they no longer fit. */
+    .rg-admin-studio__texts {
         display: flex;
         flex-wrap: wrap;
         align-items: flex-start;
-        justify-content: space-between;
-        gap: var(--rg-admin-space-4) var(--rg-admin-space-6);
+        gap: var(--rg-admin-space-4);
     }
 
-    .rg-admin-studio__suggestions-bar > .rg-admin-field {
-        flex: 1 1 380px;
+    .rg-admin-studio__context {
+        flex: 1 1 260px;
+        min-width: min(100%, 240px);
+    }
+
+    .rg-admin-studio__suggestion-card {
+        flex: 1.8 1 380px;
         min-width: 0;
     }
 
-    .rg-admin-studio__suggestions-action {
+    .rg-admin-studio__context-body {
         display: flex;
-        flex: 0 1 280px;
         flex-direction: column;
-        align-items: flex-start;
-        gap: var(--rg-admin-space-2);
+        gap: 14px;
     }
 
-    .rg-admin-studio__suggestions-action .rg-admin-hint,
-    .rg-admin-studio__suggestions-bar .rg-admin-hint {
+    /* The whole photo, never cropped: it fits the frame, whatever its shape. */
+    .rg-admin-studio__context-photo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 220px;
         margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__context-image {
+        display: block;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .rg-admin-studio__context-part {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__context-part .rg-admin-overline {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__context-analysis {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+        line-height: 19px;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 5;
+    }
+
+    /* The lists were written in another tone than the one now chosen. */
+    .rg-admin-studio__context-warning.rg-admin-hint,
+    .rg-admin-studio__context-warning.rg-admin-card__description {
+        color: var(--rg-admin-status-due-fg);
     }
 
     .rg-admin-studio__tones {
@@ -5305,63 +5352,52 @@
         opacity: 0.6;
     }
 
-    .rg-admin-studio__suggestion-columns {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
-        gap: var(--rg-admin-space-4) var(--rg-admin-space-6);
-    }
-
-    .rg-admin-studio__suggestion-column {
-        display: flex;
-        flex-direction: column;
-        gap: var(--rg-admin-space-3);
-        min-width: 0;
-    }
-
-    .rg-admin-studio__suggestion-heading {
-        margin: 0;
-        font-size: var(--rg-admin-text-ui);
-        line-height: var(--rg-admin-leading-ui);
-        font-weight: var(--rg-admin-weight-medium);
-    }
-
-    .rg-admin-studio__suggestion-set {
-        display: flex;
-        flex-direction: column;
-        gap: var(--rg-admin-space-2);
-    }
-
-    .rg-admin-studio__suggestion-meta {
-        margin: 0;
-        color: var(--rg-admin-text-tertiary);
-        font-size: var(--rg-admin-text-micro);
-        line-height: var(--rg-admin-leading-micro);
-    }
-
-    .rg-admin-studio__suggestion-list {
+    .rg-admin-studio__suggestion-list,
+    .rg-admin-studio__suggestion-waiting {
         display: flex;
         flex-direction: column;
         gap: 6px;
         margin: 0;
-        padding: 0;
+        padding: 12px;
         list-style: none;
     }
 
-    /* Each suggestion whole, never cut short: the text wraps, the action beside it or under it. */
+    .rg-admin-studio__suggestion-waiting {
+        gap: var(--rg-admin-space-2);
+    }
+
+    /* Each suggestion whole, never cut short: the whole row chooses it. */
     .rg-admin-studio__suggestion {
         display: flex;
-        flex-wrap: wrap;
         align-items: flex-start;
-        gap: var(--rg-admin-space-2) 10px;
+        gap: 10px;
+        width: 100%;
         padding: 9px 12px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-md);
         background: var(--rg-admin-surface-card);
+        font: inherit;
+        color: var(--rg-admin-text-strong);
+        text-align: left;
+    }
+
+    .rg-admin-studio__suggestion--choosable {
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__suggestion--choosable:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__suggestion--choosable:focus-visible {
+        outline: 2px solid var(--rg-admin-surface-inverse);
+        outline-offset: 2px;
     }
 
     .rg-admin-studio__suggestion--used {
         border-color: var(--rg-admin-surface-inverse);
         box-shadow: 0 0 0 1px var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
     }
 
     .rg-admin-studio__suggestion-number {
@@ -5378,8 +5414,13 @@
         font-variant-numeric: tabular-nums;
     }
 
+    .rg-admin-studio__suggestion--used .rg-admin-studio__suggestion-number {
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
     .rg-admin-studio__suggestion-text {
-        flex: 1 1 200px;
+        flex: 1 1 auto;
         min-width: 0;
         overflow-wrap: anywhere;
         font-size: var(--rg-admin-text-body);
@@ -5389,16 +5430,139 @@
 
     .rg-admin-studio__suggestion-used {
         display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        color: var(--rg-admin-status-success-fg);
-        font-size: var(--rg-admin-text-micro);
-        line-height: 22px;
-        white-space: nowrap;
+        flex-shrink: 0;
+        padding-top: 2px;
     }
 
-    .rg-admin-studio__suggestion-use {
-        margin-left: auto;
+    .rg-admin-studio__suggestion-empty {
+        margin: 0;
+        padding: 36px 20px;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+        text-align: center;
+    }
+
+    .rg-admin-studio__suggestion-failure {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: 40px 20px;
+        text-align: center;
+    }
+
+    .rg-admin-studio__suggestion-failure-icon {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-status-danger-bg);
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-studio__suggestion-failure-title {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__suggestion-failure-text {
+        max-width: 320px;
+        margin: 0;
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    /* Post: the final texts and the author, side by side until they no longer fit; the source address under them. */
+    .rg-admin-studio__final {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-4) var(--rg-admin-space-6);
+    }
+
+    .rg-admin-studio__final > * {
+        min-width: 0;
+    }
+
+    .rg-admin-studio__final-title {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-studio__final-description {
+        flex: 1.4 1 380px;
+    }
+
+    .rg-admin-studio__final-author {
+        flex: 1 1 280px;
+    }
+
+    .rg-admin-studio__final-source {
+        flex: 1 1 100%;
+    }
+
+    .rg-admin-studio__author-anchor {
+        position: relative;
+    }
+
+    .rg-admin-studio__author-trigger {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 44px;
+        padding: 5px 12px 5px 8px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__author-trigger:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__author-trigger:focus-visible {
+        outline: 2px solid var(--rg-admin-surface-inverse);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-studio__author-trigger .rg-admin-table__stack {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__author-chevron {
+        flex-shrink: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__author-panel {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        left: 0;
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 380px;
+        padding: 10px;
+        overflow: auto;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-studio__author-panel-footer {
+        display: flex;
+        justify-content: flex-end;
     }
 
     /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */
@@ -5541,6 +5705,13 @@
         list-style: disc;
     }
 
+    .rg-admin-studio__analysis-waiting {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: 6px 0;
+    }
+
     .rg-admin-studio__analysis-actions {
         display: flex;
         flex-direction: column;
@@ -5551,8 +5722,9 @@
     /* The photo, whole, inside a frame that never grows past the card or the screen. */
     .rg-admin-studio__preview {
         position: relative;
-        display: grid;
-        place-items: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         height: clamp(200px, 45vw, 420px);
         margin: 0;
         overflow: hidden;
@@ -5588,8 +5760,7 @@
         font-size: var(--rg-admin-text-micro);
     }
 
-    .rg-admin-studio__photo-meta,
-    .rg-admin-studio__author {
+    .rg-admin-studio__photo-meta {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -5720,10 +5891,6 @@
     .rg-admin-studio__dropzone .rg-admin-hint,
     .rg-admin-studio__dropzone .rg-admin-error {
         margin: 0;
-    }
-
-    .rg-admin-studio__author-clear {
-        margin-left: auto;
     }
 
     .rg-admin-studio__choices,
