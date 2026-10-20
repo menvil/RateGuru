@@ -41,5 +41,9 @@ Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 // plan"): sends the approved plans' actions that are due and sends again
 // those lost on their way. Off until the project's
 // content_studio_execution_enabled flag is switched on: until then every
-// run is a no-op that sends and changes nothing.
-Schedule::command('studio:dispatch-due')->everyMinute()->withoutOverlapping();
+// run is a no-op that sends and changes nothing. Its overlap lock lasts five
+// minutes, not the default day: a scheduler killed in the middle of a run
+// would otherwise stop every send for a day. A run takes seconds, and two
+// runs at once never send one action twice, so a lock that lapses early
+// costs nothing.
+Schedule::command('studio:dispatch-due')->everyMinute()->withoutOverlapping(5);

@@ -112,6 +112,53 @@ function argumentCount(array $arguments): int
     return $arguments[count($arguments) - 2]->text === ',' ? $commas : $commas + 1;
 }
 
+/**
+ * Whether a token names the class, however it is written: `CreatePostData`,
+ * `Posts\CreatePostData` or `\App\Data\Posts\CreatePostData`.
+ */
+function namesClass(?PhpToken $token, string $class): bool
+{
+    if ($token === null || ! $token->is([T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])) {
+        return false;
+    }
+
+    $segments = explode('\\', $token->text);
+
+    return end($segments) === $class;
+}
+
+/**
+ * Where each call to ApprovePostAction's `handle(` opens, however the file
+ * holds the action: resolved there (`app(ApprovePostAction::class)->handle(`),
+ * or under any name it types as one — `ApprovePostAction $approve` gives
+ * `$this->approve->handle(` and `$approve->handle(`.
+ *
+ * @param  list<PhpToken>  $tokens
+ * @return Closure(list<PhpToken>, int): bool
+ */
+function opensApproval(array $tokens): Closure
+{
+    $names = [];
+
+    foreach ($tokens as $index => $token) {
+        if (namesClass($token, 'ApprovePostAction') && ($tokens[$index + 1] ?? null)?->is(T_VARIABLE)) {
+            $names[] = ltrim($tokens[$index + 1]->text, '$');
+        }
+    }
+
+    return fn (array $all, int $at): bool => $all[$at]->text === '('
+        && ($all[$at - 1]->text ?? null) === 'handle'
+        && ($all[$at - 2] ?? null)?->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR])
+        && (
+            // `…(ApprovePostAction::class)->handle(`
+            (($all[$at - 3]->text ?? null) === ')' && ($all[$at - 4]->text ?? null) === 'class' && namesClass($all[$at - 6] ?? null, 'ApprovePostAction'))
+            // `$this->approve->handle(`
+            || (($all[$at - 3] ?? null)?->is(T_STRING) && in_array($all[$at - 3]->text, $names, true) && ($all[$at - 4] ?? null)?->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR]))
+            // `$approve->handle(`
+            || (($all[$at - 3] ?? null)?->is(T_VARIABLE) && in_array(ltrim($all[$at - 3]->text, '$'), $names, true))
+        );
+}
+
 /** @param  list<PhpToken>  $arguments */
 function namesTrustedParameter(array $arguments): bool
 {
@@ -135,7 +182,7 @@ it('lets only the executor and the upload form make a post\'s data, the form wit
 
     foreach (appSourceTokens() as $path => $tokens) {
         $calls = callArguments($tokens, fn (array $all, int $at): bool => $all[$at]->text === '('
-            && ($all[$at - 1]->text ?? null) === 'CreatePostData'
+            && namesClass($all[$at - 1] ?? null, 'CreatePostData')
             && ($all[$at - 2]->text ?? null) === 'new');
 
         if ($calls === []) {
@@ -165,11 +212,16 @@ it('lets nothing but the executor give ApprovePostAction a publication date', fu
     $approvers = [];
 
     foreach (appSourceTokens() as $path => $tokens) {
-        // `app(ApprovePostAction::class)->handle(` and `$this->approvePost->handle(`.
-        $calls = callArguments($tokens, fn (array $all, int $at): bool => $all[$at]->text === '('
-            && ($all[$at - 1]->text ?? null) === 'handle'
-            && (($all[$at - 3]->text ?? null) === ')' && ($all[$at - 4]->text ?? null) === 'class' && ($all[$at - 6]->text ?? null) === 'ApprovePostAction'
-                || ($all[$at - 3]->text ?? null) === 'approvePost'));
+        if ($path === 'Actions/Moderation/ApprovePostAction.php'
+            || array_filter($tokens, fn (PhpToken $token): bool => namesClass($token, 'ApprovePostAction')) === []) {
+            continue;
+        }
+
+        $calls = callArguments($tokens, opensApproval($tokens));
+
+        // A file that holds the action in a way this guard does not recognise
+        // would escape it: it must be taught the new shape, not skip the file.
+        expect($calls)->not->toBe([], "{$path} names ApprovePostAction, but no call to it is recognised there.");
 
         foreach ($calls as $arguments) {
             $approvers[] = $path;
@@ -208,5 +260,18 @@ it('catches what it is there to catch', function () {
         ->and(argumentCount($data('new CreatePostData($a, $b, $c, $d, $e, $f, $g, $h, $i);')))->toBe(9)
         ->and(argumentCount($data('new CreatePostData(title: fn ($x, $y) => [$x, $y],);')))->toBe(1)
         // A trusted name in a comment is no use of it.
-        ->and(namesTrustedParameter($tokens('/* createdAt: now() */ $x = 1;')))->toBeFalse();
+        ->and(namesTrustedParameter($tokens('/* createdAt: now() */ $x = 1;')))->toBeFalse()
+        // However the class is written.
+        ->and(namesClass($tokens('new \\App\\Data\\Posts\\CreatePostData($t);')[2], 'CreatePostData'))->toBeTrue()
+        ->and(namesClass($tokens('new Posts\\CreatePostData($t);')[2], 'CreatePostData'))->toBeTrue()
+        ->and(namesClass($tokens('new CreatePostDataFactory($t);')[2], 'CreatePostData'))->toBeFalse();
+
+    $approvals = fn (string $code): array => callArguments($tokens($code), opensApproval($tokens($code)));
+
+    // The approval found however the action is held, and nothing else's handle(.
+    expect($approvals('app(\\App\\Actions\\Moderation\\ApprovePostAction::class)->handle($m, $p, null, $at);'))->toHaveCount(1)
+        ->and($approvals('function __construct(private ApprovePostAction $approve) {} $this->approve->handle($m, $p, null, $at);'))->toHaveCount(1)
+        ->and($approvals('function run(ApprovePostAction $action) { $action->handle($m, $p, null, $at); }'))->toHaveCount(1)
+        ->and(argumentCount($approvals('function run(ApprovePostAction $action) { $action->handle($m, $p, null, $at); }')[0]))->toBe(4)
+        ->and($approvals('function run(ApprovePostAction $action, RejectPostAction $reject) { $reject->handle($m, $p, $r, $x); }'))->toBe([]);
 });

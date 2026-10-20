@@ -68,6 +68,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -13515,4 +13516,23 @@ function queuedJobs(string $class): array
         ->map(fn (array $payload): object => unserialize($payload['data']['command']))
         ->values()
         ->all();
+}
+
+/**
+ * The class of every job pushed from now on, recorded as it reaches the
+ * queue: unlike the database queue's table, the record is not taken back with
+ * a transaction, as a Redis push is not — so a job a rolled-back transaction
+ * still pushed is caught.
+ *
+ * @return ArrayObject<int, string>
+ */
+function recordQueuedJobClasses(): ArrayObject
+{
+    $queued = new ArrayObject;
+
+    Event::listen(JobQueued::class, function (JobQueued $event) use ($queued): void {
+        $queued[] = is_object($event->job) ? $event->job::class : (string) $event->job;
+    });
+
+    return $queued;
 }

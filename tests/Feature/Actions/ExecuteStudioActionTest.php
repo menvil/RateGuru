@@ -23,10 +23,8 @@ use App\Queries\UserPublicPostsQuery;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
-use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -207,11 +205,7 @@ it('cancels the action when what the post would use is no longer usable', functi
 it('takes the whole run back when a write of it is not saved, then fails the action', function () {
     $action = approvedStudioAction();
     StudioAction::updating(fn (StudioAction $updated): ?bool => $updated->status === StudioActionStatus::Done ? false : null);
-    // What reached the queue, as it reached it: an event is not taken back with a transaction, as a Redis push is not.
-    $queued = [];
-    Event::listen(JobQueued::class, function (JobQueued $event) use (&$queued): void {
-        $queued[] = is_object($event->job) ? $event->job::class : (string) $event->job;
-    });
+    $queued = recordQueuedJobClasses();
 
     $action = sendAndRunStudioAction($action);
 
@@ -221,7 +215,31 @@ it('takes the whole run back when a write of it is not saved, then fails the act
         ->and(ModerationLog::query()->exists())->toBeFalse()
         ->and(User::query()->findOrFail($action->actor_user_id)->notifications()->exists())->toBeFalse()
         // Followers never hear of a post that was taken back: their job was never even sent.
-        ->and($queued)->not->toContain(NotifyFollowersAboutNewPostJob::class);
+        ->and($queued->getArrayCopy())->not->toContain(NotifyFollowersAboutNewPostJob::class);
+});
+
+it('takes the whole run back when the post\'s score is not saved: no post, no approval, no notification, the action failed', function () {
+    $action = approvedStudioAction();
+    // The score's save alone is cancelled, as a model event cancels one: false, no exception.
+    Post::updating(fn (Post $post): ?bool => $post->isDirty('hot_score') ? false : null);
+    $queued = recordQueuedJobClasses();
+
+    $action = sendAndRunStudioAction($action);
+
+    expect($action)
+        ->status->toBe(StudioActionStatus::Failed)
+        ->failure_code->toBe('unexpected_failure')
+        ->failure_reason->toBe(RuntimeException::class)
+        ->result_id->toBeNull()
+        ->and($action->finished_at)->not->toBeNull()
+        ->and(Post::withTrashed()->exists())->toBeFalse()
+        ->and(ModerationLog::query()->where('action', ModerationActionType::ApprovePost)->exists())->toBeFalse()
+        ->and(User::query()->findOrFail($action->actor_user_id)->notifications()->exists())->toBeFalse()
+        // Neither the followers nor the photo's variants hear of a post that was taken back.
+        ->and($queued->getArrayCopy())->not->toContain(NotifyFollowersAboutNewPostJob::class)
+        ->and($queued->getArrayCopy())->not->toContain(GenerateMediaVariantsJob::class)
+        // Failed waits for an administrator, and keeps its plan Running.
+        ->and(StudioPlan::query()->findOrFail($action->studio_plan_id)->status)->toBe(StudioPlanStatus::Running);
 });
 
 it('sends an action back, its date kept, while its Persona is at its posting limit — a bounded number of times', function () {

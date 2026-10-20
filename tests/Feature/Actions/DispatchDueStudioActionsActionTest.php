@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Studio\ExecuteStudioAction;
 use App\Enums\StudioActionStatus;
 use App\Enums\StudioActionType;
 use App\Enums\StudioPlanPublicationMode;
@@ -243,3 +244,70 @@ it('lets a job already sent begin nothing once the executor is switched off, and
     expect($action->fresh())->status->toBe(StudioActionStatus::Done)->attempts->toBe(2)
         ->and(Post::query()->count())->toBe(1);
 });
+
+/**
+ * An action sent, or claimed, an hour ago and never heard of since — lost on
+ * its way or left by a dead worker — of the given kind; for a kind other than
+ * the post, a child of a post long done, so nothing else is due.
+ */
+function staleStudioAction(StudioActionType $type, StudioActionStatus $status, int $attempts): StudioAction
+{
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $root = approvedStudioAction();
+    $action = $root;
+
+    if ($type !== StudioActionType::CreatePost) {
+        $action = StudioAction::factory()->childOf($root, $type)->create(['actor_user_id' => $root->actor_user_id]);
+        $root->forceFill(['status' => StudioActionStatus::Done, 'finished_at' => now()])->save();
+    }
+
+    $action->forceFill([
+        'status' => $status,
+        'attempts' => $attempts,
+        'dispatched_at' => '2026-10-20 09:00:00',
+        'claimed_at' => $status === StudioActionStatus::Running ? '2026-10-20 09:00:01' : null,
+    ])->save();
+
+    return $action->fresh();
+}
+
+/** The kinds of action the executor does not run, or does, by their names. */
+function studioActionKinds(bool $runnable): array
+{
+    return collect(StudioActionType::cases())
+        ->filter(fn (StudioActionType $type): bool => in_array($type, ExecuteStudioAction::RUNNABLE, true) === $runnable)
+        ->mapWithKeys(fn (StudioActionType $type): array => [$type->value => [$type]])
+        ->all();
+}
+
+it('takes back no kind the executor does not run: lost or left behind, it is never sent, counted or failed', function (StudioActionType $type, StudioActionStatus $status, int $attempts) {
+    config(['content_studio.actions.max_attempts' => 3]);
+    $action = staleStudioAction($type, $status, $attempts);
+    $before = DB::table('studio_plan_actions')->where('id', $action->id)->first();
+
+    expect(dispatchDueStudioActions())->toBe(['enabled' => true, 'sent' => 0, 'resent' => 0, 'exhausted' => 0])
+        ->and(DB::table('studio_plan_actions')->where('id', $action->id)->first())->toEqual($before)
+        ->and(queuedStudioActionIds())->toBe([]);
+})->with(fn (): array => studioActionKinds(false))->with([
+    'lost on its way' => [StudioActionStatus::Dispatched],
+    'left by a dead worker' => [StudioActionStatus::Running],
+])->with([
+    'with attempts left' => [1],
+    'with none left' => [3],
+]);
+
+// The kinds it does run are taken back as ever — and a kind added to
+// ExecuteStudioAction::RUNNABLE moves from the test above to this one.
+it('takes back every kind the executor runs: sent again, or failed once it has no attempts left', function (StudioActionType $type, StudioActionStatus $status) {
+    config(['content_studio.actions.max_attempts' => 3]);
+    $again = staleStudioAction($type, $status, 1);
+    $spent = staleStudioAction($type, $status, 3);
+
+    expect(dispatchDueStudioActions())->toMatchArray(['sent' => 0, 'resent' => 1, 'exhausted' => 1])
+        ->and($again->fresh())->status->toBe(StudioActionStatus::Dispatched)->attempts->toBe(2)->claimed_at->toBeNull()
+        ->and($spent->fresh())->status->toBe(StudioActionStatus::Failed)->failure_code->toBe('attempts_exhausted')->attempts->toBe(3)
+        ->and(queuedStudioActionIds())->toBe([$again->id]);
+})->with(fn (): array => studioActionKinds(true))->with([
+    'lost on its way' => [StudioActionStatus::Dispatched],
+    'left by a dead worker' => [StudioActionStatus::Running],
+]);

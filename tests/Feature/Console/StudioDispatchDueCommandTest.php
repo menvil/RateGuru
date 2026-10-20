@@ -12,14 +12,16 @@ use Illuminate\Console\Scheduling\Schedule;
  * existing `schedule:run` — and off on every installation until switched
  * on, so the first deploy publishes nothing.
  */
-it('is scheduled every minute, never overlapping itself', function () {
+it('is scheduled every minute, never overlapping itself, its lock lasting minutes rather than a day', function () {
     $events = collect(app(Schedule::class)->events())
         ->filter(fn ($event) => str_contains($event->command ?? '', 'studio:dispatch-due'))
         ->values();
 
     expect($events)->toHaveCount(1)
         ->and($events->first()->expression)->toBe('* * * * *')
-        ->and($events->first()->withoutOverlapping)->toBeTrue();
+        ->and($events->first()->withoutOverlapping)->toBeTrue()
+        // A scheduler killed mid-run leaves the lock behind: it must lapse well before Laravel's default 1440 minutes.
+        ->and($events->first()->expiresAt)->toBe(5);
 });
 
 it('is off on an installation that never switched it on: a run sends and changes nothing', function () {

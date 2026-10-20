@@ -38,7 +38,10 @@ use Throwable;
  * locked and asked again before it is sent, so two dispatchers never send one
  * action twice. A push the queue refuses after the commit leaves the action
  * sent, and so found lost, and sent again, later. At most `batch_size` of
- * each per run. Nothing happens while the executor is switched off.
+ * each per run. Only the kinds the executor runs (ExecuteStudioAction::
+ * RUNNABLE) are sent, lost or left behind: any other is never sent, counted
+ * or failed, whatever state it is in. Nothing happens while the executor is
+ * switched off.
  */
 final class DispatchDueStudioActionsAction
 {
@@ -63,15 +66,20 @@ final class DispatchDueStudioActionsAction
         $lostBefore = $now->subSeconds((int) config('content_studio.actions.dispatched_stale_after_seconds'));
         $leftBefore = $now->subSeconds((int) config('content_studio.actions.running_stale_after_seconds'));
 
+        // Only the kinds the executor runs are ever sent, or sent again: any
+        // other is left exactly as it is, never counted or failed for it.
+        $runs = fn (StudioAction $action): bool => in_array($action->type, ExecuteStudioAction::RUNNABLE, true);
         $lost = fn (StudioAction $action): bool => $action->status === StudioActionStatus::Dispatched
+            && $runs($action)
             && $action->dispatched_at !== null
             && $action->dispatched_at->lessThanOrEqualTo($lostBefore);
         $left = fn (StudioAction $action): bool => $action->status === StudioActionStatus::Running
+            && $runs($action)
             && $action->claimed_at !== null
             && $action->claimed_at->lessThanOrEqualTo($leftBefore);
         $due = fn (StudioAction $action): bool => $action->status === StudioActionStatus::Pending
             && $action->run_after->lessThanOrEqualTo($now)
-            && in_array($action->type, ExecuteStudioAction::RUNNABLE, true)
+            && $runs($action)
             && ($action->parent_action_id === null
                 || StudioAction::query()->whereKey($action->parent_action_id)->where('status', StudioActionStatus::Done)->exists());
 
@@ -87,6 +95,7 @@ final class DispatchDueStudioActionsAction
     {
         return StudioAction::query()
             ->where('status', $status)
+            ->whereIn('type', self::runnableTypes())
             ->where($since, '<=', $before)
             ->orderBy($since)
             ->orderBy('id')
@@ -96,13 +105,19 @@ final class DispatchDueStudioActionsAction
             ->all();
     }
 
+    /** @return list<string> */
+    private static function runnableTypes(): array
+    {
+        return array_map(fn (StudioActionType $type): string => $type->value, ExecuteStudioAction::RUNNABLE);
+    }
+
     /** @return list<int> */
     private function dueIds(CarbonImmutable $now, int $batch): array
     {
         return StudioAction::query()
             ->where('status', StudioActionStatus::Pending)
             ->where('run_after', '<=', $now)
-            ->whereIn('type', array_map(fn (StudioActionType $type): string => $type->value, ExecuteStudioAction::RUNNABLE))
+            ->whereIn('type', self::runnableTypes())
             ->where(fn (Builder $query) => $query
                 ->whereNull('parent_action_id')
                 ->orWhereHas('parent', fn (Builder $parent) => $parent->where('status', StudioActionStatus::Done)))

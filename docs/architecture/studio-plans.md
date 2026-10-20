@@ -223,9 +223,12 @@ cancelling are an administrator's, on the Action queue screen to come.
 
 ### The dispatcher
 
-`studio:dispatch-due`, scheduled `everyMinute()->withoutOverlapping()` and run
+`studio:dispatch-due`, scheduled `everyMinute()->withoutOverlapping(5)` and run
 by the existing `schedule:run` — no cron or Supervisor program of its own
-(`DispatchDueStudioActionsAction`). Each run, at most `batch_size` of each:
+(`DispatchDueStudioActionsAction`). Its overlap lock lapses after five minutes
+rather than Laravel's default day, so a scheduler killed mid-run stops sending
+for minutes, not a day; two runs at once are safe anyway. Each run, at most
+`batch_size` of each:
 
 1. sends again the actions lost on their way: `dispatched`, and not claimed
    `dispatched_stale_after_seconds` after they were sent — Redis lost the job,
@@ -241,8 +244,8 @@ and `ExecuteStudioActionJob` is pushed once that transaction commits. An action
 already sent `max_attempts` times is failed instead, `attempts_exhausted`. Two
 dispatchers never send one action twice. A push Redis refuses after the commit
 leaves the action `dispatched`, so it is found lost and sent again: nothing is
-left that could never be sent again. Kinds nothing runs yet are never sent and
-never failed for it.
+left that could never be sent again. Kinds nothing runs yet are never sent,
+sent again, counted or failed for it, whatever state they are in.
 
 ### The job and the run
 
@@ -295,8 +298,8 @@ recovery sends it again.
 - **A late run**, whose action recovery has sent again since, finds another
   attempt on it and writes nothing. Recovery itself waits for a run that is
   still alive — the run holds the action's row — and then finds it done.
-- **Every critical write is checked**: a save a model event cancels fails the
-  whole run as an exception would.
+- **Every critical write is checked** — the post's score included: a save a
+  model event cancels fails the whole run as an exception would.
 
 `attempts` grows by one on every send — the first, and every one after a loss
 — and never on a claim or a finish.

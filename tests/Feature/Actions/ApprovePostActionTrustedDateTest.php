@@ -10,10 +10,8 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;
 use Carbon\CarbonImmutable;
-use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
 
 /**
  * ApprovePostAction's trusted publication date, which only Content Studio's
@@ -23,10 +21,7 @@ use Illuminate\Support\Facades\Event;
 beforeEach(function () {
     // The database queue: it sends a job dispatched after the commit only once the transaction commits.
     config(['queue.default' => 'database']);
-    $this->queued = [];
-    Event::listen(JobQueued::class, function (JobQueued $event): void {
-        $this->queued[] = is_object($event->job) ? $event->job::class : (string) $event->job;
-    });
+    $this->queued = recordQueuedJobClasses();
 });
 
 afterEach(function () {
@@ -82,17 +77,17 @@ it('sends the followers\' job only once the outermost transaction commits, and n
     DB::transaction(function () use ($admin, $kept): void {
         app(ApprovePostAction::class)->handle($admin, $kept);
 
-        expect($this->queued)->not->toContain(NotifyFollowersAboutNewPostJob::class);
+        expect($this->queued->getArrayCopy())->not->toContain(NotifyFollowersAboutNewPostJob::class);
     });
 
-    expect($this->queued)->toContain(NotifyFollowersAboutNewPostJob::class);
-    $this->queued = [];
+    expect($this->queued->getArrayCopy())->toContain(NotifyFollowersAboutNewPostJob::class);
+    $this->queued->exchangeArray([]);
 
     DB::beginTransaction();
     app(ApprovePostAction::class)->handle($admin, $taken);
     DB::rollBack();
 
-    expect($this->queued)->not->toContain(NotifyFollowersAboutNewPostJob::class)
+    expect($this->queued->getArrayCopy())->not->toContain(NotifyFollowersAboutNewPostJob::class)
         ->and($taken->fresh()->status)->toBe(PostStatus::Pending);
 });
 
@@ -101,5 +96,5 @@ it('still sends the followers\' job at once outside any transaction', function (
 
     app(ApprovePostAction::class)->handle(User::factory()->admin()->create(), $post);
 
-    expect($this->queued)->toContain(NotifyFollowersAboutNewPostJob::class);
+    expect($this->queued->getArrayCopy())->toContain(NotifyFollowersAboutNewPostJob::class);
 });
