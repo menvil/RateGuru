@@ -23,8 +23,12 @@ use Illuminate\Support\Facades\File;
  * DeployTest.php already established.
  *
  * No `chown`/ownership assertions are needed anywhere in this suite:
- * rollback never touches file ownership, only symlinks, history, and
- * PHP-FPM reload — unlike deploy, which extracts and chowns release trees.
+ * rollback never touches file ownership, only symlinks, history, PHP-FPM
+ * reload and the target's queue worker — unlike deploy, which extracts and
+ * chowns release trees. The queue worker runs against deploy's own stateful
+ * supervisorctl and runuser stubs (deployOpsInstallCoreStubs in
+ * tests/Pest.php), with a php stub of this file's own that records which
+ * release directory each artisan call ran from.
  */
 function rollbackOpsScript(): string
 {
@@ -180,8 +184,8 @@ function rollbackOpsHealthCheckStub(string $scratch, string $logFile, bool $fail
 }
 
 /**
- * PATH-shadowed stub for systemctl — rollback never invokes runuser or php,
- * unlike deploy, so only this one stub is needed. Defaults to a shared,
+ * PATH-shadowed stub for systemctl, installed after (and so in place of)
+ * deploy's core systemctl stub wherever both are used. Defaults to a shared,
  * scratch-wide log for tests that only ever run one rollback per scratch
  * dir; callers that run more than one rollback against the same scratch dir
  * must pass a distinct $logFile per run so each run's reload count can be
@@ -225,6 +229,9 @@ function rollbackOpsBuildFixture(string $scratch): array
         $dir = $root.'/releases/'.$releaseId;
         mkdir($dir, 0o755, true);
         file_put_contents($dir.'/marker.txt', "release {$releaseId}\n");
+        // Every release is a Laravel application: the queue transition
+        // signals the workers through its artisan.
+        file_put_contents($dir.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
     }
 
     symlink($root.'/releases/'.$releaseCurrent, $root.'/current');
@@ -260,6 +267,7 @@ function rollbackOpsBuildFixtureNoPrevious(string $scratch): array
 
     foreach ([$releaseCurrent, $releaseTarget] as $releaseId) {
         mkdir($root.'/releases/'.$releaseId, 0o755, true);
+        file_put_contents($root.'/releases/'.$releaseId.'/artisan', "#!/usr/bin/env php\n<?php // fixture artisan\n");
     }
 
     symlink($root.'/releases/'.$releaseCurrent, $root.'/current');
@@ -405,17 +413,122 @@ function rollbackOpsCurrentGroup(): string
 }
 
 /**
- * Runs one full, real rollback (lock, current/previous validation, history,
- * atomic switch, PHP-FPM reload, health-check) against a fresh fixture, via
- * --target parity-target, and either --previous or an explicit --release.
+ * A php stub for the queue transition: records the directory each artisan call
+ * runs from — the release it signals from — and its argv, tab-separated, in
+ * $scratch/artisan.log. `artisan queue:restart` fails when run from the
+ * release directory written into $scratch/php-fails-in, so a test can fail
+ * the forward signal (from the restored release) or the recovery one (from
+ * the original release) on its own.
+ */
+function rollbackOpsPhpStub(string $scratch): string
+{
+    $path = $scratch.'/bin/fake-php';
+    file_put_contents($path, "#!/usr/bin/env bash\n"
+        .'log='.escapeshellarg($scratch.'/artisan.log')."\n"
+        .'fails_in='.escapeshellarg($scratch.'/php-fails-in')."\n"
+        .<<<'STUB'
+        here="$(pwd -P)"
+        printf '%s\t%s\n' "${here}" "$*" >> "${log}"
+        if [[ "$*" == *queue:restart* ]] && [[ -s "${fails_in}" ]] && [[ "${here}" == "$(cat "${fails_in}")" ]]; then
+            echo "could not write the queue restart signal" >&2
+            exit 1
+        fi
+        exit 0
+        STUB."\n");
+    chmod($path, 0o755);
+
+    return $path;
+}
+
+/**
+ * The artisan calls a run made, in order, each with the directory it ran from.
  *
+ * @return list<array{dir: string, command: string}>
+ */
+function rollbackOpsArtisanCalls(string $scratch): array
+{
+    $raw = trim((string) @file_get_contents($scratch.'/artisan.log'));
+
+    if ($raw === '') {
+        return [];
+    }
+
+    return array_map(static function (string $line): array {
+        [$dir, $command] = explode("\t", $line, 2);
+
+        return ['dir' => $dir, 'command' => $command];
+    }, explode("\n", $raw));
+}
+
+/**
+ * The target's queue worker as rollback meets it: deploy's stateful
+ * supervisorctl and runuser stubs, this file's php stub as the deployment
+ * configuration's PHP_BIN, and the worker RUNNING (or not) for the snapshot
+ * to read. $sequence scripts the status answers instead, one per call
+ * (deployOpsSupervisorStatusSequence); $toggles are the supervisorctl stub's
+ * failure switches (activation-fail, stop-fail, ...).
+ *
+ * Installs deploy's systemctl stub too: install rollback's own afterwards
+ * where a test asserts its reloads.
+ *
+ * @param  list<string>|null  $sequence
+ * @param  list<string>  $toggles
+ */
+function rollbackOpsInstallQueue(string $scratch, string $confPath, bool $running = true, ?array $sequence = null, array $toggles = []): void
+{
+    deployOpsInstallCoreStubs($scratch);
+
+    file_put_contents(
+        $confPath,
+        preg_replace('/^PHP_BIN=.*$/m', 'PHP_BIN='.rollbackOpsPhpStub($scratch), File::get($confPath)),
+    );
+
+    if ($running) {
+        touch($scratch.'/supervisor-state/queue-running');
+    }
+
+    if ($sequence !== null) {
+        deployOpsSupervisorStatusSequence($scratch, $sequence);
+    }
+
+    foreach ($toggles as $toggle) {
+        touch($scratch.'/supervisor-state/'.$toggle);
+    }
+}
+
+/**
+ * Runs one full, real rollback (lock, current/previous validation, the queue
+ * snapshot, history, atomic switch, PHP-FPM reload, health-check, the queue
+ * transition) against a fresh fixture, via --target parity-target, and either
+ * --previous or an explicit --release.
+ *
+ * $queue sets up the target's worker (rollbackOpsInstallQueue): 'running'
+ * (default true — a deployed target's worker runs), 'sequence', 'toggles', and
+ * 'php_fails_in' — the fixture release ('old', 'current' or 'explicit') whose
+ * artisan cannot write the queue restart signal. The wait budget is three
+ * attempts with no delay unless $env says otherwise.
+ *
+ * @param  array{running?: bool, sequence?: list<string>, toggles?: list<string>, php_fails_in?: string}  $queue
+ * @param  array<string, string>  $env
  * @return array{exit: int, output: string, fixture: array, healthCheckLog: string, systemctlLog: string}
  */
-function rollbackOpsRunFullRollback(string $scratch, ?string $explicitRelease, bool $failHealthCheck = false): array
+function rollbackOpsRunFullRollback(string $scratch, ?string $explicitRelease, bool $failHealthCheck = false, array $queue = [], array $env = []): array
 {
     $fixture = rollbackOpsBuildFixture($scratch);
     $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
     [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+
+    rollbackOpsInstallQueue(
+        $scratch,
+        $confPath,
+        running: $queue['running'] ?? true,
+        sequence: $queue['sequence'] ?? null,
+        toggles: $queue['toggles'] ?? [],
+    );
+
+    if (isset($queue['php_fails_in'])) {
+        file_put_contents($scratch.'/php-fails-in', realpath($fixture['root'].'/releases/'.$fixture[$queue['php_fails_in']]));
+    }
 
     // A run-unique log, not the shared scratch-wide default: callers that run
     // this more than once against the same $scratch must be able to assert
@@ -427,12 +540,14 @@ function rollbackOpsRunFullRollback(string $scratch, ?string $explicitRelease, b
     touch($healthCheckLog);
     $healthCheckStub = rollbackOpsHealthCheckStub($scratch, $healthCheckLog, $failHealthCheck);
 
-    $env = rollbackOpsBaseEnv($scratch, [
+    $env = rollbackOpsBaseEnv($scratch, array_merge([
         'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
         'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
         'RATEGURU_TARGETS_CLI' => $targetsPath,
         'RATEGURU_HEALTH_CHECK_BIN' => $healthCheckStub,
-    ]);
+        'RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS' => '3',
+        'RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY' => '0',
+    ], $env));
 
     $destinationArgs = $explicitRelease !== null ? "--release {$explicitRelease}" : '--previous';
 
@@ -865,6 +980,8 @@ it('requires root before anything else, even for --target with an obviously inva
     $scratch = rollbackOpsScratchDir();
 
     try {
+        deployOpsInstallCoreStubs($scratch);
+
         [$exit, $output] = rollbackOpsRunScript(
             ['--target', 'tits-guru', '--release', 'v0.0.0-20260728-000000-abcdef0'],
             rollbackOpsBaseEnv($scratch),
@@ -873,6 +990,7 @@ it('requires root before anything else, even for --target with an obviously inva
         expect($exit)->not->toBe(0);
         expect($output)->toContain('this command must be executed as root');
         expect($output)->not->toContain('lifecycle=planned');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([], 'root authorization comes before any look at the queue worker');
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -882,6 +1000,8 @@ it('rejects a planned target before any filesystem, lock, or history work', func
     $scratch = rollbackOpsScratchDir();
 
     try {
+        deployOpsInstallCoreStubs($scratch);
+
         [$exit, $output] = rollbackOpsRunHarness($scratch, <<<'BASH'
             parse_rollback_args --target tits-guru --release v0.0.0-20260728-000000-abcdef0
             resolve_target
@@ -894,6 +1014,7 @@ it('rejects a planned target before any filesystem, lock, or history work', func
             ->toContain('lifecycle=planned')
             ->toContain('not active');
         expect($output)->not->toContain('SHOULD NOT REACH HERE');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([], 'a planned target never reaches the queue worker');
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -1231,6 +1352,20 @@ it('rolls back via --target for --previous: new current/previous, history, PHP-F
 
         expect(trim(File::get($result['healthCheckLog'])))->toBe('--target parity-target');
         expect($result['output'])->toContain('parity-target rolled back to');
+
+        // The running worker was told to reboot, from the restored release,
+        // as the registry's runtime user — and nothing else was asked of
+        // Supervisor than to report the target's own program.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([
+            ['dir' => realpath($oldReleaseRoot), 'command' => 'artisan queue:restart'],
+        ]);
+        expect(File::get($scratch.'/runuser.log'))->toBe('runuser -u '.rollbackOpsCurrentAccount().' -- '.$scratch.'/bin/fake-php artisan queue:restart'."\n");
+        expect($result['output'])
+            ->toContain('supervisor worker parity-queue already RUNNING — no supervisor registration/start churn')
+            ->toContain('queue restart signal issued from '.$result['fixture']['old']);
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect($call)->toBe('supervisorctl status parity-queue:*');
+        }
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -1263,6 +1398,14 @@ it('rolls back via --target for an explicit --release', function () {
         expect($finished['release'])->toBe($explicitRelease);
 
         expect(trim(File::get($result['healthCheckLog'])))->toBe('--target parity-target');
+
+        // Signalled from the explicit release — not from `previous`.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([
+            ['dir' => realpath($explicitReleaseRoot), 'command' => 'artisan queue:restart'],
+        ]);
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect($call)->toBe('supervisorctl status parity-queue:*');
+        }
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -1312,6 +1455,19 @@ it('recovers correctly from a failed post-switch health check', function () {
         expect(file_exists($root.'/current.recovery'))->toBeFalse();
         expect(file_exists($root.'/previous.new'))->toBeFalse();
         expect(file_exists($root.'/previous.recovery'))->toBeFalse();
+
+        // The health check failed before the queue transition: the worker was
+        // never signalled, and recovery only proved it still RUNNING.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect($call)->toBe('supervisorctl status parity-queue:*');
+        }
+        // The restored release fails its own health check too (the stub fails
+        // every call), so the recovery is reported as failed, not complete.
+        expect($result['output'])
+            ->toContain('WARNING: rollback recovery or restored health verification failed')
+            ->toContain('ERROR: rollback recovery FAILED')
+            ->not->toContain('rollback recovery complete');
     } finally {
         rollbackOpsCleanup($scratch);
     }
@@ -1323,6 +1479,8 @@ it('leaves previous absent after a restored recovery, when it did not exist befo
     try {
         $fixture = rollbackOpsBuildFixtureNoPrevious($scratch);
         [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        rollbackOpsInstallQueue($scratch, $confPath);
         rollbackOpsInstallSystemctlStub($scratch);
 
         $healthCheckLog = $scratch.'/hc.log';
@@ -1333,6 +1491,7 @@ it('leaves previous absent after a restored recovery, when it did not exist befo
             $scratch,
             "parse_rollback_args --target parity-target --release {$fixture['target']}\nresolve_target\nperform_rollback",
             rollbackOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
                 'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
                 'RATEGURU_TARGETS_CLI' => $targetsPath,
                 'RATEGURU_HEALTH_CHECK_BIN' => $failingStub,
@@ -1424,22 +1583,460 @@ it('ignores RATEGURU_HEALTH_CHECK_BIN without the opt-in flag, and honors it wit
 });
 
 // =============================================================================
-// Out of scope: nothing else changed
+// The queue transition: the workers follow the restored release
 //
-// A prior version of this file had its own "leaves deploy and workflows
-// untouched" test here, checking infrastructure/scripts/deploy against
-// origin/develop. deploy.sh legitimately changed in the target-aware migration's legacy
-// --environment removal slice too (see DeployTest.php for its own coverage),
-// leaving that test with a false premise — it was deleted outright rather
-// than left checking a file that now genuinely differs, matching the
-// precedent DeployTest.php itself already set for scripts that graduate out
-// of "still unchanged".
+// Laravel workers keep the code they booted with, so a rollback that only
+// moved `current` would leave them running the release it rolled away from.
+// rollback hands the queue over exactly as deploy does, and is not successful
+// until it has.
 // =============================================================================
 
-it('does not add queue restart to rollback', function () {
-    // Explicitly out of scope for this slice — a separate future change, not
-    // part of the target migration.
-    expect(rollbackOpsSource())->not->toContain('queue:restart');
+it('reads Supervisor exactly as deploy does, and activates the worker with deploy\'s own commands', function () {
+    $deploy = File::get(deployOpsScript());
+    $rollback = rollbackOpsSource();
+
+    // One reading of Supervisor state, one wait and one signal — copies that
+    // drift would let a rollback and a deployment disagree about the same
+    // worker.
+    foreach (['queue_program_running', 'wait_for_queue_program_running', 'issue_queue_restart'] as $function) {
+        expect(shellFunctionBody($rollback, $function))->toBe(shellFunctionBody($deploy, $function), "rollback's {$function} is not deploy's");
+    }
+
+    $commands = static fn (string $source): array => array_values(array_filter(
+        array_map('trim', explode("\n", shellFunctionBody($source, 'activate_supervisor_worker'))),
+        static fn (string $line): bool => preg_match('/supervisorctl|FAILURE_STATUS=|SUPERVISOR_ACTIVATED_NOW=|wait_for_queue_program_running|queue_program_running/', $line) === 1,
+    ));
+    expect($commands($rollback))->toBe($commands($deploy));
+
+    // The program and the account come from the registry, and nowhere else.
+    $resolve = shellFunctionBody($rollback, 'resolve_target');
+    expect($resolve)
+        ->toContain('RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"')
+        ->toContain('SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"');
+
+    $code = executableSourceLines($rollback);
+    expect($code)
+        ->not->toContain('tits-guru')
+        ->not->toContain('staging-main')
+        ->not->toContain('migrate')
+        ->not->toContain('supervisorctl restart')
+        ->not->toContain(' all');
+    expect(preg_match_all('/supervisorctl update(?! "?\$\{SUPERVISOR_PROGRAM\})/', $code))->toBe(0, 'supervisorctl update may only ever name the target program');
+    expect(preg_match_all('/supervisorctl (?:status|start|stop)(?! "\$\{SUPERVISOR_PROGRAM\}:\*")/', $code))->toBe(0, 'supervisorctl may only ever address the target program group');
+});
+
+it('snapshots the worker under the deployment lock before any change, and hands the queue over only after the health check', function () {
+    // Code only: the pipeline's comments name these steps too.
+    $pipeline = executableSourceLines(shellFunctionBody(rollbackOpsSource(), 'perform_rollback'));
+    $position = static function (string $needle) use ($pipeline): int {
+        $at = mb_strpos($pipeline, $needle);
+        expect($at)->not->toBeFalse("perform_rollback no longer contains: {$needle}");
+
+        return $at;
+    };
+
+    expect($position('acquire_deployment_lock'))->toBeLessThan($position('assert_no_operation_hold'));
+    expect($position('assert_no_operation_hold'))->toBeLessThan($position('queue_program_running && ORIGINAL_QUEUE_RUNNING=true'));
+    expect($position('queue_program_running && ORIGINAL_QUEUE_RUNNING=true'))->toBeLessThan($position('trap handle_rollback_exit EXIT'));
+    expect($position('trap handle_rollback_exit EXIT'))->toBeLessThan($position('"rollback-started"'));
+    expect($position('"rollback-started"'))->toBeLessThan($position('mv -Tf'));
+    expect($position('systemctl reload "${PHP_FPM_SERVICE}"'))->toBeLessThan($position('"${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"'));
+    expect($position('"${HEALTH_CHECK_BIN}" "${HEALTH_CHECK_ARGS[@]}"'))->toBeLessThan($position('perform_queue_transition'));
+    expect($position('perform_queue_transition'))->toBeLessThan($position('"success"'));
+
+    // Recovery: the links (and PHP-FPM, and the restored health check) first,
+    // then the queue, then the history record.
+    $handler = executableSourceLines(shellFunctionBody(rollbackOpsSource(), 'handle_rollback_exit'));
+    expect(mb_strpos($handler, 'restore_original_links'))->toBeLessThan(mb_strpos($handler, 'recover_queue_worker'));
+    expect(mb_strpos($handler, 'recover_queue_worker'))->toBeLessThan(mb_strpos($handler, 'append_history'));
+});
+
+it('takes no look at the queue worker while another deployment operation holds the target\'s lock', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBuildFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallQueue($scratch, $confPath);
+        rollbackOpsInstallSystemctlStub($scratch);
+
+        $lock = fopen($fixture['root'].'/locks/deployment.lock', 'c');
+        expect(flock($lock, LOCK_EX | LOCK_NB))->toBeTrue('could not take the deployment lock');
+
+        try {
+            [$exit, $output] = rollbackOpsRunHarness(
+                $scratch,
+                "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
+                rollbackOpsBaseEnv($scratch, [
+                    'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                    'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                    'RATEGURU_TARGETS_CLI' => $targetsPath,
+                    'RATEGURU_HEALTH_CHECK_BIN' => rollbackOpsHealthCheckStub($scratch, $scratch.'/hc-locked.log'),
+                ]),
+            );
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+
+        expect($exit)->not->toBe(0);
+        expect($output)->toContain('another deployment operation is already running');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([]);
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+        expect(deployOpsHistory($fixture['root']))->toBe([]);
+        expect(realpath($fixture['root'].'/current'))->toBe(realpath($fixture['root'].'/releases/'.$fixture['current']));
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('succeeds when the replacement worker is transiently STARTING after the queue restart signal', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        // The snapshot reads RUNNING; then the signalled worker has exited and
+        // Supervisor's replacement sits in STARTING until it survives
+        // startsecs. A single immediate check would fail a healthy rollback.
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: [
+            'sequence' => ['RUNNING', 'STARTING', 'STARTING', 'RUNNING'],
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(last(deployOpsHistory($result['fixture']['root'])))->toMatchArray(['event' => 'rollback-finished', 'status' => 'success']);
+        expect(rollbackOpsArtisanCalls($scratch))->toHaveCount(1);
+        expect(deployOpsSupervisorctlLog($scratch))->toBe(array_fill(0, 4, 'supervisorctl status parity-queue:*'));
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('does not wait for the old process to go: a worker still finishing its job stays RUNNING and the rollback succeeds', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        // Laravel's restart is graceful. The worker stays RUNNING (the same
+        // process, no turnover) while it finishes its current job.
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: ['sequence' => ['RUNNING']]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(rollbackOpsArtisanCalls($scratch))->toHaveCount(1);
+        expect(deployOpsSupervisorctlLog($scratch))->toBe(['supervisorctl status parity-queue:*', 'supervisorctl status parity-queue:*']);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('fails the rollback and restores the original release when the queue restart signal cannot be written', function (?string $explicit) {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $restored = $explicit === null ? 'old' : 'explicit';
+        $result = rollbackOpsRunFullRollback($scratch, $explicit, queue: ['php_fails_in' => $restored]);
+        $root = $result['fixture']['root'];
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('artisan queue:restart failed — the running worker would keep serving '.$result['fixture']['current'])
+            ->toContain('rollback recovery complete: parity-target serves '.$result['fixture']['current'].' again');
+
+        // Both pointers back, PHP-FPM reloaded again, the restored release
+        // health-checked.
+        expect(realpath($root.'/current'))->toBe(realpath($root.'/releases/'.$result['fixture']['current']));
+        expect(realpath($root.'/previous'))->toBe(realpath($root.'/releases/'.$result['fixture']['old']));
+        expect(substr_count(File::get($result['systemctlLog']), 'reload'))->toBe(2);
+        expect(array_values(array_filter(explode("\n", trim(File::get($result['healthCheckLog']))))))->toBe(['--target parity-target', '--target parity-target']);
+
+        // The signal never went out, so the workers still run the original
+        // release: nothing to re-signal, and the worker is proved RUNNING.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([
+            ['dir' => realpath($root.'/releases/'.$result['fixture'][$restored]), 'command' => 'artisan queue:restart'],
+        ]);
+        expect($result['output'])->not->toContain('re-issuing the queue restart signal');
+
+        $history = deployOpsHistory($root);
+        expect($history)->toHaveCount(2);
+        expect($history[1])->toMatchArray(['event' => 'rollback-finished', 'status' => 'failed-queue-restart', 'release' => $result['fixture'][$restored]]);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+})->with([
+    '--previous' => [null],
+    '--release' => ['v1.0.2-20260103-000000-ccc3333'],
+]);
+
+it('re-signals the workers from the restored original release when Supervisor fails after a successful signal', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        // RUNNING for the snapshot; FATAL for the whole transition wait (three
+        // attempts and a final look); RUNNING again once recovery re-signals.
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: [
+            'sequence' => ['RUNNING', 'FATAL', 'FATAL', 'FATAL', 'FATAL', 'RUNNING'],
+        ]);
+        $root = $result['fixture']['root'];
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('supervisor worker parity-queue did not reach RUNNING within the wait budget after the queue restart signal')
+            ->toContain('re-issuing the queue restart signal from the restored release')
+            ->toContain('rollback recovery complete: parity-target serves '.$result['fixture']['current'].' again');
+
+        expect(realpath($root.'/current'))->toBe(realpath($root.'/releases/'.$result['fixture']['current']));
+
+        // Forward from the release rolled back to, then back from the
+        // original once `current` points at it again.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([
+            ['dir' => realpath($root.'/releases/'.$result['fixture']['old']), 'command' => 'artisan queue:restart'],
+            ['dir' => realpath($root.'/releases/'.$result['fixture']['current']), 'command' => 'artisan queue:restart'],
+        ]);
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect($call)->toBe('supervisorctl status parity-queue:*', 'recovery never force-starts or restarts the worker');
+        }
+
+        expect(last(deployOpsHistory($root)))->toMatchArray(['event' => 'rollback-finished', 'status' => 'failed-queue-restart']);
+        expect(json_encode(deployOpsHistory($root)))->not->toContain('"success"');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('says so plainly, and still records the failed rollback, when recovery cannot put the queue back', function (array $queue, string $reason) {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: $queue);
+        $root = $result['fixture']['root'];
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain($reason)
+            ->toContain('ERROR: rollback recovery FAILED — parity-target is not provably back on '.$result['fixture']['current'].' with its queue as it was')
+            ->not->toContain('rollback recovery complete');
+
+        // The links themselves were restored; the history keeps the
+        // rollback's own failure, as it always has.
+        expect(realpath($root.'/current'))->toBe(realpath($root.'/releases/'.$result['fixture']['current']));
+        expect(last(deployOpsHistory($root)))->toMatchArray(['event' => 'rollback-finished', 'status' => 'failed-queue-restart']);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+})->with([
+    'the worker never comes back' => [
+        ['sequence' => ['RUNNING', 'FATAL']],
+        'WARNING: supervisor worker parity-queue was RUNNING before this rollback but is not RUNNING after recovery',
+    ],
+    'the recovery signal cannot be written' => [
+        ['sequence' => ['RUNNING', 'FATAL', 'FATAL', 'FATAL', 'FATAL', 'RUNNING'], 'php_fails_in' => 'current'],
+        'WARNING: unable to re-issue the queue restart signal from the restored release',
+    ],
+]);
+
+it('activates a worker that was not running with deploy\'s activation, and sends it no restart signal', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: ['running' => false]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect($result['output'])
+            ->toContain('activating supervisor worker parity-queue (it was not RUNNING before this rollback)')
+            ->toContain('worker parity-queue was freshly started against the restored release — no queue:restart signal needed');
+
+        // Started against the restored `current`: a restart would only ask a
+        // brand-new worker to exit for nothing.
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+
+        $calls = deployOpsSupervisorctlLog($scratch);
+        expect($calls)->toContain('supervisorctl reread')->toContain('supervisorctl update parity-queue');
+        expect(array_search('supervisorctl reread', $calls, true))->toBeLessThan(array_search('supervisorctl update parity-queue', $calls, true));
+        foreach ($calls as $call) {
+            expect(in_array($call, ['supervisorctl reread', 'supervisorctl update parity-queue', 'supervisorctl start parity-queue:*', 'supervisorctl status parity-queue:*'], true))
+                ->toBeTrue("unexpected supervisorctl invocation: {$call}");
+        }
+
+        expect(last(deployOpsHistory($result['fixture']['root'])))->toMatchArray(['event' => 'rollback-finished', 'status' => 'success']);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('waits out STARTING after it activates a worker that was not running', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        // STOPPED for the snapshot and for the look after update, so the
+        // group is started; then STARTING until it survives startsecs.
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: [
+            'running' => false,
+            'sequence' => ['STOPPED', 'STOPPED', 'STARTING', 'RUNNING'],
+        ]);
+
+        expect($result['exit'])->toBe(0, $result['output']);
+        expect(deployOpsSupervisorctlLog($scratch))->toContain('supervisorctl start parity-queue:*');
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('stops the worker it activated again when the rollback fails, and says so when it cannot', function (array $toggles, bool $recovered) {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $result = rollbackOpsRunFullRollback($scratch, null, queue: ['running' => false, 'toggles' => $toggles]);
+        $root = $result['fixture']['root'];
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])
+            ->toContain('supervisor worker parity-queue did not reach RUNNING')
+            ->toContain('rollback failed after supervisor activation; stopping parity-queue (it was not RUNNING before this rollback)');
+        expect(deployOpsSupervisorctlLog($scratch))->toContain('supervisorctl stop parity-queue:*');
+
+        expect(realpath($root.'/current'))->toBe(realpath($root.'/releases/'.$result['fixture']['current']));
+        expect(last(deployOpsHistory($root)))->toMatchArray(['event' => 'rollback-finished', 'status' => 'failed-supervisor-activation']);
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+
+        if ($recovered) {
+            expect($result['output'])->toContain('rollback recovery complete');
+        } else {
+            expect($result['output'])
+                ->toContain('WARNING: unable to stop supervisor worker parity-queue during recovery')
+                ->toContain('ERROR: rollback recovery FAILED');
+        }
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+})->with([
+    'stopped again' => [['activation-fail'], true],
+    'cannot be stopped' => [['activation-fail', 'stop-fail'], false],
+]);
+
+it('leaves a stopped worker stopped when the rollback fails before its queue transition', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $result = rollbackOpsRunFullRollback($scratch, null, failHealthCheck: true, queue: ['running' => false]);
+
+        expect($result['exit'])->not->toBe(0);
+        expect($result['output'])->toContain('rollback health check failed');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe(['supervisorctl status parity-queue:*']);
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
+        expect(is_file($scratch.'/supervisor-state/queue-running'))->toBeFalse();
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('touches no other target: not its release pointers, its history, its Supervisor program or its account', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $fixture = rollbackOpsBuildFixture($scratch);
+        $other = rollbackOpsBuildFixture($scratch);
+        $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
+        [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+
+        // A second active target on the same machine, with its own worker.
+        file_put_contents($targetsPath, str_replace('ACTIVE_ALLOWLIST=(parity-target)', 'ACTIVE_ALLOWLIST=(parity-target other-target)', File::get($targetsPath)));
+        $registry = json_decode(File::get($registryPath), true, 512, JSON_THROW_ON_ERROR);
+        $registry['targets']['other-target'] = [
+            'id' => 'other-target',
+            'lifecycle' => 'active',
+            'environment_class' => 'staging',
+            'application_root' => $other['root'],
+            'runtime_user' => 'other-runtime',
+            'runtime_group' => 'other-runtime',
+            'deploy_user' => 'other-deploy',
+            'code_group' => 'other-code',
+            'incoming_artifacts' => $scratch.'/incoming-other',
+            'release_retention' => 5,
+            'database' => ['name' => 'other_db', 'application_role' => 'other_app'],
+            'health' => ['url' => 'http://127.0.0.1/', 'host_header' => 'other.internal'],
+            'public_hostnames' => ['other.example'],
+            'backup' => ['namespace' => 'other', 'local_retention_days' => 1, 'offsite_retention_days' => 1, 'minimum_retained_backups' => 2],
+            'php_fpm' => ['pool' => 'other', 'socket' => '/run/php/other.sock'],
+            'supervisor' => ['program' => 'other-queue', 'queue' => 'other'],
+            'scheduler' => ['name' => 'other-scheduler'],
+            'nginx' => ['site_name' => 'other', 'internal_hostname' => 'other.internal'],
+            'environment_template' => 'infrastructure/templates/environment/production.env.example',
+        ];
+        file_put_contents($registryPath, json_encode($registry, JSON_PRETTY_PRINT));
+        exec(escapeshellarg($targetsPath).' validate --file '.escapeshellarg($registryPath).' 2>&1', $validateOutput, $validateExit);
+        expect($validateExit)->toBe(0, implode("\n", $validateOutput));
+
+        rollbackOpsInstallQueue($scratch, $confPath);
+        rollbackOpsInstallSystemctlStub($scratch);
+
+        $otherCurrent = readlink($other['root'].'/current');
+        $otherPrevious = readlink($other['root'].'/previous');
+
+        [$exit, $output] = rollbackOpsRunHarness(
+            $scratch,
+            "parse_rollback_args --target parity-target --previous\nresolve_target\nperform_rollback",
+            rollbackOpsBaseEnv($scratch, [
+                'RATEGURU_DEPLOYMENT_CONF_FILE' => $confPath,
+                'RATEGURU_TARGET_REGISTRY_FILE' => $registryPath,
+                'RATEGURU_TARGETS_CLI' => $targetsPath,
+                'RATEGURU_HEALTH_CHECK_BIN' => rollbackOpsHealthCheckStub($scratch, $scratch.'/hc-two-targets.log'),
+                'RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS' => '3',
+                'RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY' => '0',
+            ]),
+        );
+
+        expect($exit)->toBe(0, $output);
+        expect(realpath($fixture['root'].'/current'))->toBe(realpath($fixture['root'].'/releases/'.$fixture['old']));
+
+        expect(readlink($other['root'].'/current'))->toBe($otherCurrent);
+        expect(readlink($other['root'].'/previous'))->toBe($otherPrevious);
+        expect(deployOpsHistory($other['root']))->toBe([]);
+
+        foreach (deployOpsSupervisorctlLog($scratch) as $call) {
+            expect($call)->toBe('supervisorctl status parity-queue:*');
+        }
+        expect(File::get($scratch.'/runuser.log'))->not->toContain('other-runtime');
+        foreach (rollbackOpsArtisanCalls($scratch) as $call) {
+            expect($call['dir'])->toStartWith(realpath($fixture['root']));
+        }
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
+});
+
+it('ignores the queue wait overrides without the opt-in flag, and honors them with it', function () {
+    $scratch = rollbackOpsScratchDir();
+
+    try {
+        $body = 'printf "WAIT=%s DELAY=%s\n" "${QUEUE_WAIT_ATTEMPTS}" "${QUEUE_RETRY_DELAY_SECONDS}"';
+        $base = [
+            'PATH' => $scratch.'/bin:'.(getenv('PATH') ?: '/usr/bin:/bin'),
+            'HOME' => getenv('HOME') ?: '/tmp',
+            'RATEGURU_COMMON_FILE' => rollbackOpsCommonFile(),
+            'RATEGURU_DEPLOYMENT_CONF_FILE' => rollbackOpsDeploymentConfPath(),
+            'RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS' => '1',
+            'RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY' => '0',
+        ];
+
+        // With the opt-in flag but no values: deploy's production budget.
+        [$exit, $output] = rollbackOpsRunHarness($scratch, $body, array_diff_key(
+            [...$base, 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true'],
+            ['RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS' => true, 'RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY' => true],
+        ));
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('WAIT=10 DELAY=1');
+
+        [$exit, $output] = rollbackOpsRunHarness($scratch, $body, [...$base, 'RATEGURU_ALLOW_TEST_OVERRIDES' => 'true']);
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('WAIT=1 DELAY=0');
+
+        // Without the flag, a real subprocess cannot even reach a test common
+        // file, let alone shrink the wait.
+        [$deniedExit, $deniedOutput] = rollbackOpsRunScript(['--help'], $base);
+        expect($deniedExit)->not->toBe(0);
+        expect($deniedOutput)->toContain('/home/www/rateguru/bin/common');
+    } finally {
+        rollbackOpsCleanup($scratch);
+    }
 });
 
 // =============================================================================
@@ -1492,6 +2089,7 @@ it('rolls back normally when no target is held', function () {
         $fixture = rollbackOpsBuildFixture($scratch);
         $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
         [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallQueue($scratch, $confPath);
         rollbackOpsInstallSystemctlStub($scratch);
 
         $healthCheckLog = $scratch.'/health-check-clear.log';
@@ -1523,6 +2121,7 @@ it('refuses a rollback while the target is held, before any mutation', function 
         $fixture = rollbackOpsBuildFixture($scratch);
         $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
         [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallQueue($scratch, $confPath);
         rollbackOpsInstallSystemctlStub($scratch);
         rollbackOpsWriteRestoreGuard($scratch);
 
@@ -1556,6 +2155,8 @@ it('refuses a rollback while the target is held, before any mutation', function 
         expect(realpath($fixture['root'].'/previous'))->toBe($originalPrevious);
         expect(File::get($healthCheckLog))->toBe('');
         expect(trim((string) @file_get_contents($scratch.'/systemctl.log')))->toBe('');
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([], 'a held target is refused before its queue worker is even looked at');
+        expect(rollbackOpsArtisanCalls($scratch))->toBe([]);
         expect(is_file(rollbackOpsGuardPath($scratch)))->toBeTrue();
 
         $historyPath = $fixture['root'].'/deployments/history.jsonl';
@@ -1572,6 +2173,7 @@ it('refuses a rollback under every hold status, not only a completed one', funct
         $fixture = rollbackOpsBuildFixture($scratch);
         $confPath = rollbackOpsDeploymentConfForFixture($scratch, $fixture);
         [$registryPath, $targetsPath] = rollbackOpsParityRegistry($scratch, $fixture);
+        rollbackOpsInstallQueue($scratch, $confPath);
         rollbackOpsInstallSystemctlStub($scratch);
         rollbackOpsWriteRestoreGuard($scratch, ['status' => $status]);
 
@@ -1592,6 +2194,7 @@ it('refuses a rollback under every hold status, not only a completed one', funct
         expect($exit)->not->toBe(0);
         expect($output)->toContain("(status {$status})");
         expect(realpath($fixture['root'].'/current'))->toBe($originalCurrent);
+        expect(deployOpsSupervisorctlLog($scratch))->toBe([]);
     } finally {
         rollbackOpsCleanup($scratch);
     }

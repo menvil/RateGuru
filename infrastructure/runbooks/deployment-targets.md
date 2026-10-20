@@ -1011,20 +1011,83 @@ first substantive action, before any argument parsing. Only after root
 authorization succeeds does `require_active_target` run — immediately, before
 `target_root`, before the `current`/`previous` symlinks are read, before the
 releases directory or the deployment lock is touched, before history is
-written, before `systemctl` or health-check runs, and before any mutation.
-`tits-guru` is rejected at the lifecycle gate before any release path is ever
-touched.
+written, before `systemctl`, `supervisorctl` or health-check runs, and before
+any mutation. `tits-guru` is rejected at the lifecycle gate before any release
+path is ever touched.
 
 ### The rollback pipeline
 
 Selector resolution (`resolve_target`) populates the target's filesystem root
-(`target_root`) and the health-check target to use. Everything after
-resolution — the shared deployment lock, requiring `current` to exist,
-capturing the original `current`/`previous`, choosing the explicit release or
-`previous`, refusing a rollback onto the already-current release, history, the
-atomic `previous`/`current` switch, PHP-FPM reload, post-switch health-check,
-automatic restoration of the original `current`/`previous` on failure, and
+(`target_root`), its runtime user (`target_runtime_user`), its Supervisor
+program (`target_supervisor_program`) and the health-check target to use.
+Everything after resolution — the shared deployment lock, the restore and
+recovery hold check, requiring `current` to exist, capturing the original
+`current`/`previous`, choosing the explicit release or `previous`, refusing a
+rollback onto the already-current release, the queue worker snapshot, history,
+the atomic `previous`/`current` switch, PHP-FPM reload, post-switch
+health-check, the queue transition, automatic restoration on failure, and
 cleanup of temporary symlinks — is one single pipeline.
+
+### The queue worker
+
+Laravel queue workers are long-lived and keep the code they booted with. A
+rollback that only moved `current` would leave them running the release it
+rolled away from, so `rollback` hands the queue over exactly as `deploy` does
+(see [`bootstrap-host.md`](bootstrap-host.md)) — the same registry-declared
+program, the same runtime user, the same `supervisorctl` commands and the same
+bounded wait (10 observations, one second apart). It touches no other
+Supervisor program, never restarts every program, and never migrates.
+
+Under the deployment lock, after the hold check and before anything changes,
+it records whether every process of the target's program is RUNNING — a
+read-only `supervisorctl status <program>:*`. After the switch, the PHP-FPM
+reload and a passing health check:
+
+- **The worker was RUNNING** (the normal case): no reread, update or start.
+  `php artisan queue:restart` runs from the restored release directory as the
+  runtime user, and is mandatory: a signal that cannot be written — or a
+  restored release with no `artisan` to write it — fails the rollback. The
+  program must then be RUNNING again within the wait. A worker still finishing
+  its job simply stays RUNNING; a replacement that is briefly STARTING is
+  waited out. PID turnover is not required: Laravel's restart is graceful and
+  Supervisor replaces the process when the job is done.
+- **The worker was not RUNNING** (an operator stopped it, or it had failed):
+  `supervisorctl reread`, `supervisorctl update <program>`, `start
+  <program>:*` when update alone does not start it, then the same wait for
+  RUNNING. No `queue:restart` follows — the process was just started against
+  the restored release.
+
+`rollback-finished: success` is recorded only after the queue transition
+succeeds. A failed transition is recorded as `failed-queue-restart` or
+`failed-supervisor-activation`, next to the existing `failed` and
+`failed-health-check`.
+
+### Automatic restoration
+
+Any failure after the switch starts restores the original release, in this
+order:
+
+1. `current` and `previous` back to what they were, PHP-FPM reloaded, and the
+   restored release health-checked.
+2. The queue, back to its state before the rollback:
+   - if the rollback activated a worker that was not RUNNING, it stops it again
+     (`supervisorctl stop <program>:*`; like `deploy`, the program stays
+     registered);
+   - if the worker was RUNNING and the rollback had already signalled it, the
+     signal is sent again from the restored original release — once `current`
+     provably points there — so no worker keeps the code it may already have
+     booted from the abandoned release; then the program must be RUNNING within
+     the wait;
+   - if the worker was RUNNING and never signalled, it must still be RUNNING.
+
+   Recovery never force-starts a worker and never touches another program.
+3. `rollback-finished` with the failure status, as before.
+
+The run ends with either `rollback recovery complete: TARGET serves RELEASE
+again, with its queue as it was before this rollback` or `ERROR: rollback
+recovery FAILED — …`, naming the target root and the Supervisor program to
+inspect before any further deploy or rollback. Either way the rollback itself
+exits non-zero.
 
 ### Release path safety
 

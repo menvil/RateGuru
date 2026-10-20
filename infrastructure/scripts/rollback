@@ -38,6 +38,14 @@ HEALTH_CHECK_BIN="${HEALTH_CHECK_BIN_DEFAULT}"
 RUN_ROOT_DEFAULT="/home/www/rateguru/run"
 RUN_ROOT="${RUN_ROOT_DEFAULT}"
 
+# How long the queue transition waits for the target queue program to reach
+# RUNNING — deploy's own production budget, so a rollback and a deployment
+# judge the same worker by the same clock. supervisorctl and runuser are
+# resolved through PATH, as systemctl already is; only the wait tuning has
+# gated value overrides (shrunk by tests, never by production).
+QUEUE_WAIT_ATTEMPTS=10
+QUEUE_RETRY_DELAY_SECONDS=1
+
 if rateguru_test_overrides_allowed; then
     if [[ -n "${RATEGURU_HEALTH_CHECK_BIN:-}" ]]; then
         HEALTH_CHECK_BIN="${RATEGURU_HEALTH_CHECK_BIN}"
@@ -45,6 +53,14 @@ if rateguru_test_overrides_allowed; then
 
     if [[ -n "${RATEGURU_RUN_ROOT:-}" ]]; then
         RUN_ROOT="${RATEGURU_RUN_ROOT}"
+    fi
+
+    if [[ -n "${RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS:-}" ]]; then
+        QUEUE_WAIT_ATTEMPTS="${RATEGURU_ROLLBACK_QUEUE_WAIT_ATTEMPTS}"
+    fi
+
+    if [[ -n "${RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY:-}" ]]; then
+        QUEUE_RETRY_DELAY_SECONDS="${RATEGURU_ROLLBACK_QUEUE_RETRY_DELAY}"
     fi
 fi
 
@@ -153,13 +169,17 @@ resolve_target() {
     # require_active_target validates the target ID, the whole registry, that
     # the target exists, and that it is lifecycle=active — all before
     # target_root, the current/previous symlinks, the releases directory, the
-    # deployment lock, history, systemctl or health-check are ever touched.
-    # main() already called require_root before this function runs, so the
-    # full ordering is: root authorization -> lifecycle=planned rejection ->
-    # (only if active) filesystem/lock work.
+    # deployment lock, history, systemctl, supervisorctl or health-check are
+    # ever touched. main() already called require_root before this function
+    # runs, so the full ordering is: root authorization -> lifecycle=planned
+    # rejection -> (only if active) filesystem/lock work.
     require_active_target "${TARGET_ID}"
 
     TARGET_ROOT="$(target_root "${TARGET_ID}")"
+    # The queue worker's identity, from the registry and nowhere else — the
+    # same two helpers deploy resolves it with.
+    RUNTIME_USER="$(target_runtime_user "${TARGET_ID}")"
+    SUPERVISOR_PROGRAM="$(target_supervisor_program "${TARGET_ID}")"
     LABEL="${TARGET_ID}"
     HEALTH_CHECK_ARGS=(--target "${TARGET_ID}")
 }
@@ -266,9 +286,158 @@ validate_pointer_release() {
     printf '%s\n' "${immediate_target}"
 }
 
-# --- rollback recovery (unchanged internals from before this slice; process-
-# global trap, not function-scoped, so moving the call site that arms it into
-# perform_rollback below changes nothing about when or how it fires) ---------
+# --- target queue worker ------------------------------------------------------
+#
+# Laravel queue workers are long-lived: they keep the application code they
+# booted with. A rollback that only moved `current` and reloaded PHP-FPM would
+# leave them running the very release it rolled away from, for as long as they
+# live. So a rollback ends exactly as a deployment does — the same
+# registry-declared program (target_supervisor_program), the same runtime user
+# (target_runtime_user), the same two cases, the same supervisorctl commands
+# and the same bounded wait — and never touches any other Supervisor program.
+#
+# queue_program_running, wait_for_queue_program_running and issue_queue_restart
+# are deploy's own, byte for byte, and RollbackTest holds them to it: two
+# readings of Supervisor state would eventually disagree.
+
+# queue_program_running — every process of the target program group is
+# RUNNING according to supervisorctl. Deliberately strict: STARTING, BACKOFF,
+# FATAL, EXITED and STOPPED are all "not running"; the committed program sets
+# startsecs=3, so a STARTING process has not yet survived it.
+queue_program_running() {
+    local output
+
+    output="$(supervisorctl status "${SUPERVISOR_PROGRAM}:*" 2>/dev/null)" || return 1
+    [[ -n "${output}" ]] || return 1
+
+    ! grep -qv 'RUNNING' <<<"${output}"
+}
+
+# wait_for_queue_program_running — bounded observation of the target program
+# reaching RUNNING (QUEUE_WAIT_ATTEMPTS × QUEUE_RETRY_DELAY_SECONDS). An idle
+# worker exits the moment it is signalled, and Supervisor's replacement sits in
+# STARTING until it survives startsecs; a single immediate check would fail a
+# healthy rollback on that. Strictly an observer of the target program.
+wait_for_queue_program_running() {
+    local attempt
+
+    for ((attempt = 1; attempt <= QUEUE_WAIT_ATTEMPTS; attempt++)); do
+        if queue_program_running; then
+            return 0
+        fi
+
+        sleep "${QUEUE_RETRY_DELAY_SECONDS}"
+    done
+
+    # One final observation, so the last sleep is not wasted.
+    queue_program_running
+}
+
+# activate_supervisor_worker — the worker was not RUNNING before this rollback
+# (an operator stopped it, or it had already failed), so the rollback makes it
+# RUNNING against the restored release with deploy's activation: reread parses
+# the installed configuration, update registers or refreshes exactly the target
+# program group, start covers a group registered but stopped, and the bounded
+# wait requires RUNNING. SUPERVISOR_ACTIVATED_NOW is armed after reread (which
+# starts nothing) and before update, so recovery stops only what this rollback
+# may have started.
+activate_supervisor_worker() {
+    log "activating supervisor worker ${SUPERVISOR_PROGRAM} (it was not RUNNING before this rollback)"
+
+    if ! supervisorctl reread >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl reread failed"
+    fi
+
+    SUPERVISOR_ACTIVATED_NOW=true
+
+    if ! supervisorctl update "${SUPERVISOR_PROGRAM}" >/dev/null; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisorctl update ${SUPERVISOR_PROGRAM} failed"
+    fi
+
+    if ! queue_program_running; then
+        # Registered but not started, where update alone changes nothing.
+        supervisorctl start "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1 || true
+    fi
+
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-supervisor-activation"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING"
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} RUNNING"
+}
+
+# issue_queue_restart RELEASE_DIR — writes Laravel's queue restart signal
+# from RELEASE_DIR, as the runtime user. Returns the artisan exit status; the
+# caller decides what a failure means — a failed rollback in the transition, a
+# failed recovery in the exit handler.
+issue_queue_restart() {
+    local release_dir="$1"
+
+    (
+        cd "${release_dir}"
+
+        runuser \
+            -u "${RUNTIME_USER}" \
+            -- "${PHP_BIN}" artisan queue:restart
+    )
+}
+
+# perform_queue_transition — after the switch, the PHP-FPM reload and the HTTP
+# health check, and before the success record: a rollback is successful only
+# when both hold. The worker's state BEFORE the rollback, captured under the
+# deployment lock in ORIGINAL_QUEUE_RUNNING, decides which:
+#
+#   not RUNNING — activate it, as above. No queue:restart afterwards: the
+#   process was just started against the restored `current`.
+#
+#   RUNNING — no reread/update/start churn. `artisan queue:restart`, run from
+#   the restored release as the runtime user, is MANDATORY: a worker that never
+#   receives it keeps serving the release this rollback rolled away from. A
+#   restored release without artisan cannot send it, and is refused for the
+#   same reason — deploy skips the signal for such a release because there is
+#   no Laravel queue to move, but here a worker is already running and only the
+#   signal moves it.
+#
+# PID turnover is not a condition, exactly as in deploy: Laravel's restart is
+# graceful, a worker finishes its current job before it exits, and Supervisor
+# replaces it. What is required is the signal, and a program that is — or
+# within the wait becomes again — RUNNING.
+perform_queue_transition() {
+    if [[ "${ORIGINAL_QUEUE_RUNNING}" != true ]]; then
+        activate_supervisor_worker
+
+        log "worker ${SUPERVISOR_PROGRAM} was freshly started against the restored release — no queue:restart signal needed"
+
+        return 0
+    fi
+
+    log "supervisor worker ${SUPERVISOR_PROGRAM} already RUNNING — no supervisor registration/start churn"
+
+    if [[ ! -f "${TARGET_RELEASE_PATH}/artisan" ]]; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "the restored release ${TARGET_RELEASE} has no artisan — the running worker cannot be signalled and would keep serving ${ORIGINAL_CURRENT_ID}"
+    fi
+
+    if ! issue_queue_restart "${TARGET_RELEASE_PATH}"; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "artisan queue:restart failed — the running worker would keep serving ${ORIGINAL_CURRENT_ID}"
+    fi
+
+    QUEUE_RESTART_ISSUED=true
+
+    log "queue restart signal issued from ${TARGET_RELEASE}; Supervisor performs the eventual worker process replacement"
+
+    if ! wait_for_queue_program_running; then
+        FAILURE_STATUS="failed-queue-restart"
+        fail "supervisor worker ${SUPERVISOR_PROGRAM} did not reach RUNNING within the wait budget after the queue restart signal"
+    fi
+}
+
+# --- rollback recovery (a process-global EXIT trap, armed in perform_rollback
+# below: links, PHP-FPM and the restored health check first, then the queue) --
 
 restore_link_state() {
     local link_path="$1"
@@ -334,6 +503,66 @@ restore_original_links() {
     [[ "${recovery_failed}" == false ]]
 }
 
+# recover_queue_worker — after restore_original_links, returns the target's
+# queue to the state it had before this rollback, the way deploy's recovery
+# does:
+#
+#   * this rollback activated the program (it was not RUNNING before): stop
+#     it again, so no worker keeps running a release the target no longer
+#     serves. Like deploy, this stops the processes and leaves the program
+#     registered.
+#   * it was RUNNING and this rollback already signalled it: the workers were
+#     told to reboot against what `current` pointed at, and some may already
+#     have booted the abandoned release. Re-signal from the restored original
+#     release — only once `current` provably points at it again — then require
+#     RUNNING within the bounded wait.
+#   * it was RUNNING and was never signalled: nothing was asked of it, and it
+#     must still be RUNNING.
+#
+# Never a force-start, never another program. Returns non-zero, having said
+# why, when the queue could not be put back as it was.
+recover_queue_worker() {
+    if [[ "${SUPERVISOR_ACTIVATED_NOW}" == true ]]; then
+        log "rollback failed after supervisor activation; stopping ${SUPERVISOR_PROGRAM} (it was not RUNNING before this rollback)"
+
+        if ! supervisorctl stop "${SUPERVISOR_PROGRAM}:*" >/dev/null 2>&1; then
+            log "WARNING: unable to stop supervisor worker ${SUPERVISOR_PROGRAM} during recovery"
+
+            return 1
+        fi
+
+        return 0
+    fi
+
+    [[ "${ORIGINAL_QUEUE_RUNNING}" == true ]] || return 0
+
+    local recovered=true
+
+    if [[ "${QUEUE_RESTART_ISSUED}" == true ]]; then
+        if [[ "$(readlink -f "${CURRENT_LINK}")" != "$(readlink -f "${ORIGINAL_CURRENT_PATH}")" ]]; then
+            recovered=false
+            log "WARNING: current was not restored to ${ORIGINAL_CURRENT_ID}, so the queue restart signal was not re-issued from it — the workers follow whatever current now points at"
+        elif [[ ! -f "${ORIGINAL_CURRENT_PATH}/artisan" ]]; then
+            recovered=false
+            log "WARNING: the restored release ${ORIGINAL_CURRENT_ID} has no artisan — the queue restart signal cannot be re-issued from it"
+        else
+            log "re-issuing the queue restart signal from the restored release ${ORIGINAL_CURRENT_PATH}"
+
+            if ! issue_queue_restart "${ORIGINAL_CURRENT_PATH}"; then
+                recovered=false
+                log "WARNING: unable to re-issue the queue restart signal from the restored release"
+            fi
+        fi
+    fi
+
+    if ! wait_for_queue_program_running; then
+        recovered=false
+        log "WARNING: supervisor worker ${SUPERVISOR_PROGRAM} was RUNNING before this rollback but is not RUNNING after recovery — investigate manually"
+    fi
+
+    [[ "${recovered}" == true ]]
+}
+
 handle_rollback_exit() {
     local exit_code=$?
 
@@ -343,10 +572,23 @@ handle_rollback_exit() {
         && [[ "${ROLLBACK_STARTED}" == true ]]
     then
         if [[ "${SWITCH_STARTED}" == true ]]; then
+            local recovery_failed=false
+
             log "rollback failed; restoring original current and previous links"
 
             if ! restore_original_links; then
+                recovery_failed=true
                 log "WARNING: rollback recovery or restored health verification failed"
+            fi
+
+            if ! recover_queue_worker; then
+                recovery_failed=true
+            fi
+
+            if [[ "${recovery_failed}" == true ]]; then
+                log "ERROR: rollback recovery FAILED — ${LABEL} is not provably back on ${ORIGINAL_CURRENT_ID} with its queue as it was; inspect ${TARGET_ROOT} and the ${SUPERVISOR_PROGRAM} Supervisor program before any further deploy or rollback"
+            else
+                log "rollback recovery complete: ${LABEL} serves ${ORIGINAL_CURRENT_ID} again, with its queue as it was before this rollback"
             fi
         fi
 
@@ -439,6 +681,15 @@ perform_rollback() {
         fail "target release is already current"
     fi
 
+    # Snapshot the target worker before anything changes, under the
+    # deployment lock — a read-only status query, never reread/update/start.
+    # It decides the queue transition after the switch, and what recovery
+    # puts back if the rollback fails.
+    ORIGINAL_QUEUE_RUNNING=false
+    queue_program_running && ORIGINAL_QUEUE_RUNNING=true
+    SUPERVISOR_ACTIVATED_NOW=false
+    QUEUE_RESTART_ISSUED=false
+
     ROLLBACK_STARTED=false
     SWITCH_STARTED=false
     TERMINAL_HISTORY_WRITTEN=false
@@ -477,6 +728,10 @@ perform_rollback() {
         FAILURE_STATUS="failed-health-check"
         fail "rollback health check failed; restoring ${ORIGINAL_CURRENT_ID}"
     fi
+
+    # The workers follow the restored release before the rollback may be
+    # called successful.
+    perform_queue_transition
 
     log "${LABEL} rolled back to ${TARGET_RELEASE}"
 
