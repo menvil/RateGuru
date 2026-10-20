@@ -264,12 +264,7 @@ it('holds no transaction open while it waits for the provider', function () {
 });
 
 it('writes a part again: a comment, a reply or a branch, naming its comments as the request names them', function (StudioDiscussionGenerationMode $mode, string $target, Closure $answer, Closure $expected) {
-    $saved = saveStudioDiscussion($this->admin, $this->plan, [
-        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
-        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $this->boris->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
-        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
-        discussionNode(['key' => 'b', 'personaUserId' => $this->boris->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
-    ]);
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
     Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody($answer()))]);
     $generation = requestStudioDiscussion($this->admin, $this->plan, ['mode' => $mode, 'targetNodeId' => $saved->ids[$target]]);
 

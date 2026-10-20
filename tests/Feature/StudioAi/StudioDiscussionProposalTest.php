@@ -170,12 +170,7 @@ it('refuses a whole discussion by a Persona deleted since it was asked for', fun
 });
 
 it('takes a part written again only as exactly its own comments, named as the request named them', function (StudioDiscussionGenerationMode $mode, string $target, array $answer, ?array $bodies) {
-    $saved = saveStudioDiscussion($this->admin, $this->plan, [
-        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
-        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $this->boris->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
-        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
-        discussionNode(['key' => 'b', 'personaUserId' => $this->boris->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
-    ]);
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
     $target = $saved->ids[$target];
     $authors = StudioDiscussionContext::authorsOf($this->plan, StudioDiscussionContext::scopeOf($this->plan, $mode, $target));
     $context = StudioDiscussionContext::of($this->plan, StudioPlanImageAnalysis::query()->where('studio_plan_id', $this->plan->id)->first(), $authors);

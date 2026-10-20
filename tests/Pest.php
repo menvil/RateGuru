@@ -13690,6 +13690,22 @@ function requestStudioDiscussion(User $admin, StudioPlan $plan, array $fields = 
     ]));
 }
 
+/**
+ * A discussion saved by hand that a part may be written again from:
+ * comment `a` by the first Persona, with replies `a1` by the second and `a2`
+ * by the first, then comment `b` by the second — so the request names them
+ * existing_1 to existing_4, in that order.
+ */
+function savedStudioBranchFixture(User $admin, StudioPlan $plan, User $first, User $second): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $first->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $second->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $first->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
+        discussionNode(['key' => 'b', 'personaUserId' => $second->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
+    ]);
+}
+
 /** Runs the job of that generation, as a worker would. */
 function runStudioDiscussionJob(StudioPlanDiscussionGeneration $generation): void
 {
