@@ -1266,11 +1266,28 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   утверждения отказывает плану с обсуждением (`discussion_not_publishable` →
   `unsupported_discussion`), чтобы пост не был опубликован без него. Подробности —
   `docs/architecture/studio-plans.md`, «The discussion».
-- **Дальше по этапу:** MR 5.2 — генерация обсуждения ИИ и адресная перегенерация
-  с историей запросов и результатов отдельно от сохранённых правок; MR 5.3 — шаг
-  Discussion редактора; MR 5.4 — публикация: действия `create_comment`/`create_reply`
-  с `parent_action_id`, полная предпроверка обсуждения вместо временного отказа,
-  дата в `AddCommentAction`, исполнитель. Phase 5 не завершена.
+- **Выполнено (MR 5.2, генерация обсуждения ИИ):** четыре режима —
+  `full_discussion`, `regenerate_comment`, `regenerate_reply`, `regenerate_branch` —
+  по запросу администратора через очередь (`RequestStudioDiscussionGenerationAction`,
+  `GenerateStudioDiscussionJob`, `Start`/`Complete`/`Fail…Action`), один платный
+  запрос на генерацию, без автоповторов. Контекст — окончательные заголовок и
+  описание поста, категория и теги, завершённый анализ фото (не само фото),
+  профили участвующих Persona (`PersonaProfile`, без приватных данных аккаунта) и
+  текущее дерево; всё как данные, псевдонимы вместо ID. Ответ — строгий
+  Structured Output, проверяемый целиком через `StudioDiscussionProposal` и
+  `StudioDiscussionValidationRules`. История — `studio_plan_discussion_generations`
+  с хешами анализа, поста с деревом и профилей Persona; результат — предложение,
+  отдельно от сохранённого обсуждения. Принятие — `ApplyStudioDiscussionGenerationAction`
+  через `SaveStudioDiscussionTreeAction` атомарно с `applied_at`, только при
+  неизменном контексте (`stale_context`), один раз (`already_applied`); адресная
+  перегенерация меняет только тексты, сохраняя ID, авторов, родителей, порядок и
+  время. Интерфейса нет. Подробности — `docs/architecture/studio-plans.md`,
+  «Discussion generation».
+- **Дальше по этапу:** MR 5.3 — шаг Discussion редактора (ручное редактирование,
+  запуск генерации, просмотр и принятие предложений); MR 5.4 — публикация:
+  действия `create_comment`/`create_reply` с `parent_action_id`, полная
+  предпроверка обсуждения вместо временного отказа, дата в `AddCommentAction`,
+  исполнитель. Phase 5 не завершена.
 - **Критерий на staging:** план с обсуждением создаёт настоящие комментарии и ответы
   персон с историческими датами в правильном порядке; `PostCommentedNotification` автору
   поста создаётся штатно с реальным временем; `updated_at` поста и комментариев остаётся

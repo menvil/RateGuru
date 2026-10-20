@@ -81,6 +81,38 @@ return [
         'stale_after_seconds' => 180,
     ],
 
+    // Discussion generation: a draft's discussion — comments and replies by
+    // the Personas an administrator chose — written by OpenAI's Responses API
+    // from the post's final texts and its photo's stored analysis, or one
+    // part of it written again, on an administrator's explicit request: one
+    // request per generation, made by a queued job (GenerateStudioDiscussionJob),
+    // never retried by itself. What comes back is a proposal; nothing reaches
+    // the plan's discussion until an administrator takes it in.
+    //
+    // The key, the model, the base URL and whether it is on at all are photo
+    // analysis's above: one Content Studio integration, switched on and off
+    // as one. Only what is particular to writing a discussion is here.
+    'discussion_generation' => [
+        // Seconds, nested inside the job's 75 s timeout and the Redis queue's
+        // 90 s retry_after, as photo analysis's are.
+        'connect_timeout' => 5,
+        'timeout' => 45,
+
+        // Forty comments with the JSON around them; a discussion that would
+        // need more comes back incomplete, and is refused as such.
+        'max_output_tokens' => 8000,
+
+        // A generation still waiting or running this long after it was
+        // requested or started is taken as lost, and another may be asked for.
+        'stale_after_seconds' => 180,
+
+        // The most comments and replies one generation writes — a discussion's
+        // own bound (StudioDiscussionValidationRules::MOST_NODES) at most — and
+        // the most Personas taking part in one.
+        'max_nodes' => 40,
+        'max_personas' => 8,
+    ],
+
     // Running approved plans: the actions `studio:dispatch-due` hands to the
     // queue every minute (ExecuteStudioActionJob) and takes back when they
     // were lost. Whether it runs at all is the project's

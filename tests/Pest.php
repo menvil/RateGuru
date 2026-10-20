@@ -1,8 +1,10 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
 use App\Actions\Studio\ApproveStudioPlanAction;
 use App\Actions\Studio\DispatchDueStudioActionsAction;
+use App\Actions\Studio\RequestStudioDiscussionGenerationAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Studio\SaveStudioDiscussionTreeAction;
@@ -10,19 +12,23 @@ use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
+use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -30,6 +36,7 @@ use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
@@ -13209,13 +13216,14 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
- *   of a photo (`release`), a user's row written (`user`) or a post written
- *   with its transaction still open (`post`), or — for an executor — the
- *   moment between its committed claim and its run, holding nothing (`run`).
+ *   of a photo (`release`), a user's row written (`user`), a Persona's
+ *   profile written (`profile`), a discussion generation claimed by its job
+ *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
+ *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13316,6 +13324,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
                 // A user's row written, its transaction still open.
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
+                // A discussion generation claimed, committed by its own statement.
+                'claim' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?studio_plan_discussion_generations"?\s/i', $sql) === 1,
+                // A Persona's profile written, its transaction still open.
+                'profile' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?persona_profiles"?\s/i', $sql) === 1,
                 default => static fn (string $sql): bool => $locks('studio_plans', $sql),
             };
             $dies = (bool) ($job['die'] ?? false);
@@ -13401,6 +13413,21 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'discussion-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioDiscussionTreeAction::class)->handle(
                     $admin, $plan, new App\Data\Studio\StudioDiscussionData(array_map(fn (array $node) => new App\Data\Studio\StudioDiscussionNodeData(...$node), $job['nodes'])), $job['version'],
                 )->lockVersion."\n"),
+                // A whole discussion asked for by the Personas named; says which generation it was given.
+                'discussion-request' => fwrite(STDOUT, 'generation '.app(App\Actions\Studio\RequestStudioDiscussionGenerationAction::class)->handle($admin, $plan, new App\Data\Studio\StudioDiscussionGenerationData(
+                    mode: App\Enums\StudioDiscussionGenerationMode::FullDiscussion, expectedLockVersion: $job['version'], personaUserIds: $job['personas'], rootCount: 1,
+                ))->id."\n"),
+                // A discussion generation's job, the provider faked: each request it sends leaves a file behind.
+                'discussion-job' => (function () use ($job, $barrierDir, $label): void {
+                    Illuminate\Support\Facades\Http::fake(function () use ($job, $barrierDir, $label) {
+                        touch("{$barrierDir}/http-{$label}-".bin2hex(random_bytes(4)));
+
+                        return Illuminate\Support\Facades\Http::response($job['response']);
+                    });
+                    app()->call([new App\Jobs\Studio\GenerateStudioDiscussionJob($job['generation'], $job['attempt']), 'handle']);
+                })(),
+                // A proposal taken into the discussion; says the plan's version it left.
+                'discussion-apply' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $job['generation'], $job['version'])->lockVersion."\n"),
                 // Content Studio's executor and dispatcher; the executor says what the action became.
                 'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
                 'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
@@ -13603,6 +13630,119 @@ function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTon
 function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
 {
     app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+// =============================================================================
+// Content Studio discussion generation
+// =============================================================================
+
+/**
+ * Turns discussion generation on: photo analysis's key and settings, with
+ * these of its own replaced.
+ *
+ * @param  array<string, mixed>  $overrides  content_studio.discussion_generation settings
+ */
+function configureStudioDiscussionGeneration(array $overrides = []): void
+{
+    configureStudioImageAnalysis();
+
+    foreach ($overrides as $key => $value) {
+        config(["content_studio.discussion_generation.{$key}" => $value]);
+    }
+}
+
+/**
+ * A Persona with a profile of its own: these profile fields, the factory's
+ * for the rest.
+ *
+ * @param  array<string, mixed>  $profile
+ * @param  array<string, mixed>  $account
+ */
+function studioPersonaWithProfile(array $profile = [], array $account = []): User
+{
+    $persona = User::factory()->persona()->create($account);
+    PersonaProfile::factory()->create(['user_id' => $persona->id, ...$profile]);
+
+    return $persona->load('personaProfile');
+}
+
+/**
+ * A Draft a discussion may be written for: a photo whose analysis has
+ * finished, and a final title.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function discussionReadyStudioPlan(array $attributes = []): StudioPlan
+{
+    return studioPlanWithFinishedAnalysis(['title' => 'A quiet harbour at dawn', ...$attributes]);
+}
+
+/**
+ * Asks for a discussion generation as an administrator who saw the plan just
+ * now would: a whole discussion unless the fields say otherwise.
+ *
+ * @param  array<string, mixed>  $fields  StudioDiscussionGenerationData's, by name
+ */
+function requestStudioDiscussion(User $admin, StudioPlan $plan, array $fields = []): StudioPlanDiscussionGeneration
+{
+    return app(RequestStudioDiscussionGenerationAction::class)->handle($admin, $plan, new StudioDiscussionGenerationData(...[
+        'mode' => StudioDiscussionGenerationMode::FullDiscussion,
+        'expectedLockVersion' => StudioPlan::query()->findOrFail($plan->id)->lock_version,
+        ...$fields,
+    ]));
+}
+
+/**
+ * A discussion saved by hand that a part may be written again from:
+ * comment `a` by the first Persona, with replies `a1` by the second and `a2`
+ * by the first, then comment `b` by the second — so the request names them
+ * existing_1 to existing_4, in that order.
+ */
+function savedStudioBranchFixture(User $admin, StudioPlan $plan, User $first, User $second): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $first->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $second->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $first->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
+        discussionNode(['key' => 'b', 'personaUserId' => $second->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
+    ]);
+}
+
+/** Runs the job of that generation, as a worker would. */
+function runStudioDiscussionJob(StudioPlanDiscussionGeneration $generation): void
+{
+    app()->call([new GenerateStudioDiscussionJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+/** Takes the generation's proposal into the plan as an administrator who saw the plan just now would. */
+function applyStudioDiscussion(User $admin, StudioPlan $plan, StudioPlanDiscussionGeneration $generation): SavedStudioDiscussion
+{
+    return app(ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $generation->id, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * A completed Responses API body whose structured output is this answer.
+ *
+ * @param  array<string, mixed>  $answer
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioDiscussionBody(array $answer, array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode($answer, JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_discussion_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * One comment of a whole discussion as the model answers it.
+ *
+ * @return array{key: string, parent: string|null, persona: string, offset_seconds: int, text: string}
+ */
+function answeredComment(string $key, ?string $parent, string $persona, int $offsetSeconds, string $text): array
+{
+    return ['key' => $key, 'parent' => $parent, 'persona' => $persona, 'offset_seconds' => $offsetSeconds, 'text' => $text];
 }
 
 // =============================================================================

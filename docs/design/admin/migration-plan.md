@@ -371,8 +371,14 @@ every edit. `SaveStudioDiscussionTreeAction` saves the whole discussion at once 
 held to one set of rules (`StudioDiscussionValidationRules`) for the editor and the AI generator alike
 (`docs/architecture/studio-plans.md`, "The discussion"). Nothing on screen shows or edits a discussion yet, nothing
 generates one, and nothing publishes one: until discussions can be published, a plan that prepares one is not
-approved (`unsupported_discussion`). Still to come in this phase: generating the discussion with AI and writing one
-part of it again, the editor's Discussion step, and publishing it as comments and replies. Phase 5 is not finished.
+approved (`unsupported_discussion`). Its second step is in code: the discussion written by OpenAI — a whole one by the
+Personas an administrator chose, or one comment, reply or branch of it again — from the post's final texts, the
+photo's stored analysis and each Persona's profile, on an explicit request, through the queue, one paid request
+each. What comes back is a proposal, kept with every earlier one in `studio_plan_discussion_generations`; nothing
+reaches the plan's discussion until an administrator takes it in (`ApplyStudioDiscussionGenerationAction`), and only
+while the plan still has what it was written from (`docs/architecture/studio-plans.md`, "Discussion generation").
+Still to come in this phase: the editor's Discussion step, which shows, edits, generates and takes in, and publishing
+the discussion as comments and replies. Phase 5 is not finished.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
