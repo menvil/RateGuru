@@ -1,0 +1,28 @@
+app/Livewire/Admin/StudioPlanDiscussionEditor.php
+  s_0f80700cf0b8c6::t_eb01b767fca47a 573-579,786,1029,1031
+app/Livewire/Admin/StudioPlanDiscussionProposals.php
+  s_0f80700cf0b8c6::t_eb01b767fca47a 40-42,67-73,84-88,90,92-93,166-172,179
+tests/Feature/Filament/StudioPlanDiscussionGenerationUiTest.php
+  s_0f80700cf0b8c6::t_5159179c66b932 249,264
+  s_0f80700cf0b8c6::t_9500e15f89dfed 178-207
+tests/Pest.php
+  s_0f80700cf0b8c6::t_5159179c66b932 13741-13752
+tests/Feature/Filament/StudioPlanDiscussionEditorTest.php
+  s_0f80700cf0b8c6::t_5159179c66b932 163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1ec77a69a8922fede417990fb5025dee09146a30",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
