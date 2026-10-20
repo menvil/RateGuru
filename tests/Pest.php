@@ -2,6 +2,7 @@
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Actions\Studio\ApproveStudioPlanAction;
+use App\Actions\Studio\DispatchDueStudioActionsAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
@@ -12,6 +13,7 @@ use App\Enums\ReportStatus;
 use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
+use App\Jobs\Studio\ExecuteStudioActionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
@@ -22,6 +24,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
+use App\Models\StudioAction;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
@@ -42,6 +45,7 @@ use App\Support\Locale\LanguageRules;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -64,6 +68,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -13038,10 +13043,18 @@ function raceDirectory(string $prefix): string
  *   photo — then waits until the follower is seen waiting for it, or has
  *   finished without needing to, and only then goes on to commit.
  * - `follow`: starts its action only once the leader holds.
+ * - `solo`: neither waits nor holds — one step of a race played out in turn.
  *
  * The output says `ok`, or `failed:` with the exception's class and message.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, persona?: int, plan?: int, version?: int, title?: string, asset?: int}  $job
+ * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
+ *   the default), its first `studio_plan_actions` lock (`action`), its release
+ *   of a photo (`release`), or a post written with its transaction still open
+ *   (`post`), or — for an executor — the moment between its committed claim
+ *   and its run, holding nothing (`run`). With `die` set, the leader is killed
+ *   right there instead, as a worker dies, and its transaction rolled back.
+ *
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13063,6 +13076,13 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
             'content_studio.image_analysis.enabled' => true,
             'content_studio.image_analysis.api_key' => 'race-test-credential-never-real',
         ]);
+        // The race's own settings, such as how soon a running action is taken
+        // back, or a cache of its own — which the rate limiter, resolved
+        // already while the application booted, takes up only once it is
+        // resolved again.
+        config($job['config'] ?? []);
+        $app->forgetInstance(Illuminate\Cache\RateLimiter::class);
+        Illuminate\Support\Facades\RateLimiter::clearResolvedInstance(Illuminate\Cache\RateLimiter::class);
 
         $db = Illuminate\Support\Facades\DB::connection();
         $peer = $label === 'a' ? 'b' : 'a';
@@ -13126,25 +13146,52 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
             });
         }
 
-        if ($sync === 'lead') {
+        if ($sync === 'lead' && ($job['hold'] ?? null) !== 'run') {
             $held = false;
-            $holds = ($job['hold'] ?? 'plan') === 'release'
-                ? static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1
-                : static fn (string $sql): bool => $locks('studio_plans', $sql);
+            $holds = match ($job['hold'] ?? 'plan') {
+                'release' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1,
+                // A post written, its transaction still open.
+                'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
+                'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
+                default => static fn (string $sql): bool => $locks('studio_plans', $sql),
+            };
+            $dies = (bool) ($job['die'] ?? false);
 
-            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$held, $holds, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
+            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$held, $holds, $dies, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
                 if ($held || ! $holds($query->sql)) {
                     return;
                 }
 
                 $held = true;
                 touch("{$barrierDir}/holding-{$label}");
+
+                // A worker killed right there: its connection closes, and PostgreSQL rolls its transaction back.
+                if ($dies) {
+                    exit(137);
+                }
+
                 $other = $peerPid();
 
                 $await(
                     fn (): bool => is_file("{$barrierDir}/done-{$peer}") || $waitsFor($other, $pid),
                     'the follower neither waited for this competitor nor finished',
                 );
+            });
+        }
+
+        if ($sync === 'lead' && ($job['hold'] ?? null) === 'run') {
+            // An executor between its claim, committed, and its run: about to
+            // lock the action again, holding nothing — until the other has done
+            // all it came to do.
+            $actionLocks = 0;
+
+            $db->beforeExecuting(function (string $sql) use (&$actionLocks, $locks, $await, $barrierDir, $label, $peer): void {
+                if (! $locks('studio_plan_actions', $sql) || ++$actionLocks !== 2) {
+                    return;
+                }
+
+                touch("{$barrierDir}/holding-{$label}");
+                $await(fn (): bool => is_file("{$barrierDir}/done-{$peer}"), 'the follower never finished');
             });
         }
 
@@ -13178,6 +13225,19 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
                 'plan-approve' => app(App\Actions\Studio\ApproveStudioPlanAction::class)->handle($admin, $plan, $job['version']),
+                // Content Studio's executor and dispatcher; the executor says what the action became.
+                'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
+                'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
+                // Recovery sends it again, and a worker runs what it sent.
+                'dispatch-execute' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"
+                    .'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
+                'post-from-asset' => app(App\Actions\Posts\CreatePostAction::class)->handle($persona, new App\Data\Posts\CreatePostData(title: $job['title'], imageAssetId: (int) $job['asset'])),
+                // An administrator made a member by an operator — no screen demotes
+                // an administrator — on the locked row: no longer one who may approve.
+                'demote' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
+                    ->forceFill(['role' => App\Enums\UserRole::User])->save()),
+                'hide-post' => app(App\Actions\Moderation\HidePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
@@ -13389,4 +13449,90 @@ function approvableStudioPlan(array $attributes = []): StudioPlan
 function approveStudioPlan(User $admin, StudioPlan $plan): StudioPlan
 {
     return app(ApproveStudioPlanAction::class)->handle($admin, $plan, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+// =============================================================================
+// Content Studio execution
+// =============================================================================
+
+/**
+ * Switches Content Studio's executor on or off, as the project's flag is
+ * stored — the switch StudioExecutionSwitch reads afresh every time.
+ */
+function switchStudioExecution(bool $on): void
+{
+    DB::transaction(function () use ($on): void {
+        $row = app(ProjectSettingsManager::class)->lockedRow();
+        $row->forceFill(['feature_flags' => [...($row->feature_flags ?? []), StudioExecutionSwitch::FLAG => $on]])->save();
+    });
+
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
+ * The one action approving a complete plan writes — its CreatePost, Pending —
+ * approved by an administrator made for it, unless one is given.
+ *
+ * @param  array<string, mixed>  $planAttributes
+ */
+function approvedStudioAction(array $planAttributes = [], ?User $admin = null): StudioAction
+{
+    $plan = approvableStudioPlan($planAttributes);
+    approveStudioPlan($admin ?? User::factory()->admin()->create(), $plan);
+
+    return StudioAction::query()->where('studio_plan_id', $plan->id)->sole();
+}
+
+/**
+ * One run of `studio:dispatch-due`.
+ *
+ * @return array{enabled: bool, sent: int, resent: int, exhausted: int}
+ */
+function dispatchDueStudioActions(): array
+{
+    return app(DispatchDueStudioActionsAction::class)->handle();
+}
+
+/** Runs the job of that action, as a worker would. */
+function runStudioActionJob(int $actionId): void
+{
+    app()->call([new ExecuteStudioActionJob($actionId), 'handle']);
+}
+
+/**
+ * The jobs of this class the database queue holds — what a test reads where
+ * Queue::fake() would not do: the fake records a job the moment it is
+ * dispatched, while a job dispatched after the commit reaches the database
+ * queue only once the transaction commits, and never when it is rolled back.
+ *
+ * @param  class-string  $class
+ * @return list<object> the jobs, unserialized from their payloads
+ */
+function queuedJobs(string $class): array
+{
+    return DB::table('jobs')->orderBy('id')->pluck('payload')
+        ->map(fn (string $payload): array => json_decode($payload, true, flags: JSON_THROW_ON_ERROR))
+        ->filter(fn (array $payload): bool => $payload['displayName'] === $class)
+        ->map(fn (array $payload): object => unserialize($payload['data']['command']))
+        ->values()
+        ->all();
+}
+
+/**
+ * The class of every job pushed from now on, recorded as it reaches the
+ * queue: unlike the database queue's table, the record is not taken back with
+ * a transaction, as a Redis push is not — so a job a rolled-back transaction
+ * still pushed is caught.
+ *
+ * @return ArrayObject<int, string>
+ */
+function recordQueuedJobClasses(): ArrayObject
+{
+    $queued = new ArrayObject;
+
+    Event::listen(JobQueued::class, function (JobQueued $event) use ($queued): void {
+        $queued[] = is_object($event->job) ? $event->job::class : (string) $event->job;
+    });
+
+    return $queued;
 }

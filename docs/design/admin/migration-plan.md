@@ -351,9 +351,18 @@ approval of a complete Draft and the lasting record of what will publish it. `Ap
 approval preflight (`StudioPlanApprovalPreflight`) whether the plan is ready, marks it Approved — by whom, when — and
 writes the one Pending `create_post` row of Content Studio's business queue (`studio_plan_actions`), when the post
 happens (`occurs_at`) and when it may run (`run_after`) fixed at approval, past dates kept as the post's own. Nothing
-on screen approves a plan yet — no Approve or Publish button — and nothing runs an action: no post is made and no
-job is queued. The executor that publishes the post, with recovery after a crash and a write applied once, is the
-next step; the Action queue screen comes with it.
+on screen approves a plan yet — no Approve or Publish button.
+
+Its second step, the executor, is in code and switched off. `studio:dispatch-due`, every minute through the
+existing scheduler, sends the due `create_post` actions to the queue and sends again those lost on their way or
+left by a dead worker; `ExecuteStudioAction` claims one and, in one transaction, writes the Persona's post through
+`CreatePostAction` with the plan's stored photo and its planned dates, publishes it through `ApprovePostAction` as
+the approving administrator on that date, scores it and marks the action done — once, however often its job is
+delivered or its worker dies (`docs/architecture/studio-plans.md`, "Running a plan"). It runs nothing until the
+project's `content_studio_execution_enabled` flag is switched on, which is off by default, on staging and
+production too, and has no switch on screen, so a deploy publishes nothing. Still to come in this phase: the
+Publication screen with its Approve button, the Action queue screen — resuming held actions, retrying failed ones,
+cancelling — and the comments, replies and votes after the post. Phase 4 is not finished.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

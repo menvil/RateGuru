@@ -53,6 +53,13 @@ final class SaveProjectSettingsAction
                 $settings['static_pages'] = $this->withEnglish($row->static_pages, $pages);
             }
 
+            if (is_array($settings['feature_flags'] ?? null)) {
+                // A flag the settings do not name keeps what is stored: the
+                // page sets the flags it shows, never the others — such as
+                // Content Studio's executor switch, which it does not show.
+                $settings['feature_flags'] = array_merge(is_array($row->feature_flags) ? $row->feature_flags : [], $settings['feature_flags']);
+            }
+
             $row->fill($settings)->save();
 
             return $row;

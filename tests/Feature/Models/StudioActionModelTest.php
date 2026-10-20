@@ -37,7 +37,7 @@ function insertStudioActionRow(array $attributes = []): int
 it('has the columns its contract names', function () {
     expect(Schema::getColumnListing('studio_plan_actions'))->toEqualCanonicalizing([
         'id', 'studio_plan_id', 'parent_action_id', 'type', 'actor_user_id', 'payload', 'occurs_at', 'run_after',
-        'status', 'attempts', 'dispatched_at', 'claimed_at', 'finished_at', 'result_type', 'result_id',
+        'status', 'attempts', 'deferrals', 'dispatched_at', 'claimed_at', 'finished_at', 'result_type', 'result_id',
         'failure_code', 'failure_reason', 'created_at', 'updated_at',
     ]);
 });
@@ -55,6 +55,7 @@ it('starts pending, untried, with nothing to carry', function () {
     expect($action)
         ->status->toBe(StudioActionStatus::Pending)
         ->attempts->toBe(0)
+        ->deferrals->toBe(0)
         ->payload->toBe([])
         ->parent_action_id->toBeNull()
         ->dispatched_at->toBeNull()
@@ -67,6 +68,7 @@ it('starts pending, untried, with nothing to carry', function () {
         ->and(new StudioAction)
         ->status->toBe(StudioActionStatus::Pending)
         ->attempts->toBe(0)
+        ->deferrals->toBe(0)
         ->payload->toBe([]);
 });
 

@@ -16,8 +16,9 @@ namespace App\Enums;
  *   retries or cancels it.
  * - Cancelled: for good, with the reason why.
  *
- * Approval writes every new action Pending, and nothing moves an action on
- * yet: Pending is a passive row no queue, worker or schedule reads.
+ * Approval writes every new action Pending; the dispatcher and the executor
+ * move it on (docs/architecture/studio-plans.md, "Running a plan") once
+ * Content Studio's execution is switched on, and only for the kinds that run.
  */
 enum StudioActionStatus: string
 {

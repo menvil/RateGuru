@@ -23,8 +23,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * it may run. A past date runs as soon as it may, under that past date; a
  * future one waits for it. Being run late never changes `occurs_at`.
  *
- * Approval writes a plan's actions, Pending; nothing runs them yet. Nothing is
- * mass assignable: every column is the server's to write.
+ * Approval writes a plan's actions, Pending; the dispatcher and the executor
+ * run them ("Running a plan" there). Nothing is mass assignable: every column
+ * is the server's to write.
  *
  * @property int $id
  * @property int $studio_plan_id
@@ -36,6 +37,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable $run_after
  * @property StudioActionStatus $status
  * @property int $attempts
+ * @property int $deferrals
  * @property CarbonImmutable|null $dispatched_at
  * @property CarbonImmutable|null $claimed_at
  * @property CarbonImmutable|null $finished_at
@@ -61,6 +63,7 @@ class StudioAction extends Model
     protected $attributes = [
         'status' => 'pending',
         'attempts' => 0,
+        'deferrals' => 0,
         'payload' => '[]',
     ];
 
@@ -77,6 +80,7 @@ class StudioAction extends Model
             'run_after' => 'immutable_datetime',
             'status' => StudioActionStatus::class,
             'attempts' => 'integer',
+            'deferrals' => 'integer',
             'dispatched_at' => 'immutable_datetime',
             'claimed_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',

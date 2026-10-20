@@ -10,8 +10,8 @@ namespace App\Enums;
  * domain action that does the same for a member.
  *
  * The whole set is the business queue's format. Approving a plan makes the
- * one CreatePost a plan publishes; nothing makes the others yet, and nothing
- * runs any of them yet.
+ * one CreatePost a plan publishes, and the executor runs it; nothing makes
+ * or runs the others yet.
  */
 enum StudioActionType: string
 {

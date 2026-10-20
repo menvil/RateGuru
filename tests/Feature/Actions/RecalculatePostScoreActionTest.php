@@ -49,3 +49,12 @@ it('only updates hot score during recalculation', function () {
     expect($post->reports_count)->toBe(1);
     expect($post->published_at->toDateTimeString())->toBe('2026-05-14 10:30:00');
 });
+
+it('reports no score it could not store: a save a model event cancels is an error', function () {
+    $post = Post::factory()->published()->create(['upvotes_count' => 10, 'hot_score' => 0]);
+    Post::updating(fn (Post $updated): ?bool => $updated->isDirty('hot_score') ? false : null);
+
+    expect(fn () => app(RecalculatePostScoreAction::class)->handle($post))
+        ->toThrow(RuntimeException::class, 'The post\'s hot score was not saved.')
+        ->and((float) $post->fresh()->hot_score)->toBe(0.0);
+});

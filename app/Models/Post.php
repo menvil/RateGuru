@@ -37,6 +37,12 @@ class Post extends Model
         return [
             'status' => PostStatus::class,
             'deleted_from_status' => PostStatus::class,
+            // Dates even while Post::withoutTimestamps() is on, under which
+            // Eloquent stops treating them as dates on its own — as Content
+            // Studio's executor runs it, so a historical post keeps its
+            // updated_at through its approval and its score.
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
             'published_at' => 'datetime',
             'hot_score' => 'float',
             'needs_review' => 'boolean',

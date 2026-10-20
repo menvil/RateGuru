@@ -27,6 +27,18 @@ trust, since they could approve the post themselves. The decision is made
 in `CreatePostAction` on the locked author row, and the upload form tells
 the author which of the two happened.
 
+A Persona's post is always **Pending**, whatever its trust or address. Content
+Studio's executor makes one through a trusted path of the same two actions
+([studio-plans.md](studio-plans.md), "Running a plan"): `CreatePostAction`
+takes the plan's photo as already stored — by its id, locked after the
+author, and only a ready post image no post, not even a deleted one, uses —
+and the planned moment as the post's `created_at` and `updated_at`; then
+`ApprovePostAction`, as the administrator who approved the plan, publishes it
+on that moment rather than now. Both still ask their policies, the posting
+limit and the locked rows. Those parameters are the executor's alone: no form
+or screen passes them, and `tests/Unit/Actions/StudioTrustedPostParametersTest.php`
+checks it.
+
 ## Author deletion vs moderation
 
 | | Author delete | Moderation hide |
