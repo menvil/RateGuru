@@ -8583,6 +8583,11 @@ function untranslatedCategory(string $name = 'Georgian food'): Category
  * Counts, from here on, every Livewire update the page sends — through the
  * fetch Livewire calls, and through the browser's own record of requests, so
  * the proof does not rest on how Livewire happens to send them.
+ *
+ * The browser records a request when it finishes, so the record is read by
+ * when each one started: a request the page sent while it was still loading
+ * (Filament's notifications pull theirs from the server as they start) can
+ * finish after this, and was not sent from here on.
  */
 function watchLivewireUpdates(mixed $page): void
 {
@@ -8593,7 +8598,7 @@ function watchLivewireUpdates(mixed $page): void
 
             window.livewireUri = uri
             window.livewireFetches = 0
-            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
+            window.livewireWatchedFrom = performance.now()
             window.notReloaded = true
             window.fetch = function (input, ...rest) {
                 if (String(input?.url ?? input).startsWith(uri)) {
@@ -8612,7 +8617,7 @@ function livewireUpdatesSinceWatching(mixed $page): array
     return $page->script(<<<'JS'
         (() => ({
             fetches: window.livewireFetches ?? null,
-            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
+            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri) && entry.startTime >= window.livewireWatchedFrom).length,
             sameDocument: window.notReloaded === true,
         }))()
     JS);
