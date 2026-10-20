@@ -5,8 +5,12 @@ use App\Actions\Studio\ApproveStudioPlanAction;
 use App\Actions\Studio\DispatchDueStudioActionsAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
+use App\Actions\Studio\SaveStudioDiscussionTreeAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
+use App\Data\Studio\SavedStudioDiscussion;
+use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionNodeData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -13161,6 +13165,25 @@ function raceDirectory(string $prefix): string
 }
 
 /**
+ * Removes what the competitors of a Content Studio plan race committed, as
+ * they committed it — for real: the plans those users made, and with them
+ * their discussions and actions, the photos, the moderation they did, and the
+ * users themselves.
+ *
+ * @param  list<int>  $userIds
+ */
+function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $directory): void
+{
+    $assetIds = $db->table('media_assets')->whereIn('owner_user_id', $userIds)->pluck('id');
+
+    $db->table('studio_plans')->whereIn('created_by_user_id', $userIds)->delete();
+    $db->table('media_assets')->whereIn('id', $assetIds)->delete();
+    $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
+    $db->table('users')->whereIn('id', $userIds)->delete();
+    File::deleteDirectory($directory);
+}
+
+/**
  * One competitor in a race between processes: a PHP process of its own
  * running one action against the test's database, stopped where the race is
  * decided until the other competitor is there too. Nobody sleeps for a
@@ -13186,12 +13209,13 @@ function raceDirectory(string $prefix): string
  *
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
- *   of a photo (`release`), or a post written with its transaction still open
- *   (`post`), or — for an executor — the moment between its committed claim
- *   and its run, holding nothing (`run`). With `die` set, the leader is killed
- *   right there instead, as a worker dies, and its transaction rolled back.
+ *   of a photo (`release`), a user's row written (`user`) or a post written
+ *   with its transaction still open (`post`), or — for an executor — the
+ *   moment between its committed claim and its run, holding nothing (`run`).
+ *   With `die` set, the leader is killed right there instead, as a worker
+ *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13290,6 +13314,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // A post written, its transaction still open.
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
+                // A user's row written, its transaction still open.
+                'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
                 default => static fn (string $sql): bool => $locks('studio_plans', $sql),
             };
             $dies = (bool) ($job['die'] ?? false);
@@ -13362,6 +13388,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
                 'plan-approve' => app(App\Actions\Studio\ApproveStudioPlanAction::class)->handle($admin, $plan, $job['version']),
+                // A draft's whole discussion saved; says the plan's version it left.
+                'discussion-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioDiscussionTreeAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioDiscussionData(array_map(fn (array $node) => new App\Data\Studio\StudioDiscussionNodeData(...$node), $job['nodes'])), $job['version'],
+                )->lockVersion."\n"),
                 // Content Studio's executor and dispatcher; the executor says what the action became.
                 'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
                 'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
@@ -13373,6 +13403,9 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // an administrator — on the locked row: no longer one who may approve.
                 'demote' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
                     ->forceFill(['role' => App\Enums\UserRole::User])->save()),
+                // An account deleted, on its locked row, as deleting it leaves it: a tombstone.
+                'tombstone' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
+                    ->forceFill(['status' => App\Enums\UserStatus::Deleted])->save()),
                 'hide-post' => app(App\Actions\Moderation\HidePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
                 // The analysis a stored photo asks for; says which attempt it was given.
@@ -13586,6 +13619,28 @@ function approvableStudioPlan(array $attributes = []): StudioPlan
 function approveStudioPlan(User $admin, StudioPlan $plan): StudioPlan
 {
     return app(ApproveStudioPlanAction::class)->handle($admin, $plan, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * One comment of a discussion as an editor hands it in, its fields named as
+ * StudioDiscussionNodeData's.
+ *
+ * @param  array<string, mixed>  $fields
+ */
+function discussionNode(array $fields = []): StudioDiscussionNodeData
+{
+    return new StudioDiscussionNodeData(...$fields);
+}
+
+/**
+ * Saves a plan's whole discussion as an administrator who saw the plan just
+ * now would.
+ *
+ * @param  list<StudioDiscussionNodeData>  $nodes
+ */
+function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): SavedStudioDiscussion
+{
+    return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }
 
 // =============================================================================

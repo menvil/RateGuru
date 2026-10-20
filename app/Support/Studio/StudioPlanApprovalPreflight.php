@@ -11,6 +11,7 @@ use App\Enums\UserStatus;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\User;
 use App\Support\Rating\RatingConfigurationManager;
@@ -36,7 +37,8 @@ use Illuminate\Support\Facades\Validator;
  * - a category, when there is one, still active; the tags each once; the
  *   author's answers part of the rating questions as they are configured now
  *   (RatingConfigurationManager), one per question;
- * - a date for a plan published on one, past or future alike.
+ * - a date for a plan published on one, past or future alike;
+ * - no prepared discussion, for now: nothing publishes one yet.
  */
 final class StudioPlanApprovalPreflight
 {
@@ -58,6 +60,7 @@ final class StudioPlanApprovalPreflight
             ...$this->photoProblems($plan),
             ...$this->taxonomyProblems($plan, $failed),
             ...$this->dateProblems($plan, $failed),
+            ...$this->discussionProblems($plan),
         ];
     }
 
@@ -210,6 +213,21 @@ final class StudioPlanApprovalPreflight
             isset($failed['publishAt']) => [StudioPlanApprovalProblem::PublishAtOutOfRange],
             default => [],
         };
+    }
+
+    /**
+     * Nothing publishes a discussion yet: the executor runs a plan's post
+     * alone. A plan that prepares one is not approved, rather than published
+     * without it — until the stage that publishes comments replaces this
+     * with the discussion's own checks.
+     *
+     * @return list<StudioPlanApprovalProblem>
+     */
+    private function discussionProblems(StudioPlan $plan): array
+    {
+        return StudioDiscussionNode::query()->where('studio_plan_id', $plan->getKey())->exists()
+            ? [StudioPlanApprovalProblem::DiscussionNotPublishable]
+            : [];
     }
 
     /** @param  array<string, array<string, mixed>>  $failed */

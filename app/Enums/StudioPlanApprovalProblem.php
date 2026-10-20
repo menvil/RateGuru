@@ -34,6 +34,7 @@ enum StudioPlanApprovalProblem: string
     case AnswerGroupRepeated = 'answer_group_repeated';
     case PublishAtMissing = 'publish_at_missing';
     case PublishAtOutOfRange = 'publish_at_out_of_range';
+    case DiscussionNotPublishable = 'discussion_not_publishable';
 
     public function rejection(): StudioPlanApprovalRejection
     {
@@ -45,6 +46,7 @@ enum StudioPlanApprovalProblem: string
             self::CategoryInactive, self::TagMissing, self::TagRepeated, self::TooManyTags,
             self::AnswerMissing, self::AnswerInactive, self::AnswerGroupRepeated => StudioPlanApprovalRejection::InvalidTaxonomy,
             self::PublishAtMissing, self::PublishAtOutOfRange => StudioPlanApprovalRejection::InvalidPublicationDate,
+            self::DiscussionNotPublishable => StudioPlanApprovalRejection::UnsupportedDiscussion,
         };
     }
 
@@ -61,6 +63,7 @@ enum StudioPlanApprovalProblem: string
             self::TagMissing, self::TagRepeated, self::TooManyTags => 'tagIds',
             self::AnswerMissing, self::AnswerInactive, self::AnswerGroupRepeated => 'authorAnswerOptionIds',
             self::PublishAtMissing, self::PublishAtOutOfRange => 'publishAt',
+            self::DiscussionNotPublishable => 'discussion',
         };
     }
 
@@ -90,6 +93,7 @@ enum StudioPlanApprovalProblem: string
             self::AnswerGroupRepeated => 'Choose one author’s answer for each rating question at most.',
             self::PublishAtMissing => 'Choose the publication date.',
             self::PublishAtOutOfRange => 'Choose a publication date from 1970 to 2038.',
+            self::DiscussionNotPublishable => 'A discussion cannot be published yet. Remove it to approve the post on its own.',
         };
     }
 }

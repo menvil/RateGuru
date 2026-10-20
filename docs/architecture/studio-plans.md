@@ -26,8 +26,9 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 
 The photo's analysis and the text suggestions written from it are kept beside
 the plan, each in a table of its own (see "Photo analysis" and "Post text
-suggestions" below), never in a column of the plan, and so are the actions
-approval writes (see "Approval" below). The post a plan becomes is its
+suggestions" below), never in a column of the plan, and so are the discussion
+it prepares (see "The discussion" below) and the actions approval writes (see
+"Approval" below). The post a plan becomes is its
 `create_post` action's result (`result_type`, `result_id`), not a column of the
 plan.
 
@@ -73,7 +74,8 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo |
 | `SetStudioPlanImageAction` | uploads or replaces the photo |
 | `RemoveStudioPlanImageAction` | takes the photo off |
-| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright |
+| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion with it |
+| `SaveStudioDiscussionTreeAction` | saves the Draft's whole discussion (see "The discussion") |
 | `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
 | `ExecuteStudioAction` | runs one sent action — today the post — once (see "Running a plan") |
 | `DispatchDueStudioActionsAction` | sends the actions that are due, and again those lost |
@@ -121,6 +123,7 @@ the bounds and whether what the plan names exists; on top of them:
 | tags | tags that exist, each once, ten at most | `tag_missing`, `tag_repeated`, `too_many_tags` |
 | author's answers | answers among the active options of the active rating questions as `RatingConfigurationManager` has them now, one per question | `answer_missing`, `answer_inactive`, `answer_group_repeated` |
 | date | for `at_date`, a date from 1970 to 2038 — past or future alike; `now` needs none | `publish_at_missing`, `publish_at_out_of_range` |
+| discussion | none, for now: nothing publishes a discussion yet (see "The discussion") | `discussion_not_publishable` |
 
 ### Approving
 
@@ -139,7 +142,8 @@ written. Either both are written or neither is.
 A refusal writes nothing and throws `CannotApproveStudioPlanException` with one
 `StudioPlanApprovalRejection` — `access_denied`, `plan_gone`, `not_draft`,
 `stale_version`, or, from the preflight, `author_unavailable`, `incomplete_plan`,
-`invalid_media`, `invalid_taxonomy` or `invalid_publication_date` — and the
+`invalid_media`, `invalid_taxonomy`, `invalid_publication_date` or
+`unsupported_discussion` — and the
 preflight's problems. An approved plan is no Draft, so a second approval, by
 anyone, is `not_draft` and writes no second action. Two administrators
 approving one Draft at once take turns on the Persona's row and then the
@@ -193,6 +197,135 @@ has committed, so a rolled-back approval is never logged as one, and
 `studio_plan.approval_rejected` (the plan, the administrator, the
 Persona, the rejection's code and the problems' codes). Never the plan's texts
 or its photo.
+
+## The discussion
+
+A Draft may prepare the discussion its post is to get: comments on the post
+and replies to them, each to be written later by a Persona at a moment of its
+own. For now it is only prepared and kept — saving it makes no comment, post,
+action or job, calls no paid service and changes nothing on screen.
+
+### What a discussion holds
+
+Each comment is a row of `studio_plan_discussion_nodes` (`StudioDiscussionNode`,
+`StudioPlan::discussionNodes()`), never a JSON column of the plan and never a
+`comments` row:
+
+| Column | Contract |
+| --- | --- |
+| `studio_plan_id` | the plan; cascades — the discussion goes with its Draft |
+| `parent_id` | the comment a reply answers, of the same plan; none for a comment on the post; cascades — a comment takes its replies with it |
+| `persona_user_id` | the Persona who is to write it; restricted — accounts become tombstones, never deleted |
+| `body` | its text, trimmed, 1 to 1,000 characters — a comment's own bound (`AddCommentAction::MAX_BODY_LENGTH`) |
+| `sort_order` | its place among its siblings, 0 to 65,535; places may be equal, the id then keeping the order |
+| `offset_seconds` | how long after the post it comes: 0 to 30 days |
+
+Indexes serve a plan's discussion in order (`studio_plan_id`, `parent_id`,
+`sort_order`, `id`), a comment's replies (`parent_id`) and a Persona's prepared
+comments (`persona_user_id`). Nothing is mass assignable: rows are written only
+by `SaveStudioDiscussionTreeAction`.
+
+### Two levels
+
+A discussion has exactly two levels, as the site has (`comment-lifecycle.md`;
+`content-studio-phase-0.md`, D6): comments on the post, and replies to a
+comment. A reply never answers another reply, nor itself, so no loop can form;
+a conversation is several replies to one comment, each addressing whom it
+answers in its text. At most 40 comments and replies in all; none is a
+discussion too.
+
+### Times
+
+A comment's moment is kept relative to the post — `offset_seconds` after it —
+never as a date of its own, so a new date for the post moves the whole
+discussion with it, unchanged. No comment comes before the post, nor later than
+30 days after it, and no reply before the comment it answers; equal moments
+are allowed. On a plan with a date, no comment may fall past the latest date a
+post may carry (`StudioPlanValidationRules::LATEST_PUBLISH_AT`). The offsets
+become each comment's own `occurs_at` and `run_after` only when the plan is
+approved, by the step that publishes discussions.
+
+### Ids
+
+Every comment keeps its id through every edit: a later step names one comment
+by its id — to write it again, to delete it, to publish it as an action of its
+own — never by its text. A save names a comment saved before by its `id`; a
+new comment has none, and may have a `key` instead, a name that holds within
+that one save, so a new reply can answer a new comment of the same save
+(`parentKey`) as an older one answers by `parentId`. The result
+(`SavedStudioDiscussion`) gives every comment with its id, and the id each key
+was given. An id is never taken on trust: one that is not this plan's refuses
+the whole save.
+
+### Saving
+
+`SaveStudioDiscussionTreeAction::handle($admin, $plan, StudioDiscussionData,
+$expectedLockVersion)` saves the whole discussion at once: every comment and
+reply it is to have, added, changed and deleted together, or not at all. A
+comment saved before and left out is deleted, and its replies with it — logged
+as `studio.discussion.deleted_branch`; a reply left out takes nothing else
+with it. A reply that names a comment the same save leaves out refuses the save
+rather than being left dangling. Nothing outside the discussion is touched: no
+comment, post or action is deleted.
+
+The rules (`StudioDiscussionValidationRules`) are one set for whoever writes
+the discussion — an administrator by hand now, the AI generator later — keyed
+as the editor's fields (`nodes.3.body`):
+
+- `validated()`, needing no lock: the count, each comment's Persona (one that
+  is not deleted), text, place and moment, the two levels, and that a reply
+  names a comment of this same discussion;
+- `validateAgainst()`, on the rows as they are now: an id is this plan's; each
+  Persona is still one and not deleted — a Limited, Shadowbanned or Banned one
+  may stay in a Draft, as a plan's author may, since whether it can write is
+  asked before anything is published; and a dated post's discussion stays
+  inside the dates a post may carry.
+
+The save checks the discussion first, then in one transaction locks the
+administrator's and every named Persona's `users` rows in ascending id order,
+then the plan (`LocksStudioPlanDraft`) — never a user after the plan — and asks
+everything again on them: the administrator may still manage plans, the plan is
+still a Draft at the version the editor was drawn from, and
+`validateAgainst()` passes. A save drawn from a version somebody else replaced
+is refused, `isStale()`, rather than written over theirs; a plan past its Draft
+is `isNotDraft()`. The comments on the post are written first, then the
+replies, then the deletions; a write a model event cancels fails the whole save
+as an exception would. The save raises the plan's version, like any other
+write to it.
+
+A save and a sanction or a deletion of a Persona it names lock that Persona's
+row in the same order, so they take turns rather than deadlocking: saved first,
+the comment stays and the deletion follows; deleted first, the save is refused.
+
+### Not approved yet
+
+The executor publishes a plan's post alone, and approval writes only its
+`create_post`. Approving a plan with a prepared discussion would publish the
+post and silently drop the discussion, so the preflight refuses it —
+`discussion_not_publishable`, adding up to `unsupported_discussion` — until the
+step that publishes comments replaces this with the discussion's own checks and
+writes an action for every comment. A plan whose discussion is emptied is
+approved as any other.
+
+### Logs
+
+`DomainLogger` events, written only once the outermost transaction has
+committed: `studio.discussion.saved` (the plan, the administrator, the number
+of comments on the post and of replies, the new version) and
+`studio.discussion.deleted_branch` (the comment deleted and how many replies
+went with it); and `studio.discussion.rejected` (the plan, the administrator, a
+code — `access_denied`, `plan_gone`, `not_draft`, `stale_version` or
+`invalid_discussion` — and the fields that failed). Never a comment's text nor
+anything of a Persona.
+
+### Still to come
+
+Later steps of the discussion stage build on these rows, unchanged: writing a
+discussion with AI, and writing one part of it again — a comment, a reply, a
+branch — keeping the history of what was asked and suggested apart from what
+an administrator saved; the Discussion step of the editor; and publishing it —
+an action for every comment and reply, under the post's, with the full
+preflight of the discussion in place of the refusal above.
 
 ## Running a plan
 

@@ -168,6 +168,18 @@ class StudioPlan extends Model
         return $this->hasMany(StudioAction::class);
     }
 
+    /**
+     * The discussion it prepares for its post — comments on it and replies to
+     * them — in the order they are listed: each level by its place, then by
+     * id. Drafts only, until it is approved; deleted with the plan.
+     *
+     * @return HasMany<StudioDiscussionNode, $this>
+     */
+    public function discussionNodes(): HasMany
+    {
+        return $this->hasMany(StudioDiscussionNode::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     public function isDraft(): bool
     {
         return $this->status === StudioPlanStatus::Draft;
