@@ -85,6 +85,18 @@
 # verification, and never removes it. Releasing it belongs to the deliberate
 # act of adopting the recovered machine, which nothing here performs.
 #
+# OUTBOUND MAIL IS HELD TOO. A recovered machine of a target whose mail goes
+# out directly would otherwise deliver it from an address the public DNS does
+# not yet name. Its preparation placed the recovery outbound hold
+# (recovery-outbound-hold) before the mail gateway was installed; --apply binds
+# that hold to its operation before it downloads a byte, and refuses a machine
+# that carries none or carries another recovery's; --inspect and --resume
+# refuse a hold bound to another operation, and --resume re-establishes a
+# missing one; --verify reports it as part of the final contract. A recovery
+# that leaves the machine as its preparation left it takes its binding back.
+# Nothing here releases it: release-recovered-outbound does, once the
+# machine has been deliberately adopted and its DNS proved.
+#
 # Cross-project safety: only this target's own resources are touched. No
 # global Nginx, PostgreSQL, Redis, Supervisor or cron service is ever stopped,
 # no unrelated database, role, program group, cron file, vhost or /home/www
@@ -113,6 +125,17 @@ source "${COMMON_FILE}"
 # shellcheck disable=SC1090
 source "${RESTORE_COMMON_FILE}"
 
+# The recovery outbound hold's one definition, from the same installed bundle
+# as common.
+RECOVERY_OUTBOUND_HOLD_LIBRARY=/home/www/rateguru/bin/recovery-outbound-hold
+
+if [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]] && [[ -n "${RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY:-}" ]]; then
+    RECOVERY_OUTBOUND_HOLD_LIBRARY="${RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY}"
+fi
+
+# shellcheck disable=SC1090
+source "${RECOVERY_OUTBOUND_HOLD_LIBRARY}"
+
 # --- children -----------------------------------------------------------------
 #
 # Prepare Host is resolved as a SIBLING of this script, never through
@@ -135,6 +158,15 @@ PREPARE_HOST_BIN="$(restore_gated_default RATEGURU_RECOVER_PREPARE_HOST_BIN "${R
 # configuration. Read for exactly one question — is this group configured on
 # this machine — and never written, parsed or installed from here.
 SUPERVISOR_CONF_D="$(restore_gated_default RATEGURU_RECOVER_SUPERVISOR_CONF_D /etc/supervisor/conf.d)"
+
+# Where the recovery outbound hold lives and the owner it is judged against —
+# the gateway's state directory and root — and the reviewed mail routing, from
+# the installed bundle, that says whether a target's mail goes out directly at
+# all.
+RECOVER_OUTBOUND_HOLD_DIR="$(restore_gated_default RATEGURU_RECOVER_OUTBOUND_HOLD_DIR "${RECOVERY_OUTBOUND_HOLD_DIR}")"
+RECOVERY_OUTBOUND_HOLD_OWNER="$(restore_gated_default RATEGURU_RECOVER_OUTBOUND_HOLD_OWNER root)"
+RECOVER_MAIL_ROUTING_CLI="$(restore_gated_default RATEGURU_RECOVER_MAIL_ROUTING_CLI /home/www/rateguru/bin/mail-routing)"
+RECOVER_MAIL_ROUTING_POLICY="$(restore_gated_default RATEGURU_RECOVER_MAIL_ROUTING_POLICY /home/www/rateguru/config/mail-routing.json)"
 
 # supervisorctl's exit status for "the request was understood and the name
 # matched nothing" (supervisorctl.py LSBStatusExitStatuses.UNKNOWN). A
@@ -337,6 +369,7 @@ SCHEDULER_HELD_BY_RECOVERY=false
 QUEUE_STOPPED_BY_RECOVERY=false
 STORAGE_BASELINE_CREATED=false
 RECOVERY_GUARD_WRITTEN=false
+OUTBOUND_HOLD_BOUND_BY_THIS_RUN=false
 CURRENT_RELEASE=""
 CURRENT_SOURCE_SHA=""
 RECOVERED_MIGRATIONS=""
@@ -570,6 +603,141 @@ assert_offsite_writes_held() {
         || fail "the offsite-write hold is missing ($(offsite_write_hold_file "${RUN_ROOT}")) — a recovered host must never upload into, or prune, the offsite namespace the machine this target is still bound to owns, so this mode refuses. To continue: a recovery still awaiting its code re-establishes the hold itself when recover-host --resume runs (after the controlled recovery deployment); for any other stage, re-place it by hand as root — install -m 0600 /dev/null HOLD && printf '{\"hold\":\"offsite-writes\",\"reason\":\"host-recovery\",\"target\":\"${TARGET_ID}\",\"created_by\":\"operator\"}\\n' > HOLD, where HOLD is the path above — and re-run this mode. Nothing releases the hold; removing it is part of deliberately adopting this machine"
 
     RECOVER_OFFSITE_WRITES="held"
+}
+
+# --- recovery outbound hold ------------------------------------------------------
+#
+# The marker infrastructure/scripts/recovery-outbound-hold defines, placed by
+# the recovery preparation before the mail gateway was installed: while it is
+# held, the gateway keeps the target's mail held with no direct route.
+
+# recovery_target_mail_mode — the target's delivery mode in the reviewed mail
+# routing the installed bundle carries. Fails when it cannot be told.
+recovery_target_mail_mode() {
+    local plan
+
+    plan="$("${RECOVER_MAIL_ROUTING_CLI}" render-plan --file "${RECOVER_MAIL_ROUTING_POLICY}" --registry "$(target_registry_file)" 2>/dev/null)" \
+        || return 1
+
+    jq -r --arg target "${TARGET_ID}" '[.listeners[] | select(.identity == $target) | .delivery_mode][0] // "none"' <<<"${plan}"
+}
+
+# recovery_outbound_hold_required — 0 when this target must carry a recovery
+# outbound hold on this machine: it has one, or its reviewed mail goes out
+# directly. Fails closed when the reviewed routing cannot be read.
+recovery_outbound_hold_required() {
+    local mode
+
+    recovery_outbound_hold_judge "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}"
+    [[ "${ROH_STATE}" == absent ]] || return 0
+
+    mode="$(recovery_target_mail_mode)" \
+        || fail "whether ${TARGET_ID}'s mail goes out directly cannot be told: ${RECOVER_MAIL_ROUTING_CLI} render-plan refused the reviewed mail routing (${RECOVER_MAIL_ROUTING_POLICY}) — refusing to treat a recovered machine as one whose outbound mail needs no hold"
+
+    if [[ "${mode}" == outbound ]]; then
+        return 0
+    fi
+
+    RECOVER_OUTBOUND_MAIL="not-applicable"
+    log "outbound mail: not applicable — ${TARGET_ID}'s reviewed mail is ${mode}, and nothing it accepts leaves this machine directly"
+    return 1
+}
+
+# bind_recovery_outbound_hold — --apply, before a byte is downloaded: the hold
+# the preparation placed is bound to this operation, so a later release names
+# the recovery it belongs to and no other recovery can claim this machine.
+bind_recovery_outbound_hold() {
+    recovery_outbound_hold_required || return 0
+
+    if ! recovery_outbound_hold_bind "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}" "${BACKUP_ID}" "${OPERATION_ID}"; then
+        operator_action_required \
+            "this machine does not hold ${TARGET_ID}'s outbound mail for this recovery: ${ROH_PROBLEM}" \
+            "a recovered ${TARGET_ID} delivers its mail directly, and a replacement machine may only be recovered while its outbound mail is held, so that nothing leaves from an address the public DNS does not yet name; no data was staged" \
+            "re-run \"$(recovery_workflow_name)\" with mode=start, the same exact backup and the same replacement host — its preparation places the hold, and keeps one it already placed for this backup" \
+            "if the hold names another backup or another recovery operation, this machine belongs to that recovery: take a new machine rather than clearing it by hand" \
+            "never remove or edit the hold to make a recovery pass"
+        fail "refusing to recover ${TARGET_ID} onto a machine that does not hold its outbound mail for this recovery: ${ROH_PROBLEM}. No data was staged or activated"
+    fi
+
+    OUTBOUND_HOLD_BOUND_BY_THIS_RUN=true
+    RECOVER_OUTBOUND_MAIL="held"
+    log "outbound mail: HELD — the recovery outbound hold is bound to operation ${OPERATION_ID} (${TARGET_ID}'s listener holds every message; no direct route until release-recovered-outbound releases it)"
+}
+
+# unbind_recovery_outbound_hold — a failed --apply that put the machine back
+# exactly as its preparation left it takes its binding back, so the next start
+# of the same recovery can bind the hold again. The hold itself stays.
+unbind_recovery_outbound_hold() {
+    [[ "${OUTBOUND_HOLD_BOUND_BY_THIS_RUN}" == true ]] || return 0
+
+    if recovery_outbound_hold_unbind "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}" "${OPERATION_ID}"; then
+        log "outbound mail: still HELD — the hold's binding to the failed operation ${OPERATION_ID} was taken back, so the same recovery can start again"
+    else
+        log "WARNING: the recovery outbound hold is still bound to the failed operation ${OPERATION_ID} (${ROH_PROBLEM}) — a new start of this recovery will refuse this machine; the outbound mail stays held"
+    fi
+}
+
+# assert_recovery_outbound_hold_for_operation PLACED_BY — --inspect and
+# --resume: a hold, when this target needs one, bound to this operation and
+# still held. With PLACED_BY (--resume, the mutating stage that brings the
+# runtime back), a missing hold is re-established for this operation first.
+assert_recovery_outbound_hold_for_operation() {
+    local placed_by="${1:-}"
+
+    recovery_outbound_hold_required || return 0
+
+    if [[ "${ROH_STATE}" == absent && -n "${placed_by}" ]]; then
+        recovery_outbound_hold_place "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}" "${BACKUP_ID}" \
+            && recovery_outbound_hold_bind "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}" "${BACKUP_ID}" "${OPERATION_ID}" \
+            || fail "the recovery outbound hold for ${TARGET_ID} was missing and could not be re-established: ${ROH_PROBLEM} — the target stays held"
+        log "outbound mail: HELD again by ${placed_by} — the missing recovery outbound hold was re-established for operation ${OPERATION_ID}"
+    fi
+
+    recovery_outbound_hold_require "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}" "${OPERATION_ID}" \
+        || fail "${TARGET_ID}'s outbound mail is not held for recovery operation ${OPERATION_ID}: ${ROH_PROBLEM} — nothing was changed; this machine's outbound hold belongs to another recovery, or was released, and a recovery never continues onto it"
+
+    RECOVER_OUTBOUND_MAIL="held"
+}
+
+# verify_recovery_outbound_hold — the final contract's view of outbound mail:
+# a target whose mail goes out directly carries a sound hold bound to a
+# recovery this machine's journal records as completed — still held, or
+# released by release-recovered-outbound.
+verify_recovery_outbound_hold() {
+    recovery_outbound_hold_required || return 0
+
+    case "${ROH_STATE}" in
+        held|released) ;;
+        absent)
+            fail "${TARGET_ID}'s mail goes out directly, and this machine carries no recovery outbound hold ($(recovery_outbound_hold_file "${RECOVER_OUTBOUND_HOLD_DIR}" "${TARGET_ID}")) — a recovered host never sends directly until release-recovered-outbound has proved its address and released it; the mail gateway still holds the target's mail and refuses to cross without it. Re-run this recovery's resume (mode=continue-held), which re-establishes it"
+            ;;
+        *)
+            fail "${TARGET_ID}'s recovery outbound hold cannot be trusted: ${ROH_PROBLEM}"
+            ;;
+    esac
+
+    [[ -n "${ROH_OPERATION}" ]] \
+        || fail "${TARGET_ID}'s recovery outbound hold is bound to no recovery operation — no recovery completed on this machine with it"
+
+    recovery_operation_completed_in_history "${TARGET_ID}" "${ROH_OPERATION}" \
+        || fail "${TARGET_ID}'s recovery outbound hold is bound to recovery operation ${ROH_OPERATION}, which this machine's recovery journal does not record as completed"
+
+    RECOVER_OUTBOUND_MAIL="${ROH_STATE}"
+}
+
+# print_recovery_outbound_mail_line — the report line for outbound mail.
+print_recovery_outbound_mail_line() {
+    case "${RECOVER_OUTBOUND_MAIL}" in
+        held)
+            printf 'OUTBOUND MAIL: HELD (the recovery outbound hold, bound to operation %s: no direct delivery until release-recovered-outbound releases it)\n' "${ROH_OPERATION:-${OPERATION_ID}}"
+            ;;
+        released)
+            printf 'OUTBOUND MAIL: RELEASED (by release-recovered-outbound at %s, for %s)\n' "${ROH_RELEASED_AT}" "${ROH_ADDRESS}"
+            ;;
+        not-applicable)
+            printf 'OUTBOUND MAIL: not applicable (%s'"'"'s mail never leaves this machine directly)\n' "${TARGET_ID}"
+            ;;
+    esac
 }
 
 # --- preconditions ---------------------------------------------------------------
@@ -1702,6 +1870,7 @@ emit_recover_result() {
             --arg queue "${RECOVER_QUEUE}" \
             --arg scheduler "${RECOVER_SCHEDULER}" \
             --arg offsite_writes "${RECOVER_OFFSITE_WRITES}" \
+            --arg outbound_mail "${RECOVER_OUTBOUND_MAIL}" \
             --arg previous "${RECOVER_PREVIOUS}" \
             --argjson data_restored "${DATA_RESTORED}" \
             '{
@@ -1719,6 +1888,7 @@ emit_recover_result() {
                 queue: $queue,
                 scheduler: $scheduler,
                 offsite_writes: $offsite_writes,
+                outbound_mail: $outbound_mail,
                 previous: $previous
             }'
     )" || fail "could not render the machine-readable recovery result"
@@ -1730,6 +1900,9 @@ RECOVER_HEALTH="unknown"
 RECOVER_QUEUE="unknown"
 RECOVER_SCHEDULER="unknown"
 RECOVER_OFFSITE_WRITES="unknown"
+# held, released or not-applicable once a mode has judged the recovery
+# outbound hold; unknown until then.
+RECOVER_OUTBOUND_MAIL="unknown"
 # Only --verify proves this, and only by refusing every other answer. Every
 # other mode reports what it has: "unknown", never an optimistic "absent".
 RECOVER_PREVIOUS="unknown"
@@ -1823,6 +1996,7 @@ handle_recovery_exit() {
         case "${status}" in
             failed|failed-recovered)
                 clear_recovery_guard || true
+                ( unbind_recovery_outbound_hold ) || true
                 ;;
             *)
                 write_recovery_guard "${status}" || true
@@ -1994,6 +2168,11 @@ perform_recovery() {
     # not.
     step "hold offsite writes"
     ensure_offsite_writes_held
+
+    # And the target's direct outbound mail, held since before the mail
+    # gateway was installed, bound to this operation before the download.
+    step "bind the recovery outbound hold"
+    bind_recovery_outbound_hold
 
     SELECTED_BACKUP_DIR="$(restore_selected_backup_dir "${WORKSPACE}")"
 
@@ -2193,6 +2372,7 @@ print_awaiting_code_report() {
     printf 'BACKUP SCHEMA: %s\n' "${BACKUP_SCHEMA}"
     printf 'QUEUE: STOPPED   SCHEDULER: HELD   CURRENT: ABSENT   PREVIOUS: ABSENT\n'
     printf 'OFFSITE WRITES: HELD\n'
+    print_recovery_outbound_mail_line
     printf '========================================================\n'
     printf '\n'
     printf 'The DATA recovery succeeded. The target is intentionally NOT serving:\n'
@@ -2428,6 +2608,9 @@ perform_inspect() {
     step "read current release identity"
     read_current_identity
 
+    step "check the recovery outbound hold"
+    assert_recovery_outbound_hold_for_operation
+
     # OBSERVED, never assumed: the report below and the machine-readable result
     # both describe what this proved, and it refuses rather than reporting a
     # state that is no longer real.
@@ -2458,6 +2641,7 @@ perform_inspect() {
     printf 'CURRENT SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA:-absent}"
     printf 'RUNTIME: queue STOPPED, scheduler HELD (observed)\n'
     printf 'OFFSITE WRITES: HELD (observed)\n'
+    print_recovery_outbound_mail_line
     printf 'NEXT: %s\n' "${next_step}"
     printf '========================================================\n'
 
@@ -2490,6 +2674,12 @@ perform_resume() {
     # service is started. Kept as is when present; never rewritten.
     step "hold offsite writes"
     ensure_offsite_writes_held "recover-host --resume"
+
+    # The same for outbound mail: a hold for another operation, or one already
+    # released, refuses before a single service is started; a missing one is
+    # put back for this operation.
+    step "hold outbound mail"
+    assert_recovery_outbound_hold_for_operation "recover-host --resume"
 
     # The same classifier --inspect reports and the deployment authorizes
     # against, so "resumable" cannot come to mean two different things.
@@ -2609,6 +2799,7 @@ perform_resume() {
     printf 'SOURCE SHA: %s\n' "${CURRENT_SOURCE_SHA}"
     printf 'HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT\n'
     printf 'OFFSITE WRITES: HELD (the backup cron stays fenced until this machine is deliberately adopted)\n'
+    print_recovery_outbound_mail_line
     printf '========================================================\n'
 
     emit_recover_result completed
@@ -2689,6 +2880,10 @@ perform_verify() {
     "${RESTORE_HEALTH_CHECK_BIN}" --target "${TARGET_ID}" \
         || fail "health check failed for ${TARGET_ID}"
 
+    # Healthy while its outbound mail is held: the application runs, and
+    # whatever it sends waits on this machine.
+    verify_recovery_outbound_hold
+
     DATA_RESTORED=true
     RECOVER_HEALTH="pass"
 
@@ -2701,6 +2896,7 @@ perform_verify() {
     printf 'PREVIOUS: absent\n'
     printf 'HEALTH: PASS   QUEUE: RUNNING   SCHEDULER: PRESENT\n'
     printf 'OFFSITE WRITES: HELD\n'
+    print_recovery_outbound_mail_line
     printf '========================================================\n'
 
     emit_recover_result verified

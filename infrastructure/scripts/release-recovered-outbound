@@ -1,0 +1,825 @@
+#!/usr/bin/env bash
+#
+# release-recovered-outbound — the one way a recovered machine's direct
+# outbound mail is released: after a clean-host recovery, once the machine has
+# been deliberately adopted and the public DNS names it, and only then.
+#
+#   release-recovered-outbound --check  --target T --operation OP --address IPV4
+#   release-recovered-outbound --apply  --target T --operation OP --address IPV4 --confirm-release
+#   release-recovered-outbound --verify --target T
+#
+# WHAT IT RELEASES. A clean-host recovery of a target whose mail goes out
+# directly holds that mail on the replacement machine from before its mail
+# gateway is installed: the recovery outbound hold
+# (infrastructure/scripts/recovery-outbound-hold), under which the gateway
+# keeps the target's listener holding every message with no direct route.
+# Releasing it is the activation the gateway already guards — the target's
+# mail crossing from held to outbound — and it is made through the gateway's
+# own one-use authorization, bound to the exact recorded and requested policy.
+# Nothing about Postfix is spelled here.
+#
+# --apply, under the host's infrastructure lock, in order:
+#
+#   1. The request: the trusted bundle this runs from routes T's mail outbound
+#      by direct delivery, on a host contract that enables it. Otherwise there
+#      is nothing to release, and nothing is touched.
+#   2. The machine: it carries T's recovery outbound hold, held and bound to
+#      exactly the operation the operator names — the clean-host recovery
+#      that restored this machine. No hold, another operation's, one that
+#      cannot be trusted: refused. One this release already released, for the
+#      same operation and address, with outbound delivery running and ready:
+#      a no-op that succeeds.
+#   3. The proof, all of it required, before anything changes:
+#        recover-host --verify          the recovery is complete — RECOVERED:
+#                                       YES, healthy, no recovery or restore
+#                                       guard, no operation unfinished — and
+#                                       the hold belongs to that recovery;
+#        install-mail-gateway --verify  the gateway is exactly the held one;
+#        mail-identity verify-dns       A of the MTA hostname is this machine's
+#                                       sending address, its PTR names the MTA
+#                                       hostname and resolves back, SPF
+#                                       authorizes it, the DKIM record is the
+#                                       installed key's public half and DMARC
+#                                       is the reviewed policy — as two
+#                                       independent public resolvers both
+#                                       answer, never this host's resolver;
+#        install-mail-signing --verify  the signer runs and can read the key;
+#        the operator's confirmation    --address is exactly the address this
+#                                       machine sends from, and --apply carries
+#                                       --confirm-release.
+#   4. The release: the hold marked released — the operation, when, and the
+#      proved address — then the gateway's one-use ACTIVATE authorization,
+#      then install-mail-gateway --apply, which consumes it and crosses.
+#   5. The acceptance: the gateway's --verify, and mail-identity readiness
+#      with every condition PASS and OUTBOUND READY: YES.
+#   6. Any failure from step 4 on — a refusal, a verify short of PASS, an
+#      error, a signal — puts the hold back to held and, if the gateway
+#      crossed, returns it to held through its own ROLLBACK authorization.
+#      When even that cannot be proved, the result is CRITICAL.
+#
+# A release killed outright between steps 4 and 5 leaves the hold released and
+# the gateway still holding the mail: every ordinary apply then refuses to
+# cross, so nothing leaves. The next --apply recognises it, puts the hold back
+# to held and releases again behind the full proof; one killed after the
+# gateway crossed is accepted as the no-op it then is, or refused, by the same
+# acceptance.
+#
+# NEVER. The HOLD queue is not touched: whatever the application sent while the
+# mail was held stays held, its count is reported, and what becomes of it is a
+# separate, explicit decision (see the runbook). No queue is flushed, released
+# or requeued, `postsuper` is never run, no key is read or printed, no SMTP
+# connection is opened, and no DNS record, DEPLOY_HOST, Nginx site, environment
+# file, lifecycle or offsite-write hold is changed.
+#
+# Every run whose mode and target were understood ends with exactly one line
+# RATEGURU_RECOVERED_OUTBOUND_RESULT={target, mode, status, operation, address,
+# released, changed, rolled_back, outbound_ready, held_messages}; status is
+# pass, fail or critical.
+#
+# Repository tooling, like activate-mail-outbound: it runs from the trusted
+# bundle the release workflow uploads, beside the tools it composes, and is
+# never installed onto a host.
+#
+# Test overrides: the RATEGURU_RELEASEOUTBOUND_* variables below are honoured
+# only alongside RATEGURU_ALLOW_TEST_OVERRIDES=true.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)"
+
+rateguru_test_overrides_allowed() {
+    [[ "${RATEGURU_ALLOW_TEST_OVERRIDES:-false}" == true ]]
+}
+
+gated_default() {
+    local var_name="$1" default_value="$2"
+
+    if rateguru_test_overrides_allowed && [[ -n "${!var_name:-}" ]]; then
+        printf '%s\n' "${!var_name}"
+    else
+        printf '%s\n' "${default_value}"
+    fi
+}
+
+EFFECTIVE_UID="$(gated_default RATEGURU_RELEASEOUTBOUND_EUID "${EUID}")"
+
+# The host's one infrastructure lock: the same file prepare-host and the
+# outbound activation hold while they change shared infrastructure.
+RUN_ROOT="$(gated_default RATEGURU_RELEASEOUTBOUND_RUN_ROOT /home/www/rateguru/run)"
+HOST_LOCK_NAME="host-infrastructure.lock"
+
+# The recovery outbound hold: its one definition, where it lives and the owner
+# it is judged against.
+# shellcheck source=recovery-outbound-hold disable=SC1091
+source "${SCRIPT_DIR}/recovery-outbound-hold"
+HOLD_DIR="$(gated_default RATEGURU_RELEASEOUTBOUND_HOLD_DIR "${RECOVERY_OUTBOUND_HOLD_DIR}")"
+RECOVERY_OUTBOUND_HOLD_OWNER="$(gated_default RATEGURU_RELEASEOUTBOUND_HOLD_OWNER root)"
+
+# The queue lookup the mail tooling shares: the HOLD queue is counted, never
+# touched.
+# shellcheck disable=SC2034 # read by smtp-submission's queue lookups
+POSTQUEUE_BIN="$(gated_default RATEGURU_RELEASEOUTBOUND_POSTQUEUE_BIN postqueue)"
+# shellcheck source=smtp-submission disable=SC1091
+source "${SCRIPT_DIR}/smtp-submission"
+
+# The one-use authorization the gateway requires to cross between held and
+# outbound: its kind, and how long it may wait to be used — long enough for
+# the apply that follows it, and no longer.
+AUTHORIZATION_KIND="rateguru-mail-gateway-transition-authorization"
+AUTHORIZATION_LIFETIME=300
+
+# Every condition readiness reports, each of which must be PASS.
+READINESS_CONDITIONS=(target routing direct mta identity key host address a ptr spf dkim dmarc signing)
+
+MODE=""
+TARGET_ID=""
+OPERATION=""
+ADDRESS=""
+CONFIRMED=false
+
+RESULT_READY=false
+RESULT_PRINTED=false
+RELEASED=false
+CHANGED=false
+ROLLED_BACK=false
+OUTBOUND_READY=false
+HELD_MESSAGES=null
+
+HOST_LOCK_FD=""
+AUTHORIZATION_PATH=""
+AUTHORIZATION_NONCE=""
+
+# Set from the moment the hold is marked released until the release is fully
+# accepted: an exit while it is set returns the machine to held.
+TRANSACTION_OPEN=false
+
+COUNT_FAIL=0
+CHILD_OUTPUT=""
+
+log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+ok() { printf '  PASS %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*"; COUNT_FAIL=$((COUNT_FAIL + 1)); }
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'USAGE'
+Usage:
+  release-recovered-outbound --check  --target TARGET --operation OPERATION_ID --address IPV4
+  release-recovered-outbound --apply  --target TARGET --operation OPERATION_ID --address IPV4 --confirm-release
+  release-recovered-outbound --verify --target TARGET
+  release-recovered-outbound --help
+
+  --check            Read-only (root): every condition --apply requires, and
+                     whether it would release, be a no-op, or refuse.
+  --apply            Root. Release TARGET's outbound mail on this recovered
+                     machine behind the full proof, through the gateway's
+                     one-use authorization, and return it to held on any
+                     failure. A no-op when this release already happened.
+  --verify           Read-only (root): the hold released, the gateway the
+                     requested one, OUTBOUND READY: YES.
+
+  --target           The recovered target.
+  --operation        The clean-host recovery operation that restored this
+                     machine — the one its outbound hold is bound to.
+  --address          The IPv4 address this machine sends from, as the operator
+                     expects it: it must be exactly the one the kernel's route
+                     uses and the public DNS names.
+  --confirm-release  The operator's explicit confirmation; --apply refuses
+                     without it.
+
+The HOLD queue is never released: what the application sent while the mail
+was held stays held, and what becomes of it is a separate decision. No DNS
+record, deployment binding, Nginx site or offsite-write hold is changed.
+USAGE
+}
+
+# --- Result -------------------------------------------------------------------------
+
+result_line() {
+    local status="$1"
+
+    [[ "${RESULT_PRINTED}" == false ]] || return 0
+    RESULT_PRINTED=true
+
+    jq -c -n \
+        --arg target "${TARGET_ID}" --arg mode "${MODE}" --arg status "${status}" \
+        --arg operation "${OPERATION}" --arg address "${ADDRESS}" \
+        --argjson released "${RELEASED}" --argjson changed "${CHANGED}" \
+        --argjson rolled_back "${ROLLED_BACK}" --argjson ready "${OUTBOUND_READY}" \
+        --argjson held "${HELD_MESSAGES}" '
+        {target: $target, mode: $mode, status: $status,
+         operation: (if $operation == "" then null else $operation end),
+         address: (if $address == "" then null else $address end),
+         released: $released, changed: $changed, rolled_back: $rolled_back,
+         outbound_ready: $ready, held_messages: $held}' \
+        | sed 's/^/RATEGURU_RECOVERED_OUTBOUND_RESULT=/'
+}
+
+# --- Exit: the open transaction, the authorization, the result ----------------------
+
+on_exit() {
+    local status=$?
+    trap - EXIT
+    # Nothing interrupts the return to held: a lost connection or a second
+    # signal must not leave the machine half-way.
+    trap '' HUP INT PIPE TERM
+    set +e
+
+    if [[ "${TRANSACTION_OPEN}" == true ]]; then
+        TRANSACTION_OPEN=false
+        log "the release did not complete (exit ${status}) — returning ${TARGET_ID}'s outbound mail to held"
+
+        if return_to_held; then
+            ROLLED_BACK=true
+            RELEASED=false
+            OUTBOUND_READY=false
+            log "ROLLED BACK: ${TARGET_ID}'s outbound mail is held again — the hold is held for operation ${OPERATION}, the listener holds every message and no direct route exists; the release failed"
+            result_line fail
+            status=1
+        else
+            OUTBOUND_READY=false
+            printf 'CRITICAL: the release of %s failed AND its return to held could not be proved. Nothing broader was attempted. Inspect the gateway now: install-mail-gateway --verify, and the hold %s.\n' "${TARGET_ID}" "$(recovery_outbound_hold_file "${HOLD_DIR}" "${TARGET_ID}")" >&2
+            log "RELEASE: CRITICAL — the return to held was not verified"
+            result_line critical
+            status=2
+        fi
+    fi
+
+    withdraw_authorization
+
+    if [[ "${RESULT_READY}" == true && "${RESULT_PRINTED}" == false ]] && command -v jq >/dev/null 2>&1; then
+        result_line "$( (( status == 0 )) && echo pass || echo fail)"
+    fi
+
+    exit "${status}"
+}
+
+# --- Preconditions ------------------------------------------------------------------
+
+require_root() {
+    [[ "${EFFECTIVE_UID}" == 0 ]] \
+        || die "release-recovered-outbound --${MODE} must run as root (the gateway, the signer, the hold and the queue it counts are root's)"
+}
+
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        command -v "${tool}" >/dev/null 2>&1 || die "required tool not found: ${tool}"
+    done
+}
+
+acquire_host_lock() {
+    local path="${RUN_ROOT}/${HOST_LOCK_NAME}"
+
+    [[ -d "${RUN_ROOT}" ]] \
+        || die "the operational lock directory does not exist: ${RUN_ROOT} — this host has not been bootstrapped; nothing was changed"
+
+    exec {HOST_LOCK_FD}>>"${path}" \
+        || die "could not open ${path} to claim this host's shared infrastructure; nothing was changed"
+
+    if ! flock -n -x "${HOST_LOCK_FD}"; then
+        if flock -n -s "${HOST_LOCK_FD}"; then
+            die "a target operation is running on this host — a deployment, rollback, cleanup, restore, recovery or backup holds ${path} shared; nothing was changed. Run it again once no target operation is in flight"
+        fi
+
+        die "another operation is already mutating this host's shared infrastructure (${path}); nothing was changed. Host-level operations run one at a time"
+    fi
+}
+
+# run_child LABEL COMMAND... — a tool of this bundle, its output shown
+# indented and kept in CHILD_OUTPUT.
+run_child() {
+    local label="$1" status=0 line
+    shift
+
+    if [[ ! -x "$1" ]]; then
+        CHILD_OUTPUT=""
+        printf '  ---- %s: not executable: %s — run from a full trusted bundle\n' "${label}" "$1"
+        return 127
+    fi
+
+    CHILD_OUTPUT="$("$@" 2>&1 </dev/null)" || status=$?
+
+    printf '  ---- %s (exit %s)\n' "${label}" "${status}"
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && printf '       | %s\n' "${line}"
+    done <<<"${CHILD_OUTPUT}"
+
+    return "${status}"
+}
+
+tool() {
+    printf '%s/%s\n' "${SCRIPT_DIR}" "$1"
+}
+
+# --- The request: what the trusted bundle says ------------------------------------------
+
+# require_requested — the trusted bundle delivers TARGET's mail outbound by
+# direct delivery, on a host contract that enables it. Anything else has
+# nothing to release.
+require_requested() {
+    local plan listener mode route environment enabled
+
+    plan="$("$(tool mail-routing)" render-plan 2>/dev/null)" \
+        || die "mail-routing render-plan refused the trusted bundle's policy — nothing was changed"
+
+    listener="$(jq -c --arg t "${TARGET_ID}" '.listeners[] | select(.identity == $t)' <<<"${plan}")"
+    [[ -n "${listener}" ]] || die "${TARGET_ID} is not a target of the trusted bundle's mail routing plan — nothing was changed"
+
+    environment="$(jq -r '.environment_class' <<<"${listener}")"
+    mode="$(jq -r '.delivery_mode' <<<"${listener}")"
+    route="$(jq -r '.route.kind // "none"' <<<"${listener}")"
+    enabled="$(jq -r '.direct.enabled' "${REPO_ROOT}/infrastructure/config/mail-outbound.json")"
+
+    [[ "${environment}" == production && "${mode}" == outbound && "${route}" == direct && "${enabled}" == true ]] \
+        || die "the trusted bundle does not deliver ${TARGET_ID}'s mail directly (${environment} target, delivery_mode ${mode}, route ${route}, direct delivery $([[ "${enabled}" == true ]] && echo enabled || echo disabled)) — there is no outbound mail to release, and nothing was changed"
+
+    ok "the trusted bundle delivers ${TARGET_ID}'s mail outbound by direct delivery, on a host contract that enables it"
+}
+
+# --- The machine: its hold ---------------------------------------------------------------
+
+# judge_hold — the hold on this machine, for this release. Sets HOLD_STATE to
+# held (ready to release) or released (this release already happened); dies on
+# anything else.
+HOLD_STATE=""
+
+judge_hold() {
+    local path
+    path="$(recovery_outbound_hold_file "${HOLD_DIR}" "${TARGET_ID}")"
+
+    recovery_outbound_hold_judge "${HOLD_DIR}" "${TARGET_ID}"
+
+    case "${ROH_STATE}" in
+        absent)
+            die "this machine carries no recovery outbound hold for ${TARGET_ID} (${path}) — it is not a machine a clean-host recovery prepared, and there is nothing to release; nothing was changed"
+            ;;
+        corrupt)
+            die "the recovery outbound hold for ${TARGET_ID} cannot be trusted: ${ROH_PROBLEM} — nothing was changed; it is never repaired or released by hand"
+            ;;
+    esac
+
+    [[ -n "${ROH_OPERATION}" ]] \
+        || die "the recovery outbound hold for ${TARGET_ID} is bound to no recovery operation — no recovery has restored onto this machine yet, so there is nothing to release; nothing was changed"
+
+    if [[ "${MODE}" == verify ]]; then
+        OPERATION="${ROH_OPERATION}"
+    elif [[ "${ROH_OPERATION}" != "${OPERATION}" ]]; then
+        die "the recovery outbound hold for ${TARGET_ID} is bound to recovery operation ${ROH_OPERATION}, not ${OPERATION} — this machine was restored by another recovery; nothing was changed"
+    fi
+
+    HOLD_STATE="${ROH_STATE}"
+
+    if [[ "${HOLD_STATE}" == released ]]; then
+        if [[ "${MODE}" == verify ]]; then
+            ADDRESS="${ROH_ADDRESS}"
+        elif [[ "${ROH_ADDRESS}" != "${ADDRESS}" ]]; then
+            die "${TARGET_ID}'s outbound mail was already released on this machine at ${ROH_RELEASED_AT}, for ${ROH_ADDRESS}, not ${ADDRESS} — nothing was changed"
+        fi
+        ok "the recovery outbound hold was released at ${ROH_RELEASED_AT}, for ${ROH_ADDRESS}, by recovery operation ${ROH_OPERATION}"
+        return 0
+    fi
+
+    ok "${TARGET_ID}'s outbound mail is held on this machine for recovery operation ${ROH_OPERATION} (backup ${ROH_BACKUP}) — ${path}"
+}
+
+# --- The proof -----------------------------------------------------------------------------
+
+recovery_verify() {
+    if run_child "recover-host --verify --target ${TARGET_ID}" "$(tool recover-host)" --verify --target "${TARGET_ID}" \
+        && grep -qx 'RECOVERED: YES' <<<"${CHILD_OUTPUT}" \
+        && grep -q '^RATEGURU_RECOVER_RESULT={.*"status":"verified"' <<<"${CHILD_OUTPUT}"
+    then
+        ok "the recovery of ${TARGET_ID} is complete on this machine: RECOVERED: YES, healthy, no recovery or restore guard"
+        return 0
+    fi
+
+    bad "recover-host --verify does not prove ${TARGET_ID} a completed recovery on this machine — a release follows a finished recovery, never one still in progress"
+    return 1
+}
+
+gateway_verify() {
+    local expect="$1"
+
+    if ! run_child "install-mail-gateway --verify" "$(tool install-mail-gateway)" --verify; then
+        bad "the installed mail gateway does not verify"
+        return 1
+    fi
+
+    case "${expect}" in
+        held)
+            grep -q "PASS     recovery-hold:${TARGET_ID} — ${TARGET_ID}'s outbound mail is HELD" <<<"${CHILD_OUTPUT}" \
+                || { bad "the gateway verifies, but not as holding ${TARGET_ID}'s outbound mail for the recovery"; return 1; }
+            ok "the gateway is exactly the held one: ${TARGET_ID}'s listener holds every message, and no direct route exists"
+            ;;
+        outbound)
+            grep -q "PASS     recovery-hold:${TARGET_ID} — ${TARGET_ID}'s recovery outbound hold was released" <<<"${CHILD_OUTPUT}" \
+                || { bad "the gateway verifies, but not as the released state of ${TARGET_ID}'s recovery outbound hold"; return 1; }
+            ok "the gateway is exactly the requested one: ${TARGET_ID}'s mail leaves through its own direct route"
+            ;;
+    esac
+}
+
+# dns_verify — public DNS for this machine, and the address it sends from: the
+# one the operator named.
+dns_verify() {
+    local status=0 sending
+
+    run_child "mail-identity verify-dns --target ${TARGET_ID}" "$(tool mail-identity)" verify-dns --target "${TARGET_ID}" || status=$?
+
+    sending="$(awk '$1 == "PASS" && $2 == "address" && $3 == "this" && $5 == "sends" { print $NF; exit }' <<<"${CHILD_OUTPUT}")"
+
+    if [[ -z "${sending}" ]]; then
+        bad "the address this machine sends from could not be established"
+    elif [[ "${sending}" != "${ADDRESS}" ]]; then
+        bad "this machine sends from ${sending}, not ${ADDRESS} — the operator confirmed another host"
+    else
+        ok "this machine sends from ${ADDRESS}, the address the operator confirmed"
+    fi
+
+    if (( status == 0 )) && grep -qx 'DNS VERIFIED: YES' <<<"${CHILD_OUTPUT}"; then
+        ok "public DNS, as two independent resolvers both answer it: A and PTR name this machine as the MTA hostname, SPF authorizes ${sending:-it}, the DKIM record is the installed key's public half, DMARC is the reviewed policy"
+        return 0
+    fi
+
+    bad "public DNS does not yet name this machine for ${TARGET_ID}'s mail (A, PTR, SPF, DKIM or DMARC above, or the two resolvers disagree) — the hold stays until it does"
+    return 1
+}
+
+signer_verify() {
+    if run_child "install-mail-signing --verify --target ${TARGET_ID}" "$(tool install-mail-signing)" --verify --target "${TARGET_ID}"; then
+        ok "the signer runs and reads ${TARGET_ID}'s DKIM key"
+        return 0
+    fi
+
+    bad "the signer cannot sign ${TARGET_ID}'s mail"
+    return 1
+}
+
+readiness_verify() {
+    local status=0 condition missing=()
+
+    run_child "mail-identity readiness --target ${TARGET_ID}" "$(tool mail-identity)" readiness --target "${TARGET_ID}" || status=$?
+
+    for condition in "${READINESS_CONDITIONS[@]}"; do
+        grep -qE "^  PASS +${condition} " <<<"${CHILD_OUTPUT}" || missing+=("${condition}")
+    done
+
+    if (( status == 0 )) && [[ "${#missing[@]}" -eq 0 ]] \
+        && ! grep -qE '^  FAIL ' <<<"${CHILD_OUTPUT}" \
+        && [[ "$(grep -c '^OUTBOUND READY: YES$' <<<"${CHILD_OUTPUT}" || true)" == 1 ]]
+    then
+        OUTBOUND_READY=true
+        ok "mail-identity readiness: every condition PASS — OUTBOUND READY: YES"
+        return 0
+    fi
+
+    bad "mail-identity readiness is not YES (exit ${status}${missing[*]:+; not PASS: ${missing[*]}})"
+    return 1
+}
+
+# count_held — how many messages wait in the HOLD queue: reported, never
+# touched.
+count_held() {
+    local ids
+
+    if ids="$(queue_ids_in hold)"; then
+        HELD_MESSAGES="$(grep -c . <<<"${ids}" || true)"
+        log "the HOLD queue holds ${HELD_MESSAGES} message(s) — never released by this operation; what becomes of them is a separate, explicit decision"
+    else
+        log "the HOLD queue could not be counted (postqueue -j) — it is not touched either way"
+    fi
+}
+
+# proof — every condition --apply requires, before anything changes. Counts
+# failures in COUNT_FAIL.
+proof() {
+    local gateway="${1:-held}"
+
+    log "the recovery: complete, and this hold's"
+    recovery_verify || true
+
+    if [[ "${gateway}" == held ]]; then
+        log "the gateway: held"
+        gateway_verify held || true
+    fi
+
+    log "the identity: public DNS for this machine's address, the key and the signer"
+    dns_verify || true
+    signer_verify || true
+}
+
+# --- The transition ---------------------------------------------------------------------
+
+# authorize_transition DIRECTION — the gateway's one-use authorization to
+# cross from the policy it recorded to the one it requests now: bound to the
+# target, the direction and both policies' digests, root-only, short-lived.
+authorize_transition() {
+    local direction="$1" digest path nonce now tmp
+
+    if ! digest="$("$(tool install-mail-gateway)" --policy-digest 2>/dev/null </dev/null)"; then
+        bad "install-mail-gateway --policy-digest failed — the ${direction} of ${TARGET_ID} cannot be authorized"
+        return 1
+    fi
+    if ! jq -e '(.recorded | type) == "object" and (.requested | type) == "object"' <<<"${digest}" >/dev/null 2>&1; then
+        bad "the gateway records no applied policy to authorize the ${direction} of ${TARGET_ID} from"
+        return 1
+    fi
+
+    path="$(jq -r '.authorization' <<<"${digest}")"
+    if [[ "${path}" != /*/transition-authorization.json || ! -d "$(dirname -- "${path}")" ]]; then
+        bad "the gateway names no usable place for a transition authorization (${path})"
+        return 1
+    fi
+
+    nonce="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+    now="$(date -u '+%s')"
+    tmp="${path}.new.$$"
+
+    if ! (
+        umask 077
+        jq -n --arg kind "${AUTHORIZATION_KIND}" --arg target "${TARGET_ID}" --arg direction "${direction}" \
+            --argjson digest "${digest}" --arg nonce "${nonce}" \
+            --argjson now "${now}" --argjson lifetime "${AUTHORIZATION_LIFETIME}" '
+            {kind: $kind, schema_version: 1, target: $target, direction: $direction,
+             from: $digest.recorded, to: $digest.requested, nonce: $nonce,
+             created_at: $now, expires_at: ($now + $lifetime)}' > "${tmp}" \
+            && chmod 0600 "${tmp}" \
+            && mv -f -- "${tmp}" "${path}"
+    ); then
+        rm -f -- "${tmp}"
+        bad "could not write the ${direction} authorization ${path}"
+        return 1
+    fi
+
+    AUTHORIZATION_PATH="${path}"
+    AUTHORIZATION_NONCE="${nonce}"
+    ok "authorized the ${direction} of ${TARGET_ID} for exactly the recorded and the requested policy — one use, valid ${AUTHORIZATION_LIFETIME}s"
+}
+
+# withdraw_authorization — an authorization this run wrote that the gateway did
+# not consume is removed, never left for a later apply.
+withdraw_authorization() {
+    [[ -n "${AUTHORIZATION_PATH}" && -f "${AUTHORIZATION_PATH}" ]] || return 0
+    [[ "$(jq -r '.nonce // ""' "${AUTHORIZATION_PATH}" 2>/dev/null)" == "${AUTHORIZATION_NONCE}" ]] || return 0
+    rm -f -- "${AUTHORIZATION_PATH}"
+    log "withdrew the unused ${AUTHORIZATION_PATH##*/}"
+}
+
+# return_to_held — the hold put back to held, and the gateway with it: through
+# its own ROLLBACK authorization when it already recorded the outbound policy,
+# then proved held. Never touches the queue.
+return_to_held() {
+    local digest failures=0
+
+    if ! recovery_outbound_hold_restore "${HOLD_DIR}" "${TARGET_ID}" "${OPERATION}"; then
+        bad "the recovery outbound hold could not be put back to held: ${ROH_PROBLEM}"
+        failures=$((failures + 1))
+    fi
+
+    if ! digest="$("$(tool install-mail-gateway)" --policy-digest 2>/dev/null </dev/null)"; then
+        bad "install-mail-gateway --policy-digest failed while returning to held"
+        return 1
+    fi
+
+    if ! jq -e '.recorded == .requested' <<<"${digest}" >/dev/null 2>&1; then
+        authorize_transition rollback || true
+        run_child "install-mail-gateway --apply (back to held)" "$(tool install-mail-gateway)" --apply \
+            || bad "install-mail-gateway --apply did not return ${TARGET_ID} to held"
+        withdraw_authorization
+    fi
+
+    gateway_verify held || failures=$((failures + 1))
+
+    (( failures == 0 ))
+}
+
+# --- Modes ------------------------------------------------------------------------------
+
+# release_interrupted — 0 when the hold is released and the gateway still
+# records the held policy: a release that ended between the two.
+release_interrupted() {
+    local digest
+
+    [[ "${HOLD_STATE}" == released ]] || return 1
+
+    digest="$("$(tool install-mail-gateway)" --policy-digest 2>/dev/null </dev/null)" \
+        || die "install-mail-gateway --policy-digest failed — whether an earlier release of ${TARGET_ID} completed cannot be told; nothing was changed"
+
+    ! jq -e '.recorded == .requested' <<<"${digest}" >/dev/null 2>&1
+}
+
+# already_released — 0 when the hold is released for this operation and
+# address, and the gateway and readiness are exactly what that release left.
+already_released() {
+    [[ "${HOLD_STATE}" == released ]] || return 1
+
+    COUNT_FAIL=0
+    gateway_verify outbound || true
+    readiness_verify || true
+
+    (( COUNT_FAIL == 0 )) \
+        || die "${TARGET_ID}'s recovery outbound hold is released, but the machine does not deliver as that release left it (above) — nothing was changed; Verify production infrastructure says what drifted"
+}
+
+require_arguments() {
+    [[ -n "${OPERATION}" ]] || die "--${MODE} requires --operation: the clean-host recovery operation that restored this machine"
+    [[ -n "${ADDRESS}" ]] || die "--${MODE} requires --address: the IPv4 address this machine sends from"
+}
+
+run_check() {
+    require_arguments
+    require_requested
+    judge_hold
+
+    local gateway=held
+
+    if release_interrupted; then
+        log "an earlier release of ${TARGET_ID} was interrupted before the gateway crossed: the hold is released and the gateway still holds the mail, so nothing leaves — --apply puts the hold back to held and releases again behind the full proof"
+        gateway=interrupted
+    elif [[ "${HOLD_STATE}" == released ]]; then
+        already_released
+        RELEASED=true
+        log "RELEASE CHECK: ALREADY RELEASED — --apply would change nothing"
+        return 0
+    fi
+
+    COUNT_FAIL=0
+    proof "${gateway}"
+    count_held
+
+    if (( COUNT_FAIL == 0 )); then
+        log "RELEASE CHECK: READY — --apply --confirm-release would release ${TARGET_ID}'s outbound mail on this machine"
+        return 0
+    fi
+
+    log "RELEASE CHECK: REFUSED — the hold stays, and --apply would change nothing (${COUNT_FAIL} problem(s) above)"
+    exit 1
+}
+
+run_apply() {
+    require_arguments
+    [[ "${CONFIRMED}" == true ]] \
+        || die "--apply requires --confirm-release: releasing ${TARGET_ID}'s outbound mail is the operator's explicit decision, and nothing was changed"
+
+    require_tools flock sha256sum od
+    acquire_host_lock
+
+    require_requested
+    judge_hold
+
+    if release_interrupted; then
+        log "an earlier release of ${TARGET_ID} was interrupted before the gateway crossed — putting the hold back to held, then releasing again behind the full proof"
+        recovery_outbound_hold_restore "${HOLD_DIR}" "${TARGET_ID}" "${OPERATION}" \
+            || die "the interrupted release's hold could not be put back to held: ${ROH_PROBLEM} — nothing else was changed"
+        HOLD_STATE=held
+        ok "the recovery outbound hold is held again for operation ${OPERATION}"
+    elif [[ "${HOLD_STATE}" == released ]]; then
+        already_released
+        RELEASED=true
+        log "RELEASE: ALREADY RELEASED — ${TARGET_ID}'s outbound mail is released on this machine and ready; nothing was changed"
+        count_held
+        return 0
+    fi
+
+    COUNT_FAIL=0
+    proof
+
+    (( COUNT_FAIL == 0 )) \
+        || die "the release is refused (${COUNT_FAIL} problem(s) above) — ${TARGET_ID}'s outbound mail stays held, and nothing was changed"
+
+    # The point of no return is the hold: from here on, every exit that is not
+    # a full acceptance returns the machine to held.
+    log "releasing: the recovery outbound hold, then the gateway through its one-use authorization"
+    TRANSACTION_OPEN=true
+    CHANGED=true
+
+    recovery_outbound_hold_release "${HOLD_DIR}" "${TARGET_ID}" "${OPERATION}" "${ADDRESS}" \
+        || die "the recovery outbound hold could not be released: ${ROH_PROBLEM}"
+    ok "the recovery outbound hold is released for ${ADDRESS} (operation ${OPERATION})"
+
+    authorize_transition activate \
+        || die "the release could not be authorized for the gateway"
+
+    run_child "install-mail-gateway --apply" "$(tool install-mail-gateway)" --apply \
+        || die "install-mail-gateway --apply refused or failed"
+    withdraw_authorization
+
+    COUNT_FAIL=0
+    gateway_verify outbound || true
+    readiness_verify || true
+
+    (( COUNT_FAIL == 0 )) \
+        || die "the released gateway is not accepted (${COUNT_FAIL} problem(s) above)"
+
+    TRANSACTION_OPEN=false
+    RELEASED=true
+
+    count_held
+    log "RELEASE: COMPLETE — ${TARGET_ID}'s outbound mail leaves this machine by direct delivery, from ${ADDRESS}; held mail stays held"
+}
+
+run_verify() {
+    judge_hold
+
+    [[ "${HOLD_STATE}" == released ]] \
+        || die "${TARGET_ID}'s outbound mail is still held on this machine for recovery operation ${OPERATION} — release-recovered-outbound --apply releases it once its proof passes"
+
+    ! release_interrupted \
+        || die "${TARGET_ID}'s recovery outbound hold is released, but the gateway still holds its mail: an earlier release was interrupted before the gateway crossed, so nothing leaves — release-recovered-outbound --apply completes it behind the full proof"
+
+    COUNT_FAIL=0
+    gateway_verify outbound || true
+    readiness_verify || true
+
+    (( COUNT_FAIL == 0 )) \
+        || die "${TARGET_ID}'s recovery outbound hold is released, but the machine does not deliver as that release left it (above)"
+
+    RELEASED=true
+    count_held
+    log "RELEASE VERIFY: RELEASED — ${TARGET_ID}'s outbound mail leaves this machine by direct delivery, from ${ADDRESS}"
+}
+
+# --- Entry point ------------------------------------------------------------------------
+
+require_value() {
+    [[ $2 -ge 2 && -n "${3:-}" && "${3:-}" != -* ]] || die "$1 requires a value"
+}
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check|--apply|--verify)
+                [[ -z "${MODE}" ]] || die "mode given more than once"
+                MODE="${1#--}"
+                shift
+                ;;
+            --target)
+                [[ -z "${TARGET_ID}" ]] || die "--target given more than once"
+                require_value --target "$#" "${2:-}"
+                TARGET_ID="$2"
+                shift 2
+                ;;
+            --operation)
+                [[ -z "${OPERATION}" ]] || die "--operation given more than once"
+                require_value --operation "$#" "${2:-}"
+                OPERATION="$2"
+                shift 2
+                ;;
+            --address)
+                [[ -z "${ADDRESS}" ]] || die "--address given more than once"
+                require_value --address "$#" "${2:-}"
+                ADDRESS="$2"
+                shift 2
+                ;;
+            --confirm-release)
+                [[ "${CONFIRMED}" == false ]] || die "--confirm-release given more than once"
+                CONFIRMED=true
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                die "unknown argument: $1"
+                ;;
+        esac
+    done
+
+    [[ -n "${MODE}" ]] || { usage >&2; die "a mode is required: --check, --apply or --verify"; }
+    [[ -n "${TARGET_ID}" ]] || die "--${MODE} requires --target"
+    [[ "${TARGET_ID}" =~ ${RECOVERY_OUTBOUND_HOLD_TARGET_PATTERN} ]] || die "invalid target ID: ${TARGET_ID}"
+    [[ -z "${OPERATION}" || "${OPERATION}" =~ ${RECOVERY_OUTBOUND_HOLD_OPERATION_PATTERN} ]] || die "invalid recovery operation ID: ${OPERATION}"
+    [[ -z "${ADDRESS}" || "${ADDRESS}" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$ ]] || die "invalid IPv4 address: ${ADDRESS}"
+    [[ "${MODE}" == apply || "${CONFIRMED}" == false ]] || die "--confirm-release belongs to --apply alone"
+    [[ "${MODE}" != verify || ( -z "${OPERATION}" && -z "${ADDRESS}" ) ]] || die "--verify takes --target alone: it reads the operation and the address from the released hold"
+
+    require_tools jq
+    RESULT_READY=true
+    trap on_exit EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 141' PIPE
+    trap 'exit 143' TERM
+
+    require_root
+
+    case "${MODE}" in
+        check)  run_check ;;
+        apply)  run_apply ;;
+        verify) run_verify ;;
+    esac
+}
+
+# Sourcing defines the functions without running anything, so the tests drive
+# the shipped code rather than a copy of it.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

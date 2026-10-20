@@ -739,9 +739,14 @@ and the guard is what actually protects the host.
   `environment.env` already carries) are never in the backup. The one target
   secret the recovery material carries is the DKIM key of a target whose mail
   is signed, because no other copy of it exists.
-* **No recovery-time outbound fence yet.** A replacement host for a target
-  whose mail goes out directly is not yet kept from sending until its A, PTR
-  and SPF are re-accepted; that fence is the next, separate change.
+* **No outbound mail.** A replacement host for a target whose mail goes out
+  directly holds that mail — the listener accepts and holds every message,
+  with no direct route — from before its mail gateway is installed, and
+  nothing in the recovery releases it. The production run's final verify
+  requires `outbound_mail=held`. It is released only by **Release recovered
+  tits.guru outbound mail**, after adoption, once public DNS names the
+  machine's address — see
+  [`release-recovered-outbound.md`](release-recovered-outbound.md).
 * **No RPO/RTO claim.** Measuring real recovery duration is separate work.
 
 ---

@@ -909,7 +909,11 @@ jobs:
   # it, accepted mail is stored by virtual(8) and waits in the queue while the
   # store cannot be written, a bounce to a forged sender has no route, the
   # limits hold, and a reload closes TCP 25 without restarting Postfix. See
-  # tests/Support/real-postfix/scenario.sh.
+  # tests/Support/real-postfix/scenario.sh. The same job then runs the
+  # recovery outbound hold: held, a production target's mail waits on HOLD
+  # with no direct route at all, through a reload, a stop and start and a
+  # flush; released, the route exists again and what was held stays held. See
+  # tests/Support/real-postfix/recovery-outbound-hold.sh.
   mail-real-postfix:
     name: Mail on a real Postfix
     runs-on: ubuntu-24.04
@@ -941,6 +945,14 @@ jobs:
           work="/tmp/rateguru-real-postfix-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
           mkdir -m 0755 "${work}"
           sudo unshare --net --mount bash tests/Support/real-postfix/scenario.sh "${GITHUB_WORKSPACE}" "${work}"
+
+      - name: Run the recovery outbound hold in a network and mount namespace of its own
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work="/tmp/rateguru-recovery-hold-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+          mkdir -m 0755 "${work}"
+          sudo unshare --net --mount bash tests/Support/real-postfix/recovery-outbound-hold.sh "${GITHUB_WORKSPACE}" "${work}"
 
   public-http-real-nginx:
     name: Public HTTP on a real Nginx

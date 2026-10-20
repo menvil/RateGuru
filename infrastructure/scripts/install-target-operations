@@ -6,8 +6,9 @@
 # Modes:
 #   --check   Validate the committed source files and host tooling only.
 #             Read-only: makes NO changes to the system, requires no root.
-#   --apply   Install the target registry, the twenty-five operational scripts
-#             (targets, common, restore-common, health-check, status,
+#   --apply   Install the target registry, the twenty-six operational scripts
+#             (targets, common, restore-common, recovery-outbound-hold,
+#             health-check, status,
 #             cleanup, deploy, rollback, backup, restore-test,
 #             offsite-backup, offsite-retention, offsite-restore-test,
 #             backup-cycle, fetch-backup, verify-backup, restore-database,
@@ -26,8 +27,9 @@
 #             backup.
 #
 # What this installs — and does not:
-#   * Thirty-seven files: the registry, the twenty-five scripts — targets,
-#     common and restore-common (sourced libraries), health-check and status
+#   * Thirty-eight files: the registry, the twenty-six scripts — targets,
+#     common, restore-common and recovery-outbound-hold (sourced libraries),
+#     health-check and status
 #     (read-only), cleanup, deploy, rollback, backup, restore-test,
 #     offsite-backup, offsite-retention, offsite-restore-test, backup-cycle,
 #     The Restore Target Data restore primitives (fetch-backup, verify-backup,
@@ -91,6 +93,11 @@
 #     and five copies of each in five privileged scripts is how a restore
 #     ends up trusting a path in one place that another place rejects. Like
 #     common it is installed 0644 and must never be executable.
+#   * recovery-outbound-hold is the third: the one definition of the hold a
+#     clean-host recovery places on a target's direct outbound mail. The
+#     installed recover-host — the copy `deploy` asks, and the one an operator
+#     runs --inspect, --resume and --verify from — proves that hold through
+#     it, so it travels with recover-host. Installed 0644, never executable.
 #   * No target is provisioned or activated by this script. Every
 #     target-aware command refuses a target the registry does not hold
 #     lifecycle=active before touching the network or the filesystem, and a
@@ -99,8 +106,8 @@
 #
 # Destinations are fixed, hardcoded constants — see "Locations" below. They
 # are not configurable by environment variable or CLI argument, on purpose:
-# this installer's whole job is to put these thirty-seven files in these
-# thirty-seven places with these exact permissions, nothing else. The one
+# this installer's whole job is to put these thirty-eight files in these
+# thirty-eight places with these exact permissions, nothing else. The one
 # directory it creates is config/nginx, which exists solely to hold four of
 # those files.
 #
@@ -140,6 +147,7 @@ SRC_OFFSITE_RETENTION="${REPO_ROOT}/infrastructure/scripts/offsite-retention"
 SRC_OFFSITE_RESTORE_TEST="${REPO_ROOT}/infrastructure/scripts/offsite-restore-test"
 SRC_BACKUP_CYCLE="${REPO_ROOT}/infrastructure/scripts/backup-cycle"
 SRC_RESTORE_COMMON="${REPO_ROOT}/infrastructure/scripts/restore-common"
+SRC_RECOVERY_OUTBOUND_HOLD="${REPO_ROOT}/infrastructure/scripts/recovery-outbound-hold"
 SRC_FETCH_BACKUP="${REPO_ROOT}/infrastructure/scripts/fetch-backup"
 SRC_VERIFY_BACKUP="${REPO_ROOT}/infrastructure/scripts/verify-backup"
 SRC_RESTORE_DATABASE="${REPO_ROOT}/infrastructure/scripts/restore-database"
@@ -209,6 +217,7 @@ DST_OFFSITE_RETENTION="${DST_BIN_ROOT}/offsite-retention"
 DST_OFFSITE_RESTORE_TEST="${DST_BIN_ROOT}/offsite-restore-test"
 DST_BACKUP_CYCLE="${DST_BIN_ROOT}/backup-cycle"
 DST_RESTORE_COMMON="${DST_BIN_ROOT}/restore-common"
+DST_RECOVERY_OUTBOUND_HOLD="${DST_BIN_ROOT}/recovery-outbound-hold"
 DST_FETCH_BACKUP="${DST_BIN_ROOT}/fetch-backup"
 DST_VERIFY_BACKUP="${DST_BIN_ROOT}/verify-backup"
 DST_RESTORE_DATABASE="${DST_BIN_ROOT}/restore-database"
@@ -280,7 +289,7 @@ DEPLOYMENT_PROTOCOL_MODE="0644"
 MAIL_CONTRACT_MODE="0644"
 
 # The ownership this installer enforces on every privileged file it cares
-# about: the thirty-seven files it installs. A named constant (not a literal
+# about: the thirty-eight files it installs. A named constant (not a literal
 # "root"/0 at each call site) so the whole apply/verify flow can be
 # exercised against non-root scratch paths in tests, by reassigning these
 # alongside DST_*/SRC_*/BACKUP_ROOT — production always runs with the values
@@ -447,13 +456,13 @@ check_required_tools() {
 
 validate_source_files() {
     local path
-    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_MAIL_IDENTITY_CONTRACT}" "${SRC_MAIL_ROUTING_POLICY}" "${SRC_MAIL_OUTBOUND_CONTRACT}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
+    for path in "${SRC_REGISTRY}" "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_RECOVERY_OUTBOUND_HOLD}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_DEPLOYMENT_CONF}" "${SRC_NGINX_SOURCE_STAGING}" "${SRC_NGINX_SOURCE_PRODUCTION}" "${SRC_NGINX_SOURCE_MAILPIT}" "${SRC_NGINX_SOURCE_MAILTRAP}" "${SRC_MAIL_IDENTITY_CONTRACT}" "${SRC_MAIL_ROUTING_POLICY}" "${SRC_MAIL_OUTBOUND_CONTRACT}" "${SRC_VERIFY_ENV_CONTRACT}" "${SRC_ENV_TEMPLATE_STAGING}" "${SRC_ENV_TEMPLATE_TITS_GURU}" "${SRC_DEPLOYMENT_PROTOCOL}"; do
         [[ -e "${path}" ]] || fail "missing required source file: ${path}"
         [[ ! -L "${path}" ]] || fail "source file must not be a symlink: ${path}"
         [[ -f "${path}" ]] || fail "source file must be a regular file: ${path}"
         [[ -r "${path}" ]] || fail "source file is not readable: ${path}"
     done
-    log "all thirty-seven source files are present regular files"
+    log "all thirty-eight source files are present regular files"
 }
 
 # The inclusive upper bound on any protocol version, matching deploy's own
@@ -511,22 +520,22 @@ validate_source_executable_modes() {
         [[ -x "${path}" ]] || fail "required source CLI is not executable: ${path}"
     done
 
-    # The two sourced libraries are the mirror image: never invoked directly,
-    # so an executable bit on either is a defect in its own right, caught
+    # The three sourced libraries are the mirror image: never invoked directly,
+    # so an executable bit on any of them is a defect in its own right, caught
     # here rather than only at installed-file verification.
-    for path in "${SRC_COMMON}" "${SRC_RESTORE_COMMON}"; do
+    for path in "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_RECOVERY_OUTBOUND_HOLD}"; do
         [[ ! -x "${path}" ]] || fail "sourced library must not be executable: ${path}"
     done
 
-    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not"
+    log "install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common, restore-common and recovery-outbound-hold are not"
 }
 
 validate_source_syntax() {
     local path
-    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
+    for path in "${SRC_TARGETS}" "${SRC_COMMON}" "${SRC_RESTORE_COMMON}" "${SRC_RECOVERY_OUTBOUND_HOLD}" "${SRC_HEALTH_CHECK}" "${SRC_STATUS}" "${SRC_CLEANUP}" "${SRC_DEPLOY}" "${SRC_ROLLBACK}" "${SRC_BACKUP}" "${SRC_RESTORE_TEST}" "${SRC_OFFSITE_BACKUP}" "${SRC_OFFSITE_RETENTION}" "${SRC_OFFSITE_RESTORE_TEST}" "${SRC_BACKUP_CYCLE}" "${SRC_FETCH_BACKUP}" "${SRC_VERIFY_BACKUP}" "${SRC_RESTORE_DATABASE}" "${SRC_RESTORE_STORAGE}" "${SRC_RESTORE_TARGET}" "${SRC_RECOVER_HOST}" "${SRC_TARGET_PREREQUISITES}" "${SRC_MAIL_IDENTITY}" "${SRC_MAIL_ROUTING}" "${SRC_VERIFY_REQUIRED_CLIS}" "${SRC_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for source file: ${path}"
     done
-    log "bash -n passed for all twenty-five source shell scripts"
+    log "bash -n passed for all twenty-six source shell scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -602,6 +611,7 @@ verify_staged_candidates() {
     local staged_offsite_restore_test="${stage_dir}/offsite-restore-test"
     local staged_backup_cycle="${stage_dir}/backup-cycle"
     local staged_restore_common="${stage_dir}/restore-common"
+    local staged_recovery_outbound_hold="${stage_dir}/recovery-outbound-hold"
     local staged_fetch_backup="${stage_dir}/fetch-backup"
     local staged_verify_backup="${stage_dir}/verify-backup"
     local staged_restore_database="${stage_dir}/restore-database"
@@ -634,6 +644,7 @@ verify_staged_candidates() {
         RATEGURU_ALLOW_TEST_OVERRIDES=true
         "RATEGURU_COMMON_FILE=${staged_common}"
         "RATEGURU_RESTORE_COMMON_FILE=${staged_restore_common}"
+        "RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY=${staged_recovery_outbound_hold}"
         "RATEGURU_DEPLOYMENT_CONF_FILE=${staged_deployment_conf}"
         # The staged bundle must be judged against ITSELF. None of the staged
         # invocations below currently reaches deploy's deployment protocol gate —
@@ -954,6 +965,7 @@ RATEGURU_OVERRIDE_VARS=(
     RATEGURU_OFFSITE_RETENTION_BIN
     RATEGURU_OFFSITE_RESTORE_TEST_BIN
     RATEGURU_RESTORE_COMMON_FILE
+    RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY
     RATEGURU_RESTORE_RUNUSER_BIN
     RATEGURU_RESTORE_SUPERUSER
     RATEGURU_RESTORE_HISTORY_ROOT
@@ -1121,6 +1133,7 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_OFFSITE_RESTORE_TEST}"
     verify_installed_regular_file "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_BACKUP_CYCLE}"
     verify_installed_regular_file "${DST_RESTORE_COMMON}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${COMMON_MODE}" "${SRC_RESTORE_COMMON}"
+    verify_installed_regular_file "${DST_RECOVERY_OUTBOUND_HOLD}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${COMMON_MODE}" "${SRC_RECOVERY_OUTBOUND_HOLD}"
     verify_installed_regular_file "${DST_FETCH_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_FETCH_BACKUP}"
     verify_installed_regular_file "${DST_VERIFY_BACKUP}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_VERIFY_BACKUP}"
     verify_installed_regular_file "${DST_RESTORE_DATABASE}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${CLI_MODE}" "${SRC_RESTORE_DATABASE}"
@@ -1146,25 +1159,26 @@ verify_installed_files() {
     verify_installed_regular_file "${DST_MAIL_IDENTITY_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_IDENTITY_CONTRACT}"
     verify_installed_regular_file "${DST_MAIL_ROUTING_POLICY}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_ROUTING_POLICY}"
     verify_installed_regular_file "${DST_MAIL_OUTBOUND_CONTRACT}" "${INSTALL_OWNER_ID}" "${INSTALL_GROUP_ID}" "${MAIL_CONTRACT_MODE}" "${SRC_MAIL_OUTBOUND_CONTRACT}"
-    log "  ownership, mode and content: OK for all thirty-seven files"
+    log "  ownership, mode and content: OK for all thirty-eight files"
 
-    # common and restore-common are sourced libraries, never CLIs —
+    # common, restore-common and recovery-outbound-hold are sourced
+    # libraries, never CLIs —
     # verify_installed_regular_file already proved their mode is exactly
     # COMMON_MODE (0644), which has no execute bits at all, but this asserts
     # the specific property the spec calls out by name rather than leaving it
     # as an implication of the mode check above.
     local library
-    for library in "${DST_COMMON}" "${DST_RESTORE_COMMON}"; do
+    for library in "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_RECOVERY_OUTBOUND_HOLD}"; do
         [[ ! -x "${library}" ]] \
             || fail "installed sourced library must not be executable: ${library}"
     done
-    log "  common and restore-common are not executable: OK"
+    log "  common, restore-common and recovery-outbound-hold are not executable: OK"
 
     local path
-    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_MAIL_IDENTITY}" "${DST_MAIL_ROUTING}" "${DST_VERIFY_REQUIRED_CLIS}" "${DST_VERIFY_ENV_CONTRACT}"; do
+    for path in "${DST_TARGETS}" "${DST_COMMON}" "${DST_RESTORE_COMMON}" "${DST_RECOVERY_OUTBOUND_HOLD}" "${DST_HEALTH_CHECK}" "${DST_STATUS}" "${DST_CLEANUP}" "${DST_DEPLOY}" "${DST_ROLLBACK}" "${DST_BACKUP}" "${DST_RESTORE_TEST}" "${DST_OFFSITE_BACKUP}" "${DST_OFFSITE_RETENTION}" "${DST_OFFSITE_RESTORE_TEST}" "${DST_BACKUP_CYCLE}" "${DST_FETCH_BACKUP}" "${DST_VERIFY_BACKUP}" "${DST_RESTORE_DATABASE}" "${DST_RESTORE_STORAGE}" "${DST_RESTORE_TARGET}" "${DST_RECOVER_HOST}" "${DST_TARGET_PREREQUISITES}" "${DST_MAIL_IDENTITY}" "${DST_MAIL_ROUTING}" "${DST_VERIFY_REQUIRED_CLIS}" "${DST_VERIFY_ENV_CONTRACT}"; do
         bash -n "${path}" || fail "bash -n failed for installed file: ${path}"
     done
-    log "  bash -n: OK for all twenty-five installed scripts"
+    log "  bash -n: OK for all twenty-six installed scripts"
 
     # deployment.conf is never executed directly — common sources it — but it
     # is still bash-syntax content (KEY=value assignments), and bash -n
@@ -1632,6 +1646,7 @@ run_check() {
     log "  ${DST_OFFSITE_RESTORE_TEST}"
     log "  ${DST_BACKUP_CYCLE}"
     log "  ${DST_RESTORE_COMMON}"
+    log "  ${DST_RECOVERY_OUTBOUND_HOLD}"
     log "  ${DST_FETCH_BACKUP}"
     log "  ${DST_VERIFY_BACKUP}"
     log "  ${DST_RESTORE_DATABASE}"
@@ -1649,8 +1664,8 @@ run_check() {
     log "check passed: source files, host tooling and registry are valid"
 }
 
-# The directories every one of the thirty-seven destinations lives under.
-# This installer owns exactly thirty-seven *files* — it never creates, chowns or chmods
+# The directories every one of the thirty-eight destinations lives under.
+# This installer owns exactly thirty-eight *files* — it never creates, chowns or chmods
 # either directory. Both must already exist, safely, before --apply is
 # allowed to do anything else; a missing or unsafe directory aborts here,
 # before the backup directory is created or any destination is touched.
@@ -1978,6 +1993,7 @@ perform_apply() {
     install -m 0700 "${SRC_OFFSITE_RESTORE_TEST}" "${STAGE_DIR}/offsite-restore-test"
     install -m 0700 "${SRC_BACKUP_CYCLE}" "${STAGE_DIR}/backup-cycle"
     install -m 0700 "${SRC_RESTORE_COMMON}" "${STAGE_DIR}/restore-common"
+    install -m 0700 "${SRC_RECOVERY_OUTBOUND_HOLD}" "${STAGE_DIR}/recovery-outbound-hold"
     install -m 0700 "${SRC_FETCH_BACKUP}" "${STAGE_DIR}/fetch-backup"
     install -m 0700 "${SRC_VERIFY_BACKUP}" "${STAGE_DIR}/verify-backup"
     install -m 0700 "${SRC_RESTORE_DATABASE}" "${STAGE_DIR}/restore-database"
@@ -2033,6 +2049,7 @@ perform_apply() {
     install_regular_file_transactional "${STAGE_DIR}/offsite-restore-test" "${DST_OFFSITE_RESTORE_TEST}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/backup-cycle" "${DST_BACKUP_CYCLE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/restore-common" "${DST_RESTORE_COMMON}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
+    install_regular_file_transactional "${STAGE_DIR}/recovery-outbound-hold" "${DST_RECOVERY_OUTBOUND_HOLD}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${COMMON_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/fetch-backup" "${DST_FETCH_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/verify-backup" "${DST_VERIFY_BACKUP}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
     install_regular_file_transactional "${STAGE_DIR}/restore-database" "${DST_RESTORE_DATABASE}" "${INSTALL_OWNER}" "${INSTALL_GROUP}" "${CLI_MODE}"
@@ -2077,7 +2094,7 @@ perform_apply() {
 
     log "apply complete"
     log "  registry     : ${DST_REGISTRY}"
-    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_MAIL_IDENTITY}, ${DST_MAIL_ROUTING}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
+    log "  scripts      : ${DST_TARGETS}, ${DST_COMMON}, ${DST_RESTORE_COMMON}, ${DST_RECOVERY_OUTBOUND_HOLD}, ${DST_HEALTH_CHECK}, ${DST_STATUS}, ${DST_CLEANUP}, ${DST_DEPLOY}, ${DST_ROLLBACK}, ${DST_BACKUP}, ${DST_RESTORE_TEST}, ${DST_OFFSITE_BACKUP}, ${DST_OFFSITE_RETENTION}, ${DST_OFFSITE_RESTORE_TEST}, ${DST_BACKUP_CYCLE}, ${DST_FETCH_BACKUP}, ${DST_VERIFY_BACKUP}, ${DST_RESTORE_DATABASE}, ${DST_RESTORE_STORAGE}, ${DST_RESTORE_TARGET}, ${DST_RECOVER_HOST}, ${DST_TARGET_PREREQUISITES}, ${DST_MAIL_IDENTITY}, ${DST_MAIL_ROUTING}, ${DST_VERIFY_REQUIRED_CLIS}, ${DST_VERIFY_ENV_CONTRACT}"
     log "  mail contracts: ${DST_MAIL_IDENTITY_CONTRACT}, ${DST_MAIL_ROUTING_POLICY}, ${DST_MAIL_OUTBOUND_CONTRACT}"
     log "  env templates: ${DST_ENV_TEMPLATE_STAGING}, ${DST_ENV_TEMPLATE_TITS_GURU}"
     log "  vhost sources: ${DST_NGINX_SOURCE_STAGING}, ${DST_NGINX_SOURCE_PRODUCTION}, ${DST_NGINX_SOURCE_MAILPIT}, ${DST_NGINX_SOURCE_MAILTRAP}"

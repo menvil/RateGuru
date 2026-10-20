@@ -1243,6 +1243,43 @@ it('treats the independent final verification as the definition of success', fun
         ->and(data_get($verify, 'outputs.source_sha'))->toBe("\${{ steps.verify.outputs['source-sha'] }}");
 })->with('recover workflows');
 
+it('reads production\'s final verify as a recovery only while tits-guru\'s outbound mail is held', function (string $file, string $outbound, bool $accepted) {
+    [$workflow] = recoverWorkflow($file);
+    $steps = collect(data_get($workflow, 'jobs.verify.steps'))->keyBy('name');
+    $script = data_get($steps['Prove the verified host serves the commit its data belongs to'], 'run');
+
+    $env = [
+        'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        'CURRENT_RELEASE' => '20260115-120000-abc1234',
+        'SOURCE_SHA' => str_repeat('a', 40),
+        'REQUIRED_SOURCE_SHA' => str_repeat('a', 40),
+        'OFFSITE_WRITES' => 'held',
+        'PREVIOUS' => 'absent',
+    ];
+
+    if ($outbound !== '') {
+        $env['OUTBOUND_MAIL'] = $outbound;
+    }
+
+    $process = proc_open(['bash', '-c', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+    stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    expect(proc_close($process) === 0)->toBe($accepted, $stderr);
+
+    expect(data_get($workflow, 'jobs.verify.outputs.outbound_mail'))->toBe("\${{ steps.verify.outputs['outbound-mail'] }}");
+})->with([
+    'production, held' => ['recover-production.yml', 'held', true],
+    'production, released' => ['recover-production.yml', 'released', false],
+    'production, not reported' => ['recover-production.yml', '', false],
+    'production, not applicable' => ['recover-production.yml', 'not-applicable', false],
+    // staging-main's mail never leaves its machine directly: there is nothing
+    // to hold, and its final verify asks nothing about it.
+    'staging, not applicable' => ['recover-staging.yml', 'not-applicable', true],
+]);
+
 it('never succeeds around a failed stage', function (
     string $file,
 ) {

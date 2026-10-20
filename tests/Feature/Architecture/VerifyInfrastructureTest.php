@@ -571,6 +571,42 @@ it('makes the DKIM key and outbound readiness mandatory once the target delivers
     }
 });
 
+it('defers outbound readiness while a clean-host recovery holds the target\'s outbound mail, and fails on a hold it cannot trust', function () {
+    $host = verifyInfraHost();
+
+    try {
+        $script = verifyInfraDemoShopBundle($host['scratch'], 'outbound');
+        $key = mailIdentityInstallKey($host['scratch'], 'demo-shop', 'shop2026');
+        $env = ['RATEGURU_VERIFYINFRA_RECOVERY_OUTBOUND_HOLD_OWNER' => trim((string) shell_exec('id -un'))];
+
+        // A recovered machine before the DNS has moved: its own address is not
+        // yet the one public DNS names, and its mail is held.
+        recoveryOutboundHoldWrite($host['scratch'].'/fs', 'demo-shop', ['operation' => '20261020-120000-abcdef']);
+
+        $run = verifyInfraRun($host, 'demo-shop', $script, $env);
+        expectVerifyItem($run['output'], 'PASS', 'dkim-key');
+        expectVerifyItem($run['output'], 'PASS', 'recovery-outbound-hold', "demo-shop's outbound mail is HELD on this host by a clean-host recovery (backup 20261020-030000, operation 20261020-120000-abcdef)");
+        expectVerifyItem($run['output'], 'DEFERRED', 'outbound-readiness', 'held by a clean-host recovery — reported below, and required by release-recovered-outbound');
+        expect($run['output'])->toContain('OUTBOUND READY: NO');
+        expect($run['groups']['mail-identity'])->not->toBe('fail');
+
+        // Released: readiness is required again, as for any outbound target.
+        recoveryOutboundHoldWrite($host['scratch'].'/fs', 'demo-shop', ['operation' => '20261020-120000-abcdef', 'state' => 'released', 'released_at' => '2026-10-21T10:00:00Z', 'released_address' => '203.0.113.10']);
+        $run = verifyInfraRun($host, 'demo-shop', $script, $env);
+        expectVerifyItem($run['output'], 'PASS', 'recovery-outbound-hold', 'released at 2026-10-21T10:00:00Z, for 203.0.113.10');
+        expectVerifyItem($run['output'], 'FAIL', 'outbound-readiness', 'demo-shop delivers outbound, so mail-identity readiness is required');
+
+        // A hold nobody can trust is a failure, never a deferral.
+        recoveryOutboundHoldWrite($host['scratch'].'/fs', 'demo-shop', ['state' => 'open']);
+        $run = verifyInfraRun($host, 'demo-shop', $script, $env);
+        expect($run['status'])->not->toBe(0);
+        expectVerifyItem($run['output'], 'FAIL', 'recovery-outbound-hold', 'cannot be trusted');
+        expect($key)->toBeFile();
+    } finally {
+        removeScratchDir($host['scratch']);
+    }
+});
+
 it('holds an active production target to the preparation, live-target and application contracts', function () {
     $host = verifyInfraHost(['fail' => ['health-check']]);
 
@@ -794,14 +830,17 @@ it('runs every primitive in its read-only mode and nothing that could change the
     preg_match_all('/"\$\{MAIL_INBOUND\}" ([a-z-]+)/', $code, $inbound);
     expect(array_values(array_unique($inbound[1])))->toBe(['render-plan']);
 
-    // The scripts it can reach at all are exactly the primitives it composes:
+    // The scripts it can reach at all are exactly the primitives it composes,
+    // and the recovery outbound hold's library, whose judge alone it calls:
     // no backup, restore, deploy, rollback or installer in --apply.
     preg_match_all('/\$\{SCRIPT_DIR\}\/([a-z-]+)/', $code, $scripts);
     expect(array_values(array_unique($scripts[1])))->toEqualCanonicalizing([
         'prepare-host', 'repair-target', 'bootstrap-host', 'configure-target', 'bootstrap-host-preflight', 'install-target-perimeter',
         'verify-mail-capture', 'verify-mail-gateway', 'activate-mail-inbound', 'health-check', 'mail-identity', 'mail-inbound',
-        'mail-routing', 'targets',
+        'mail-routing', 'targets', 'recovery-outbound-hold',
     ]);
+    preg_match_all('/\brecovery_outbound_hold_[a-z_]+/', $code, $holdCalls);
+    expect(array_values(array_unique($holdCalls[0])))->toBe(['recovery_outbound_hold_judge']);
 
     foreach (['--apply', '--check', '--e2e', '--repair', '--provisioning', '--material-dir', '--recovery-backup', 'postsuper', 'postqueue', 'postfix ', 'sendmail', 'swaks', 'smtp', '/dev/tcp', 'nsupdate', 'apt-get', 'install -', 'mkdir', 'chmod', 'chown', 'setfacl', 'rm -', 'mv ', 'cp ', 'tee ', 'opendkim-', 'milter', 'genpkey', 'backup-cycle', 'restore-test', 'restore-target', 'offsite-', 'deploy ', 'rollback ', 'migrate', 'shared/.env'] as $mutation) {
         expect(str_contains($code, $mutation))->toBeFalse("verify-infrastructure contains {$mutation}");

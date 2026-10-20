@@ -59,6 +59,7 @@
         "Tests\\Feature\\Architecture\\MailGatewayInboundTest": 53.6227,
         "Tests\\Feature\\Architecture\\MailGatewayInboundTransitionTest": 100.3543,
         "Tests\\Feature\\Architecture\\MailGatewayRecordedPolicyTest": 38.0069,
+        "Tests\\Feature\\Architecture\\MailGatewayRecoveryHoldTest": 22,
         "Tests\\Feature\\Architecture\\MailGatewaySigningTest": 47.2634,
         "Tests\\Feature\\Architecture\\MailGatewayTest": 55.1653,
         "Tests\\Feature\\Architecture\\MailIdentityTest": 48.3261,
@@ -88,6 +89,7 @@
         "Tests\\Feature\\Architecture\\MailOutboundActivationRollbackTest": 65.0915,
         "Tests\\Feature\\Architecture\\MailOutboundActivationTest": 40.7479,
         "Tests\\Feature\\Architecture\\MailPublicSmtpPortTest": 28.8317,
+        "Tests\\Feature\\Architecture\\MailRecoveryHoldRealPostfixTest": 0.4,
         "Tests\\Feature\\Architecture\\MailRoutingPolicyTest": 23.1746,
         "Tests\\Feature\\Architecture\\MailSigningTest": 53.913,
         "Tests\\Feature\\Architecture\\NightwatchAgentInstallerTest": 15.9796,
@@ -115,6 +117,7 @@
         "Tests\\Feature\\Architecture\\RecordNightwatchDeploymentTest": 0.8125,
         "Tests\\Feature\\Architecture\\RecordRateGuruDeploymentActionTest": 0.3491,
         "Tests\\Feature\\Architecture\\RecoverHostFailureHandlingTest": 16.668,
+        "Tests\\Feature\\Architecture\\RecoverHostOutboundHoldTest": 22,
         "Tests\\Feature\\Architecture\\RecoverHostPreconditionsTest": 27.8425,
         "Tests\\Feature\\Architecture\\RecoverHostResumeTest": 17.1594,
         "Tests\\Feature\\Architecture\\RecoverHostScopeTest": 1.4462,
@@ -123,7 +126,10 @@
         "Tests\\Feature\\Architecture\\RecoverWorkflowsTest": 3.178,
         "Tests\\Feature\\Architecture\\RecoveryHostPreflightActionTest": 0.1879,
         "Tests\\Feature\\Architecture\\RecoveryHostPreflightTest": 9.5239,
+        "Tests\\Feature\\Architecture\\RecoveryOutboundHoldTest": 1.6,
         "Tests\\Feature\\Architecture\\ReleaseBookkeepingTest": 0.2293,
+        "Tests\\Feature\\Architecture\\ReleaseRecoveredOutboundTest": 95,
+        "Tests\\Feature\\Architecture\\ReleaseRecoveredOutboundWorkflowTest": 3,
         "Tests\\Feature\\Architecture\\RepairTargetTest": 14.4523,
         "Tests\\Feature\\Architecture\\RepairWorkflowsTest": 0.6781,
         "Tests\\Feature\\Architecture\\RepositoryProjectContentLanguageTest": 0.0876,
@@ -162,6 +168,6 @@
         "Tests\\Feature\\Architecture\\WorkflowShellStepsParseTest": 0.6172,
         "Tests\\Feature\\Architecture\\WorkflowSummaryCommentTest": 0.0446
     },
-    "checksum": "e3ab495c620c71f63df9f8a70bf02426",
-    "updated_at": "2026-10-14T15:18:20+00:00"
+    "checksum": "4675d46dd770ed86ea6fa60a7be41f64",
+    "updated_at": "2026-10-20T13:46:49+00:00"
 }

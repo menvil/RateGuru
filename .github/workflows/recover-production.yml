@@ -1386,6 +1386,7 @@ jobs:
       source_sha: ${{ steps.verify.outputs['source-sha'] }}
       health: ${{ steps.verify.outputs.health }}
       offsite_writes: ${{ steps.verify.outputs['offsite-writes'] }}
+      outbound_mail: ${{ steps.verify.outputs['outbound-mail'] }}
       cause: ${{ steps.verify.outputs['failure-cause'] }}
       queue: ${{ steps.verify.outputs.queue }}
       scheduler: ${{ steps.verify.outputs.scheduler }}
@@ -1426,6 +1427,7 @@ jobs:
           CURRENT_RELEASE: ${{ steps.verify.outputs['current-release'] }}
           SOURCE_SHA: ${{ steps.verify.outputs['source-sha'] }}
           OFFSITE_WRITES: ${{ steps.verify.outputs['offsite-writes'] }}
+          OUTBOUND_MAIL: ${{ steps.verify.outputs['outbound-mail'] }}
           PREVIOUS: ${{ steps.verify.outputs.previous }}
           REQUIRED_SOURCE_SHA: ${{ needs.recover.outputs.required_source_sha }}
         run: |
@@ -1445,6 +1447,16 @@ jobs:
           # held; this only refuses to READ a result that says otherwise.
           if [[ "${OFFSITE_WRITES}" != "held" ]]; then
             echo "The verified host reports offsite_writes=${OFFSITE_WRITES:-<empty>}; a recovered host must hold its offsite writers until it is deliberately adopted" >&2
+            exit 1
+          fi
+
+          # And tits-guru's direct outbound mail: held by the recovery
+          # outbound hold until the machine is adopted and its DNS proved, and
+          # released only by Release recovered tits.guru outbound mail. The
+          # server refuses to verify a machine without it; this refuses to
+          # read a result that says otherwise.
+          if [[ "${OUTBOUND_MAIL:-}" != "held" ]]; then
+            echo "The verified host reports outbound_mail=${OUTBOUND_MAIL:-<empty>}; a recovered tits-guru host holds its outbound mail until it is adopted and released" >&2
             exit 1
           fi
 
@@ -1580,6 +1592,7 @@ jobs:
           BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
           RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
           OFFSITE_WRITES: ${{ needs.verify.outputs.offsite_writes }}
+          OUTBOUND_MAIL: ${{ needs.verify.outputs.outbound_mail }}
           RECOVERED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           RECOVERED_QUEUE: ${{ needs.verify.outputs.queue }}
           RECOVERED_SCHEDULER: ${{ needs.verify.outputs.scheduler }}
@@ -1624,6 +1637,7 @@ jobs:
             echo "| Historical build required | \`${BUILD_REQUIRED:-not decided}\` |"
             echo "| Recovered release | \`${RECOVERED_RELEASE:-none}\` |"
             echo "| Offsite backup/retention writer | \`${OFFSITE_WRITES:-not verified}\` |"
+            echo "| Direct outbound mail | \`${OUTBOUND_MAIL:-not verified}\` |"
             echo "| DEPLOY_HOST | unchanged |"
             echo "| DNS | unchanged |"
             echo "| Migrations run | none |"
@@ -1713,6 +1727,7 @@ jobs:
               echo "| Health | \`${RECOVERED_HEALTH}\` |"
               echo "| Guards | none (recover-host --verify refuses a target that carries a restore or recovery guard) |"
               echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES}\`) |"
+              echo "| Outbound mail | \`OUTBOUND MAIL: HELD\` (\`${OUTBOUND_MAIL:-not reported}\`) — released only by Release recovered tits.guru outbound mail, after adoption |"
               echo "| Migrations run | none |"
               echo "| DNS | unchanged |"
               echo "| DEPLOY_HOST | unchanged |"

@@ -23,18 +23,6 @@ use Illuminate\Support\Facades\File;
  * with real Postfix exist for.
  */
 
-/** The gateway files and the recorded policy, for proving nothing changed. */
-function mailGatewayMutableState(array $host): array
-{
-    return array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
-}
-
-/** The tits-guru delivery mode the host's recorded policy says. */
-function mailGatewayRecordedMode(array $host): string
-{
-    return collect(json_decode(File::get(mailGatewayApplied($host)), true)['listeners'])->firstWhere('identity', 'tits-guru')['delivery_mode'];
-}
-
 /** An established held host, activated to outbound through a valid authorization. */
 function mailGatewayActivatedHost(): array
 {
@@ -47,19 +35,6 @@ function mailGatewayActivatedHost(): array
     expect(mailGatewayRecordedMode($host))->toBe('outbound');
 
     return $host;
-}
-
-/**
- * staging-main's slice of the installed master.cf: its listener and its
- * capture transport, exactly as master.cf holds them.
- *
- * @return list<array<string, mixed>>
- */
-function mailGatewayStagingCapture(array $host): array
-{
-    $services = collect(mailGatewayMasterServices(File::get($host['fs'].'/etc/postfix/master.cf')))->keyBy('name');
-
-    return [$services['127.0.0.1:2525'], $services['rateguru-capture-staging-main']];
 }
 
 // =============================================================================

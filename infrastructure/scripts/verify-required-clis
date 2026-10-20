@@ -100,7 +100,7 @@ done < "${REQUIRED_CLI_MANIFEST}"
 # executable bit. Kept as an explicit list rather than "everything that is not
 # a required CLI", so adding a library is a deliberate edit here rather than
 # something a release silently stops checking.
-SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port mail-inbound-host)
+SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port mail-inbound-host recovery-outbound-hold)
 
 for LIBRARY_NAME in "${SOURCED_LIBRARIES[@]}"; do
     LIBRARY_RELEASE_PATH="${RELEASE_ROOT}/infrastructure/scripts/${LIBRARY_NAME}"

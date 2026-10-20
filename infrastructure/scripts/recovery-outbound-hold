@@ -1,0 +1,432 @@
+# shellcheck shell=bash
+#
+# recovery-outbound-hold — the recovery-time outbound mail fence: the one
+# definition of the marker that keeps a target's direct outbound delivery off
+# on a machine a clean-host recovery prepared, until that delivery is
+# deliberately released. A sourced library, never executed: prepare-host places
+# the marker, recover-host binds it to its operation and proves it,
+# install-mail-gateway renders the target's mail held while it stands,
+# release-recovered-outbound releases it and verify-infrastructure reports it —
+# so its shape and every rule about it are written once.
+#
+# WHY. A replacement machine for a target whose mail goes out directly is a
+# complete mail host that believes it is the target, while the public DNS — the
+# A record of the MTA hostname, the PTR of the sending address, the SPF policy
+# — still describes the machine it replaces. Mail it sent before those are its
+# own would leave from an address no receiving server should accept, signed with
+# the target's real key. The marker keeps the target's submission listener
+# accepting and HOLDING its mail, with no direct route at all, until an
+# operator has moved the traffic, the binding and the DNS, and released it.
+#
+# THE MARKER. One file per held target, in a directory of its own beside the
+# gateway's other state:
+#
+#   /var/lib/rateguru-mail-gateway/recovery-outbound-holds/<target>.json
+#
+# the directory root-owned 0700, the file root-owned 0600, holding exactly:
+#
+#   hold              "recovery-outbound"
+#   schema_version    1
+#   target            the held target — the file's own name
+#   backup            the exact backup the recovery prepared this machine from
+#   operation         the recovery operation recover-host --apply bound it to;
+#                     null until then
+#   state             "held", or "released" once release-recovered-outbound
+#                     released it
+#   placed_at         when the preparation placed it
+#   released_at       when it was released; null while held
+#   released_address  the sending IPv4 address the release proved; null while held
+#
+# A released marker stays: it is the machine's record that its outbound mail
+# was released, by which recovery, when and for which address. Nothing here
+# ever removes one, and nothing releases one but release-recovered-outbound.
+#
+# FAIL CLOSED. A marker that is not exactly this document — a symlink, another
+# owner or mode, a field too many or too few, another target, a value of any
+# other shape — is CORRUPT, and every caller refuses on it: the gateway renders
+# nothing, a preparation and a recovery stop, a release is refused. A corrupt
+# marker is never read as absent, and never repaired here.
+#
+# WHAT THE CALLER PROVIDES. Every function takes the hold directory as a
+# physical path, so a caller's own test seam relocates it, and judges ownership
+# against RECOVERY_OUTBOUND_HOLD_OWNER — root, unless the caller's seam says
+# otherwise. jq, stat and install are the caller's.
+#
+# Every function reports through variables, never by exiting: ROH_STATE
+# (absent | held | released | corrupt), ROH_BACKUP, ROH_OPERATION,
+# ROH_PLACED_AT, ROH_RELEASED_AT, ROH_ADDRESS, and ROH_PROBLEM — one sentence,
+# for the caller to fail with.
+
+RECOVERY_OUTBOUND_HOLD_DIR="/var/lib/rateguru-mail-gateway/recovery-outbound-holds"
+RECOVERY_OUTBOUND_HOLD_KIND="recovery-outbound"
+RECOVERY_OUTBOUND_HOLD_SCHEMA_VERSION=1
+RECOVERY_OUTBOUND_HOLD_MAX_BYTES=4096
+RECOVERY_OUTBOUND_HOLD_TARGET_PATTERN='^[a-z0-9][a-z0-9-]{1,31}$'
+RECOVERY_OUTBOUND_HOLD_BACKUP_PATTERN='^[0-9]{8}-[0-9]{6}$'
+RECOVERY_OUTBOUND_HOLD_OPERATION_PATTERN='^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$'
+: "${RECOVERY_OUTBOUND_HOLD_OWNER:=root}"
+
+ROH_STATE=""
+ROH_BACKUP=""
+ROH_OPERATION=""
+ROH_PLACED_AT=""
+ROH_RELEASED_AT=""
+ROH_ADDRESS=""
+ROH_PROBLEM=""
+ROH_HELD_TARGETS=()
+ROH_RELEASED_TARGETS=()
+
+# Every way a document differs from a hold for $target, one per line; nothing
+# when it is one.
+# shellcheck disable=SC2016
+RECOVERY_OUTBOUND_HOLD_PROGRAM='
+def iso: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$");
+def ipv4: type == "string" and test("^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$");
+["hold", "schema_version", "target", "backup", "operation", "state", "placed_at", "released_at", "released_address"] as $fields
+| if type != "object" then
+      "it is not a JSON object"
+  else
+      (([keys[]] - $fields) | if length > 0 then "it carries a field a hold never has (\(join(", ")))" else empty end),
+      (($fields - [keys[]]) | if length > 0 then "it lacks \(join(", "))" else empty end),
+      (if .hold == $kind then empty else "it is not a recovery outbound hold (hold \(.hold | tojson))" end),
+      (if .schema_version == 1 then empty else "it is not of schema 1 (schema_version \(.schema_version | tojson))" end),
+      (if .target == $target then empty else "it holds \(.target | tojson), not \($target)" end),
+      (if (.backup | type) == "string" and (.backup | test($backup_pattern)) then empty
+       else "its backup \(.backup | tojson) is not an exact backup timestamp" end),
+      (if .operation == null or ((.operation | type) == "string" and (.operation | test($operation_pattern))) then empty
+       else "its operation \(.operation | tojson) is not a recovery operation ID" end),
+      (if (.placed_at | iso) then empty else "its placed_at \(.placed_at | tojson) is not a UTC timestamp" end),
+      (if .state == "held" then
+           (if .released_at == null and .released_address == null then empty
+            else "it is held, and records a release" end)
+       elif .state == "released" then
+           (if .operation != null and (.released_at | iso) and (.released_address | ipv4) then empty
+            else "it is released, and does not record the operation, the time and the address of that release" end)
+       else
+           "its state \(.state | tojson) is neither held nor released"
+       end)
+  end
+'
+
+# recovery_outbound_hold_file DIR TARGET — where TARGET's marker lives.
+recovery_outbound_hold_file() {
+    printf '%s/%s.json\n' "${1%/}" "$2"
+}
+
+# recovery_outbound_hold_owner_mode PATH — "OWNER MODE", or nothing.
+recovery_outbound_hold_owner_mode() {
+    stat -c '%U %a' -- "$1" 2>/dev/null || true
+}
+
+# recovery_outbound_hold_directory_problem DIR — why DIR is not a hold
+# directory this library trusts; nothing when it is, or when it is absent.
+recovery_outbound_hold_directory_problem() {
+    local dir="$1" meta
+
+    [[ -e "${dir}" || -L "${dir}" ]] || return 0
+
+    if [[ -L "${dir}" || ! -d "${dir}" ]]; then
+        printf '%s is not a directory\n' "${dir}"
+        return 0
+    fi
+
+    meta="$(recovery_outbound_hold_owner_mode "${dir}")"
+    [[ "${meta}" == "${RECOVERY_OUTBOUND_HOLD_OWNER} 700" ]] \
+        || printf '%s is %s, not %s-owned mode 700 — a hold anyone else could have written or removed is no fence\n' "${dir}" "${meta:-unreadable}" "${RECOVERY_OUTBOUND_HOLD_OWNER}"
+}
+
+# recovery_outbound_hold_judge DIR TARGET — TARGET's marker, judged. Sets
+# ROH_STATE and the fields it records; ROH_PROBLEM when it is corrupt.
+recovery_outbound_hold_judge() {
+    local dir="$1" target="$2" path meta problems size
+
+    ROH_STATE=corrupt
+    ROH_BACKUP=""
+    ROH_OPERATION=""
+    ROH_PLACED_AT=""
+    ROH_RELEASED_AT=""
+    ROH_ADDRESS=""
+    ROH_PROBLEM=""
+
+    if [[ ! "${target}" =~ ${RECOVERY_OUTBOUND_HOLD_TARGET_PATTERN} ]]; then
+        ROH_PROBLEM="\"${target}\" is not a target ID"
+        return 0
+    fi
+
+    ROH_PROBLEM="$(recovery_outbound_hold_directory_problem "${dir}")"
+    [[ -z "${ROH_PROBLEM}" ]] || return 0
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        ROH_STATE=absent
+        return 0
+    fi
+
+    if [[ -L "${path}" || ! -f "${path}" ]]; then
+        ROH_PROBLEM="the recovery outbound hold ${path} is not a regular file"
+        return 0
+    fi
+
+    meta="$(recovery_outbound_hold_owner_mode "${path}")"
+    if [[ "${meta}" != "${RECOVERY_OUTBOUND_HOLD_OWNER} 600" ]]; then
+        ROH_PROBLEM="the recovery outbound hold ${path} is ${meta:-unreadable}, not ${RECOVERY_OUTBOUND_HOLD_OWNER}-owned mode 600"
+        return 0
+    fi
+
+    size="$(stat -c '%s' -- "${path}" 2>/dev/null || echo 0)"
+    if (( size > RECOVERY_OUTBOUND_HOLD_MAX_BYTES )); then
+        ROH_PROBLEM="the recovery outbound hold ${path} is ${size} bytes — far larger than any hold"
+        return 0
+    fi
+
+    if ! problems="$(jq -r \
+        --arg kind "${RECOVERY_OUTBOUND_HOLD_KIND}" --arg target "${target}" \
+        --arg backup_pattern "${RECOVERY_OUTBOUND_HOLD_BACKUP_PATTERN}" \
+        --arg operation_pattern "${RECOVERY_OUTBOUND_HOLD_OPERATION_PATTERN}" \
+        "${RECOVERY_OUTBOUND_HOLD_PROGRAM}" "${path}" 2>/dev/null)"
+    then
+        ROH_PROBLEM="the recovery outbound hold ${path} is not a JSON document"
+        return 0
+    fi
+
+    if [[ -n "${problems}" ]]; then
+        ROH_PROBLEM="the recovery outbound hold ${path} is not a hold this machine can trust: ${problems//$'\n'/; }"
+        return 0
+    fi
+
+    ROH_STATE="$(jq -r '.state' "${path}")"
+    ROH_BACKUP="$(jq -r '.backup' "${path}")"
+    ROH_OPERATION="$(jq -r '.operation // ""' "${path}")"
+    ROH_PLACED_AT="$(jq -r '.placed_at' "${path}")"
+    ROH_RELEASED_AT="$(jq -r '.released_at // ""' "${path}")"
+    ROH_ADDRESS="$(jq -r '.released_address // ""' "${path}")"
+}
+
+# recovery_outbound_hold_targets DIR — every marker in DIR, judged. Sets
+# ROH_HELD_TARGETS and ROH_RELEASED_TARGETS; fails, with ROH_PROBLEM, on
+# anything in DIR that is not a sound marker — a corrupt one, or an entry no
+# hold is named like — because a fence that might be one cannot be skipped.
+recovery_outbound_hold_targets() {
+    local dir="$1" entry name
+
+    ROH_HELD_TARGETS=()
+    ROH_RELEASED_TARGETS=()
+    ROH_PROBLEM="$(recovery_outbound_hold_directory_problem "${dir}")"
+    [[ -z "${ROH_PROBLEM}" ]] || return 1
+    [[ -d "${dir}" ]] || return 0
+
+    for entry in "${dir}"/* "${dir}"/.[!.]* "${dir}"/..?*; do
+        [[ -e "${entry}" || -L "${entry}" ]] || continue
+        name="$(basename -- "${entry}")"
+
+        # A write this library began and never finished: never a hold, and
+        # never trusted as one.
+        [[ ! "${name}" =~ ^\.[a-z0-9][a-z0-9-]{1,31}\.json\.tmp\.[0-9]+$ ]] || continue
+
+        if [[ "${name}" != *.json || ! "${name%.json}" =~ ${RECOVERY_OUTBOUND_HOLD_TARGET_PATTERN} ]]; then
+            ROH_PROBLEM="${entry} is not a recovery outbound hold — that directory holds one <target>.json per held target and nothing else"
+            return 1
+        fi
+
+        recovery_outbound_hold_judge "${dir}" "${name%.json}"
+
+        case "${ROH_STATE}" in
+            held)     ROH_HELD_TARGETS+=("${name%.json}") ;;
+            released) ROH_RELEASED_TARGETS+=("${name%.json}") ;;
+            *)        return 1 ;;
+        esac
+    done
+}
+
+# recovery_outbound_hold_write DIR TARGET DOCUMENT — DOCUMENT installed as
+# TARGET's marker, atomically, root-only, in a root-only directory created when
+# missing.
+recovery_outbound_hold_write() {
+    local dir="$1" target="$2" document="$3" path tmp
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+    tmp="${dir%/}/.${target}.json.tmp.$$"
+
+    if { [[ ! -d "$(dirname -- "${dir%/}")" ]] && ! install -d -m 0755 -- "$(dirname -- "${dir%/}")"; } \
+        || { [[ ! -d "${dir}" ]] && ! install -d -m 0700 -- "${dir}"; }
+    then
+        ROH_PROBLEM="could not create the recovery outbound hold directory ${dir}"
+        return 1
+    fi
+
+    if ! (umask 077 && jq -S . <<<"${document}" > "${tmp}") || ! chmod 0600 -- "${tmp}" || ! mv -f -- "${tmp}" "${path}"; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        ROH_PROBLEM="could not write the recovery outbound hold ${path}"
+        return 1
+    fi
+}
+
+recovery_outbound_hold_now() {
+    date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+# recovery_outbound_hold_place DIR TARGET BACKUP — TARGET's mail held on this
+# machine for the recovery from BACKUP: placed when absent, kept when it is
+# already exactly that recovery's. A hold for another backup, one already
+# released or a corrupt one is refused, never replaced. Sets ROH_PLACED to
+# placed or kept.
+ROH_PLACED=""
+
+recovery_outbound_hold_place() {
+    local dir="$1" target="$2" backup="$3"
+
+    ROH_PLACED=""
+    recovery_outbound_hold_judge "${dir}" "${target}"
+
+    case "${ROH_STATE}" in
+        absent)
+            recovery_outbound_hold_write "${dir}" "${target}" "$(jq -n \
+                --arg kind "${RECOVERY_OUTBOUND_HOLD_KIND}" --arg target "${target}" --arg backup "${backup}" \
+                --arg now "$(recovery_outbound_hold_now)" '
+                {hold: $kind, schema_version: 1, target: $target, backup: $backup, operation: null,
+                 state: "held", placed_at: $now, released_at: null, released_address: null}')" || return 1
+            ROH_PLACED=placed
+            recovery_outbound_hold_judge "${dir}" "${target}"
+            [[ "${ROH_STATE}" == held ]] || { ROH_PROBLEM="the recovery outbound hold just written for ${target} does not read back as held: ${ROH_PROBLEM}"; return 1; }
+            ;;
+        held)
+            if [[ "${ROH_BACKUP}" != "${backup}" ]]; then
+                ROH_PROBLEM="this machine already holds ${target}'s outbound mail for the recovery from backup ${ROH_BACKUP}, not ${backup} — a hold is never moved to another recovery; prepare a new machine"
+                return 1
+            fi
+            ROH_PLACED=kept
+            ;;
+        released)
+            ROH_PROBLEM="${target}'s outbound mail was already released on this machine (${ROH_RELEASED_AT}, for ${ROH_ADDRESS}) — a machine that sends as ${target} is no recovery preparation; prepare a new machine"
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# recovery_outbound_hold_bind DIR TARGET BACKUP OPERATION — the held marker of
+# the recovery from BACKUP bound to OPERATION, the recovery that restores onto
+# this machine: recorded when it names none yet, kept when it already names
+# exactly this one. Anything else is refused.
+recovery_outbound_hold_bind() {
+    local dir="$1" target="$2" backup="$3" operation="$4" path
+
+    recovery_outbound_hold_judge "${dir}" "${target}"
+
+    case "${ROH_STATE}" in
+        held) ;;
+        absent)
+            ROH_PROBLEM="this machine holds no outbound mail for ${target} — its preparation for this recovery never placed the recovery outbound hold, and a recovered ${target} would be free to send directly before its address is proved"
+            return 1
+            ;;
+        released)
+            ROH_PROBLEM="${target}'s outbound mail was already released on this machine (${ROH_RELEASED_AT}) — a recovery never restores onto a machine that already sends as the target"
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ "${ROH_BACKUP}" != "${backup}" ]]; then
+        ROH_PROBLEM="the recovery outbound hold on this machine was placed for backup ${ROH_BACKUP}, not ${backup}"
+        return 1
+    fi
+
+    if [[ -n "${ROH_OPERATION}" ]]; then
+        [[ "${ROH_OPERATION}" == "${operation}" ]] && return 0
+        ROH_PROBLEM="the recovery outbound hold on this machine is bound to recovery operation ${ROH_OPERATION}, not ${operation}"
+        return 1
+    fi
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+    recovery_outbound_hold_write "${dir}" "${target}" "$(jq --arg operation "${operation}" '.operation = $operation' "${path}")" || return 1
+    recovery_outbound_hold_judge "${dir}" "${target}"
+    [[ "${ROH_STATE}" == held && "${ROH_OPERATION}" == "${operation}" ]] \
+        || { ROH_PROBLEM="the recovery outbound hold bound to ${operation} does not read back as held for it: ${ROH_PROBLEM}"; return 1; }
+}
+
+# recovery_outbound_hold_unbind DIR TARGET OPERATION — the binding of a
+# recovery that left nothing behind taken back, so the machine is again
+# exactly what its preparation left, and the next start of the same recovery
+# can bind it. Only a held marker bound to OPERATION is changed.
+recovery_outbound_hold_unbind() {
+    local dir="$1" target="$2" operation="$3" path
+
+    recovery_outbound_hold_judge "${dir}" "${target}"
+
+    [[ "${ROH_STATE}" == held && -z "${ROH_OPERATION}" ]] && return 0
+
+    if [[ "${ROH_STATE}" != held || "${ROH_OPERATION}" != "${operation}" ]]; then
+        ROH_PROBLEM="the recovery outbound hold of ${target} is ${ROH_STATE}${ROH_OPERATION:+ for operation ${ROH_OPERATION}}, not held for ${operation}${ROH_PROBLEM:+: ${ROH_PROBLEM}}"
+        return 1
+    fi
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+    recovery_outbound_hold_write "${dir}" "${target}" "$(jq '.operation = null' "${path}")" || return 1
+    recovery_outbound_hold_judge "${dir}" "${target}"
+    [[ "${ROH_STATE}" == held && -z "${ROH_OPERATION}" ]] \
+        || { ROH_PROBLEM="the recovery outbound hold taken back does not read back as held and unbound: ${ROH_PROBLEM}"; return 1; }
+}
+
+# recovery_outbound_hold_require DIR TARGET OPERATION — the marker exists,
+# is held and is bound to OPERATION.
+recovery_outbound_hold_require() {
+    local dir="$1" target="$2" operation="$3"
+
+    recovery_outbound_hold_judge "${dir}" "${target}"
+
+    case "${ROH_STATE}" in
+        held)
+            [[ "${ROH_OPERATION}" == "${operation}" ]] && return 0
+            ROH_PROBLEM="the recovery outbound hold on this machine is bound to recovery operation ${ROH_OPERATION:-<none>}, not ${operation}"
+            ;;
+        absent)
+            ROH_PROBLEM="the recovery outbound hold for ${target} is missing on this machine"
+            ;;
+        released)
+            ROH_PROBLEM="${target}'s outbound mail was already released on this machine (${ROH_RELEASED_AT}, for ${ROH_ADDRESS})"
+            ;;
+    esac
+    return 1
+}
+
+# recovery_outbound_hold_release DIR TARGET OPERATION ADDRESS — the held
+# marker bound to OPERATION, released for ADDRESS. Only
+# release-recovered-outbound calls it, after its own proof.
+recovery_outbound_hold_release() {
+    local dir="$1" target="$2" operation="$3" address="$4" path
+
+    recovery_outbound_hold_require "${dir}" "${target}" "${operation}" || return 1
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+    recovery_outbound_hold_write "${dir}" "${target}" "$(jq --arg now "$(recovery_outbound_hold_now)" --arg address "${address}" \
+        '.state = "released" | .released_at = $now | .released_address = $address' "${path}")" || return 1
+    recovery_outbound_hold_judge "${dir}" "${target}"
+    [[ "${ROH_STATE}" == released ]] \
+        || { ROH_PROBLEM="the released recovery outbound hold does not read back as released: ${ROH_PROBLEM}"; return 1; }
+}
+
+# recovery_outbound_hold_restore DIR TARGET OPERATION — a marker this release
+# released put back to held, because the release did not complete.
+recovery_outbound_hold_restore() {
+    local dir="$1" target="$2" operation="$3" path
+
+    recovery_outbound_hold_judge "${dir}" "${target}"
+
+    [[ "${ROH_STATE}" == held && "${ROH_OPERATION}" == "${operation}" ]] && return 0
+
+    if [[ "${ROH_STATE}" != released || "${ROH_OPERATION}" != "${operation}" ]]; then
+        ROH_PROBLEM="the recovery outbound hold of ${target} is ${ROH_STATE}${ROH_OPERATION:+ for operation ${ROH_OPERATION}} — not the release of ${operation} to put back${ROH_PROBLEM:+: ${ROH_PROBLEM}}"
+        return 1
+    fi
+
+    path="$(recovery_outbound_hold_file "${dir}" "${target}")"
+    recovery_outbound_hold_write "${dir}" "${target}" "$(jq '.state = "held" | .released_at = null | .released_address = null' "${path}")" || return 1
+    recovery_outbound_hold_judge "${dir}" "${target}"
+    [[ "${ROH_STATE}" == held ]] \
+        || { ROH_PROBLEM="the recovery outbound hold put back does not read back as held: ${ROH_PROBLEM}"; return 1; }
+}

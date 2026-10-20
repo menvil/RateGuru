@@ -100,6 +100,10 @@ it('has exactly one build, one deploy and one rollback implementation', function
         // The read-only clean-host proof a recovery runs before it prepares
         // anything: transport only, carries no material, installs nothing.
         'recovery-host-preflight',
+        // The release of a recovered machine's held outbound mail. Transport
+        // only: it runs exactly release-recovered-outbound, carries no
+        // material, and cannot build, deploy, restore, repair or prepare.
+        'release-rateguru-recovered-outbound',
         // One REPAIR implementation, covering both environments. Transport
         // only: it carries no material and cannot deploy, restore or prepare.
         'repair-rateguru-target',
@@ -162,6 +166,9 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         'recover-production.yml',
         'recover-staging.yml',
         'release.yml',
+        // and the release of that outbound mail on a machine a clean-host
+        // recovery prepared, once it is adopted.
+        'release-tits-guru-recovered-outbound.yml',
         // One repair workflow per environment, exactly like every other
         // operator-facing operation here.
         'repair-production.yml',
@@ -569,6 +576,9 @@ it('serializes every mutation of the same target in the GitHub orchestration lay
         'activate-tits-guru-mail.yml:activate' => ['tits-guru', 'rateguru-staging-deployment'],
         'rollback-tits-guru-mail-activation.yml:rollback' => ['tits-guru', 'rateguru-staging-deployment'],
         'send-tits-guru-mail-canary.yml:canary' => ['tits-guru', 'rateguru-staging-deployment'],
+        // Releasing a recovered machine's outbound mail changes the gateway of
+        // the machine tits-guru lives on: the same domain.
+        'release-tits-guru-recovered-outbound.yml:release' => ['tits-guru', 'rateguru-staging-deployment'],
         // The inbound activation and rollback change the host's Postfix and the
         // firewall of that same machine, and its verification reads them: the
         // same domain.

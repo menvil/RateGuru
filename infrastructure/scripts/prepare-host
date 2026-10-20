@@ -132,6 +132,9 @@
 #
 #   runtime slice
 #     -> lifecycle gate
+#     -> recovery outbound hold             a target whose mail goes out
+#                                           directly: held before the mail
+#                                           gateway is ever installed
 #     -> fetch-recovery-material            the backup's bootstrap subset,
 #                                           verified, laid out by logical name
 #     -> recovery-scope prerequisites       from that material: the host scope,
@@ -164,6 +167,22 @@
 # refuse on this host while it exists, the recovery proves it at every hold
 # check, and nothing here or in the recovery ever removes it. An ordinary
 # preparation never places it.
+#
+# THE RECOVERY OUTBOUND HOLD. A replacement machine for a target whose
+# reviewed mail goes out directly would otherwise be installed delivering it —
+# from an address whose A, PTR and SPF still describe the machine it replaces.
+# So, as soon as the runtime slice has put jq on the host and the lifecycle
+# gate has passed, and before the mail gateway is installed by host bootstrap,
+# a recovery preparation places the recovery outbound hold for that target
+# (infrastructure/scripts/recovery-outbound-hold): the gateway then installs,
+# and every later Prepare, repair or bootstrap re-applies, the target's
+# listener holding every message with no direct route. A hold already placed
+# for this target and this backup is kept; one for another backup, a released
+# one or an unreadable one stops the preparation before anything else. It is a
+# separate fence from the offsite-write hold, and nothing here, in the
+# recovery or in any Prepare ever releases it: release-recovered-outbound does,
+# once the operator has moved the traffic, the binding and the DNS. An
+# ordinary preparation never places it.
 #
 # Signals: SIGINT is never trapped or reinterpreted — interrupting a long child
 # verification terminates the orchestration without continuing downstream
@@ -226,6 +245,20 @@ PREREQUISITES_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_PREREQUISITES_
 BOOTSTRAP_HOST_BIN="$(gated_default RATEGURU_PREPAREHOST_BOOTSTRAP_HOST_BIN "${SCRIPT_DIR}/bootstrap-host")"
 DATABASE_INSTALLER_BIN="$(gated_default RATEGURU_PREPAREHOST_DATABASE_INSTALLER_BIN "${SCRIPT_DIR}/install-target-database")"
 TARGETS_CLI_BIN="$(gated_default RATEGURU_PREPAREHOST_TARGETS_CLI_BIN "${SCRIPT_DIR}/targets")"
+
+# The recovery-time outbound hold: its one definition, in this bundle. A
+# recovery preparation places it, and every mode reports it; where it lives and
+# the owner it is judged against are the gateway's state directory and root on
+# a host.
+# shellcheck source=recovery-outbound-hold disable=SC1091
+source "${SCRIPT_DIR}/recovery-outbound-hold"
+RECOVERY_OUTBOUND_HOLD_ROOT="$(gated_default RATEGURU_PREPAREHOST_RECOVERY_OUTBOUND_HOLD_DIR "${RECOVERY_OUTBOUND_HOLD_DIR}")"
+RECOVERY_OUTBOUND_HOLD_OWNER="$(gated_default RATEGURU_PREPAREHOST_RECOVERY_OUTBOUND_HOLD_OWNER root)"
+
+# Whether a target's mail goes out directly is the reviewed routing policy's,
+# asked of its one judge in this bundle.
+MAIL_ROUTING_CLI="$(gated_default RATEGURU_PREPAREHOST_MAIL_ROUTING_CLI "${SCRIPT_DIR}/mail-routing")"
+MAIL_ROUTING_POLICY="$(gated_default RATEGURU_PREPAREHOST_MAIL_ROUTING_POLICY "$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd -P)/infrastructure/config/mail-routing.json")"
 
 # The recovery-material helper, used by --recovery-backup only: it turns the
 # seed directory and one exact offsite backup into the effective material
@@ -293,12 +326,15 @@ what must be configured before Recover, how to verify the result):
                      fetch-recovery-material, instead of from supplied
                      material. --material-dir then names the SEED directory,
                      holding exactly rclone-config and deploy-authorized-keys.
-                     Places the host-global offsite-write hold before the
-                     offsite credential is installed, and refuses to report the
-                     host prepared unless that hold is still in place at the
-                     end. With --verify: verify a recovery preparation AS one —
-                     the read-only walk, plus the requirement that the
+                     Places the recovery outbound hold for a target whose mail
+                     goes out directly before the mail gateway is installed,
+                     and the host-global offsite-write hold before the offsite
+                     credential is installed, and refuses to report the host
+                     prepared unless both are still in place at the end. With
+                     --verify: verify a recovery preparation AS one — the
+                     read-only walk, plus the requirement that the
                      offsite-write hold exists and names this target and this
+                     backup, and that the outbound hold is held for this
                      backup. Never with --check.
 
   --check   Read-only, dependency-aware preparation status per slice
@@ -827,11 +863,13 @@ print_summary() {
         printf '%s: YES\n' "${ready_label}"
         printf 'APPLICATION DEPLOYED: NOT REQUIRED — a prepared target legitimately has no release yet\n'
         print_offsite_write_hold_status
+        print_recovery_outbound_hold_status
         return 0
     fi
 
     printf '%s: NO\n' "${ready_label}"
     print_offsite_write_hold_status
+    print_recovery_outbound_hold_status
     return 1
 }
 
@@ -875,6 +913,100 @@ assert_recovery_preparation_held() {
         || fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: ${marker} is not an offsite-write hold document — refusing to treat an unreadable marker as a fence"
 
     printf 'RECOVERY PREPARATION: HELD — offsite writes held on this host for %s from backup %s (%s; placed by %s)\n' "${TARGET_ID}" "${RECOVERY_BACKUP}" "${marker}" "${placed_by}"
+}
+
+# print_recovery_outbound_hold_status — reported whenever this target has a
+# recovery outbound hold, in every mode. An ordinary host has none and prints
+# nothing.
+print_recovery_outbound_hold_status() {
+    local path
+    path="$(recovery_outbound_hold_file "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}")"
+
+    recovery_outbound_hold_judge "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}"
+
+    case "${ROH_STATE}" in
+        held)
+            printf 'OUTBOUND MAIL: HELD — %s (a clean-host recovery hold: %s'"'"'s mail is held and never delivered directly until release-recovered-outbound releases it)\n' "${path}" "${TARGET_ID}"
+            ;;
+        released)
+            printf 'OUTBOUND MAIL: RELEASED — %s (released %s, for %s)\n' "${path}" "${ROH_RELEASED_AT}" "${ROH_ADDRESS}"
+            ;;
+        corrupt)
+            printf 'OUTBOUND MAIL: HOLD UNREADABLE — %s\n' "${ROH_PROBLEM}"
+            ;;
+    esac
+}
+
+# target_mail_delivery_mode — TARGET's delivery mode in this bundle's reviewed
+# routing plan, judged against the registry this run gates on.
+target_mail_delivery_mode() {
+    local plan
+
+    [[ -x "${MAIL_ROUTING_CLI}" ]] \
+        || fail "the mail routing CLI is not executable: ${MAIL_ROUTING_CLI} — run from a full repository checkout"
+
+    plan="$("${MAIL_ROUTING_CLI}" render-plan --file "${MAIL_ROUTING_POLICY}" --registry "${SOURCE_REGISTRY}")" \
+        || fail "mail-routing render-plan refused the reviewed mail routing policy (diagnostics above) — whether ${TARGET_ID}'s mail goes out directly cannot be told, so nothing further was prepared"
+
+    jq -r --arg target "${TARGET_ID}" '[.listeners[] | select(.identity == $target) | .delivery_mode][0] // "none"' <<<"${plan}"
+}
+
+# hold_recovery_outbound_mail — after the runtime slice put jq on the host and
+# before host bootstrap installs the mail gateway: a target whose reviewed mail
+# goes out directly is held on this machine. A hold this recovery already
+# placed is kept; any other refuses, before anything else is prepared.
+hold_recovery_outbound_mail() {
+    local mode
+
+    printf '\nRECOVERY OUTBOUND HOLD\n'
+
+    mode="$(target_mail_delivery_mode)"
+
+    if [[ "${mode}" != outbound ]]; then
+        printf '  NOT NEEDED — %s'"'"'s reviewed mail is %s: nothing it accepts leaves this machine directly\n' "${TARGET_ID}" "${mode}"
+        return 0
+    fi
+
+    recovery_outbound_hold_place "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}" "${RECOVERY_BACKUP}" \
+        || fail "the recovery outbound hold for ${TARGET_ID} could not be placed: ${ROH_PROBLEM} — nothing further was prepared, and the mail gateway was not installed"
+
+    printf '  OUTBOUND MAIL: HELD (%s) — %s\n' "${ROH_PLACED}" "$(recovery_outbound_hold_file "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}")"
+    printf '  The mail gateway installs %s'"'"'s listener holding every message, with no direct route,\n' "${TARGET_ID}"
+    printf '  until release-recovered-outbound releases it once the traffic, the binding and the DNS\n'
+    printf '  have moved to this machine. Nothing in a preparation or a recovery releases it.\n'
+}
+
+# assert_recovery_outbound_held — a recovery preparation of a target whose
+# mail goes out directly is complete only while its outbound hold is held for
+# this backup. Required at the end of a recovery --apply and by --verify
+# --recovery-backup.
+assert_recovery_outbound_held() {
+    local mode path
+
+    mode="$(target_mail_delivery_mode)"
+    [[ "${mode}" == outbound ]] || return 0
+
+    path="$(recovery_outbound_hold_file "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}")"
+    recovery_outbound_hold_judge "${RECOVERY_OUTBOUND_HOLD_ROOT}" "${TARGET_ID}"
+
+    case "${ROH_STATE}" in
+        held)
+            [[ "${ROH_BACKUP}" == "${RECOVERY_BACKUP}" ]] \
+                || fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: the recovery outbound hold on this machine (${path}) was placed for backup ${ROH_BACKUP}"
+            ;;
+        absent)
+            fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: ${TARGET_ID}'s mail goes out directly, and the recovery outbound hold ${path} is missing — apply the recovery preparation again, which places it; the mail gateway keeps the target held meanwhile and refuses to cross to outbound without it"
+            ;;
+        released)
+            fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: ${TARGET_ID}'s outbound mail was already released on this machine (${ROH_RELEASED_AT}) — a machine that sends as the target is not a recovery preparation"
+            ;;
+        *)
+            fail "recovery preparation of ${TARGET_ID} from backup ${RECOVERY_BACKUP} is NOT complete: ${ROH_PROBLEM}"
+            ;;
+    esac
+
+    printf 'RECOVERY PREPARATION: OUTBOUND MAIL HELD — %s'"'"'s direct delivery stays off on this machine (%s; backup %s, operation %s)\n' \
+        "${TARGET_ID}" "${path}" "${ROH_BACKUP}" "${ROH_OPERATION:-not bound yet}"
 }
 
 # --- Read-only walkers (--check / --verify) -----------------------------------
@@ -976,9 +1108,11 @@ run_verify() {
     run_readonly_walk verify FAIL
 
     # A recovery preparation is verified AS one: every slice satisfied is not
-    # enough on a replacement machine whose offsite writers are not fenced.
+    # enough on a replacement machine whose offsite writers, or whose direct
+    # outbound mail, are not fenced.
     if recovery_mode; then
         assert_recovery_preparation_held
+        assert_recovery_outbound_held
     fi
 
     print_summary 'TARGET PREPARED' || exit 1
@@ -1006,10 +1140,12 @@ run_apply() {
         printf 'Recovery preparation: the environment file and every recovery-scope prerequisite come from offsite backup %s, not from supplied material\n' "${RECOVERY_BACKUP}"
         run_recovery_slices
 
-        # Placed between the host and target slices above; proven again here,
-        # after every child has run, so this run can never report a
-        # replacement machine prepared with its offsite writers unfenced.
+        # Placed between the slices above; proven again here, after every
+        # child has run, so this run can never report a replacement machine
+        # prepared with its offsite writers, or its direct outbound mail,
+        # unfenced.
         assert_recovery_preparation_held
+        assert_recovery_outbound_held
     else
         local slice_id
         for slice_id in "${SLICE_IDS[@]}"; do
@@ -1107,10 +1243,12 @@ converge_slice() {
 
 # --- Recovery preparation ------------------------------------------------------
 #
-# The ordinary slices, in the ordinary order, with two things placed between
-# them: the recovery material, fetched after the runtime slice has installed
-# rclone and jq and before the host-scope slice needs it; and the offsite-write
-# hold, placed after host bootstrap has created the run root and before the
+# The ordinary slices, in the ordinary order, with three things placed between
+# them: the recovery outbound hold, placed after the runtime slice has
+# installed jq and before host bootstrap installs the mail gateway; the
+# recovery material, fetched after the runtime slice has installed rclone and
+# jq and before the host-scope slice needs it; and the offsite-write hold,
+# placed after host bootstrap has created the run root and before the
 # target-scope slice installs the offsite credential.
 
 EFFECTIVE_MATERIAL_DIR=""
@@ -1119,8 +1257,11 @@ run_recovery_slices() {
     converge_slice "${TARGET_AGNOSTIC_SLICE}"
 
     # The runtime slice is satisfied, so the registry is readable now and the
-    # gate has to run here — the material fetch is target-specific.
+    # gate has to run here — the hold and the material fetch are
+    # target-specific.
     gate_lifecycle_before recovery-material
+
+    hold_recovery_outbound_mail
 
     stage_recovery_material
 

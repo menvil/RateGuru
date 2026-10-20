@@ -55,6 +55,9 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'recover-production.yml',
         'recover-staging.yml',
         'release.yml',
+        // The release of a recovered machine's held outbound mail, guarded by
+        // ReleaseRecoveredOutboundWorkflowTest.
+        'release-tits-guru-recovered-outbound.yml',
         'repair-production.yml',
         'repair-staging.yml',
         'restore-production.yml',
@@ -104,6 +107,9 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         'record-rateguru-deployment',
         'recover-rateguru-host',
         'recovery-host-preflight',
+        // The transport of the release of a recovered machine's held outbound
+        // mail: runs release-recovered-outbound and nothing else.
+        'release-rateguru-recovered-outbound',
         'repair-rateguru-target',
         'restore-rateguru',
         'rollback-rateguru',
