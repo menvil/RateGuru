@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\ApproveStudioPlanAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
@@ -13171,6 +13172,7 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 ),
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
+                'plan-approve' => app(App\Actions\Studio\ApproveStudioPlanAction::class)->handle($admin, $plan, $job['version']),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
@@ -13357,4 +13359,29 @@ function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTon
 function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
 {
     app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+// =============================================================================
+// Content Studio approval
+// =============================================================================
+
+/**
+ * A Draft ready to publish, as the approval preflight asks: an Active Persona
+ * as its author, a title, and a Ready post image no post uses, published at
+ * once — unless the attributes say otherwise.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function approvableStudioPlan(array $attributes = []): StudioPlan
+{
+    return StudioPlan::factory()
+        ->authoredBy(User::factory()->persona()->create())
+        ->withImage()
+        ->create(['title' => 'A quiet harbour at dawn', ...$attributes]);
+}
+
+/** Approves the plan as an administrator who saw it just now would. */
+function approveStudioPlan(User $admin, StudioPlan $plan): StudioPlan
+{
+    return app(ApproveStudioPlanAction::class)->handle($admin, $plan, StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }

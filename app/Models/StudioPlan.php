@@ -19,19 +19,25 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * post — nothing of it is on the site until it is approved and run, and until
  * then no post exists for it at all.
  *
+ * Approval (ApproveStudioPlanAction) records who approved it and when, and
+ * writes the action that will publish it (`actions`); an approved plan is no
+ * longer edited or deleted.
+ *
  * A Draft may be as incomplete as an editor leaves it: no author, no photo,
  * no title, no category, no date. Whatever it does hold has passed the checks
  * a post's own fields pass (StudioPlanValidationRules); whether it is complete
  * enough to publish is asked when it is approved.
  *
  * Written only by the Content Studio actions (app/Actions/Studio). Only the
- * fields an editor sets are fillable; the status, the creator, the photo and
- * the lock version are the server's to write.
+ * fields an editor sets are fillable; the status, the creator, the photo, the
+ * approval and the lock version are the server's to write.
  *
  * @property int $id
  * @property StudioPlanStatus $status
  * @property int|null $author_user_id
  * @property int $created_by_user_id
+ * @property int|null $approved_by_user_id
+ * @property CarbonImmutable|null $approved_at
  * @property int|null $image_asset_id
  * @property string|null $title
  * @property string|null $description
@@ -70,6 +76,8 @@ class StudioPlan extends Model
             'status' => StudioPlanStatus::class,
             'author_user_id' => 'integer',
             'created_by_user_id' => 'integer',
+            'approved_by_user_id' => 'integer',
+            'approved_at' => 'immutable_datetime',
             'image_asset_id' => 'integer',
             'category_id' => 'integer',
             'tag_ids' => 'array',
@@ -96,6 +104,16 @@ class StudioPlan extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /**
+     * The administrator who approved it, once it is approved.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by_user_id');
     }
 
     /**
@@ -137,6 +155,17 @@ class StudioPlan extends Model
     public function textGenerations(): HasMany
     {
         return $this->hasMany(StudioPlanTextGeneration::class);
+    }
+
+    /**
+     * The scheduled writes approval made for it — today, the one that
+     * publishes its post. Deleted with the plan.
+     *
+     * @return HasMany<StudioAction, $this>
+     */
+    public function actions(): HasMany
+    {
+        return $this->hasMany(StudioAction::class);
     }
 
     public function isDraft(): bool

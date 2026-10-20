@@ -32,9 +32,9 @@ function insertStudioPlanRow(array $attributes = []): int
 
 it('has the columns its contract names, and none a later stage adds', function () {
     expect(Schema::getColumnListing('studio_plans'))->toEqualCanonicalizing([
-        'id', 'status', 'author_user_id', 'created_by_user_id', 'image_asset_id', 'title', 'description',
-        'source_url', 'category_id', 'tag_ids', 'author_answer_option_ids', 'publication_mode', 'publish_at',
-        'lock_version', 'created_at', 'updated_at',
+        'id', 'status', 'author_user_id', 'created_by_user_id', 'approved_by_user_id', 'approved_at', 'image_asset_id',
+        'title', 'description', 'source_url', 'category_id', 'tag_ids', 'author_answer_option_ids', 'publication_mode',
+        'publish_at', 'lock_version', 'created_at', 'updated_at',
     ]);
 });
 
@@ -108,12 +108,16 @@ it('lets no mass assignment set what only the server writes', function () {
         'created_by_user_id' => 99,
         'image_asset_id' => 98,
         'lock_version' => 97,
+        'approved_by_user_id' => 96,
+        'approved_at' => now(),
     ]);
 
     expect($plan->title)->toBe('Kept')
         ->and($plan->status)->toBe(StudioPlanStatus::Draft)
         ->and($plan->created_by_user_id)->toBeNull()
         ->and($plan->image_asset_id)->toBeNull()
+        ->and($plan->approved_by_user_id)->toBeNull()
+        ->and($plan->approved_at)->toBeNull()
         ->and($plan->lock_version)->toBe(1);
 });
 
@@ -135,14 +139,14 @@ it('needs a creator', function () {
 
 it('points only at rows that exist', function (string $column) {
     expect(fn () => insertStudioPlanRow([$column => 2_000_000_000]))->toThrow(QueryException::class);
-})->with(['author_user_id', 'created_by_user_id', 'image_asset_id', 'category_id']);
+})->with(['author_user_id', 'created_by_user_id', 'approved_by_user_id', 'image_asset_id', 'category_id']);
 
-it('keeps the accounts it names: neither can be deleted from under it', function (string $column) {
+it('keeps the accounts it names: none can be deleted from under it', function (string $column) {
     $user = User::factory()->persona()->create();
     insertStudioPlanRow([$column => $user->id]);
 
     expect(fn () => DB::table('users')->where('id', $user->id)->delete())->toThrow(QueryException::class);
-})->with(['author_user_id', 'created_by_user_id']);
+})->with(['author_user_id', 'created_by_user_id', 'approved_by_user_id']);
 
 it('keeps its photo: the asset row cannot be deleted from under it', function () {
     $plan = StudioPlan::factory()->withImage()->create();
