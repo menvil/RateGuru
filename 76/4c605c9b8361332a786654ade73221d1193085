@@ -1,0 +1,20 @@
+tests/Pest.php
+  s_e673602b49c9b2::t_17a20df02024b0 8620
+  s_e673602b49c9b2::t_de25d0135e565e 8586-8590,8601
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "764c605c9b8361332a786654ade73221d1193085",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
