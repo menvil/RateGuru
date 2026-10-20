@@ -100,18 +100,6 @@ function deployOpsFakePhpBin(string $scratch): string
 }
 
 /**
- * Write a scripted Supervisor status sequence: one state per call, the last
- * line sticky. Models the real STARTING -> RUNNING promotion the committed
- * program's startsecs=3 produces.
- *
- * @param  list<string>  $states
- */
-function deployOpsSupervisorStatusSequence(string $scratch, array $states): void
-{
-    file_put_contents($scratch.'/supervisor-state/status-sequence', implode("\n", $states)."\n");
-}
-
-/**
  * PATH-shadowed `install` that rewrites every `-g <group>` of deploy's
  * Laravel preparation to this test process's own primary group, then
  * delegates to the real binary.

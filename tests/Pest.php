@@ -10571,6 +10571,18 @@ function deployOpsInstallCoreStubs(string $scratch): void
 }
 
 /**
+ * Write a scripted Supervisor status sequence: one state per call, the last
+ * line sticky. Models the real STARTING -> RUNNING promotion the committed
+ * program's startsecs=3 produces.
+ *
+ * @param  list<string>  $states
+ */
+function deployOpsSupervisorStatusSequence(string $scratch, array $states): void
+{
+    file_put_contents($scratch.'/supervisor-state/status-sequence', implode("\n", $states)."\n");
+}
+
+/**
  * The supervisorctl invocations a run performed (empty when the stub was
  * never reached).
  *
