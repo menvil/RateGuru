@@ -45,14 +45,13 @@
                 <div class="rg-admin-studio__suggestions-bar">
                     <div class="rg-admin-field">
                         <span class="rg-admin-label" id="rg-admin-studio-tone-label">Tone of new variants</span>
-                        <div class="rg-admin-studio__tones" role="radiogroup" aria-labelledby="rg-admin-studio-tone-label">
+                        <div class="rg-admin-studio__tones" role="group" aria-labelledby="rg-admin-studio-tone-label">
                             @foreach ($tones as $option)
                                 <button
                                     type="button"
-                                    role="radio"
                                     class="rg-admin-studio__tone"
-                                    aria-checked="{{ $tone === $option['value'] ? 'true' : 'false' }}"
-                                    x-bind:aria-checked="$wire.tone === @js($option['value']) ? 'true' : 'false'"
+                                    aria-pressed="{{ $tone === $option['value'] ? 'true' : 'false' }}"
+                                    x-bind:aria-pressed="$wire.tone === @js($option['value']) ? 'true' : 'false'"
                                     x-on:click="$wire.tone = @js($option['value'])"
                                     title="{{ $option['hint'] }}"
                                 >{{ $option['label'] }}</button>

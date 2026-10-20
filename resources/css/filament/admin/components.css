@@ -5294,7 +5294,7 @@
         outline-offset: 2px;
     }
 
-    .rg-admin-studio__tone[aria-checked="true"] {
+    .rg-admin-studio__tone[aria-pressed="true"] {
         border-color: var(--rg-admin-surface-inverse);
         background: var(--rg-admin-surface-inverse);
         color: var(--rg-admin-text-inverse);

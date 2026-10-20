@@ -99,7 +99,9 @@ it('offers the five tones, Cheeky first chosen, and Generate suggestions before 
         ->assertDontSee('Generate 10 more')
         ->assertDontSeeHtml('wire:poll');
 
-    expect($card->html())->toContain('aria-checked="true"');
+    expect($card->html())->toMatch('/aria-pressed="true"[^>]*>Cheeky</')
+        // Nothing on its way: Generate suggestions can be pressed.
+        ->not->toMatch('/<button type="button" disabled [^>]*wire:click="generate"/');
 });
 
 it('asks for a batch in each tone chosen, polling while it waits and runs, the draft untouched', function (StudioPostTextTone $tone) {
@@ -110,10 +112,11 @@ it('asks for a batch in each tone chosen, polling while it waits and runs, the d
         ->call('generate')
         ->assertNotDispatched('rg-admin-toast')
         ->assertSee('Waiting for text suggestions…')
-        ->assertSeeHtml('wire:poll.3s.visible')
-        ->assertSeeHtml('disabled');
+        ->assertSeeHtml('wire:poll.3s.visible');
 
-    expect(StudioPlanTextGeneration::query()->sole()->tone)->toBe($tone);
+    // Generate cannot be pressed again while the batch is on its way.
+    expect($card->html())->toMatch('/<button type="button" disabled [^>]*wire:click="generate"/')
+        ->and(StudioPlanTextGeneration::query()->sole()->tone)->toBe($tone);
     Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
     Http::assertNothingSent();
 
