@@ -1,0 +1,19 @@
+tests/.pest/shards.json
+  s_3481294084957b::t_51fb3d61335c3b 3-160,162-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "13c8baf11bf02513cd3c4a5d6d92c3a7a24e6b13",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}

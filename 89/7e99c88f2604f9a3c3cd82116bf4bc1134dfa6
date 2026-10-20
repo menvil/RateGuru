@@ -1,0 +1,31 @@
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_0f80700cf0b8c6::t_406f48806ca38a 475-506
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_f6a9af1f953c5c 531-536
+tests/Feature/Actions/UpdateUserAccountActionTest.php
+  s_0f80700cf0b8c6::t_e835c640276ee7 18,23,27,103,118-144
+app/Actions/Users/UpdateUserAccountAction.php
+  s_0f80700cf0b8c6::t_f6a9af1f953c5c 6,23-25,37,63,79-91
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_f6a9af1f953c5c 146,501
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_0f80700cf0b8c6::t_f6a9af1f953c5c 15-17,88
+app/Livewire/Admin/UserEditor.php
+  s_0f80700cf0b8c6::t_f6a9af1f953c5c 143-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "897e99c88f2604f9a3c3cd82116bf4bc1134dfa6",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
