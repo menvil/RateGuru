@@ -36,3 +36,10 @@ Schedule::command('moderation:purge-content')->daily()->withoutOverlapping();
 // translation_ai_provider_calls older than translation.telemetry.retention_days
 // (90) are deleted in small batches. Nothing else is touched.
 Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
+
+// Content Studio's dispatcher (docs/architecture/studio-plans.md, "Running a
+// plan"): sends the approved plans' actions that are due and sends again
+// those lost on their way. Off until the project's
+// content_studio_execution_enabled flag is switched on: until then every
+// run is a no-op that sends and changes nothing.
+Schedule::command('studio:dispatch-due')->everyMinute()->withoutOverlapping();

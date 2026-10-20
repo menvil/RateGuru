@@ -11,6 +11,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Notifications\PostApprovedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -24,7 +25,12 @@ final class ApprovePostAction
         private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
-    public function handle(User $moderator, Post $post, ?string $reason = null): void
+    /**
+     * @param  CarbonImmutable|null  $publishedAt  trusted, set only by Content Studio's executor: the date an
+     *                                             approved plan's post is published on, past or scheduled. Null
+     *                                             publishes it now, as every moderator's approval does.
+     */
+    public function handle(User $moderator, Post $post, ?string $reason = null, ?CarbonImmutable $publishedAt = null): void
     {
         if (! $moderator->can('approve', $post)) {
             throw CannotModeratePostException::becauseUserIsNotAllowed();
@@ -33,14 +39,14 @@ final class ApprovePostAction
         // The status check, mutation, and audit log run inside a single
         // transaction with a row lock on the post so a concurrent moderation
         // cannot bypass the state guard between the check and the write.
-        DB::transaction(function () use ($moderator, $post, $reason) {
+        DB::transaction(function () use ($moderator, $post, $reason, $publishedAt) {
             [$lockedActor, $locked] = $this->lockAndAuthorizePostModeration($moderator, $post, 'approve', PostStatus::Pending);
 
             $fromStatus = $locked->status;
 
             $persisted = $locked->forceFill([
                 'status' => PostStatus::Published,
-                'published_at' => $locked->published_at ?? now(),
+                'published_at' => $locked->published_at ?? $publishedAt ?? now(),
                 'needs_review' => false,
             ])->save();
 
@@ -86,7 +92,10 @@ final class ApprovePostAction
         }
 
         try {
-            NotifyFollowersAboutNewPostJob::dispatch($post->id);
+            // Once the outermost transaction commits — at once when there is
+            // none — so followers never hear of a post whose publication was
+            // taken back, such as one Content Studio's executor rolled back.
+            NotifyFollowersAboutNewPostJob::dispatch($post->id)->afterCommit();
         } catch (Throwable $exception) {
             report($exception);
 

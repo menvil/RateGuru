@@ -23,8 +23,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * it may run. A past date runs as soon as it may, under that past date; a
  * future one waits for it. Being run late never changes `occurs_at`.
  *
- * Approval writes a plan's actions, Pending; nothing runs them yet. Nothing is
- * mass assignable: every column is the server's to write.
+ * Approval writes a plan's actions, Pending; the dispatcher and the executor
+ * run them ("Running a plan" there). Nothing is mass assignable: every column
+ * is the server's to write.
  *
  * @property int $id
  * @property int $studio_plan_id

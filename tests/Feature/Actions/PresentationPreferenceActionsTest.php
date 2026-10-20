@@ -63,3 +63,12 @@ it('saves project settings and invalidates the cached settings snapshot', functi
     expect(ProjectSettings::findOrFail(1)->site_name)->toBe('New name')
         ->and($manager->current()->siteName())->toBe('New name');
 });
+
+it('keeps a feature flag the saved settings do not name, such as Content Studio\'s executor switch', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_comments' => true, 'content_studio_execution_enabled' => true]]);
+
+    app(SaveProjectSettingsAction::class)->handle(['feature_flags' => ['show_comments' => false]]);
+
+    expect(ProjectSettings::findOrFail(1)->feature_flags)->toMatchArray(['show_comments' => false, 'content_studio_execution_enabled' => true])
+        ->and(app(ProjectSettingsManager::class)->featureEnabled('content_studio_execution_enabled'))->toBeTrue();
+});

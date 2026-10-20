@@ -27,16 +27,19 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 The photo's analysis and the text suggestions written from it are kept beside
 the plan, each in a table of its own (see "Photo analysis" and "Post text
 suggestions" below), never in a column of the plan, and so are the actions
-approval writes (see "Approval" below). No post reference is here yet: it
-arrives with the executor that makes the post.
+approval writes (see "Approval" below). The post a plan becomes is its
+`create_post` action's result (`result_type`, `result_id`), not a column of the
+plan.
 
 ## Statuses
 
 `Draft` → `Approved` → `Running` → `Completed`, or `Cancelled`. A plan is made,
 edited and deleted only as a Draft; approval moves it on to Approved, after
-which no editor's write — a save, a photo, a deletion — touches it. Running,
-Completed and Cancelled are defined but nothing moves a plan into them yet:
-running and cancelling come with the executor.
+which no editor's write — a save, a photo, a deletion — touches it. Its first
+action claimed, it is Running; once none of its actions is left to run or to
+decide, it is Completed when its post was published and Cancelled when it never
+will be (see "Running a plan" below). A held or failed action keeps it Running,
+waiting for an administrator.
 
 ## A Draft may be incomplete
 
@@ -72,6 +75,8 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | `RemoveStudioPlanImageAction` | takes the photo off |
 | `DeleteStudioPlanDraftAction` | deletes the Draft's row outright |
 | `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
+| `ExecuteStudioAction` | runs one sent action — today the post — once (see "Running a plan") |
+| `DispatchDueStudioActionsAction` | sends the actions that are due, and again those lost |
 
 `StudioPlanData` holds what an editor may set and nothing more: the author,
 texts, category, tags, author answers, mode and date. The status, the creator,
@@ -154,9 +159,9 @@ plan's root action and nothing else: `create_post`, its Persona as the actor,
 no parent, an empty payload — the approved plan, which nothing writes any more,
 is what it publishes — `pending`, untried (`attempts` 0). The other kinds
 (`create_comment`, `create_reply`, `vote_post`, `vote_comment`, `vote_rating`)
-and states (`held`, `dispatched`, `running`, `done`, `failed`, `cancelled`) are
-the queue's format; nothing writes them yet. The row is deleted with its plan,
-and only a Draft, which has none, is deleted.
+are the queue's format; nothing writes them yet. The other states are the
+executor's (see "Running a plan" below). The row is deleted with its plan, and
+only a Draft, which has none, is deleted.
 
 Two moments are kept, both in UTC to the second, read from one moment of
 approval:
@@ -172,14 +177,12 @@ changes it — a post meant for now that runs a minute late is still that
 moment's, not a historical one. `run_after` keeps a future post back until its
 date.
 
-### Why nothing runs yet
+### When it runs
 
-A `pending` row is a passive record: no queue, worker, schedule or command reads
-it, nothing is sent to Redis, no post is made, and nothing notifies anybody.
-Running it safely — claiming it, writing the post once even when a job is
-delivered twice, and recovering after a crash — is the executor's, which comes
-with the next step of publishing, together with the post reference and the
-Action queue screen.
+A `pending` row is a passive record until the executor is switched on: no queue,
+worker or command acts on it, nothing is sent to Redis, no post is made, and
+nothing notifies anybody. Once it is on, `studio:dispatch-due` sends it when its
+`run_after` comes (see "Running a plan" below).
 
 ### Logs
 
@@ -190,6 +193,186 @@ has committed, so a rolled-back approval is never logged as one, and
 `studio_plan.approval_rejected` (the plan, the administrator, the
 Persona, the rejection's code and the problems' codes). Never the plan's texts
 or its photo.
+
+## Running a plan
+
+The executor publishes an approved plan's `create_post` as a real post of its
+Persona, and applies it once however often its job is delivered. Comments,
+replies and votes are not run yet: their kinds wait, Pending, for the stages
+that run them.
+
+### Life of an action
+
+`pending` → `dispatched` → `running` → `done`, and besides:
+
+| State | Means | Moved there by |
+| --- | --- | --- |
+| `pending` | waits for its `run_after` and a parent done | approval; the executor, for a Persona at its posting limit |
+| `dispatched` | its job is on the queue; `attempts` counts this send | `studio:dispatch-due`, sending it or sending it again |
+| `running` | claimed by a worker (`claimed_at`); its post not yet committed | the executor's claim |
+| `done` | its post written; `result_type`/`result_id` and the real `finished_at` kept | the executor's run |
+| `held` | stopped for an administrator to resume: the Persona Limited or Shadowbanned | the executor |
+| `cancelled` | for good: the Persona banned, deleted or no Persona, or the plan, photo, category or an answer no longer usable | the executor |
+| `failed` | for an administrator to decide: the approver may no longer approve, it was sent `max_attempts` times, or something unexpected | the executor; `studio:dispatch-due` |
+
+Each stop keeps a stable `failure_code` (`StudioActionFailure`) and, for an
+unexpected error, only the exception's class in `failure_reason`. Nothing is
+deleted: a held, cancelled or failed action stays as the record of what
+happened. Nothing resumes a held action by itself; resuming, retrying and
+cancelling are an administrator's, on the Action queue screen to come.
+
+### The dispatcher
+
+`studio:dispatch-due`, scheduled `everyMinute()->withoutOverlapping()` and run
+by the existing `schedule:run` — no cron or Supervisor program of its own
+(`DispatchDueStudioActionsAction`). Each run, at most `batch_size` of each:
+
+1. sends again the actions lost on their way: `dispatched`, and not claimed
+   `dispatched_stale_after_seconds` after they were sent — Redis lost the job,
+   a worker of an older release did not know it, the queue was flushed;
+2. sends again the actions left by a worker that died: `running`, and not
+   finished `running_stale_after_seconds` after they were claimed;
+3. sends what is due: `pending`, its `run_after` come, of a kind that runs,
+   with no parent or a parent done — `run_after` first, then id.
+
+Each one is locked and asked again before it is sent, in a short transaction
+of its own: it becomes `dispatched`, `attempts` one more, `dispatched_at` now,
+and `ExecuteStudioActionJob` is pushed once that transaction commits. An action
+already sent `max_attempts` times is failed instead, `attempts_exhausted`. Two
+dispatchers never send one action twice. A push Redis refuses after the commit
+leaves the action `dispatched`, so it is found lost and sent again: nothing is
+left that could never be sent again. Kinds nothing runs yet are never sent and
+never failed for it.
+
+### The job and the run
+
+`ExecuteStudioActionJob` carries the action's id and nothing else; `tries` 1,
+`timeout` 75 s under Redis's 90 s `retry_after`, `failOnTimeout`. It calls
+`ExecuteStudioAction` and holds no rule of its own; `failed()` only logs.
+
+The run has two transaction boundaries:
+
+1. **The claim**, committed on its own: the action locked, still `dispatched`,
+   of a kind that runs and due, becomes `running` with `claimed_at`, and its
+   plan, if still Approved, Running. `attempts` is not touched. Anything else —
+   a redelivered job, an action done, cancelled or sent again — claims nothing
+   and does nothing.
+2. **The run**, one transaction: the action locked again and found still
+   `running` at the claimed attempt; the Persona's and the approving
+   administrator's `users` rows, in ascending id order (`LocksUsersInOrder`);
+   the plan; then, inside the site's own actions, the photo and the post. The
+   locks are always taken in that order — the action, the users, the plan, the
+   photo, the post — so a sanction, a moderation or a vote beside it takes turns
+   with it rather than deadlocking. On the locked rows, the Persona must still
+   be an Active Persona and the plan still the approved one. The post is written
+   through `CreatePostAction` — the plan's photo by its id, as stored, checked
+   and locked there; the plan's texts, category, tags and answers; `occurs_at` as
+   its `created_at` and `updated_at` — then approved through
+   `ApprovePostAction` as the administrator who approved the plan, published on
+   `occurs_at`, and scored through `RecalculatePostScoreAction` under the post's
+   lock. Both actions ask their own policies again: an administrator who may no
+   longer approve cannot publish through an approval given earlier. The action
+   becomes `done` with its post and the real `finished_at`, and the plan
+   Completed once nothing of it is left. All of it commits together, or none of
+   it does.
+
+What stops a run is recorded only after the run is rolled back, by a short
+transaction that writes to the attempt it claimed and to nothing else. A
+lost connection or a deadlock is no verdict: the action stays `running`, and
+recovery sends it again.
+
+### Applied once
+
+- **A job delivered twice** finds the action done, or not `dispatched`, and
+  claims nothing: no second post, notification, score or attempt.
+- **Two workers at once** take turns on the action's row; the second finds it
+  `running` or done.
+- **A worker killed** after its claim, or with its post written but not
+  committed, leaves the action `running` and nothing else — PostgreSQL rolls
+  its transaction back. Recovery sends it again after
+  `running_stale_after_seconds`, and the second attempt publishes it once:
+  `attempts` is 2, not 3.
+- **A late run**, whose action recovery has sent again since, finds another
+  attempt on it and writes nothing. Recovery itself waits for a run that is
+  still alive — the run holds the action's row — and then finds it done.
+- **Every critical write is checked**: a save a model event cancels fails the
+  whole run as an exception would.
+
+`attempts` grows by one on every send — the first, and every one after a loss
+— and never on a claim or a finish.
+
+### Dates
+
+`occurs_at` is the post's: its `created_at`, `updated_at` and `published_at` all
+take it, however late the run — a post meant for now that runs a minute late
+is still that moment's. The approval, the first publication and the score run
+under `Post::withoutTimestamps()`, so none of them stamps the post's
+`updated_at` with the real time; a later real edit does, as ever. `finished_at`
+is the real moment the action ran; the moderation log and the notifications
+keep their real times. A future `run_after` is never sent, and a job sent early
+by hand is never claimed.
+
+### Notifications and side jobs
+
+The Persona's `PostApprovedNotification` is written in the run's transaction
+and commits with it. The followers' job (`NotifyFollowersAboutNewPostJob`) and
+the photo's variants job are pushed only once the transaction commits —
+`ApprovePostAction` now sends the followers' job after the commit for every
+approval, at once when there is no transaction — so nobody hears of a post that
+was rolled back. The variants job skips the variants the photo already has.
+
+### The posting limit
+
+The Persona's posts count against the site's ordinary upload limit
+(`rate_limits.upload`, 5 in 600 s), never bypassed. An action that meets it is
+no failure: the run is rolled back and the action goes back to `pending`, its
+`run_after` moved to when the limit allows, `occurs_at` unchanged,
+`failure_code` `rate_limited`. Its next send counts as an attempt like any
+other, so a limit that never lifts ends in `attempts_exhausted`.
+
+### The switch
+
+The project's `content_studio_execution_enabled` flag (`ProjectSettingsManager`,
+`StudioExecutionSwitch`) is **off** by default, on staging and production too,
+and nothing on screen switches it: the settings page neither shows it nor
+clears it when saved. While it is off, `studio:dispatch-due` sends nothing,
+takes nothing back and changes nothing, and a job already sent begins nothing.
+It is read afresh every time, never from what a long-lived worker resolved
+earlier, so switching it off stops the very next job.
+
+A deploy therefore publishes nothing: the migrations run, the new code goes
+live, the worker restarts as it always does, and the actions stay as they are
+until the flag is switched on deliberately — later, once the Publication screen
+and the later stages exist. A job a worker of an older release does not know
+fails there and leaves its action `dispatched`, and recovery sends it again.
+
+### Configuration
+
+`config/content_studio.php`, section `actions`:
+
+| Setting | Default | Means |
+| --- | --- | --- |
+| `batch_size` | 50 | actions sent, and sent again, per run |
+| `max_attempts` | 3 | sends before an action is failed `attempts_exhausted` |
+| `dispatched_stale_after_seconds` | 900 | a sent action unclaimed this long was lost |
+| `running_stale_after_seconds` | 180 | a claimed action unfinished this long was left by a dead worker — past the job's 75 s timeout and Redis's 90 s `retry_after` |
+
+### Logs
+
+`DomainLogger` events `studio.action.sent`, `.resent`, `.dispatch_failed`,
+`.skipped`, `.discarded` (a run that found its attempt gone), `.done`,
+`.held`, `.cancelled`, `.failed`, `.postponed` and `.job_failed` — with the
+action's id, the plan, the Persona, the type, the state, the attempt, the
+failure code and the moments. Never the post's texts.
+
+### Testing it
+
+The executor is tested with the flag switched on in the test alone
+(`switchStudioExecution()`), OpenAI and every other outside service faked, and
+the jobs run in the test as a worker would (`runStudioActionJob()`); no real
+post is published anywhere. The races run as processes of their own against
+PostgreSQL (`tests/Feature/Concurrency/StudioExecutorRaceTest.php`), a worker
+killed in the middle included.
 
 ## The photo
 

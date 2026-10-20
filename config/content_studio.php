@@ -81,4 +81,29 @@ return [
         'stale_after_seconds' => 180,
     ],
 
+    // Running approved plans: the actions `studio:dispatch-due` hands to the
+    // queue every minute (ExecuteStudioActionJob) and takes back when they
+    // were lost. Whether it runs at all is the project's
+    // `content_studio_execution_enabled` flag, off until switched on.
+    'actions' => [
+        // Actions sent, and taken back, by one run of the dispatcher.
+        'batch_size' => 50,
+
+        // How many times an action is sent before it is given up as failed
+        // (`attempts_exhausted`). A first send counts, and so does every
+        // send after one was lost; claiming and finishing never do.
+        'max_attempts' => 3,
+
+        // A sent action no worker has claimed this long after it was sent
+        // was lost on its way — Redis, a worker of an older release, a
+        // queue flushed — and is sent again.
+        'dispatched_stale_after_seconds' => 900,
+
+        // A claimed action still running this long after it was claimed
+        // belongs to a worker that died: past the job's 75 s timeout, inside
+        // which Laravel ends it, and the 90 s Redis retry_after. It is sent
+        // again; whatever that worker had begun was rolled back with it.
+        'running_stale_after_seconds' => 180,
+    ],
+
 ];
