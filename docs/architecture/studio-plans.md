@@ -71,7 +71,7 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | Action | Does |
 | --- | --- |
 | `CreateStudioPlanAction` | a new Draft at version 1, its creator the administrator |
-| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo |
+| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo, and no date its discussion would run past (see "The discussion") |
 | `SetStudioPlanImageAction` | uploads or replaces the photo |
 | `RemoveStudioPlanImageAction` | takes the photo off |
 | `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion with it |
@@ -240,10 +240,22 @@ A comment's moment is kept relative to the post — `offset_seconds` after it �
 never as a date of its own, so a new date for the post moves the whole
 discussion with it, unchanged. No comment comes before the post, nor later than
 30 days after it, and no reply before the comment it answers; equal moments
-are allowed. On a plan with a date, no comment may fall past the latest date a
-post may carry (`StudioPlanValidationRules::LATEST_PUBLISH_AT`). The offsets
-become each comment's own `occurs_at` and `run_after` only when the plan is
-approved, by the step that publishes discussions.
+are allowed.
+
+On a plan with a date, no comment may fall past the latest date a post may
+carry (`StudioPlanValidationRules::LATEST_PUBLISH_AT`), whichever changes: a
+save of the discussion is held to the plan's date, and a save of the plan
+(`UpdateStudioPlanAction`) — a new date, or a switch from `now` to `at_date` —
+to its saved discussion. On the locked plan it reads the discussion's latest
+`offset_seconds` and refuses a date that would carry it past the bound, as a
+`ValidationException` on `publishAt`, changing nothing: not the plan, not its
+version, not the discussion. The offsets are never moved to make a date fit.
+Both checks go through one predicate,
+`StudioDiscussionValidationRules::fitsPostDates()`. A plan published at once, or
+with no date chosen yet, always fits.
+
+The offsets become each comment's own `occurs_at` and `run_after` only when
+the plan is approved, by the step that publishes discussions.
 
 ### Ids
 
@@ -296,6 +308,9 @@ write to it.
 A save and a sanction or a deletion of a Persona it names lock that Persona's
 row in the same order, so they take turns rather than deadlocking: saved first,
 the comment stays and the deletion follows; deleted first, the save is refused.
+A save of the discussion and a new date for the post take turns on the plan's
+row: the later one, drawn from the version the first replaced, is refused, so
+neither can carry a comment past the dates a post may carry.
 
 ### Not approved yet
 

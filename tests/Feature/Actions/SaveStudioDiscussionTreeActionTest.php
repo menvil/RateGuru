@@ -205,6 +205,78 @@ it('moves the whole discussion with a new date for the post, unchanged', functio
         ->and(storedDiscussion($this->plan))->toBe($before);
 });
 
+/** A new date for the plan's post, saved as the editor saves it, the rest of the draft as it is. */
+function moveStudioPost(User $admin, StudioPlan $plan, StudioPlanPublicationMode $mode, ?string $publishAt): void
+{
+    $fresh = StudioPlan::query()->findOrFail($plan->id);
+
+    app(UpdateStudioPlanAction::class)->handle($admin, $plan, new StudioPlanData(
+        title: $fresh->title,
+        publicationMode: $mode,
+        publishAt: $publishAt !== null ? CarbonImmutable::parse($publishAt) : null,
+    ), $fresh->lock_version);
+}
+
+it('moves a post with no discussion to any date it may carry, as ever', function () {
+    moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:59:59');
+
+    expect($this->plan->fresh()->publish_at->toDateTimeString())->toBe('2038-01-18 23:59:59')
+        ->and($this->plan->fresh()->lock_version)->toBe(2);
+});
+
+it('moves a post with its discussion up to the last date the discussion still fits, every offset kept', function () {
+    saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['parentKey' => 'a', 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 3600]),
+    ]);
+    $before = storedDiscussion($this->plan);
+
+    // The latest comment, an hour after the post, lands on the last second a post may carry.
+    moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 22:59:59');
+
+    expect($this->plan->fresh()->publish_at->toDateTimeString())->toBe('2038-01-18 22:59:59')
+        ->and(storedDiscussion($this->plan))->toBe($before);
+});
+
+it('refuses a date that would carry the discussion past the dates a post may carry, changing nothing', function (StudioPlanPublicationMode $from) {
+    $this->plan->forceFill(['publication_mode' => $from, 'publish_at' => $from === StudioPlanPublicationMode::AtDate ? CarbonImmutable::parse('2021-05-01 10:00:00') : null])->save();
+    saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['parentKey' => 'a', 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 3600]),
+    ]);
+    $plan = DB::table('studio_plans')->where('id', $this->plan->id)->first();
+    $discussion = DB::table('studio_plan_discussion_nodes')->orderBy('id')->get();
+
+    $refusal = discussionRefusal(fn () => moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00'));
+
+    expect($refusal)->toBeInstanceOf(ValidationException::class)
+        ->and(array_keys($refusal->errors()))->toBe(['publishAt'])
+        ->and(DB::table('studio_plans')->where('id', $this->plan->id)->first())->toEqual($plan)
+        ->and(DB::table('studio_plan_discussion_nodes')->orderBy('id')->get())->toEqual($discussion);
+})->with([
+    'moved from another date' => [StudioPlanPublicationMode::AtDate],
+    'switched from published at once' => [StudioPlanPublicationMode::Now],
+]);
+
+it('reads the discussion\'s latest comment only once the plan is locked', function () {
+    saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60])]);
+    $queries = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$queries): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (preg_match('/^select \\* from studio_plans where/', $sql) === 1 && str_contains($sql, 'limit 1')) {
+            $queries[] = 'plan';
+        } elseif (str_contains($sql, 'max(offset_seconds)')) {
+            $queries[] = 'discussion';
+        }
+    });
+
+    moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2030-01-01 00:00:00');
+
+    expect(array_slice($queries, -2))->toBe(['plan', 'discussion']);
+});
+
 it('refuses a save drawn from a version somebody else replaced, writing nothing over theirs', function () {
     saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Theirs.'])]);
 

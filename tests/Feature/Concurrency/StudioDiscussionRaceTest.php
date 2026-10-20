@@ -1,17 +1,22 @@
 <?php
 
+use App\Enums\StudioPlanPublicationMode;
 use App\Enums\UserStatus;
 use App\Models\StudioPlan;
 use App\Models\User;
+use App\Support\Studio\StudioPlanValidationRules;
+use Carbon\CarbonImmutable;
 
 /*
  * Saving a Draft's discussion against real concurrency, on PostgreSQL: every
  * competitor is a process of its own with its own connection
  * (lockRaceCompetitor()). Two administrators saving one discussion take turns
  * on the plan's row, and the later save, drawn from the version the earlier
- * one replaced, is refused rather than written over it. A save and a change
- * to a Persona it names lock the same `users` row in the same order, so they
- * take turns rather than deadlocking — and a Persona deleted first is refused.
+ * one replaced, is refused rather than written over it — and so is a new date
+ * for the post racing a save of its discussion, so no comment is ever carried
+ * past the dates a post may carry. A save and a change to a Persona it names
+ * lock the same `users` row in the same order, so they take turns rather than
+ * deadlocking — and a Persona deleted first is refused.
  */
 
 const DISCUSSION_RACE_SKIP = 'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. The lock order itself is asserted on every engine by SaveStudioDiscussionTreeActionTest. PostgreSQL is the primary runtime (docs/architecture/database-support.md).';
@@ -45,6 +50,45 @@ it('lets two administrators save one discussion in turn, refusing the save drawn
         forgetStudioPlanRace($db, [$first->id, $second->id, $persona->id], $directory);
     }
 })->skip(fn (): bool => config('database.default') !== 'pgsql', DISCUSSION_RACE_SKIP);
+
+it('lets a discussion and a new date for its post take turns, whichever is first, never carrying a comment past the dates a post may carry', function (string $leader) {
+    $db = committedConnection();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    $plan = StudioPlan::factory()->connection('committed_peer')->create([
+        'created_by_user_id' => $first->id,
+        'title' => 'Harbour',
+        'publication_mode' => StudioPlanPublicationMode::AtDate,
+        'publish_at' => CarbonImmutable::parse('2038-01-18 20:00:00'),
+    ]);
+    $directory = raceDirectory('studio-discussion');
+    // Three hours after a post at 20:00 fits; after one at 23:00 it would not.
+    $save = ['action' => 'discussion-save', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'nodes' => [['personaUserId' => $persona->id, 'body' => 'Late.', 'offsetSeconds' => 10_800]], 'disk' => $directory.'/disk'];
+    $move = ['action' => 'plan-date', 'admin' => $second->id, 'plan' => $plan->id, 'version' => 1, 'publish_at' => '2038-01-18 23:00:00', 'disk' => $directory.'/disk'];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace($leader === 'save'
+            ? [lockRaceCompetitor($directory, 'a', [...$save, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$move, 'sync' => 'follow'])]
+            : [lockRaceCompetitor($directory, 'a', [...$move, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$save, 'sync' => 'follow'])]);
+
+        // The first is written; the second, drawn from the version it replaced, is refused.
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(1, $report)
+            ->and($results[1]['output'])->toContain('changed by another administrator');
+
+        $after = $db->table('studio_plans')->where('id', $plan->id)->first();
+        $latestOffset = $db->table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->max('offset_seconds');
+
+        expect((int) $after->lock_version)->toBe(2)
+            ->and($latestOffset === null || CarbonImmutable::parse($after->publish_at)->addSeconds((int) $latestOffset)
+                ->lessThanOrEqualTo(CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT)))->toBeTrue();
+    } finally {
+        forgetStudioPlanRace($db, [$first->id, $second->id, $persona->id], $directory);
+    }
+})->with([
+    'the discussion first' => ['save'],
+    'the new date first' => ['move'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', DISCUSSION_RACE_SKIP);
 
 it('lets a save and the deletion of a Persona it names take turns: saved first, kept; deleted first, refused', function (string $leader, bool $saved) {
     $db = committedConnection();

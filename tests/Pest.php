@@ -13215,7 +13215,7 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13384,6 +13384,15 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 ),
                 'plan-author' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
                     $admin, $plan, new App\Data\Studio\StudioPlanData(authorUserId: $persona->id, title: $plan->title), $job['version'],
+                ),
+                // A new date for the post, the rest of the draft as it is.
+                'plan-date' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioPlanData(
+                        authorUserId: $plan->author_user_id,
+                        title: $plan->title,
+                        publicationMode: App\Enums\StudioPlanPublicationMode::AtDate,
+                        publishAt: Carbon\CarbonImmutable::parse($job['publish_at']),
+                    ), $job['version'],
                 ),
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),

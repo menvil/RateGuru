@@ -43,6 +43,10 @@ use Illuminate\Validation\Validator as ValidatorInstance;
  *   is published; and on a plan with a date, no comment falls past the
  *   latest date a post may carry (StudioPlanValidationRules).
  *
+ * The same bound holds the other way round: a plan's new date is refused when
+ * the discussion it has saved would then run past it (validatePlanDate()),
+ * both through one predicate (fitsPostDates()).
+ *
  * Times are kept relative to the post — seconds after it — so a new date for
  * the post moves the whole discussion with it, unchanged.
  */
@@ -152,10 +156,6 @@ final class StudioDiscussionValidationRules
             ->pluck('id')
             ->map(fn (mixed $id): int => (int) $id)
             ->all();
-        // Published at once, the post's moment is its approval's, decades
-        // inside the range; on a date, it is that date.
-        $postAt = $plan->publication_mode === StudioPlanPublicationMode::AtDate ? $plan->publish_at : null;
-        $latest = CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT);
         $errors = [];
 
         foreach ($data->nodes as $index => $node) {
@@ -170,7 +170,7 @@ final class StudioDiscussionValidationRules
                 $errors["nodes.{$index}.personaUserId"] = 'Choose a persona who is not deleted.';
             }
 
-            if ($postAt !== null && $postAt->addSeconds($node->offsetSeconds)->greaterThan($latest)) {
+            if (! self::fitsPostDates($plan->publication_mode, $plan->publish_at, $node->offsetSeconds)) {
                 $errors["nodes.{$index}.offsetSeconds"] = 'It would come after 2038, past the latest date a post may carry. Bring it closer to the post.';
             }
         }
@@ -178,6 +178,43 @@ final class StudioDiscussionValidationRules
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    /**
+     * The rule a plan's date is held to by the discussion it has saved: no
+     * comment falls past the latest date a post may carry. Asked whenever the
+     * plan is saved (UpdateStudioPlanAction), with the mode and the date it is
+     * about to take, on the plan the caller has locked — so the discussion it
+     * reads cannot change meanwhile. The offsets are never moved to make it
+     * fit: the date is refused instead.
+     *
+     * @throws ValidationException keyed `publishAt`, as the editor's field
+     */
+    public function validatePlanDate(StudioPlan $plan, StudioPlanPublicationMode $mode, ?CarbonImmutable $publishAt): void
+    {
+        $latestOffset = StudioDiscussionNode::query()->where('studio_plan_id', $plan->getKey())->max('offset_seconds');
+
+        if ($latestOffset !== null && ! self::fitsPostDates($mode, $publishAt, (int) $latestOffset)) {
+            throw ValidationException::withMessages([
+                'publishAt' => 'Its discussion would run past 2038, the latest date a post may carry. Choose an earlier date, or bring the discussion closer to the post.',
+            ]);
+        }
+    }
+
+    /**
+     * Whether a comment this many seconds after a post published so still
+     * falls within the dates a post may carry
+     * (StudioPlanValidationRules::LATEST_PUBLISH_AT). Published at once, or
+     * with no date chosen yet, it always does: the post's moment is then its
+     * approval's, decades inside the range.
+     */
+    public static function fitsPostDates(StudioPlanPublicationMode $mode, ?CarbonImmutable $publishAt, int $offsetSeconds): bool
+    {
+        if ($mode !== StudioPlanPublicationMode::AtDate || $publishAt === null) {
+            return true;
+        }
+
+        return $publishAt->addSeconds($offsetSeconds)->lessThanOrEqualTo(CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT));
     }
 
     /**
