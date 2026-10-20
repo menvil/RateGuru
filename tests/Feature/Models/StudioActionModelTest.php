@@ -158,7 +158,9 @@ it('indexes what is due, a plan\'s actions, an action\'s children, a Persona\'s 
 });
 
 it('rolls back and runs again: the table and the approval columns go and come back', function () {
+    // Every migration of the table, so the one that adds to it comes back too.
     $paths = [
+        'database/migrations/2026_10_20_100200_add_deferrals_to_studio_plan_actions_table.php',
         'database/migrations/2026_10_20_100100_create_studio_plan_actions_table.php',
         'database/migrations/2026_10_20_100000_add_approval_to_studio_plans_table.php',
     ];
@@ -172,5 +174,6 @@ it('rolls back and runs again: the table and the approval columns go and come ba
     $this->artisan('migrate', ['--force' => true])->assertSuccessful();
 
     expect(Schema::hasTable('studio_plan_actions'))->toBeTrue()
+        ->and(Schema::hasColumns('studio_plan_actions', ['attempts', 'deferrals']))->toBeTrue()
         ->and(Schema::hasColumns('studio_plans', ['approved_by_user_id', 'approved_at']))->toBeTrue();
 });

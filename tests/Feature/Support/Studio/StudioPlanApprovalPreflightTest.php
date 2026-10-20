@@ -12,6 +12,7 @@ use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\Tag;
 use App\Models\User;
@@ -128,6 +129,19 @@ it('wants its photo: a post image, Ready, not deleted and no post\'s already —
     // Owned by the administrator who uploaded it, never by the author: that is as it should be.
     'another administrator\'s upload' => [fn (StudioPlan $plan, MediaAsset $photo) => $photo->forceFill(['owner_user_id' => User::factory()->admin()->create()->id])->save(), []],
 ]);
+
+it('wants no prepared discussion while nothing publishes one, refusing it as unsupported rather than dropping it', function () {
+    $plan = approvableStudioPlan();
+    $node = StudioDiscussionNode::factory()->for($plan, 'plan')->create();
+
+    expect(approvalProblemsOf($plan))->toBe(['discussion_not_publishable'])
+        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->rejection())->toBe(StudioPlanApprovalRejection::UnsupportedDiscussion)
+        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->field())->toBe('discussion');
+
+    $node->delete();
+
+    expect(approvalProblemsOf($plan))->toBe([]);
+});
 
 it('wants a category, when there is one, that is active', function () {
     $plan = approvableStudioPlan(['category_id' => Category::factory()->inactive()->create()->id]);

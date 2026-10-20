@@ -22,6 +22,7 @@ use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\StudioAction;
+use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -258,7 +259,22 @@ it('refuses a plan not ready to publish with every problem the preflight finds, 
         $plan->forceFill(['author_answer_option_ids' => [$answer->id]])->save();
     }, StudioPlanApprovalRejection::InvalidTaxonomy, [StudioPlanApprovalProblem::AnswerInactive]],
     'no date to publish on' => [fn (StudioPlan $plan) => $plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => null])->save(), StudioPlanApprovalRejection::InvalidPublicationDate, [StudioPlanApprovalProblem::PublishAtMissing]],
+    // Nothing publishes a discussion yet: approving the post alone would drop it.
+    'a prepared discussion' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(), StudioPlanApprovalRejection::UnsupportedDiscussion, [StudioPlanApprovalProblem::DiscussionNotPublishable]],
 ]);
+
+it('approves a plan whose discussion was emptied as it approves any other', function () {
+    $plan = approvableStudioPlan();
+    saveStudioDiscussion($this->admin, $plan, [discussionNode(['personaUserId' => User::factory()->persona()->create()->id, 'body' => 'Lovely.'])]);
+
+    expect(approvalRefusal(fn () => approveStudioPlan($this->admin, $plan))->problems)->toBe([StudioPlanApprovalProblem::DiscussionNotPublishable]);
+
+    saveStudioDiscussion($this->admin, $plan, []);
+    approveStudioPlan($this->admin, $plan);
+
+    expect($plan->fresh()->status)->toBe(StudioPlanStatus::Approved)
+        ->and(StudioAction::query()->sole()->type)->toBe(StudioActionType::CreatePost);
+});
 
 it('refuses an author sanctioned after the plan was seen', function () {
     $plan = approvableStudioPlan();

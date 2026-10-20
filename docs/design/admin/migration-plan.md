@@ -364,6 +364,16 @@ production too, and has no switch on screen, so a deploy publishes nothing. Stil
 Publication screen with its Approve button, the Action queue screen — resuming held actions, retrying failed ones,
 cancelling — and the comments, replies and votes after the post. Phase 4 is not finished.
 
+**Content Studio Phase 5 — Discussion generation. Status: in progress.** Its first step is in code: a Draft's
+discussion — comments on the post and replies to them, two levels only, up to 40, each by a Persona, its moment kept
+as seconds after the post — stored a row per comment in `studio_plan_discussion_nodes`, each keeping its id through
+every edit. `SaveStudioDiscussionTreeAction` saves the whole discussion at once under the plan's lock and version,
+held to one set of rules (`StudioDiscussionValidationRules`) for the editor and the AI generator alike
+(`docs/architecture/studio-plans.md`, "The discussion"). Nothing on screen shows or edits a discussion yet, nothing
+generates one, and nothing publishes one: until discussions can be published, a plan that prepares one is not
+approved (`unsupported_discussion`). Still to come in this phase: generating the discussion with AI and writing one
+part of it again, the editor's Discussion step, and publishing it as comments and replies. Phase 5 is not finished.
+
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
 (`manage-personas`): searched and narrowed by status and engagement on the server, 25 a page (`PersonasQuery`, a

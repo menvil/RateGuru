@@ -12,7 +12,6 @@ use App\Models\MediaAsset;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
-use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -48,18 +47,6 @@ function committedApprovableStudioPlan(User $creator, User $persona): StudioPlan
         'title' => 'A quiet harbour at dawn',
         'image_asset_id' => $photo->id,
     ]);
-}
-
-/** Removes what the competitors committed, as they committed it: for real. */
-function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $directory): void
-{
-    $assetIds = $db->table('media_assets')->whereIn('owner_user_id', $userIds)->pluck('id');
-
-    $db->table('studio_plans')->whereIn('created_by_user_id', $userIds)->delete();
-    $db->table('media_assets')->whereIn('id', $assetIds)->delete();
-    $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
-    $db->table('users')->whereIn('id', $userIds)->delete();
-    File::deleteDirectory($directory);
 }
 
 it('locks the users in ascending id order, then the plan, whatever it writes', function (Closure $act, bool $personaFirst) {
