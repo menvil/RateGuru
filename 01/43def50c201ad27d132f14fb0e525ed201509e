@@ -1,0 +1,115 @@
+app/Actions/Studio/StartStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_56377029d582cb 1-59
+app/Support/StudioAi/StudioDiscussionContext.php
+  s_0f80700cf0b8c6::t_7fa8d7bd209732 144-146,152,163-175,179,193
+  s_0f80700cf0b8c6::t_48c33e48998378 1-6,8-131,133-143,147-149,151,153-155,199-268
+  s_0f80700cf0b8c6::t_310fe0bdd535f2 156-162,176-178,180-192,194-198
+  s_0f80700cf0b8c6::t_498a0f0a0b3af8 7,132,150
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_e5a06418bef8f2 374-381
+app/Actions/Studio/ApplyStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_4b48d5df13d350 1-167
+app/Support/StudioAi/StudioDiscussionGenerator.php
+  s_0f80700cf0b8c6::t_e476932f160197 1-35
+app/Support/StudioAi/StudioDiscussionPrompt.php
+  s_0f80700cf0b8c6::t_e476932f160197 1-6,10-19,46-56
+  s_0f80700cf0b8c6::t_310fe0bdd535f2 7-9,20-45
+tests/Feature/StudioAi/OpenAiStudioDiscussionGeneratorTest.php
+  s_0f80700cf0b8c6::t_4d4a959ae5dcf7 1-229,231-262
+  s_0f80700cf0b8c6::t_065d4a92c08b1c 230
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_1e0890e4ed29dc 79-80,340-513
+tests/Feature/StudioAi/StudioDiscussionProposalTest.php
+  s_0f80700cf0b8c6::t_8af187ae5afb39 1-5,7-166,168-209
+  s_0f80700cf0b8c6::t_487c41690dca09 6,167
+app/Enums/StudioDiscussionGenerationMode.php
+  s_0f80700cf0b8c6::t_4d46f41745d75d 1-24
+app/Jobs/Studio/GenerateStudioDiscussionJob.php
+  s_0f80700cf0b8c6::t_afd1f8c152b913 1-88,91-115
+  s_0f80700cf0b8c6::t_4caafccc0f4252 89-90
+app/Models/StudioPlan.php
+  s_0f80700cf0b8c6::t_daf3f6573307a7 183-194
+app/Exceptions/Studio/CannotRequestStudioDiscussionGenerationException.php
+  s_0f80700cf0b8c6::t_2c9eb38e204e82 1-23
+tests/Feature/Concurrency/StudioDiscussionGenerationRaceTest.php
+  s_0f80700cf0b8c6::t_f4f99530d6bfae 90,106,113,133,140,163,212-235
+  s_0f80700cf0b8c6::t_9c3bc397720340 1-89,91-105,107-112,114-132,134-139,141-162,164-211
+app/Support/StudioAi/StudioDiscussionGenerationCall.php
+  s_0f80700cf0b8c6::t_e476932f160197 1-57
+database/factories/StudioPlanDiscussionGenerationFactory.php
+  s_0f80700cf0b8c6::t_4caafccc0f4252 1-93
+app/Support/StudioAi/StudioDiscussionGenerationFailedException.php
+  s_0f80700cf0b8c6::t_e476932f160197 1-21
+app/Actions/Studio/FailStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_56377029d582cb 1-57
+tests/Feature/Models/StudioPlanDiscussionGenerationModelTest.php
+  s_0f80700cf0b8c6::t_dc15611264b0fa 1-109
+app/Providers/AppServiceProvider.php
+  s_0f80700cf0b8c6::t_67a80f06085626 30,33,79
+app/Enums/StudioDiscussionGenerationError.php
+  s_0f80700cf0b8c6::t_4d46f41745d75d 1-56
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_e5a06418bef8f2 1269-1290
+tests/Pest.php
+  s_0f80700cf0b8c6::t_43e4d3a01fdb0e 13226,13423
+  s_0f80700cf0b8c6::t_9e2b01d842143a 13219-13222,13327-13328,13414-13422,13424-13428
+  s_0f80700cf0b8c6::t_80e51d438b59f1 4,7,15,20,25,31,39,13633-13727
+app/Support/StudioAi/OpenAiStudioDiscussionGenerator.php
+  s_0f80700cf0b8c6::t_57baa216ac1564 1-59,61-419
+  s_0f80700cf0b8c6::t_80e51d438b59f1 60
+app/Data/Studio/StudioDiscussionGenerationData.php
+  s_0f80700cf0b8c6::t_2c9eb38e204e82 1-52
+app/Exceptions/Studio/CannotApplyStudioDiscussionGenerationException.php
+  s_0f80700cf0b8c6::t_2c9eb38e204e82 1-22
+app/Models/StudioPlanDiscussionGeneration.php
+  s_0f80700cf0b8c6::t_daf3f6573307a7 1-157
+tests/Feature/Actions/ApplyStudioDiscussionGenerationActionTest.php
+  s_0f80700cf0b8c6::t_6a9b7e1fbacace 1-3,6-173,177,182-247,249-272
+  s_0f80700cf0b8c6::t_12aba6cb95ffe3 4-5,174-176,178-181,248
+app/Actions/Studio/RequestStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_56377029d582cb 187-192
+  s_0f80700cf0b8c6::t_1141df4829852b 1-186,193-335
+app/Support/StudioAi/StudioDiscussionPersona.php
+  s_0f80700cf0b8c6::t_cf6fbb8fca51e2 1-99
+app/Actions/Studio/CompleteStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_f97f3310ec1808 1-128
+app/Support/Studio/StudioDiscussionValidationRules.php
+  s_0f80700cf0b8c6::t_310fe0bdd535f2 213-233,236,239
+tests/Feature/Actions/RequestStudioDiscussionGenerationActionTest.php
+  s_0f80700cf0b8c6::t_1a605bcb34bb0d 3-5,17,26,254,271-273,279,305
+  s_0f80700cf0b8c6::t_a3833d0dce008c 188
+  s_0f80700cf0b8c6::t_0f57b7747ba111 1-2,6-16,18-25,27-187,189-253,255-270,274-278,280-304,306-316
+app/Enums/StudioDiscussionGenerationStatus.php
+  s_0f80700cf0b8c6::t_4d46f41745d75d 1-23
+tests/Feature/Jobs/GenerateStudioDiscussionJobTest.php
+  s_0f80700cf0b8c6::t_c307f8b7b0aaa1 1-2,4-7,9-138,140-182,184-239,241-250,257-260,262,265-344
+  s_0f80700cf0b8c6::t_482f276aeb9be4 3,8,183,240,251-256,261,263-264
+  s_0f80700cf0b8c6::t_85cea2c0e6649a 139
+database/migrations/2026_10_20_120000_create_studio_plan_discussion_generations_table.php
+  s_0f80700cf0b8c6::t_48eea950e52fbf 1-88
+app/Support/StudioAi/StudioDiscussionGenerationResult.php
+  s_0f80700cf0b8c6::t_e476932f160197 1-18
+config/content_studio.php
+  s_0f80700cf0b8c6::t_96fd52b454b414 84-115
+app/Support/StudioAi/StudioDiscussionProposal.php
+  s_0f80700cf0b8c6::t_db4abb728bcb41 1-133,136-337
+  s_0f80700cf0b8c6::t_f24b1f0efe1bd2 134-135
+tests/Feature/Models/StudioDiscussionNodeModelTest.php
+  s_0f80700cf0b8c6::t_59b3b1602347a8 97-101,103,106,112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0143def50c201ad27d132f14fb0e525ed201509e",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
