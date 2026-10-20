@@ -182,6 +182,15 @@ outputs:
       machine that owns the real offsite namespace.
     value: ${{ steps.recover.outputs['offsite-writes'] }}
 
+  outbound-mail:
+    description: >-
+      Whether the recovered target's direct outbound mail is held on the
+      replacement machine by the recovery outbound hold its preparation
+      placed — `held`, `released` once Release recovered tits.guru outbound
+      mail released it, or `not-applicable` for a target whose mail never
+      leaves the machine directly.
+    value: ${{ steps.recover.outputs['outbound-mail'] }}
+
   queue:
     description: "Queue worker state the server-side primitive reported (running on a completed recovery)"
     value: ${{ steps.recover.outputs.queue }}
@@ -743,6 +752,7 @@ runs:
           echo "source-sha=$(jq -r '.source_sha' <<<"${result_json}")"
           echo "health=$(jq -r '.health' <<<"${result_json}")"
           echo "offsite-writes=$(jq -r '.offsite_writes' <<<"${result_json}")"
+          echo "outbound-mail=$(jq -r '.outbound_mail // empty' <<<"${result_json}")"
           echo "queue=$(jq -r '.queue // empty' <<<"${result_json}")"
           echo "scheduler=$(jq -r '.scheduler // empty' <<<"${result_json}")"
           echo "previous=$(jq -r '.previous // empty' <<<"${result_json}")"
@@ -762,6 +772,7 @@ runs:
           echo "- Current release: \`$(jq -r '.current_release' <<<"${result_json}")\` (source \`$(jq -r '.source_sha' <<<"${result_json}")\`)"
           echo "- Health: \`$(jq -r '.health' <<<"${result_json}")\` · Queue: \`$(jq -r '.queue' <<<"${result_json}")\` · Scheduler: \`$(jq -r '.scheduler' <<<"${result_json}")\`"
           echo "- Offsite writes (backup cron, uploader, pruner): \`$(jq -r '.offsite_writes' <<<"${result_json}")\`"
+          echo "- Outbound mail (direct delivery): \`$(jq -r '.outbound_mail // "not reported"' <<<"${result_json}")\`"
 
           if [[ "${MODE}" == "verify" ]]; then
             echo "- Previous release link: \`$(jq -r '.previous' <<<"${result_json}")\`"

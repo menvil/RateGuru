@@ -251,6 +251,11 @@ function prepWriteChildStubs(string $scratch): void
             esac
         done
         printf '%s\n' "${out}" > "${STUB_LOG}/fetch-output-dir"
+        if [[ -n "$(ls -A "${STUB_OUTBOUND_HOLD_DIR}" 2>/dev/null)" ]]; then
+            printf 'fetch outbound-held\n' >> "${STUB_LOG}/outbound-hold-seen.log"
+        else
+            printf 'fetch outbound-open\n' >> "${STUB_LOG}/outbound-hold-seen.log"
+        fi
         printf '%s\n' "${seed}" > "${STUB_LOG}/fetch-seed-dir"
         # GNU stat on Linux, BSD stat where GNU syntax is unsupported.
         { stat -c '%a' "${out}" 2>/dev/null || stat -f '%Lp' "${out}"; } > "${STUB_LOG}/fetch-output-mode"
@@ -277,6 +282,13 @@ function prepWriteChildStubs(string $scratch): void
             case "$*" in
                 *--apply*)
                     printf '%s %s\n' "${me}" "$*" >> "${STUB_LOG}/mutations.log"
+                    # Whether a recovery outbound hold already stood when this
+                    # child ran: bootstrap installs the mail gateway.
+                    if [[ -n "$(ls -A "${STUB_OUTBOUND_HOLD_DIR}" 2>/dev/null)" ]]; then
+                        printf '%s outbound-held\n' "${me}" >> "${STUB_LOG}/outbound-hold-seen.log"
+                    else
+                        printf '%s outbound-open\n' "${me}" >> "${STUB_LOG}/outbound-hold-seen.log"
+                    fi
                     if [[ -e "${STUB_TOGGLES}/${me}-apply-fail" ]]; then
                         echo "ERROR: ${me} simulated apply failure"
                         exit 1
@@ -353,6 +365,12 @@ function prepFixture(string $scratch, array $options = []): array
         // The run root the data-operation guards live under. Pointed inside
         // the scratch tree so a test can plant one without touching the host.
         'RATEGURU_PREPAREHOST_RUN_ROOT' => $scratch.'/run',
+        // Where a recovery preparation places the recovery outbound hold, and
+        // the owner it is judged against: the gateway's state directory and
+        // root on a host, the scratch tree and this test's user here.
+        'RATEGURU_PREPAREHOST_RECOVERY_OUTBOUND_HOLD_DIR' => recoveryOutboundHoldDir($scratch),
+        'RATEGURU_PREPAREHOST_RECOVERY_OUTBOUND_HOLD_OWNER' => trim((string) shell_exec('id -un')),
+        'STUB_OUTBOUND_HOLD_DIR' => recoveryOutboundHoldDir($scratch),
         'STUB_LOG' => $scratch.'/log',
         'STUB_TOGGLES' => $scratch.'/toggles',
         'STUB_LOCK_TAKER' => $scratch.'/bin/lock-taker',
@@ -1556,6 +1574,11 @@ function prepCleanHostRecovery(string $scratch): array
             'RATEGURU_RECOVERYMATERIAL_PREREQUISITES_BIN' => base_path('infrastructure/scripts/install-target-prerequisites'),
             'RATEGURU_RECOVERYMATERIAL_SOURCE_REGISTRY' => $registryPath,
             'RATEGURU_RECOVERYMATERIAL_SCRATCH_PARENT' => $scratch.'/root-home',
+            // Whether the target's mail goes out directly is judged by the
+            // mail world's own routing judge and policy, beside the patched
+            // targets that accept this scratch registry.
+            'RATEGURU_PREPAREHOST_MAIL_ROUTING_CLI' => $scratch.'/prereq-bundle-bin/mail-routing',
+            'RATEGURU_PREPAREHOST_MAIL_ROUTING_POLICY' => $scratch.'/prereq-checkout/infrastructure/config/mail-routing.json',
             'RATEGURU_RECOVERYMATERIAL_ENFORCE_OWNERSHIP' => 'false',
             'RATEGURU_RCLONE_BIN' => $scratch.'/bin/rclone',
             'RGTEST_RCLONE_LOG' => $scratch.'/rclone.log',
@@ -1731,6 +1754,156 @@ it('leaves an ordinary preparation exactly as it was: no fetch, no hold', functi
         prepCleanup($scratch);
     }
 });
+
+/** A recovery preparation of tits-guru — active, its reviewed mail outbound — from backup 20260115-023000. */
+function prepOutboundRecoveryRun(string $scratch, array $env = []): array
+{
+    $seed = is_dir($scratch.'/seed') ? $scratch.'/seed' : prepSeedDir($scratch);
+
+    return prepRun(
+        ['--apply', '--target', 'tits-guru', '--material-dir', $seed, '--recovery-backup', '20260115-023000'],
+        prepFixture($scratch, ['registry' => prepActiveRegistryFixture($scratch), 'env' => $env]),
+    );
+}
+
+it('holds a recovered target\'s outbound mail after the runtime slice and before anything else: no child that installs mail ever runs without it', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepOutboundRecoveryRun($scratch);
+
+        expect($exit)->toBe(0, $output);
+
+        // The runtime slice ran first and without it — it installs no mail
+        // transport — and every later child, host bootstrap and its mail
+        // gateway included, ran with it standing.
+        expect(prepLog($scratch, 'outbound-hold-seen'))->toBe([
+            'runtime outbound-open',
+            'fetch outbound-held',
+            'bootstrap outbound-held',
+            'database outbound-held',
+        ]);
+
+        expect(recoveryOutboundHoldRead($scratch))->toMatchArray([
+            'hold' => 'recovery-outbound',
+            'target' => 'tits-guru',
+            'backup' => '20260115-023000',
+            'operation' => null,
+            'state' => 'held',
+        ]);
+        expect(substr(sprintf('%o', fileperms(recoveryOutboundHoldDir($scratch).'/tits-guru.json')), -4))->toBe('0600');
+        expect(substr(sprintf('%o', fileperms(recoveryOutboundHoldDir($scratch))), -4))->toBe('0700');
+
+        expect($output)
+            ->toContain('RECOVERY OUTBOUND HOLD')
+            ->toContain('OUTBOUND MAIL: HELD (placed) — '.recoveryOutboundHoldDir($scratch).'/tits-guru.json')
+            ->toContain("RECOVERY PREPARATION: OUTBOUND MAIL HELD — tits-guru's direct delivery stays off on this machine")
+            ->toContain('OUTBOUND MAIL: HELD — '.recoveryOutboundHoldDir($scratch).'/tits-guru.json')
+            ->toContain('TARGET PREPARED: YES');
+        expect(strpos($output, 'RECOVERY OUTBOUND HOLD'))->toBeLessThan(strpos($output, 'RECOVERY MATERIAL'));
+
+        // The same start again converges, and keeps the hold as it is.
+        $held = File::get(recoveryOutboundHoldDir($scratch).'/tits-guru.json');
+        [$exit, $output] = prepOutboundRecoveryRun($scratch);
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('OUTBOUND MAIL: HELD (kept)');
+        expect(File::get(recoveryOutboundHoldDir($scratch).'/tits-guru.json'))->toBe($held);
+
+        // And a recovery preparation is verified AS one.
+        [$exit, $output] = prepRun(['--verify', '--target', 'tits-guru', '--recovery-backup', '20260115-023000'], prepFixture($scratch, ['registry' => prepActiveRegistryFixture($scratch)]));
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain('RECOVERY PREPARATION: OUTBOUND MAIL HELD');
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('places no outbound hold for a target whose mail never leaves the host directly', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        [$exit, $output] = prepRun(prepRecoveryArguments($scratch), prepFixture($scratch));
+
+        expect($exit)->toBe(0, $output);
+        expect($output)->toContain("NOT NEEDED — staging-main's reviewed mail is capture: nothing it accepts leaves this machine directly");
+        expect(is_dir(recoveryOutboundHoldDir($scratch)))->toBeFalse();
+        expect(array_unique(array_map(static fn (string $line): string => explode(' ', $line)[1], prepLog($scratch, 'outbound-hold-seen'))))->toBe(['outbound-open']);
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('never places an outbound hold in an ordinary preparation, and keeps and reports one that stands', function () {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch, ['registry' => prepActiveRegistryFixture($scratch)]);
+
+        [$exit, $output] = prepRun(['--apply', '--target', 'tits-guru', '--material-dir', prepSeedDir($scratch)], $env);
+        expect($exit)->toBe(0, $output);
+        expect(is_dir(recoveryOutboundHoldDir($scratch)))->toBeFalse();
+        expect($output)->not->toContain('OUTBOUND MAIL');
+
+        $path = recoveryOutboundHoldWrite($scratch, 'tits-guru', ['operation' => '20260115-041233-9be21c']);
+        $held = File::get($path);
+
+        foreach ([['--apply', '--target', 'tits-guru'], ['--check', '--target', 'tits-guru'], ['--verify', '--target', 'tits-guru']] as $arguments) {
+            [$exit, $output] = prepRun($arguments, $env);
+            expect($exit)->toBe(0, $output);
+            expect($output)->toContain('OUTBOUND MAIL: HELD — '.$path);
+            expect(File::get($path))->toBe($held);
+        }
+    } finally {
+        prepCleanup($scratch);
+    }
+});
+
+it('refuses a recovery preparation over a hold it cannot keep, before the material is fetched or anything mail-shaped is installed', function (array $hold, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        $path = recoveryOutboundHoldWrite($scratch, 'tits-guru', $hold);
+        $before = File::get($path);
+
+        [$exit, $output] = prepOutboundRecoveryRun($scratch);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain($expected);
+        expect(prepLog($scratch, 'mutations'))->toBe(['runtime --apply']);
+        expect(File::exists($scratch.'/log/fetch-output-dir'))->toBeFalse();
+        expect(File::get($path))->toBe($before);
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'a hold for another backup' => [['backup' => '20260114-023000'], "this machine already holds tits-guru's outbound mail for the recovery from backup 20260114-023000, not 20260115-023000"],
+    'a hold already released' => [['state' => 'released', 'operation' => '20260115-041233-9be21c', 'released_at' => '2026-01-16T10:00:00Z', 'released_address' => '203.0.113.10'], "tits-guru's outbound mail was already released on this machine"],
+    'a hold it cannot read' => [['state' => 'open'], 'is not a hold this machine can trust'],
+]);
+
+it('refuses to verify a recovery preparation whose outbound hold is missing, released or another recovery\'s', function (?array $hold, string $expected) {
+    $scratch = prepScratchDir();
+
+    try {
+        $env = prepFixture($scratch, ['registry' => prepActiveRegistryFixture($scratch), 'compliant' => ['runtime', 'prerequisites-host', 'bootstrap', 'prerequisites-target', 'database']]);
+        prepPlantHold($scratch, ['target' => 'tits-guru']);
+
+        if ($hold !== null) {
+            recoveryOutboundHoldWrite($scratch, 'tits-guru', $hold);
+        }
+
+        [$exit, $output] = prepRun(['--verify', '--target', 'tits-guru', '--recovery-backup', '20260115-023000'], $env);
+
+        expect($exit)->toBe(1, $output);
+        expect($output)->toContain($expected);
+    } finally {
+        prepCleanup($scratch);
+    }
+})->with([
+    'missing' => [null, "tits-guru's mail goes out directly, and the recovery outbound hold"],
+    'released' => [['state' => 'released', 'operation' => '20260115-041233-9be21c', 'released_at' => '2026-01-16T10:00:00Z', 'released_address' => '203.0.113.10'], "tits-guru's outbound mail was already released on this machine"],
+    'another backup' => [['backup' => '20260114-023000'], 'was placed for backup 20260114-023000'],
+]);
 
 it('keeps a hold that is already in place, and never rewrites it', function () {
     $scratch = prepScratchDir();

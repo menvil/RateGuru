@@ -262,6 +262,7 @@ it('exposes typed outputs drawn only from that result', function () {
         'health',
         'offsite-writes',
         'operation',
+        'outbound-mail',
         'previous',
         'queue',
         'required-source-sha',

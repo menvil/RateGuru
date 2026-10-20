@@ -67,6 +67,8 @@ exact backup instead (§K).
 * queue **RUNNING**, scheduler **PRESENT**, health **PASS**;
 * guards **none** — neither a restore guard nor a recovery guard;
 * offsite writes **HELD**;
+* outbound mail **HELD** for a target whose mail goes out directly
+  (`tits-guru`), *not applicable* for `staging-main`;
 * no migration ran, `DEPLOY_HOST` unchanged, DNS unchanged.
 
 Anything less is not success (§J). The recovered machine serves nothing to the
@@ -236,13 +238,16 @@ Three things that are deliberately not on that list:
   the reviewed policy before anything is installed, installs it before host
   bootstrap (where the signer requires it), and the signer leaves it
   `root:opendkim 0640`. See [`backups.md`](backups.md).
-* **Not in place yet: a recovery-time outbound fence.** A host recovered for
-  a target whose mail goes out directly is prepared with that delivery
-  configured, and nothing yet stops it from sending before its own A, PTR and
-  SPF are re-accepted for its new address. That fence — outbound delivery
-  refused on a recovered machine until its address is proved and the release
-  is explicit — is the next, separate change. Until it exists, a production
-  recovery is not run as a rehearsal.
+* **The recovery outbound hold.** A host recovered for a target whose mail
+  goes out directly holds that mail from before its mail gateway is
+  installed: the preparation places the hold, the gateway keeps the target's
+  listener accepting and holding every message with no direct route at all,
+  and the recovery binds the hold to its operation and verifies it
+  (`OUTBOUND MAIL: HELD`). Nothing in the recovery, and no later Prepare,
+  Repair or deploy, releases it. It ends only with **Release recovered
+  tits.guru outbound mail**, after the machine is adopted and public DNS — A,
+  PTR and SPF for its own address — names it. See
+  [`release-recovered-outbound.md`](release-recovered-outbound.md).
 * Has **passed the offsite restore test**: the nightly `offsite-restore-test`
   downloads the backup, verifies every checksum and certifies its recovery
   material against the installed prerequisite table. A backup it refused is
@@ -314,15 +319,17 @@ In order, and it stops at the first refusal:
    A refusal changes nothing and names the reason; Prepare Host does not run.
 5. **deploy-identity** — derives the deploy public key from `DEPLOY_SSH_KEY`
    on the runner; the private key never leaves it.
-6. **prepare** — Prepare Host in its recovery form: runtime, then
-   `fetch-recovery-material` takes the environment file and the
+6. **prepare** — Prepare Host in its recovery form: runtime, then the
+   **recovery outbound hold** for a target whose mail goes out directly
+   (before Postfix is installed), then `fetch-recovery-material` takes the
+   environment file and the
    recovery-scope material out of the backup (manifest first, so an older
    backup is refused by name), recovery-scope material — the host material,
    and the DKIM key of a target whose mail is signed — bootstrap, the
    **offsite-write hold**, target material, database, then an independent
    verification that requires the hold.
-7. **recover** — `recover-host --apply`: the same exact backup, verified
-   from scratch, the prepared `shared/.env` compared byte-for-byte with the
+7. **recover** — `recover-host --apply`: the outbound hold bound to this
+   operation, then the same exact backup, verified from scratch, the prepared `shared/.env` compared byte-for-byte with the
    backup's, database and storage restored, the host left deliberately not
    serving, a recovery guard on disk. The server names the commit.
 8. **build** — the exact `source_sha` from the backup's own `release.json`,
@@ -355,6 +362,8 @@ On the replacement machine, as root:
 | `ls /home/www/rateguru/run/restores/staging-main/ /home/www/rateguru/run/recoveries/staging-main/` | no `restore-guard`, no `recovery-guard` |
 | `cat /home/www/rateguru/run/offsite-write-hold` | present: `{"hold":"offsite-writes", …}` |
 | `sudo /home/www/rateguru/bin/backup-cycle --target staging-main` | refuses with `OFFSITE WRITES: HELD` |
+| `cat /var/lib/rateguru-mail-gateway/recovery-outbound-holds/tits-guru.json` (a `tits-guru` recovery only) | present: `"state": "held"`, bound to the recovery's operation |
+| `postqueue -j` after the application sent mail (a `tits-guru` recovery only) | its messages in `"queue_name": "hold"`, none delivered |
 
 Or in one command, from the operational bundle the recovery installed:
 
@@ -406,6 +415,8 @@ All of the following, and nothing less:
 * No migration ran.
 * Queue RUNNING, scheduler PRESENT, health PASS, no guard.
 * `OFFSITE WRITES: HELD` on the recovered machine.
+* For `tits-guru`: `OUTBOUND MAIL: HELD` — the application works, and whatever
+  it sends waits on the machine.
 * `DEPLOY_HOST` unchanged, DNS unchanged, the old host untouched, the real
   offsite namespace neither written to nor pruned.
 
@@ -502,8 +513,12 @@ state in each.
 
 * Never change `DEPLOY_HOST` before the recovered machine is deliberately
   adopted; never change DNS for a rehearsal.
-* Never delete a restore guard, a recovery guard or the offsite-write hold
-  by hand to make a step pass.
+* Never delete a restore guard, a recovery guard, the offsite-write hold or
+  the recovery outbound hold by hand to make a step pass. Removing the
+  outbound hold releases nothing — the gateway then refuses every apply — and
+  the only release is **Release recovered tits.guru outbound mail**.
+* Never release a recovered machine's outbound mail before it is adopted and
+  public DNS names its address; never release its HOLD queue wholesale.
 * Never run a migration on the recovered host during the recovery: the exact
   commit the data belongs to is what gets deployed.
 * Never copy `.env`, TLS material, Basic Auth hashes, a DKIM key or an rclone
@@ -538,6 +553,7 @@ This is the PRE_DEPLOY state Prepare Host leaves behind, and the state
 | queue worker | definitely **not RUNNING** |
 | scheduler | as Prepare Host installed it |
 | offsite-write hold | **present** |
+| recovery outbound hold (`tits-guru` only) | **present**, held, for this backup, not yet bound to an operation |
 | restore guard, recovery guard | **absent** |
 
 **A Supervisor runtime group that is absent is normal here, not an error.**
@@ -582,3 +598,5 @@ the preparation this recovery already began rather than as a dirty host (§K).
   recovery form
 * [`backups.md`](backups.md) — the backup format, schema 4 and the offsite
   restore test
+* [`release-recovered-outbound.md`](release-recovered-outbound.md) — the hold
+  on a recovered machine's outbound mail, and its release after adoption

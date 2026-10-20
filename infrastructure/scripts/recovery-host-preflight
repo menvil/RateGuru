@@ -875,7 +875,8 @@ IN ONE SCREEN — the whole operation; the numbered sections below explain it.
 
   SUCCESS      The final verify passes and the summary states all of: the exact
                source_sha of that backup and previous absent; queue RUNNING; scheduler
-               PRESENT; health PASS; guards none; offsite writes HELD; no migration ran;
+               PRESENT; health PASS; guards none; offsite writes HELD; outbound mail HELD
+               for a target whose mail goes out directly; no migration ran;
                DEPLOY_HOST unchanged; DNS unchanged. Anything less is not success.
 
 1. The new server
@@ -931,13 +932,15 @@ IN ONE SCREEN — the whole operation; the numbered sections below explain it.
 
 7. Verify the recovered host, and the site WITHOUT changing DNS
    - current -> the exact source_sha; previous absent; no guards; queue RUNNING;
-     scheduler PRESENT; /up healthy; offsite-write-hold present (OFFSITE WRITES: HELD).
+     scheduler PRESENT; /up healthy; offsite-write-hold present (OFFSITE WRITES: HELD);
+     for a target whose mail goes out directly, its mail held (OUTBOUND MAIL: HELD) —
+     released later, after adoption, only by Release recovered tits.guru outbound mail.
    - curl --resolve ${hostname}:443:<IP> https://${hostname}/up
      (public hostnames of this target: ${hostname_source})
 
 8. Never
    - change DEPLOY_HOST or DNS before the recovered machine is deliberately adopted;
-   - delete guards or the offsite-write hold by hand; run migrations;
+   - delete guards, the offsite-write hold or the recovery outbound hold by hand; run migrations;
    - copy .env, TLS or Basic Auth material by hand; weaken StrictHostKeyChecking;
    - run backup-cycle on the recovered rehearsal host while the offsite-write hold exists.
 

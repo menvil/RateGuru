@@ -464,6 +464,40 @@ preparation or repair. Removing the marker is part of deliberately adopting
 the machine as the target's host, alongside repointing `DEPLOY_HOST` and DNS,
 and is never automated.
 
+### The recovery outbound hold
+
+A recovered machine of a target whose mail goes out directly would deliver
+that mail from an address the public DNS does not yet name. Its recovery
+preparation therefore placed the **recovery outbound hold**
+(`/var/lib/rateguru-mail-gateway/recovery-outbound-holds/<target>.json`,
+defined once in `infrastructure/scripts/recovery-outbound-hold`) before the
+mail gateway was installed, and while it is held the gateway keeps the
+target's listener accepting and holding every message, with no direct route.
+
+* `--apply` binds the hold to its operation right after the offsite-write
+  hold, before a byte is downloaded (`step: bind the recovery outbound
+  hold`). A machine that carries no hold for a target whose reviewed mail
+  goes out directly, a hold for another backup, one already bound to another
+  operation, one already released or one that cannot be trusted is refused
+  with `RECOVERY ACTION REQUIRED`, and no data is staged. A failed apply that
+  puts the machine back as its preparation left it takes its binding back, so
+  the same recovery can start again.
+* `--inspect` and `--resume` refuse a hold bound to another operation, or
+  released; `--resume` re-establishes a missing one for this operation before
+  it starts a single service.
+* `--verify` requires a sound hold bound to a recovery this machine's journal
+  records as completed — held, or released by
+  [`release-recovered-outbound`](release-recovered-outbound.md) — and reports
+  `OUTBOUND MAIL: HELD (...)` or `OUTBOUND MAIL: RELEASED (...)`; the
+  machine-readable result carries `outbound_mail` (`held`, `released`, or
+  `not-applicable` for a target whose mail never leaves the machine
+  directly).
+
+Whether a target's mail goes out directly is the reviewed routing's answer,
+from the installed `mail-routing`; when it cannot be read, these modes refuse
+rather than assume no hold is needed. Nothing in a recovery releases the
+hold.
+
 ---
 
 ## 9. The controlled recovery deployment

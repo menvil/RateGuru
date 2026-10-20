@@ -125,6 +125,7 @@ where the external material comes from — and it changes the pipeline into:
 ```text
 install-bootstrap-runtime                       base packages, rclone, jq
   → lifecycle gate (target must be active)
+  → RECOVERY OUTBOUND HOLD                       a target whose mail goes out directly, before Postfix exists
   → fetch-recovery-material                     the backup's bootstrap subset → effective material
   → install-target-prerequisites --scope recovery  from the effective material
   → bootstrap-host
@@ -167,6 +168,22 @@ layout, `root:root 0600` in `root:root 0700` directories — the one layout
 directories without touching its bytes. The target slice afterwards finds it
 present and identical to the backup's. The ordinary, non-recovery preparation
 is unchanged: the target scope installs a new key only once the signer exists.
+
+The **recovery outbound hold** is placed first, as soon as the runtime slice has
+put jq on the host and the lifecycle gate has passed, and before host
+bootstrap installs the mail gateway — for a target whose reviewed mail goes
+out directly (`tits-guru`; the reviewed routing's `mail-routing render-plan`
+decides, and `staging-main`'s capture needs none). While it is held, the
+gateway installs and keeps the target's listener holding every message with
+no direct route: the machine never sends as the target from an address the
+public DNS does not name. A hold this recovery already placed, for this
+backup, is kept; one for another backup, an already released one or one that
+cannot be trusted stops the preparation before anything else is fetched or
+installed. The end of a recovery `--apply`, and `--verify --recovery-backup`,
+require it still held for this backup (`RECOVERY PREPARATION: OUTBOUND MAIL
+HELD …`), and every mode's summary reports it (`OUTBOUND MAIL: HELD`). An
+ordinary preparation never places one, and none releases one: see
+[`release-recovered-outbound.md`](release-recovered-outbound.md).
 
 The **offsite-write hold** is placed after host bootstrap created the run root
 and before the target slice installs the offsite credential, so the replacement

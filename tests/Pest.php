@@ -536,7 +536,7 @@ function executableSourceLines(string $source): string
  */
 function sourcedLibraryNames(): array
 {
-    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host'];
+    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'recovery-outbound-hold'];
 }
 
 /**
@@ -595,7 +595,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'prepare-public-https', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'prepare-public-https', 'release-recovered-outbound', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -3511,6 +3511,130 @@ function mailGatewayApplied(array $host, string $name = 'applied-plan.json'): st
     return $host['fs'].'/var/lib/rateguru-mail-gateway/'.$name;
 }
 
+/** The gateway files and the recorded policy, for proving nothing changed. */
+function mailGatewayMutableState(array $host): array
+{
+    return array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
+}
+
+/** The tits-guru delivery mode the host's recorded policy says. */
+function mailGatewayRecordedMode(array $host): string
+{
+    return collect(json_decode(File::get(mailGatewayApplied($host)), true)['listeners'])->firstWhere('identity', 'tits-guru')['delivery_mode'];
+}
+
+/**
+ * staging-main's slice of the installed master.cf: its listener and its
+ * capture transport, exactly as master.cf holds them.
+ *
+ * @return list<array<string, mixed>>
+ */
+function mailGatewayStagingCapture(array $host): array
+{
+    $services = collect(mailGatewayMasterServices(File::get($host['fs'].'/etc/postfix/master.cf')))->keyBy('name');
+
+    return [$services['127.0.0.1:2525'], $services['rateguru-capture-staging-main']];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The recovery-time outbound hold
+|--------------------------------------------------------------------------
+|
+| infrastructure/scripts/recovery-outbound-hold's marker, written the way a
+| recovery preparation writes it — in the gateway's state directory under a
+| simulated host's FS, owned by the test's own user as it is by root on a
+| host — and a replacement host the recovery prepared: nothing installed yet,
+| its bundle requesting the committed policy (tits-guru active and outbound,
+| direct delivery enabled), and tits-guru's outbound mail held.
+*/
+
+function recoveryOutboundHoldDir(string $fs): string
+{
+    return $fs.'/var/lib/rateguru-mail-gateway/recovery-outbound-holds';
+}
+
+/**
+ * A sound marker for TARGET, with CHANGES over it.
+ *
+ * @param  array<string, mixed>  $changes
+ * @return array<string, mixed>
+ */
+function recoveryOutboundHoldDocument(string $target = 'tits-guru', array $changes = []): array
+{
+    return array_replace([
+        'hold' => 'recovery-outbound',
+        'schema_version' => 1,
+        'target' => $target,
+        'backup' => '20261020-030000',
+        'operation' => null,
+        'state' => 'held',
+        'placed_at' => '2026-10-20T09:00:00Z',
+        'released_at' => null,
+        'released_address' => null,
+    ], $changes);
+}
+
+/**
+ * TARGET's marker written under FS. A string CONTENT is written verbatim.
+ *
+ * @param  array<string, mixed>|string  $changes
+ */
+function recoveryOutboundHoldWrite(string $fs, string $target = 'tits-guru', array|string $changes = [], int $mode = 0o600): string
+{
+    $dir = recoveryOutboundHoldDir($fs);
+
+    if (! is_dir(dirname($dir))) {
+        mkdir(dirname($dir), 0o755, true);
+    }
+
+    if (! is_dir($dir)) {
+        mkdir($dir, 0o700);
+    }
+
+    chmod($dir, 0o700);
+
+    $path = "{$dir}/{$target}.json";
+    file_put_contents($path, is_string($changes)
+        ? $changes
+        : json_encode(recoveryOutboundHoldDocument($target, $changes), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");
+    chmod($path, $mode);
+
+    return $path;
+}
+
+/** @return array<string, mixed>|null TARGET's marker under FS, or null when there is none. */
+function recoveryOutboundHoldRead(string $fs, string $target = 'tits-guru'): ?array
+{
+    $path = recoveryOutboundHoldDir($fs)."/{$target}.json";
+
+    return is_file($path) ? json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR) : null;
+}
+
+/**
+ * A replacement host a clean-host recovery prepared, before its gateway was
+ * installed: its bundle requests the committed policy, and tits-guru's
+ * outbound mail is held by a marker with CHANGES over it — none when null.
+ *
+ * @param  array<string, mixed>|null  $hold
+ */
+function mailGatewayRecoveredHost(?array $hold = [], array $options = []): array
+{
+    $committed = mailCommittedPolicy();
+    $host = mailGatewayHost([
+        'policy' => $committed['routing'],
+        'outbound' => $committed['outbound'],
+        'registry' => committedRegistryWithLifecycles([]),
+        ...$options,
+    ]);
+
+    if ($hold !== null) {
+        recoveryOutboundHoldWrite($host['fs'], 'tits-guru', $hold);
+    }
+
+    return $host;
+}
+
 /*
 |--------------------------------------------------------------------------
 | The fake mail gateway: one loopback SMTP listener and its queue
@@ -3899,7 +4023,7 @@ function mailActivationBundle(string $root, array $documents): void
     @mkdir($root.'/infrastructure/scripts', 0o755, true);
     @mkdir($root.'/infrastructure/config', 0o755, true);
 
-    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
+    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'recovery-outbound-hold', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
         $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
         copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$copy}");
         chmod("{$root}/infrastructure/scripts/{$copy}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
@@ -4281,7 +4405,7 @@ function mailInboundBundleScripts(): array
 {
     return [
         'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
-        'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
+        'public-smtp-port', 'recovery-outbound-hold', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
 
@@ -7218,6 +7342,16 @@ function recoveryEnv(string $scratch): array
 
     return recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_RECOVERY_HISTORY_ROOT' => $scratch.'/recoveries',
+        // The recovery outbound hold: its one definition, where it lives on
+        // the simulated machine and the owner it is judged against; and the
+        // reviewed mail routing that says whether the target's mail goes out
+        // directly — the mail world's own judge and policy, beside the patched
+        // targets that accept this scratch registry.
+        'RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY' => infraScript('recovery-outbound-hold'),
+        'RATEGURU_RECOVER_OUTBOUND_HOLD_DIR' => recoveryOutboundHoldDir($scratch),
+        'RATEGURU_RECOVER_OUTBOUND_HOLD_OWNER' => trim((string) shell_exec('id -un')),
+        'RATEGURU_RECOVER_MAIL_ROUTING_CLI' => $scratch.'/prereq-bundle-bin/mail-routing',
+        'RATEGURU_RECOVER_MAIL_ROUTING_POLICY' => $scratch.'/prereq-checkout/infrastructure/config/mail-routing.json',
         'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/prepare-host-stub',
         'RATEGURU_RECOVER_SUPERVISOR_CONF_D' => $scratch.'/supervisor-conf.d',
         'RGTEST_PREPARE_HOST_LOG' => $scratch.'/prepare-host.log',
@@ -8764,6 +8898,9 @@ function trustedToolingRefs(): array
         'activate-tits-guru-mail.yml' => 'main',
         'rollback-tits-guru-mail-activation.yml' => 'main',
         'send-tits-guru-mail-canary.yml' => 'main',
+        // and its release on a machine a clean-host recovery prepared, once
+        // the machine is adopted and public DNS names it.
+        'release-tits-guru-recovered-outbound.yml' => 'main',
         // tits-guru's inbound SMTP: its guarded opening, verification and
         // closing.
         'activate-tits-guru-inbound-smtp.yml' => 'main',

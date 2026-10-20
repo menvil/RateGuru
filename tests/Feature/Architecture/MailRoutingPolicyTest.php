@@ -1183,7 +1183,10 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     // target's domains — each running the copy next to itself — and the
     // inbound activation, which reads the submission listeners it proves still
     // work, from its trusted bundle.
-    // No workflow, action, orchestrator or other installer invokes it. The
+    // The recovery preparation, the recovery and the release of a recovered
+    // machine's outbound mail ask it one question — does this target's mail
+    // go out directly — to decide whether that mail is held.
+    // No workflow, action, other orchestrator or other installer invokes it. The
     // one other file
     // that may name the POLICY is the prerequisite installer, which hands its
     // configuration directory's copy to the identity judge — never to this CLI.
@@ -1196,14 +1199,19 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/activate-mail-outbound',
         'infrastructure/scripts/send-mail-canary',
         'infrastructure/scripts/mail-inbound',
+        'infrastructure/scripts/prepare-host',
     ];
     $bundled = ['infrastructure/scripts/activate-mail-inbound'];
+    // The installed recover-host asks the installed copy beside it; the
+    // release asks the copy in the trusted bundle it runs from.
+    $installed = ['infrastructure/scripts/recover-host'];
+    $released = ['infrastructure/scripts/release-recovered-outbound'];
     $installers = ['infrastructure/scripts/install-target-operations'];
 
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled, ...$installers], true)) {
+        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled, ...$installed, ...$released, ...$installers], true)) {
             continue;
         }
 
@@ -1219,6 +1227,16 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
 
     foreach ($bundled as $consumer) {
         expect(executableSourceLines(File::get(base_path($consumer))))->toContain('"$(bundle_script mail-routing)" render-plan');
+    }
+
+    foreach ($installed as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))
+            ->toContain('/home/www/rateguru/bin/mail-routing')
+            ->toContain('"${RECOVER_MAIL_ROUTING_CLI}" render-plan');
+    }
+
+    foreach ($released as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))->toContain('"$(tool mail-routing)" render-plan');
     }
 });
 

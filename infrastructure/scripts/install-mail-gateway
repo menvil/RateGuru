@@ -151,6 +151,25 @@
 # before the transition starts, so it is never honoured twice. There is no flag
 # and no override that does the same.
 #
+# THE RECOVERY OUTBOUND HOLD. A machine a clean-host recovery prepared carries,
+# for every target whose mail goes out directly, the marker
+# infrastructure/scripts/recovery-outbound-hold defines — placed by the
+# preparation before this installer first runs there. While a target's marker
+# is held, the plan this installer renders, verifies and records is the
+# reviewed one with exactly that target's mail HELD (delivery_mode held, no
+# route) and, when no other target still delivers outbound, the host contract
+# with direct delivery disabled: the pre-activation state, by the same changes
+# an activation undoes. The repository is not changed, and still requests
+# outbound delivery; the host records the held state, and the activation
+# boundary keeps it there — so a fresh replacement machine establishes held,
+# every later Prepare, repair or bootstrap converges to held, and removing the
+# marker by hand only turns the next apply into a refusal. The crossing to
+# outbound is release-recovered-outbound's: after its own proof it releases the
+# marker and writes the one-use authorization this installer consumes. Nothing
+# here writes, moves or removes a marker, and a marker that is not sound —
+# or anything in its directory that is not one — refuses every mode before
+# anything is rendered.
+#
 # THE PACKAGE. --apply may install Ubuntu's postfix package, and does it so the
 # daemon can never run in a state RateGuru did not choose:
 #
@@ -292,6 +311,13 @@ BACKUP_ROOT="/var/backups/rateguru-mail-gateway"
 # only this Postfix's own public inbound listener may, once activated.
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/public-smtp-port"
+
+# The recovery-time outbound hold: where it lives, its one shape and its
+# judge. The gateway only ever reads it, and judges its owner as every other
+# file it manages.
+# shellcheck source=recovery-outbound-hold disable=SC1091
+source "${SCRIPT_DIR}/recovery-outbound-hold"
+RECOVERY_OUTBOUND_HOLD_OWNER="${FILE_OWNER}"
 
 # The name Postfix calls itself when the host reviews no MTA hostname: never a
 # deliverable one, and never used while direct delivery is enabled.
@@ -1014,6 +1040,71 @@ render_gateway_config() {
     done < <(jq -r --slurpfile signing "${signing}" '.listeners[] | select(.identity as $id | any($signing[0].targets[]; .target == $id)) | .identity' "${plan}")
 }
 
+# --- The recovery outbound hold ---------------------------------------------------------
+
+# The plan with every target in $held whose mail goes out directly held
+# instead: delivery_mode held and no route — exactly how mail-routing renders a
+# held target — and nothing else of it, or of any other target, changed.
+# shellcheck disable=SC2016
+RECOVERY_HOLD_PLAN_PROGRAM='
+.listeners |= map(
+    if (.identity as $id | $held | index($id)) != null and .delivery_mode == "outbound"
+    then .delivery_mode = "held" | .route = null
+    else . end)
+'
+
+RECOVERY_HELD_TARGETS=()
+RECOVERY_RELEASED_TARGETS=()
+REVIEWED_OUTBOUND_FILE=""
+
+# apply_recovery_outbound_holds — the plan and the host contract this run
+# renders, as the host's recovery outbound holds have them: PLAN_FILE with every
+# held target's mail held, and OUTBOUND_FILE with direct delivery disabled when
+# no target is left to deliver outbound. Refuses on any marker it cannot trust.
+apply_recovery_outbound_holds() {
+    local dir held effective_outbound
+
+    dir="$(physical "${RECOVERY_OUTBOUND_HOLD_DIR}")"
+
+    recovery_outbound_hold_targets "${dir}" \
+        || fail "a recovery outbound hold on this host cannot be trusted: ${ROH_PROBLEM} — it may be the fence that keeps a recovered target's mail from leaving, so nothing was rendered, and nothing on the host was changed"
+
+    RECOVERY_HELD_TARGETS=("${ROH_HELD_TARGETS[@]+"${ROH_HELD_TARGETS[@]}"}")
+    RECOVERY_RELEASED_TARGETS=("${ROH_RELEASED_TARGETS[@]+"${ROH_RELEASED_TARGETS[@]}"}")
+
+    (( ${#RECOVERY_HELD_TARGETS[@]} > 0 )) || return 0
+
+    held="$(printf '%s\n' "${RECOVERY_HELD_TARGETS[@]}" | jq -R . | jq -s -c .)"
+
+    jq --argjson held "${held}" "${RECOVERY_HOLD_PLAN_PROGRAM}" "${PLAN_FILE}" > "${WORK_DIR}/plan.held.json" \
+        || fail "could not render the plan the recovery outbound hold requires — nothing was rendered"
+    mv -f "${WORK_DIR}/plan.held.json" "${PLAN_FILE}"
+
+    if [[ "$(plan_outbound_count)" == 0 ]]; then
+        effective_outbound="${WORK_DIR}/outbound.held.json"
+        jq '.direct.enabled = false' "${OUTBOUND_FILE}" > "${effective_outbound}" \
+            || fail "could not render the host contract the recovery outbound hold requires — nothing was rendered"
+        OUTBOUND_FILE="${effective_outbound}"
+    fi
+}
+
+# report_recovery_outbound_holds — every hold on this host, by target.
+report_recovery_outbound_holds() {
+    local dir target
+
+    dir="$(physical "${RECOVERY_OUTBOUND_HOLD_DIR}")"
+
+    for target in "${RECOVERY_HELD_TARGETS[@]+"${RECOVERY_HELD_TARGETS[@]}"}"; do
+        recovery_outbound_hold_judge "${dir}" "${target}"
+        item PASS "recovery-hold:${target}" "${target}'s outbound mail is HELD on this host by a clean-host recovery (backup ${ROH_BACKUP}, operation ${ROH_OPERATION:-not bound yet}): its listener holds every message and no direct route exists, whatever the reviewed policy requests — only release-recovered-outbound releases it"
+    done
+
+    for target in "${RECOVERY_RELEASED_TARGETS[@]+"${RECOVERY_RELEASED_TARGETS[@]}"}"; do
+        recovery_outbound_hold_judge "${dir}" "${target}"
+        item PASS "recovery-hold:${target}" "${target}'s recovery outbound hold was released at ${ROH_RELEASED_AT} for ${ROH_ADDRESS} (operation ${ROH_OPERATION}) — its mail follows the reviewed policy"
+    done
+}
+
 # --- The plan -----------------------------------------------------------------------
 
 WORK_DIR=""
@@ -1044,14 +1135,21 @@ prepare_candidate() {
     "${MAIL_ROUTING_CLI}" render-plan --file "${POLICY_FILE}" --registry "${REGISTRY_FILE}" > "${PLAN_FILE}" \
         || fail "mail-routing render-plan refused the reviewed policy (diagnostics above) — nothing was rendered"
 
+    # A clean-host recovery's outbound hold, before anything reads the plan or
+    # the host contract: while it stands, they are the held ones.
+    REVIEWED_OUTBOUND_FILE="${OUTBOUND_FILE}"
+    apply_recovery_outbound_holds
+
     # The host contract's own verdict comes first, so a route the host has not
     # enabled is refused for that reason and no other.
     assert_outbound_contract "${PLAN_FILE}" "${OUTBOUND_FILE}"
 
+    # What is signed is the reviewed identity's, and no hold changes it: a held
+    # target's mail is signed as it will be once it leaves.
     SIGNING_FILE="${WORK_DIR}/signing-plan.json"
     "${MAIL_IDENTITY_CLI}" render-signing-plan \
         --identity "${IDENTITY_FILE}" --routing "${POLICY_FILE}" \
-        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" > "${SIGNING_FILE}" \
+        --registry "${REGISTRY_FILE}" --outbound "${REVIEWED_OUTBOUND_FILE}" > "${SIGNING_FILE}" \
         || fail "mail-identity render-signing-plan refused the reviewed identity (diagnostics above) — nothing was rendered"
 
     [[ -x "${MAIL_SIGNING_CLI}" ]] \
@@ -1282,7 +1380,7 @@ resolve_inbound() {
     local receiver entry uid gid
     receiver="${WORK_DIR}/receiver.json"
     "${MAIL_INBOUND_CLI}" render-receiver --inbound "${INBOUND_FILE}" --routing "${POLICY_FILE}" \
-        --registry "${REGISTRY_FILE}" --outbound "${OUTBOUND_FILE}" --identity "${IDENTITY_FILE}" > "${receiver}" \
+        --registry "${REGISTRY_FILE}" --outbound "${REVIEWED_OUTBOUND_FILE:-${OUTBOUND_FILE}}" --identity "${IDENTITY_FILE}" > "${receiver}" \
         || fail "mail-inbound render-receiver refused the reviewed inbound contract (diagnostics above) — this host records inbound mail, so nothing was rendered"
 
     entry="$("${GETENT_BIN}" passwd "${MAIL_INBOUND_STORE_USER}" 2>/dev/null || true)"
@@ -2491,6 +2589,7 @@ report_contract() {
 
     printf 'install-mail-gateway --%s\n' "${MODE}"
     item PASS "plan" "mail-routing render-plan accepted the reviewed policy (${listener_count} listener(s)); the gateway is rendered from it"
+    report_recovery_outbound_holds
 
     local helo outbound_count
     helo="$(outbound_mta_hostname)"
@@ -2873,6 +2972,11 @@ perform_apply() {
     prepare_candidate
 
     action "validating the plan and the host before any mutation"
+
+    local held_target
+    for held_target in "${RECOVERY_HELD_TARGETS[@]+"${RECOVERY_HELD_TARGETS[@]}"}"; do
+        action "${held_target}'s outbound mail stays HELD: a clean-host recovery hold stands on this host, so its listener holds every message and no direct route is rendered — only release-recovered-outbound releases it"
+    done
 
     local others
     others="$(other_mail_transport_agents)"

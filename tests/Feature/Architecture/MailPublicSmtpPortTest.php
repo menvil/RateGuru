@@ -188,7 +188,7 @@ it('is a pair of sourced libraries, in every release tree', function () {
         expect(sourcedLibraryNames())->toContain($library);
         expect(decoct(fileperms(base_path("infrastructure/scripts/{$library}")) & 0o777))->toBe('644');
     }
-    expect(File::get(base_path('infrastructure/scripts/verify-required-clis')))->toContain('SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port mail-inbound-host)');
+    expect(File::get(base_path('infrastructure/scripts/verify-required-clis')))->toContain('SOURCED_LIBRARIES=(common restore-common smtp-submission public-smtp-port mail-inbound-host recovery-outbound-hold)');
 });
 
 it('fails the mail gateway\'s verify for a foreign listener on 25, and passes it for the activated public listener', function () {

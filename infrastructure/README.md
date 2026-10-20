@@ -132,7 +132,10 @@ infrastructure, and moves out once a second project exists.
   `infrastructure/scripts/recovery-host-preflight` is the read-only proof,
   run by the workflow before Prepare Host, that the replacement machine is a
   supported and genuinely clean host (`--operator-guide` prints the compact
-  instruction);
+  instruction). A recovered machine holds the direct outbound mail of a
+  target whose mail goes out directly until `Release recovered tits.guru
+  outbound mail` proves its DNS and releases it — see
+  [`runbooks/release-recovered-outbound.md`](runbooks/release-recovered-outbound.md);
 - shared staging mail capture (Mailpit + Mailtrap Local) — see
   [`runbooks/mail-capture.md`](runbooks/mail-capture.md);
 - the mail routing contract: every target's own loopback gateway endpoint,

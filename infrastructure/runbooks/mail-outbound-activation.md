@@ -382,9 +382,11 @@ Later, and not here: bounce reception, inbound SMTP, reply routing and the
 support mailbox (8.4B.5); suppression, delivery and bounce state and per-target
 metrics (8.4B.6); and 8.4B.7 — the DKIM private key in production backup and
 recovery material (since implemented: see [`backups.md`](backups.md)), a
-recovery-time outbound fence, A/PTR/SPF re-acceptance before mail resumes on a
-replacement host, and a host-scoped mail topology once staging and production
-run on separate machines. Production web TLS and Nginx,
+recovery-time outbound fence and A/PTR/SPF re-acceptance before mail resumes on a
+replacement host (since implemented: see
+[`release-recovered-outbound.md`](release-recovered-outbound.md)), and a
+host-scoped mail topology once staging and production run on separate
+machines. Production web TLS and Nginx,
 the first production deploy, production backup activation, the public cutover
 and sender warm-up are 8.5–8.7.
 
