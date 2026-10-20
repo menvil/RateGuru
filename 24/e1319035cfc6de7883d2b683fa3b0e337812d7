@@ -1,0 +1,62 @@
+config/content_studio.php
+  s_0f80700cf0b8c6::t_beb8d6965a1a53 84-93,96,104-115,103
+  s_0f80700cf0b8c6::t_8c801adfe2a181 94-95,98-102
+tests/Feature/Actions/ExecuteStudioActionTest.php
+  s_0f80700cf0b8c6::t_b2d28c5d321aa9 1-22,24-29,31-37,41-145,149-162,165-176,179-209,211-217,247-257,259-270,312-347,350-396,398,401,221-222,224,228,230,278,286,290-291,295,297,305,310-311
+  s_0f80700cf0b8c6::t_183fa7f5a3611f 38-40,146-148,163-164,177-178,218,397,399-400
+  s_0f80700cf0b8c6::t_0dc3df43e7632d 219
+  s_0f80700cf0b8c6::t_75db859c1567cc 348-349
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 210,220,227,241-242
+  s_0f80700cf0b8c6::t_f821ea3bcedbb7 223,225-226,229,231-240,243-244
+  s_0f80700cf0b8c6::t_aa199c762344e2 23,30,258,273-277,279-285,287-289,292-294,296,298-304,306-309
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_ec81ee49f5bf3a 30-32,38-42,78-79,180,182-185,197-215,217-225,227,232-243,247,250-301,304-333,342-365,368-386,335
+  s_0f80700cf0b8c6::t_e155a403ac0cf9 162-164
+  s_0f80700cf0b8c6::t_0fa4fa3fa49b89 226,228-231
+  s_0f80700cf0b8c6::t_eeaeb99282c264 248-249,302-303
+  s_0f80700cf0b8c6::t_f5fba6b4ffa25d 216,244,334,336-341,366-367
+  s_0f80700cf0b8c6::t_e97699407648fe 245-246
+app/Enums/StudioActionFailure.php
+  s_0f80700cf0b8c6::t_c3f6b914494e1c 1-16,19-46
+  s_0f80700cf0b8c6::t_0de43ad1049f00 17-18
+app/Actions/Studio/DispatchDueStudioActionsAction.php
+  s_0f80700cf0b8c6::t_241805778384fd 1-35,46-69,73,75-77,79-82,84-98,100-108,115-120,122-151,156-207,111,113-114
+  s_0f80700cf0b8c6::t_16b1daee9a2765 70-72,74,78,83,99,109-110,112,121
+  s_0f80700cf0b8c6::t_0de43ad1049f00 36-37,152-155
+  s_0f80700cf0b8c6::t_d34d5d66480291 38-39
+  s_0f80700cf0b8c6::t_4d25e012eeb453 40-45
+app/Actions/Studio/ExecuteStudioAction.php
+  s_0f80700cf0b8c6::t_6621a5325e62c2 1-240,245-253,256-334,341-343,347-350,364-367,369,371-374,376-377,379-383,385-386,389,399-452,345,360,363,391,394,396-397
+  s_0f80700cf0b8c6::t_11a530f723e3b5 241-244,254-255
+  s_0f80700cf0b8c6::t_0de43ad1049f00 351-352,335-340,344,346,353-359,361-362,368,370,375,378,384,387-388,390,392-393,395,398
+app/Models/StudioAction.php
+  s_0f80700cf0b8c6::t_fe937878755c34 26-28
+  s_0f80700cf0b8c6::t_8c801adfe2a181 40,66,83
+database/migrations/2026_10_20_100200_add_deferrals_to_studio_plan_actions_table.php
+  s_0f80700cf0b8c6::t_8c801adfe2a181 1-42
+tests/Feature/Actions/DispatchDueStudioActionsActionTest.php
+  s_0f80700cf0b8c6::t_79ca14c6b8701e 1-2,4-13,16-135,149-151,170-177,181-207,214-220,222-259,147
+  s_0f80700cf0b8c6::t_1070cc25eab567 14,154,156,158-166
+  s_0f80700cf0b8c6::t_aa1854edc72c92 15,152-153,155,157,167-169
+  s_0f80700cf0b8c6::t_2b3b7303bc8e1f 178-180,208-213,221
+  s_0f80700cf0b8c6::t_48fe42a5042ed7 3,260-326,137,143,148
+  s_0f80700cf0b8c6::t_aa199c762344e2 136,138-142,144-146
+database/factories/StudioActionFactory.php
+  s_0f80700cf0b8c6::t_8c801adfe2a181 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "24e1319035cfc6de7883d2b683fa3b0e337812d7",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
