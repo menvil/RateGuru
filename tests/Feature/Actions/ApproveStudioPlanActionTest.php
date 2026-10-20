@@ -289,6 +289,41 @@ it('takes both back when the action cannot be written: no approval without its a
     Log::shouldNotHaveReceived('info', fn (string $message): bool => in_array($message, ['studio_plan.approved', 'studio.action.created'], true));
 });
 
+it('approves nothing when a model event cancels the plan\'s save, writing no action and keeping the version', function () {
+    $plan = approvableStudioPlan();
+    // Cancels the approval's save, as a `saving` listener returning false does: save() says false and throws nothing.
+    StudioPlan::saving(fn (): bool => false);
+    Log::spy();
+
+    expect(fn () => approveStudioPlan($this->admin, $plan))
+        ->toThrow(RuntimeException::class, 'The publication plan was not saved as approved.');
+
+    expect(DB::table('studio_plans')->where('id', $plan->id)->first())
+        ->status->toBe('draft')
+        ->approved_by_user_id->toBeNull()
+        ->approved_at->toBeNull()
+        ->and((int) DB::table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe(1)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+    Log::shouldNotHaveReceived('info', fn (string $message): bool => in_array($message, ['studio_plan.approved', 'studio.action.created'], true));
+});
+
+it('takes the approval back when a model event cancels the action\'s creation, leaving no action', function () {
+    $plan = approvableStudioPlan();
+    StudioAction::creating(fn (): bool => false);
+    Log::spy();
+
+    expect(fn () => approveStudioPlan($this->admin, $plan))
+        ->toThrow(RuntimeException::class, 'The action that publishes the approved plan was not saved.');
+
+    expect($plan->fresh())
+        ->status->toBe(StudioPlanStatus::Draft)
+        ->approved_by_user_id->toBeNull()
+        ->approved_at->toBeNull()
+        ->lock_version->toBe(1)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+    Log::shouldNotHaveReceived('info', fn (string $message): bool => in_array($message, ['studio_plan.approved', 'studio.action.created'], true));
+});
+
 it('logs nothing of an approval an enclosing transaction rolls back', function () {
     $plan = approvableStudioPlan();
     Log::spy();

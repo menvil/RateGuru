@@ -17,6 +17,7 @@ use App\Support\Observability\DomainLogger;
 use App\Support\Studio\StudioPlanApprovalPreflight;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * An administrator's approval of a complete Draft: the trusted permission for
@@ -59,6 +60,7 @@ final class ApproveStudioPlanAction
      * @return StudioPlan the plan, approved; the caller's copy is brought up to date too
      *
      * @throws CannotApproveStudioPlanException with nothing written
+     * @throws RuntimeException when a write of the approval is not saved, with nothing written
      */
     public function handle(User $admin, StudioPlan $plan, int $expectedLockVersion): StudioPlan
     {
@@ -97,15 +99,22 @@ final class ApproveStudioPlanAction
                 $approvedAt = CarbonImmutable::now('UTC')->startOfSecond();
                 [$occursAt, $runAfter] = self::moments($locked, $approvedAt);
 
-                $locked->forceFill([
+                // A save a model event cancels returns false rather than
+                // throwing: either is taken as the whole approval failing, so
+                // the transaction takes both writes back together.
+                $approved = $locked->forceFill([
                     'status' => StudioPlanStatus::Approved,
                     'approved_by_user_id' => $lockedAdmin->id,
                     'approved_at' => $approvedAt,
                     'lock_version' => $locked->lock_version + 1,
                 ])->save();
 
+                if (! $approved) {
+                    throw new RuntimeException('The publication plan was not saved as approved.');
+                }
+
                 $action = new StudioAction;
-                $action->forceFill([
+                $written = $action->forceFill([
                     'studio_plan_id' => $locked->id,
                     'type' => StudioActionType::CreatePost,
                     'actor_user_id' => $authorId,
@@ -116,6 +125,10 @@ final class ApproveStudioPlanAction
                     'status' => StudioActionStatus::Pending,
                     'attempts' => 0,
                 ])->save();
+
+                if (! $written) {
+                    throw new RuntimeException('The action that publishes the approved plan was not saved.');
+                }
 
                 $plan->setRawAttributes($locked->getAttributes(), true);
                 $plan->unsetRelations();
