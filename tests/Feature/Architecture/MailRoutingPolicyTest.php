@@ -1200,16 +1200,18 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/send-mail-canary',
         'infrastructure/scripts/mail-inbound',
         'infrastructure/scripts/prepare-host',
-        'infrastructure/scripts/recover-host',
-        'infrastructure/scripts/release-recovered-outbound',
     ];
     $bundled = ['infrastructure/scripts/activate-mail-inbound'];
+    // The installed recover-host asks the installed copy beside it; the
+    // release asks the copy in the trusted bundle it runs from.
+    $installed = ['infrastructure/scripts/recover-host'];
+    $released = ['infrastructure/scripts/release-recovered-outbound'];
     $installers = ['infrastructure/scripts/install-target-operations'];
 
     foreach (operationalFiles() as $path) {
         $relative = str_replace(base_path().'/', '', $path);
 
-        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled, ...$installers], true)) {
+        if (in_array($relative, ['infrastructure/scripts/mail-routing', 'infrastructure/config/mail-routing.json', ...$consumers, ...$bundled, ...$installed, ...$released, ...$installers], true)) {
             continue;
         }
 
@@ -1225,6 +1227,16 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
 
     foreach ($bundled as $consumer) {
         expect(executableSourceLines(File::get(base_path($consumer))))->toContain('"$(bundle_script mail-routing)" render-plan');
+    }
+
+    foreach ($installed as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))
+            ->toContain('/home/www/rateguru/bin/mail-routing')
+            ->toContain('"${RECOVER_MAIL_ROUTING_CLI}" render-plan');
+    }
+
+    foreach ($released as $consumer) {
+        expect(executableSourceLines(File::get(base_path($consumer))))->toContain('"$(tool mail-routing)" render-plan');
     }
 });
 
