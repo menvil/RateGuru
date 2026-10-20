@@ -4,6 +4,7 @@ use App\Enums\StudioPlanPublicationMode;
 use App\Models\StudioPlan;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 
 use function Pest\Laravel\actingAs;
 
@@ -11,7 +12,8 @@ use function Pest\Laravel\actingAs;
  * Content Studio's Publications & plans in a real browser: the list and the
  * editor at each width, every step of the editor, creating an empty draft
  * from the top bar, the unsaved count, Discard and Save, the footer at the
- * foot of the window, opening a draft from the list, and deleting one.
+ * foot of the window and the menus that open upward near it, opening a draft
+ * from the list, and deleting one.
  *
  * No photo is chosen from a file here: the browser test server hands the
  * application no uploaded files, so a Livewire upload never arrives. Photos
@@ -206,4 +208,45 @@ it('keeps the footer at the foot of the window, and holds Continue back while a 
     $page->script('window.scrollTo(0, document.body.scrollHeight)');
 
     expect($footer())->toBe(['atFoot' => true, 'back' => true, 'next' => true, 'reason' => false]);
+});
+
+it('opens a menu over its trigger when the footer leaves too little room under it, always whole between the top bar and the footer', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit", 1280, 640);
+    $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+
+    // Scrolls the trigger near the top bar or near the footer, opens its menu, and says where the menu went.
+    $open = fn (string $menu, string $near): array => $page->script(<<<JS
+        (async () => {
+            const ceiling = () => document.querySelector('[data-admin-ceiling]').getBoundingClientRect().bottom
+            const floor = () => document.querySelector('[data-admin-floor]').getBoundingClientRect().top
+            const author = '{$menu}' === 'author'
+            const trigger = author
+                ? document.querySelector('.rg-admin-studio__author-trigger')
+                : [...document.querySelectorAll('[id^="rg-admin-studio-answer-"][id$="-trigger"]')].pop()
+            const popover = author
+                ? document.getElementById('rg-admin-studio-author-panel')
+                : trigger.parentElement.querySelector('.rg-admin-combobox__popover')
+            const at = trigger.getBoundingClientRect()
+
+            window.scrollBy(0, '{$near}' === 'top' ? at.top - (ceiling() + 24) : at.bottom - (floor() - 24))
+            await new Promise((resolve) => setTimeout(resolve, 150))
+            trigger.click()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+
+            const box = popover.getBoundingClientRect()
+            const from = trigger.getBoundingClientRect()
+            const side = box.bottom <= from.top ? 'over' : (box.top >= from.bottom ? 'under' : 'across')
+
+            trigger.click()
+            await new Promise((resolve) => setTimeout(resolve, 150))
+
+            return [side, box.top >= ceiling() - 1 && box.bottom <= floor() + 1]
+        })()
+    JS);
+
+    expect($open('author', 'top'))->toBe(['under', true])
+        ->and($open('author', 'foot'))->toBe(['over', true])
+        ->and($open('answer', 'foot'))->toBe(['over', true]);
 });

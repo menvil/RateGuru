@@ -434,7 +434,10 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   search, an ARIA `combobox` over a `listbox` whose active option is its `aria-activedescendant`; the search
   filters in the browser, Up and Down move, Enter chooses, Escape returns to the trigger, and an always-present
   status region says when nothing matches. Choosing dispatches a cancelable `choose` event before the value is
-  taken, so a screen can ask first or make the change on the server instead.
+  taken, so a screen can ask first or make the change on the server instead. The list opens under the trigger,
+  or over it when there is more room there — measured between the bars kept at the window's top and foot
+  (`data-admin-ceiling` on the top bar, `data-admin-floor` on the Content Studio editor's footer) — and is never
+  taller than its room, so all of it can be reached. The Post step's author panel opens the same way.
 
 ## Status
 
@@ -1040,8 +1043,10 @@ actions (`docs/architecture/studio-plans.md`).
   - **Image:** nothing waits for Save. While there is no photo, its sources (FRM-08): Upload — Upload image, or a
     file dropped on the drop zone, the limit read from `uploads.images.max_kilobytes` —, From link — a direct link
     to an image — and From social post — a public post's link, with the sites read directly (Instagram, X,
-    Facebook, Pinterest) and the one the link is for marked. A file is previewed at once, uploaded (“Uploading
-    photo…” with its progress), stored (“Processing photo…”) and analysed; a link is imported (“Importing
+    Facebook, Pinterest) and the one the link is for marked. A file is previewed at once in place of the
+    sources, which stay out of the way until it is stored, uploaded (“Uploading photo…” with its progress),
+    stored (“Processing photo…”) and analysed, its preview kept until the saved photo has loaded in its place so
+    the photo never blinks out; a link is imported (“Importing
     photo…”) once it is a whole address and typing has paused, never twice running. On a new publication the
     first photo makes its Draft, and the top bar's Create draft becomes Save draft. Once there is a photo, the
     sources give way to it: the photo, its file name, dimensions, size and type, a Saved or Replaced badge, Replace
@@ -1053,14 +1058,34 @@ actions (`docs/architecture/studio-plans.md`).
     old one shown; “Waiting for analysis…” and “Analysing photo…” (FBK-02 info, read again every few seconds, and
     only then); the description under Scene summary, Subjects, Actions, Setting, Composition, Notable details,
     Visible text and Uncertainties, with the date and the model in a hint and Re-run analysis, “a new, paid
-    request”; a failure in its own words (FBK-02 warning) with Try again, the last result kept under it; “This
+    request”; a re-run shown as the first run was — the result before it gone from the card at once, three
+    placeholder lines over “Waiting for analysis…” or “Analysing photo…” —, and a failure in its own words (FBK-02
+    warning) with Try again, nothing of the result before it shown; “This
     photo has not been analysed yet.” with Re-run analysis for a photo stored before analysis was on; “Photo
     analysis is not configured.”; and the photo's File, Dimensions, Size and Format (LAY-03). Neither is part of
     Save draft.
-  - **Post:** Final title (3 to 120, with its counter), Final description (up to 2,000), Source URL — never the
-    link a photo is imported from —, the author chosen from living personas found on the server (a restricted one
-    with “This persona cannot publish while restricted.”), the category (an inactive one kept and marked), up to
-    ten tags, and the author's answer in each active rating group. AI suggestions say they are not built yet.
+  - **Post:** laid out as the prototype's Titles & texts. First, AI text suggestions, a component of its own about
+    the saved photo, in three cards side by side until they no longer fit. Context: the photo, the analysis's
+    summary under Photo analysis, Tone of new variants (Playful, Humour, Cheeky — chosen at first —, Irony,
+    Neutral; toggle buttons whose choice changes nothing until the next batch, a choice other than the tone the
+    lists were written in said in the hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10
+    descriptions — a paid call.”; then Generate 10 more — Generate 10 in the tone chosen, when it is another —, or
+    Try again after a failure. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
+    analysis as they are now under “Set n · written in tone”, numbered; choosing one puts it in Final title or
+    Final description as typing would — unsaved, counted in the top bar, editable, saved only by Save draft — and
+    marks it in use. A new batch takes the place of the one before: while it is on its way both cards wait for it
+    (“Waiting for text suggestions…” or “Generating suggestions…” over ten placeholders, the button disabled, read
+    again every few seconds, and only then), and a failure is said in their place (“Generation failed”, its own
+    words, “The final title and description are unchanged.”, Try again). Nothing is generated or saved by itself.
+    Until the photo's analysis is complete, “Text suggestions will be available when photo analysis is
+    complete.”; with no photo, “Add a photo on the Image step first: suggestions are written from its analysis.”;
+    unconfigured, “Text suggestions are not configured.”, the step working as before. Batches written for an
+    earlier photo or analysis are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
+    counter), Final description (up to 2,000) and Post author side by side — the persona chosen on a trigger, the
+    living personas found on the server in a panel under it (a restricted one with “This persona cannot publish
+    while restricted.”) —, then Source URL, never the link a photo is imported from. Last, Category and tags — the
+    category (an inactive one kept and marked) and up to ten tags — beside the author's answer in each active
+    rating group. The steps take the whole width, as the prototype's do.
   - **Discussion:** says what will come in a later phase; nothing else.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
     zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
@@ -1444,7 +1469,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
 | Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
-| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more; Final description up to 500 | Final title and Final description, up to 2,000, with a note that suggestions come later | AI texts are not built yet; a post's description takes 2,000 characters |
+| Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
 | Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |

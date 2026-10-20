@@ -7,6 +7,7 @@ use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Livewire\Admin\StudioPlanTextSuggestionsCard;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\Post;
@@ -80,7 +81,7 @@ it('moves between the four steps without saving or losing anything typed', funct
 
     $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->set('postTitle', 'Typed, not saved')
-        ->call('nextStep')->assertSet('step', 'post')->assertSee('Final title')->assertSee('AI title and description suggestions will be available in the next phase.')
+        ->call('nextStep')->assertSet('step', 'post')->assertSee('Final title')->assertSeeLivewire(StudioPlanTextSuggestionsCard::class)
         ->call('nextStep')->assertSet('step', 'discussion')->assertSee('Generated conversations, replies and comment votes will be added in a later phase.')
         ->call('nextStep')->assertSet('step', 'publication')->assertSee('This is a draft. Saving it does not publish or schedule anything.')->assertDontSee('Review and confirm')
         ->call('nextStep')->assertSet('step', 'publication')

@@ -42,6 +42,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
 
@@ -314,8 +315,27 @@ trait EditsStudioPlan
         $this->forgetPhotoInputs();
         $this->importedFrom = '';
         $this->replacedPhoto = null;
-        $this->dispatch('rg-studio-photo-kept');
+        $this->dispatch('rg-studio-photo-kept', saved: false);
         $this->toast('Photo removed from this draft', 'info');
+    }
+
+    /**
+     * A text suggestion used from the Post step (StudioPlanTextSuggestionsCard)
+     * becomes the draft's final title or description, as typing it would:
+     * nothing is saved, and the other field stays as it is.
+     */
+    #[On('use-studio-suggestion')]
+    public function useSuggestion(mixed $field, mixed $text): void
+    {
+        if (! is_string($text)) {
+            return;
+        }
+
+        match ($field) {
+            'title' => $this->postTitle = $text,
+            'description' => $this->postDescription = $text,
+            default => null,
+        };
     }
 
     /** Chooses a living Persona as the author. */
@@ -536,7 +556,7 @@ trait EditsStudioPlan
 
         $this->forgetPhotoInputs();
         $this->replacedPhoto = $previous;
-        $this->dispatch('rg-studio-photo-kept');
+        $this->dispatch('rg-studio-photo-kept', saved: true);
         $this->analysePhoto($plan);
     }
 

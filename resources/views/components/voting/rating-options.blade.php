@@ -18,10 +18,16 @@
     <h3 class="text-base font-semibold text-rg-text">{{ $group->translatedLabel() }}</h3>
 
     @if(! $voted)
-        {{-- Vote buttons (no stats) while the user has not voted yet --}}
-        <div class="{{ $variant === 'compact' ? 'flex flex-wrap gap-1.5' : 'flex flex-wrap gap-2' }}">
+        {{--
+            Vote buttons (no stats) while the user has not voted yet, in one row
+            sharing the section's whole width equally: two answers are two wide
+            buttons, eleven split it eleven ways — on a phone, closer together and in
+            a smaller type, so a score's numbers still fit. A label longer than its
+            share is cut short, whole in its title.
+        --}}
+        <div class="{{ $variant === 'compact' ? 'flex gap-1 sm:gap-1.5' : 'flex gap-2' }}">
             @foreach($options as $option)
-                @php($sizeClass = $variant === 'compact' ? 'h-8! min-w-9! px-2.5! text-sm!' : 'min-h-[40px]! text-sm!')
+                @php($sizeClass = $variant === 'compact' ? 'h-8! min-w-0 flex-1 px-0! text-xs! sm:px-1! sm:text-sm!' : 'min-h-[40px]! min-w-0 flex-1 text-sm!')
                 <x-ui.button
                     variant="secondary"
                     size="sm"
@@ -34,8 +40,9 @@
                     :wire:target="$disabled ? false : 'vote'"
                     :wire:loading.attr="$disabled ? false : 'disabled'"
                     :wire:loading.class="$disabled ? false : 'opacity-60 cursor-not-allowed'"
+                    :title="$option->translatedLabel()"
                 >
-                    {{ $option->translatedLabel() }}
+                    <span class="truncate">{{ $option->translatedLabel() }}</span>
                 </x-ui.button>
             @endforeach
         </div>

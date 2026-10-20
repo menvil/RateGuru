@@ -327,12 +327,24 @@ Post, Discussion, Publication — save a draft from the top bar through the plan
 somebody else's save, and Delete draft asks first. The Image step stores a photo the moment it is uploaded,
 dropped, or imported from a direct link or a social post, through the existing media path — a new publication's
 Draft made for its first photo — and has it analysed through OpenAI at once, in a card of its own that alone polls
-while an analysis runs; Re-run analysis and Try again are an administrator's. Everything else a later stage brings is left out rather
-than drawn: AI texts, votes, the discussion, approval, the action plan and the queue; the editor says where each
-will come. The kit
+while an analysis runs; Re-run analysis and Try again are an administrator's. The Post step offers AI text
+suggestions written from that analysis — ten titles and ten descriptions a batch, in the tone chosen, one paid
+request asked for only by Generate, every batch kept for the photo and its analysis and the newest one shown —
+beside the photo's context, as the prototype lays out Titles & texts, in a component of its own that alone polls
+while a batch is on its way; choosing a title or a description puts it in the final field, unsaved, saved only
+by Save draft. Everything else a later stage brings is left out rather than drawn: votes, the
+discussion, approval, the action plan and the queue; the editor says where each will come. The kit
 gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
 kept at the foot of the window are the screen's own.
+
+**Content Studio Phase 3 — OpenAI image understanding and post texts. Status: done, pending its staging check.**
+The audit's Phase 3 (`docs/architecture/content-studio-phase-0.md`, section F) is complete in code: the photo's
+analysis on the Image step and the title and description suggestions on the Post step, the final text chosen and
+edited, both refused as not configured while the key is blank. It is recorded as finished once its staging
+criterion has been checked on staging: the analysis and the suggestions appear in the editor, the final text is
+chosen and edited, and with an empty key both say they are not configured while the rest of the application
+works.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

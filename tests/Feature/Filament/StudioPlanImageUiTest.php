@@ -58,7 +58,8 @@ it('stores a JPEG, PNG or WebP photo the moment it is uploaded, owned by the adm
         ->assertHasNoErrors()
         ->assertSet('photo', null)
         ->assertSet('lockVersion', 2)
-        ->assertDispatched('rg-studio-photo-kept')
+        // The browser is told there is a photo now, to show in place of the file it chose.
+        ->assertDispatched('rg-studio-photo-kept', saved: true)
         ->assertNotDispatched('rg-admin-toast');
 
     $asset = $plan->fresh()->imageAsset;
@@ -285,6 +286,7 @@ it('takes the photo off at once, releasing it to the media lifecycle', function 
 
     $page->call('removePhoto')
         ->assertSet('lockVersion', 3)
+        ->assertDispatched('rg-studio-photo-kept', saved: false)
         ->assertDispatched('rg-admin-toast', message: 'Photo removed from this draft', tone: 'info')
         ->assertViewHas('shownPhoto', null)
         ->assertViewHas('analysisImageId', null)
@@ -500,7 +502,22 @@ it('imports a link it kept once more after the photo was removed or replaced by 
     'replaced by a file' => [fn ($page) => $page->upload('photo', [UploadedFile::fake()->image('file.jpg', 64, 64)])],
 ]);
 
-it('forgets in the browser what it sent once a photo is kept or removed', function () {
+it('forgets in the browser what it sent once a photo is kept or removed, and learns whether there is one', function () {
     expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])->html())
-        ->toContain('x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: \'\', post: \'\' }"');
+        ->toContain('x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: \'\', post: \'\' }; saved = $event.detail.saved"')
+        ->toContain('x-init="saved = false"');
+
+    expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->withImage()->create()->id])->html())
+        ->toContain('x-init="saved = true"');
+});
+
+it('keeps the choice of a new photo out of the way while a chosen file is on its way, showing it in place of the photo', function () {
+    $empty = Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])->html();
+    $saved = Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->withImage()->create()->id])->html();
+
+    expect($empty)->toContain('x-show="! previewing"')
+        ->and($saved)->toContain('x-show="replacing &amp;&amp; ! previewing"')
+        // The chosen file's image is the browser's alone, so a redraw never takes its address away.
+        ->and($saved)->toMatch('/<img alt="The chosen photo"[^>]*wire:ignore[^>]*x-show="previewing"/')
+        ->and($saved)->toMatch('/<img src="[^"]+" alt="Photo for the publication"[^>]*x-ref="kept" x-show="! previewing"/');
 });

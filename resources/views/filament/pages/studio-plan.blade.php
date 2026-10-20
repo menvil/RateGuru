@@ -117,8 +117,10 @@
 
     </div>
 
+    {{-- Kept at the window's foot, so a popover near it opens upward instead (`data-admin-floor`). --}}
     <div
         class="rg-admin-studio__footer"
+        data-admin-floor
         x-data="{ busy: false }"
         x-on:rg-studio-photo-phase.window="busy = ($event.detail?.phase ?? '') !== ''"
     >

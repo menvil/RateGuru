@@ -13,7 +13,7 @@
 | set — the local, CI and freshly provisioned state is off — and while it is
 | off the application, its queues and the admin run exactly as they do with
 | it on; a photo is stored without an analysis, the editor's photo analysis
-| card says it is not configured, and nothing is sent.
+| and text suggestion cards say they are not configured, and nothing is sent.
 |
 */
 
@@ -52,6 +52,32 @@ return [
         // requested or started is taken as lost — its worker died, or no
         // worker took it — and may be started again. Well past the job's own
         // timeout, so a second attempt never runs beside a live first one.
+        'stale_after_seconds' => 180,
+    ],
+
+    // Post text suggestions: titles and descriptions for a draft's post
+    // written by OpenAI's Responses API from its photo's stored analysis, on
+    // an administrator's explicit request — one request per batch, made by a
+    // queued job (GenerateStudioPostTextsJob), never retried by itself.
+    //
+    // The key, the model, the base URL and whether it is on at all are photo
+    // analysis's above: one Content Studio integration, switched on and off
+    // as one. Only what is particular to writing texts is here.
+    'post_text_generation' => [
+        // Titles, and descriptions, in one batch: one request returns both.
+        'batch_size' => 10,
+
+        // Seconds, nested inside the job's 75 s timeout and the Redis queue's
+        // 90 s retry_after, as photo analysis's are.
+        'connect_timeout' => 5,
+        'timeout' => 45,
+
+        // Twenty texts with the JSON around them; a batch that would need more
+        // comes back incomplete, and is refused as such.
+        'max_output_tokens' => 4000,
+
+        // A batch still waiting or running this long after it was requested
+        // or started is taken as lost, and another may be asked for.
         'stale_after_seconds' => 180,
     ],
 
