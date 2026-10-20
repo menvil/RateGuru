@@ -76,6 +76,8 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | `RemoveStudioPlanImageAction` | takes the photo off |
 | `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion with it |
 | `SaveStudioDiscussionTreeAction` | saves the Draft's whole discussion (see "The discussion") |
+| `RequestStudioDiscussionGenerationAction` | asks for a discussion, or a part of it, to be written (see "Discussion generation") |
+| `ApplyStudioDiscussionGenerationAction` | takes a generation's proposal into the Draft's discussion |
 | `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
 | `ExecuteStudioAction` | runs one sent action — today the post — once (see "Running a plan") |
 | `DispatchDueStudioActionsAction` | sends the actions that are due, and again those lost |
@@ -335,12 +337,180 @@ anything of a Persona.
 
 ### Still to come
 
-Later steps of the discussion stage build on these rows, unchanged: writing a
-discussion with AI, and writing one part of it again — a comment, a reply, a
-branch — keeping the history of what was asked and suggested apart from what
-an administrator saved; the Discussion step of the editor; and publishing it —
-an action for every comment and reply, under the post's, with the full
-preflight of the discussion in place of the refusal above.
+Later steps of the discussion stage build on these rows, unchanged: the
+Discussion step of the editor, and publishing the discussion — an action for
+every comment and reply, under the post's, with the full preflight of the
+discussion in place of the refusal above. Writing it with AI is described
+below.
+
+## Discussion generation
+
+An administrator may have a discussion written by OpenAI — a whole one, or one
+part of the plan's again. What comes back is a **proposal**, kept apart from the
+plan's discussion: nothing reaches the discussion until an administrator takes
+it in. Nothing here makes a comment, post or action, changes anything on
+screen, or runs by itself.
+
+### What it writes
+
+| Mode | Writes | Keeps |
+| --- | --- | --- |
+| `full_discussion` | a whole new discussion by the Personas chosen: exactly the comments on the post and replies in all asked for, two levels, each comment with its Persona, text, place and time | — taken in, it replaces the plan's discussion whole |
+| `regenerate_comment` | the text of one comment on the post | its id, author, place, time and replies; every other comment |
+| `regenerate_reply` | the text of one reply | its id, author, comment, place and time; every other comment |
+| `regenerate_branch` | the texts of one comment on the post and of each of its replies | every id, author, parent, place and time, how many replies there are; every other comment |
+
+A part keeps its shape so that what will later point at its comments — votes on
+them among other things — still finds them. Adding, deleting or moving a reply
+is the editor's, by hand. A whole discussion is a new proposal beside the
+plan's: asking for one deletes nothing.
+
+### Who takes part
+
+For a whole discussion, the Personas the administrator chose — one to eight
+(`max_personas`), each once, never picked at random or from anyone else; for a
+part, the authors of its comments. Each must still be a Persona that is not
+deleted; a Limited, Shadowbanned or Banned one may take part in a draft, as in
+a discussion saved by hand, and its engagement and daily reply limit — which
+govern replies it would write on its own — play no part. The model is told of
+each only what its `PersonaProfile` says of how it writes: display name, short
+description, character, speech style, topics and jokes, what it never writes
+about, and how often it uses emoji — never an email, username, id, password,
+sign-in or security setting (`StudioDiscussionPersona`).
+
+### What it is written from
+
+`StudioDiscussionContext`: the post's final title — required; never one picked
+from the suggestions on its behalf — and description, which may be missing as a
+post's may; its category and tags; the finished analysis of the plan's photo
+(`StudioPostTextContext`), never the photo; the Personas taking part; and the
+plan's discussion as it is, every comment with its author and time, so a part
+knows what it answers. Nothing of any other plan. Without a finished analysis
+of the plan's photo, or without a title, nothing is asked for and nothing is
+paid for (`analysis_missing`, `incomplete_post`).
+
+Everything from the plan and the Personas is data, never instructions: it
+travels as JSON with `<` and `>` escaped, so nothing inside it can close its
+block. The instructions are fixed text of the application's own, the tone's
+(`StudioPostTextTone`, Cheeky by default; each Persona's own way of speaking
+comes first in what it writes) and the mode's. Comments and Personas are named
+only by the request's own aliases — `existing_3`, `persona_2` — and the model
+gives no id; the server maps the aliases back. The rules match the post text
+suggestions': a conversation rather than one-liners, each Persona in its own
+voice, no copying between Personas or of the title, nothing invented about the
+photo or the people in it, never explicit, never sexualising anyone who may be
+a minor, never demeaning anyone.
+
+### The answer
+
+OpenAI's Responses API (`OpenAiStudioDiscussionGenerator`): one stateless
+request — `store` false, no conversation, tool or web search, no retry, no
+redirect — answered as strict Structured Output against the mode's schema
+(`StudioDiscussionProposal::schema()`). The answer is a proposal only when it
+passes every check (`StudioDiscussionProposal::from()`): exactly the mode's
+fields, of their types; a whole discussion of exactly the comments and replies
+asked for, by the Personas taking part only, keys of its own, no later than
+the plan's date leaves; a part of exactly its own comments, named as the
+request named them, in order; no two texts the same; and the discussion it
+makes — the new one, or the plan's with the new texts in it, built in memory —
+held to `StudioDiscussionValidationRules`, the one set every discussion is.
+Anything else fails the generation whole; nothing is trimmed into shape.
+
+### History
+
+`studio_plan_discussion_generations` (`StudioPlanDiscussionGeneration`,
+`StudioPlan::discussionGenerations()`) keeps a row per attempt, gone with its
+plan: who asked; the mode; the comment written again (`target_node_id`, cleared
+if that comment is deleted from the draft, its id kept in `parameters`); the
+Personas; everything asked for; what it was written from — the plan's version,
+the photo's id, and three hashes: the analysis, the post's texts with the
+discussion, and the Personas' profiles; its state, attempt id and error code;
+the validated proposal (`result`); the model, request id, tokens and latency;
+and when it was asked, started, finished and taken in (`applied_at`). Never a
+prompt, a photo, a key or what the provider sent back beyond the proposal, and
+nothing of it reaches any page or API.
+
+### Life of a generation
+
+`queued` → `running` → `completed` or `failed`. Completed says only that a
+proposal was written; `applied_at` says it was taken in.
+
+- `RequestStudioDiscussionGenerationAction` asks `manage-studio-plans`, that it
+  is configured, and the counts (a whole discussion of 1 to 40 in all); then
+  locks the administrator's and every Persona's `users` rows in ascending id
+  order — the authors of a part read before any lock, asked again once locked —
+  then the plan, still a Draft at the version the editor was drawn from, its
+  photo analysis, then its generations on their way. It checks the Personas,
+  the part and the context, writes the generation `queued` and sends
+  `GenerateStudioDiscussionJob` once the transaction commits. The plan and its
+  discussion are not touched, its version included. While a generation of the
+  plan is on its way, asking again returns that one: no second paid request
+  from a double click or a second administrator. One on its way longer than
+  `stale_after_seconds` is ended as lost.
+- `GenerateStudioDiscussionJob` carries the generation's id and attempt id only;
+  `tries` 1, `timeout` 75, `failOnTimeout`, the request's own timeout 45 s. It
+  claims its generation first (`StartStudioDiscussionGenerationAction`): only a
+  queued one with that attempt id is claimed, so a job delivered twice sends
+  nothing. It sends nothing unless the plan is still a Draft with the same
+  context as the hashes say, and generation still configured; no transaction is
+  open while it waits. A worker that dies after sending leaves the generation
+  to be asked for again only by an administrator.
+- `CompleteStudioDiscussionGenerationAction` keeps the proposal — on the plan,
+  its analysis and the generation, locked — only when the plan is still a
+  Draft with the same context and the answer is a valid proposal for it;
+  otherwise the generation fails (`plan_closed`, `stale_context`,
+  `invalid_persona`, `invalid_provider_response`), and nothing out of date is
+  kept as a proposal. A new date for the plan is no change of context: the
+  discussion is relative to it.
+- `FailStudioDiscussionGenerationAction` ends a generation with a reason, only
+  while it is on its way.
+
+### Taking a proposal in
+
+`ApplyStudioDiscussionGenerationAction::handle($admin, $plan, $generationId,
+$expectedLockVersion)` — the trusted step the Discussion screen will offer. It
+locks the administrator's and every Persona's `users` rows in ascending id
+order, the plan at the version the administrator saw, its analysis, then the
+generation, and takes in only a completed proposal of this plan, not taken in
+before (`not_completed`, `already_applied`), written from the context the plan
+still has — the same post, photo, analysis, discussion and Personas
+(`stale_context`). A discussion edited by hand since, a comment deleted, an
+author changed, a Persona's profile changed: the proposal can no longer be
+taken in, so nothing saved is written over without being seen.
+
+The discussion it makes is saved through `SaveStudioDiscussionTreeAction`, its
+checks and all: a whole discussion replaces the plan's, every comment given a
+new id; a part changes only its own texts, every id kept. The save and
+`applied_at` commit together, or neither does; the plan's version rises once.
+A hand save, a new date for the post, a deletion or another administrator
+taking the same proposal in take turns on the plan's row: the later one is
+refused as `stale_version`. Earlier generations stay as history.
+
+### Errors and logs
+
+`StudioDiscussionGenerationError`: `not_configured`, `analysis_missing`,
+`incomplete_post`, `no_personas`, `invalid_persona`, `invalid_target`,
+`stale_version`, `stale_context`, `plan_closed`, `not_completed`,
+`already_applied`, `authentication_failed`, `rate_limited`, `provider_timeout`,
+`provider_unavailable`, `provider_rejected`, `provider_refused`,
+`invalid_provider_response`, `unexpected_failure` — each with a message of its
+own, never anything the provider said.
+
+`DomainLogger` events `studio.discussion_generation.requested`, `.started`,
+`.completed`, `.failed`, `.discarded`, `.applied` and `.rejected`, with the
+plan, the generation, the administrator, the mode, the comment written again,
+how many comments, the state, the code, the model, the latency, the tokens and
+the request id. Never a comment, a character, the instructions, the key or the
+analysis.
+
+### Configuration
+
+The key, model, base URL and switch are photo analysis's
+(`content_studio.image_analysis`): one Content Studio integration, never
+Translation AI's key. `content_studio.discussion_generation` holds the rest:
+`connect_timeout` 5, `timeout` 45, `max_output_tokens` 8000,
+`stale_after_seconds` 180, `max_nodes` 40, `max_personas` 8. Switched off, a
+discussion is still written and saved by hand.
 
 ## Running a plan
 

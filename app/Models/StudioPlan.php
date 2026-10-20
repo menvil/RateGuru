@@ -180,6 +180,18 @@ class StudioPlan extends Model
         return $this->hasMany(StudioDiscussionNode::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    /**
+     * Every discussion generation it asked for — proposals written from its
+     * post, photo, discussion and Personas as they were then, kept as history
+     * whether or not one was taken into its discussion. Deleted with the plan.
+     *
+     * @return HasMany<StudioPlanDiscussionGeneration, $this>
+     */
+    public function discussionGenerations(): HasMany
+    {
+        return $this->hasMany(StudioPlanDiscussionGeneration::class);
+    }
+
     public function isDraft(): bool
     {
         return $this->status === StudioPlanStatus::Draft;

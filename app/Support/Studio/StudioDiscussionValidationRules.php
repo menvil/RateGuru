@@ -210,11 +210,33 @@ final class StudioDiscussionValidationRules
      */
     public static function fitsPostDates(StudioPlanPublicationMode $mode, ?CarbonImmutable $publishAt, int $offsetSeconds): bool
     {
+        $left = self::secondsLeftAfter($mode, $publishAt);
+
+        return $left === null || $offsetSeconds <= $left;
+    }
+
+    /**
+     * The latest a comment may come after a post published so: no later than
+     * LATEST_OFFSET_SECONDS, nor past the latest date a post may carry
+     * (fitsPostDates()).
+     */
+    public static function latestOffsetFor(StudioPlanPublicationMode $mode, ?CarbonImmutable $publishAt): int
+    {
+        return min(self::LATEST_OFFSET_SECONDS, self::secondsLeftAfter($mode, $publishAt) ?? self::LATEST_OFFSET_SECONDS);
+    }
+
+    /**
+     * How many seconds a post published so leaves before the latest date a
+     * post may carry; none to count for one published at once or with no
+     * date chosen yet.
+     */
+    private static function secondsLeftAfter(StudioPlanPublicationMode $mode, ?CarbonImmutable $publishAt): ?int
+    {
         if ($mode !== StudioPlanPublicationMode::AtDate || $publishAt === null) {
-            return true;
+            return null;
         }
 
-        return $publishAt->addSeconds($offsetSeconds)->lessThanOrEqualTo(CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT));
+        return max(0, (int) $publishAt->diffInSeconds(CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT), false));
     }
 
     /**
