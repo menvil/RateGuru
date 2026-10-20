@@ -5318,6 +5318,224 @@
         color: var(--rg-admin-status-due-fg);
     }
 
+    /* Step 3 · Discussion: settings, the generations and their proposals, and the prepared thread */
+    .rg-admin-studio__discussion,
+    .rg-admin-studio__proposals {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-5);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__discussion-settings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+        gap: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-studio__discussion-counts,
+    .rg-admin-studio__discussion-part,
+    .rg-admin-studio__comment-panel,
+    .rg-admin-studio__comment-persona,
+    .rg-admin-studio__comment-timing {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__discussion-pick {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__discussion-part .rg-admin-hint,
+    .rg-admin-studio__discussion-part .rg-admin-error,
+    .rg-admin-studio__comment .rg-admin-hint,
+    .rg-admin-studio__comment .rg-admin-error {
+        margin: 0;
+    }
+
+    .rg-admin-studio__discussion-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__thread,
+    .rg-admin-studio__changes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-studio__comment,
+    .rg-admin-studio__change,
+    .rg-admin-studio__generation {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+    }
+
+    /* A reply sits under its comment, a guide on its left. */
+    .rg-admin-studio__comment--reply {
+        position: relative;
+        margin-left: 28px;
+    }
+
+    .rg-admin-studio__comment--reply::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -16px;
+        width: 2px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__comment--changed {
+        border-color: var(--rg-admin-border-changed);
+    }
+
+    .rg-admin-studio__comment--invalid {
+        border-color: var(--rg-admin-status-danger-dot);
+    }
+
+    .rg-admin-studio__comment-head,
+    .rg-admin-studio__generation-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__persona {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__comment-label {
+        color: var(--rg-admin-text-tertiary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__comment-time {
+        margin-left: auto;
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__comment-body,
+    .rg-admin-studio__change-before,
+    .rg-admin-studio__change-after {
+        margin: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-line;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__change-before {
+        color: var(--rg-admin-text-tertiary);
+        text-decoration: line-through;
+    }
+
+    .rg-admin-studio__change-after {
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-status-info-bg);
+    }
+
+    .rg-admin-studio__comment-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-studio__comment-panel {
+        padding: var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__comment-units {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__comment-unit {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__generation--latest {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__generation + .rg-admin-studio__generation {
+        margin-top: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__discussion-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        margin-top: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__discussion-footer .rg-admin-hint {
+        margin: 0;
+    }
+
+    .rg-admin-studio__discussion-footer-end {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+        margin-left: auto;
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-studio__comment--reply {
+            margin-left: var(--rg-admin-space-4);
+        }
+
+        .rg-admin-studio__comment--reply::before {
+            left: -10px;
+        }
+
+        .rg-admin-studio__comment-units {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .rg-admin-studio__comment-time {
+            margin-left: 0;
+            width: 100%;
+        }
+
+        .rg-admin-studio__discussion-footer-end {
+            margin-left: 0;
+        }
+    }
+
     .rg-admin-studio__tones {
         display: flex;
         flex-wrap: wrap;

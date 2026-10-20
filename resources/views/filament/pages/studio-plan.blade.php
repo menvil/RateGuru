@@ -9,7 +9,8 @@
      *
      * The browser counts what is unsaved from the draft against `saved`
      * (filament.pages.editor.script) and asks before a page with unsaved
-     * changes is left; moving between steps is never a change, and neither
+     * changes — the post's, or the discussion's, saved on its own with Save
+     * discussion and never counted in the top bar — is left; moving between steps is never a change, and neither
      * is the photo, which is saved the moment it is chosen. An editor drawn
      * before somebody else's save, of a plan deleted meanwhile or of one past
      * its Draft holds Save back and says so. Once a photo has made a new
@@ -41,7 +42,7 @@
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
     x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
-    x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
+    x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0 || $store.adminEditor?.discussionDirty) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
 
@@ -112,7 +113,13 @@
 
         <fieldset class="rg-admin-studio__step-body" @disabled($readOnly) aria-labelledby="rg-admin-studio-step-title">
             <h2 id="rg-admin-studio-step-title" class="rg-admin-sr-only">Step {{ $stepNumber }} of 4: {{ $stepLabel }}</h2>
-            @include('filament.pages.studio-plan.'.$step)
+            @unless ($step === 'discussion')
+                @include('filament.pages.studio-plan.'.$step)
+            @endunless
+            {{-- Always drawn, hidden on the other steps: its draft lives as long as the page. --}}
+            <div class="rg-admin-studio__discussion-step" @if ($step !== 'discussion') hidden @endif>
+                @include('filament.pages.studio-plan.discussion')
+            </div>
         </fieldset>
 
     </div>

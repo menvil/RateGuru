@@ -59,6 +59,23 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
             ->get(['users.*']);
     }
 
+    /**
+     * As many living Personas as asked for, at most, picked at random — the
+     * team a discussion is to be written by when an administrator asks for a
+     * random one, shown to them before anything is generated. Never every
+     * Persona at once.
+     *
+     * @return Collection<int, User>
+     */
+    public function randomChoosable(int $count): Collection
+    {
+        return $this->personas()
+            ->with('avatarAsset.variants')
+            ->inRandomOrder()
+            ->limit(max(1, $count))
+            ->get(['users.*']);
+    }
+
     /** The living Persona with this id, if there is one: what a publication plan's author may be. */
     public function choosable(int $id): ?User
     {

@@ -154,9 +154,17 @@ final class EditStudioPlan extends Page
         }
 
         // The plan as this save left it: the action keeps the copy it was
-        // handed in step with the row it wrote.
+        // handed in step with the row it wrote — the version said to the
+        // discussion's editor on the page, the rest drawn from the plan.
+        $this->movedVersion($plan->lock_version);
         $this->draw($plan);
         $this->toast('Draft saved');
+    }
+
+    /** Somebody else saved the plan: what this editor holds is out of date until Reload. */
+    protected function versionMovedElsewhere(): void
+    {
+        $this->stale = true;
     }
 
     public function askToDelete(): void

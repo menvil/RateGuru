@@ -16,6 +16,7 @@ use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\RatingGroup;
@@ -311,7 +312,7 @@ trait EditsStudioPlan
             return;
         }
 
-        $this->lockVersion = $plan->lock_version;
+        $this->movedVersion($plan->lock_version);
         $this->forgetPhotoInputs();
         $this->importedFrom = '';
         $this->replacedPhoto = null;
@@ -547,7 +548,7 @@ trait EditsStudioPlan
 
         // The action keeps the copy it was handed in step with the row it
         // wrote: only the photo and the version moved.
-        $this->lockVersion = $plan->lock_version;
+        $this->movedVersion($plan->lock_version);
 
         // A file replaced whatever a link brought, so that link may bring it back.
         if ($source === ImageInputSource::Upload) {
@@ -621,6 +622,48 @@ trait EditsStudioPlan
         $this->imageUrl = '';
         $this->postUrl = '';
         $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+    }
+
+    /**
+     * The discussion's editor on this page (StudioPlanDiscussionEditor) moved
+     * the plan's version with a save of its own: taken, when it was written
+     * from the version this editor holds — never re-reading the post's
+     * fields, which may hold what is typed and unsaved. Any other move is
+     * somebody else's, said by versionMovedElsewhere().
+     */
+    #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
+    public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
+    {
+        if ($source !== 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+            || ! is_numeric($previous) || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            return;
+        }
+
+        if ((int) $previous === $this->lockVersion && (int) $current === $this->lockVersion + 1) {
+            $this->lockVersion = (int) $current;
+
+            return;
+        }
+
+        $this->versionMovedElsewhere();
+    }
+
+    /** The plan moved to a version neither editor on this page wrote. */
+    protected function versionMovedElsewhere(): void {}
+
+    /**
+     * Takes the version a write of this editor's left, and says so to the
+     * discussion's editor on the page, so neither takes the other's write for
+     * somebody else's.
+     */
+    protected function movedVersion(int $current): void
+    {
+        $previous = $this->lockVersion;
+        $this->lockVersion = $current;
+
+        if ($this->planId !== 0 && $current !== $previous) {
+            $this->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->planId, previous: $previous, current: $current, source: 'editor');
+        }
     }
 
     /**

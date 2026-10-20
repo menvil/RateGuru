@@ -314,6 +314,56 @@ A save of the discussion and a new date for the post take turns on the plan's
 row: the later one, drawn from the version the first replaced, is refused, so
 neither can carry a comment past the dates a post may carry.
 
+### The editor
+
+The editor's Discussion step (`StudioPlanDiscussionEditor`, a Livewire
+component on the plan's editor page) is where an administrator sees, edits and
+generates a Draft's discussion. It is drawn once with the page and hidden on
+the other steps, never drawn again by moving between them, so a discussion
+being edited survives every step; a new publication has none until its Draft
+exists, and says so.
+
+Its draft is the component's own: the saved comments, each by its id, and the
+new ones by a key of the draft's own, compared with the discussion as saved to
+mark what is new or edited and to say there are unsaved changes. Comments are
+added, answered (comments on the post only), rewritten, given another Persona
+(one found by `PersonasQuery`) or another moment — days, hours, minutes and
+seconds after the post, with the date it would carry for a post on a chosen
+date —, moved among their siblings, and deleted; deleting a comment with
+replies asks first, as they go with it. Nothing is written until Save
+discussion, which hands the whole draft to `SaveStudioDiscussionTreeAction`
+and nothing else: its errors are shown by the comments they are about, and
+nothing typed is lost. Discard changes puts the saved discussion back.
+
+The discussion is saved apart from the post and its publication: Save draft
+in the top bar and its count of changes are theirs, Save discussion is the
+discussion's, and the browser's question before the page is left counts both.
+The plan keeps one `lock_version` for every write, so each of the page's two
+saves tells the other the version it was written from and the one it left
+(`studio-plan-version-moved`). The other takes the new version only when the
+write was made from the version it holds, one step on — never re-reading what
+it holds, which may be typed and unsaved; any other move is somebody else's
+save, and the next save there is refused until Reload. A photo kept or removed
+on the Image step moves the version the same way.
+
+Generation is asked for there, and only there, on an explicit request: a whole
+discussion — Total comments and Top-level comments becoming the replies and
+comments asked for, the Personas taking part chosen by hand or drawn at random
+by Pick personas, never by Generate itself, and the tone — or one saved,
+unchanged comment, reply or branch again. It is refused while the post or the
+discussion has unsaved changes, since a generation is written from what is
+saved, and while one is on its way. The generations are another component
+(`StudioPlanDiscussionProposals`), the only one read again every few seconds,
+and only while the newest generation is queued or running, so reading them
+never draws the discussion being edited again. It shows each generation's
+state, ten at a time, and previews a proposal apart from the discussion —
+`StudioDiscussionProposal::applyTo()` on the discussion as saved: a whole one
+as the tree it would become, a part as each text it changes. Apply proposal
+hands it to `ApplyStudioDiscussionGenerationAction`, only while the
+discussion has no unsaved changes, and a whole one replacing a saved
+discussion only once confirmed; Ignore proposal changes nothing. Nothing on
+the step publishes anything.
+
 ### Not approved yet
 
 The executor publishes a plan's post alone, and approval writes only its
@@ -337,11 +387,10 @@ anything of a Persona.
 
 ### Still to come
 
-Later steps of the discussion stage build on these rows, unchanged: the
-Discussion step of the editor, and publishing the discussion — an action for
-every comment and reply, under the post's, with the full preflight of the
-discussion in place of the refusal above. Writing it with AI is described
-below.
+A later step of the discussion stage builds on these rows, unchanged:
+publishing the discussion — an action for every comment and reply, under the
+post's, with the full preflight of the discussion in place of the refusal
+above. Writing it with AI is described below.
 
 ## Discussion generation
 
@@ -473,7 +522,8 @@ proposal was written; `applied_at` says it was taken in.
 ### Taking a proposal in
 
 `ApplyStudioDiscussionGenerationAction::handle($admin, $plan, $generationId,
-$expectedLockVersion)` — the trusted step the Discussion screen will offer.
+$expectedLockVersion)` — the trusted step Apply proposal on the editor's
+Discussion step takes.
 Before any lock it reads every Persona the check and the save depend on — those
 the proposal was written for, even one none of whose comments made it in, whose
 profile the hash holds; the authors of the discussion it was written from,

@@ -82,7 +82,7 @@ it('moves between the four steps without saving or losing anything typed', funct
     $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
         ->set('postTitle', 'Typed, not saved')
         ->call('nextStep')->assertSet('step', 'post')->assertSee('Final title')->assertSeeLivewire(StudioPlanTextSuggestionsCard::class)
-        ->call('nextStep')->assertSet('step', 'discussion')->assertSee('Generated conversations, replies and comment votes will be added in a later phase.')
+        ->call('nextStep')->assertSet('step', 'discussion')->assertSeeHtml('wire:name="admin.studio-plan-discussion-editor"')->assertDontSee('Generated conversations')
         ->call('nextStep')->assertSet('step', 'publication')->assertSee('This is a draft. Saving it does not publish or schedule anything.')->assertDontSee('Review and confirm')
         ->call('nextStep')->assertSet('step', 'publication')
         ->call('goToStep', 'image')->assertSet('step', 'image')

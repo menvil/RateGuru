@@ -25,6 +25,7 @@ use App\Jobs\Studio\ExecuteStudioActionJob;
 use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -13730,6 +13731,22 @@ function runStudioDiscussionJob(StudioPlanDiscussionGeneration $generation): voi
 function applyStudioDiscussion(User $admin, StudioPlan $plan, StudioPlanDiscussionGeneration $generation): SavedStudioDiscussion
 {
     return app(ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $generation->id, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/** The Discussion step's editor of this plan, as the plan's editor page draws it. */
+function discussionEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanDiscussionEditor::class, ['planId' => $plan->id]);
+}
+
+/**
+ * The draft key of each comment the Discussion editor holds, in its order.
+ *
+ * @return list<string>
+ */
+function discussionEditorKeys(Testable $editor): array
+{
+    return array_keys($editor->get('nodes'));
 }
 
 /**
