@@ -13750,6 +13750,19 @@ function discussionEditorKeys(Testable $editor): array
 }
 
 /**
+ * Every comment of the plan's discussion as stored, by id: its parent (null
+ * for a comment on the post), Persona, text, place and time.
+ *
+ * @return array<int, array{0: int|null, 1: int, 2: string, 3: int, 4: int}>
+ */
+function storedStudioDiscussionNodes(StudioPlan $plan): array
+{
+    return DB::table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->orderBy('id')->get()
+        ->mapWithKeys(fn ($row): array => [(int) $row->id => [$row->parent_id === null ? null : (int) $row->parent_id, (int) $row->persona_user_id, (string) $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])
+        ->all();
+}
+
+/**
  * A completed Responses API body whose structured output is this answer.
  *
  * @param  array<string, mixed>  $answer

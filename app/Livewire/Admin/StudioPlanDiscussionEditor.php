@@ -570,6 +570,14 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
+     * The generation on its way settled, as the generations' component saw:
+     * drawn again, so Generate and Regenerate are offered again. Nothing is
+     * read into the draft, which stays as it is.
+     */
+    #[On('studio-discussion-generation-settled')]
+    public function generationSettled(): void {}
+
+    /**
      * The other editor of this plan on the page — the post's, the photo's —
      * moved its version with a write of its own: taken, when it was written
      * from the version this draft holds. Any other move is somebody else's.
@@ -775,7 +783,7 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        $this->refreshProposals();
+        $this->refreshProposals(requested: true);
         $this->toast('Discussion requested. It appears below as a proposal once it is written.', 'success');
     }
 
@@ -1018,9 +1026,9 @@ final class StudioPlanDiscussionEditor extends Component
         return max(1, app(StudioDiscussionGenerator::class)->maxPersonas());
     }
 
-    private function refreshProposals(): void
+    private function refreshProposals(bool $requested = false): void
     {
-        $this->dispatch('studio-discussion-generations-changed')->to(StudioPlanDiscussionProposals::class);
+        $this->dispatch('studio-discussion-generations-changed', requested: $requested)->to(StudioPlanDiscussionProposals::class);
     }
 
     private function admin(): User

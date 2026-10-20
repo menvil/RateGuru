@@ -37,7 +37,9 @@ use Livewire\Component;
  *
  * A component of its own, so that while a generation is on its way it alone
  * is read again every few seconds — never the discussion being edited beside
- * it. Every request checks that the viewer may still manage plans.
+ * it. Once the generation it waited for settles, it tells the editor so, once,
+ * for the editor to offer Generate and Regenerate again. Every request checks
+ * that the viewer may still manage plans.
  */
 final class StudioPlanDiscussionProposals extends Component
 {
@@ -62,6 +64,13 @@ final class StudioPlanDiscussionProposals extends Component
     #[Locked]
     public int $shown = self::PAGE;
 
+    /**
+     * Whether a generation was on its way when this was last drawn, or was
+     * just asked for: once none is, the discussion's editor is told.
+     */
+    #[Locked]
+    public bool $wasPolling = false;
+
     public function boot(): void
     {
         abort_unless(Gate::allows('manage-studio-plans'), 403);
@@ -72,10 +81,16 @@ final class StudioPlanDiscussionProposals extends Component
         $this->planId = $planId;
     }
 
-    /** The discussion's editor asked for, applied or saved something: read the generations again. */
+    /**
+     * The discussion's editor asked for, applied or saved something: read the
+     * generations again. A generation it asked for is waited for even when it
+     * has already settled by now, so the editor is told it has.
+     */
     #[On('studio-discussion-generations-changed')]
-    public function refresh(): void
+    public function refresh(mixed $requested = false): void
     {
+        $this->wasPolling = $this->wasPolling || $requested === true;
+
         if ($this->previewId !== null && $this->generation($this->previewId) === null) {
             $this->previewId = null;
         }
@@ -148,13 +163,20 @@ final class StudioPlanDiscussionProposals extends Component
         $generations = $generations->take($this->shown)->values();
         $latest = $generations->first();
         $previewed = $this->previewId !== null ? $generations->firstWhere('id', $this->previewId) ?? $this->generation($this->previewId) : null;
+        $polling = $latest !== null && $latest->isUnderway($now);
+
+        if ($this->wasPolling && ! $polling) {
+            $this->dispatch('studio-discussion-generation-settled')->to(StudioPlanDiscussionEditor::class);
+        }
+
+        $this->wasPolling = $polling;
 
         return view('livewire.admin.studio-plan-discussion-proposals', [
             'draft' => $plan?->isDraft() === true,
             'latest' => $latest !== null ? $this->summary($latest, $now) : null,
             'history' => $generations->skip(1)->map(fn (StudioPlanDiscussionGeneration $generation): array => $this->summary($generation, $now))->values()->all(),
             'more' => $more,
-            'polling' => $latest !== null && $latest->isUnderway($now),
+            'polling' => $polling,
             'preview' => $previewed !== null && $plan !== null ? $this->previewOf($previewed, $plan) : null,
             'confirming' => $this->confirmingId !== null && $plan !== null ? $plan->discussionNodes()->count() : null,
         ]);

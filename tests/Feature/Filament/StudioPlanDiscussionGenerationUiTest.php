@@ -175,6 +175,36 @@ it('reads the generations again without ever drawing the draft again', function 
     $editor->assertDontSeeHtml('wire:poll');
 });
 
+it('tells the editor once the generation it waited for settles, so it offers Generate again with the draft kept', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [
+        answeredComment('node_1', null, 'persona_1', 60, 'Somebody owns this harbour now.'),
+    ]]))]);
+    $editor = discussionEditor($this->plan)->call('toggleParticipant', $this->anna->id)->set('totalCount', 1)->set('rootCount', 1)->call('generateTree', 0)
+        ->assertDispatched('studio-discussion-generations-changed', requested: true)
+        ->assertSee('A generation is on its way — see below.');
+    $panel = proposalsPanel($this->plan)->assertSet('wasPolling', true);
+
+    $panel->call('$refresh')->assertNotDispatched('studio-discussion-generation-settled');
+    runStudioDiscussionJob(StudioPlanDiscussionGeneration::query()->sole());
+    $panel->call('$refresh')->assertDispatched('studio-discussion-generation-settled')->assertSet('wasPolling', false);
+    $panel->call('$refresh')->assertNotDispatched('studio-discussion-generation-settled');
+
+    $editor->call('addComment')->set('nodes.k1.body', 'Typed meanwhile.')
+        ->dispatch('studio-discussion-generation-settled')
+        ->assertDontSee('A generation is on its way — see below.');
+
+    expect($editor->get('nodes')['k1']['body'])->toBe('Typed meanwhile.');
+});
+
+it('tells the editor at once of a generation it asked for that settled before it was read', function () {
+    StudioPlanDiscussionGeneration::factory()->failed()->create(['studio_plan_id' => $this->plan->id]);
+
+    proposalsPanel($this->plan)->assertSet('wasPolling', false)
+        ->dispatch('studio-discussion-generations-changed')->assertNotDispatched('studio-discussion-generation-settled')
+        ->dispatch('studio-discussion-generations-changed', requested: true)->assertDispatched('studio-discussion-generation-settled')
+        ->assertSet('wasPolling', false);
+});
+
 it('previews a whole tree apart from the discussion, and Ignore changes nothing', function () {
     $generation = generatedWholeTree($this);
     $before = DB::table('studio_plan_discussion_nodes')->count();
@@ -216,9 +246,7 @@ it('applies a whole tree over a saved discussion only once confirmed', function 
 
 it('writes one saved part again — a comment, a reply or a branch — keeping every id, parent, persona, place and time', function (string $target, string $what, array $answer, array $changed) {
     $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
-    $rows = fn () => DB::table('studio_plan_discussion_nodes')->orderBy('id')->get()
-        ->mapWithKeys(fn ($row): array => [(int) $row->id => [(int) $row->parent_id, (int) $row->persona_user_id, $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])->all();
-    $before = $rows();
+    $before = storedStudioDiscussionNodes($this->plan);
     Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody($answer))]);
 
     discussionEditor($this->plan)->call('openRegenerate', 'n'.$saved->ids[$target])->call('regenerate', 'n'.$saved->ids[$target], $what, 0);
@@ -233,7 +261,7 @@ it('writes one saved part again — a comment, a reply or a branch — keeping e
 
     discussionEditor($this->plan)->dispatch('apply-studio-discussion-generation', generationId: $generation->id);
 
-    $after = $rows();
+    $after = storedStudioDiscussionNodes($this->plan);
 
     foreach ($before as $id => [$parent, $persona, $body, $sort, $offset]) {
         $key = array_search($id, $saved->ids, true);

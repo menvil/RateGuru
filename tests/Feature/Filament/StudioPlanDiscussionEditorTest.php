@@ -43,14 +43,6 @@ function savedFour($test): SavedStudioDiscussion
     return savedStudioBranchFixture($test->admin, $test->plan, $test->anna, $test->boris);
 }
 
-/** Every comment of the plan as stored, by id: parent, persona, text, place and time. */
-function storedNodes(StudioPlan $plan): array
-{
-    return DB::table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->orderBy('id')->get()
-        ->mapWithKeys(fn ($row): array => [(int) $row->id => [$row->parent_id === null ? null : (int) $row->parent_id, (int) $row->persona_user_id, $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])
-        ->all();
-}
-
 it('is for administrators who may manage plans only — drawn, or clicked', function () {
     Livewire::actingAs(User::factory()->moderator()->create())
         ->test(StudioPlanDiscussionEditor::class, ['planId' => $this->plan->id])
@@ -168,7 +160,7 @@ it('keeps every id through a change of text, persona, place and time', function 
     ];
     ksort($expected);
 
-    expect(storedNodes($this->plan))->toBe($expected);
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($expected);
 });
 
 it('moves a comment only among its siblings, never to another comment', function () {
