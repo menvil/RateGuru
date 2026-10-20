@@ -346,6 +346,15 @@ criterion has been checked on staging: the analysis and the suggestions appear i
 chosen and edited, and with an empty key both say they are not configured while the rest of the application
 works.
 
+**Content Studio Phase 4 — Publishing & historical actions. Status: in progress.** Its first step is in code: the
+approval of a complete Draft and the lasting record of what will publish it. `ApproveStudioPlanAction` asks the
+approval preflight (`StudioPlanApprovalPreflight`) whether the plan is ready, marks it Approved — by whom, when — and
+writes the one Pending `create_post` row of Content Studio's business queue (`studio_plan_actions`), when the post
+happens (`occurs_at`) and when it may run (`run_after`) fixed at approval, past dates kept as the post's own. Nothing
+on screen approves a plan yet — no Approve or Publish button — and nothing runs an action: no post is made and no
+job is queued. The executor that publishes the post, with recovery after a crash and a write applied once, is the
+next step; the Action queue screen comes with it.
+
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator
 (`manage-personas`): searched and narrowed by status and engagement on the server, 25 a page (`PersonasQuery`, a

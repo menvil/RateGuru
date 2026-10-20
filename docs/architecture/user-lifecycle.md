@@ -322,6 +322,10 @@ the chosen Persona locks the same two users in the same order, so the two
 take turns instead of deadlocking. The author is asked again on its locked
 row — still a Persona, not deleted; a Limited, Banned or Shadowbanned Persona
 may still be a Draft's author, since saving a Draft publishes nothing.
+Approving a plan (`ApproveStudioPlanAction`) locks the same rows in the same
+order — the author the plan named before any lock, a plan found naming
+another refused as stale — and asks more of the locked author: an Active
+Persona, able to create content.
 
 The same rule covers **content moderation as privileged participation**:
 `ModerationPolicy::moderateContent`, `PostPolicy`/`CommentPolicy`

@@ -15,6 +15,7 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 | `status` | `StudioPlanStatus`, `draft` by default |
 | `author_user_id` | the Persona the post is to be published as; nullable, restricted |
 | `created_by_user_id` | the administrator who made the plan; restricted |
+| `approved_by_user_id`, `approved_at` | who approved it and when, in UTC; nullable, written only by its approval; the account restricted |
 | `image_asset_id` | the photo, a `post_image` MediaAsset; nullable, restricted |
 | `title`, `description`, `source_url` | the post's texts, each nullable |
 | `category_id` | nullable; set to null if the category itself is deleted |
@@ -25,16 +26,17 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 
 The photo's analysis and the text suggestions written from it are kept beside
 the plan, each in a table of its own (see "Photo analysis" and "Post text
-suggestions" below), never in a column of the plan. Nothing else for later
-stages is here yet — no actions table, no post reference, no approval fields.
-They arrive with the stage that uses them.
+suggestions" below), never in a column of the plan, and so are the actions
+approval writes (see "Approval" below). No post reference is here yet: it
+arrives with the executor that makes the post.
 
 ## Statuses
 
 `Draft` → `Approved` → `Running` → `Completed`, or `Cancelled`. A plan is made,
-edited and deleted only as a Draft. The other states are defined but nothing
-moves a plan into them yet: approval, running and cancelling come with
-publishing.
+edited and deleted only as a Draft; approval moves it on to Approved, after
+which no editor's write — a save, a photo, a deletion — touches it. Running,
+Completed and Cancelled are defined but nothing moves a plan into them yet:
+running and cancelling come with the executor.
 
 ## A Draft may be incomplete
 
@@ -69,6 +71,7 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | `SetStudioPlanImageAction` | uploads or replaces the photo |
 | `RemoveStudioPlanImageAction` | takes the photo off |
 | `DeleteStudioPlanDraftAction` | deletes the Draft's row outright |
+| `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
 
 `StudioPlanData` holds what an editor may set and nothing more: the author,
 texts, category, tags, author answers, mode and date. The status, the creator,
@@ -84,6 +87,109 @@ Draft, and still at the version the editor was drawn from. A save from an
 older version is refused (`CannotManageStudioPlanException::isStale()`) rather
 than written over a newer one; a plan deleted meanwhile is `isGone()`, which is
 also what a second delete of the same plan says, releasing nothing again.
+
+## Approval
+
+Approving a plan is an administrator's trusted permission for its Persona to
+publish it (`docs/architecture/content-studio-phase-0.md`, D3): the plan is
+complete and current, and nothing about it changes any more. Nothing on screen
+approves a plan yet; `ApproveStudioPlanAction` is called by its tests alone.
+
+### The preflight
+
+`StudioPlanApprovalPreflight::problems()` says whether a plan is ready to
+publish and, when it is not, every reason why, each a stable
+`StudioPlanApprovalProblem` code with the editor's field it is about, the
+`StudioPlanApprovalRejection` it adds up to, and what to do. It only reads: no
+row is written, no post made, no job sent, no rate limit spent, no paid service
+called — the screen that offers an approval can ask it, and the approval asks it
+again on the locked rows. A Draft's own rules (`StudioPlanValidationRules`) give
+the bounds and whether what the plan names exists; on top of them:
+
+| Field | A plan to approve has | Codes |
+| --- | --- | --- |
+| author | a Persona, not deleted, `Active`, able to create content; its replies' Engagement setting plays no part | `author_missing`, `author_not_persona`, `author_deleted`, `author_restricted` |
+| title | 3 to 120 characters | `title_missing`, `title_too_short`, `title_too_long` |
+| description, source | within a post's bounds when there are any | `description_too_long`, `source_url_invalid` |
+| photo | a `post_image`, `ready`, not deleted, no post's — counting a deleted post that may be restored. Its owner is the uploading administrator and is never compared with the author, and it is not copied or normalized again | `photo_missing`, `photo_deleted`, `photo_wrong_kind`, `photo_not_ready`, `photo_in_use` |
+| category | none, or an active one | `category_inactive` |
+| tags | tags that exist, each once, ten at most | `tag_missing`, `tag_repeated`, `too_many_tags` |
+| author's answers | answers among the active options of the active rating questions as `RatingConfigurationManager` has them now, one per question | `answer_missing`, `answer_inactive`, `answer_group_repeated` |
+| date | for `at_date`, a date from 1970 to 2038 — past or future alike; `now` needs none | `publish_at_missing`, `publish_at_out_of_range` |
+
+### Approving
+
+`ApproveStudioPlanAction::handle($admin, $plan, $expectedLockVersion)` asks
+`manage-studio-plans`, reads the author the plan names, and in one transaction
+locks the administrator's and the author's `users` rows in ascending id order —
+the order a sanction of that Persona takes — then the plan. A plan found naming
+another author once it is locked was changed meanwhile and is refused as stale:
+no user is ever locked after the plan. On the locked rows it asks again that the
+administrator may still manage plans, the plan is still there, still a Draft and
+still at the version the administrator saw, and that the preflight finds
+nothing. Then, in that same transaction, the plan becomes `Approved` with
+`approved_by_user_id`, `approved_at` and a new version, and one action is
+written. Either both are written or neither is.
+
+A refusal writes nothing and throws `CannotApproveStudioPlanException` with one
+`StudioPlanApprovalRejection` — `access_denied`, `plan_gone`, `not_draft`,
+`stale_version`, or, from the preflight, `author_unavailable`, `incomplete_plan`,
+`invalid_media`, `invalid_taxonomy` or `invalid_publication_date` — and the
+preflight's problems. An approved plan is no Draft, so a second approval, by
+anyone, is `not_draft` and writes no second action. Two administrators
+approving one Draft at once take turns on the Persona's row and then the
+plan's; an approval racing a save, a new photo or a deletion of the Draft takes
+turns on the plan's row, the later one refused; an approval racing a sanction
+of the author takes turns on the Persona's row — whichever is first, the
+approval never approves a Persona the sanction has already reached. A category
+deactivated, an answer changed or a photo replaced before the approval is
+found by it.
+
+### The action it writes
+
+`studio_plan_actions` (`StudioAction`) is Content Studio's business queue: one
+row per scheduled domain write of an approved plan, kept in the main database
+(`docs/architecture/content-studio-phase-0.md`, E2–E6). Approval writes the
+plan's root action and nothing else: `create_post`, its Persona as the actor,
+no parent, an empty payload — the approved plan, which nothing writes any more,
+is what it publishes — `pending`, untried (`attempts` 0). The other kinds
+(`create_comment`, `create_reply`, `vote_post`, `vote_comment`, `vote_rating`)
+and states (`held`, `dispatched`, `running`, `done`, `failed`, `cancelled`) are
+the queue's format; nothing writes them yet. The row is deleted with its plan,
+and only a Draft, which has none, is deleted.
+
+Two moments are kept, both in UTC to the second, read from one moment of
+approval:
+
+| Plan | `occurs_at` — the post's own date | `run_after` — when it may run |
+| --- | --- | --- |
+| `now` | the moment of approval | the moment of approval |
+| `at_date`, a past date | that date | the moment of approval |
+| `at_date`, a future date | that date | that date |
+
+`occurs_at` is the date the post will carry as its own; running late never
+changes it — a post meant for now that runs a minute late is still that
+moment's, not a historical one. `run_after` keeps a future post back until its
+date.
+
+### Why nothing runs yet
+
+A `pending` row is a passive record: no queue, worker, schedule or command reads
+it, nothing is sent to Redis, no post is made, and nothing notifies anybody.
+Running it safely — claiming it, writing the post once even when a job is
+delivered twice, and recovering after a crash — is the executor's, which comes
+with the next step of publishing, together with the post reference and the
+Action queue screen.
+
+### Logs
+
+`DomainLogger` events `studio_plan.approved` (the plan, the administrator, the
+Persona), `studio.action.created` (also the action, its type, its state,
+`occurs_at` and `run_after`), both written only once the outermost transaction
+has committed, so a rolled-back approval is never logged as one, and
+`studio_plan.approval_rejected` (the plan, the administrator, the
+Persona, the rejection's code and the problems' codes). Never the plan's texts
+or its photo.
 
 ## The photo
 
