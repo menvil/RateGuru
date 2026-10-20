@@ -1,0 +1,31 @@
+tests/Feature/Architecture/MailRoutingPolicyTest.php
+  s_3481294084957b::t_340d4fc101b5e6 1167-1174,1201,1206
+tests/Feature/Architecture/MailIdentityTest.php
+  s_3481294084957b::t_340d4fc101b5e6 148,151-171
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_340d4fc101b5e6 79-81,810
+tests/Feature/Architecture/RestoreServerPrimitivesScopeTest.php
+  s_3481294084957b::t_340d4fc101b5e6 142-143
+  s_3481294084957b::t_b32204403b50d7 154-157,162-167
+infrastructure/scripts/recovery-host-preflight
+  s_3481294084957b::t_be3e27541e1899 917
+  s_3481294084957b::t_340d4fc101b5e6 919-921
+tests/Feature/Architecture/DisasterRecoveryContractTest.php
+  s_3481294084957b::t_340d4fc101b5e6 207,218-220,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e926731b321dfeeb710a7a945e893b7d014fdfe7",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
