@@ -4023,7 +4023,7 @@ function mailActivationBundle(string $root, array $documents): void
     @mkdir($root.'/infrastructure/scripts', 0o755, true);
     @mkdir($root.'/infrastructure/config', 0o755, true);
 
-    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
+    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'recovery-outbound-hold', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
         $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
         copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$copy}");
         chmod("{$root}/infrastructure/scripts/{$copy}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
@@ -4405,7 +4405,7 @@ function mailInboundBundleScripts(): array
 {
     return [
         'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
-        'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
+        'public-smtp-port', 'recovery-outbound-hold', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
 

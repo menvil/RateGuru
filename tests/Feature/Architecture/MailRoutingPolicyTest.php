@@ -1183,7 +1183,10 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
     // target's domains — each running the copy next to itself — and the
     // inbound activation, which reads the submission listeners it proves still
     // work, from its trusted bundle.
-    // No workflow, action, orchestrator or other installer invokes it. The
+    // The recovery preparation, the recovery and the release of a recovered
+    // machine's outbound mail ask it one question — does this target's mail
+    // go out directly — to decide whether that mail is held.
+    // No workflow, action, other orchestrator or other installer invokes it. The
     // one other file
     // that may name the POLICY is the prerequisite installer, which hands its
     // configuration directory's copy to the identity judge — never to this CLI.
@@ -1196,6 +1199,9 @@ it('is repository tooling that only the mail gateway, the mail identity judge an
         'infrastructure/scripts/activate-mail-outbound',
         'infrastructure/scripts/send-mail-canary',
         'infrastructure/scripts/mail-inbound',
+        'infrastructure/scripts/prepare-host',
+        'infrastructure/scripts/recover-host',
+        'infrastructure/scripts/release-recovered-outbound',
     ];
     $bundled = ['infrastructure/scripts/activate-mail-inbound'];
     $installers = ['infrastructure/scripts/install-target-operations'];

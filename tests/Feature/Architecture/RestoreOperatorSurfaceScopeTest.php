@@ -54,10 +54,10 @@ it('adds exactly one restore action, two operator workflows and one server wrapp
         // like every other operator-facing operation here.
         'recover-production.yml',
         'recover-staging.yml',
-        'release.yml',
         // The release of a recovered machine's held outbound mail, guarded by
         // ReleaseRecoveredOutboundWorkflowTest.
         'release-tits-guru-recovered-outbound.yml',
+        'release.yml',
         'repair-production.yml',
         'repair-staging.yml',
         'restore-production.yml',

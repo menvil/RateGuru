@@ -123,7 +123,7 @@ function releaseOutboundHost(array $options = []): array
     foreach (['release-recovered-outbound', 'recovery-outbound-hold', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
         $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
         copy(base_path('infrastructure/scripts/'.$name), "{$bundle}/infrastructure/scripts/{$copy}");
-        chmod("{$bundle}/infrastructure/scripts/{$copy}", in_array($name, [...sourcedLibraryNames(), 'recovery-outbound-hold'], true) ? 0o644 : 0o755);
+        chmod("{$bundle}/infrastructure/scripts/{$copy}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
     }
 
     foreach (releaseOutboundStubs() as $name => $body) {

@@ -4,8 +4,8 @@
 # infrastructure/config/required-clis.txt still has its executable bit
 # inside a release tree, and that every sourced library
 # (infrastructure/scripts/common, restore-common, smtp-submission,
-# public-smtp-port and mail-inbound-host) remains a readable, non-executable
-# file.
+# public-smtp-port, mail-inbound-host and recovery-outbound-hold) remains a
+# readable, non-executable file.
 #
 # Shared by deploy itself (checking the just-normalized, not-yet-switched
 # release on the server) and both artifact-build workflows (checking

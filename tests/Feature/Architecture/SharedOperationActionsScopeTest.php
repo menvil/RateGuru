@@ -165,10 +165,10 @@ it('keeps one operator-facing workflow per environment, with no target selector 
         // operator-facing operation here.
         'recover-production.yml',
         'recover-staging.yml',
-        'release.yml',
-        // and the release of that outbound mail on a machine a clean-host
+        // The release of tits-guru's outbound mail on a machine a clean-host
         // recovery prepared, once it is adopted.
         'release-tits-guru-recovered-outbound.yml',
+        'release.yml',
         // One repair workflow per environment, exactly like every other
         // operator-facing operation here.
         'repair-production.yml',
