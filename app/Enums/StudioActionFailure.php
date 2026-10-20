@@ -14,7 +14,8 @@ namespace App\Enums;
  * - failed, for an administrator to decide: the approving administrator may
  *   no longer approve, it was sent as often as it may be, or something
  *   unexpected;
- * - back to pending, later: its Persona's posting limit reached for now.
+ * - back to pending, later: its Persona's posting limit reached for now —
+ *   and failed with the same code once sent back `max_deferrals` times.
  */
 enum StudioActionFailure: string
 {

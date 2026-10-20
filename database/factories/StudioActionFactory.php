@@ -35,6 +35,7 @@ class StudioActionFactory extends Factory
             'run_after' => $at,
             'status' => StudioActionStatus::Pending,
             'attempts' => 0,
+            'deferrals' => 0,
         ];
     }
 

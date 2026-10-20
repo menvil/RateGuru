@@ -20,12 +20,14 @@ use App\Models\User;
 use App\Notifications\PostApprovedNotification;
 use App\Queries\Feed\FeedQuery;
 use App\Queries\UserPublicPostsQuery;
+use App\Support\AbuseGuards\RateLimitKey;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Running an approved plan's CreatePost: one real post of its Persona,
@@ -253,7 +255,7 @@ it('sends an action back, its date kept, while its Persona is at its posting lim
     $third = $actions[2]->fresh();
 
     expect(Post::query()->count())->toBe(2)
-        ->and($third)->status->toBe(StudioActionStatus::Pending)->failure_code->toBe('rate_limited')->attempts->toBe(1)
+        ->and($third)->status->toBe(StudioActionStatus::Pending)->failure_code->toBe('rate_limited')->attempts->toBe(1)->deferrals->toBe(1)
         ->and($third->occurs_at->toDateTimeString())->toBe('2026-10-20 10:00:00')
         ->and($third->run_after->greaterThan(now()))->toBeTrue();
 
@@ -266,6 +268,45 @@ it('sends an action back, its date kept, while its Persona is at its posting lim
 
     expect($third->fresh())->status->toBe(StudioActionStatus::Done)->attempts->toBe(2)
         ->and(Post::query()->whereKey($third->fresh()->result_id)->sole()->created_at->toDateTimeString())->toBe('2026-10-20 10:00:00');
+});
+
+it('publishes a backlog its Persona\'s posting limit spreads over many rounds, giving none of it up as failed deliveries', function () {
+    config(['rate_limits.upload.max_attempts' => 2, 'rate_limits.upload.decay_seconds' => 600, 'content_studio.actions.max_attempts' => 3]);
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $persona = User::factory()->persona()->create();
+    $actions = collect(range(1, 7))->map(fn (int $index): StudioAction => approvedStudioAction(['author_user_id' => $persona->id, 'title' => "Harbour {$index}"]));
+
+    // Two posts a window, so four rounds: the last action is sent four times,
+    // past max_attempts, were the sends its limit sent back counted.
+    foreach (range(1, 4) as $round) {
+        dispatchDueStudioActions();
+        $actions->each(fn (StudioAction $action) => runStudioActionJob($action->id));
+        Carbon::setTestNow(now()->addSeconds(601));
+    }
+
+    expect(Post::query()->count())->toBe(7)
+        ->and($actions->map(fn (StudioAction $action): StudioActionStatus => $action->fresh()->status)->unique()->values()->all())->toBe([StudioActionStatus::Done])
+        ->and($actions[6]->fresh())->attempts->toBe(4)->deferrals->toBe(3)->failure_code->toBeNull();
+});
+
+it('gives an action up, failed and rate_limited, once its Persona\'s posting limit has sent it back as often as it may', function () {
+    config(['rate_limits.upload.max_attempts' => 1, 'rate_limits.upload.decay_seconds' => 600, 'content_studio.actions.max_deferrals' => 2]);
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $action = approvedStudioAction();
+    $persona = User::query()->findOrFail($action->actor_user_id);
+
+    // A limit that never lifts: the Persona's window is full before every run.
+    foreach (range(1, 3) as $round) {
+        RateLimiter::hit(RateLimitKey::userAction('upload', $persona), 600);
+        dispatchDueStudioActions();
+        runStudioActionJob($action->id);
+        Carbon::setTestNow(now()->addSeconds(601));
+    }
+
+    expect($action->fresh())->status->toBe(StudioActionStatus::Failed)->failure_code->toBe('rate_limited')->attempts->toBe(3)->deferrals->toBe(2)
+        ->and($action->fresh()->finished_at)->not->toBeNull()
+        ->and(Post::query()->exists())->toBeFalse()
+        ->and(dispatchDueStudioActions())->toMatchArray(['sent' => 0, 'resent' => 0, 'exhausted' => 0]);
 });
 
 it('writes nothing for an attempt recovery has already sent again', function () {

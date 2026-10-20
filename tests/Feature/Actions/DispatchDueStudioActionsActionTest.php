@@ -133,6 +133,19 @@ it('gives up, failed, on an action sent as often as it may be, and leaves its pl
     expect(dispatchDueStudioActions())->toMatchArray(['sent' => 0, 'resent' => 0, 'exhausted' => 0]);
 });
 
+it('leaves out of max_attempts the sends its Persona\'s posting limit sent back', function () {
+    config(['content_studio.actions.max_attempts' => 3]);
+    $deferred = approvedStudioAction(['title' => 'Harbour deferred']);
+    $spent = approvedStudioAction(['title' => 'Harbour spent']);
+    // Both sent three times: one only lost twice, its other sends sent back for the limit.
+    $deferred->forceFill(['attempts' => 3, 'deferrals' => 1, 'failure_code' => 'rate_limited'])->save();
+    $spent->forceFill(['attempts' => 3, 'deferrals' => 0])->save();
+
+    expect(dispatchDueStudioActions())->toMatchArray(['sent' => 1, 'exhausted' => 1])
+        ->and($deferred->fresh())->status->toBe(StudioActionStatus::Dispatched)->attempts->toBe(4)->deferrals->toBe(1)
+        ->and($spent->fresh())->status->toBe(StudioActionStatus::Failed)->failure_code->toBe('attempts_exhausted');
+});
+
 it('keeps an action sent whose job the queue refused after the commit, and sends it again once found lost', function () {
     Carbon::setTestNow('2026-10-20 10:00:00');
     $action = approvedStudioAction();

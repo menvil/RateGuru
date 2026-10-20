@@ -213,7 +213,7 @@ that run them.
 | `done` | its post written; `result_type`/`result_id` and the real `finished_at` kept | the executor's run |
 | `held` | stopped for an administrator to resume: the Persona Limited or Shadowbanned | the executor |
 | `cancelled` | for good: the Persona banned, deleted or no Persona, or the plan, photo, category or an answer no longer usable | the executor |
-| `failed` | for an administrator to decide: the approver may no longer approve, it was sent `max_attempts` times, or something unexpected | the executor; `studio:dispatch-due` |
+| `failed` | for an administrator to decide: the approver may no longer approve, it was sent `max_attempts` times, its posting limit sent it back `max_deferrals` times, or something unexpected | the executor; `studio:dispatch-due` |
 
 Each stop keeps a stable `failure_code` (`StudioActionFailure`) and, for an
 unexpected error, only the exception's class in `failure_reason`. Nothing is
@@ -241,8 +241,9 @@ for minutes, not a day; two runs at once are safe anyway. Each run, at most
 Each one is locked and asked again before it is sent, in a short transaction
 of its own: it becomes `dispatched`, `attempts` one more, `dispatched_at` now,
 and `ExecuteStudioActionJob` is pushed once that transaction commits. An action
-already sent `max_attempts` times is failed instead, `attempts_exhausted`. Two
-dispatchers never send one action twice. A push Redis refuses after the commit
+already sent `max_attempts` times — not counting the sends its Persona's
+posting limit sent back (`deferrals`) — is failed instead,
+`attempts_exhausted`. Two dispatchers never send one action twice. A push Redis refuses after the commit
 leaves the action `dispatched`, so it is found lost and sent again: nothing is
 left that could never be sent again. Kinds nothing runs yet are never sent,
 sent again, counted or failed for it, whatever state they are in.
@@ -330,8 +331,14 @@ The Persona's posts count against the site's ordinary upload limit
 (`rate_limits.upload`, 5 in 600 s), never bypassed. An action that meets it is
 no failure: the run is rolled back and the action goes back to `pending`, its
 `run_after` moved to when the limit allows, `occurs_at` unchanged,
-`failure_code` `rate_limited`. Its next send counts as an attempt like any
-other, so a limit that never lifts ends in `attempts_exhausted`.
+`failure_code` `rate_limited`, and `deferrals` one more.
+
+That send still counts in `attempts`, which the run's fence compares, but the
+dispatcher leaves the deferrals out of `max_attempts`: a backlog the limit
+spreads out — a Persona's history approved in one go, published five at a time
+— is not a run of lost deliveries, and none of it is given up for waiting its
+turn. Deferrals are bounded on their own: an action the limit sends back once
+more after `max_deferrals` is failed, `rate_limited`, for an administrator.
 
 ### The switch
 
@@ -356,7 +363,8 @@ fails there and leaves its action `dispatched`, and recovery sends it again.
 | Setting | Default | Means |
 | --- | --- | --- |
 | `batch_size` | 50 | actions sent, and sent again, per run |
-| `max_attempts` | 3 | sends before an action is failed `attempts_exhausted` |
+| `max_attempts` | 3 | sends before an action is failed `attempts_exhausted`, those its posting limit sent back left out |
+| `max_deferrals` | 48 | times the Persona's posting limit may send an action back — eight hours of ten-minute windows — before it is failed `rate_limited` |
 | `dispatched_stale_after_seconds` | 900 | a sent action unclaimed this long was lost |
 | `running_stale_after_seconds` | 180 | a claimed action unfinished this long was left by a dead worker — past the job's 75 s timeout and Redis's 90 s `retry_after` |
 

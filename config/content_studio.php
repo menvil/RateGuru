@@ -91,8 +91,15 @@ return [
 
         // How many times an action is sent before it is given up as failed
         // (`attempts_exhausted`). A first send counts, and so does every
-        // send after one was lost; claiming and finishing never do.
+        // send after one was lost; claiming and finishing never do, nor does
+        // a send that met the Persona's posting limit and was sent back.
         'max_attempts' => 3,
+
+        // How many times an action may be sent back for its Persona's posting
+        // limit before it is given up as failed (`rate_limited`): 48 of the
+        // upload limit's ten-minute windows, eight hours — a backlog of some
+        // 240 posts for one Persona, published five at a time.
+        'max_deferrals' => 48,
 
         // A sent action no worker has claimed this long after it was sent
         // was lost on its way — Redis, a worker of an older release, a

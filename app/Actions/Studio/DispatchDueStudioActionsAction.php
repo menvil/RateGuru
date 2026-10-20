@@ -33,15 +33,16 @@ use Throwable;
  *   or a parent done; oldest `run_after` first, then id.
  *
  * Every send — the first and every one after — raises `attempts` by one, and
- * nothing else does; an action already sent `max_attempts` times is failed
- * instead (`attempts_exhausted`) and waits for an administrator. Each row is
- * locked and asked again before it is sent, so two dispatchers never send one
- * action twice. A push the queue refuses after the commit leaves the action
- * sent, and so found lost, and sent again, later. At most `batch_size` of
- * each per run. Only the kinds the executor runs (ExecuteStudioAction::
- * RUNNABLE) are sent, lost or left behind: any other is never sent, counted
- * or failed, whatever state it is in. Nothing happens while the executor is
- * switched off.
+ * nothing else does; an action already sent `max_attempts` times, not
+ * counting the sends its Persona's posting limit sent back (`deferrals`), is
+ * failed instead (`attempts_exhausted`) and waits for an administrator. Each
+ * row is locked and asked again before it is sent, so two dispatchers never
+ * send one action twice. A push the queue refuses after the commit leaves
+ * the action sent, and so found lost, and sent again, later. At most
+ * `batch_size` of each per run. Only the kinds the executor runs
+ * (ExecuteStudioAction::RUNNABLE) are sent, lost or left behind: any other is
+ * never sent, counted or failed, whatever state it is in. Nothing happens
+ * while the executor is switched off.
  */
 final class DispatchDueStudioActionsAction
 {
@@ -148,7 +149,10 @@ final class DispatchDueStudioActionsAction
                         return null;
                     }
 
-                    if ($action->attempts >= $maxAttempts) {
+                    // A send its Persona's posting limit sent back is no lost
+                    // delivery: deferrals are bounded on their own, by the
+                    // executor (`max_deferrals`).
+                    if ($action->attempts - $action->deferrals >= $maxAttempts) {
                         self::saved($action->forceFill([
                             'status' => StudioActionStatus::Failed,
                             'failure_code' => StudioActionFailure::AttemptsExhausted->value,

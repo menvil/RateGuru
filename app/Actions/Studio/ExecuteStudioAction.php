@@ -332,44 +332,70 @@ final class ExecuteStudioAction
 
     /**
      * Back to Pending, due once the Persona's posting limit allows: a limit
-     * reached is no verdict on the post. Its date stays the plan's, and the
-     * next send counts as an attempt, so the retries are bounded too.
+     * reached is no verdict on the post. Its date stays the plan's. The send
+     * still counted as an attempt — the run's fence needs every send counted
+     * — and is counted as a deferral too, which the dispatcher leaves out of
+     * `max_attempts`: a backlog the limit spreads out is not a run of lost
+     * deliveries. Deferrals are bounded on their own: one past
+     * `max_deferrals` fails the action, `rate_limited`.
      */
     private function postpone(int $actionId, int $attempt, int $retryAfterSeconds): ?StudioActionStatus
     {
-        $runAfter = DB::transaction(function () use ($actionId, $attempt, $retryAfterSeconds): ?CarbonImmutable {
+        $maxDeferrals = max(0, (int) config('content_studio.actions.max_deferrals'));
+
+        $postponed = DB::transaction(function () use ($actionId, $attempt, $retryAfterSeconds, $maxDeferrals): ?StudioAction {
             $action = StudioAction::query()->whereKey($actionId)->lockForUpdate()->first();
 
             if ($action === null || $action->status !== StudioActionStatus::Running || $action->attempts !== $attempt) {
                 return null;
             }
 
+            if ($action->deferrals >= $maxDeferrals) {
+                self::saved($action->forceFill([
+                    'status' => StudioActionStatus::Failed,
+                    'failure_code' => StudioActionFailure::RateLimited->value,
+                    'failure_reason' => null,
+                    'finished_at' => now(),
+                ]));
+
+                return $action;
+            }
+
             $runAfter = CarbonImmutable::now()->addSeconds(max(1, $retryAfterSeconds))->startOfSecond();
-            $runAfter = $runAfter->greaterThan($action->run_after) ? $runAfter : $action->run_after;
 
             self::saved($action->forceFill([
                 'status' => StudioActionStatus::Pending,
-                'run_after' => $runAfter,
+                'run_after' => $runAfter->greaterThan($action->run_after) ? $runAfter : $action->run_after,
                 'claimed_at' => null,
+                'deferrals' => $action->deferrals + 1,
                 'failure_code' => StudioActionFailure::RateLimited->value,
                 'failure_reason' => null,
             ]));
 
-            return $runAfter;
+            return $action;
         });
 
-        if ($runAfter === null) {
+        if ($postponed === null) {
             $this->logger->info('studio.action.discarded', ['studio_action_id' => $actionId, 'attempt' => $attempt]);
 
             return null;
         }
 
-        $this->logger->info('studio.action.postponed', [
+        $context = [
             'studio_action_id' => $actionId,
             'attempt' => $attempt,
+            'deferrals' => $postponed->deferrals,
+            'status' => $postponed->status->value,
             'failure_code' => StudioActionFailure::RateLimited->value,
-            'run_after' => $runAfter->toIso8601String(),
-        ]);
+        ];
+
+        if ($postponed->status === StudioActionStatus::Failed) {
+            $this->logger->warning('studio.action.failed', $context);
+
+            return StudioActionStatus::Failed;
+        }
+
+        $this->logger->info('studio.action.postponed', [...$context, 'run_after' => $postponed->run_after->toIso8601String()]);
 
         return StudioActionStatus::Pending;
     }
