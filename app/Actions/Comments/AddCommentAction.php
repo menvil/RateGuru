@@ -24,7 +24,8 @@ final class AddCommentAction
     use LocksActorForWrite;
     use RefreshesPostCommentsCount;
 
-    private const MAX_BODY_LENGTH = 1000;
+    /** The longest a comment may be — also the bound of a comment Content Studio prepares. */
+    public const MAX_BODY_LENGTH = 1000;
 
     public function __construct(
         private readonly RecalculatePostScoreAction $recalculatePostScore,

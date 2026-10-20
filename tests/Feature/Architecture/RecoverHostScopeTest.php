@@ -76,9 +76,9 @@ it('installs recover-host through the existing installer, and adds no second ins
 
     // The authoritative counts were updated honestly, not left stale.
     expect($installer)
-        ->toContain('thirty-seven files')
-        ->toContain('all thirty-seven source files are present regular files')
-        ->toContain('bash -n passed for all twenty-five source shell scripts')
+        ->toContain('thirty-eight files')
+        ->toContain('all thirty-eight source files are present regular files')
+        ->toContain('bash -n passed for all twenty-six source shell scripts')
         ->not->toContain('twenty-three files')
         ->not->toContain('all twenty-one source');
 
@@ -568,6 +568,7 @@ it('adds no rehearsal harness and no host provisioner', function () {
         'provision-tits-guru.yml',
         'recover-production.yml',
         'recover-staging.yml',
+        'release-tits-guru-recovered-outbound.yml',
         'release.yml',
         'repair-production.yml',
         'repair-staging.yml',

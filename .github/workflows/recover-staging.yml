@@ -1369,6 +1369,7 @@ jobs:
       source_sha: ${{ steps.verify.outputs['source-sha'] }}
       health: ${{ steps.verify.outputs.health }}
       offsite_writes: ${{ steps.verify.outputs['offsite-writes'] }}
+      outbound_mail: ${{ steps.verify.outputs['outbound-mail'] }}
       cause: ${{ steps.verify.outputs['failure-cause'] }}
       queue: ${{ steps.verify.outputs.queue }}
       scheduler: ${{ steps.verify.outputs.scheduler }}
@@ -1563,6 +1564,7 @@ jobs:
           BUILD_REQUIRED: ${{ needs.recover.outputs.build_required }}
           RECOVERED_RELEASE: ${{ needs.verify.outputs.current_release }}
           OFFSITE_WRITES: ${{ needs.verify.outputs.offsite_writes }}
+          OUTBOUND_MAIL: ${{ needs.verify.outputs.outbound_mail }}
           RECOVERED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           RECOVERED_QUEUE: ${{ needs.verify.outputs.queue }}
           RECOVERED_SCHEDULER: ${{ needs.verify.outputs.scheduler }}
@@ -1607,6 +1609,7 @@ jobs:
             echo "| Historical build required | \`${BUILD_REQUIRED:-not decided}\` |"
             echo "| Recovered release | \`${RECOVERED_RELEASE:-none}\` |"
             echo "| Offsite backup/retention writer | \`${OFFSITE_WRITES:-not verified}\` |"
+            echo "| Direct outbound mail | \`${OUTBOUND_MAIL:-not verified}\` |"
             echo "| DEPLOY_HOST | unchanged |"
             echo "| DNS | unchanged |"
             echo "| Migrations run | none |"
@@ -1696,6 +1699,7 @@ jobs:
               echo "| Health | \`${RECOVERED_HEALTH}\` |"
               echo "| Guards | none (recover-host --verify refuses a target that carries a restore or recovery guard) |"
               echo "| Offsite writes | \`OFFSITE WRITES: HELD\` (\`${OFFSITE_WRITES}\`) |"
+              echo "| Outbound mail | \`${OUTBOUND_MAIL:-not reported}\` |"
               echo "| Migrations run | none |"
               echo "| DNS | unchanged |"
               echo "| DEPLOY_HOST | unchanged |"

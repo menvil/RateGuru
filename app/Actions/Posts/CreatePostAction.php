@@ -5,12 +5,14 @@ namespace App\Actions\Posts;
 use App\Actions\Moderation\MarkUserTrustedAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\MediaKind;
+use App\Enums\MediaStatus;
 use App\Enums\PostStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Models\Category;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\User;
@@ -25,8 +27,16 @@ use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
+/**
+ * A member's new post, with its photo, taxonomy and author answers — or,
+ * through the trusted fields of CreatePostData that only Content Studio's
+ * executor sets, a Persona's approved plan published as a post: its photo,
+ * already stored and Ready, used as it is, and its own dates. Either way the
+ * post's status follows the same rules, and the same limits and checks apply.
+ */
 final class CreatePostAction
 {
     use LocksActorForWrite;
@@ -42,6 +52,10 @@ final class CreatePostAction
 
     public function handle(User $user, CreatePostData $data): Post
     {
+        if ($data->imageAssetId !== null && $data->image !== null) {
+            throw new InvalidArgumentException('A post takes a new file or a stored image, not both.');
+        }
+
         if (! $user->can('create', Post::class)) {
             throw CannotCreatePostException::becauseUserIsNotAllowed();
         }
@@ -95,9 +109,9 @@ final class CreatePostAction
                 $status = $publishesAtOnce ? PostStatus::Published : PostStatus::Pending;
                 $publishedAt = $publishesAtOnce ? now() : null;
 
-                $imageAsset = $storedImage !== null
-                    ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)
-                    : null;
+                $imageAssetId = $data->imageAssetId !== null
+                    ? $this->lockStoredPostImage($data->imageAssetId)
+                    : ($storedImage !== null ? $this->mediaAssetCreator->create($storedImage, MediaKind::PostImage, $user)->id : null);
 
                 $post = Post::create([
                     'user_id' => $user->id,
@@ -107,7 +121,10 @@ final class CreatePostAction
                     'category_id' => $categoryId,
                     'status' => $status,
                     'published_at' => $publishedAt,
-                    'image_asset_id' => $imageAsset?->id,
+                    'image_asset_id' => $imageAssetId,
+                    // Given dates are kept as given; none, and Eloquent stamps the post as ever.
+                    ...($data->createdAt !== null ? ['created_at' => $data->createdAt] : []),
+                    ...($data->updatedAt !== null ? ['updated_at' => $data->updatedAt] : []),
                 ]);
 
                 if ($data->tagIds !== []) {
@@ -154,11 +171,11 @@ final class CreatePostAction
         if ($post->image_asset_id !== null) {
             try {
                 // ->afterCommit(): the structural "after DB::transaction()
-                // returns" placement above is enough given how this action
-                // is called today (no outer transaction wraps it), but
-                // afterCommit() also makes it correct if that ever changes —
-                // Laravel simply runs it immediately when there's no open
-                // transaction, so this isn't a behavior change today.
+                // returns" placement above is enough for the upload form,
+                // which wraps this action in no transaction — Laravel then
+                // runs it immediately. Content Studio's executor does wrap
+                // it, and afterCommit() holds the job until that outer
+                // transaction commits, so a rolled-back run sends nothing.
                 GenerateMediaVariantsJob::dispatch($post->image_asset_id)->afterCommit();
             } catch (Throwable $exception) {
                 report($exception);
@@ -176,6 +193,31 @@ final class CreatePostAction
         }
 
         return $post;
+    }
+
+    /**
+     * A post image already stored, used as it is — no storer, no new asset,
+     * no copy, its owner kept — once it is found, locked after the author's
+     * row as every write takes its locks, to be a Ready post image that is
+     * not deleted and that no post, not even a deleted one that may be
+     * restored, uses yet. Two posts given one image take turns on its row,
+     * and the second finds it used.
+     *
+     * @throws CannotCreatePostException
+     */
+    private function lockStoredPostImage(int $assetId): int
+    {
+        $asset = MediaAsset::withTrashed()->whereKey($assetId)->lockForUpdate()->first();
+
+        if ($asset === null
+            || $asset->trashed()
+            || $asset->kind !== MediaKind::PostImage
+            || $asset->status !== MediaStatus::Ready
+            || Post::withTrashed()->where('image_asset_id', $asset->id)->exists()) {
+            throw CannotCreatePostException::becauseImageIsUnavailable();
+        }
+
+        return (int) $asset->id;
     }
 
     private function validatedCategoryId(?int $categoryId): ?int

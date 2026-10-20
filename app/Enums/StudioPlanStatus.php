@@ -5,9 +5,11 @@ namespace App\Enums;
 /**
  * Where a publication plan stands. A plan is made and edited as a Draft and
  * may be deleted while it is one; approval moves it on to Approved, its run
- * to Running and then Completed, and an administrator may cancel it. Only
- * the Draft is anything a plan can be today: nothing approves, runs or
- * cancels a plan yet, so the other states have no way in.
+ * to Running and then Completed, and an administrator may cancel it. The
+ * executor moves it on (docs/architecture/studio-plans.md, "Running a plan"):
+ * Running once its first action is claimed, then Completed once its post is
+ * published and nothing of it is left, or Cancelled when its post never will
+ * be. Nothing on screen cancels a plan yet.
  */
 enum StudioPlanStatus: string
 {

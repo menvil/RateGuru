@@ -27,9 +27,14 @@ not reorganize unrelated infrastructure.
 - The first production backup cycles passed on 18 and 19 October 2026: the
   local backup and restore-test, the B2 upload, retention and the offsite
   restore-test.
-- The DKIM key in backup and clean-host recovery is implemented in the
-  repository and applies when Prepare reinstalls the operational bundle from
-  `main`. The recovery-time outbound fence is the next, separate change.
+- The DKIM key in backup and clean-host recovery is applied: on 20 October
+  2026 a production schema 4 backup on the real VPS carried the live
+  `mail-dkim-private-key`, and its local and B2 restore-tests passed.
+- The recovery-time outbound fence is implemented in the repository and
+  applies when Prepare reinstalls from `main`: a machine a clean-host
+  recovery prepares holds `tits-guru`'s mail until Release recovered
+  tits.guru outbound mail proves its address and the operator releases it.
+  No real recovery has exercised it yet.
 
 Then the rest of 8.6, and 8.7 (GO LIVE). The aim is to launch
 production as soon as the checks required before GO LIVE pass, with no waiting
@@ -1674,8 +1679,11 @@ brand that exists nowhere in this repository — and then exercised for real on
   - 8.6.2, the activation of `tits-guru`, is applied; the first production
     release, `v0.5.0-20261017-162841-88381fb`, is installed.
   - The first production backup cycles passed on 18 and 19 October 2026.
-  - The DKIM key in backup and clean-host recovery is IMPLEMENTED in the
-    repository; the recovery-time outbound fence is next.
+  - The DKIM key in backup and clean-host recovery is applied; a schema 4
+    production backup carrying the key passed its local and B2 restore-tests
+    on 20 October 2026.
+  - The recovery-time outbound fence is IMPLEMENTED in the repository, not
+    yet applied or exercised by a real recovery.
 - **Not launched.** The public site answers 503, and GO LIVE has not run.
   Phase 8 is not complete.
 
@@ -2400,9 +2408,9 @@ Slices, in order:
    - production backup and recovery must carry the active DKIM signing private
      key, so a recovered host signs with the same key the published DNS names;
    - a recovery-time outbound fence, so a replacement host delivers nothing
-     before it is proved;
+     before it is proved (since implemented: see 8.6);
    - A, PTR and SPF re-accepted for the replacement host's address before mail
-     resumes;
+     resumes (since implemented, as the release's proof: see 8.6);
    - a host-scoped mail topology once staging and production run on separate
      machines.
 
@@ -2710,8 +2718,10 @@ Slices, in order:
    - **Outbound mail.** Real mail sent by the deployed application is
      delivered through the accepted outbound route.
    - **The mail safeguards required before GO LIVE, carried from 8.4B.7.**
-     - **DKIM key in backup and clean-host recovery — IMPLEMENTED in the
-       repository, not yet applied to the host.** A recovered host must sign
+     - **DKIM key in backup and clean-host recovery — APPLIED, verified on
+       the real VPS on 20 October 2026.** A schema 4 production backup carried
+       the live `mail-dkim-private-key`, and its local and B2 restore-tests
+       passed. A recovered host must sign
        with the same key the published DKIM record names, and that key
        existed only on the production host: production backups captured the
        host scope alone, and `mail-dkim-private-key` is target scope.
@@ -2759,19 +2769,72 @@ Slices, in order:
          that is the first schema 4 one, and the first a `tits-guru`
          clean-host recovery accepts. No Postfix, OpenDKIM, DNS, TLS or
          `.env` change.
-       - **Not here: the recovery-time outbound fence.** A replacement host
-         for `tits-guru` is still prepared with direct delivery configured.
-         Refusing outbound delivery on a recovered machine until its A, PTR
-         and SPF are proved for its address and the release is explicit is
-         the next, separate change.
+     - **Recovery-time outbound fence — IMPLEMENTED in the repository, not
+       yet applied.** A machine a clean-host recovery prepares is a complete
+       mail host that believes it is `tits-guru`, while the public A, PTR and
+       SPF still name the machine it replaces. Before this, such a machine
+       could not even be prepared: the gateway refuses a first recorded
+       policy that delivers outbound.
+       - **The hold.** `/var/lib/rateguru-mail-gateway/recovery-outbound-holds/<target>.json`,
+         root-only `0600` in a `0700` directory: the target, the backup, the
+         recovery operation and `held` or `released`. One definition,
+         `infrastructure/scripts/recovery-outbound-hold`, sourced by every
+         reader and writer; a marker that is not exactly that document is
+         refused everywhere, never read as absent. Separate from the
+         offsite-write hold.
+       - **Placed** by `prepare-host --recovery-backup`, for a target whose
+         reviewed mail goes out directly, right after the runtime slice and
+         before host bootstrap installs Postfix. A re-run of the same
+         recovery keeps it; one for another backup, a released one or an
+         unreadable one stops the preparation. An ordinary Prepare never
+         places one.
+       - **In Postfix.** While it is held, `install-mail-gateway` renders,
+         verifies and records the reviewed plan with that target's mail held
+         — the listener accepts with its own restrictions and signer and puts
+         every message on HOLD, and no direct transport exists — and direct
+         delivery disabled. The repository still requests outbound. The host
+         records held, so every later Prepare, repair, bootstrap or verify
+         converges to held, and removing the marker by hand only turns the
+         next apply into a refusal at the activation boundary. Proved on a
+         real Postfix in CI: held mail stays held through a reload, a stop
+         and start and a flush; mail queued for the direct route before the
+         hold is never delivered while it stands; staging's capture and every
+         other service are unchanged; a release leaves held mail held.
+       - **The recovery.** `recover-host --apply` binds the hold to its
+         operation before it downloads a byte, and refuses a machine that
+         carries none or another recovery's; a failed apply that leaves the
+         machine as prepared takes the binding back. `--inspect` and
+         `--resume` refuse a hold bound to another operation (`--resume` puts
+         a missing one back); `--verify` reports `OUTBOUND MAIL: HELD` beside
+         `OFFSITE WRITES: HELD`, and the production recovery workflow
+         requires it.
+       - **The release.** `release-recovered-outbound --check|--apply|--verify`
+         and the workflow **Release recovered tits.guru outbound mail**
+         (manual, `main` only). It requires a completed recovery
+         (`recover-host --verify`, no guard), the hold bound to exactly the
+         operation named, the gateway exactly held, public DNS naming exactly
+         the address the operator confirmed as two independent resolvers
+         answer it (A and PTR of the MTA hostname with forward confirmation,
+         SPF, the installed key's DKIM record, DMARC), a running signer, and
+         the typed confirmation. It then marks the hold released and crosses
+         through the gateway's one-use authorization, accepts the result with
+         OUTBOUND READY: YES, and returns to held on any failure. An
+         interrupted release delivers nothing and is completed by the next
+         apply. It never changes DNS, `DEPLOY_HOST`, Nginx or the
+         offsite-write hold, and never releases the HOLD queue.
+       - **Applied when** Prepare tits.guru host and Prepare staging host
+         reinstall the bundle from `main` (thirty-eight files: the hold's
+         library joins it). No existing host carries a hold, so nothing on a
+         live host changes.
 
      Open:
-     - a recovery-time outbound fence, so a recovered host sends nothing
-       before it is proved;
-     - A, PTR and SPF re-accepted for a replacement host's address before
-       mail resumes;
      - a host-scoped mail topology, should staging and production run on
-       separate machines.
+       separate machines. Until then a staging-only recovery onto a fresh
+       machine still meets `tits-guru` on the shared mail plan — its signer
+       requires `tits-guru`'s key, which a staging backup does not carry —
+       as it has since `tits-guru` began delivering outbound;
+     - a real clean-host recovery of `tits-guru` onto a replacement machine,
+       held and then released, has not been run.
    - **Inbound mail already accepted.** Prove that the inbound store and the
      shared queue survive the launch's own operations: deploys, rollbacks and
      backup cycles.

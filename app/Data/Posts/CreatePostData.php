@@ -3,6 +3,7 @@
 namespace App\Data\Posts;
 
 use App\Enums\ImageInputSource;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 
 final readonly class CreatePostData
@@ -24,5 +25,15 @@ final readonly class CreatePostData
          * @var array<int> $authorAnswerOptionIds
          */
         public array $authorAnswerOptionIds = [],
+        /*
+         * Trusted, and set only by Content Studio's executor
+         * (ExecuteStudioAction), never from a request: a Ready post image
+         * already stored — an approved plan's photo, used as it is — and the
+         * post's own dates, a past or a scheduled one. Null, as everywhere
+         * else, keeps the post as an upload makes it.
+         */
+        public ?int $imageAssetId = null,
+        public ?CarbonImmutable $createdAt = null,
+        public ?CarbonImmutable $updatedAt = null,
     ) {}
 }

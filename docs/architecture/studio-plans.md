@@ -15,6 +15,7 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 | `status` | `StudioPlanStatus`, `draft` by default |
 | `author_user_id` | the Persona the post is to be published as; nullable, restricted |
 | `created_by_user_id` | the administrator who made the plan; restricted |
+| `approved_by_user_id`, `approved_at` | who approved it and when, in UTC; nullable, written only by its approval; the account restricted |
 | `image_asset_id` | the photo, a `post_image` MediaAsset; nullable, restricted |
 | `title`, `description`, `source_url` | the post's texts, each nullable |
 | `category_id` | nullable; set to null if the category itself is deleted |
@@ -25,16 +26,21 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 
 The photo's analysis and the text suggestions written from it are kept beside
 the plan, each in a table of its own (see "Photo analysis" and "Post text
-suggestions" below), never in a column of the plan. Nothing else for later
-stages is here yet — no actions table, no post reference, no approval fields.
-They arrive with the stage that uses them.
+suggestions" below), never in a column of the plan, and so are the discussion
+it prepares (see "The discussion" below) and the actions approval writes (see
+"Approval" below). The post a plan becomes is its
+`create_post` action's result (`result_type`, `result_id`), not a column of the
+plan.
 
 ## Statuses
 
 `Draft` → `Approved` → `Running` → `Completed`, or `Cancelled`. A plan is made,
-edited and deleted only as a Draft. The other states are defined but nothing
-moves a plan into them yet: approval, running and cancelling come with
-publishing.
+edited and deleted only as a Draft; approval moves it on to Approved, after
+which no editor's write — a save, a photo, a deletion — touches it. Its first
+action claimed, it is Running; once none of its actions is left to run or to
+decide, it is Completed when its post was published and Cancelled when it never
+will be (see "Running a plan" below). A held or failed action keeps it Running,
+waiting for an administrator.
 
 ## A Draft may be incomplete
 
@@ -65,10 +71,14 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | Action | Does |
 | --- | --- |
 | `CreateStudioPlanAction` | a new Draft at version 1, its creator the administrator |
-| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo |
+| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo, and no date its discussion would run past (see "The discussion") |
 | `SetStudioPlanImageAction` | uploads or replaces the photo |
 | `RemoveStudioPlanImageAction` | takes the photo off |
-| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright |
+| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion with it |
+| `SaveStudioDiscussionTreeAction` | saves the Draft's whole discussion (see "The discussion") |
+| `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
+| `ExecuteStudioAction` | runs one sent action — today the post — once (see "Running a plan") |
+| `DispatchDueStudioActionsAction` | sends the actions that are due, and again those lost |
 
 `StudioPlanData` holds what an editor may set and nothing more: the author,
 texts, category, tags, author answers, mode and date. The status, the creator,
@@ -84,6 +94,444 @@ Draft, and still at the version the editor was drawn from. A save from an
 older version is refused (`CannotManageStudioPlanException::isStale()`) rather
 than written over a newer one; a plan deleted meanwhile is `isGone()`, which is
 also what a second delete of the same plan says, releasing nothing again.
+
+## Approval
+
+Approving a plan is an administrator's trusted permission for its Persona to
+publish it (`docs/architecture/content-studio-phase-0.md`, D3): the plan is
+complete and current, and nothing about it changes any more. Nothing on screen
+approves a plan yet; `ApproveStudioPlanAction` is called by its tests alone.
+
+### The preflight
+
+`StudioPlanApprovalPreflight::problems()` says whether a plan is ready to
+publish and, when it is not, every reason why, each a stable
+`StudioPlanApprovalProblem` code with the editor's field it is about, the
+`StudioPlanApprovalRejection` it adds up to, and what to do. It only reads: no
+row is written, no post made, no job sent, no rate limit spent, no paid service
+called — the screen that offers an approval can ask it, and the approval asks it
+again on the locked rows. A Draft's own rules (`StudioPlanValidationRules`) give
+the bounds and whether what the plan names exists; on top of them:
+
+| Field | A plan to approve has | Codes |
+| --- | --- | --- |
+| author | a Persona, not deleted, `Active`, able to create content; its replies' Engagement setting plays no part | `author_missing`, `author_not_persona`, `author_deleted`, `author_restricted` |
+| title | 3 to 120 characters | `title_missing`, `title_too_short`, `title_too_long` |
+| description, source | within a post's bounds when there are any | `description_too_long`, `source_url_invalid` |
+| photo | a `post_image`, `ready`, not deleted, no post's — counting a deleted post that may be restored. Its owner is the uploading administrator and is never compared with the author, and it is not copied or normalized again | `photo_missing`, `photo_deleted`, `photo_wrong_kind`, `photo_not_ready`, `photo_in_use` |
+| category | none, or an active one | `category_inactive` |
+| tags | tags that exist, each once, ten at most | `tag_missing`, `tag_repeated`, `too_many_tags` |
+| author's answers | answers among the active options of the active rating questions as `RatingConfigurationManager` has them now, one per question | `answer_missing`, `answer_inactive`, `answer_group_repeated` |
+| date | for `at_date`, a date from 1970 to 2038 — past or future alike; `now` needs none | `publish_at_missing`, `publish_at_out_of_range` |
+| discussion | none, for now: nothing publishes a discussion yet (see "The discussion") | `discussion_not_publishable` |
+
+### Approving
+
+`ApproveStudioPlanAction::handle($admin, $plan, $expectedLockVersion)` asks
+`manage-studio-plans`, reads the author the plan names, and in one transaction
+locks the administrator's and the author's `users` rows in ascending id order —
+the order a sanction of that Persona takes — then the plan. A plan found naming
+another author once it is locked was changed meanwhile and is refused as stale:
+no user is ever locked after the plan. On the locked rows it asks again that the
+administrator may still manage plans, the plan is still there, still a Draft and
+still at the version the administrator saw, and that the preflight finds
+nothing. Then, in that same transaction, the plan becomes `Approved` with
+`approved_by_user_id`, `approved_at` and a new version, and one action is
+written. Either both are written or neither is.
+
+A refusal writes nothing and throws `CannotApproveStudioPlanException` with one
+`StudioPlanApprovalRejection` — `access_denied`, `plan_gone`, `not_draft`,
+`stale_version`, or, from the preflight, `author_unavailable`, `incomplete_plan`,
+`invalid_media`, `invalid_taxonomy`, `invalid_publication_date` or
+`unsupported_discussion` — and the
+preflight's problems. An approved plan is no Draft, so a second approval, by
+anyone, is `not_draft` and writes no second action. Two administrators
+approving one Draft at once take turns on the Persona's row and then the
+plan's; an approval racing a save, a new photo or a deletion of the Draft takes
+turns on the plan's row, the later one refused; an approval racing a sanction
+of the author takes turns on the Persona's row — whichever is first, the
+approval never approves a Persona the sanction has already reached. A category
+deactivated, an answer changed or a photo replaced before the approval is
+found by it.
+
+### The action it writes
+
+`studio_plan_actions` (`StudioAction`) is Content Studio's business queue: one
+row per scheduled domain write of an approved plan, kept in the main database
+(`docs/architecture/content-studio-phase-0.md`, E2–E6). Approval writes the
+plan's root action and nothing else: `create_post`, its Persona as the actor,
+no parent, an empty payload — the approved plan, which nothing writes any more,
+is what it publishes — `pending`, untried (`attempts` 0). The other kinds
+(`create_comment`, `create_reply`, `vote_post`, `vote_comment`, `vote_rating`)
+are the queue's format; nothing writes them yet. The other states are the
+executor's (see "Running a plan" below). The row is deleted with its plan, and
+only a Draft, which has none, is deleted.
+
+Two moments are kept, both in UTC to the second, read from one moment of
+approval:
+
+| Plan | `occurs_at` — the post's own date | `run_after` — when it may run |
+| --- | --- | --- |
+| `now` | the moment of approval | the moment of approval |
+| `at_date`, a past date | that date | the moment of approval |
+| `at_date`, a future date | that date | that date |
+
+`occurs_at` is the date the post will carry as its own; running late never
+changes it — a post meant for now that runs a minute late is still that
+moment's, not a historical one. `run_after` keeps a future post back until its
+date.
+
+### When it runs
+
+A `pending` row is a passive record until the executor is switched on: no queue,
+worker or command acts on it, nothing is sent to Redis, no post is made, and
+nothing notifies anybody. Once it is on, `studio:dispatch-due` sends it when its
+`run_after` comes (see "Running a plan" below).
+
+### Logs
+
+`DomainLogger` events `studio_plan.approved` (the plan, the administrator, the
+Persona), `studio.action.created` (also the action, its type, its state,
+`occurs_at` and `run_after`), both written only once the outermost transaction
+has committed, so a rolled-back approval is never logged as one, and
+`studio_plan.approval_rejected` (the plan, the administrator, the
+Persona, the rejection's code and the problems' codes). Never the plan's texts
+or its photo.
+
+## The discussion
+
+A Draft may prepare the discussion its post is to get: comments on the post
+and replies to them, each to be written later by a Persona at a moment of its
+own. For now it is only prepared and kept — saving it makes no comment, post,
+action or job, calls no paid service and changes nothing on screen.
+
+### What a discussion holds
+
+Each comment is a row of `studio_plan_discussion_nodes` (`StudioDiscussionNode`,
+`StudioPlan::discussionNodes()`), never a JSON column of the plan and never a
+`comments` row:
+
+| Column | Contract |
+| --- | --- |
+| `studio_plan_id` | the plan; cascades — the discussion goes with its Draft |
+| `parent_id` | the comment a reply answers, of the same plan; none for a comment on the post; cascades — a comment takes its replies with it |
+| `persona_user_id` | the Persona who is to write it; restricted — accounts become tombstones, never deleted |
+| `body` | its text, trimmed, 1 to 1,000 characters — a comment's own bound (`AddCommentAction::MAX_BODY_LENGTH`) |
+| `sort_order` | its place among its siblings, 0 to 65,535; places may be equal, the id then keeping the order |
+| `offset_seconds` | how long after the post it comes: 0 to 30 days |
+
+Indexes serve a plan's discussion in order (`studio_plan_id`, `parent_id`,
+`sort_order`, `id`), a comment's replies (`parent_id`) and a Persona's prepared
+comments (`persona_user_id`). Nothing is mass assignable: rows are written only
+by `SaveStudioDiscussionTreeAction`.
+
+### Two levels
+
+A discussion has exactly two levels, as the site has (`comment-lifecycle.md`;
+`content-studio-phase-0.md`, D6): comments on the post, and replies to a
+comment. A reply never answers another reply, nor itself, so no loop can form;
+a conversation is several replies to one comment, each addressing whom it
+answers in its text. At most 40 comments and replies in all; none is a
+discussion too.
+
+### Times
+
+A comment's moment is kept relative to the post — `offset_seconds` after it —
+never as a date of its own, so a new date for the post moves the whole
+discussion with it, unchanged. No comment comes before the post, nor later than
+30 days after it, and no reply before the comment it answers; equal moments
+are allowed.
+
+On a plan with a date, no comment may fall past the latest date a post may
+carry (`StudioPlanValidationRules::LATEST_PUBLISH_AT`), whichever changes: a
+save of the discussion is held to the plan's date, and a save of the plan
+(`UpdateStudioPlanAction`) — a new date, or a switch from `now` to `at_date` —
+to its saved discussion. On the locked plan it reads the discussion's latest
+`offset_seconds` and refuses a date that would carry it past the bound, as a
+`ValidationException` on `publishAt`, changing nothing: not the plan, not its
+version, not the discussion. The offsets are never moved to make a date fit.
+Both checks go through one predicate,
+`StudioDiscussionValidationRules::fitsPostDates()`. A plan published at once, or
+with no date chosen yet, always fits.
+
+The offsets become each comment's own `occurs_at` and `run_after` only when
+the plan is approved, by the step that publishes discussions.
+
+### Ids
+
+Every comment keeps its id through every edit: a later step names one comment
+by its id — to write it again, to delete it, to publish it as an action of its
+own — never by its text. A save names a comment saved before by its `id`; a
+new comment has none, and may have a `key` instead, a name that holds within
+that one save, so a new reply can answer a new comment of the same save
+(`parentKey`) as an older one answers by `parentId`. The result
+(`SavedStudioDiscussion`) gives every comment with its id, and the id each key
+was given. An id is never taken on trust: one that is not this plan's refuses
+the whole save.
+
+### Saving
+
+`SaveStudioDiscussionTreeAction::handle($admin, $plan, StudioDiscussionData,
+$expectedLockVersion)` saves the whole discussion at once: every comment and
+reply it is to have, added, changed and deleted together, or not at all. A
+comment saved before and left out is deleted, and its replies with it — logged
+as `studio.discussion.deleted_branch`; a reply left out takes nothing else
+with it. A reply that names a comment the same save leaves out refuses the save
+rather than being left dangling. Nothing outside the discussion is touched: no
+comment, post or action is deleted.
+
+The rules (`StudioDiscussionValidationRules`) are one set for whoever writes
+the discussion — an administrator by hand now, the AI generator later — keyed
+as the editor's fields (`nodes.3.body`):
+
+- `validated()`, needing no lock: the count, each comment's Persona (one that
+  is not deleted), text, place and moment, the two levels, and that a reply
+  names a comment of this same discussion;
+- `validateAgainst()`, on the rows as they are now: an id is this plan's; each
+  Persona is still one and not deleted — a Limited, Shadowbanned or Banned one
+  may stay in a Draft, as a plan's author may, since whether it can write is
+  asked before anything is published; and a dated post's discussion stays
+  inside the dates a post may carry.
+
+The save checks the discussion first, then in one transaction locks the
+administrator's and every named Persona's `users` rows in ascending id order,
+then the plan (`LocksStudioPlanDraft`) — never a user after the plan — and asks
+everything again on them: the administrator may still manage plans, the plan is
+still a Draft at the version the editor was drawn from, and
+`validateAgainst()` passes. A save drawn from a version somebody else replaced
+is refused, `isStale()`, rather than written over theirs; a plan past its Draft
+is `isNotDraft()`. The comments on the post are written first, then the
+replies, then the deletions; a write a model event cancels fails the whole save
+as an exception would. The save raises the plan's version, like any other
+write to it.
+
+A save and a sanction or a deletion of a Persona it names lock that Persona's
+row in the same order, so they take turns rather than deadlocking: saved first,
+the comment stays and the deletion follows; deleted first, the save is refused.
+A save of the discussion and a new date for the post take turns on the plan's
+row: the later one, drawn from the version the first replaced, is refused, so
+neither can carry a comment past the dates a post may carry.
+
+### Not approved yet
+
+The executor publishes a plan's post alone, and approval writes only its
+`create_post`. Approving a plan with a prepared discussion would publish the
+post and silently drop the discussion, so the preflight refuses it —
+`discussion_not_publishable`, adding up to `unsupported_discussion` — until the
+step that publishes comments replaces this with the discussion's own checks and
+writes an action for every comment. A plan whose discussion is emptied is
+approved as any other.
+
+### Logs
+
+`DomainLogger` events, written only once the outermost transaction has
+committed: `studio.discussion.saved` (the plan, the administrator, the number
+of comments on the post and of replies, the new version) and
+`studio.discussion.deleted_branch` (the comment deleted and how many replies
+went with it); and `studio.discussion.rejected` (the plan, the administrator, a
+code — `access_denied`, `plan_gone`, `not_draft`, `stale_version` or
+`invalid_discussion` — and the fields that failed). Never a comment's text nor
+anything of a Persona.
+
+### Still to come
+
+Later steps of the discussion stage build on these rows, unchanged: writing a
+discussion with AI, and writing one part of it again — a comment, a reply, a
+branch — keeping the history of what was asked and suggested apart from what
+an administrator saved; the Discussion step of the editor; and publishing it —
+an action for every comment and reply, under the post's, with the full
+preflight of the discussion in place of the refusal above.
+
+## Running a plan
+
+The executor publishes an approved plan's `create_post` as a real post of its
+Persona, and applies it once however often its job is delivered. Comments,
+replies and votes are not run yet: their kinds wait, Pending, for the stages
+that run them.
+
+### Life of an action
+
+`pending` → `dispatched` → `running` → `done`, and besides:
+
+| State | Means | Moved there by |
+| --- | --- | --- |
+| `pending` | waits for its `run_after` and a parent done | approval; the executor, for a Persona at its posting limit |
+| `dispatched` | its job is on the queue; `attempts` counts this send | `studio:dispatch-due`, sending it or sending it again |
+| `running` | claimed by a worker (`claimed_at`); its post not yet committed | the executor's claim |
+| `done` | its post written; `result_type`/`result_id` and the real `finished_at` kept | the executor's run |
+| `held` | stopped for an administrator to resume: the Persona Limited or Shadowbanned | the executor |
+| `cancelled` | for good: the Persona banned, deleted or no Persona, or the plan, photo, category or an answer no longer usable | the executor |
+| `failed` | for an administrator to decide: the approver may no longer approve, it was sent `max_attempts` times, its posting limit sent it back `max_deferrals` times, or something unexpected | the executor; `studio:dispatch-due` |
+
+Each stop keeps a stable `failure_code` (`StudioActionFailure`) and, for an
+unexpected error, only the exception's class in `failure_reason`. Nothing is
+deleted: a held, cancelled or failed action stays as the record of what
+happened. Nothing resumes a held action by itself; resuming, retrying and
+cancelling are an administrator's, on the Action queue screen to come.
+
+### The dispatcher
+
+`studio:dispatch-due`, scheduled `everyMinute()->withoutOverlapping(5)` and run
+by the existing `schedule:run` — no cron or Supervisor program of its own
+(`DispatchDueStudioActionsAction`). Its overlap lock lapses after five minutes
+rather than Laravel's default day, so a scheduler killed mid-run stops sending
+for minutes, not a day; two runs at once are safe anyway. Each run, at most
+`batch_size` of each:
+
+1. sends again the actions lost on their way: `dispatched`, and not claimed
+   `dispatched_stale_after_seconds` after they were sent — Redis lost the job,
+   a worker of an older release did not know it, the queue was flushed;
+2. sends again the actions left by a worker that died: `running`, and not
+   finished `running_stale_after_seconds` after they were claimed;
+3. sends what is due: `pending`, its `run_after` come, of a kind that runs,
+   with no parent or a parent done — `run_after` first, then id.
+
+Each one is locked and asked again before it is sent, in a short transaction
+of its own: it becomes `dispatched`, `attempts` one more, `dispatched_at` now,
+and `ExecuteStudioActionJob` is pushed once that transaction commits. An action
+already sent `max_attempts` times — not counting the sends its Persona's
+posting limit sent back (`deferrals`) — is failed instead,
+`attempts_exhausted`. Two dispatchers never send one action twice. A push Redis refuses after the commit
+leaves the action `dispatched`, so it is found lost and sent again: nothing is
+left that could never be sent again. Kinds nothing runs yet are never sent,
+sent again, counted or failed for it, whatever state they are in.
+
+### The job and the run
+
+`ExecuteStudioActionJob` carries the action's id and nothing else; `tries` 1,
+`timeout` 75 s under Redis's 90 s `retry_after`, `failOnTimeout`. It calls
+`ExecuteStudioAction` and holds no rule of its own; `failed()` only logs.
+
+The run has two transaction boundaries:
+
+1. **The claim**, committed on its own: the action locked, still `dispatched`,
+   of a kind that runs and due, becomes `running` with `claimed_at`, and its
+   plan, if still Approved, Running. `attempts` is not touched. Anything else —
+   a redelivered job, an action done, cancelled or sent again — claims nothing
+   and does nothing.
+2. **The run**, one transaction: the action locked again and found still
+   `running` at the claimed attempt; the Persona's and the approving
+   administrator's `users` rows, in ascending id order (`LocksUsersInOrder`);
+   the plan; then, inside the site's own actions, the photo and the post. The
+   locks are always taken in that order — the action, the users, the plan, the
+   photo, the post — so a sanction, a moderation or a vote beside it takes turns
+   with it rather than deadlocking. On the locked rows, the Persona must still
+   be an Active Persona and the plan still the approved one. The post is written
+   through `CreatePostAction` — the plan's photo by its id, as stored, checked
+   and locked there; the plan's texts, category, tags and answers; `occurs_at` as
+   its `created_at` and `updated_at` — then approved through
+   `ApprovePostAction` as the administrator who approved the plan, published on
+   `occurs_at`, and scored through `RecalculatePostScoreAction` under the post's
+   lock. Both actions ask their own policies again: an administrator who may no
+   longer approve cannot publish through an approval given earlier. The action
+   becomes `done` with its post and the real `finished_at`, and the plan
+   Completed once nothing of it is left. All of it commits together, or none of
+   it does.
+
+What stops a run is recorded only after the run is rolled back, by a short
+transaction that writes to the attempt it claimed and to nothing else. A
+lost connection or a deadlock is no verdict: the action stays `running`, and
+recovery sends it again.
+
+### Applied once
+
+- **A job delivered twice** finds the action done, or not `dispatched`, and
+  claims nothing: no second post, notification, score or attempt.
+- **Two workers at once** take turns on the action's row; the second finds it
+  `running` or done.
+- **A worker killed** after its claim, or with its post written but not
+  committed, leaves the action `running` and nothing else — PostgreSQL rolls
+  its transaction back. Recovery sends it again after
+  `running_stale_after_seconds`, and the second attempt publishes it once:
+  `attempts` is 2, not 3.
+- **A late run**, whose action recovery has sent again since, finds another
+  attempt on it and writes nothing. Recovery itself waits for a run that is
+  still alive — the run holds the action's row — and then finds it done.
+- **Every critical write is checked** — the post's score included: a save a
+  model event cancels fails the whole run as an exception would.
+
+`attempts` grows by one on every send — the first, and every one after a loss
+— and never on a claim or a finish.
+
+### Dates
+
+`occurs_at` is the post's: its `created_at`, `updated_at` and `published_at` all
+take it, however late the run — a post meant for now that runs a minute late
+is still that moment's. The approval, the first publication and the score run
+under `Post::withoutTimestamps()`, so none of them stamps the post's
+`updated_at` with the real time; a later real edit does, as ever. `finished_at`
+is the real moment the action ran; the moderation log and the notifications
+keep their real times. A future `run_after` is never sent, and a job sent early
+by hand is never claimed.
+
+### Notifications and side jobs
+
+The Persona's `PostApprovedNotification` is written in the run's transaction
+and commits with it. The followers' job (`NotifyFollowersAboutNewPostJob`) and
+the photo's variants job are pushed only once the transaction commits —
+`ApprovePostAction` now sends the followers' job after the commit for every
+approval, at once when there is no transaction — so nobody hears of a post that
+was rolled back. The variants job skips the variants the photo already has.
+
+### The posting limit
+
+The Persona's posts count against the site's ordinary upload limit
+(`rate_limits.upload`, 5 in 600 s), never bypassed. An action that meets it is
+no failure: the run is rolled back and the action goes back to `pending`, its
+`run_after` moved to when the limit allows, `occurs_at` unchanged,
+`failure_code` `rate_limited`, and `deferrals` one more.
+
+That send still counts in `attempts`, which the run's fence compares, but the
+dispatcher leaves the deferrals out of `max_attempts`: a backlog the limit
+spreads out — a Persona's history approved in one go, published five at a time
+— is not a run of lost deliveries, and none of it is given up for waiting its
+turn. Deferrals are bounded on their own: an action the limit sends back once
+more after `max_deferrals` is failed, `rate_limited`, for an administrator.
+
+### The switch
+
+The project's `content_studio_execution_enabled` flag (`ProjectSettingsManager`,
+`StudioExecutionSwitch`) is **off** by default, on staging and production too,
+and nothing on screen switches it: the settings page neither shows it nor
+clears it when saved. While it is off, `studio:dispatch-due` sends nothing,
+takes nothing back and changes nothing, and a job already sent begins nothing.
+It is read afresh every time, never from what a long-lived worker resolved
+earlier, so switching it off stops the very next job.
+
+A deploy therefore publishes nothing: the migrations run, the new code goes
+live, the worker restarts as it always does, and the actions stay as they are
+until the flag is switched on deliberately — later, once the Publication screen
+and the later stages exist. A job a worker of an older release does not know
+fails there and leaves its action `dispatched`, and recovery sends it again.
+
+### Configuration
+
+`config/content_studio.php`, section `actions`:
+
+| Setting | Default | Means |
+| --- | --- | --- |
+| `batch_size` | 50 | actions sent, and sent again, per run |
+| `max_attempts` | 3 | sends before an action is failed `attempts_exhausted`, those its posting limit sent back left out |
+| `max_deferrals` | 48 | times the Persona's posting limit may send an action back — eight hours of ten-minute windows — before it is failed `rate_limited` |
+| `dispatched_stale_after_seconds` | 900 | a sent action unclaimed this long was lost |
+| `running_stale_after_seconds` | 180 | a claimed action unfinished this long was left by a dead worker — past the job's 75 s timeout and Redis's 90 s `retry_after` |
+
+### Logs
+
+`DomainLogger` events `studio.action.sent`, `.resent`, `.dispatch_failed`,
+`.skipped`, `.discarded` (a run that found its attempt gone), `.done`,
+`.held`, `.cancelled`, `.failed`, `.postponed` and `.job_failed` — with the
+action's id, the plan, the Persona, the type, the state, the attempt, the
+failure code and the moments. Never the post's texts.
+
+### Testing it
+
+The executor is tested with the flag switched on in the test alone
+(`switchStudioExecution()`), OpenAI and every other outside service faked, and
+the jobs run in the test as a worker would (`runStudioActionJob()`); no real
+post is published anywhere. The races run as processes of their own against
+PostgreSQL (`tests/Feature/Concurrency/StudioExecutorRaceTest.php`), a worker
+killed in the middle included.
 
 ## The photo
 

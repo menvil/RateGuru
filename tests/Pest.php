@@ -1,16 +1,23 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\ApproveStudioPlanAction;
+use App\Actions\Studio\DispatchDueStudioActionsAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
+use App\Actions\Studio\SaveStudioDiscussionTreeAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
+use App\Data\Studio\SavedStudioDiscussion;
+use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionNodeData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
+use App\Jobs\Studio\ExecuteStudioActionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Models\Category;
@@ -21,6 +28,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
+use App\Models\StudioAction;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
@@ -41,6 +49,7 @@ use App\Support\Locale\LanguageRules;
 use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
+use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -63,6 +72,7 @@ use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -530,7 +540,7 @@ function executableSourceLines(string $source): string
  */
 function sourcedLibraryNames(): array
 {
-    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host'];
+    return ['common', 'restore-common', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'recovery-outbound-hold'];
 }
 
 /**
@@ -589,7 +599,7 @@ function sourcedLibraryNames(): array
  */
 function repositoryOnlyScriptNames(): array
 {
-    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'prepare-public-https', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
+    return ['activate-mail-inbound', 'activate-mail-outbound', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'mail-identity', 'mail-inbound', 'mail-routing', 'prepare-public-http', 'prepare-public-https', 'release-recovered-outbound', 'render-environment-templates', 'send-mail-canary', 'verify-infrastructure'];
 }
 
 /**
@@ -3505,6 +3515,130 @@ function mailGatewayApplied(array $host, string $name = 'applied-plan.json'): st
     return $host['fs'].'/var/lib/rateguru-mail-gateway/'.$name;
 }
 
+/** The gateway files and the recorded policy, for proving nothing changed. */
+function mailGatewayMutableState(array $host): array
+{
+    return array_filter(mailGatewayTree($host), static fn (string $path): bool => ! str_starts_with($path, 'var/backups/'), ARRAY_FILTER_USE_KEY);
+}
+
+/** The tits-guru delivery mode the host's recorded policy says. */
+function mailGatewayRecordedMode(array $host): string
+{
+    return collect(json_decode(File::get(mailGatewayApplied($host)), true)['listeners'])->firstWhere('identity', 'tits-guru')['delivery_mode'];
+}
+
+/**
+ * staging-main's slice of the installed master.cf: its listener and its
+ * capture transport, exactly as master.cf holds them.
+ *
+ * @return list<array<string, mixed>>
+ */
+function mailGatewayStagingCapture(array $host): array
+{
+    $services = collect(mailGatewayMasterServices(File::get($host['fs'].'/etc/postfix/master.cf')))->keyBy('name');
+
+    return [$services['127.0.0.1:2525'], $services['rateguru-capture-staging-main']];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The recovery-time outbound hold
+|--------------------------------------------------------------------------
+|
+| infrastructure/scripts/recovery-outbound-hold's marker, written the way a
+| recovery preparation writes it — in the gateway's state directory under a
+| simulated host's FS, owned by the test's own user as it is by root on a
+| host — and a replacement host the recovery prepared: nothing installed yet,
+| its bundle requesting the committed policy (tits-guru active and outbound,
+| direct delivery enabled), and tits-guru's outbound mail held.
+*/
+
+function recoveryOutboundHoldDir(string $fs): string
+{
+    return $fs.'/var/lib/rateguru-mail-gateway/recovery-outbound-holds';
+}
+
+/**
+ * A sound marker for TARGET, with CHANGES over it.
+ *
+ * @param  array<string, mixed>  $changes
+ * @return array<string, mixed>
+ */
+function recoveryOutboundHoldDocument(string $target = 'tits-guru', array $changes = []): array
+{
+    return array_replace([
+        'hold' => 'recovery-outbound',
+        'schema_version' => 1,
+        'target' => $target,
+        'backup' => '20261020-030000',
+        'operation' => null,
+        'state' => 'held',
+        'placed_at' => '2026-10-20T09:00:00Z',
+        'released_at' => null,
+        'released_address' => null,
+    ], $changes);
+}
+
+/**
+ * TARGET's marker written under FS. A string CONTENT is written verbatim.
+ *
+ * @param  array<string, mixed>|string  $changes
+ */
+function recoveryOutboundHoldWrite(string $fs, string $target = 'tits-guru', array|string $changes = [], int $mode = 0o600): string
+{
+    $dir = recoveryOutboundHoldDir($fs);
+
+    if (! is_dir(dirname($dir))) {
+        mkdir(dirname($dir), 0o755, true);
+    }
+
+    if (! is_dir($dir)) {
+        mkdir($dir, 0o700);
+    }
+
+    chmod($dir, 0o700);
+
+    $path = "{$dir}/{$target}.json";
+    file_put_contents($path, is_string($changes)
+        ? $changes
+        : json_encode(recoveryOutboundHoldDocument($target, $changes), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");
+    chmod($path, $mode);
+
+    return $path;
+}
+
+/** @return array<string, mixed>|null TARGET's marker under FS, or null when there is none. */
+function recoveryOutboundHoldRead(string $fs, string $target = 'tits-guru'): ?array
+{
+    $path = recoveryOutboundHoldDir($fs)."/{$target}.json";
+
+    return is_file($path) ? json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR) : null;
+}
+
+/**
+ * A replacement host a clean-host recovery prepared, before its gateway was
+ * installed: its bundle requests the committed policy, and tits-guru's
+ * outbound mail is held by a marker with CHANGES over it — none when null.
+ *
+ * @param  array<string, mixed>|null  $hold
+ */
+function mailGatewayRecoveredHost(?array $hold = [], array $options = []): array
+{
+    $committed = mailCommittedPolicy();
+    $host = mailGatewayHost([
+        'policy' => $committed['routing'],
+        'outbound' => $committed['outbound'],
+        'registry' => committedRegistryWithLifecycles([]),
+        ...$options,
+    ]);
+
+    if ($hold !== null) {
+        recoveryOutboundHoldWrite($host['fs'], 'tits-guru', $hold);
+    }
+
+    return $host;
+}
+
 /*
 |--------------------------------------------------------------------------
 | The fake mail gateway: one loopback SMTP listener and its queue
@@ -3893,7 +4027,7 @@ function mailActivationBundle(string $root, array $documents): void
     @mkdir($root.'/infrastructure/scripts', 0o755, true);
     @mkdir($root.'/infrastructure/config', 0o755, true);
 
-    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
+    foreach (['activate-mail-outbound', 'send-mail-canary', 'smtp-submission', 'public-smtp-port', 'mail-inbound-host', 'recovery-outbound-hold', 'mail-routing', 'mail-identity', 'targets', 'install-mail-gateway'] as $name) {
         $copy = $name === 'install-mail-gateway' ? 'install-mail-gateway.real' : $name;
         copy(base_path('infrastructure/scripts/'.$name), "{$root}/infrastructure/scripts/{$copy}");
         chmod("{$root}/infrastructure/scripts/{$copy}", in_array($name, sourcedLibraryNames(), true) ? 0o644 : 0o755);
@@ -4275,7 +4409,7 @@ function mailInboundBundleScripts(): array
 {
     return [
         'install-mail-gateway', 'install-mail-inbound', 'install-mail-inbound-monitor', 'install-mail-inbound-tls', 'activate-mail-inbound', 'mail-inbound', 'mail-inbound-host',
-        'public-smtp-port', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
+        'public-smtp-port', 'recovery-outbound-hold', 'smtp-submission', 'mail-routing', 'mail-identity', 'targets',
     ];
 }
 
@@ -7212,6 +7346,16 @@ function recoveryEnv(string $scratch): array
 
     return recoveryMaterialPrerequisitesEnv($scratch, $registryPath, $targetsPath) + [
         'RATEGURU_RECOVERY_HISTORY_ROOT' => $scratch.'/recoveries',
+        // The recovery outbound hold: its one definition, where it lives on
+        // the simulated machine and the owner it is judged against; and the
+        // reviewed mail routing that says whether the target's mail goes out
+        // directly — the mail world's own judge and policy, beside the patched
+        // targets that accept this scratch registry.
+        'RATEGURU_RECOVERY_OUTBOUND_HOLD_LIBRARY' => infraScript('recovery-outbound-hold'),
+        'RATEGURU_RECOVER_OUTBOUND_HOLD_DIR' => recoveryOutboundHoldDir($scratch),
+        'RATEGURU_RECOVER_OUTBOUND_HOLD_OWNER' => trim((string) shell_exec('id -un')),
+        'RATEGURU_RECOVER_MAIL_ROUTING_CLI' => $scratch.'/prereq-bundle-bin/mail-routing',
+        'RATEGURU_RECOVER_MAIL_ROUTING_POLICY' => $scratch.'/prereq-checkout/infrastructure/config/mail-routing.json',
         'RATEGURU_RECOVER_PREPARE_HOST_BIN' => $scratch.'/bin/prepare-host-stub',
         'RATEGURU_RECOVER_SUPERVISOR_CONF_D' => $scratch.'/supervisor-conf.d',
         'RGTEST_PREPARE_HOST_LOG' => $scratch.'/prepare-host.log',
@@ -8582,6 +8726,11 @@ function untranslatedCategory(string $name = 'Georgian food'): Category
  * Counts, from here on, every Livewire update the page sends — through the
  * fetch Livewire calls, and through the browser's own record of requests, so
  * the proof does not rest on how Livewire happens to send them.
+ *
+ * The browser records a request when it finishes, so the record is read by
+ * when each one started: a request the page sent while it was still loading
+ * (Filament's notifications pull theirs from the server as they start) can
+ * finish after this, and was not sent from here on.
  */
 function watchLivewireUpdates(mixed $page): void
 {
@@ -8592,7 +8741,7 @@ function watchLivewireUpdates(mixed $page): void
 
             window.livewireUri = uri
             window.livewireFetches = 0
-            window.livewireEntriesBefore = performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(uri)).length
+            window.livewireWatchedFrom = performance.now()
             window.notReloaded = true
             window.fetch = function (input, ...rest) {
                 if (String(input?.url ?? input).startsWith(uri)) {
@@ -8611,7 +8760,7 @@ function livewireUpdatesSinceWatching(mixed $page): array
     return $page->script(<<<'JS'
         (() => ({
             fetches: window.livewireFetches ?? null,
-            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri)).length - window.livewireEntriesBefore,
+            requests: performance.getEntriesByType('resource').filter((entry) => entry.name.startsWith(window.livewireUri) && entry.startTime >= window.livewireWatchedFrom).length,
             sameDocument: window.notReloaded === true,
         }))()
     JS);
@@ -8753,6 +8902,9 @@ function trustedToolingRefs(): array
         'activate-tits-guru-mail.yml' => 'main',
         'rollback-tits-guru-mail-activation.yml' => 'main',
         'send-tits-guru-mail-canary.yml' => 'main',
+        // and its release on a machine a clean-host recovery prepared, once
+        // the machine is adopted and public DNS names it.
+        'release-tits-guru-recovered-outbound.yml' => 'main',
         // tits-guru's inbound SMTP: its guarded opening, verification and
         // closing.
         'activate-tits-guru-inbound-smtp.yml' => 'main',
@@ -13013,6 +13165,25 @@ function raceDirectory(string $prefix): string
 }
 
 /**
+ * Removes what the competitors of a Content Studio plan race committed, as
+ * they committed it — for real: the plans those users made, and with them
+ * their discussions and actions, the photos, the moderation they did, and the
+ * users themselves.
+ *
+ * @param  list<int>  $userIds
+ */
+function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $directory): void
+{
+    $assetIds = $db->table('media_assets')->whereIn('owner_user_id', $userIds)->pluck('id');
+
+    $db->table('studio_plans')->whereIn('created_by_user_id', $userIds)->delete();
+    $db->table('media_assets')->whereIn('id', $assetIds)->delete();
+    $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
+    $db->table('users')->whereIn('id', $userIds)->delete();
+    File::deleteDirectory($directory);
+}
+
+/**
  * One competitor in a race between processes: a PHP process of its own
  * running one action against the test's database, stopped where the race is
  * decided until the other competitor is there too. Nobody sleeps for a
@@ -13032,10 +13203,19 @@ function raceDirectory(string $prefix): string
  *   photo — then waits until the follower is seen waiting for it, or has
  *   finished without needing to, and only then goes on to commit.
  * - `follow`: starts its action only once the leader holds.
+ * - `solo`: neither waits nor holds — one step of a race played out in turn.
  *
  * The output says `ok`, or `failed:` with the exception's class and message.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, persona?: int, plan?: int, version?: int, title?: string, asset?: int}  $job
+ * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
+ *   the default), its first `studio_plan_actions` lock (`action`), its release
+ *   of a photo (`release`), a user's row written (`user`) or a post written
+ *   with its transaction still open (`post`), or — for an executor — the
+ *   moment between its committed claim and its run, holding nothing (`run`).
+ *   With `die` set, the leader is killed right there instead, as a worker
+ *   dies, and its transaction rolled back.
+ *
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13057,6 +13237,13 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
             'content_studio.image_analysis.enabled' => true,
             'content_studio.image_analysis.api_key' => 'race-test-credential-never-real',
         ]);
+        // The race's own settings, such as how soon a running action is taken
+        // back, or a cache of its own — which the rate limiter, resolved
+        // already while the application booted, takes up only once it is
+        // resolved again.
+        config($job['config'] ?? []);
+        $app->forgetInstance(Illuminate\Cache\RateLimiter::class);
+        Illuminate\Support\Facades\RateLimiter::clearResolvedInstance(Illuminate\Cache\RateLimiter::class);
 
         $db = Illuminate\Support\Facades\DB::connection();
         $peer = $label === 'a' ? 'b' : 'a';
@@ -13120,25 +13307,54 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
             });
         }
 
-        if ($sync === 'lead') {
+        if ($sync === 'lead' && ($job['hold'] ?? null) !== 'run') {
             $held = false;
-            $holds = ($job['hold'] ?? 'plan') === 'release'
-                ? static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1
-                : static fn (string $sql): bool => $locks('studio_plans', $sql);
+            $holds = match ($job['hold'] ?? 'plan') {
+                'release' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1,
+                // A post written, its transaction still open.
+                'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
+                'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
+                // A user's row written, its transaction still open.
+                'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
+                default => static fn (string $sql): bool => $locks('studio_plans', $sql),
+            };
+            $dies = (bool) ($job['die'] ?? false);
 
-            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$held, $holds, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
+            $db->listen(function (Illuminate\Database\Events\QueryExecuted $query) use (&$held, $holds, $dies, $await, $barrierDir, $label, $peer, $pid, $peerPid, $waitsFor): void {
                 if ($held || ! $holds($query->sql)) {
                     return;
                 }
 
                 $held = true;
                 touch("{$barrierDir}/holding-{$label}");
+
+                // A worker killed right there: its connection closes, and PostgreSQL rolls its transaction back.
+                if ($dies) {
+                    exit(137);
+                }
+
                 $other = $peerPid();
 
                 $await(
                     fn (): bool => is_file("{$barrierDir}/done-{$peer}") || $waitsFor($other, $pid),
                     'the follower neither waited for this competitor nor finished',
                 );
+            });
+        }
+
+        if ($sync === 'lead' && ($job['hold'] ?? null) === 'run') {
+            // An executor between its claim, committed, and its run: about to
+            // lock the action again, holding nothing — until the other has done
+            // all it came to do.
+            $actionLocks = 0;
+
+            $db->beforeExecuting(function (string $sql) use (&$actionLocks, $locks, $await, $barrierDir, $label, $peer): void {
+                if (! $locks('studio_plan_actions', $sql) || ++$actionLocks !== 2) {
+                    return;
+                }
+
+                touch("{$barrierDir}/holding-{$label}");
+                $await(fn (): bool => is_file("{$barrierDir}/done-{$peer}"), 'the follower never finished');
             });
         }
 
@@ -13169,8 +13385,38 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'plan-author' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
                     $admin, $plan, new App\Data\Studio\StudioPlanData(authorUserId: $persona->id, title: $plan->title), $job['version'],
                 ),
+                // A new date for the post, the rest of the draft as it is.
+                'plan-date' => app(App\Actions\Studio\UpdateStudioPlanAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioPlanData(
+                        authorUserId: $plan->author_user_id,
+                        title: $plan->title,
+                        publicationMode: App\Enums\StudioPlanPublicationMode::AtDate,
+                        publishAt: Carbon\CarbonImmutable::parse($job['publish_at']),
+                    ), $job['version'],
+                ),
                 'plan-photo' => app(App\Actions\Studio\SetStudioPlanImageAction::class)->handle($admin, $plan, $photo(), $job['version']),
                 'plan-delete' => app(App\Actions\Studio\DeleteStudioPlanDraftAction::class)->handle($admin, $plan, $job['version']),
+                'plan-approve' => app(App\Actions\Studio\ApproveStudioPlanAction::class)->handle($admin, $plan, $job['version']),
+                // A draft's whole discussion saved; says the plan's version it left.
+                'discussion-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioDiscussionTreeAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioDiscussionData(array_map(fn (array $node) => new App\Data\Studio\StudioDiscussionNodeData(...$node), $job['nodes'])), $job['version'],
+                )->lockVersion."\n"),
+                // Content Studio's executor and dispatcher; the executor says what the action became.
+                'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
+                'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
+                // Recovery sends it again, and a worker runs what it sent.
+                'dispatch-execute' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"
+                    .'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
+                'post-from-asset' => app(App\Actions\Posts\CreatePostAction::class)->handle($persona, new App\Data\Posts\CreatePostData(title: $job['title'], imageAssetId: (int) $job['asset'])),
+                // An administrator made a member by an operator — no screen demotes
+                // an administrator — on the locked row: no longer one who may approve.
+                'demote' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
+                    ->forceFill(['role' => App\Enums\UserRole::User])->save()),
+                // An account deleted, on its locked row, as deleting it leaves it: a tombstone.
+                'tombstone' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
+                    ->forceFill(['status' => App\Enums\UserStatus::Deleted])->save()),
+                'hide-post' => app(App\Actions\Moderation\HidePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
@@ -13357,4 +13603,137 @@ function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTon
 function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
 {
     app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+// =============================================================================
+// Content Studio approval
+// =============================================================================
+
+/**
+ * A Draft ready to publish, as the approval preflight asks: an Active Persona
+ * as its author, a title, and a Ready post image no post uses, published at
+ * once — unless the attributes say otherwise.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function approvableStudioPlan(array $attributes = []): StudioPlan
+{
+    return StudioPlan::factory()
+        ->authoredBy(User::factory()->persona()->create())
+        ->withImage()
+        ->create(['title' => 'A quiet harbour at dawn', ...$attributes]);
+}
+
+/** Approves the plan as an administrator who saw it just now would. */
+function approveStudioPlan(User $admin, StudioPlan $plan): StudioPlan
+{
+    return app(ApproveStudioPlanAction::class)->handle($admin, $plan, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * One comment of a discussion as an editor hands it in, its fields named as
+ * StudioDiscussionNodeData's.
+ *
+ * @param  array<string, mixed>  $fields
+ */
+function discussionNode(array $fields = []): StudioDiscussionNodeData
+{
+    return new StudioDiscussionNodeData(...$fields);
+}
+
+/**
+ * Saves a plan's whole discussion as an administrator who saw the plan just
+ * now would.
+ *
+ * @param  list<StudioDiscussionNodeData>  $nodes
+ */
+function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): SavedStudioDiscussion
+{
+    return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+// =============================================================================
+// Content Studio execution
+// =============================================================================
+
+/**
+ * Switches Content Studio's executor on or off, as the project's flag is
+ * stored — the switch StudioExecutionSwitch reads afresh every time.
+ */
+function switchStudioExecution(bool $on): void
+{
+    DB::transaction(function () use ($on): void {
+        $row = app(ProjectSettingsManager::class)->lockedRow();
+        $row->forceFill(['feature_flags' => [...($row->feature_flags ?? []), StudioExecutionSwitch::FLAG => $on]])->save();
+    });
+
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
+ * The one action approving a complete plan writes — its CreatePost, Pending —
+ * approved by an administrator made for it, unless one is given.
+ *
+ * @param  array<string, mixed>  $planAttributes
+ */
+function approvedStudioAction(array $planAttributes = [], ?User $admin = null): StudioAction
+{
+    $plan = approvableStudioPlan($planAttributes);
+    approveStudioPlan($admin ?? User::factory()->admin()->create(), $plan);
+
+    return StudioAction::query()->where('studio_plan_id', $plan->id)->sole();
+}
+
+/**
+ * One run of `studio:dispatch-due`.
+ *
+ * @return array{enabled: bool, sent: int, resent: int, exhausted: int}
+ */
+function dispatchDueStudioActions(): array
+{
+    return app(DispatchDueStudioActionsAction::class)->handle();
+}
+
+/** Runs the job of that action, as a worker would. */
+function runStudioActionJob(int $actionId): void
+{
+    app()->call([new ExecuteStudioActionJob($actionId), 'handle']);
+}
+
+/**
+ * The jobs of this class the database queue holds — what a test reads where
+ * Queue::fake() would not do: the fake records a job the moment it is
+ * dispatched, while a job dispatched after the commit reaches the database
+ * queue only once the transaction commits, and never when it is rolled back.
+ *
+ * @param  class-string  $class
+ * @return list<object> the jobs, unserialized from their payloads
+ */
+function queuedJobs(string $class): array
+{
+    return DB::table('jobs')->orderBy('id')->pluck('payload')
+        ->map(fn (string $payload): array => json_decode($payload, true, flags: JSON_THROW_ON_ERROR))
+        ->filter(fn (array $payload): bool => $payload['displayName'] === $class)
+        ->map(fn (array $payload): object => unserialize($payload['data']['command']))
+        ->values()
+        ->all();
+}
+
+/**
+ * The class of every job pushed from now on, recorded as it reaches the
+ * queue: unlike the database queue's table, the record is not taken back with
+ * a transaction, as a Redis push is not — so a job a rolled-back transaction
+ * still pushed is caught.
+ *
+ * @return ArrayObject<int, string>
+ */
+function recordQueuedJobClasses(): ArrayObject
+{
+    $queued = new ArrayObject;
+
+    Event::listen(JobQueued::class, function (JobQueued $event) use ($queued): void {
+        $queued[] = is_object($event->job) ? $event->job::class : (string) $event->job;
+    });
+
+    return $queued;
 }

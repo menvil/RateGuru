@@ -1028,6 +1028,7 @@ function installOpsBaseVars(
         'SRC_OFFSITE_RESTORE_TEST' => $scratch.'/src/offsite-restore-test',
         'SRC_BACKUP_CYCLE' => $scratch.'/src/backup-cycle',
         'SRC_RESTORE_COMMON' => base_path('infrastructure/scripts/restore-common'),
+        'SRC_RECOVERY_OUTBOUND_HOLD' => base_path('infrastructure/scripts/recovery-outbound-hold'),
         'SRC_FETCH_BACKUP' => $scratch.'/src/fetch-backup',
         'SRC_VERIFY_BACKUP' => $scratch.'/src/verify-backup',
         'SRC_RESTORE_DATABASE' => $scratch.'/src/restore-database',
@@ -1079,6 +1080,7 @@ function installOpsBaseVars(
         'DST_OFFSITE_RESTORE_TEST' => $scratch.'/dst-bin/offsite-restore-test',
         'DST_BACKUP_CYCLE' => $scratch.'/dst-bin/backup-cycle',
         'DST_RESTORE_COMMON' => $scratch.'/dst-bin/restore-common',
+        'DST_RECOVERY_OUTBOUND_HOLD' => $scratch.'/dst-bin/recovery-outbound-hold',
         'DST_FETCH_BACKUP' => $scratch.'/dst-bin/fetch-backup',
         'DST_VERIFY_BACKUP' => $scratch.'/dst-bin/verify-backup',
         'DST_RESTORE_DATABASE' => $scratch.'/dst-bin/restore-database',
@@ -1198,7 +1200,7 @@ it('keeps every destination a fixed, hardcoded constant — never env- or CLI-ov
     // fine — it's still built entirely from fixed constants. What must never
     // appear is a fallback to an environment variable (":-"/":+") or a read
     // of anything RATEGURU_*-shaped.
-    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST', 'DST_TARGET_PREREQUISITES', 'DST_VERIFY_REQUIRED_CLIS', 'DST_NGINX_SOURCES_ROOT', 'DST_NGINX_SOURCE_STAGING', 'DST_NGINX_SOURCE_PRODUCTION', 'DST_NGINX_SOURCE_MAILPIT', 'DST_NGINX_SOURCE_MAILTRAP'] as $name) {
+    foreach (['DST_CONFIG_ROOT', 'DST_BIN_ROOT', 'DST_REGISTRY', 'DST_TARGETS', 'DST_COMMON', 'DST_HEALTH_CHECK', 'DST_STATUS', 'DST_CLEANUP', 'DST_DEPLOY', 'DST_ROLLBACK', 'DST_BACKUP', 'DST_RESTORE_TEST', 'DST_OFFSITE_BACKUP', 'DST_OFFSITE_RETENTION', 'DST_OFFSITE_RESTORE_TEST', 'DST_BACKUP_CYCLE', 'DST_RESTORE_COMMON', 'DST_RECOVERY_OUTBOUND_HOLD', 'DST_FETCH_BACKUP', 'DST_VERIFY_BACKUP', 'DST_RESTORE_DATABASE', 'DST_RESTORE_STORAGE', 'DST_RESTORE_TARGET', 'DST_RECOVER_HOST', 'DST_TARGET_PREREQUISITES', 'DST_VERIFY_REQUIRED_CLIS', 'DST_NGINX_SOURCES_ROOT', 'DST_NGINX_SOURCE_STAGING', 'DST_NGINX_SOURCE_PRODUCTION', 'DST_NGINX_SOURCE_MAILPIT', 'DST_NGINX_SOURCE_MAILTRAP'] as $name) {
         // preg_match alone only proves "at least one match" — it stops at
         // the first hit, so a second, later (and possibly unsafe)
         // assignment to the same name — the one bash would actually use at
@@ -1368,9 +1370,9 @@ it('--check succeeds read-only against the real repository, with no root require
 
     expect($exit)->toBe(0, $output);
     expect($output)
-        ->toContain('all thirty-seven source files are present regular files')
-        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not')
-        ->toContain('bash -n passed for all twenty-five source shell scripts')
+        ->toContain('all thirty-eight source files are present regular files')
+        ->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common, restore-common and recovery-outbound-hold are not')
+        ->toContain('bash -n passed for all twenty-six source shell scripts')
         ->toContain('source registry is valid JSON')
         ->toContain('source deployment protocol contract is valid')
         ->toContain('required host tools present')
@@ -1405,6 +1407,10 @@ function installOpsExecutableModeVars(string $scratch): array
     file_put_contents($restoreCommonPath, "#!/usr/bin/env bash\n");
     chmod($restoreCommonPath, 0o644);
 
+    $recoveryOutboundHoldPath = "{$scratch}/recovery-outbound-hold";
+    file_put_contents($recoveryOutboundHoldPath, "#!/usr/bin/env bash\n");
+    chmod($recoveryOutboundHoldPath, 0o644);
+
     return [
         'SRC_SELF' => "{$scratch}/self",
         'SRC_TARGETS' => "{$scratch}/targets",
@@ -1432,6 +1438,7 @@ function installOpsExecutableModeVars(string $scratch): array
         'SRC_VERIFY_ENV_CONTRACT' => "{$scratch}/verify-environment-contract",
         'SRC_COMMON' => $commonPath,
         'SRC_RESTORE_COMMON' => $restoreCommonPath,
+        'SRC_RECOVERY_OUTBOUND_HOLD' => $recoveryOutboundHoldPath,
         'SRC_DEPLOYMENT_CONF' => base_path('infrastructure/templates/deployment.conf.example'),
         // Data files, never executable: the committed vhost sources, the
         // environment templates and the deployment protocol contract.
@@ -1457,7 +1464,7 @@ it('validate_source_executable_modes passes when every managed CLI, including ve
         [$exit, $output] = installOpsRunHarness($scratch, $vars, 'validate_source_executable_modes');
 
         expect($exit)->toBe(0, $output);
-        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common and restore-common are not');
+        expect($output)->toContain('install-target-operations, targets, health-check, status, cleanup, deploy, rollback, backup, restore-test, offsite-backup, offsite-retention, offsite-restore-test, backup-cycle, fetch-backup, verify-backup, restore-database, restore-storage, restore-target, recover-host, install-target-prerequisites, mail-identity, mail-routing, verify-required-clis and verify-environment-contract are all executable; common, restore-common and recovery-outbound-hold are not');
     } finally {
         installOpsCleanup($scratch);
     }
@@ -2650,7 +2657,7 @@ it('verify_backup_cycle_refusal fails when the rejection happens for the wrong r
 // the candidates, the real registry/targets/common otherwise.
 // =============================================================================
 
-it('a successful apply installs all thirty-seven files with correct ownership, mode and content, and creates a timestamped backup', function () {
+it('a successful apply installs all thirty-eight files with correct ownership, mode and content, and creates a timestamped backup', function () {
     $scratch = installOpsScratchDir();
 
     try {
@@ -2685,6 +2692,9 @@ it('a successful apply installs all thirty-seven files with correct ownership, m
             // restore-common is the second sourced library — 0644, never
             // executable, exactly like common.
             ['DST_RESTORE_COMMON', 'SRC_RESTORE_COMMON', '0644'],
+            // and the recovery outbound hold's, which the installed
+            // recover-host proves the hold through.
+            ['DST_RECOVERY_OUTBOUND_HOLD', 'SRC_RECOVERY_OUTBOUND_HOLD', '0644'],
             ['DST_FETCH_BACKUP', 'SRC_FETCH_BACKUP', '0755'],
             ['DST_VERIFY_BACKUP', 'SRC_VERIFY_BACKUP', '0755'],
             ['DST_RESTORE_DATABASE', 'SRC_RESTORE_DATABASE', '0755'],
@@ -2721,6 +2731,7 @@ it('a successful apply installs all thirty-seven files with correct ownership, m
 
         expect(is_executable($vars['DST_COMMON']))->toBeFalse('installed common must not be executable');
         expect(is_executable($vars['DST_RESTORE_COMMON']))->toBeFalse('installed restore-common must not be executable');
+        expect(is_executable($vars['DST_RECOVERY_OUTBOUND_HOLD']))->toBeFalse('installed recovery-outbound-hold must not be executable');
 
         // The vhost sources live in their own directory under the config
         // root, which the installer creates root-owned 0755 when absent.

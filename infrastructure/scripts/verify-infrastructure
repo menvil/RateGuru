@@ -127,6 +127,14 @@ MAIL_IDENTITY="${SCRIPT_DIR}/mail-identity"
 MAIL_ROUTING="${SCRIPT_DIR}/mail-routing"
 TARGETS_CLI="${SCRIPT_DIR}/targets"
 
+# A clean-host recovery's outbound hold: its one definition, where it lives on
+# this host and the owner it is judged against. While it is held, outbound
+# readiness is not yet required — the gateway holds the target's mail, and
+# release-recovered-outbound requires readiness before it releases it.
+# shellcheck source=recovery-outbound-hold disable=SC1091
+source "${SCRIPT_DIR}/recovery-outbound-hold"
+RECOVERY_OUTBOUND_HOLD_OWNER="$(gated_default RATEGURU_VERIFYINFRA_RECOVERY_OUTBOUND_HOLD_OWNER root)"
+
 CONFIG_DIR="${REPO_ROOT}/infrastructure/config"
 REGISTRY_FILE="${CONFIG_DIR}/deployment-targets.json"
 IDENTITY_ARGS=(
@@ -572,10 +580,26 @@ verify_dkim_key() {
 verify_outbound_readiness() {
     local requirement="$1"
 
+    recovery_outbound_hold_judge "${FS_ROOT}${RECOVERY_OUTBOUND_HOLD_DIR}" "${TARGET_ID}"
+
+    case "${ROH_STATE}" in
+        held)
+            item PASS "recovery-outbound-hold" "${TARGET_ID}'s outbound mail is HELD on this host by a clean-host recovery (backup ${ROH_BACKUP}, operation ${ROH_OPERATION:-not bound yet}) — its listener holds every message and no direct route exists until release-recovered-outbound releases it"
+            ;;
+        released)
+            item PASS "recovery-outbound-hold" "${TARGET_ID}'s recovery outbound hold was released at ${ROH_RELEASED_AT}, for ${ROH_ADDRESS} (operation ${ROH_OPERATION})"
+            ;;
+        corrupt)
+            item FAIL "recovery-outbound-hold" "${TARGET_ID}'s recovery outbound hold cannot be trusted: ${ROH_PROBLEM} — the gateway refuses every apply on this host until it is understood"
+            ;;
+    esac
+
     run_child "${MAIL_IDENTITY}" readiness --target "${TARGET_ID}" "${IDENTITY_ARGS[@]}"
 
     if (( CHILD_STATUS == 126 || CHILD_STATUS == 127 || CHILD_STATUS > 128 )); then
         child_verdict "outbound-readiness" "" ""
+    elif [[ "${ROH_STATE}" == held ]]; then
+        item DEFERRED "outbound-readiness" "held by a clean-host recovery — reported below, and required by release-recovered-outbound before it releases ${TARGET_ID}'s outbound mail on this host"
     elif [[ "${requirement}" == required && "${DIRECT_ENABLED}" == true ]]; then
         child_verdict "outbound-readiness" \
             "every condition outbound delivery requires holds" \

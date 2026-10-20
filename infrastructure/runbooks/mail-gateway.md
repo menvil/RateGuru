@@ -305,6 +305,26 @@ and the host stays held, while Verify reports the difference; after Activate, a
 Prepare from a bundle that still holds `tits-guru` refuses outbound → held and
 production keeps delivering.
 
+**A clean-host recovery's outbound hold.** On a machine a clean-host recovery
+prepared, `/var/lib/rateguru-mail-gateway/recovery-outbound-holds/<target>.json`
+(defined once in `infrastructure/scripts/recovery-outbound-hold`) holds a
+target's direct outbound mail. While it is `held`, every mode renders, verifies
+and records the reviewed plan with exactly that target's mail held — its
+listener accepting, signed, and putting every message on HOLD, with no direct
+route — and, when no other target still delivers outbound, the host contract
+with direct delivery disabled: the pre-activation state, whatever the
+repository requests. So a fresh replacement machine records the held state
+first (the one first state a host may record), every later Prepare, repair or
+bootstrap converges to held, and `--verify` passes, reporting
+`recovery-hold:<target>`. Removing the marker by hand releases nothing: the
+next apply meets the activation boundary and refuses. The crossing is
+`release-recovered-outbound`'s, through the same one-use authorization, after
+its own proof — see
+[`release-recovered-outbound.md`](release-recovered-outbound.md). A marker
+that cannot be trusted, or anything else in that directory, refuses every
+mode before anything is rendered; the gateway itself never writes, moves or
+removes one.
+
 **Its name.** Postfix calls itself by the host's reviewed MTA hostname from
 `mail-outbound.json` (`myhostname = mta1.tits.guru` here) — its banner, its
 `Received: … by …` hop and a `Message-ID` it adds — so delivered mail never

@@ -1,0 +1,480 @@
+name: Release RateGuru recovered outbound mail
+description: >-
+  Check, release or verify the direct outbound mail of a target a clean-host
+  recovery holds on its replacement machine: run release-recovered-outbound
+  from a temporary trusted bundle — and nothing else.
+
+# Transport and invocation only.
+#
+# infrastructure/scripts/release-recovered-outbound owns every decision: whether
+# the trusted bundle delivers the target's mail directly at all, whether this
+# machine carries the recovery's outbound hold for exactly the operation named,
+# the proof — a completed recovery, the held gateway, public DNS naming this
+# machine's sending address as two independent resolvers answer it, the signer
+# — the gateway's one-use authorization, and the return to held on any
+# failure. None of that is reproduced here. This action uploads the trusted
+# infrastructure/ tree, runs that one command as root with the arguments its
+# caller validated, prints its whole report, checks there is exactly one
+# well-formed result, writes it into the job summary, and removes everything it
+# uploaded.
+#
+# MUTATING ONLY IN apply, AND CONTAINED. A release changes the host's mail
+# gateway and the hold's record, and nothing else: no DNS record, deployment
+# binding, Nginx site, environment file or offsite-write hold, and no message
+# in the HOLD queue. It sends no mail. This action carries no material: the
+# DKIM private key is already on the host, and no secret but the bootstrap
+# credential is read.
+#
+# CREDENTIAL. The privileged BOOTSTRAP credential, because the gateway, the
+# signer, the hold and the queue are root's. Never the deploy credential, and
+# no fallback between them.
+#
+# CALLER REQUIREMENT: a Bash 4.4+ runner. Remote argv is quoted with
+# ${array[@]@Q}, as the other operational actions here quote theirs, so a caller
+# runs this on `runs-on: ubuntu-24.04`.
+
+inputs:
+  operation:
+    required: true
+    description: >-
+      check, apply or verify, as the calling workflow validated it.
+
+  deployment-target:
+    required: true
+    description: >-
+      Deployment target ID from the RateGuru target registry. The trusted
+      bundle's reviewed mail routing, not this input, decides whether there is
+      outbound mail to release at all.
+
+  recovery-operation:
+    required: false
+    default: ""
+    description: >-
+      The clean-host recovery operation that restored the machine, exactly as
+      its run summary named it. Required for check and apply.
+
+  sending-address:
+    required: false
+    default: ""
+    description: >-
+      The IPv4 address the replacement machine sends from, as the operator
+      confirmed it. Required for check and apply.
+
+  bootstrap-host:
+    required: true
+    description: SSH hostname or IP of the machine the target was recovered onto.
+
+  bootstrap-port:
+    required: false
+    default: "22"
+    description: SSH server port
+
+  bootstrap-user:
+    required: true
+    description: >-
+      Privileged bootstrap user. Must be root, or hold passwordless
+      non-interactive sudo.
+
+  bootstrap-ssh-key:
+    required: true
+    description: Privileged bootstrap SSH private key, separate from any deployment key
+
+  bootstrap-known-hosts:
+    required: true
+    description: >-
+      Verified known_hosts entry for the host. Strict host key checking is
+      non-negotiable: no TOFU, no relaxed policy, no password fallback.
+
+outputs:
+  status:
+    description: "pass, fail or critical, from the release's machine-readable result"
+    value: ${{ steps.release.outputs.status }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Validate caller inputs
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        RECOVERY_OPERATION: ${{ inputs.recovery-operation }}
+        SENDING_ADDRESS: ${{ inputs.sending-address }}
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        BOOTSTRAP_KEY_PRESENT: ${{ inputs.bootstrap-ssh-key != '' }}
+        BOOTSTRAP_KNOWN_HOSTS_PRESENT: ${{ inputs.bootstrap-known-hosts != '' }}
+      run: |
+        set -Eeuo pipefail
+
+        case "${OPERATION}" in
+          check|apply|verify) ;;
+          *)
+            echo "Invalid operation: ${OPERATION} (expected check, apply or verify)" >&2
+            exit 1
+            ;;
+        esac
+
+        target_regex='^[a-z0-9]+(-[a-z0-9]+)*$'
+
+        [[ "${DEPLOYMENT_TARGET}" =~ ${target_regex} ]] || {
+          echo "Invalid deployment target: ${DEPLOYMENT_TARGET}" >&2
+          exit 1
+        }
+
+        if [[ "${OPERATION}" != verify ]]; then
+          [[ "${RECOVERY_OPERATION:-}" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$ ]] || {
+            echo "Invalid recovery operation: ${RECOVERY_OPERATION:-<empty>} (expected YYYYMMDD-HHMMSS-xxxxxx, as the recovery's summary names it)" >&2
+            exit 1
+          }
+          [[ "${SENDING_ADDRESS:-}" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$ ]] || {
+            echo "Invalid sending address: ${SENDING_ADDRESS:-<empty>} (expected the replacement machine's IPv4 address)" >&2
+            exit 1
+          }
+        fi
+
+        # 10# forces decimal: a leading-zero port read as octal would abort
+        # (( )) and be mistaken for a passing condition by the || chain.
+        if [[ ! "${BOOTSTRAP_PORT}" =~ ^[0-9]{1,5}$ ]] \
+          || (( 10#${BOOTSTRAP_PORT} < 1 )) \
+          || (( 10#${BOOTSTRAP_PORT} > 65535 ))
+        then
+          echo "Invalid bootstrap port (expected 1-65535): ${BOOTSTRAP_PORT}" >&2
+          exit 1
+        fi
+
+        for required_var in BOOTSTRAP_HOST BOOTSTRAP_USER; do
+          if [[ -z "${!required_var}" ]]; then
+            echo "${required_var} is not configured for this environment" >&2
+            exit 1
+          fi
+        done
+
+        if [[ "${BOOTSTRAP_KEY_PRESENT}" != "true" ]] \
+          || [[ "${BOOTSTRAP_KNOWN_HOSTS_PRESENT}" != "true" ]]
+        then
+          echo "This environment has no bootstrap SSH credential." >&2
+          echo "The release changes the root-owned mail gateway; it refuses to fall back to a deployment key, which is restricted to the deploy wrappers." >&2
+          exit 1
+        fi
+
+    - name: Configure bootstrap SSH
+      shell: bash
+      env:
+        BOOTSTRAP_SSH_KEY: ${{ inputs.bootstrap-ssh-key }}
+        BOOTSTRAP_KNOWN_HOSTS: ${{ inputs.bootstrap-known-hosts }}
+      run: |
+        set -Eeuo pipefail
+
+        key_path="${RUNNER_TEMP}/rateguru_recovered_outbound_key"
+        known_hosts_path="${RUNNER_TEMP}/rateguru_recovered_outbound_known_hosts"
+
+        install -m 0600 /dev/null "${key_path}"
+        install -m 0600 /dev/null "${known_hosts_path}"
+
+        printf '%s\n' "${BOOTSTRAP_SSH_KEY}" > "${key_path}"
+        printf '%s\n' "${BOOTSTRAP_KNOWN_HOSTS}" > "${known_hosts_path}"
+
+        ssh-keygen -y -f "${key_path}" >/dev/null
+
+        {
+          echo "RATEGURU_BOOTSTRAP_SSH_KEY_PATH=${key_path}"
+          echo "RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH=${known_hosts_path}"
+        } >> "${GITHUB_ENV}"
+
+    - name: Verify privileged access on the host
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        remote_uid="$(ssh_bootstrap 'id -u')"
+
+        if [[ "${remote_uid}" == "0" ]]; then
+          privileged_prefix=""
+        elif ssh_bootstrap 'sudo -n true' >/dev/null 2>&1; then
+          privileged_prefix="sudo -n"
+        else
+          echo "Bootstrap user ${BOOTSTRAP_USER} is neither root nor a passwordless sudoer." >&2
+          echo "The release needs root; nothing was uploaded and nothing was changed." >&2
+          exit 1
+        fi
+
+        echo "RATEGURU_PRIVILEGED_PREFIX=${privileged_prefix}" >> "${GITHUB_ENV}"
+
+    # Only infrastructure/ — the release runs from exactly this tree and
+    # resolves every tool it composes beneath it. No application code, and no
+    # material of any kind.
+    - name: Package trusted infrastructure bundle
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+
+        bundle_path="${RUNNER_TEMP}/rateguru-recovered-outbound-bundle.tar.gz"
+
+        test -x "${GITHUB_WORKSPACE}/infrastructure/scripts/release-recovered-outbound"
+        test -f "${GITHUB_WORKSPACE}/infrastructure/scripts/recovery-outbound-hold"
+
+        tar --create --gzip --file "${bundle_path}" \
+          --directory "${GITHUB_WORKSPACE}" infrastructure
+
+        chmod 0600 "${bundle_path}"
+
+        echo "RATEGURU_BUNDLE_PATH=${bundle_path}" >> "${GITHUB_ENV}"
+
+    - name: Upload the trusted infrastructure bundle
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -Eeuo pipefail
+
+        run_tag="${RUN_ID}-${RUN_ATTEMPT}"
+        staging_dir=".rateguru-recovered-outbound-${run_tag}"
+        remote_root="/root/rateguru-recovered-outbound-${run_tag}"
+
+        {
+          echo "RATEGURU_REMOTE_STAGING_DIR=${staging_dir}"
+          echo "RATEGURU_REMOTE_ROOT=${remote_root}"
+        } >> "${GITHUB_ENV}"
+
+        ssh_bootstrap() {
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "$@"
+        }
+
+        printf -v prepare_staging 'umask 077 && rm -rf %q && mkdir -p %q' \
+          "${staging_dir}" "${staging_dir}"
+
+        ssh_bootstrap "${prepare_staging}"
+
+        scp \
+          -P "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${RATEGURU_BUNDLE_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}:${staging_dir}/bundle.tar.gz"
+
+        # scp writes as the bootstrap user, so the bundle lands in that user's
+        # home and is extracted into a root-only directory before anything
+        # runs from it; the copy in the home directory is removed at once.
+        printf -v install_remote \
+          'set -Eeuo pipefail; umask 077; %s install -d -m 0700 -o root -g root %q && %s tar -xzpf %q/bundle.tar.gz -C %q && %s chown -R root:root %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${staging_dir}" "${remote_root}" \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${remote_root}" \
+          "${staging_dir}"
+
+        ssh_bootstrap "bash -c ${install_remote@Q}"
+
+    - name: Run the release
+      id: release
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+        OPERATION: ${{ inputs.operation }}
+        RECOVERY_OPERATION: ${{ inputs.recovery-operation }}
+        SENDING_ADDRESS: ${{ inputs.sending-address }}
+      run: |
+        set -Eeuo pipefail
+
+        remote_command=(
+          ${RATEGURU_PRIVILEGED_PREFIX:-}
+          "${RATEGURU_REMOTE_ROOT}/infrastructure/scripts/release-recovered-outbound"
+          "--${OPERATION}"
+          --target "${DEPLOYMENT_TARGET}"
+        )
+
+        if [[ "${OPERATION}" != verify ]]; then
+          remote_command+=(--operation "${RECOVERY_OPERATION}" --address "${SENDING_ADDRESS}")
+        fi
+
+        # The calling workflow proved the operator's confirmation before this
+        # step was reached; the flag only ever travels with apply.
+        if [[ "${OPERATION}" == apply ]]; then
+          remote_command+=(--confirm-release)
+        fi
+
+        # The status is captured explicitly rather than allowed to abort the
+        # step: under `set -e` a failing command substitution ends the step
+        # before the captured output is printed, and the server-side report is
+        # the whole diagnosis.
+        set +e
+        release_output="$(
+          ssh \
+            -p "${BOOTSTRAP_PORT}" \
+            -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+            "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+            "${remote_command[@]@Q}" 2>&1
+        )"
+        release_status=$?
+        set -e
+
+        printf '%s\n' "${release_output}"
+
+        # Exactly one result line, whatever the verdict: zero means the run did
+        # not complete, two would be a broken contract.
+        count="$(grep -c '^RATEGURU_RECOVERED_OUTBOUND_RESULT=' <<<"${release_output}" || true)"
+
+        if [[ "${count}" != "1" ]]; then
+          echo "Expected exactly one RATEGURU_RECOVERED_OUTBOUND_RESULT line, got ${count}; the release exited ${release_status}." >&2
+          exit 1
+        fi
+
+        json="$(grep '^RATEGURU_RECOVERED_OUTBOUND_RESULT=' <<<"${release_output}")"
+        json="${json#RATEGURU_RECOVERED_OUTBOUND_RESULT=}"
+
+        # The whole result is judged before any of it is shown: the target and
+        # mode it names, a verdict from the closed set, every flag a boolean,
+        # and a pass that means what its mode promises — a release or a verify
+        # that left the mail released and ready, a check that changed nothing.
+        jq -e --arg target "${DEPLOYMENT_TARGET}" --arg mode "${OPERATION}" '
+          type == "object"
+          and .target == $target
+          and .mode == $mode
+          and (.status == "pass" or .status == "fail" or .status == "critical")
+          and ([.released, .changed, .rolled_back, .outbound_ready] | all(type == "boolean"))
+          and (.held_messages == null or (.held_messages | type) == "number")
+          and (.status != "pass"
+               or ($mode == "check" and (.changed | not))
+               or ($mode != "check" and .released and .outbound_ready and (.rolled_back | not)))
+        ' <<<"${json}" >/dev/null || {
+          echo "The machine-readable result is not a release result for ${DEPLOYMENT_TARGET} (${OPERATION}): ${json}" >&2
+          exit 1
+        }
+
+        echo "status=$(jq -r '.status' <<<"${json}")" >> "${GITHUB_OUTPUT}"
+
+        {
+          jq -r '
+            def yesno: if . then "yes" else "no" end;
+            "## \(.target) recovered outbound mail — \(.mode)",
+            "",
+            "| Check | Result |",
+            "| --- | --- |",
+            "| Recovery operation | \(.operation // "—") |",
+            "| Sending address | \(.address // "—") |",
+            "| Released | \(.released | yesno) |",
+            "| Changed by this run | \(.changed | yesno) |",
+            "| Returned to held | \(.rolled_back | yesno) |",
+            "| OUTBOUND READY | \(if .outbound_ready then "YES" else "NO" end) |",
+            "| Messages left in the HOLD queue | \(.held_messages // "unknown") |",
+            "| **Overall** | **\(.status | ascii_upcase)** |",
+            "",
+            (if .status == "critical" then
+               "**CRITICAL:** the release failed and its return to held could not be proved. Inspect the mail gateway on the host now."
+             elif .rolled_back then
+               "The release failed after it began, and the machine was returned to held: \(.target)'"'"'s listener holds every message again and no direct route exists."
+             elif .status != "pass" then
+               "Refused: \(.target)'"'"'s outbound mail stays held, and nothing was changed. The job log names every condition that is not met."
+             elif .mode == "check" then
+               "Every condition holds: an apply with the exact confirmation would release \(.target)'"'"'s outbound mail on this machine."
+             else
+               "\(.target)'"'"'s outbound mail leaves this machine by direct delivery, from \(.address). Messages held during the recovery stay held: what becomes of them is a separate, explicit decision — the runbook says how."
+             end),
+            "",
+            "No DNS record, deployment binding, Nginx site, environment file or offsite-write hold was changed. The complete report is in the job log."
+          ' <<<"${json}"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        # The verdict is the release's own, and its exit status must agree.
+        if [[ "$(jq -r '.status' <<<"${json}")" != "pass" ]] || (( release_status != 0 )); then
+          echo "The ${OPERATION} of ${DEPLOYMENT_TARGET}'s recovered outbound mail did not pass (exit ${release_status}). The complete report is above." >&2
+          exit 1
+        fi
+
+    # Runs on failure too. Uploaded tooling must never outlive the run.
+    - name: Remove the remote infrastructure bundle
+      if: ${{ always() }}
+      shell: bash
+      env:
+        BOOTSTRAP_HOST: ${{ inputs.bootstrap-host }}
+        BOOTSTRAP_PORT: ${{ inputs.bootstrap-port }}
+        BOOTSTRAP_USER: ${{ inputs.bootstrap-user }}
+      run: |
+        set -Eeuo pipefail
+
+        if [[ -z "${RATEGURU_REMOTE_ROOT:-}" ]]; then
+          echo "Nothing was uploaded; no remote cleanup required."
+          exit 0
+        fi
+
+        printf -v cleanup_command '%s rm -rf %q && rm -rf %q' \
+          "${RATEGURU_PRIVILEGED_PREFIX:-}" "${RATEGURU_REMOTE_ROOT}" "${RATEGURU_REMOTE_STAGING_DIR:-/nonexistent}"
+
+        if ssh \
+          -p "${BOOTSTRAP_PORT}" \
+          -i "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o ConnectTimeout=15 \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=10 \
+          -o StrictHostKeyChecking=yes \
+          -o UserKnownHostsFile="${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH}" \
+          "${BOOTSTRAP_USER}@${BOOTSTRAP_HOST}" \
+          "bash -c ${cleanup_command@Q}"
+        then
+          echo "Removed ${RATEGURU_REMOTE_ROOT} and the upload staging directory."
+        else
+          echo "WARNING: could not remove ${RATEGURU_REMOTE_ROOT} from the host. Remove it manually." >&2
+        fi
+
+    - name: Remove temporary local files
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        rm -f \
+          "${RATEGURU_BUNDLE_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_SSH_KEY_PATH:-}" \
+          "${RATEGURU_BOOTSTRAP_KNOWN_HOSTS_PATH:-}"
