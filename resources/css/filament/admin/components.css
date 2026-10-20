@@ -2218,6 +2218,12 @@
         box-shadow: var(--rg-admin-shadow-popover);
     }
 
+    /* Over the trigger, when the window's foot is too near for the list under it. */
+    .rg-admin-combobox__popover--up {
+        top: auto;
+        bottom: calc(100% + 8px);
+    }
+
     .rg-admin-combobox__search {
         padding: 10px;
         border-bottom: 1px solid var(--rg-admin-border-default);
@@ -5558,6 +5564,11 @@
         border-radius: var(--rg-admin-radius-lg);
         background: var(--rg-admin-surface-card);
         box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-studio__author-panel--up {
+        top: auto;
+        bottom: calc(100% + 4px);
     }
 
     .rg-admin-studio__author-panel-footer {

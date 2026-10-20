@@ -434,7 +434,10 @@ behaviour its ARIA role promises and its value exposed to `x-model` (`x-modelabl
   search, an ARIA `combobox` over a `listbox` whose active option is its `aria-activedescendant`; the search
   filters in the browser, Up and Down move, Enter chooses, Escape returns to the trigger, and an always-present
   status region says when nothing matches. Choosing dispatches a cancelable `choose` event before the value is
-  taken, so a screen can ask first or make the change on the server instead.
+  taken, so a screen can ask first or make the change on the server instead. The list opens under the trigger,
+  or over it when there is more room there — measured between the bars kept at the window's top and foot
+  (`data-admin-ceiling` on the top bar, `data-admin-floor` on the Content Studio editor's footer) — and is never
+  taller than its room, so all of it can be reached. The Post step's author panel opens the same way.
 
 ## Status
 

@@ -45,10 +45,36 @@
                 />
             </div>
             <div class="rg-admin-studio__final-author">
-                {{-- The Persona the post is published as: the chosen one on a trigger, the others found from a search under it. --}}
+                {{--
+                    The Persona the post is published as: the chosen one on a trigger,
+                    the others found from a search in a panel under it — or over it,
+                    when the bar at the window's foot leaves more room there.
+                --}}
                 <div
                     class="rg-admin-field"
-                    x-data="{ open: false }"
+                    x-data="{
+                        open: false,
+                        upward: false,
+                        room: 380,
+                        toggle() {
+                            if (! this.open) {
+                                const box = this.$refs.trigger.getBoundingClientRect()
+                                const ceiling = Math.max(0, ...[...document.querySelectorAll('[data-admin-ceiling]')].map((bar) => bar.getBoundingClientRect().bottom))
+                                const floor = Math.min(window.innerHeight, ...[...document.querySelectorAll('[data-admin-floor]')].map((bar) => bar.getBoundingClientRect().top))
+                                const below = floor - box.bottom - 16
+                                const above = box.top - ceiling - 16
+
+                                this.upward = below < 380 && above > below
+                                this.room = Math.max(160, Math.min(380, this.upward ? above : below))
+                            }
+
+                            this.open = ! this.open
+
+                            if (this.open) {
+                                this.$nextTick(() => document.getElementById('rg-admin-studio-author-search')?.focus())
+                            }
+                        },
+                    }"
                     x-on:keydown.escape="if (open) { open = false; $refs.trigger.focus() }"
                     x-on:click.outside="open = false"
                 >
@@ -62,7 +88,7 @@
                             aria-controls="rg-admin-studio-author-panel"
                             aria-expanded="false"
                             x-bind:aria-expanded="open ? 'true' : 'false'"
-                            x-on:click="open = ! open; if (open) $nextTick(() => document.getElementById('rg-admin-studio-author-search')?.focus())"
+                            x-on:click="toggle()"
                         >
                             <span class="rg-admin-avatar rg-admin-avatar--md" aria-hidden="true">
                                 @if ($author !== null && $author['avatar'] !== null)
@@ -89,7 +115,14 @@
                             <x-admin.ui.icon name="chevrons-up-down" :size="16" class="rg-admin-studio__author-chevron" />
                         </button>
 
-                        <div class="rg-admin-studio__author-panel" id="rg-admin-studio-author-panel" x-show="open" x-cloak>
+                        <div
+                            class="rg-admin-studio__author-panel"
+                            id="rg-admin-studio-author-panel"
+                            x-show="open"
+                            x-cloak
+                            x-bind:class="{ 'rg-admin-studio__author-panel--up': upward }"
+                            x-bind:style="{ maxHeight: `${room}px` }"
+                        >
                             <x-admin.ui.search-field
                                 label="Find a persona"
                                 placeholder="Search personas by username or name"
