@@ -234,3 +234,46 @@ it('takes a proposal in once when two administrators take it in at once', functi
         forgetGenerationRace($db, [$first->id, $second->id, $anna->id, $boris->id], $directory);
     }
 })->skip(fn (): bool => config('database.default') !== 'pgsql', GENERATION_RACE_SKIP);
+
+it('lets taking a proposal in and an edit of a Persona it was written for — though none of her comments made it in — take turns, never unnoticed', function (string $leader) {
+    $db = committedConnection();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    // Both chosen; the answer is written by the first alone, the lower id: persona_1.
+    [$plan, $anna, $boris] = committedDiscussionPlan($first);
+    $directory = raceDirectory('studio-generation');
+
+    try {
+        $generationId = committedCompletedGeneration($directory, $first, $plan, [$anna->id, $boris->id]);
+        $apply = ['action' => 'discussion-apply', 'admin' => $first->id, 'plan' => $plan->id, 'generation' => $generationId, 'version' => 1, 'disk' => $directory.'/disk'];
+        // Another administrator rewrites Boris's character: his row, then his profile.
+        $edit = ['action' => 'edit', 'admin' => $second->id, 'persona' => $boris->id, 'disk' => $directory.'/disk'];
+
+        ['results' => $results, 'report' => $report] = finishedRace($leader === 'apply'
+            ? [lockRaceCompetitor($directory, 'a', [...$apply, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$edit, 'sync' => 'follow'])]
+            : [lockRaceCompetitor($directory, 'a', [...$edit, 'sync' => 'lead', 'hold' => 'profile']), lockRaceCompetitor($directory, 'b', [...$apply, 'sync' => 'follow'])]);
+
+        [$applyResult, $editResult] = $leader === 'apply' ? $results : array_reverse($results);
+        $applied = $db->table('studio_plan_discussion_generations')->where('id', $generationId)->value('applied_at') !== null;
+        $nodes = $db->table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->get();
+
+        // The edit always goes through: after the proposal is in, or before it is refused.
+        expect($editResult['status'])->toBe(0, $report)
+            ->and($db->table('persona_profiles')->where('user_id', $boris->id)->value('character'))->toBe('Raced')
+            ->and($applyResult['status'])->toBe($leader === 'apply' ? 0 : 1, $report)
+            ->and($applied)->toBe($leader === 'apply')
+            // Taken in once, with the tree, or not at all.
+            ->and($nodes)->toHaveCount($leader === 'apply' ? 1 : 0)
+            ->and((int) $db->table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe($leader === 'apply' ? 2 : 1);
+
+        if ($leader === 'apply') {
+            expect((int) $nodes->first()->persona_user_id)->toBe($anna->id);
+        } else {
+            expect($applyResult['output'])->toContain(StudioDiscussionGenerationError::StaleContext->message());
+        }
+    } finally {
+        forgetGenerationRace($db, [$first->id, $second->id, $anna->id, $boris->id], $directory);
+    }
+})->with([
+    'the proposal taken in first: the edit waits for it' => ['apply'],
+    'the edit first: the proposal refused as stale' => ['edit'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', GENERATION_RACE_SKIP);

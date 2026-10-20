@@ -203,6 +203,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
         foreach ($context->nodes as $node) {
             $entry = [
                 'author' => $context->authorNames[$node->persona_user_id] ?? 'A persona',
+                'persona' => $context->aliasOf($node->persona_user_id),
                 'seconds_after_post' => $node->offset_seconds,
                 'text' => $node->body,
             ];
@@ -230,7 +231,11 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
             ."<discussion_context>\n{$data}\n</discussion_context>";
     }
 
-    /** What to write, in the application's own words: only aliases and counts are filled in. */
+    /**
+     * What to write, in the application's own words: only aliases and counts
+     * are filled in — never a name, a post's text or a comment, which an
+     * administrator may have typed and which travel only as data.
+     */
     private function task(StudioDiscussionPrompt $prompt): string
     {
         $context = $prompt->context;
@@ -241,7 +246,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
             $nodes[$node->id] = $node;
         }
 
-        $name = fn (int $id): string => $context->authorNames[$nodes[$id]->persona_user_id] ?? 'a persona';
+        $alias = fn (int $id): string => $context->aliasOf($nodes[$id]->persona_user_id) ?? 'its author';
 
         return match ($prompt->mode) {
             StudioDiscussionGenerationMode::FullDiscussion => strtr(
@@ -260,27 +265,27 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
                 ],
             ),
             StudioDiscussionGenerationMode::RegenerateComment => strtr(
-                "Task: write again only the text of comment {comment}, by {name}, a comment on the post. Keep it in {name}'s voice; its replies stay as they are, so they must still make sense as answers to it. Leave every other comment as it is.\n"
+                "Task: write again only the text of comment {comment}, by {persona}, a comment on the post. Keep it in {persona}'s voice; its replies stay as they are, so they must still make sense as answers to it. Leave every other comment as it is.\n"
                 .'- text: its new text.',
-                ['{comment}' => $labels[$prompt->scope[0]], '{name}' => $name($prompt->scope[0])],
+                ['{comment}' => $labels[$prompt->scope[0]], '{persona}' => $alias($prompt->scope[0])],
             ),
             StudioDiscussionGenerationMode::RegenerateReply => strtr(
-                "Task: write again only the text of reply {reply}, by {name}, in answer to comment {comment}. Keep it in {name}'s voice and an answer to that comment. Leave every other comment as it is.\n"
+                "Task: write again only the text of reply {reply}, by {persona}, in answer to comment {comment}. Keep it in {persona}'s voice and an answer to that comment. Leave every other comment as it is.\n"
                 .'- text: its new text.',
                 [
                     '{reply}' => $labels[$prompt->scope[0]],
-                    '{name}' => $name($prompt->scope[0]),
+                    '{persona}' => $alias($prompt->scope[0]),
                     '{comment}' => $labels[(int) $nodes[$prompt->scope[0]]->parent_id] ?? 'its comment',
                 ],
             ),
             StudioDiscussionGenerationMode::RegenerateBranch => strtr(
-                "Task: write again the conversation under comment {comment}, by {name}: the comment's text and the text of each of its replies, each still by the same persona, in its own voice, and in the same order. Add no reply and leave none out. Leave every other comment as it is.\n"
+                "Task: write again the conversation under comment {comment}, by {persona}: the comment's text and the text of each of its replies, each still by the same persona, in its own voice, and in the same order. Add no reply and leave none out. Leave every other comment as it is.\n"
                 ."- comment: the comment's new text.\n"
                 .'- replies: for each of its replies, in this order — {replies} — reply: its name, and text: its new text.',
                 [
                     '{comment}' => $labels[$prompt->scope[0]],
-                    '{name}' => $name($prompt->scope[0]),
-                    '{replies}' => implode(', ', array_map(fn (int $id): string => $labels[$id].' by '.$name($id), array_slice($prompt->scope, 1))) ?: 'none',
+                    '{persona}' => $alias($prompt->scope[0]),
+                    '{replies}' => implode(', ', array_map(fn (int $id): string => $labels[$id].' by '.$alias($id), array_slice($prompt->scope, 1))) ?: 'none',
                 ],
             ),
         };

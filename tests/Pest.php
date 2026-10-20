@@ -13216,9 +13216,9 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
- *   of a photo (`release`), a user's row written (`user`), a discussion
- *   generation claimed by its job (`claim`) or a post written with its
- *   transaction still open (`post`), or — for an executor — the moment
+ *   of a photo (`release`), a user's row written (`user`), a Persona's
+ *   profile written (`profile`), a discussion generation claimed by its job
+ *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
  *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
@@ -13326,6 +13326,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
                 // A discussion generation claimed, committed by its own statement.
                 'claim' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?studio_plan_discussion_generations"?\s/i', $sql) === 1,
+                // A Persona's profile written, its transaction still open.
+                'profile' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?persona_profiles"?\s/i', $sql) === 1,
                 default => static fn (string $sql): bool => $locks('studio_plans', $sql),
             };
             $dies = (bool) ($job['die'] ?? false);

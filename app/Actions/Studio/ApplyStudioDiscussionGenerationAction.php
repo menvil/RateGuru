@@ -42,11 +42,17 @@ use Throwable;
  * The discussion is written through SaveStudioDiscussionTreeAction, the one
  * door every discussion goes through, its checks and all; the save and
  * `applied_at` commit together, or not at all. The locks are taken in the
- * project's order — the administrator's and every Persona's `users` rows in
- * ascending id order, then the plan at the version the administrator saw,
- * its photo analysis, then the generation — so a hand save, another
- * administrator taking the same proposal in, or a new date for the post,
- * takes turns with it, the later one refused.
+ * project's order — the `users` rows of the administrator and of every
+ * Persona the check or the save depends on, in ascending id order: those the
+ * proposal was written for, even when none of their comments made it in, the
+ * authors of the discussion it was written from, and the authors of the one
+ * it makes; then the plan at the version the administrator saw, its photo
+ * analysis, then the generation. None is locked after the plan: a Persona
+ * found only once the plan is locked refuses the proposal instead. So a hand
+ * save, another administrator taking the same proposal in, a new date for the
+ * post, or an edit of any of those Personas takes turns with it, the later
+ * one refused or waiting, and none goes unnoticed between the check and the
+ * commit.
  */
 final class ApplyStudioDiscussionGenerationAction
 {
@@ -72,16 +78,17 @@ final class ApplyStudioDiscussionGenerationAction
                 throw CannotManageStudioPlanException::becauseUserIsNotAllowed();
             }
 
-            // Read before any lock, so their rows are locked before the plan's;
-            // asked again once they are.
+            // Read before any lock, so every row the check and the save depend
+            // on is locked before the plan's; asked again once they are.
             $generation = StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $plan->getKey())->whereKey($generationId)->first();
-            $proposal = $generation !== null ? StudioDiscussionProposal::fromStored($generation->mode, $generation->result) : null;
 
             if ($generation === null) {
                 throw new CannotApplyStudioDiscussionGenerationException(StudioDiscussionGenerationError::NotCompleted);
             }
 
-            $personaIds = $proposal !== null ? $proposal->applyTo(StudioDiscussionData::of($plan))->personaIds() : [];
+            $proposal = StudioDiscussionProposal::fromStored($generation->mode, $generation->result);
+            $current = StudioDiscussionData::of($plan);
+            $personaIds = self::dependedOn($generation->persona_user_ids, $current, $proposal?->applyTo($current));
 
             [$saved, $applied] = DB::transaction(function () use ($admin, $plan, $generationId, $expectedLockVersion, $personaIds): array {
                 $users = $this->lockUsersInOrder((int) $admin->getKey(), ...$personaIds);
@@ -113,11 +120,15 @@ final class ApplyStudioDiscussionGenerationAction
                     throw new CannotApplyStudioDiscussionGenerationException(StudioDiscussionGenerationError::StaleContext);
                 }
 
-                $discussion = $proposal->applyTo(StudioDiscussionProposal::current($context));
+                $current = StudioDiscussionProposal::current($context);
+                $discussion = $proposal->applyTo($current);
 
-                // Every row the save locks is one locked here already: the
-                // discussion is the one read before the locks, unchanged.
-                if (array_diff($discussion->personaIds(), $personaIds) !== []) {
+                // Every user the check and the save depend on — the Personas
+                // the proposal was written for, its authors, and the authors of
+                // the discussion it was written from — is one locked above:
+                // none is locked after the plan. More than were read before the
+                // locks means the plan changed meanwhile.
+                if (array_diff(self::dependedOn($generation->persona_user_ids, $current, $discussion), $personaIds) !== []) {
                     throw new CannotApplyStudioDiscussionGenerationException(StudioDiscussionGenerationError::StaleContext);
                 }
 
@@ -151,6 +162,23 @@ final class ApplyStudioDiscussionGenerationAction
         ]);
 
         return $saved;
+    }
+
+    /**
+     * The Personas taking a proposal in depends on: those it was written for,
+     * whose profiles its context's hash holds even when none of their comments
+     * made it in; the authors of the discussion it was written from, whose
+     * names the hash holds; and the authors of the discussion it makes.
+     *
+     * @param  list<int>  $participants
+     * @return list<int> ascending
+     */
+    private static function dependedOn(array $participants, StudioDiscussionData $current, ?StudioDiscussionData $proposed): array
+    {
+        $ids = array_values(array_unique([...$participants, ...$current->personaIds(), ...($proposed?->personaIds() ?? [])]));
+        sort($ids);
+
+        return $ids;
     }
 
     private static function refusalCode(Throwable $refusal): string

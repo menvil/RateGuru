@@ -393,9 +393,11 @@ Everything from the plan and the Personas is data, never instructions: it
 travels as JSON with `<` and `>` escaped, so nothing inside it can close its
 block. The instructions are fixed text of the application's own, the tone's
 (`StudioPostTextTone`, Cheeky by default; each Persona's own way of speaking
-comes first in what it writes) and the mode's. Comments and Personas are named
-only by the request's own aliases — `existing_3`, `persona_2` — and the model
-gives no id; the server maps the aliases back. The rules match the post text
+comes first in what it writes) and the mode's, in which only the request's own
+aliases and counts are filled in: a task says which comment to write and by
+whom as `existing_3` and `persona_2`, never by a display name, a post's text
+or a comment, which an administrator may have typed and which travel only as
+data. The model gives no id; the server maps the aliases back. The rules match the post text
 suggestions': a conversation rather than one-liners, each Persona in its own
 voice, no copying between Personas or of the title, nothing invented about the
 photo or the people in it, never explicit, never sexualising anyone who may be
@@ -423,8 +425,11 @@ Anything else fails the generation whole; nothing is trimmed into shape.
 plan: who asked; the mode; the comment written again (`target_node_id`, cleared
 if that comment is deleted from the draft, its id kept in `parameters`); the
 Personas; everything asked for; what it was written from — the plan's version,
-the photo's id, and three hashes: the analysis, the post's texts with the
-discussion, and the Personas' profiles; its state, attempt id and error code;
+the photo's id, and three hashes that together hold everything the model is
+sent: the analysis; the post's texts with the discussion and the names its
+authors go by; and the profiles and names of the Personas taking part — a
+deleted account's name a fixed one, so no hash changes with a locale; its
+state, attempt id and error code;
 the validated proposal (`result`); the model, request id, tokens and latency;
 and when it was asked, started, finished and taken in (`applied_at`). Never a
 prompt, a photo, a key or what the provider sent back beyond the proposal, and
@@ -468,10 +473,17 @@ proposal was written; `applied_at` says it was taken in.
 ### Taking a proposal in
 
 `ApplyStudioDiscussionGenerationAction::handle($admin, $plan, $generationId,
-$expectedLockVersion)` — the trusted step the Discussion screen will offer. It
-locks the administrator's and every Persona's `users` rows in ascending id
-order, the plan at the version the administrator saw, its analysis, then the
-generation, and takes in only a completed proposal of this plan, not taken in
+$expectedLockVersion)` — the trusted step the Discussion screen will offer.
+Before any lock it reads every Persona the check and the save depend on — those
+the proposal was written for, even one none of whose comments made it in, whose
+profile the hash holds; the authors of the discussion it was written from,
+whose names the hash holds; and the authors of the discussion it makes — and
+locks their `users` rows with the administrator's in ascending id order, then
+the plan at the version the administrator saw, its analysis, then the
+generation. None is locked after the plan: one found only once the plan is
+locked refuses the proposal (`stale_context`). An edit of any of those Personas
+therefore waits for the proposal to be taken in, or comes first and makes it
+stale; it never slips in between the check and the commit. It takes in only a completed proposal of this plan, not taken in
 before (`not_completed`, `already_applied`), written from the context the plan
 still has — the same post, photo, analysis, discussion and Personas
 (`stale_context`). A discussion edited by hand since, a comment deleted, an

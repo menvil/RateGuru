@@ -37,7 +37,7 @@ final readonly class StudioDiscussionPersona
         return new self(
             alias: $alias,
             userId: (int) $persona->getKey(),
-            name: $persona->resolved_display_name,
+            name: self::nameOf($persona),
             shortDescription: self::text($profile?->short_description),
             character: self::text($profile?->character),
             speechStyle: self::text($profile?->speech_style),
@@ -88,6 +88,20 @@ final readonly class StudioDiscussionPersona
             $this->neverWritesAbout,
             $this->emojiFrequency->value,
         ];
+    }
+
+    /**
+     * The name an account goes by in a request — the same in every locale,
+     * so what a generation keeps a hash of never changes with the language of
+     * whoever asks again: a deleted account's is a fixed one.
+     */
+    public static function nameOf(User $user): string
+    {
+        if ($user->isTombstoned()) {
+            return 'A deleted account';
+        }
+
+        return (string) ($user->display_name ?: ($user->name ?: $user->username));
     }
 
     private static function text(?string $value): ?string

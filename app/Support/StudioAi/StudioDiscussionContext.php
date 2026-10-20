@@ -27,7 +27,8 @@ use App\Models\User;
  *
  * Three hashes say what it was: the analysis's (StudioImageDescription), the
  * post's texts with the discussion — every comment's id, parent, Persona,
- * text, place and time — and the Personas' characters. A generation keeps
+ * text, place and time, and the names its authors go by — and the Personas'
+ * characters. Everything the model is sent is in one of them. A generation keeps
  * them, and is used only while the plan still has the same.
  */
 final readonly class StudioDiscussionContext
@@ -90,8 +91,9 @@ final readonly class StudioDiscussionContext
         $authorNames = User::query()
             ->whereKey(array_values(array_unique(array_map(fn (StudioDiscussionNode $node): int => $node->persona_user_id, $nodes))))
             ->get()
-            ->mapWithKeys(fn (User $user): array => [(int) $user->getKey() => $user->resolved_display_name])
+            ->mapWithKeys(fn (User $user): array => [(int) $user->getKey() => StudioDiscussionPersona::nameOf($user)])
             ->all();
+        ksort($authorNames);
         $description = StudioPlanData::normalizedText($plan->description);
         $tagIds = $plan->tag_ids;
         sort($tagIds);
@@ -115,6 +117,8 @@ final readonly class StudioDiscussionContext
                 array_map(fn (StudioDiscussionNode $node): array => [
                     $node->id, $node->parent_id, $node->persona_user_id, $node->body, $node->sort_order, $node->offset_seconds,
                 ], self::byId($nodes)),
+                // The names the model reads the discussion's authors by.
+                $authorNames,
             ]),
             personasHash: self::hash(array_map(fn (StudioDiscussionPersona $persona): array => $persona->fingerprint(), $personas)),
         );
@@ -211,6 +215,28 @@ final readonly class StudioDiscussionContext
         }
 
         return $labels;
+    }
+
+    /** The alias of the Persona with this id, when it takes part. */
+    public function aliasOf(int $userId): ?string
+    {
+        foreach ($this->personas as $persona) {
+            if ($persona->userId === $userId) {
+                return $persona->alias;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Every account the discussion names as an author, ascending.
+     *
+     * @return list<int>
+     */
+    public function authorIds(): array
+    {
+        return array_keys($this->authorNames);
     }
 
     /** The Persona with this alias, among those taking part. */

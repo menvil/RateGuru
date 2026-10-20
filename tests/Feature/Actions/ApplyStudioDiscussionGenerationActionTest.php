@@ -17,6 +17,7 @@ use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -181,6 +182,64 @@ it('never takes in a proposal written from a context the plan no longer has, and
         ->map(fn ($node) => $node->id === $ids['a1'] ? new StudioDiscussionNodeData(id: $node->id, parentId: $ids['b'], personaUserId: $node->personaUserId, body: $node->body, sortOrder: 5, offsetSeconds: $node->offsetSeconds) : $node)->all())],
     'the title' => [fn ($test) => $test->plan->forceFill(['title' => 'Another title'])->save()],
     'a Persona\'s character' => [fn ($test) => $test->anna->personaProfile->forceFill(['character' => 'Someone else entirely.'])->save()],
+]);
+
+/**
+ * A whole discussion by Anna and Boris, written over a discussion Carl wrote
+ * by hand — and only the first of the two in it: Boris was chosen, but none
+ * of his comments made it in.
+ *
+ * @return array{0: StudioPlanDiscussionGeneration, 1: User, 2: User, 3: User} the generation; the Persona in it; the one not; Carl
+ */
+function completedOverAnotherDiscussion($test): array
+{
+    $carl = studioPersonaWithProfile([], ['display_name' => 'Carl']);
+    saveStudioDiscussion($test->admin, $test->plan, [discussionNode(['personaUserId' => $carl->id, 'body' => 'By Carl, by hand.'])]);
+    [$used, $unused] = $test->anna->id < $test->boris->id ? [$test->anna, $test->boris] : [$test->boris, $test->anna];
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [answeredComment('node_1', null, 'persona_1', 60, 'Only the first of us.')]]))]);
+    $generation = requestStudioDiscussion($test->admin, $test->plan, ['personaUserIds' => [$test->anna->id, $test->boris->id], 'rootCount' => 1]);
+    runStudioDiscussionJob($generation);
+
+    return [$generation->fresh(), $used, $unused, $carl];
+}
+
+it('locks every Persona taking it in depends on — those it was written for, even one left out of it, and the earlier discussion\'s authors — before the plan', function () {
+    [$generation, $used, $unused, $carl] = completedOverAnotherDiscussion($this);
+    $locks = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$locks): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (preg_match('/^select \\* from (users|studio_plans) where/', $sql, $match) === 1 && str_contains($sql, 'limit 1')) {
+            $locks[] = $match[1] === 'users' ? (int) $query->bindings[0] : 'plan';
+        }
+    });
+
+    $saved = applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    // Read before the locks, the plan once; then the users, ascending; then the plan, locked.
+    $users = collect([$this->admin->id, $used->id, $unused->id, $carl->id])->sort()->values()->all();
+    $firstPlanLock = array_search('plan', array_slice($locks, 1), true) + 1;
+
+    expect(array_slice($locks, 1, $firstPlanLock - 1))->toBe($users)
+        ->and($saved->nodes->pluck('body')->all())->toBe(['Only the first of us.'])
+        ->and($saved->nodes->pluck('persona_user_id')->all())->toBe([$used->id]);
+});
+
+it('refuses a proposal once a Persona it depends on changed, even one none of whose comments made it in, or an earlier author\'s name', function (Closure $change) {
+    [$generation, $used, $unused, $carl] = completedOverAnotherDiscussion($this);
+    $change($unused, $carl);
+    $rows = discussionRows($this->plan);
+
+    $refusal = applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    expect($refusal->error)->toBe(StudioDiscussionGenerationError::StaleContext)
+        ->and(discussionRows($this->plan))->toBe($rows)
+        ->and($generation->fresh()->applied_at)->toBeNull();
+})->with([
+    'the Persona left out, its character' => [fn (User $unused) => $unused->personaProfile->forceFill(['character' => 'Someone else entirely.'])->save()],
+    'the Persona left out, its name' => [fn (User $unused) => $unused->forceFill(['display_name' => 'A new name'])->save()],
+    'the earlier discussion\'s author, its name' => [fn (User $unused, User $carl) => $carl->forceFill(['display_name' => 'Karl'])->save()],
 ]);
 
 it('takes in nothing that is not a completed proposal of this plan', function (Closure $generation, StudioDiscussionGenerationError $error) {
