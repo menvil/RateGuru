@@ -384,15 +384,28 @@ saved — or another is on its way: Generate tree writes a whole discussion,
 Total comments and Top-level comments becoming the comments and replies asked
 for, by the Personas checked or, under Random, as many picked at random as
 asked for, picked only as the tree is generated; Regenerate writes one saved
-comment or reply again. A whole tree that would replace comments asks first.
-While a generation this page asked for, or found on its way when it opened, is
-queued or running, the component is read again every few seconds, and the
-moment it is ready it is taken in through
+comment or reply again. A whole tree that would replace comments asks first,
+and only that question's answer starts it: `confirmGenerate()` does nothing
+unless Generate asked. What the page waits for is always the generation the
+request returned, read from that generation alone — its mode and the comment
+it names — never from the button pressed: when another tab or administrator
+has one on its way, or one finished and not taken in yet, that one is
+returned, the page shows it for what it is — the whole tree in placeholders,
+or that comment written again — and says it was asked for earlier, so nothing
+new was asked for. While a generation this page asked for, or found on its way
+when it opened, is queued or running, the component is read again every few
+seconds, and the moment it is ready it is taken in through
 `ApplyStudioDiscussionGenerationAction`, at the version this page holds — the
 proposal's own checks still apply, so one written from a post or discussion
-that changed since is refused and said. A whole tree replaces the discussion;
-a comment written again changes its text alone. None planned empties the
-discussion with no request at all. Nothing on the step publishes anything.
+that changed since is refused and said, nothing saved being written over. A
+proposal that finished while no page was waiting for it — the page closed or
+reloaded — is taken in when the step opens or reloads, once, through the same
+action, if the plan could still take it in
+(`ApplyStudioDiscussionGenerationAction::fits()`); one it can no longer take
+in stays as history. A whole tree replaces the discussion, with no Undo; a
+comment written again changes its text alone, and Undo gives that text back.
+None planned empties the discussion with no request at all. Nothing on the
+step publishes anything.
 
 ### Not approved yet
 
@@ -528,9 +541,15 @@ proposal was written; `applied_at` says it was taken in.
   the part and the context, writes the generation `queued` and sends
   `GenerateStudioDiscussionJob` once the transaction commits. The plan and its
   discussion are not touched, its version included. While a generation of the
-  plan is on its way, asking again returns that one: no second paid request
-  from a double click or a second administrator. One on its way longer than
-  `stale_after_seconds` is ended as lost.
+  plan is on its way, asking again returns that one, whatever operation is
+  asked for: no second paid request from a double click, a second tab or a
+  second administrator. So does the plan's last generation once it has
+  finished with a proposal not taken in yet that the plan could still take in
+  (`ApplyStudioDiscussionGenerationAction::fits()`: the checks taking it in
+  makes, read only — a Draft, its context unchanged, a discussion its rules
+  take). The caller reads what it waits for from the generation returned. One
+  the plan can no longer take in stays as history and stands in the way of
+  nothing. One on its way longer than `stale_after_seconds` is ended as lost.
 - `GenerateStudioDiscussionJob` carries the generation's id and attempt id only;
   `tries` 1, `timeout` 75, `failOnTimeout`, the request's own timeout 45 s. It
   claims its generation first (`StartStudioDiscussionGenerationAction`): only a

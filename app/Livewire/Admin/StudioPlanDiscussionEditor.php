@@ -59,11 +59,15 @@ use Livewire\Component;
  * description says so, until it is generated again or kept as is. Nothing is
  * published.
  *
- * Generations run on the queue. While one this page asked for, or found on
- * its way, is, the component is read again every few seconds until it
- * settles — the whole tree drawn as placeholders, or the comment being
- * written again faded. It lives as long as the plan's editor page does,
- * hidden on the other steps.
+ * Generations run on the queue, one at a time for a plan. What this page
+ * waits for is the generation its request returned — read from that one
+ * alone, a whole tree or the comment it names, since it may be one another tab
+ * or administrator asked for earlier (follow()). While it is on its way the
+ * component is read again every few seconds until it settles — the whole
+ * tree drawn as placeholders, or the comment being written again faded; one
+ * that finished while no page waited for it is taken in when the step opens
+ * (resume()). It lives as long as the plan's editor page does, hidden on the
+ * other steps.
  *
  * One version for the whole plan: every write here or in the editor around
  * it raises it, and each says so with `studio-plan-version-moved` — the plan,
@@ -213,19 +217,6 @@ final class StudioPlanDiscussionEditor extends Component
 
         $this->load();
 
-        $now = CarbonImmutable::now();
-        $underway = StudioPlanDiscussionGeneration::query()
-            ->where('studio_plan_id', $planId)
-            ->whereIn('status', [StudioDiscussionGenerationStatus::Queued, StudioDiscussionGenerationStatus::Running])
-            ->latest('id')
-            ->get()
-            ->first(fn (StudioPlanDiscussionGeneration $generation): bool => $generation->isUnderway($now));
-
-        if ($underway !== null) {
-            $this->awaiting = (int) $underway->id;
-            $this->rewriting = $underway->mode->isTargeted() ? $underway->targetNodeId() : null;
-        }
-
         // The settings the last whole tree was asked with.
         $last = StudioPlanDiscussionGeneration::query()
             ->where('studio_plan_id', $planId)
@@ -242,6 +233,9 @@ final class StudioPlanDiscussionEditor extends Component
 
         $this->updatedTotalCount();
         $this->updatedRandomCount();
+
+        // A generation on its way, or one finished while nobody was here to take it in.
+        $this->resume();
     }
 
     // ------------------------------------------------------------------
@@ -364,8 +358,13 @@ final class StudioPlanDiscussionEditor extends Component
         $this->startGeneration();
     }
 
+    /** The answer to the question Generate asked, and only that: never a way around it. */
     public function confirmGenerate(mixed $postChanges = 0): void
     {
+        if (! $this->confirmingGenerate) {
+            return;
+        }
+
         $this->confirmingGenerate = false;
 
         if ($this->readyToGenerate($postChanges)) {
@@ -391,16 +390,16 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        $generation = $this->request(new StudioDiscussionGenerationData(
+        $asked = new StudioDiscussionGenerationData(
             mode: $node->parentId === null ? StudioDiscussionGenerationMode::RegenerateComment : StudioDiscussionGenerationMode::RegenerateReply,
             expectedLockVersion: $this->lockVersion,
             targetNodeId: (int) $node->id,
             tone: StudioPostTextTone::DEFAULT,
-        ));
+        );
+        $generation = $this->request($asked);
 
         if ($generation !== null) {
-            $this->awaiting = (int) $generation->id;
-            $this->rewriting = (int) $node->id;
+            $this->follow($generation, $asked);
         }
     }
 
@@ -440,7 +439,6 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        $rewriting = $this->rewriting;
         $this->awaiting = null;
         $this->rewriting = null;
 
@@ -448,8 +446,11 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
+        // What it writes is read from the generation, never from what was clicked.
+        $rewriting = $generation->mode->isTargeted() ? $generation->targetNodeId() : null;
+
         if ($generation->status !== StudioDiscussionGenerationStatus::Completed) {
-            $this->failed($generation->isStale($now) ? 'The generation did not finish. Try again.' : ($generation->error_code ?? StudioDiscussionGenerationError::UnexpectedFailure)->message(), $rewriting);
+            $this->failed($generation->isStale($now) ? 'The generation did not finish. Try again.' : ($generation->error_code ?? StudioDiscussionGenerationError::UnexpectedFailure)->message(), $generation->mode->isTargeted());
 
             return;
         }
@@ -476,21 +477,29 @@ final class StudioPlanDiscussionEditor extends Component
 
             return;
         } catch (CannotApplyStudioDiscussionGenerationException $exception) {
-            $this->failed($exception->error->message(), $rewriting);
+            $this->failed($exception->error->message(), $generation->mode->isTargeted());
 
             return;
         } catch (ValidationException $exception) {
-            $this->failed('What was written no longer fits the discussion’s rules: '.collect($exception->errors())->flatten()->first(), $rewriting);
+            $this->failed('What was written no longer fits the discussion’s rules: '.collect($exception->errors())->flatten()->first(), $generation->mode->isTargeted());
 
             return;
         }
 
         $this->settle($saved);
 
-        if ($rewriting !== null) {
-            $label = self::labels(self::ordered($this->savedRows($plan)))[$rewriting] ?? 'the comment';
-            // Undo gives that comment its text back, and changes nothing else.
-            $this->remember(array_values(array_filter($before, fn (array $row): bool => $row['id'] === $rewriting)));
+        // A whole tree replaced the discussion: nothing of it to undo here.
+        if ($generation->mode->isTargeted()) {
+            $after = $this->savedRows($plan);
+            $label = self::labels(self::ordered($after))[$rewriting] ?? 'the comment';
+            $bodies = array_column($after, 'body', 'id');
+            // Undo gives the comments it wrote again their texts back, and changes nothing else.
+            $rewritten = array_values(array_filter($before, fn (array $row): bool => array_key_exists($row['id'], $bodies) && $bodies[$row['id']] !== $row['body']));
+
+            if ($rewritten !== []) {
+                $this->remember($rewritten);
+            }
+
             $this->toast("New text for {$label} · same author and time", 'success', undoable: true);
         }
     }
@@ -701,6 +710,7 @@ final class StudioPlanDiscussionEditor extends Component
     public function reload(): void
     {
         $this->load();
+        $this->resume();
 
         if (! $this->gone) {
             $this->dispatch(self::RELOAD_EVENT, planId: $this->planId, current: $this->lockVersion, source: 'discussion');
@@ -724,6 +734,7 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->load();
+        $this->resume();
     }
 
     /**
@@ -968,19 +979,91 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        $generation = $this->request(new StudioDiscussionGenerationData(
+        $asked = new StudioDiscussionGenerationData(
             mode: StudioDiscussionGenerationMode::FullDiscussion,
             expectedLockVersion: $this->lockVersion,
             personaUserIds: $team,
             rootCount: $this->rootCount,
             replyCount: $this->totalCount - $this->rootCount,
             tone: StudioPostTextTone::DEFAULT,
-        ));
+        );
+        $generation = $this->request($asked);
 
         if ($generation !== null) {
-            $this->awaiting = (int) $generation->id;
-            $this->rewriting = null;
+            $this->follow($generation, $asked);
         }
+    }
+
+    /**
+     * Waits for this generation, whatever was asked for: what it writes is
+     * read from the generation alone — a whole tree, or the comment it names
+     * written again — so the page shows that, and takes it in as that. One
+     * that is not the operation asked for — another tab's or another
+     * administrator's, asked for earlier — is said to be so, never taken for
+     * the one asked. One that has finished already is taken in at once.
+     */
+    private function follow(StudioPlanDiscussionGeneration $generation, ?StudioDiscussionGenerationData $asked = null): void
+    {
+        $this->awaiting = (int) $generation->id;
+        $this->rewriting = $generation->mode->isTargeted() ? $generation->targetNodeId() : null;
+        $underway = $generation->isUnderway(CarbonImmutable::now());
+
+        if ($asked !== null && ! self::isAsked($generation, $asked)) {
+            $what = $this->rewriting !== null
+                ? 'the new text for '.(self::labels(self::ordered($this->savedRowsNow()))[$this->rewriting] ?? 'a comment')
+                : 'a new discussion tree';
+
+            $this->toast($underway
+                ? "A generation asked for earlier is still on its way, so nothing new was asked for: {$what} is taken in once it’s ready."
+                : "A generation asked for earlier has finished, so nothing new was asked for: {$what} is taken in now.", 'info');
+        }
+
+        if (! $underway) {
+            $this->check();
+        }
+    }
+
+    /**
+     * Picks up the plan's last generation while this page waits for none: one
+     * on its way is waited for; one finished with a proposal the plan could
+     * still take in — asked for on a page closed since — is taken in now, the
+     * one way a proposal is. One the plan can no longer take in stays as
+     * history, as does every earlier one; nothing new is asked for.
+     */
+    private function resume(): void
+    {
+        if ($this->awaiting !== null || ! $this->writable()) {
+            return;
+        }
+
+        $plan = StudioPlan::query()->find($this->planId);
+        $last = $plan !== null ? StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $plan->id)->latest('id')->first() : null;
+
+        if ($plan !== null && $last !== null
+            && ($last->isUnderway(CarbonImmutable::now()) || app(ApplyStudioDiscussionGenerationAction::class)->fits($plan, $last))) {
+            $this->follow($last);
+        }
+    }
+
+    /** Whether a generation is the operation asked for: the same mode and comment, or a whole tree by the same team and counts. */
+    private static function isAsked(StudioPlanDiscussionGeneration $generation, StudioDiscussionGenerationData $asked): bool
+    {
+        if ($generation->mode !== $asked->mode) {
+            return false;
+        }
+
+        if ($asked->mode->isTargeted()) {
+            return $generation->targetNodeId() === $asked->targetNodeId;
+        }
+
+        $team = array_values(array_unique(array_map(intval(...), $asked->personaUserIds)));
+        $theirs = array_map(intval(...), $generation->persona_user_ids);
+        sort($team);
+        sort($theirs);
+
+        return $theirs === $team
+            && (int) ($generation->parameters['root_count'] ?? -1) === $asked->rootCount
+            && (int) ($generation->parameters['reply_count'] ?? -1) === $asked->replyCount;
     }
 
     /**
@@ -1045,9 +1128,9 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /** A generation that settled without anything taken in: said over the tree, or of a comment in a toast. */
-    private function failed(string $message, ?int $rewriting): void
+    private function failed(string $message, bool $rewriting): void
     {
-        if ($rewriting !== null) {
+        if ($rewriting) {
             $this->toast("The comment wasn’t written again: {$message}");
 
             return;

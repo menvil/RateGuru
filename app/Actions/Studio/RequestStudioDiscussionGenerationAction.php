@@ -54,10 +54,16 @@ use Throwable;
  * the editor can say once a tree taken in was written for earlier texts.
  *
  * A paid request is never asked for twice by accident: while a generation of
- * the plan is waiting or running, asking again — a double click, or a second
- * administrator — starts nothing and returns that one. One that has been on
- * its way for longer than any live one could (isStale()) is ended as lost, and
- * the new one takes its place.
+ * the plan is waiting or running, asking again — a double click, a second tab
+ * or a second administrator, for whatever operation — starts nothing and
+ * returns that one; so does the plan's last generation once it has finished
+ * with a proposal not taken in yet that the plan could still take in
+ * (ApplyStudioDiscussionGenerationAction::fits()). Whoever asked reads what it
+ * writes from the generation returned, never from what was asked. One that has
+ * been on its way for longer than any live one could (isStale()) is ended as
+ * lost, and the new one takes its place; a proposal the plan can no longer take
+ * in — its context changed, taken in already — stays as history and stands in
+ * the way of nothing.
  */
 final class RequestStudioDiscussionGenerationAction
 {
@@ -66,11 +72,12 @@ final class RequestStudioDiscussionGenerationAction
     public function __construct(
         private readonly StudioDiscussionGenerator $generator,
         private readonly FailStudioDiscussionGenerationAction $fail,
+        private readonly ApplyStudioDiscussionGenerationAction $apply,
         private readonly DomainLogger $logger,
     ) {}
 
     /**
-     * @return StudioPlanDiscussionGeneration the generation queued now, or the one already on its way
+     * @return StudioPlanDiscussionGeneration the generation queued now, or the one already on its way, or the finished one still to be taken in — whatever its operation
      *
      * @throws CannotManageStudioPlanException when the administrator may not, or the plan is gone, past its Draft or changed meanwhile
      * @throws CannotRequestStudioDiscussionGenerationException when generation is not configured, or the post, the Personas or the part cannot be written from
@@ -203,6 +210,14 @@ final class RequestStudioDiscussionGenerationAction
 
         if ($underway !== null) {
             return [$underway, false, []];
+        }
+
+        // Finished, paid for and not taken in yet, while the plan could still
+        // take it in: that one is taken in, not another written.
+        $last = StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $locked->id)->orderByDesc('id')->lockForUpdate()->first();
+
+        if ($last !== null && $last->status === StudioDiscussionGenerationStatus::Completed && $this->apply->fits($locked, $last)) {
+            return [$last, false, []];
         }
 
         // Lost on their way: ended, so the new generation is the plan's only one.

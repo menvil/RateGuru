@@ -1100,7 +1100,9 @@ actions (`docs/architecture/studio-plans.md`).
     least one persona.”, why generation waits, “The tree has comments. You’ll be asked before it’s replaced.”, or “One
     request to OpenAI — a paid call.” — and Generate tree, or Regenerate tree once there is one. It waits while the
     post has unsaved changes or a generation is on its way; a tree that would replace comments asks “Replace the
-    discussion?” (OVL-01) first. While the tree is generated, six placeholder rows stand in for it; it is taken in the
+    discussion?” (OVL-01) first. One asked for earlier, in another tab or by another administrator, is waited for as
+    what it is, a whole tree or a comment written again, with an info toast saying nothing new was asked for; one
+    finished while the editor was closed is taken in when it opens. While the tree is generated, six placeholder rows stand in for it; it is taken in the
     moment it is ready, and a failure is said over the tree with Try again. A tree taken in that was written for an
     earlier title or description says so over the tree (info): “The discussion was generated for an earlier title or
     description. It isn’t regenerated automatically.”, with Regenerate and Keep as is. Then Discussion tree, “n comments · n

@@ -3,6 +3,7 @@
 use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioDiscussionGenerationStatus;
+use App\Enums\StudioPlanStatus;
 use App\Enums\StudioPostTextTone;
 use App\Enums\UserStatus;
 use App\Jobs\Studio\GenerateStudioDiscussionJob;
@@ -286,6 +287,202 @@ it('takes in nothing another page of the plan took in already', function () {
     $editor->call('check')->assertSet('awaiting', null)->assertSet('lockVersion', 2)->assertSet('conflict', false);
 
     expect(StudioDiscussionNode::query()->count())->toBe(3);
+});
+
+it('waits for the whole tree another tab asked for when a comment is asked to be written again: one job, one request, no Undo of a comment', function () {
+    savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    $tabB = discussionEditor($this->plan);
+    discussionEditor($this->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0);
+    $whole = StudioPlanDiscussionGeneration::query()->sole();
+
+    $tabB->call('regenerate', StudioDiscussionNode::query()->where('body', 'Lovely light.')->value('id'), 0)
+        ->assertSet('awaiting', $whole->id)->assertSet('rewriting', null)
+        ->assertSeeHtml('data-generation="tree"')->assertDontSee('Rewriting…')
+        ->assertDispatched('rg-admin-toast', message: 'A generation asked for earlier is still on its way, so nothing new was asked for: a new discussion tree is taken in once it’s ready.', tone: 'info');
+
+    runStudioDiscussionJob($whole);
+    $tabB->call('check')->assertSet('awaiting', null)->assertSet('undo', null)
+        ->assertNotDispatched('rg-admin-toast', message: 'New text for C1 · same author and time');
+
+    expect(StudioPlanDiscussionGeneration::query()->count())->toBe(1)
+        ->and($whole->fresh()->applied_at)->not->toBeNull()
+        ->and(StudioDiscussionNode::query()->pluck('body')->all())->toContain('Somebody owns this harbour now.')->not->toContain('Lovely light.');
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+});
+
+it('waits for the comment another tab asked to write again when a whole tree is asked for, replacing nothing else', function () {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    $before = storedStudioDiscussionNodes($this->plan);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['text' => 'Written again.']))]);
+    $tabB = discussionEditor($this->plan);
+    discussionEditor($this->plan)->call('regenerate', $saved->ids['a'], 0);
+    $part = StudioPlanDiscussionGeneration::query()->sole();
+
+    $tabB->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0)
+        ->assertSet('awaiting', $part->id)->assertSet('rewriting', $saved->ids['a'])
+        ->assertSeeHtml('data-generation="comment"')->assertSee('Rewriting…')
+        ->assertDispatched('rg-admin-toast', message: 'A generation asked for earlier is still on its way, so nothing new was asked for: the new text for C1 is taken in once it’s ready.', tone: 'info');
+
+    runStudioDiscussionJob($part);
+    $tabB->call('check')->assertDispatched('rg-admin-toast', message: 'New text for C1 · same author and time', tone: 'success');
+
+    expect($tabB->get('undo')['rows'])->toHaveCount(1)
+        ->and($tabB->get('undo')['rows'][0])->toMatchArray(['id' => $saved->ids['a'], 'body' => 'Lovely light.'])
+        ->and(storedStudioDiscussionNodes($this->plan))->toBe(array_replace($before, [$saved->ids['a'] => [null, $this->anna->id, 'Written again.', 0, 60]]))
+        ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+});
+
+it('waits for the comment another administrator asked to write again, never the one asked for here', function () {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['text' => 'Written again.']))]);
+    $mine = discussionEditor($this->plan);
+    $this->actingAs(User::factory()->admin()->create());
+    discussionEditor($this->plan)->call('regenerate', $saved->ids['a'], 0);
+    $theirs = StudioPlanDiscussionGeneration::query()->sole();
+    $this->actingAs($this->admin);
+
+    $mine->call('regenerate', $saved->ids['b'], 0)
+        ->assertSet('awaiting', $theirs->id)->assertSet('rewriting', $saved->ids['a'])
+        ->assertDispatched('rg-admin-toast', message: 'A generation asked for earlier is still on its way, so nothing new was asked for: the new text for C1 is taken in once it’s ready.', tone: 'info');
+
+    runStudioDiscussionJob($theirs);
+    $mine->call('check')->assertDispatched('rg-admin-toast', message: 'New text for C1 · same author and time', tone: 'success');
+
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->body)->toBe('Written again.')
+        ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->body)->toBe('Where is this?')
+        ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+});
+
+it('takes in a proposal finished while nobody was there, once, when the editor opens again — never asking anew', function (Closure $ask, Closure $taken) {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    $ask($this, $saved);
+    $generation = StudioPlanDiscussionGeneration::query()->sole();
+    runStudioDiscussionJob($generation);
+
+    expect($this->plan->fresh()->lock_version)->toBe(2);
+
+    $reopened = discussionEditor($this->plan)->assertSet('awaiting', null)->assertSet('lockVersion', 3)
+        ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'discussion');
+    $taken($this, $saved, $reopened);
+
+    expect($generation->fresh()->applied_at)->not->toBeNull()
+        ->and($this->plan->fresh()->lock_version)->toBe(3);
+    $after = storedStudioDiscussionNodes($this->plan);
+
+    // Opened once more, or asked again: nothing more is taken in, nothing new asked for.
+    discussionEditor($this->plan)->assertSet('awaiting', null)->assertNotDispatched(StudioPlanDiscussionEditor::VERSION_EVENT);
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($after)
+        ->and($this->plan->fresh()->lock_version)->toBe(3)
+        ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+})->with([
+    'a whole tree' => [function ($test) {
+        Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+        discussionEditor($test->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0);
+    }, function ($test, $saved, $reopened) {
+        $reopened->assertSet('undo', null);
+        expect(StudioDiscussionNode::query()->pluck('body')->all())->toContain('Somebody owns this harbour now.')->not->toContain('Lovely light.');
+    }],
+    'a comment written again' => [function ($test, $saved) {
+        Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['text' => 'Written again.']))]);
+        discussionEditor($test->plan)->call('regenerate', $saved->ids['b'], 0);
+    }, function ($test, $saved, $reopened) {
+        $reopened->assertDispatched('rg-admin-toast', message: 'New text for C4 · same author and time', tone: 'success')
+            ->assertSet('undo', fn ($undo) => $undo['rows'][0]['id'] === $saved->ids['b']);
+        expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->body)->toBe('Written again.')
+            ->and(StudioDiscussionNode::query()->count())->toBe(4);
+    }],
+]);
+
+it('takes in a finished proposal it did not ask for when Generate is asked again, rather than paying for another', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    // Open before the tree was asked for elsewhere, so it waits for nothing.
+    $tabB = discussionEditor($this->plan);
+    discussionEditor($this->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0);
+    $generation = StudioPlanDiscussionGeneration::query()->sole();
+    runStudioDiscussionJob($generation);
+
+    $tabB->set('totalCount', 5)->set('rootCount', 2)->call('generateTree', 0)
+        ->assertDispatched('rg-admin-toast', message: 'A generation asked for earlier has finished, so nothing new was asked for: a new discussion tree is taken in now.', tone: 'info')
+        ->assertSet('awaiting', null);
+
+    expect($generation->fresh()->applied_at)->not->toBeNull()
+        ->and(StudioDiscussionNode::query()->count())->toBe(3)
+        ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+});
+
+it('takes in nothing the plan can no longer take when the editor opens again, writes over nobody, and lets a new one be asked for', function (Closure $since) {
+    savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    discussionEditor($this->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0);
+    $generation = StudioPlanDiscussionGeneration::query()->sole();
+    runStudioDiscussionJob($generation);
+    $since($this);
+    $nodes = storedStudioDiscussionNodes($this->plan);
+    $plan = $this->plan->fresh()->only(['lock_version', 'status', 'title']);
+
+    $reopened = discussionEditor($this->plan)->assertSet('awaiting', null)->assertNotDispatched(StudioPlanDiscussionEditor::VERSION_EVENT);
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($nodes)
+        ->and($this->plan->fresh()->only(['lock_version', 'status', 'title']))->toBe($plan)
+        ->and(StudioPlanDiscussionGeneration::query()->whereNotNull('applied_at')->count())->toBe($generation->fresh()->applied_at !== null ? 1 : 0);
+
+    if (! $this->plan->fresh()->isDraft()) {
+        $reopened->assertSee('This plan is no longer a draft');
+
+        return;
+    }
+
+    // What stays as history stands in the way of nothing.
+    $reopened->call('generateTree', 0)->call('confirmGenerate', 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->count())->toBe(2)
+        ->and(StudioPlanDiscussionGeneration::query()->latest('id')->first()->status)->toBe(StudioDiscussionGenerationStatus::Queued);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 2);
+})->with([
+    'another administrator\'s discussion since' => [fn ($test) => rewordStudioComment(User::factory()->admin()->create(), $test->plan, StudioDiscussionNode::query()->where('body', 'Lovely light.')->value('id'), 'Theirs.')],
+    'the post retitled since' => [fn ($test) => $test->plan->forceFill(['title' => 'Mist on the harbour'])->save()],
+    'taken in by another administrator' => [fn ($test) => applyStudioDiscussion(User::factory()->admin()->create(), $test->plan, StudioPlanDiscussionGeneration::query()->sole())],
+    'approved since' => [fn ($test) => $test->plan->forceFill(['status' => StudioPlanStatus::Approved])->save()],
+]);
+
+it('takes in nothing it waited for once the plan is changed by somebody else or past its draft, keeping what they saved', function (Closure $since, string $said) {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['text' => 'Written again.']))]);
+    $editor = discussionEditor($this->plan)->call('regenerate', $saved->ids['a'], 0);
+    runStudioDiscussionJob(StudioPlanDiscussionGeneration::query()->sole());
+    $since($this, $saved);
+    $nodes = storedStudioDiscussionNodes($this->plan);
+
+    $editor->call('check')->assertSet('awaiting', null)->assertDispatched('rg-admin-toast', message: $said);
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($nodes)
+        ->and(StudioPlanDiscussionGeneration::query()->sole()->applied_at)->toBeNull();
+})->with([
+    'another administrator\'s discussion' => [fn ($test, $saved) => rewordStudioComment(User::factory()->admin()->create(), $test->plan, $saved->ids['b'], 'Theirs.'), 'Someone changed this draft after you opened it, so nothing was saved. Reload to see their version.'],
+    'approved' => [fn ($test) => $test->plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), 'This plan is no longer a draft, so nothing was saved.'],
+]);
+
+it('replaces a discussion only once Generate asked and was answered: Confirm alone does nothing', function () {
+    savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    $before = storedStudioDiscussionNodes($this->plan);
+
+    $editor = discussionEditor($this->plan)->set('totalCount', 0)->call('confirmGenerate', 0)->assertSet('confirmingGenerate', false);
+    $editor->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('closeConfirmation')->call('confirmGenerate', 0);
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($before)
+        ->and(StudioPlanDiscussionGeneration::query()->exists())->toBeFalse();
+    Queue::assertNothingPushed();
 });
 
 it('writes one comment or reply again in place, same persona, parent and time, with Undo', function (string $target, string $mode) {
