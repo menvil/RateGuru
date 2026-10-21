@@ -5745,6 +5745,59 @@
         margin-left: auto;
     }
 
+    /* Step 3 · Discussion, its comment votes: the same parts as the Post step's Votes, with a row a comment. */
+    .rg-admin-studio__comment-votes {
+        margin-top: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-studio__comment-votes-distribute {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+        padding: var(--rg-admin-space-3) 20px;
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-hint {
+        flex: 1 1 100%;
+        margin: 0;
+    }
+
+    .rg-admin-studio__comment-votes-table {
+        min-width: 900px;
+    }
+
+    .rg-admin-studio__comment-votes-table td {
+        padding-top: var(--rg-admin-space-2);
+        padding-bottom: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__comment-votes-table td:nth-child(2) {
+        max-width: 320px;
+    }
+
+    .rg-admin-studio__comment-votes-reply {
+        padding-left: var(--rg-admin-space-4);
+    }
+
+    /* A count set in a table row: the stepper, 32 high and narrow. */
+    .rg-admin-studio__votes-mini {
+        width: 104px;
+        height: 32px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__button {
+        width: 28px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__control {
+        min-width: 0;
+    }
+
     /* Step 3 · Discussion: the settings, Generate tree under them, and the discussion tree with its comment dialog */
     .rg-admin-studio__discussion {
         display: flex;

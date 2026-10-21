@@ -7,13 +7,12 @@ use App\Data\Studio\StudioPostVotesSettings;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioActionType;
-use App\Enums\UserStatus;
 use App\Models\RatingGroup;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
-use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Studio\Concerns\DrawsPersonaVotes;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -43,9 +42,10 @@ use Illuminate\Validation\ValidationException;
  * Which Persona casts which: drawn in an order fixed by the settings' seed,
  * so the same settings give the same votes and nothing is drawn again when
  * they are saved. While the saved votes are preferred (`keepSaved`), a
- * Persona keeps its saved vote on a target as far as the counts allow, and a
- * vote that must change goes first to a Persona already voting on that
- * target, so its row is changed rather than replaced.
+ * Persona keeps its saved vote on a target as far as the counts allow, and its
+ * place among the target's votes in time, and a vote that must change goes
+ * first to a Persona already voting on that target, so its row is changed
+ * rather than replaced.
  *
  * When: within each target — the post, or one question — the votes are cast
  * one after another in a drawn order, the first `firstSeconds` after the
@@ -58,6 +58,8 @@ use Illuminate\Validation\ValidationException;
  */
 final class BuildStudioPostVotesData
 {
+    use DrawsPersonaVotes;
+
     public function __construct(
         private readonly RatingConfigurationManager $ratingConfiguration,
         private readonly PersonasQuery $personas,
@@ -103,7 +105,7 @@ final class BuildStudioPostVotesData
         }
 
         return new BuiltStudioPostVotes(
-            votes: new StudioVotesData(self::votes($blocks, $saved, $settings->seed)),
+            votes: new StudioVotesData(self::votes($blocks, $saved, $settings->seed, $settings->keepSaved)),
             voters: [...$voters, ...$keepers],
         );
     }
@@ -128,27 +130,7 @@ final class BuildStudioPostVotesData
             return [array_slice(self::drawn($pool, $settings->seed, 'voters'), 0, max(0, min($settings->voterCount, count($pool)))), []];
         }
 
-        $ids = array_values(array_unique(array_filter($settings->voterIds, fn (int $id): bool => $id > 0 && $id !== $authorId)));
-        $people = User::query()->whereKey($ids)->get()->keyBy('id');
-        $voters = [];
-        $keepers = [];
-
-        foreach ($ids as $id) {
-            // The role and the status that count are the ones the row has now.
-            $persona = $people->get($id);
-
-            if ($persona === null || ! $persona->isPersona() || $persona->isTombstoned()) {
-                continue;
-            }
-
-            if ($persona->status === UserStatus::Active && $persona->canVote()) {
-                $voters[] = $id;
-            } else {
-                $keepers[] = $id;
-            }
-        }
-
-        return [self::drawn($voters, $settings->seed, 'voters'), $keepers];
+        return self::chosenVoters($settings->voterIds, $authorId, $settings->seed);
     }
 
     /**
@@ -176,6 +158,9 @@ final class BuildStudioPostVotesData
             'open' => ['up' => true, 'down' => true],
             'previous' => $saved->where('type', StudioActionType::VotePost)
                 ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => (string) $vote->vote_type?->value])
+                ->all(),
+            'moments' => $saved->where('type', StudioActionType::VotePost)
+                ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
                 ->all(),
             'first' => $settings->postFirstSeconds,
             'spread' => $settings->postSpreadSeconds,
@@ -243,62 +228,15 @@ final class BuildStudioPostVotesData
                 'previous' => $savedHere
                     ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => 'option:'.$vote->rating_option_id])
                     ->all(),
+                'moments' => $savedHere
+                    ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
+                    ->all(),
                 'first' => $rating->firstSeconds,
                 'spread' => $rating->spreadSeconds,
             ];
         }
 
         return $blocks;
-    }
-
-    /**
-     * Gives each choice its count of Personas: first the saved choices kept —
-     * always on a choice no longer open, which nobody new may take, and on the
-     * others while the saved votes are preferred — then the open choices
-     * still short, to the voters free on this target, those with a saved
-     * choice on it first while preferred, so their vote changes rather than
-     * another's being made.
-     *
-     * @param  list<int>  $voters  who may take a new choice, in the order drawn
-     * @param  list<int>  $keepers  who may only keep the choice they have
-     * @param  array<int, string>  $previous  the choice each Persona has saved on this target
-     * @param  array<string, int>  $slots  how many each choice takes, in order
-     * @param  array<string, bool>  $open  whether a choice takes a Persona new to it
-     * @return array{0: array<int, string>, 1: int} the choice of each Persona, and how many places nobody took
-     */
-    private static function assign(array $voters, array $keepers, array $previous, array $slots, array $open, bool $keep): array
-    {
-        $assigned = [];
-        $left = $slots;
-
-        foreach (array_keys($slots) as $choice) {
-            if ($keep || ! $open[$choice]) {
-                foreach ([...$voters, ...$keepers] as $persona) {
-                    if ($left[$choice] > 0 && ! isset($assigned[$persona]) && ($previous[$persona] ?? null) === $choice) {
-                        $assigned[$persona] = $choice;
-                        $left[$choice]--;
-                    }
-                }
-            }
-        }
-
-        $free = array_values(array_filter($voters, fn (int $persona): bool => ! isset($assigned[$persona])));
-
-        if ($keep) {
-            $free = [
-                ...array_filter($free, fn (int $persona): bool => isset($previous[$persona])),
-                ...array_filter($free, fn (int $persona): bool => ! isset($previous[$persona])),
-            ];
-        }
-
-        foreach (array_keys($slots) as $choice) {
-            while ($open[$choice] && $left[$choice] > 0 && $free !== []) {
-                $assigned[(int) array_shift($free)] = $choice;
-                $left[$choice]--;
-            }
-        }
-
-        return [$assigned, array_sum($left)];
     }
 
     /**
@@ -335,7 +273,7 @@ final class BuildStudioPostVotesData
      * @param  Collection<int, StudioPlanVote>  $saved
      * @return list<StudioVoteData>
      */
-    private static function votes(array $blocks, Collection $saved, int $seed): array
+    private static function votes(array $blocks, Collection $saved, int $seed, bool $keep): array
     {
         $ids = $saved->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id.'|'.$vote->target_key => (int) $vote->id])->all();
         $entries = [];
@@ -343,7 +281,7 @@ final class BuildStudioPostVotesData
         foreach ($blocks as $index => $block) {
             /** @var array<int, string> $assigned */
             $assigned = $block['assigned'];
-            $order = self::drawn(array_keys($assigned), $seed, $block['key']);
+            $order = self::timeOrder(array_keys($assigned), $block['moments'], $keep, $seed, $block['key']);
             $count = count($order);
 
             foreach ($order as $place => $persona) {
@@ -367,19 +305,5 @@ final class BuildStudioPostVotesData
         usort($entries, fn (array $a, array $b): int => [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
 
         return array_map(fn (array $entry, int $sort): StudioVoteData => new StudioVoteData(...$entry[3], sortOrder: $sort), $entries, array_keys($entries));
-    }
-
-    /**
-     * The ids in the order a seed draws them for one purpose: the same seed
-     * draws the same order, whatever order they came in.
-     *
-     * @param  list<int>  $ids
-     * @return list<int>
-     */
-    private static function drawn(array $ids, int $seed, string $purpose): array
-    {
-        usort($ids, fn (int $a, int $b): int => [hash('xxh3', "{$seed}|{$purpose}|{$a}"), $a] <=> [hash('xxh3', "{$seed}|{$purpose}|{$b}"), $b]);
-
-        return $ids;
     }
 }

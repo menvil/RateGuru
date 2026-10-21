@@ -401,8 +401,13 @@ a save of the discussion are held to the votes too, and a plan with votes is not
 (`StudioPlanPostVotesEditor`), laid out and working as the prototype's StudioPostVotes beside Titles & texts — the
 post's voters drawn at random or chosen, never its author; up and down votes, the answers to each rating question with
 Even split, and their timing — built as a preview and saved exactly as shown, the discussion's votes kept
-(`docs/architecture/studio-plans.md`, "The Post votes editor"). Its staging check is still to be done. Nothing votes
-yet. Still to come: the votes in the Discussion step, and the vote actions and their casting.
+(`docs/architecture/studio-plans.md`, "The Post votes editor"). Its third step is in code: the Discussion step's
+Comment voters and Comment votes cards under the discussion (`StudioPlanDiscussionVotesEditor`) — the voters drawn at
+random or chosen, never on their own comment; each comment's and reply's up and down votes, set by hand or shared out
+by priority with Distribute automatically, and their timing after each comment — built as a preview and saved exactly
+as shown, the post's votes kept (`docs/architecture/studio-plans.md`, "The Comment votes editor"). The staging checks
+of the second and third steps are still to be done. Nothing votes yet. Still to come: the vote actions and their
+casting.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

@@ -1577,12 +1577,13 @@ final class StudioPlanDiscussionEditor extends Component
 
     /**
      * The comments in the order the tree shows them: each comment on the post
-     * by its time, each followed by its replies by theirs.
+     * by its time, each followed by its replies by theirs — the order the
+     * Comment votes editor lists and labels them in too.
      *
-     * @param  list<array<string, mixed>>  $rows
+     * @param  list<array<string, mixed>>  $rows  each with its `id`, `parentId`, `offsetSeconds` and `sortOrder`
      * @return list<array{row: array<string, mixed>, depth: int}>
      */
-    private static function ordered(array $rows): array
+    public static function ordered(array $rows): array
     {
         $byTime = fn (array $a, array $b): int => [$a['offsetSeconds'], $a['sortOrder'], $a['id']] <=> [$b['offsetSeconds'], $b['sortOrder'], $b['id']];
         $roots = array_values(array_filter($rows, fn (array $row): bool => $row['parentId'] === null));
@@ -1608,7 +1609,7 @@ final class StudioPlanDiscussionEditor extends Component
      * @param  list<array{row: array<string, mixed>, depth: int}>  $ordered
      * @return array<int, string>
      */
-    private static function labels(array $ordered): array
+    public static function labels(array $ordered): array
     {
         $labels = [];
 

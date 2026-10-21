@@ -184,3 +184,33 @@ it('lets a save and a ban of a Persona it names meet at their first user lock an
         forgetStudioPlanRace($db, [$persona->id, $admin->id], $directory);
     }
 })->skip(fn (): bool => config('database.default') !== 'pgsql', VOTE_RACE_SKIP);
+
+it('lets votes on a comment and the deletion of that comment take turns, whichever is first, never leaving a vote without its comment', function (string $leader) {
+    $db = committedConnection();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    [$anna, $boris] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $plan = StudioPlan::factory()->connection('committed_peer')->create(['created_by_user_id' => $first->id]);
+    $comment = StudioDiscussionNode::factory()->connection('committed_peer')->create(['studio_plan_id' => $plan->id, 'persona_user_id' => $anna->id, 'body' => 'Lovely.', 'offset_seconds' => 60]);
+    $directory = raceDirectory('studio-votes');
+    $vote = ['action' => 'votes-save', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'votes' => [['type' => 'vote_comment', 'personaUserId' => $boris->id, 'voteType' => 'up', 'discussionNodeId' => $comment->id, 'offsetSeconds' => 120]], 'disk' => $directory.'/disk'];
+    $delete = ['action' => 'discussion-save', 'admin' => $second->id, 'plan' => $plan->id, 'version' => 1, 'nodes' => [], 'disk' => $directory.'/disk'];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace($leader === 'votes'
+            ? [lockRaceCompetitor($directory, 'a', [...$vote, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$delete, 'sync' => 'follow'])]
+            : [lockRaceCompetitor($directory, 'a', [...$delete, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$vote, 'sync' => 'follow'])]);
+
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(1, $report)
+            ->and($results[1]['output'])->toContain('changed by another administrator')
+            ->and((int) $db->table('studio_plans')->where('id', $plan->id)->value('lock_version'))->toBe(2)
+            ->and($db->table('studio_plan_discussion_nodes')->where('id', $comment->id)->exists())->toBe($leader === 'votes')
+            ->and($db->table('studio_plan_votes')->where('studio_plan_id', $plan->id)->count())->toBe($leader === 'votes' ? 1 : 0)
+            ->and($db->table('studio_plan_votes')->whereNotNull('discussion_node_id')->whereNotIn('discussion_node_id', $db->table('studio_plan_discussion_nodes')->select('id'))->exists())->toBeFalse();
+    } finally {
+        forgetStudioPlanRace($db, [$first->id, $second->id, $anna->id, $boris->id], $directory);
+    }
+})->with([
+    'the votes first' => ['votes'],
+    'the deletion first' => ['discussion'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', VOTE_RACE_SKIP);
