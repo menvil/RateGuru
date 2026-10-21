@@ -22,6 +22,7 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
+use App\Support\StudioAi\StudioDiscussionContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Carbon;
@@ -85,6 +86,8 @@ it('queues one whole discussion by the Personas chosen, its job carrying only tw
         ->result->toBeNull()
         ->applied_at->toBeNull()
         ->and($generation->parameters)->toMatchArray(['root_count' => 3, 'reply_count' => 4, 'tone' => 'irony', 'expected_lock_version' => 1])
+        // The post's texts it is written for, so the editor can say once they change.
+        ->and($generation->parameters['source_text_fingerprint'])->toBe(StudioDiscussionContext::textFingerprint($this->plan->title, $this->plan->description))
         ->and($generation->source_analysis_hash)->toHaveLength(64)
         ->and($generation->source_discussion_hash)->toHaveLength(64)
         ->and($generation->source_personas_hash)->toHaveLength(64)
@@ -115,9 +118,9 @@ it('starts no second generation while one is on its way, whoever asks and howeve
     Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
 });
 
-it('starts another once the last has finished, keeping every earlier one', function () {
+it('starts another once the last has finished and been taken in, keeping every earlier one', function () {
     $first = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->anna->id], 'rootCount' => 2]);
-    $first->forceFill(['status' => StudioDiscussionGenerationStatus::Completed, 'result' => ['nodes' => []]])->save();
+    $first->forceFill(['status' => StudioDiscussionGenerationStatus::Completed, 'result' => ['nodes' => []], 'applied_at' => now()])->save();
 
     $second = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->anna->id], 'rootCount' => 2]);
 
@@ -125,6 +128,39 @@ it('starts another once the last has finished, keeping every earlier one', funct
         ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(2)
         ->and($first->fresh()->status)->toBe(StudioDiscussionGenerationStatus::Completed);
 });
+
+it('returns the last proposal finished and not taken in while the plan could still take it, whatever is asked: nothing new is paid for', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [answeredComment('node_1', null, 'persona_1', 60, 'Lovely light.')]]))]);
+    $finished = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->anna->id], 'rootCount' => 1]);
+    runStudioDiscussionJob($finished);
+
+    $again = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->boris->id], 'rootCount' => 3, 'replyCount' => 2]);
+
+    expect($again->id)->toBe($finished->id)
+        ->and($again)->status->toBe(StudioDiscussionGenerationStatus::Completed)->applied_at->toBeNull()
+        ->and(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+    Http::assertSentCount(1);
+});
+
+it('asks anew once the last proposal can no longer be taken in: its context changed, or it was taken in', function (Closure $since) {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [answeredComment('node_1', null, 'persona_1', 60, 'Lovely light.')]]))]);
+    $finished = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->anna->id], 'rootCount' => 1]);
+    runStudioDiscussionJob($finished);
+    $since($this, $finished->fresh());
+
+    $next = requestStudioDiscussion($this->admin, $this->plan, ['personaUserIds' => [$this->boris->id], 'rootCount' => 1]);
+
+    expect($next->id)->not->toBe($finished->id)
+        ->and($next->status)->toBe(StudioDiscussionGenerationStatus::Queued)
+        ->and($finished->fresh())->status->toBe(StudioDiscussionGenerationStatus::Completed);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 2);
+})->with([
+    'the post retitled' => [fn ($test) => $test->plan->forceFill(['title' => 'Mist on the harbour'])->save()],
+    'a comment written by hand' => [fn ($test) => saveStudioDiscussion($test->admin, $test->plan, [discussionNode(['key' => 'a', 'personaUserId' => $test->boris->id, 'body' => 'Mine.', 'offsetSeconds' => 60])])],
+    'its Persona deleted' => [fn ($test) => $test->anna->forceFill(['status' => UserStatus::Deleted])->save()],
+    'taken in' => [fn ($test, $finished) => applyStudioDiscussion($test->admin, $test->plan, $finished)],
+]);
 
 it('takes one on its way far longer than any live one could as lost, and starts another', function () {
     Carbon::setTestNow('2026-10-20 10:00:00');
@@ -148,7 +184,9 @@ it('writes a part of the discussion again by its own authors, whatever Personas 
     expect($generation)->mode->toBe($mode)->target_node_id->toBe($target($saved->ids))
         ->and($generation->persona_user_ids)->toBe($authors($this))
         ->and($generation->targetNodeId())->toBe($target($saved->ids))
-        ->and($generation->source_lock_version)->toBe(2);
+        ->and($generation->source_lock_version)->toBe(2)
+        // Only a whole tree says which texts it was written for.
+        ->and($generation->parameters)->not->toHaveKey('source_text_fingerprint');
 })->with([
     'a comment' => [StudioDiscussionGenerationMode::RegenerateComment, fn (array $ids) => $ids['a'], fn ($test) => [$test->anna->id]],
     'a reply' => [StudioDiscussionGenerationMode::RegenerateReply, fn (array $ids) => $ids['a1'], fn ($test) => [$test->boris->id]],

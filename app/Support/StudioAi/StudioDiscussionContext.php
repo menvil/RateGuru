@@ -125,6 +125,17 @@ final readonly class StudioDiscussionContext
     }
 
     /**
+     * The post's final title and description in one value, as the plan
+     * stores them — trimmed, an empty one as none — so a change of either
+     * changes it and nothing else does. A whole generation keeps the one it
+     * was written for (`source_text_fingerprint` in its parameters).
+     */
+    public static function textFingerprint(?string $title, ?string $description): string
+    {
+        return hash('sha256', json_encode([StudioPlanData::normalizedText($title), StudioPlanData::normalizedText($description)], JSON_THROW_ON_ERROR));
+    }
+
+    /**
      * The Personas a part of the discussion is written by: the authors of the
      * comments it writes again.
      *

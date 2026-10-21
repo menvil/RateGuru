@@ -25,6 +25,7 @@ use App\Jobs\Studio\ExecuteStudioActionJob;
 use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -13732,6 +13733,41 @@ function applyStudioDiscussion(User $admin, StudioPlan $plan, StudioPlanDiscussi
     return app(ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $generation->id, StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }
 
+/** The Discussion step's editor of this plan, as the plan's editor page draws it. */
+function discussionEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanDiscussionEditor::class, ['planId' => $plan->id]);
+}
+
+/**
+ * Writes a comment from the Discussion editor's dialog — a new one on the
+ * post, or a reply to the saved comment given — as an administrator would.
+ */
+function commentFromDialog(Testable $editor, User $persona, string $body, ?int $replyTo = null, ?int $seconds = null): Testable
+{
+    $replyTo !== null ? $editor->call('openReply', $replyTo) : $editor->call('openNew');
+    $editor->call('choosePersona', $persona->id)->set('dialogBody', $body);
+
+    if ($seconds !== null) {
+        $editor->set('dialogSeconds', $seconds);
+    }
+
+    return $editor->call('saveDialog');
+}
+
+/**
+ * Every comment of the plan's discussion as stored, by id: its parent (null
+ * for a comment on the post), Persona, text, place and time.
+ *
+ * @return array<int, array{0: int|null, 1: int, 2: string, 3: int, 4: int}>
+ */
+function storedStudioDiscussionNodes(StudioPlan $plan): array
+{
+    return DB::table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->orderBy('id')->get()
+        ->mapWithKeys(fn ($row): array => [(int) $row->id => [$row->parent_id === null ? null : (int) $row->parent_id, (int) $row->persona_user_id, (string) $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])
+        ->all();
+}
+
 /**
  * A completed Responses API body whose structured output is this answer.
  *
@@ -13802,6 +13838,25 @@ function discussionNode(array $fields = []): StudioDiscussionNodeData
 function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): SavedStudioDiscussion
 {
     return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * Another administrator's save of the plan's discussion, from the version
+ * the plan has now: every comment kept with its id, this one's text changed.
+ */
+function rewordStudioComment(User $admin, StudioPlan $plan, int $nodeId, string $body): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, array_map(
+        fn (StudioDiscussionNodeData $node): StudioDiscussionNodeData => $node->id !== $nodeId ? $node : new StudioDiscussionNodeData(
+            id: $node->id,
+            parentId: $node->parentId,
+            personaUserId: $node->personaUserId,
+            body: $body,
+            sortOrder: $node->sortOrder,
+            offsetSeconds: $node->offsetSeconds,
+        ),
+        StudioDiscussionData::of(StudioPlan::query()->findOrFail($plan->id))->nodes,
+    ));
 }
 
 // =============================================================================

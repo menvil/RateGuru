@@ -291,15 +291,35 @@ it('takes back the whole of it when a write is not saved: no discussion, no appl
 
 it('keeps every earlier generation as history, whichever is taken in', function () {
     $first = completedWholeDiscussion($this);
+    // The discussion changed by hand meanwhile, so another is written from it.
+    saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'By hand.', 'offsetSeconds' => 60])]);
     $second = completedWholeDiscussion($this);
 
-    applyStudioDiscussion($this->admin, $this->plan, $first);
+    applyStudioDiscussion($this->admin, $this->plan, $second);
 
     expect(StudioPlanDiscussionGeneration::query()->count())->toBe(2)
-        ->and($second->fresh())->status->toBe(StudioDiscussionGenerationStatus::Completed)->applied_at->toBeNull()
+        ->and($second->id)->not->toBe($first->id)
+        ->and($first->fresh())->status->toBe(StudioDiscussionGenerationStatus::Completed)->applied_at->toBeNull()
         // Written from the discussion as it was; the plan's is another now.
-        ->and(applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $second))->error)->toBe(StudioDiscussionGenerationError::StaleContext);
+        ->and(applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $first))->error)->toBe(StudioDiscussionGenerationError::StaleContext);
 });
+
+it('says which finished proposal the plan would take in now, with the checks it is taken in by, writing nothing', function (Closure $since, bool $fits) {
+    $generation = completedWholeDiscussion($this);
+    $since($this, $generation);
+    $before = [discussionRows($this->plan), $this->plan->fresh()->lock_version, $generation->fresh()->applied_at?->toIso8601String()];
+
+    expect(app(ApplyStudioDiscussionGenerationAction::class)->fits($this->plan->fresh(), $generation->fresh()))->toBe($fits)
+        ->and([discussionRows($this->plan), $this->plan->fresh()->lock_version, $generation->fresh()->applied_at?->toIso8601String()])->toBe($before);
+})->with([
+    'as it was written' => [fn () => null, true],
+    'the post retitled' => [fn ($test) => $test->plan->forceFill(['title' => 'Mist on the harbour'])->save(), false],
+    'a Persona deleted' => [fn ($test) => $test->boris->forceFill(['status' => UserStatus::Deleted])->save(), false],
+    'past its Draft' => [fn ($test) => $test->plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), false],
+    'another plan\'s' => [fn ($test, $generation) => $generation->forceFill(['studio_plan_id' => discussionReadyStudioPlan()->id])->save(), false],
+    'not completed' => [fn ($test, $generation) => $generation->forceFill(['status' => StudioDiscussionGenerationStatus::Failed])->save(), false],
+    'taken in' => [fn ($test, $generation) => $generation->forceFill(['applied_at' => now()])->save(), false],
+]);
 
 it('keeps the history of a part once the comment it wrote again is deleted', function () {
     [$generation, $ids] = completedPart($this, StudioDiscussionGenerationMode::RegenerateComment, 'b', ['text' => 'Where on earth?']);

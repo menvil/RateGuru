@@ -112,7 +112,13 @@
 
         <fieldset class="rg-admin-studio__step-body" @disabled($readOnly) aria-labelledby="rg-admin-studio-step-title">
             <h2 id="rg-admin-studio-step-title" class="rg-admin-sr-only">Step {{ $stepNumber }} of 4: {{ $stepLabel }}</h2>
-            @include('filament.pages.studio-plan.'.$step)
+            @unless ($step === 'discussion')
+                @include('filament.pages.studio-plan.'.$step)
+            @endunless
+            {{-- Always drawn, hidden on the other steps: its settings, and a generation it waits for, live as long as the page. --}}
+            <div class="rg-admin-studio__discussion-step" @if ($step !== 'discussion') hidden @endif>
+                @include('filament.pages.studio-plan.discussion')
+            </div>
         </fieldset>
 
     </div>

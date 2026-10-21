@@ -83,7 +83,7 @@ it('takes one waiting or running far longer than any live one could as lost', fu
         ->and($done->isStale(now()->addDay()))->toBeFalse();
 });
 
-it('reaches no route, controller, page or public resource', function () {
+it('reaches no route, controller or public resource: only the editor\'s Discussion step shows it', function () {
     $files = collect(['routes', 'app/Http', 'app/Livewire', 'app/Filament', 'resources/views'])
         ->flatMap(fn (string $directory) => File::allFiles(base_path($directory)))
         ->filter(fn ($file): bool => str_contains((string) file_get_contents($file->getPathname()), 'DiscussionGeneration'))
@@ -91,7 +91,7 @@ it('reaches no route, controller, page or public resource', function () {
         ->values()
         ->all();
 
-    expect($files)->toBe([]);
+    expect($files)->toBe(['Admin/StudioPlanDiscussionEditor.php']);
 });
 
 it('rolls back and runs again: the table goes and comes back, the plans and their discussions untouched', function () {

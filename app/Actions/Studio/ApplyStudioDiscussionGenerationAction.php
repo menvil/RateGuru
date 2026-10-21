@@ -14,6 +14,7 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
+use App\Support\Studio\StudioDiscussionValidationRules;
 use App\Support\StudioAi\StudioDiscussionContext;
 use App\Support\StudioAi\StudioDiscussionProposal;
 use Carbon\CarbonImmutable;
@@ -60,8 +61,44 @@ final class ApplyStudioDiscussionGenerationAction
 
     public function __construct(
         private readonly SaveStudioDiscussionTreeAction $save,
+        private readonly StudioDiscussionValidationRules $rules,
         private readonly DomainLogger $logger,
     ) {}
+
+    /**
+     * Whether the plan, as it is now, would take this proposal in: the
+     * checks handle() makes, read only — a Draft, a proposal completed and
+     * not yet taken in, written from the context the plan still has, and a
+     * discussion the discussion's rules take, its Personas as they are now.
+     * What decides is still handle(), under its locks: this says only which
+     * finished proposal is worth taking in rather than asking for another.
+     */
+    public function fits(StudioPlan $plan, StudioPlanDiscussionGeneration $generation): bool
+    {
+        $proposal = StudioDiscussionProposal::fromStored($generation->mode, $generation->result);
+
+        if ($generation->studio_plan_id !== $plan->id || $generation->status !== StudioDiscussionGenerationStatus::Completed
+            || $generation->applied_at !== null || $proposal === null || ! $plan->isDraft()) {
+            return false;
+        }
+
+        $analysis = StudioPlanImageAnalysis::query()->where('studio_plan_id', $plan->id)->first();
+        $context = StudioDiscussionContext::of($plan, $analysis, $generation->persona_user_ids);
+
+        if (! $context instanceof StudioDiscussionContext
+            || ! $generation->isFor($context->imageAssetId, $context->analysisHash, $context->discussionHash, $context->personasHash)) {
+            return false;
+        }
+
+        try {
+            $discussion = $this->rules->validated($proposal->applyTo(StudioDiscussionProposal::current($context)));
+            $this->rules->validateAgainst($discussion, $plan, User::query()->whereKey($discussion->personaIds())->get()->keyBy('id'));
+        } catch (ValidationException) {
+            return false;
+        }
+
+        return true;
+    }
 
     /**
      * @param  int  $expectedLockVersion  the plan's lock_version as the administrator saw it

@@ -149,8 +149,8 @@ it('sends nothing when the job is delivered again, or after its generation has e
     runStudioDiscussionJob($generation);
     runStudioDiscussionJob($generation);
 
-    $ended = requestTwoComments($this);
-    $ended->forceFill(['status' => StudioDiscussionGenerationStatus::Failed])->save();
+    // Another of the plan's, ended before its job ran.
+    $ended = StudioPlanDiscussionGeneration::factory()->failed()->create(['studio_plan_id' => $this->plan->id]);
     runStudioDiscussionJob($ended);
 
     Http::assertSentCount(1);

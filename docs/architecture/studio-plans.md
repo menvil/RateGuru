@@ -314,6 +314,99 @@ A save of the discussion and a new date for the post take turns on the plan's
 row: the later one, drawn from the version the first replaced, is refused, so
 neither can carry a comment past the dates a post may carry.
 
+### The editor
+
+The editor's Discussion step (`StudioPlanDiscussionEditor`, a Livewire
+component on the plan's editor page) is where an administrator sees, edits and
+generates a Draft's discussion, laid out and working as the prototype's. It is
+drawn once with the page and hidden on the other steps, so its settings and a
+generation it waits for survive every step; a new publication has none until
+its Draft exists, and says so.
+
+It holds no draft of its own: it draws the discussion as saved, each comment
+on the post by its time with its replies under it, labelled C1, C2, … in that
+order, and writes every change to the plan the moment it is made, through
+`SaveStudioDiscussionTreeAction` and nothing else — as the Image step writes
+the photo. A comment is written, answered (comments on the post only) or
+edited in a dialog: its Persona, the comment it replies to, its text and its
+moment after the post in minutes, hours or days; Save writes it, and what the
+action refuses stays by its field. Delete asks first — a comment's replies go
+with it — and Timing changes a comment's moment in place. Each comment's place
+among its siblings follows its time. A deletion, and a comment written again,
+can be undone from the toast that follows, and only that: the comments deleted
+come back as new ones, under their comment when it is still there; the comment
+written again gets its text back. Nothing else of the discussion changes, and
+the next write here — or a Reload — leaves nothing to undo, so Undo never puts
+anything back over a later change.
+
+New choices are of active Personas only (`UserStatus::Active`, through
+`PersonasQuery`): the ones offered to check under Manual and counted there, a
+random team and its count, and the Personas a comment's dialog offers. A
+Limited, Shadowbanned or Banned Persona checked earlier stays checked but takes
+no part while restricted; a comment already written by one still shows it,
+and its dialog keeps it as the author. What a Draft may store is unchanged:
+`SaveStudioDiscussionTreeAction` still takes any living Persona. Select all
+checks up to as many as take part in one discussion
+(`content_studio.discussion_generation.max_personas`), and both the button and
+the count say so.
+
+The plan keeps one `lock_version` for every write, so each write on the page —
+the post's Save draft, a photo, and every change here — tells the other editor
+the version it was written from and the one it left
+(`studio-plan-version-moved`). Since that comes through the browser, the other
+takes the new version only when the write was made from the version it holds,
+one step on, the plan is at that version now, and what it holds of the plan is
+still what the plan has: the post editor compares its fingerprint of the
+post's texts and settings, never re-reading the fields, which may be typed and
+unsaved; the Discussion step compares a fingerprint of the discussion as it
+last read or wrote it. Any other move is somebody else's save, and the next
+write there is refused until Reload. A Reload of either editor is said to the
+other (`studio-plan-reloaded`): the post editor's Reload, or Discard, draws the
+discussion again too; the Discussion step's Reload hands the post editor the
+version it drew, taken while the post is as that editor drew it — what is typed
+staying as typed — and otherwise leaving the post editor asking for its own.
+
+A whole tree keeps the fingerprint of the post's final title and description
+it was written for (`source_text_fingerprint` in its parameters,
+`StudioDiscussionContext::textFingerprint()`: each text trimmed, an empty one
+as none). While the discussion has comments and the whole tree taken in last
+was written for other texts than the plan holds now, the step says so — the
+discussion was generated for an earlier title or description — with
+Regenerate, which asks before replacing the tree, and Keep as is, which records
+the texts it is kept for on that generation (`kept_text_fingerprint`,
+`KeepStudioDiscussionAction`) without changing the plan or its version, until
+they change again. A tree asked for before generations kept their texts says
+nothing.
+
+Generation is asked for there, and only there, on an explicit request, never
+while the post has unsaved changes — a generation is written from what is
+saved — or another is on its way: Generate tree writes a whole discussion,
+Total comments and Top-level comments becoming the comments and replies asked
+for, by the Personas checked or, under Random, as many picked at random as
+asked for, picked only as the tree is generated; Regenerate writes one saved
+comment or reply again. A whole tree that would replace comments asks first,
+and only that question's answer starts it: `confirmGenerate()` does nothing
+unless Generate asked. What the page waits for is always the generation the
+request returned, read from that generation alone — its mode and the comment
+it names — never from the button pressed: when another tab or administrator
+has one on its way, or one finished and not taken in yet, that one is
+returned, the page shows it for what it is — the whole tree in placeholders,
+or that comment written again — and says it was asked for earlier, so nothing
+new was asked for. While a generation this page asked for, or found on its way
+when it opened, is queued or running, the component is read again every few
+seconds, and the moment it is ready it is taken in through
+`ApplyStudioDiscussionGenerationAction`, at the version this page holds — the
+proposal's own checks still apply, so one written from a post or discussion
+that changed since is refused and said, nothing saved being written over. A
+proposal that finished while no page was waiting for it — the page closed or
+reloaded — is taken in when the step opens or reloads, once, through the same
+action, if the plan could still take it in
+(`ApplyStudioDiscussionGenerationAction::fits()`); one it can no longer take
+in stays as history. A whole tree replaces the discussion, with no Undo; a
+comment written again changes its text alone, and Undo gives that text back.
+None planned empties the discussion with no request at all. Nothing on the
+step publishes anything.
+
 ### Not approved yet
 
 The executor publishes a plan's post alone, and approval writes only its
@@ -337,11 +430,10 @@ anything of a Persona.
 
 ### Still to come
 
-Later steps of the discussion stage build on these rows, unchanged: the
-Discussion step of the editor, and publishing the discussion — an action for
-every comment and reply, under the post's, with the full preflight of the
-discussion in place of the refusal above. Writing it with AI is described
-below.
+A later step of the discussion stage builds on these rows, unchanged:
+publishing the discussion — an action for every comment and reply, under the
+post's, with the full preflight of the discussion in place of the refusal
+above. Writing it with AI is described below.
 
 ## Discussion generation
 
@@ -449,9 +541,15 @@ proposal was written; `applied_at` says it was taken in.
   the part and the context, writes the generation `queued` and sends
   `GenerateStudioDiscussionJob` once the transaction commits. The plan and its
   discussion are not touched, its version included. While a generation of the
-  plan is on its way, asking again returns that one: no second paid request
-  from a double click or a second administrator. One on its way longer than
-  `stale_after_seconds` is ended as lost.
+  plan is on its way, asking again returns that one, whatever operation is
+  asked for: no second paid request from a double click, a second tab or a
+  second administrator. So does the plan's last generation once it has
+  finished with a proposal not taken in yet that the plan could still take in
+  (`ApplyStudioDiscussionGenerationAction::fits()`: the checks taking it in
+  makes, read only — a Draft, its context unchanged, a discussion its rules
+  take). The caller reads what it waits for from the generation returned. One
+  the plan can no longer take in stays as history and stands in the way of
+  nothing. One on its way longer than `stale_after_seconds` is ended as lost.
 - `GenerateStudioDiscussionJob` carries the generation's id and attempt id only;
   `tries` 1, `timeout` 75, `failOnTimeout`, the request's own timeout 45 s. It
   claims its generation first (`StartStudioDiscussionGenerationAction`): only a
@@ -473,7 +571,8 @@ proposal was written; `applied_at` says it was taken in.
 ### Taking a proposal in
 
 `ApplyStudioDiscussionGenerationAction::handle($admin, $plan, $generationId,
-$expectedLockVersion)` — the trusted step the Discussion screen will offer.
+$expectedLockVersion)` — the trusted step the editor's Discussion step takes
+the moment a generation it waits for is ready.
 Before any lock it reads every Persona the check and the save depend on — those
 the proposal was written for, even one none of whose comments made it in, whose
 profile the hash holds; the authors of the discussion it was written from,

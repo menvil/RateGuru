@@ -120,6 +120,27 @@ it('offers living personas as a plan\'s author, searched as the list is, a few a
         ->and($query->choices('', 10)->first()->relationLoaded('avatarAsset'))->toBeTrue();
 });
 
+it('offers only active personas to a discussion\'s team, picked at random among them and counted', function () {
+    $owl = listedPersona(['username' => 'night_owl', 'created_at' => now()->subDay()]);
+    $lark = listedPersona(['username' => 'early_lark']);
+    $restricted = collect([UserStatus::Limited, UserStatus::Banned, UserStatus::Shadowbanned])
+        ->map(fn (UserStatus $status) => listedPersona(['username' => 'owl_'.$status->value, 'status' => $status]));
+    User::factory()->persona()->tombstoned()->create(['username' => 'gone_owl']);
+    User::factory()->create(['username' => 'owl_member']);
+    $query = app(PersonasQuery::class);
+
+    expect($query->activeChoices('', 10)->pluck('id')->all())->toBe([$lark->id, $owl->id])
+        ->and($query->activeChoices('owl', 10)->pluck('id')->all())->toBe([$owl->id])
+        ->and($query->activeChoices('', 1)->pluck('id')->all())->toBe([$lark->id])
+        ->and($query->activeCount())->toBe(2)
+        ->and($query->randomActive(10)->pluck('id')->all())->toEqualCanonicalizing([$owl->id, $lark->id])
+        ->and($query->randomActive(1))->toHaveCount(1)
+        ->and($query->active($owl->id)?->id)->toBe($owl->id)
+        ->and($restricted->map(fn (User $persona) => $query->active($persona->id))->filter()->all())->toBe([])
+        // A restricted one is still a living one: a plan's author, or a comment's kept.
+        ->and($query->choosable($restricted->first()->id)?->id)->toBe($restricted->first()->id);
+});
+
 it('finds a persona by id only while it is a living one', function () {
     $owl = listedPersona();
     $gone = User::factory()->persona()->tombstoned()->create();

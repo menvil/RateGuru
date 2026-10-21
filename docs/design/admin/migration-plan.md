@@ -332,8 +332,11 @@ suggestions written from that analysis — ten titles and ten descriptions a bat
 request asked for only by Generate, every batch kept for the photo and its analysis and the newest one shown —
 beside the photo's context, as the prototype lays out Titles & texts, in a component of its own that alone polls
 while a batch is on its way; choosing a title or a description puts it in the final field, unsaved, saved only
-by Save draft. Everything else a later stage brings is left out rather than drawn: votes, the
-discussion, approval, the action plan and the queue; the editor says where each will come. The kit
+by Save draft. The Discussion step works as the prototype's: its settings, Generate tree, and the discussion tree
+with Reply, Edit, Regenerate and Delete in a dialog or a confirmation, and its Timing — every change written to the
+plan at once, what AI writes taken in the moment it is ready, the component alone polling while a generation is on
+its way. Everything else a later stage brings is left out rather than drawn: votes, approval, the action plan and the
+queue; the editor says where each will come. The kit
 gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
 kept at the foot of the window are the screen's own.
@@ -369,16 +372,20 @@ discussion — comments on the post and replies to them, two levels only, up to 
 as seconds after the post — stored a row per comment in `studio_plan_discussion_nodes`, each keeping its id through
 every edit. `SaveStudioDiscussionTreeAction` saves the whole discussion at once under the plan's lock and version,
 held to one set of rules (`StudioDiscussionValidationRules`) for the editor and the AI generator alike
-(`docs/architecture/studio-plans.md`, "The discussion"). Nothing on screen shows or edits a discussion yet, nothing
-generates one, and nothing publishes one: until discussions can be published, a plan that prepares one is not
-approved (`unsupported_discussion`). Its second step is in code: the discussion written by OpenAI — a whole one by the
+(`docs/architecture/studio-plans.md`, "The discussion"). Nothing publishes one: until discussions can be published,
+a plan that prepares one is not approved (`unsupported_discussion`). Its second step is in code: the discussion written by OpenAI — a whole one by the
 Personas an administrator chose, or one comment, reply or branch of it again — from the post's final texts, the
 photo's stored analysis and each Persona's profile, on an explicit request, through the queue, one paid request
 each. What comes back is a proposal, kept with every earlier one in `studio_plan_discussion_generations`; nothing
 reaches the plan's discussion until an administrator takes it in (`ApplyStudioDiscussionGenerationAction`), and only
 while the plan still has what it was written from (`docs/architecture/studio-plans.md`, "Discussion generation").
-Still to come in this phase: the editor's Discussion step, which shows, edits, generates and takes in, and publishing
-the discussion as comments and replies. Phase 5 is not finished.
+Its third step is in code: the editor's Discussion step (`StudioPlanDiscussionEditor`), working as the prototype's:
+settings, Generate tree — asked first when it would replace comments, its tree taken in the moment it is ready —
+and the discussion tree, each comment written, answered or edited in a dialog, written again by Regenerate or
+deleted, Delete and Regenerate undone from their toast until the next change, every change written to the plan at
+once, active Personas only for a new choice, and a tree written for an earlier title or description said so, with
+Regenerate and Keep as is (`docs/architecture/studio-plans.md`, "The editor"). Still to
+come in this phase: publishing the discussion as comments and replies. Phase 5 is not finished.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

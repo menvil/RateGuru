@@ -59,6 +59,53 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
             ->get(['users.*']);
     }
 
+    /**
+     * The active Personas a discussion's team is checked from, matching the
+     * search as choices() does, newest first, at most $limit of them. A
+     * Limited, Shadowbanned or Banned one is not offered for a new choice,
+     * though a discussion saved by hand may still have one.
+     *
+     * @return Collection<int, User>
+     */
+    public function activeChoices(string $search, int $limit): Collection
+    {
+        return $this->narrowed($search, UserStatus::Active, null)
+            ->with('avatarAsset.variants')
+            ->orderByDesc('users.created_at')
+            ->orderByDesc('users.id')
+            ->limit(max(1, $limit))
+            ->get(['users.*']);
+    }
+
+    /**
+     * As many active Personas as asked for, at most, picked at random — the
+     * team a discussion is written by when an administrator asks for a random
+     * one, picked as the tree is generated. Never every Persona at once.
+     *
+     * @return Collection<int, User>
+     */
+    public function randomActive(int $count): Collection
+    {
+        return $this->personas()
+            ->where('users.status', UserStatus::Active)
+            ->with('avatarAsset.variants')
+            ->inRandomOrder()
+            ->limit(max(1, $count))
+            ->get(['users.*']);
+    }
+
+    /** How many active Personas there are: what a random team is picked among. */
+    public function activeCount(): int
+    {
+        return $this->personas()->where('users.status', UserStatus::Active)->count();
+    }
+
+    /** The active Persona with this id, if there is one: what a discussion's team, or a new comment's author, may be. */
+    public function active(int $id): ?User
+    {
+        return $this->personas()->where('users.status', UserStatus::Active)->whereKey($id)->first();
+    }
+
     /** The living Persona with this id, if there is one: what a publication plan's author may be. */
     public function choosable(int $id): ?User
     {
