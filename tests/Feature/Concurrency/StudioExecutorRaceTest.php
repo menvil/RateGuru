@@ -448,9 +448,11 @@ it('lets a comment run and a moderator hiding its post, or a reply run and a mod
     }
 })->with(['a comment' => false, 'a reply' => true])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
 
-it('writes a Persona\'s comment beside a member\'s own comment or vote on the same post, without deadlocking', function (string $beside) {
+it('writes a Persona\'s comment beside a member\'s own comment or vote on the same post, without deadlocking', function (string $beside, bool $own) {
     $db = committedConnection();
-    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    [$author, $other] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    // Another Persona's comment, or the post's own author answering under it.
+    $commenter = $own ? $author : $other;
     $admin = User::factory()->admin()->connection('committed_peer')->create();
     $member = User::factory()->connection('committed_peer')->create();
     ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
@@ -471,6 +473,6 @@ it('writes a Persona\'s comment beside a member\'s own comment or vote on the sa
             ->and((int) $db->table('posts')->where('id', $post->id)->value('comments_count'))->toBe($beside === 'comment' ? 2 : 1);
     } finally {
         $db->table('comments')->where('user_id', $member->id)->delete();
-        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id, $member->id], $directory);
+        forgetExecutorRace($db, [$author->id, $other->id, $admin->id, $member->id], $directory);
     }
-})->with(['comment', 'vote'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+})->with(['comment', 'vote'])->with(['another Persona\'s comment' => false, 'the post\'s author\'s own' => true])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);

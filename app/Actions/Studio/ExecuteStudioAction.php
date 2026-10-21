@@ -385,17 +385,21 @@ final class ExecuteStudioAction
      * before the plan and the post: the commenting Persona's, for update, as
      * AddCommentAction takes it; and the post's author's — who
      * PostCommentedNotification goes to, whose row the notification locks
-     * again — so no user is ever first locked after the post.
+     * again — so no user is ever first locked after the post. The two may be
+     * one: a post's author answering under its own post.
      *
-     * On PostgreSQL the author's row is locked for an update of no key: a
-     * member's comment or vote on the same post updates the post twice in its
-     * transaction, and PostgreSQL checks the second update's foreign keys by
-     * taking FOR KEY SHARE on the author's row while it holds the post — which
-     * FOR UPDATE would block, with each side then waiting for the other. FOR NO
-     * KEY UPDATE leaves that check alone, and still takes turns with a
-     * sanction, an anonymization or another notification of the author, all
-     * of them FOR UPDATE; the notification only strengthens the lock this run
-     * already holds. Other engines check no key on such an update.
+     * On PostgreSQL the author's row is locked for an update of no key,
+     * whether or not the author is the one commenting: a member's comment or
+     * vote on the same post updates the post twice in its transaction, and
+     * PostgreSQL checks the second update's foreign keys by taking FOR KEY
+     * SHARE on the author's row while it holds the post — which FOR UPDATE
+     * would block, with each side then waiting for the other. FOR NO KEY
+     * UPDATE leaves that check alone, and still takes turns with a sanction,
+     * an anonymization or another notification of the author, all of them FOR
+     * UPDATE; AddCommentAction's own lock of its commenter, and the
+     * notification's, only strengthen the lock this run already holds, at a
+     * moment no member's write of the post can be holding that check. Other
+     * engines check no key on such an update.
      *
      * @return Collection<int, User> keyed by id; a row gone is absent
      */
@@ -408,7 +412,7 @@ final class ExecuteStudioAction
 
         foreach ($ids as $id) {
             $query = User::query()->whereKey($id);
-            $row = ($id === $authorId && $id !== $commenterId && $keyless
+            $row = ($id === $authorId && $keyless
                 ? $query->lock('for no key update')
                 : $query->lockForUpdate())->first();
 

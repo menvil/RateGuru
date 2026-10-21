@@ -164,10 +164,10 @@ found by it.
 `studio_plan_actions` (`StudioAction`) is Content Studio's business queue: one
 row per scheduled domain write of an approved plan, kept in the main database
 (`docs/architecture/content-studio-phase-0.md`, E2–E6). Approval writes the
-plan's root action and nothing else: `create_post`, its Persona as the actor,
-no parent, an empty payload — the approved plan, which nothing writes any more,
-is what it publishes — `pending`, untried (`attempts` 0). Under it, one
-`create_comment` for every comment of the prepared discussion, its parent the
+plan's root action, `create_post` — its Persona as the actor, no parent, an
+empty payload: the approved plan, which nothing writes any more, is what it
+publishes — `pending`, untried (`attempts` 0); then the discussion's actions
+under it: one `create_comment` for every comment of the prepared discussion, its parent the
 `create_post`, and one `create_reply` for every reply, its parent the
 `create_comment` of the comment it answers — the parent taken from the
 discussion's own tree, never from a comment's text or order:
@@ -765,13 +765,17 @@ The run has two transaction boundaries:
    again, so no user is first locked after the post; the plan, still Running;
    the post, still able to receive comments (`canReceiveComments()`); and, for
    a reply, the comment it answers — still there, visible, a comment on this
-   post and no reply itself. On PostgreSQL the post's author's row is locked
-   for an update of no key (`FOR NO KEY UPDATE`): a member's comment or vote on
-   the same post updates the post twice in its own transaction, and PostgreSQL
-   checks that second update's foreign keys with `FOR KEY SHARE` on the author's
-   row while holding the post, which `FOR UPDATE` would block, each side then
+   post and no reply itself. The post's author may be the commenting Persona
+   itself, answering under its own post: its row is then locked once. On
+   PostgreSQL the post's author's row is locked for an update of no key (`FOR
+   NO KEY UPDATE`), whoever comments: a member's comment or vote on the same
+   post updates the post twice in its own transaction, and PostgreSQL checks
+   that second update's foreign keys with `FOR KEY SHARE` on the author's row
+   while holding the post, which `FOR UPDATE` would block, each side then
    waiting for the other; a sanction, an anonymization or a notification of
-   the author still takes turns with the run. The Persona must still be a
+   the author still takes turns with the run, and `AddCommentAction`'s own lock
+   of its commenter and the notification's only strengthen the lock the run
+   holds. The Persona must still be a
    Persona able to comment (`canComment()`). The comment is written through
    `AddCommentAction` with the action's `occurs_at` as its `created_at` and
    `updated_at` — every lock it takes already held — under

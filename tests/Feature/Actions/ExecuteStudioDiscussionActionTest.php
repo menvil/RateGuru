@@ -287,6 +287,27 @@ it('publishes the other Personas\' comments on a post whose author was sanctione
         ->and(StudioPlan::query()->findOrFail($actions['post']->studio_plan_id)->status)->toBe(StudioPlanStatus::Completed);
 });
 
+it('publishes the post\'s author\'s own comments under its post, telling it only of the others\'', function () {
+    [$plan, $saved] = approvableStudioPlanWithDiscussion([
+        'author_user_id' => $this->commenter->id,
+        'publication_mode' => StudioPlanPublicationMode::AtDate,
+        'publish_at' => CarbonImmutable::parse('2025-06-10 10:00:00'),
+    ], $this->commenter, $this->replier);
+    approveStudioPlan($this->admin, $plan);
+    $actions = studioActionsByNode($plan, $saved);
+
+    runStudioRound();
+    runStudioRound();
+    runStudioRound();
+
+    expect(Comment::query()->where('user_id', $this->commenter->id)->count())->toBe(3)
+        ->and(Comment::query()->count())->toBe(6)
+        ->and(writtenComment($actions['c1'])->post_id)->toBe($actions['post']->fresh()->result_id)
+        // The replies by the other Persona, never its own comments.
+        ->and($this->commenter->notifications()->where('type', PostCommentedNotification::class)->count())->toBe(3)
+        ->and(StudioPlan::query()->findOrFail($plan->id)->status)->toBe(StudioPlanStatus::Completed);
+});
+
 it('tells the post\'s author of each comment once, with the real time, and nobody of a comment taken back', function () {
     Carbon::setTestNow('2026-10-20 10:00:00');
     $actions = approvedDiscussion($this, '2025-06-10 10:00:00');
