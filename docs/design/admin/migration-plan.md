@@ -397,8 +397,12 @@ Persona at a moment kept as seconds after the post — stored a row per vote in 
 target whichever way it goes, each keeping its id through every edit. `SaveStudioVotesAction` saves them all at once
 under the plan's lock and version, held to one set of rules (`StudioVoteValidationRules`); a new date for the post and
 a save of the discussion are held to the votes too, and a plan with votes is not approved until they can be cast
-(`docs/architecture/studio-plans.md`, "The votes"). Nothing votes and nothing shows them yet. Still to come: the Post
-Votes step, the votes in the Discussion step, and the vote actions and their casting.
+(`docs/architecture/studio-plans.md`, "The votes"). Its second step is in code: the Post step's Votes tab
+(`StudioPlanPostVotesEditor`), laid out and working as the prototype's StudioPostVotes beside Titles & texts — the
+post's voters drawn at random or chosen, never its author; up and down votes, the answers to each rating question with
+Even split, and their timing — built as a preview and saved exactly as shown, the discussion's votes kept
+(`docs/architecture/studio-plans.md`, "The Post votes editor"). Its staging check is still to be done. Nothing votes
+yet. Still to come: the votes in the Discussion step, and the vote actions and their casting.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

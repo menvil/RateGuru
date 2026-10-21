@@ -17,6 +17,7 @@ use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\RatingGroup;
@@ -51,7 +52,9 @@ use Throwable;
  * A publication plan as its editor holds it (CreateStudioPlan,
  * EditStudioPlan), in four steps — Image, Post, Discussion and Publication —
  * that only change what is on screen: moving between them saves nothing and
- * loses nothing.
+ * loses nothing. The Post step has two tabs, its titles and texts and its
+ * votes (StudioPlanPostVotesEditor), which Continue and Back go through in
+ * turn, as the prototype does.
  *
  * What is typed or chosen is a draft until Save in the top bar (NAV-02): the
  * browser compares it to `saved` to count what is unsaved, and Discard puts
@@ -80,6 +83,9 @@ trait EditsStudioPlan
     /** The most Personas, and tags, offered at once to choose from. */
     private const CHOICES = 8;
 
+    /** The other editors on the page whose writes and Reloads this one follows: the discussion's and the post votes'. */
+    private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE];
+
     /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
     private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
 
@@ -90,6 +96,14 @@ trait EditsStudioPlan
      */
     #[Locked]
     public string $step = 'image';
+
+    /**
+     * The Post step's tab on screen: its titles and texts, or its votes
+     * (StudioPlanPostVotesEditor). Changed only through showPostTab() and the
+     * steps' Back and Continue, never set from the browser.
+     */
+    #[Locked]
+    public string $postTab = 'texts';
 
     /** The post's title. Not `$title`, which is the page's own. */
     public string $postTitle = '';
@@ -182,13 +196,43 @@ trait EditsStudioPlan
         }
     }
 
+    /** Shows one of the Post step's tabs; nothing is saved and nothing typed is lost. */
+    public function showPostTab(mixed $tab): void
+    {
+        if ($tab === 'texts' || $tab === 'votes') {
+            $this->postTab = $tab;
+        }
+    }
+
+    /** Continue: from the Post step's texts to its votes, as the prototype goes, and on to the next step from there. */
     public function nextStep(): void
     {
+        if ($this->step === 'post' && $this->postTab === 'texts') {
+            $this->postTab = 'votes';
+
+            return;
+        }
+
+        if ($this->step === 'image') {
+            $this->postTab = 'texts';
+        }
+
         $this->goToStep($this->stepAt(1));
     }
 
+    /** Back: from the Post step's votes to its texts, and from the Discussion step to the post's votes. */
     public function previousStep(): void
     {
+        if ($this->step === 'post' && $this->postTab === 'votes') {
+            $this->postTab = 'texts';
+
+            return;
+        }
+
+        if ($this->step === 'discussion') {
+            $this->postTab = 'votes';
+        }
+
         $this->goToStep($this->stepAt(-1));
     }
 
@@ -475,6 +519,7 @@ trait EditsStudioPlan
             return app(StudioPlanValidationRules::class)->validated($this->draftData());
         } catch (ValidationException $exception) {
             $this->step = self::stepOf(array_key_first($exception->errors()) ?? '') ?? $this->step;
+            $this->postTab = $this->step === 'post' ? 'texts' : $this->postTab;
 
             throw $exception;
         }
@@ -625,8 +670,10 @@ trait EditsStudioPlan
     }
 
     /**
-     * The discussion's editor on this page (StudioPlanDiscussionEditor) moved
-     * the plan's version with a save of its own: taken, when it was written
+     * Another editor on this page — the discussion's
+     * (StudioPlanDiscussionEditor) or the post votes'
+     * (StudioPlanPostVotesEditor) — moved the plan's version with a save of
+     * its own: taken, when it was written
      * from the version this editor holds, the plan is at the version it says
      * now, and the post's texts and settings are still the ones this editor
      * drew (holdsSaved()) — what the browser says is never enough. The
@@ -637,7 +684,7 @@ trait EditsStudioPlan
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
-        if ($source !== 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+        if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($previous) || ! is_numeric($current) || (int) $current === $this->lockVersion) {
             return;
         }
@@ -653,8 +700,8 @@ trait EditsStudioPlan
     }
 
     /**
-     * The discussion's editor on this page drew the plan again — its Reload
-     * — at the version it says: taken here too when the plan is at it with
+     * Another editor on this page — the discussion's or the post votes' —
+     * drew the plan again — its Reload — at the version it says: taken here too when the plan is at it with
      * the post as this editor drew it, what is typed staying as typed.
      * Otherwise the post changed as well, and this editor asks for its own
      * Reload.
@@ -662,7 +709,7 @@ trait EditsStudioPlan
     #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
     public function followReload(mixed $planId, mixed $current, mixed $source = null): void
     {
-        if ($source !== 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+        if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($current) || (int) $current === $this->lockVersion) {
             return;
         }
@@ -686,7 +733,7 @@ trait EditsStudioPlan
     /** Whether the plan's texts and settings are still the ones this editor last drew or saved. */
     abstract protected function holdsSaved(StudioPlan $plan): bool;
 
-    /** Says to the discussion's editor on the page that this one drew the plan again, at the version it holds now. */
+    /** Says to the other editors on the page that this one drew the plan again, at the version it holds now. */
     protected function saidReloaded(): void
     {
         if ($this->planId !== 0) {
@@ -704,8 +751,8 @@ trait EditsStudioPlan
 
     /**
      * Takes the version a write of this editor's left, and says so to the
-     * discussion's editor on the page, so neither takes the other's write for
-     * somebody else's.
+     * other editors on the page, so none takes another's write for somebody
+     * else's.
      */
     protected function movedVersion(int $current): void
     {
@@ -736,7 +783,7 @@ trait EditsStudioPlan
         return [
             'steps' => collect(self::STEPS)->map(fn (array $step, string $key): array => ['key' => $key, 'label' => $step[0], 'caption' => $step[1]])->values()->all(),
             'stepNumber' => array_search($this->step, array_keys(self::STEPS), true) + 1,
-            'stepLabel' => self::STEPS[$this->step][0] ?? '',
+            'stepLabel' => ($this->step === 'post' ? 'Post · '.($this->postTab === 'votes' ? 'Votes' : 'Titles & texts') : self::STEPS[$this->step][0] ?? ''),
             'shownPhoto' => $photo,
             // The card is about the plan the photo is kept on, and drawn afresh for each photo.
             'analysisPlanId' => $this->planId,

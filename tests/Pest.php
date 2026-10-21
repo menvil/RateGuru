@@ -35,6 +35,7 @@ use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -13756,6 +13757,12 @@ function applyStudioDiscussion(User $admin, StudioPlan $plan, StudioPlanDiscussi
 function discussionEditor(StudioPlan $plan): Testable
 {
     return Livewire::test(StudioPlanDiscussionEditor::class, ['planId' => $plan->id]);
+}
+
+/** The Post step's Votes editor of this plan, as the plan's editor page draws it. */
+function postVotesEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanPostVotesEditor::class, ['planId' => $plan->id]);
 }
 
 /**

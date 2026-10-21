@@ -52,7 +52,7 @@ it('asks for a batch in the chosen tone, polls until it is written, and puts the
     $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
 
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'ready');
 
     expect($page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Irony', 'Neutral'])
