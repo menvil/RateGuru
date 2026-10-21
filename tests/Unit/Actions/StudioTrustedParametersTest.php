@@ -7,11 +7,12 @@ uses(TestCase::class);
 /**
  * A trip-wire for the trusted parameters only Content Studio's executor may
  * give: CreatePostData's stored image and dates (`imageAssetId`, `createdAt`,
- * `updatedAt`) and ApprovePostAction's publication date (`publishedAt`, its
- * fourth argument). Nothing a visitor or an administrator's screen sends may
- * reach them — not by name, not by position, not by spreading a request's
- * array into the data. The source is read token by token, its comments left
- * out, so a file that only mentions them in prose is not one that uses them.
+ * `updatedAt`), ApprovePostAction's publication date (`publishedAt`, its
+ * fourth argument) and AddCommentAction's comment date (`createdAt`, its
+ * fifth). Nothing a visitor or an administrator's screen sends may reach them
+ * — not by name, not by position, not by spreading a request's array into the
+ * data. The source is read token by token, its comments left out, so a file
+ * that only mentions them in prose is not one that uses them.
  */
 const STUDIO_TRUSTED_POST_PARAMETERS = ['imageAssetId', 'createdAt', 'updatedAt', 'publishedAt'];
 
@@ -128,20 +129,20 @@ function namesClass(?PhpToken $token, string $class): bool
 }
 
 /**
- * Where each call to ApprovePostAction's `handle(` opens, however the file
- * holds the action: resolved there (`app(ApprovePostAction::class)->handle(`),
- * or under any name it types as one — `ApprovePostAction $approve` gives
+ * Where each call to an action's `handle(` opens, however the file holds the
+ * action: resolved there (`app(ApprovePostAction::class)->handle(`), or under
+ * any name it types as one — `ApprovePostAction $approve` gives
  * `$this->approve->handle(` and `$approve->handle(`.
  *
  * @param  list<PhpToken>  $tokens
  * @return Closure(list<PhpToken>, int): bool
  */
-function opensApproval(array $tokens): Closure
+function opensHandleOf(array $tokens, string $class): Closure
 {
     $names = [];
 
     foreach ($tokens as $index => $token) {
-        if (namesClass($token, 'ApprovePostAction') && ($tokens[$index + 1] ?? null)?->is(T_VARIABLE)) {
+        if (namesClass($token, $class) && ($tokens[$index + 1] ?? null)?->is(T_VARIABLE)) {
             $names[] = ltrim($tokens[$index + 1]->text, '$');
         }
     }
@@ -151,7 +152,7 @@ function opensApproval(array $tokens): Closure
         && ($all[$at - 2] ?? null)?->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR])
         && (
             // `…(ApprovePostAction::class)->handle(`
-            (($all[$at - 3]->text ?? null) === ')' && ($all[$at - 4]->text ?? null) === 'class' && namesClass($all[$at - 6] ?? null, 'ApprovePostAction'))
+            (($all[$at - 3]->text ?? null) === ')' && ($all[$at - 4]->text ?? null) === 'class' && namesClass($all[$at - 6] ?? null, $class))
             // `$this->approve->handle(`
             || (($all[$at - 3] ?? null)?->is(T_STRING) && in_array($all[$at - 3]->text, $names, true) && ($all[$at - 4] ?? null)?->is([T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR]))
             // `$approve->handle(`
@@ -217,7 +218,7 @@ it('lets nothing but the executor give ApprovePostAction a publication date', fu
             continue;
         }
 
-        $calls = callArguments($tokens, opensApproval($tokens));
+        $calls = callArguments($tokens, opensHandleOf($tokens, 'ApprovePostAction'));
 
         // A file that holds the action in a way this guard does not recognise
         // would escape it: it must be taught the new shape, not skip the file.
@@ -235,6 +236,42 @@ it('lets nothing but the executor give ApprovePostAction a publication date', fu
     }
 
     expect(array_values(array_unique($approvers)))->toContain(STUDIO_EXECUTOR);
+});
+
+it('lets nothing but the executor give AddCommentAction a date', function () {
+    $commenters = [];
+
+    foreach (appSourceTokens() as $path => $tokens) {
+        if ($path === 'Actions/Comments/AddCommentAction.php'
+            || array_filter($tokens, fn (PhpToken $token): bool => namesClass($token, 'AddCommentAction')) === []) {
+            continue;
+        }
+
+        $calls = callArguments($tokens, opensHandleOf($tokens, 'AddCommentAction'));
+
+        // A file that holds the action without calling it — a constant read
+        // from it — gives it nothing; one that calls it in a shape this guard
+        // does not know would escape it, so every call must be found.
+        if (preg_match_all('/->\s*handle\s*\(/', implode(' ', array_map(fn (PhpToken $token): string => $token->text, $tokens))) === 0) {
+            continue;
+        }
+
+        expect($calls)->not->toBe([], "{$path} names AddCommentAction, but no call to it is recognised there.");
+
+        foreach ($calls as $arguments) {
+            $commenters[] = $path;
+
+            if ($path !== STUDIO_EXECUTOR) {
+                expect(namesTrustedParameter($arguments))->toBeFalse("{$path} gives AddCommentAction a date.")
+                    ->and(spreadsAnArray($arguments))->toBeFalse("{$path} spreads an array into AddCommentAction.")
+                    ->and(argumentCount($arguments))->toBeLessThanOrEqual(4, "{$path} gives AddCommentAction a date by position.");
+            }
+        }
+    }
+
+    expect(array_values(array_unique($commenters)))->toContain(STUDIO_EXECUTOR)
+        ->toContain('Livewire/Comments/CommentForm.php')
+        ->toContain('Services/Comments/CommentReplyService.php');
 });
 
 it('keeps every trusted name out of the screens a request reaches', function () {
@@ -266,7 +303,7 @@ it('catches what it is there to catch', function () {
         ->and(namesClass($tokens('new Posts\\CreatePostData($t);')[2], 'CreatePostData'))->toBeTrue()
         ->and(namesClass($tokens('new CreatePostDataFactory($t);')[2], 'CreatePostData'))->toBeFalse();
 
-    $approvals = fn (string $code): array => callArguments($tokens($code), opensApproval($tokens($code)));
+    $approvals = fn (string $code): array => callArguments($tokens($code), opensHandleOf($tokens($code), 'ApprovePostAction'));
 
     // The approval found however the action is held, and nothing else's handle(.
     expect($approvals('app(\\App\\Actions\\Moderation\\ApprovePostAction::class)->handle($m, $p, null, $at);'))->toHaveCount(1)
@@ -274,4 +311,11 @@ it('catches what it is there to catch', function () {
         ->and($approvals('function run(ApprovePostAction $action) { $action->handle($m, $p, null, $at); }'))->toHaveCount(1)
         ->and(argumentCount($approvals('function run(ApprovePostAction $action) { $action->handle($m, $p, null, $at); }')[0]))->toBe(4)
         ->and($approvals('function run(ApprovePostAction $action, RejectPostAction $reject) { $reject->handle($m, $p, $r, $x); }'))->toBe([]);
+
+    $comments = fn (string $code): array => callArguments($tokens($code), opensHandleOf($tokens($code), 'AddCommentAction'));
+
+    // A comment's date found by position and by name, however the action is held.
+    expect(argumentCount($comments('function __construct(private AddCommentAction $addComment) {} $this->addComment->handle($u, $p, $b, $parent, $at);')[0]))->toBe(5)
+        ->and(namesTrustedParameter($comments('function run(AddCommentAction $add) { $add->handle(user: $u, post: $p, body: $b, createdAt: $at); }')[0]))->toBeTrue()
+        ->and(argumentCount($comments('app(AddCommentAction::class)->handle(user: $u, post: $p, body: $b, parent: $c);')[0]))->toBe(4);
 });

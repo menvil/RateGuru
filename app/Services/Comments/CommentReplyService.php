@@ -33,7 +33,7 @@ final class CommentReplyService
         $parent = $this->replyTargetQuery($postId)->find($parentCommentId);
 
         if ($post === null || $parent === null) {
-            throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
+            throw CannotCommentException::becauseReplyTargetUnavailable();
         }
 
         return $this->addCommentAction->handle(
