@@ -455,9 +455,10 @@ it('asks the parent again right before writing: a reply never written under a co
     dispatchDueStudioActions();
     $locks = 0;
 
-    // Between the reply's claim and its run, its comment's action is reopened by hand.
+    // Between the reply's claim and its run — the second read of its row, the
+    // first being the claim's — its comment's action is reopened by hand.
     DB::beforeExecuting(function (string $sql) use ($actions, &$locks): void {
-        if (preg_match('/from\s+["`]?studio_plan_actions["`]?\s+where/i', $sql) === 1 && str_contains(strtolower($sql), 'for update') && ++$locks === 2) {
+        if (preg_match('/^\s*select\s+\*\s+from\s+["`]?studio_plan_actions["`]?\s+where/i', $sql) === 1 && ++$locks === 2) {
             DB::table('studio_plan_actions')->where('id', $actions['c1']->id)->update(['status' => 'failed']);
         }
     });
@@ -475,7 +476,7 @@ it('writes nothing for a comment\'s attempt recovery has already sent again', fu
     $locks = 0;
 
     DB::beforeExecuting(function (string $sql) use ($actions, &$locks): void {
-        if (preg_match('/from\s+["`]?studio_plan_actions["`]?\s+where/i', $sql) === 1 && str_contains(strtolower($sql), 'for update') && ++$locks === 2) {
+        if (preg_match('/^\s*select\s+\*\s+from\s+["`]?studio_plan_actions["`]?\s+where/i', $sql) === 1 && ++$locks === 2) {
             DB::table('studio_plan_actions')->where('id', $actions['c1']->id)->update(['status' => 'dispatched', 'attempts' => 2, 'claimed_at' => null]);
         }
     });
