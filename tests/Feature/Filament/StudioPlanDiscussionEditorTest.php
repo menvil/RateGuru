@@ -239,6 +239,21 @@ it('asks before deleting, a comment with its replies as a branch, and undoes it 
         ->and(StudioDiscussionNode::query()->where('body', 'Where is this?')->sole()->id)->toBe($saved->ids['b']);
 });
 
+it('forgets Undo once the discussion is written or read again, so it never puts the old one back over a later change', function () {
+    $saved = savedFour($this);
+    $editor = discussionEditor($this->plan)->call('askDelete', $saved->ids['a1'])->call('confirmDelete');
+    $token = $editor->get('undo')['token'];
+
+    $editor->call('setOffset', $saved->ids['b'], 7200)->assertSet('undo', null)
+        ->dispatch('undo-studio-discussion', token: $token);
+
+    expect(StudioDiscussionNode::query()->whereKey($saved->ids['a1'])->exists())->toBeFalse()
+        ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
+
+    $editor->call('askDelete', $saved->ids['b'])->call('confirmDelete')->assertSet('undo', fn ($undo) => $undo !== null)
+        ->dispatch('reload-studio-discussion')->assertSet('undo', null);
+});
+
 it('asks before deleting a reply alone, and cancels', function () {
     $saved = savedFour($this);
 

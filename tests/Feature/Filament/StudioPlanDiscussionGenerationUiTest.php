@@ -194,6 +194,20 @@ it('replaces a discussion with comments once confirmed, ids new', function () {
         ->and(StudioDiscussionNode::query()->whereKey(array_values($saved->ids))->exists())->toBeFalse();
 });
 
+it('leaves nothing to undo once a new tree is taken in, so an earlier Undo cannot put the old discussion back over it', function () {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    $editor = discussionEditor($this->plan)->call('askDelete', $saved->ids['b'])->call('confirmDelete');
+    $token = $editor->get('undo')['token'];
+
+    $editor->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0);
+    runStudioDiscussionJob(StudioPlanDiscussionGeneration::query()->sole());
+    $editor->call('check')->assertSet('undo', null)
+        ->dispatch('undo-studio-discussion', token: $token);
+
+    expect(StudioDiscussionNode::query()->pluck('body')->all())->toContain('Somebody owns this harbour now.')->not->toContain('Lovely light.');
+});
+
 it('says why a tree was not taken in, keeping the discussion as it is', function (Closure $settle, string $message) {
     savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
     Carbon::setTestNow('2026-10-20 10:00:00');

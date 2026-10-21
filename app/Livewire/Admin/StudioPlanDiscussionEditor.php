@@ -730,6 +730,7 @@ final class StudioPlanDiscussionEditor extends Component
         $this->dialog = null;
         $this->deleting = null;
         $this->confirmingGenerate = false;
+        $this->undo = null;
 
         if ($plan === null) {
             $this->gone = true;
@@ -741,12 +742,17 @@ final class StudioPlanDiscussionEditor extends Component
         $this->closed = ! $plan->isDraft();
     }
 
-    /** Takes the version a write left, and says it to the editor around this one. */
+    /**
+     * Takes the version a write left, and says it to the editor around this
+     * one. What Undo would put back is the discussion before an earlier
+     * change, so it goes: putting it back now would undo this write too.
+     */
     private function settle(SavedStudioDiscussion $saved): void
     {
         $previous = $this->lockVersion;
         $this->lockVersion = $saved->lockVersion;
         $this->failure = null;
+        $this->undo = null;
 
         $this->dispatch(self::VERSION_EVENT, planId: $this->planId, previous: $previous, current: $this->lockVersion, source: 'discussion');
     }
@@ -782,11 +788,11 @@ final class StudioPlanDiscussionEditor extends Component
             return null;
         }
 
+        $this->settle($saved);
+
         if ($remember) {
             $this->remember($before);
         }
-
-        $this->settle($saved);
 
         return $saved;
     }
