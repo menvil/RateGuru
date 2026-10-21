@@ -66,7 +66,8 @@ it('draws every step of the editor at every width without scrolling the page sid
 
     foreach (['Image', 'Post', 'Discussion', 'Publication'] as $index => $label) {
         $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][{$index}].click()");
-        waitForScript($page, "document.querySelector('.rg-admin-studio__position')?.textContent.trim()", 'Step '.($index + 1).' of 4 · '.$label);
+        // The Post step opens on its first tab.
+        waitForScript($page, "document.querySelector('.rg-admin-studio__position')?.textContent.trim()", 'Step '.($index + 1).' of 4 · '.$label.($label === 'Post' ? ' · Titles & texts' : ''));
 
         $steps[$label] = $page->script(<<<'JS'
             (() => ({

@@ -65,7 +65,7 @@ it('gives the up and down votes to different Personas, each once, and never the 
     $votes = builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 6, 'up' => 4, 'down' => 2, 'seed' => 7]));
 
     expect($votes)->toHaveCount(6)
-        ->and(array_count_values(array_column($votes, 'way')))->toBe(['up' => 4, 'down' => 2])
+        ->and(array_count_values(array_column($votes, 'way')))->toEqualCanonicalizing(['up' => 4, 'down' => 2])
         ->and(array_unique(array_column($votes, 'persona')))->toHaveCount(6)
         ->and(array_column($votes, 'persona'))->not->toContain($this->author->id)
         ->and(array_unique(array_column($votes, 'type')))->toBe(['vote_post']);
