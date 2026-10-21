@@ -332,10 +332,10 @@ suggestions written from that analysis — ten titles and ten descriptions a bat
 request asked for only by Generate, every batch kept for the photo and its analysis and the newest one shown —
 beside the photo's context, as the prototype lays out Titles & texts, in a component of its own that alone polls
 while a batch is on its way; choosing a title or a description puts it in the final field, unsaved, saved only
-by Save draft. The Discussion step edits the plan's discussion by hand and writes it with AI, a whole tree or
-one saved part, as a proposal previewed and applied there — saved apart from the draft by Save discussion, in a
-component that lives as long as the page, the generations in one of their own that alone polls while one is on its
-way. Everything else a later stage brings is left out rather than drawn: votes, approval, the action plan and the
+by Save draft. The Discussion step works as the prototype's: its settings, Generate tree, and the discussion tree
+with Reply, Edit, Regenerate and Delete in a dialog or a confirmation, and its Timing — every change written to the
+plan at once, what AI writes taken in the moment it is ready, the component alone polling while a generation is on
+its way. Everything else a later stage brings is left out rather than drawn: votes, approval, the action plan and the
 queue; the editor says where each will come. The kit
 gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
@@ -379,10 +379,11 @@ photo's stored analysis and each Persona's profile, on an explicit request, thro
 each. What comes back is a proposal, kept with every earlier one in `studio_plan_discussion_generations`; nothing
 reaches the plan's discussion until an administrator takes it in (`ApplyStudioDiscussionGenerationAction`), and only
 while the plan still has what it was written from (`docs/architecture/studio-plans.md`, "Discussion generation").
-Its third step is in code: the editor's Discussion step (`StudioPlanDiscussionEditor`), which edits the discussion by
-hand and saves it with Save discussion, asks for a whole tree or one saved part on an explicit request, follows each
-generation in a component of its own (`StudioPlanDiscussionProposals`) that alone polls while one is on its way, and
-previews a proposal before Apply proposal takes it in (`docs/architecture/studio-plans.md`, "The editor"). Still to
+Its third step is in code: the editor's Discussion step (`StudioPlanDiscussionEditor`), working as the prototype's:
+settings, Generate tree — asked first when it would replace comments, its tree taken in the moment it is ready —
+and the discussion tree, each comment written, answered or edited in a dialog, written again by Regenerate or
+deleted, Delete and Regenerate undone from their toast, every change written to the plan at once
+(`docs/architecture/studio-plans.md`, "The editor"). Still to
 come in this phase: publishing the discussion as comments and replies. Phase 5 is not finished.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it

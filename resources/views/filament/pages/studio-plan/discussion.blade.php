@@ -1,9 +1,9 @@
 {{--
     Step 3 · Discussion (StudioPlanDiscussionEditor): the comments and replies
-    the post is to get, written by hand or by AI, saved with Save discussion.
+    the post is to get, written by hand or by AI, each change written at once.
     Drawn once for the plan and kept for as long as its editor is open —
-    hidden on the other steps, never drawn again — so nothing typed here is
-    lost by moving between steps. A new publication has no plan to keep a
+    hidden on the other steps, never drawn again — so its settings, and a
+    generation it waits for, survive moving between steps. A new publication has no plan to keep a
     discussion on until its Draft is made; the step says so, and the editor
     appears by itself once there is one.
 --}}

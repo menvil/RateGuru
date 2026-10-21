@@ -318,51 +318,48 @@ neither can carry a comment past the dates a post may carry.
 
 The editor's Discussion step (`StudioPlanDiscussionEditor`, a Livewire
 component on the plan's editor page) is where an administrator sees, edits and
-generates a Draft's discussion. It is drawn once with the page and hidden on
-the other steps, never drawn again by moving between them, so a discussion
-being edited survives every step; a new publication has none until its Draft
-exists, and says so.
+generates a Draft's discussion, laid out and working as the prototype's. It is
+drawn once with the page and hidden on the other steps, so its settings and a
+generation it waits for survive every step; a new publication has none until
+its Draft exists, and says so.
 
-Its draft is the component's own: the saved comments, each by its id, and the
-new ones by a key of the draft's own, compared with the discussion as saved to
-mark what is new or edited and to say there are unsaved changes. Comments are
-added, answered (comments on the post only), rewritten, given another Persona
-(one found by `PersonasQuery`) or another moment — days, hours, minutes and
-seconds after the post, with the date it would carry for a post on a chosen
-date —, moved among their siblings, and deleted; deleting a comment with
-replies asks first, as they go with it. Nothing is written until Save
-discussion, which hands the whole draft to `SaveStudioDiscussionTreeAction`
-and nothing else: its errors are shown by the comments they are about, and
-nothing typed is lost. Discard changes puts the saved discussion back.
+It holds no draft of its own: it draws the discussion as saved, each comment
+on the post by its time with its replies under it, labelled C1, C2, … in that
+order, and writes every change to the plan the moment it is made, through
+`SaveStudioDiscussionTreeAction` and nothing else — as the Image step writes
+the photo. A comment is written, answered (comments on the post only) or
+edited in a dialog: its Persona (one `PersonasQuery` offers), the comment it
+replies to, its text and its moment after the post in minutes, hours or days;
+Save writes it, and what the action refuses stays by its field. Delete asks
+first — a comment's replies go with it — and Timing changes a comment's moment
+in place. Each comment's place among its siblings follows its time. A deletion,
+and a comment written again, can be undone from the toast that follows: the
+discussion as it was is written back, a comment deleted since coming back as a
+new one.
 
-The discussion is saved apart from the post and its publication: Save draft
-in the top bar and its count of changes are theirs, Save discussion is the
-discussion's, and the browser's question before the page is left counts both.
-The plan keeps one `lock_version` for every write, so each of the page's two
-saves tells the other the version it was written from and the one it left
+The plan keeps one `lock_version` for every write, so each write on the page —
+the post's Save draft, a photo, and every change here — tells the other editor
+the version it was written from and the one it left
 (`studio-plan-version-moved`). The other takes the new version only when the
 write was made from the version it holds, one step on — never re-reading what
 it holds, which may be typed and unsaved; any other move is somebody else's
-save, and the next save there is refused until Reload. A photo kept or removed
-on the Image step moves the version the same way.
+save, and the next write there is refused until Reload.
 
-Generation is asked for there, and only there, on an explicit request: a whole
-discussion — Total comments and Top-level comments becoming the replies and
-comments asked for, the Personas taking part chosen by hand or drawn at random
-by Pick personas, never by Generate itself, and the tone — or one saved,
-unchanged comment, reply or branch again. It is refused while the post or the
-discussion has unsaved changes, since a generation is written from what is
-saved, and while one is on its way. The generations are another component
-(`StudioPlanDiscussionProposals`), the only one read again every few seconds,
-and only while the newest generation is queued or running, so reading them
-never draws the discussion being edited again. It shows each generation's
-state, ten at a time, and previews a proposal apart from the discussion —
-`StudioDiscussionProposal::applyTo()` on the discussion as saved: a whole one
-as the tree it would become, a part as each text it changes. Apply proposal
-hands it to `ApplyStudioDiscussionGenerationAction`, only while the
-discussion has no unsaved changes, and a whole one replacing a saved
-discussion only once confirmed; Ignore proposal changes nothing. Nothing on
-the step publishes anything.
+Generation is asked for there, and only there, on an explicit request, never
+while the post has unsaved changes — a generation is written from what is
+saved — or another is on its way: Generate tree writes a whole discussion,
+Total comments and Top-level comments becoming the comments and replies asked
+for, by the Personas checked or, under Random, as many picked at random as
+asked for, picked only as the tree is generated; Regenerate writes one saved
+comment or reply again. A whole tree that would replace comments asks first.
+While a generation this page asked for, or found on its way when it opened, is
+queued or running, the component is read again every few seconds, and the
+moment it is ready it is taken in through
+`ApplyStudioDiscussionGenerationAction`, at the version this page holds — the
+proposal's own checks still apply, so one written from a post or discussion
+that changed since is refused and said. A whole tree replaces the discussion;
+a comment written again changes its text alone. None planned empties the
+discussion with no request at all. Nothing on the step publishes anything.
 
 ### Not approved yet
 
@@ -522,8 +519,8 @@ proposal was written; `applied_at` says it was taken in.
 ### Taking a proposal in
 
 `ApplyStudioDiscussionGenerationAction::handle($admin, $plan, $generationId,
-$expectedLockVersion)` — the trusted step Apply proposal on the editor's
-Discussion step takes.
+$expectedLockVersion)` — the trusted step the editor's Discussion step takes
+the moment a generation it waits for is ready.
 Before any lock it reads every Persona the check and the save depend on — those
 the proposal was written for, even one none of whose comments made it in, whose
 profile the hash holds; the authors of the discussion it was written from,

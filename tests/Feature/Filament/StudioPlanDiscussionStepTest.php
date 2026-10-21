@@ -15,10 +15,11 @@ use Livewire\Livewire;
 
 /**
  * The Discussion step inside a publication's editor: one discussion editor for
- * as long as the page is open, kept through every step so nothing typed in it
- * is lost; a new publication asked to save its draft first; and the plan's one
- * version shared by the two saves on the page — each taking the other's move,
- * neither taking somebody else's.
+ * as long as the page is open, kept through every step with its settings and
+ * any generation it waits for; a new publication asked to save its draft
+ * first; and the plan's one version shared by the page's writes — the post's
+ * Save draft, the photo, and every change to the discussion — each taking the
+ * other's move, neither taking somebody else's.
  */
 beforeEach(function () {
     Storage::fake('public');
@@ -42,12 +43,6 @@ function discussionStepHidden(Testable $page): bool
     preg_match('/<div class="rg-admin-studio__discussion-step"([^>]*)>/', $page->html(), $wrapper);
 
     return str_contains($wrapper[1] ?? '', 'hidden');
-}
-
-/** Saves one new comment from the discussion editor. */
-function savedOneComment(Testable $editor, User $persona, string $body = 'Lovely light.'): Testable
-{
-    return $editor->call('addComment')->call('choosePersona', 'k1', $persona->id)->set('nodes.k1.body', $body)->call('save')->assertHasNoErrors();
 }
 
 it('keeps one discussion editor through every step, drawn hidden off its own step', function () {
@@ -79,24 +74,20 @@ it('asks a new publication to save its draft first, and offers the discussion on
     expect(discussionChildId($page, $plan))->not->toBeNull();
 });
 
-it('warns before leaving with unsaved changes to the post or the discussion, saved each on its own', function () {
+it('warns before leaving with unsaved changes to the post only: the discussion is written as it changes', function () {
     $html = $this->get(StudioPlanResource::getUrl('edit', ['record' => $this->plan]))->assertOk()->getContent();
 
     expect($html)
-        ->toContain('rgAdminEditorChanges(')
-        ->toContain('$store.adminEditor?.discussionDirty')
-        ->toContain('$store.adminEditor.discussionDirty = JSON.stringify($wire.nodes) !== JSON.stringify($wire.savedNodes)')
-        ->toContain('Save draft in the top bar saves the post and its publication, not this discussion');
+        ->toContain('x-on:beforeunload.window="if (rgAdminEditorChanges(')
+        ->not->toContain('discussionDirty')
+        ->toContain('Discussion tree')
+        ->not->toContain('Save discussion');
 });
 
 it('moves the version once for a discussion save, which the post editor takes, so its next Save draft is no conflict', function () {
     $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'A harbour at dawn');
-    $editor = discussionEditor($this->plan)->call('addComment')->call('addComment');
-    foreach (['k1', 'k2'] as $key) {
-        $editor->call('choosePersona', $key, $this->persona->id)->set("nodes.{$key}.body", "Comment {$key}.");
-    }
 
-    $editor->call('save')->assertHasNoErrors()
+    commentFromDialog(discussionEditor($this->plan), $this->persona, 'Lovely light.')->assertHasNoErrors()
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'discussion');
     expect($this->plan->fresh()->lock_version)->toBe(2);
 
@@ -110,7 +101,7 @@ it('moves the version once for a discussion save, which the post editor takes, s
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor');
 
     expect($this->plan->fresh())->title->toBe('A harbour at dawn')->lock_version->toBe(3)
-        ->and($this->plan->discussionNodes()->count())->toBe(2);
+        ->and($this->plan->discussionNodes()->count())->toBe(1);
 });
 
 it('takes the version a Save draft moved in the discussion editor, so its next save is no conflict', function () {
@@ -122,7 +113,7 @@ it('takes the version a Save draft moved in the discussion editor, so its next s
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('lockVersion', 2)->assertSet('conflict', false);
 
-    savedOneComment($editor, $this->persona)->assertSet('conflict', false)->assertSet('lockVersion', 3);
+    commentFromDialog($editor, $this->persona, 'Lovely light.')->assertHasNoErrors()->assertSet('conflict', false)->assertSet('lockVersion', 3);
 
     expect($this->plan->fresh()->lock_version)->toBe(3);
 });
@@ -164,16 +155,13 @@ it('ignores what is not its own plan\'s discussion, or a move it already holds',
     'no numbers' => [fn (StudioPlan $plan) => ['planId' => $plan->id, 'previous' => 'one', 'current' => 'two', 'source' => 'discussion']],
 ]);
 
-it('leaves the discussion as it is on Discard of the post, and the post on Discard of the discussion', function () {
-    savedOneComment(discussionEditor($this->plan), $this->persona);
+it('leaves the discussion as written on Discard of the post, and the post as typed when the discussion changes', function () {
     $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'Typed');
-    $editor = discussionEditor($this->plan)->set('nodes.n'.$this->plan->discussionNodes()->sole()->id.'.body', 'Changed.');
+    commentFromDialog(discussionEditor($this->plan), $this->persona, 'Lovely light.')->assertHasNoErrors();
+    $page->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'discussion')
+        ->assertSet('postTitle', 'Typed');
 
     $page->call('discard')->assertSet('postTitle', 'A quiet harbour');
-    expect(array_column($editor->get('nodes'), 'body'))->toBe(['Changed.']);
 
-    $page->set('postTitle', 'Typed again');
-    $editor->call('discardChanges');
-    $page->assertSet('postTitle', 'Typed again');
-    expect(array_column($editor->get('nodes'), 'body'))->toBe(['Lovely light.']);
+    expect($this->plan->discussionNodes()->pluck('body')->all())->toBe(['Lovely light.']);
 });

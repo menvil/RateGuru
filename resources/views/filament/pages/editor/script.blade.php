@@ -6,10 +6,6 @@
     $wire draft and the server's `saved` copy, so a save, a discard or a value
     the server moved puts them back in step.
 
-    `discussionDirty` is a publication editor's discussion, saved on its own
-    (StudioPlanDiscussionEditor): it holds a page back from being left, and
-    is never counted as a change the top bar's Save would save.
-
     Values compare as text, so 4 typed into a field and 4 saved are the same;
     nested values (a page's title, a feature flag) count one by one.
 
@@ -19,7 +15,7 @@
     (() => {
         const register = () => {
             if (! window.Alpine.store('adminEditor')) {
-                window.Alpine.store('adminEditor', { changes: 0, blocked: false, saveLabel: null, discussionDirty: false })
+                window.Alpine.store('adminEditor', { changes: 0, blocked: false, saveLabel: null })
             }
         }
 

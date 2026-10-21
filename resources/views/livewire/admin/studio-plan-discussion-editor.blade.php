@@ -1,431 +1,478 @@
 {{--
-    The Discussion step (StudioPlanDiscussionEditor). Discussion settings: how
-    many comments, who writes them — chosen one by one, or a team picked at
-    random by Pick personas and shown first — and the tone; Generate tree, an
-    explicit paid request. The generations and their proposals
-    (StudioPlanDiscussionProposals), read again on their own while one is on
-    its way. Then the prepared discussion: each comment on the post with its
-    replies under it, who writes it and when, edited here as a draft of its
-    own and kept with Save discussion — the top bar's Save draft saves the
-    post, never this. Every text is drawn escaped.
-
-    The browser is told whether the draft differs from what is saved
-    (`discussionDirty`), so leaving the page with unsaved comments asks first.
+    The Discussion step (StudioPlanDiscussionEditor), laid out and working as
+    the prototype's: Discussion settings; Generate tree in a strip of its own
+    under them; then the discussion tree — Comments, each with Reply, Edit,
+    Regenerate and Delete, and Timing. A comment is edited in a dialog, and
+    everything is written to the plan at once. While a generation is on its
+    way the step is read again every few seconds: a whole tree is drawn as
+    placeholders, a comment written again is faded. Every text is drawn
+    escaped.
 --}}
 @php
-    $blocked = ! $editable;
-    $full = $count >= $mostNodes;
+    $units = \App\Livewire\Admin\StudioPlanDiscussionEditor::UNITS;
     $notReady = match (true) {
         ! $configured => 'Discussion generation is not configured. Comments can still be written by hand.',
         ! $hasTitle => 'Save the post’s final title first: the discussion is written from it.',
         ! $analysed => 'The discussion can be written once the photo’s analysis is complete.',
         default => null,
     };
+    $hasTree = $rows !== [];
+    $noTeam = $totalCount > 0 && $participantMode === 'manual' && $chosen === [];
+    $generateBlocked = ! $editable || $underway || $noTeam || ($totalCount > 0 && $notReady !== null);
+    $rewriteBlocked = ! $editable || $underway || $notReady !== null;
+    $summary = $totalCount === 0
+        ? 'No discussion · the post publishes without automated comments'
+        : $totalCount.' '.($totalCount === 1 ? 'comment' : 'comments').' · '.$rootCount.' top-level · '.$personaCount.' '.($personaCount === 1 ? 'persona' : 'personas');
+    [$hint, $hintTone] = match (true) {
+        $noTeam => ['Select at least one persona.', 'danger'],
+        $totalCount > 0 && $notReady !== null => [$notReady, 'muted'],
+        $underway => ['A generation is on its way. The tree is replaced as soon as it is ready.', 'muted'],
+        $totalCount === 0 => ['Nothing is generated: the tree is emptied.', 'muted'],
+        $hasTree => ['The tree has comments. You’ll be asked before it’s replaced.', 'muted'],
+        default => ['One request to OpenAI — a paid call.', 'muted'],
+    };
 @endphp
 
 <div
     class="rg-admin-studio__discussion"
-    data-discussion="{{ $dirty ? 'unsaved' : 'saved' }}"
-    x-data
-    x-effect="if ($store.adminEditor) { $store.adminEditor.discussionDirty = JSON.stringify($wire.nodes) !== JSON.stringify($wire.savedNodes) }"
+    data-generation="{{ $busy ? 'tree' : ($underway ? 'comment' : 'none') }}"
+    @if ($underway) wire:poll.{{ $pollSeconds }}s.visible="check" @endif
 >
     @if ($gone)
-        <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its discussion can’t be saved any more.</x-admin.ui.inline-notice>
+        <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its discussion can’t be changed any more.</x-admin.ui.inline-notice>
     @elseif ($closed)
         <x-admin.ui.inline-notice tone="info">This plan is no longer a draft, so its discussion can’t be changed here.</x-admin.ui.inline-notice>
     @elseif ($conflict)
         <x-admin.ui.inline-notice tone="warning">
-            Someone changed this draft after you opened it, so nothing here can be saved. Reload to see their version — it replaces your unsaved comments here.
+            Someone changed this draft after you opened it, so nothing here is saved until you reload it.
             <x-slot:actions>
                 <x-admin.ui.button size="sm" icon="refresh-cw" wire:click="reload">Reload discussion</x-admin.ui.button>
             </x-slot:actions>
         </x-admin.ui.inline-notice>
     @endif
 
-    <x-admin.ui.card title="Discussion settings" description="Comments are written in English from each persona’s character. The result is a proposal: nothing changes until you apply it, and nothing is published.">
-        <div class="rg-admin-studio__discussion-settings">
-            <div class="rg-admin-studio__discussion-counts">
+    <div class="rg-admin-studio__discussion-cards">
+        <x-admin.ui.card title="Discussion settings" description="Comments are generated in English from persona descriptions.">
+            <div class="rg-admin-studio__discussion-fields">
                 <x-admin.ui.number-stepper
                     label="Total comments"
                     id="rg-admin-discussion-total"
                     :value="$totalCount"
-                    :min="1"
-                    :max="$mostGenerated"
-                    hint="Comments and replies together, up to {{ $mostGenerated }}."
+                    :min="0"
+                    :max="$mostNodes"
+                    :range="'0–'.$mostNodes"
+                    unit="comments"
+                    :hint="$totalCount === 0 ? 'No discussion: the post publishes without automated comments.' : null"
                     wire:model.live.debounce.400ms="totalCount"
                 />
                 <x-admin.ui.number-stepper
                     label="Top-level comments"
                     id="rg-admin-discussion-roots"
                     :value="$rootCount"
-                    :min="1"
+                    :min="$totalCount > 0 ? 1 : 0"
                     :max="$totalCount"
-                    hint="Comments on the post. The rest are replies."
+                    :range="($totalCount > 0 ? 1 : 0).'–'.$totalCount"
+                    :unit="'of '.$totalCount"
+                    hint="First-level comments. The rest are replies."
                     wire:model.live.debounce.400ms="rootCount"
                 />
-            </div>
-
-            <div class="rg-admin-studio__discussion-part">
-                <span class="rg-admin-label" id="rg-admin-discussion-personas-label">Personas</span>
-                <x-admin.ui.segmented
-                    label="How the personas are chosen"
-                    class="rg-admin-studio__segmented"
-                    :options="['manual' => 'Manual', 'random' => 'Random']"
-                    :value="$participantMode"
-                    wire:model.live="participantMode"
-                />
-                <p class="rg-admin-hint">
-                    @if ($participantMode === 'random')
-                        Pick personas chooses {{ $randomCount }} at random from those not deleted. You see the team before anything is generated.
-                    @else
-                        Only the personas you choose take part — up to {{ $mostPersonas }}.
-                    @endif
-                </p>
-
                 @if ($participantMode === 'random')
-                    <div class="rg-admin-studio__discussion-pick">
-                        <x-admin.ui.number-stepper
-                            label="Number of personas"
-                            id="rg-admin-discussion-random-count"
-                            :value="$randomCount"
-                            :min="1"
-                            :max="$mostPersonas"
-                            wire:model.live.debounce.400ms="randomCount"
-                        />
-                        <x-admin.ui.button icon="users" wire:click="pickPersonas" wire:loading.attr="disabled" wire:target="pickPersonas" :disabled="$blocked">
-                            {{ $participantsShown === [] ? 'Pick personas' : 'Pick again' }}
-                        </x-admin.ui.button>
-                    </div>
-                @else
-                    <x-admin.ui.search-field
-                        placeholder="Search personas"
-                        name="participantSearch"
-                        id="rg-admin-discussion-participant-search"
-                        :value="$participantSearch"
-                        wire:model.live.debounce.300ms="participantSearch"
+                    <x-admin.ui.number-stepper
+                        label="Number of personas"
+                        id="rg-admin-discussion-random"
+                        :value="$randomCount"
+                        :min="1"
+                        :max="$mostRandom"
+                        :range="'1–'.$mostRandom"
+                        :unit="'of '.$available.' active'"
+                        wire:model.live.debounce.400ms="randomCount"
                     />
-                    @if ($participantChoices !== [])
-                        <ul class="rg-admin-studio__choices" aria-label="Personas to add">
-                            @foreach ($participantChoices as $choice)
-                                <li wire:key="participant-choice-{{ $choice['id'] }}">
-                                    <button type="button" class="rg-admin-studio__choice" wire:click="toggleParticipant({{ $choice['id'] }})" @disabled($blocked)>
-                                        @include('livewire.admin.studio-plan-discussion-persona', ['persona' => $choice])
-                                        <x-admin.ui.icon name="plus" :size="14" />
-                                    </button>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
                 @endif
 
-                @if ($participantsShown !== [])
-                    <ul class="rg-admin-studio__chips" aria-label="Taking part">
-                        @foreach ($participantsShown as $persona)
-                            <li class="rg-admin-filter-chip" wire:key="participant-{{ $persona['id'] }}">
-                                {{ $persona['name'] }}
-                                @if ($participantMode === 'manual')
-                                    <button type="button" class="rg-admin-filter-chip__remove" wire:click="toggleParticipant({{ $persona['id'] }})" aria-label="Remove {{ $persona['name'] }}" @disabled($blocked)>
-                                        <x-admin.ui.icon name="x" :size="12" />
-                                    </button>
-                                @endif
-                            </li>
-                        @endforeach
-                    </ul>
-                    @if ($participantMode === 'manual')
-                        <div><x-admin.ui.button size="sm" variant="ghost" wire:click="clearParticipants" :disabled="$blocked">Clear</x-admin.ui.button></div>
-                    @endif
-                    <p class="rg-admin-hint">{{ count($participantsShown) }} of {{ $mostPersonas }} personas{{ $participantMode === 'random' ? ' picked' : ' chosen' }}.</p>
-                @endif
+                <div class="rg-admin-field rg-admin-studio__discussion-team">
+                    <span class="rg-admin-label">Personas</span>
+                    <x-admin.ui.segmented label="Personas" :options="['random' => 'Random', 'manual' => 'Manual']" :value="$participantMode" wire:model.live="participantMode" class="rg-admin-studio__discussion-mode" />
+                    <p class="rg-admin-hint">{{ $participantMode === 'random' ? 'Picks the number of personas at random from the active ones.' : 'Only the checked personas take part.' }}</p>
 
-                @error('participants')
-                    <p class="rg-admin-error" role="alert"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                @enderror
-            </div>
-
-            <div class="rg-admin-studio__discussion-part">
-                <span class="rg-admin-label" id="rg-admin-discussion-tone-label">Tone</span>
-                <div class="rg-admin-studio__tones" role="group" aria-labelledby="rg-admin-discussion-tone-label">
-                    @foreach ($tones as $option)
-                        <button
-                            type="button"
-                            class="rg-admin-studio__tone"
-                            aria-pressed="{{ $chosenTone->value === $option['value'] ? 'true' : 'false' }}"
-                            x-bind:aria-pressed="$wire.tone === @js($option['value']) ? 'true' : 'false'"
-                            x-on:click="$wire.set('tone', @js($option['value']))"
-                            title="{{ $option['hint'] }}"
-                        >{{ $option['label'] }}</button>
-                    @endforeach
-                </div>
-                <p class="rg-admin-hint">The tone sets the mood; each persona still writes in its own voice. It is used for the whole tree and for Regenerate.</p>
-            </div>
-
-            <div class="rg-admin-studio__discussion-part rg-admin-studio__discussion-generate">
-                @if ($notReady !== null)
-                    <x-admin.ui.inline-notice tone="info">{{ $notReady }}</x-admin.ui.inline-notice>
-                @else
-                    <p class="rg-admin-hint rg-admin-studio__context-warning" x-cloak x-show="$store.adminEditor?.changes > 0">The post has unsaved changes. Save the draft first: the discussion is written from what is saved.</p>
-                    @if ($dirty)
-                        <p class="rg-admin-hint rg-admin-studio__context-warning">The discussion has unsaved changes. Save or discard them first.</p>
-                    @endif
-                    @if ($underway)
-                        <p class="rg-admin-hint" role="status">A generation is on its way — see below.</p>
-                    @endif
-                @endif
-                <div>
-                    <x-admin.ui.button
-                        :variant="$generated || $count > 0 ? 'secondary' : 'primary'"
-                        icon="sparkles"
-                        :disabled="$blocked || $notReady !== null || $underway || $dirty"
-                        x-bind:disabled="{{ ($blocked || $notReady !== null || $underway || $dirty) ? 'true' : 'false' }} || $store.adminEditor?.changes > 0"
-                        x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)"
-                        wire:loading.attr="disabled"
-                        wire:target="generateTree"
-                        aria-describedby="rg-admin-discussion-generate-note"
-                    >{{ $generated || $count > 0 ? 'Regenerate tree' : 'Generate tree' }}</x-admin.ui.button>
-                </div>
-                <p id="rg-admin-discussion-generate-note" class="rg-admin-hint">
-                    One request to OpenAI for {{ $totalCount }} {{ $totalCount === 1 ? 'comment' : 'comments' }}, {{ $rootCount }} top-level — a paid call.
-                    A new tree is shown as a proposal; applying it replaces the whole prepared discussion.
-                </p>
-            </div>
-        </div>
-    </x-admin.ui.card>
-
-    <livewire:admin.studio-plan-discussion-proposals :plan-id="$planId" :wire:key="'studio-plan-discussion-proposals-'.$planId" />
-
-    <x-admin.ui.card title="Prepared discussion" description="Save discussion keeps these comments. Save draft in the top bar saves the post and its publication, not this discussion — each is saved on its own.">
-        <x-slot:aside>
-            <span class="rg-admin-studio__discussion-meta">
-                {{ $count }} of {{ $mostNodes }}
-                @if ($dirty)
-                    <x-admin.ui.badge tone="warning" :dot="true">Unsaved changes</x-admin.ui.badge>
-                @endif
-            </span>
-        </x-slot:aside>
-
-        @error('discussion')
-            <x-admin.ui.inline-notice tone="warning">{{ $message }}</x-admin.ui.inline-notice>
-        @enderror
-
-        @if ($rows === [])
-            <x-admin.ui.empty-state icon="message-square" title="No discussion yet" :heading-level="3">
-                Add a comment, or generate a tree. A post may be published with no discussion at all.
-            </x-admin.ui.empty-state>
-        @else
-            <ol class="rg-admin-studio__thread" aria-label="Prepared discussion">
-                @foreach ($rows as $row)
-                    @php
-                        $key = $row['key'];
-                        $errorsHere = collect(['body', 'personaUserId', 'offsetSeconds', 'parentId', 'parentKey', 'id'])
-                            ->map(fn (string $field): ?string => $errors->first("nodes.{$key}.{$field}") ?: null)
-                            ->filter()
-                            ->values();
-                    @endphp
-                    <li
-                        wire:key="discussion-node-{{ $key }}"
-                        @class([
-                            'rg-admin-studio__comment',
-                            'rg-admin-studio__comment--reply' => $row['reply'],
-                            'rg-admin-studio__comment--changed' => $row['changed'],
-                            'rg-admin-studio__comment--invalid' => $errorsHere->isNotEmpty(),
-                        ])
-                        data-node="{{ $key }}"
-                    >
-                        <div class="rg-admin-studio__comment-head">
-                            @include('livewire.admin.studio-plan-discussion-persona', ['persona' => $row['persona'], 'missing' => 'Choose a persona'])
-                            <span class="rg-admin-studio__comment-label rg-admin-mono">{{ $row['label'] }}</span>
-                            <span class="rg-admin-studio__comment-time" title="{{ $row['at'] !== null ? $row['at'].' ('.$timezone.')' : 'After the post is published' }}">
-                                {{ $row['relative'] }}{{ $row['sinceParent'] !== null ? ' · '.$row['sinceParent'].' after its comment' : '' }}
-                            </span>
-                            @if (! $row['saved'])
-                                <x-admin.ui.badge tone="info">New</x-admin.ui.badge>
-                            @elseif ($row['changed'])
-                                <x-admin.ui.badge tone="warning">Edited</x-admin.ui.badge>
+                    @if ($participantMode === 'random')
+                        <div class="rg-admin-studio__discussion-picked">
+                            <span class="rg-admin-hint">{{ $pickedNames !== [] ? 'Picked for the current tree. Generate again to reshuffle.' : 'Personas are picked when the tree is generated.' }}</span>
+                            @if ($pickedNames !== [])
+                                <div class="rg-admin-studio__chips">
+                                    @foreach ($pickedNames as $name)
+                                        <span class="rg-admin-studio__chip">{{ $name }}</span>
+                                    @endforeach
+                                </div>
                             @endif
                         </div>
-
-                        <p class="rg-admin-studio__comment-body">@if ($row['body'] !== ''){{ $row['body'] }}@else<span class="rg-admin-studio__empty">No text yet</span>@endif</p>
-                        @if ($row['at'] !== null)
-                            <p class="rg-admin-hint">Comes {{ $row['at'] }} ({{ $timezone }}), as the post is dated now.</p>
-                        @endif
-
-                        @foreach ($errorsHere as $message)
-                            <p class="rg-admin-error" role="alert"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                        @endforeach
-
-                        @unless ($blocked)
-                            <div class="rg-admin-studio__comment-actions">
-                                @unless ($row['reply'])
-                                    <x-admin.ui.button size="sm" variant="ghost" icon="message-square" wire:click="addReply('{{ $key }}')" :disabled="$full">Reply</x-admin.ui.button>
-                                @endunless
-                                <x-admin.ui.button size="sm" variant="ghost" icon="pencil" wire:click="edit('{{ $key }}')" :aria-expanded="$editing === $key ? 'true' : 'false'">{{ $editing === $key ? 'Done' : 'Edit' }}</x-admin.ui.button>
-                                <x-admin.ui.button size="sm" variant="ghost" icon="refresh-cw" wire:click="openRegenerate('{{ $key }}')" :aria-expanded="$regenerating === $key ? 'true' : 'false'">Regenerate</x-admin.ui.button>
-                                <x-admin.ui.button size="sm" variant="ghost" icon="chevron-up" wire:click="moveUp('{{ $key }}')" :disabled="$row['first']" aria-label="Move up">Up</x-admin.ui.button>
-                                <x-admin.ui.button size="sm" variant="ghost" icon="chevron-down" wire:click="moveDown('{{ $key }}')" :disabled="$row['last']" aria-label="Move down">Down</x-admin.ui.button>
-                                <x-admin.ui.button size="sm" variant="ghost" icon="trash-2" wire:click="delete('{{ $key }}')">Delete</x-admin.ui.button>
+                    @else
+                        <x-admin.ui.search-field placeholder="Search by login or name" wire:model.live.debounce.300ms="participantSearch" autocomplete="off" />
+                        <div class="rg-admin-studio__discussion-count">
+                            <span>{{ count($chosen) }} of {{ $available }} active personas selected</span>
+                            <button type="button" class="rg-admin-studio__text-button" wire:click="selectShown">{{ $searching ? 'Select '.count($listed).' shown' : 'Select all' }}</button>
+                            <button type="button" class="rg-admin-studio__text-button" wire:click="clearParticipants">Clear</button>
+                        </div>
+                        @if ($chosen !== [])
+                            <div class="rg-admin-studio__chips">
+                                @foreach ($chosen as $persona)
+                                    <span class="rg-admin-studio__chip rg-admin-studio__chip--removable" wire:key="discussion-chosen-{{ $persona['id'] }}">
+                                        {{ $persona['username'] ?? $persona['name'] }}
+                                        <button type="button" class="rg-admin-studio__chip-remove" aria-label="Remove {{ $persona['name'] }}" wire:click="toggleParticipant({{ $persona['id'] }})">
+                                            <x-admin.ui.icon name="x" :size="11" />
+                                        </button>
+                                    </span>
+                                @endforeach
                             </div>
-                        @endunless
-
-                        @if ($regenerating === $key && ! $blocked)
-                            <div class="rg-admin-studio__comment-panel" role="group" aria-label="Regenerate {{ $row['label'] }}">
-                                @if (! $row['saved'] || $row['changed'] || $dirty)
-                                    <x-admin.ui.inline-notice tone="info">Save the discussion first: only a saved, unchanged comment can be written again.</x-admin.ui.inline-notice>
-                                @elseif ($notReady !== null)
-                                    <x-admin.ui.inline-notice tone="info">{{ $notReady }}</x-admin.ui.inline-notice>
-                                @else
-                                    <p class="rg-admin-hint">Written again by the same persona, at the same time and place, in the {{ $chosenTone->label() }} tone. You see it as a proposal first. A paid call.</p>
-                                    <div class="rg-admin-studio__comment-actions">
-                                        @if ($row['reply'])
-                                            <x-admin.ui.button size="sm" icon="sparkles" :disabled="$underway" x-on:click="$wire.regenerate('{{ $key }}', 'reply', $store.adminEditor?.changes ?? 0)">Rewrite this reply</x-admin.ui.button>
-                                        @else
-                                            <x-admin.ui.button size="sm" icon="sparkles" :disabled="$underway" x-on:click="$wire.regenerate('{{ $key }}', 'comment', $store.adminEditor?.changes ?? 0)">Rewrite this comment</x-admin.ui.button>
-                                            @if ($row['replies'] > 0)
-                                                <x-admin.ui.button size="sm" icon="git-branch" :disabled="$underway" x-on:click="$wire.regenerate('{{ $key }}', 'branch', $store.adminEditor?.changes ?? 0)">Rewrite the whole branch</x-admin.ui.button>
-                                            @endif
+                        @endif
+                        <div class="rg-admin-studio__persona-list" role="group" aria-label="Personas to check">
+                            @forelse ($listed as $persona)
+                                <button type="button" role="checkbox" aria-checked="{{ $persona['on'] ? 'true' : 'false' }}" class="rg-admin-studio__persona-option" wire:key="discussion-persona-{{ $persona['id'] }}" wire:click="toggleParticipant({{ $persona['id'] }})">
+                                    <span class="rg-admin-studio__check" aria-hidden="true">
+                                        @if ($persona['on'])
+                                            <x-admin.ui.icon name="check" :size="12" />
                                         @endif
+                                    </span>
+                                    @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $persona])
+                                    <span class="rg-admin-studio__persona-text">
+                                        <span class="rg-admin-studio__persona-name">{{ $persona['name'] }} <span class="rg-admin-studio__muted">{{ $persona['username'] ?? '' }}</span></span>
+                                        @if ($persona['short'] !== '')
+                                            <span class="rg-admin-studio__persona-short">{{ $persona['short'] }}</span>
+                                        @endif
+                                    </span>
+                                </button>
+                            @empty
+                                <p class="rg-admin-hint rg-admin-studio__persona-none">{{ $searching ? 'No active personas match “'.$participantSearch.'”.' : 'There are no personas yet. Create one first.' }}</p>
+                            @endforelse
+                        </div>
+                    @endif
+
+                    @error('participants')
+                        <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                    @enderror
+                </div>
+            </div>
+        </x-admin.ui.card>
+    </div>
+
+    <div class="rg-admin-studio__generate" x-data>
+        <span class="rg-admin-studio__generate-icon" aria-hidden="true"><x-admin.ui.icon name="git-branch" :size="16" /></span>
+        <div class="rg-admin-studio__generate-text">
+            <div class="rg-admin-studio__generate-label">Generate from the settings above</div>
+            <div class="rg-admin-studio__generate-summary">{{ $summary }}</div>
+            <div @class(['rg-admin-studio__generate-hint', 'rg-admin-studio__generate-hint--danger' => $hintTone === 'danger'])>
+                <span x-show="! ($store.adminEditor?.changes > 0)">{{ $hint }}</span>
+                <span x-show="$store.adminEditor?.changes > 0" x-cloak>Save the post first: the discussion is written from the saved title and description.</span>
+            </div>
+        </div>
+        <x-admin.ui.button
+            variant="primary"
+            icon="sparkles"
+            :disabled="$generateBlocked"
+            x-bind:disabled="{{ $generateBlocked ? 'true' : 'false' }} || $store.adminEditor?.changes > 0"
+            x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)"
+        >{{ $hasTree ? 'Regenerate tree' : 'Generate tree' }}</x-admin.ui.button>
+    </div>
+
+    @if ($failure !== null)
+        <x-admin.ui.inline-notice tone="warning">
+            The tree wasn’t generated: {{ $failure }}
+            @if ($editable)
+                <x-slot:actions>
+                    <x-admin.ui.button size="sm" icon="refresh-cw" x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)">Try again</x-admin.ui.button>
+                </x-slot:actions>
+            @endif
+        </x-admin.ui.inline-notice>
+    @endif
+
+    <x-admin.ui.card title="Discussion tree" flush :description="count($rows).' '.(count($rows) === 1 ? 'comment' : 'comments').' · '.$rootTotal.' top-level'" class="rg-admin-studio__tree-card">
+        <x-slot:aside>
+            <x-admin.ui.button size="sm" icon="plus" :disabled="! $editable || $underway" wire:click="openNew">Comment</x-admin.ui.button>
+        </x-slot:aside>
+
+        <x-admin.ui.tabs
+            label="Discussion tree"
+            class="rg-admin-studio__tree-tabs"
+            :active="$tab"
+            :items="[
+                ['id' => 'tree', 'label' => 'Comments', 'count' => count($rows), 'attributes' => ['wire:click' => '$set(\'tab\', \'tree\')']],
+                ['id' => 'timing', 'label' => 'Timing', 'attributes' => ['wire:click' => '$set(\'tab\', \'timing\')']],
+            ]"
+        />
+
+        @if ($busy)
+            <div class="rg-admin-studio__tree-busy" role="status" aria-label="Generating the discussion">
+                @foreach ([0, 1, 1, 0, 1, 0] as $depth)
+                    <x-admin.ui.skeleton height="64px" shape="box" @class(['rg-admin-studio__tree-placeholder', 'rg-admin-studio__tree-placeholder--reply' => $depth === 1]) />
+                @endforeach
+            </div>
+        @elseif (! $hasTree)
+            <div class="rg-admin-studio__tree-empty">
+                <x-admin.ui.empty-state :title="$totalCount === 0 ? 'No discussion planned' : 'No discussion yet'" icon="message-square">
+                    {{ $totalCount === 0 ? 'The post publishes without automated comments.' : 'Set the settings above and generate the tree. You can edit every comment afterwards.' }}
+                </x-admin.ui.empty-state>
+            </div>
+        @elseif ($tab === 'timing')
+            <p class="rg-admin-hint rg-admin-studio__timing-note">Times are offsets from the moment the post appears. The date is set on the next step.</p>
+            <div class="rg-admin-studio__timing-scroll">
+                <table class="rg-admin-studio__timing">
+                    <thead>
+                        <tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Executor</th><th scope="col">Parent</th><th scope="col">Offset from post</th><th scope="col">Dependency</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($timing as $index => $item)
+                            <tr wire:key="discussion-timing-{{ $item['id'] }}-{{ $item['seconds'] }}">
+                                <td class="rg-admin-studio__timing-n">{{ $index + 1 }}</td>
+                                <td><span class="rg-admin-studio__timing-action"><x-admin.ui.icon :name="$item['reply'] ? 'reply' : 'message-square'" :size="14" />{{ $item['action'] }}</span></td>
+                                <td class="rg-admin-studio__muted">{{ $item['who'] }}</td>
+                                <td class="rg-admin-studio__mono">{{ $item['parent'] }}</td>
+                                <td>
+                                    <div
+                                        class="rg-admin-studio__offset"
+                                        x-data="{
+                                            seconds: {{ $item['seconds'] }},
+                                            unit: @js($item['unit']),
+                                            units: @js($units),
+                                            get value() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
+                                            commit(input) {
+                                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
+
+                                                if (Number.isNaN(n) || n < 0) { input.value = this.value; return }
+
+                                                const seconds = Math.round(n * this.units[this.unit])
+
+                                                if (seconds !== this.seconds) { this.seconds = seconds; $wire.setOffset({{ $item['id'] }}, seconds) }
+                                            },
+                                        }"
+                                    >
+                                        <input type="text" inputmode="decimal" class="rg-admin-studio__offset-input" aria-label="Offset of {{ $item['action'] }}" :value="value" x-on:change="commit($event.target)" @disabled(! $editable || $underway) />
+                                        <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
+                                            @foreach (array_keys($units) as $unit)
+                                                <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="unit = @js($unit)">{{ $unit }}</button>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><span class="rg-admin-studio__timing-dependency"><x-admin.ui.icon name="circle-check" :size="13" />{{ $item['dependency'] }}</span></td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <ol class="rg-admin-studio__tree" aria-label="Comments">
+                @foreach ($rows as $row)
+                    <li @class(['rg-admin-studio__node', 'rg-admin-studio__node--reply' => $row['reply']]) wire:key="discussion-node-{{ $row['id'] }}" data-node="{{ $row['label'] }}">
+                        <div class="rg-admin-studio__node-box">
+                            @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $row['persona']])
+                            <div class="rg-admin-studio__node-main">
+                                <div class="rg-admin-studio__node-head">
+                                    <span class="rg-admin-studio__node-name">{{ $row['persona']['name'] ?? 'A persona' }}</span>
+                                    <span class="rg-admin-studio__node-automated"><x-admin.ui.icon name="bot" :size="11" />Automated</span>
+                                    <span class="rg-admin-studio__mono rg-admin-studio__muted">{{ $row['label'] }}</span>
+                                    @if ($row['reply'])
+                                        <span class="rg-admin-studio__muted">↳ {{ $row['replyTo'] }}</span>
+                                    @endif
+                                    @if (($row['persona']['problem'] ?? null) === 'deleted')
+                                        <x-admin.ui.badge tone="danger">Deleted</x-admin.ui.badge>
+                                    @elseif (($row['persona']['problem'] ?? null) === 'not_persona')
+                                        <x-admin.ui.badge tone="danger">Not a persona</x-admin.ui.badge>
+                                    @elseif (($row['persona']['problem'] ?? null) === 'restricted' && ($row['persona']['status'] ?? null) !== null)
+                                        <x-admin.ui.badge :tone="$row['persona']['status']['tone']" :dot="$row['persona']['status']['dot']">{{ $row['persona']['status']['label'] }}</x-admin.ui.badge>
+                                    @endif
+                                    <span class="rg-admin-studio__node-time"><x-admin.ui.icon name="clock" :size="12" />{{ $row['offset'] }}</span>
+                                </div>
+                                <div @class(['rg-admin-studio__node-body', 'rg-admin-studio__node-body--rewriting' => $row['rewriting']])>{{ $row['body'] }}</div>
+                                @if ($editable)
+                                    <div class="rg-admin-studio__node-actions">
+                                        @unless ($row['reply'])
+                                            <button type="button" class="rg-admin-studio__node-action" wire:click="openReply({{ $row['id'] }})" @disabled($underway)><x-admin.ui.icon name="reply" :size="13" />Reply</button>
+                                        @endunless
+                                        <button type="button" class="rg-admin-studio__node-action" wire:click="openEdit({{ $row['id'] }})" @disabled($underway)><x-admin.ui.icon name="pencil" :size="13" />Edit</button>
+                                        <button type="button" class="rg-admin-studio__node-action" x-on:click="$wire.regenerate({{ $row['id'] }}, $store.adminEditor?.changes ?? 0)" @disabled($rewriteBlocked) @if ($notReady !== null) title="{{ $notReady }}" @endif>
+                                            <x-admin.ui.icon :name="$row['rewriting'] ? 'loader' : 'refresh-cw'" :size="13" />{{ $row['rewriting'] ? 'Rewriting…' : 'Regenerate' }}
+                                        </button>
+                                        <button type="button" class="rg-admin-studio__node-action rg-admin-studio__node-action--danger" wire:click="askDelete({{ $row['id'] }})" @disabled($underway)><x-admin.ui.icon name="trash-2" :size="13" />Delete</button>
                                     </div>
                                 @endif
                             </div>
-                        @endif
-
-                        @if ($editing === $key && ! $blocked)
-                            <div class="rg-admin-studio__comment-panel" role="group" aria-label="Edit {{ $row['label'] }}">
-                                <div class="rg-admin-studio__comment-persona">
-                                    <span class="rg-admin-label">Persona</span>
-                                    <div class="rg-admin-studio__comment-chosen">
-                                        @include('livewire.admin.studio-plan-discussion-persona', ['persona' => $row['persona'], 'missing' => 'No persona chosen'])
-                                    </div>
-                                    <x-admin.ui.search-field
-                                        placeholder="Search personas"
-                                        name="personaSearch"
-                                        id="rg-admin-discussion-persona-search"
-                                        :value="$personaSearch"
-                                        wire:model.live.debounce.300ms="personaSearch"
-                                    />
-                                    @if ($personaChoices !== [])
-                                        <ul class="rg-admin-studio__choices" aria-label="Personas to choose">
-                                            @foreach ($personaChoices as $choice)
-                                                <li wire:key="persona-choice-{{ $key }}-{{ $choice['id'] }}">
-                                                    <button type="button" class="rg-admin-studio__choice" wire:click="choosePersona('{{ $key }}', {{ $choice['id'] }})">
-                                                        @include('livewire.admin.studio-plan-discussion-persona', ['persona' => $choice])
-                                                    </button>
-                                                </li>
-                                            @endforeach
-                                        </ul>
-                                    @endif
-                                </div>
-
-                                <x-admin.ui.textarea
-                                    label="Comment"
-                                    id="rg-admin-discussion-body-{{ $key }}"
-                                    :value="$row['body']"
-                                    :rows="3"
-                                    :limit="$bodyLimit"
-                                    :required="true"
-                                    wire:model="nodes.{{ $key }}.body"
-                                    :error="$errors->first('nodes.'.$key.'.body') ?: null"
-                                />
-
-                                <div
-                                    class="rg-admin-studio__comment-timing"
-                                    x-data="{
-                                        d: {{ intdiv($row['offset'], 86400) }},
-                                        h: {{ intdiv($row['offset'] % 86400, 3600) }},
-                                        m: {{ intdiv($row['offset'] % 3600, 60) }},
-                                        s: {{ $row['offset'] % 60 }},
-                                        latest: {{ $latestOffset }},
-                                        parent: @js($row['parentOffset']),
-                                        postAt: @js($postAt),
-                                        zone: @js($timezone),
-                                        get total() { return Math.min(this.latest, Math.max(0, (Number(this.d) || 0) * 86400 + (Number(this.h) || 0) * 3600 + (Number(this.m) || 0) * 60 + (Number(this.s) || 0))) },
-                                        label(seconds) {
-                                            const parts = [[Math.floor(seconds / 86400), 'd'], [Math.floor(seconds % 86400 / 3600), 'h'], [Math.floor(seconds % 3600 / 60), 'min'], [seconds % 60, 's']].filter(([n]) => n > 0).map(([n, unit]) => `${n} ${unit}`)
-
-                                            return parts.length ? parts.join(' ') : '0 min'
-                                        },
-                                        sync() { $wire.$set('nodes.{{ $key }}.offsetSeconds', this.total, false) },
-                                        at() {
-                                            if (! this.postAt) return null
-
-                                            return new Intl.DateTimeFormat('en-GB', { timeZone: this.zone, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(Date.parse(this.postAt) + this.total * 1000))
-                                        },
-                                    }"
-                                >
-                                    <span class="rg-admin-label">When it comes, after the post</span>
-                                    <div class="rg-admin-studio__comment-units">
-                                        @foreach (['d' => ['Days', 30], 'h' => ['Hours', 23], 'm' => ['Minutes', 59], 's' => ['Seconds', 59]] as $unit => [$unitLabel, $unitMax])
-                                            <label class="rg-admin-studio__comment-unit">
-                                                <span class="rg-admin-hint">{{ $unitLabel }}</span>
-                                                <input type="number" min="0" max="{{ $unitMax }}" step="1" class="rg-admin-input" x-model.number="{{ $unit }}" x-on:input="sync()" />
-                                            </label>
-                                        @endforeach
-                                    </div>
-                                    <p class="rg-admin-hint" aria-live="polite">
-                                        <span x-text="'+' + label(total) + ' after the post'"></span><span x-show="parent !== null" x-text="parent !== null ? (total >= parent ? ' · ' + label(total - parent) + ' after its comment' : ' · earlier than its comment, which is not allowed') : ''"></span><span x-show="postAt" x-text="postAt ? ' · ' + at() + ' (' + zone + ')' : ''"></span>
-                                    </p>
-                                    @if ($errors->first('nodes.'.$key.'.offsetSeconds'))
-                                        <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $errors->first('nodes.'.$key.'.offsetSeconds') }}</p>
-                                    @endif
-                                </div>
-
-                                <div class="rg-admin-studio__comment-actions">
-                                    <x-admin.ui.button size="sm" wire:click="closeEditor">Done</x-admin.ui.button>
-                                </div>
-                            </div>
-                        @endif
+                        </div>
                     </li>
                 @endforeach
             </ol>
         @endif
-
-        <div class="rg-admin-studio__discussion-footer">
-            <x-admin.ui.button icon="plus" wire:click="addComment" :disabled="$blocked || $full">Add comment</x-admin.ui.button>
-            <span class="rg-admin-hint">
-                @if ($full)
-                    A discussion holds up to {{ $mostNodes }} comments and replies. Delete one to add another.
-                @else
-                    Two levels: comments on the post and replies to them.
-                @endif
-            </span>
-            <span class="rg-admin-studio__discussion-footer-end">
-                <x-admin.ui.button wire:click="discardChanges" :disabled="$blocked || ! $dirty">Discard changes</x-admin.ui.button>
-                <x-admin.ui.button
-                    variant="primary"
-                    icon="save"
-                    :disabled="$blocked"
-                    x-bind:disabled="{{ $blocked ? 'true' : 'false' }} || ! $store.adminEditor?.discussionDirty"
-                    wire:click="save"
-                    wire:loading.attr="disabled"
-                    wire:target="save"
-                >Save discussion</x-admin.ui.button>
-            </span>
-        </div>
     </x-admin.ui.card>
+
+    @if ($dialogData !== null)
+        <x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="$wire.closeDialog()" x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()">
+            <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing">
+                <div class="rg-admin-studio__dialog-header">
+                    <h2 id="rg-admin-discussion-dialog-title" class="rg-admin-dialog__title">{{ $dialogData['title'] }}</h2>
+                    <x-admin.ui.icon-button icon="x" label="Close" variant="ghost" size="sm" x-on:click="dismiss()" />
+                </div>
+
+                <div class="rg-admin-studio__dialog-body">
+                    <div class="rg-admin-field">
+                        <span class="rg-admin-label" id="rg-admin-discussion-dialog-persona">Persona</span>
+                        <x-admin.ui.search-field placeholder="Search by login or name" wire:model.live.debounce.300ms="dialogSearch" autocomplete="off" />
+                        <div class="rg-admin-studio__persona-chips" role="radiogroup" aria-labelledby="rg-admin-discussion-dialog-persona">
+                            @foreach ($dialogData['personas'] as $persona)
+                                <button type="button" role="radio" aria-checked="{{ $persona['on'] ? 'true' : 'false' }}" class="rg-admin-studio__persona-chip" wire:key="discussion-dialog-persona-{{ $persona['id'] }}" wire:click="choosePersona({{ $persona['id'] }})">
+                                    <span class="rg-admin-studio__persona-chip-initials" aria-hidden="true">{{ $persona['initials'] ?? '' }}</span>{{ $persona['name'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                        @error('dialogPersona')
+                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div class="rg-admin-field" x-data="{ open: false }" x-on:click.outside="open = false">
+                        <span class="rg-admin-label" id="rg-admin-discussion-dialog-parent">Replies to</span>
+                        <div class="rg-admin-studio__parent">
+                            <button type="button" class="rg-admin-studio__parent-trigger" aria-haspopup="listbox" aria-labelledby="rg-admin-discussion-dialog-parent" x-bind:aria-expanded="open" x-on:click="open = ! open" @disabled($dialogData['hasReplies'])>
+                                <span class="rg-admin-studio__parent-label">{{ $dialogData['parentLabel'] }}</span>
+                                <x-admin.ui.icon name="chevron-down" :size="16" />
+                            </button>
+                            <div class="rg-admin-studio__parent-menu" role="listbox" x-show="open" x-cloak>
+                                <button type="button" role="option" aria-selected="{{ $dialogData['parentRef'] === null ? 'true' : 'false' }}" class="rg-admin-studio__parent-option" x-on:click="open = false; $wire.chooseParent(null)">
+                                    <span class="rg-admin-studio__parent-option-label">No parent</span>
+                                    <span class="rg-admin-studio__parent-option-sub">Top-level comment</span>
+                                </button>
+                                @foreach ($dialogData['parents'] as $parent)
+                                    <button type="button" role="option" aria-selected="{{ $parent['on'] ? 'true' : 'false' }}" class="rg-admin-studio__parent-option" wire:key="discussion-dialog-parent-{{ $parent['id'] }}" x-on:click="open = false; $wire.chooseParent({{ $parent['id'] }})">
+                                        <span class="rg-admin-studio__parent-option-label">{{ $parent['label'] }}</span>
+                                        <span class="rg-admin-studio__parent-option-sub">{{ $parent['sub'] }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
+                        @if ($dialogData['hasReplies'])
+                            <p class="rg-admin-hint">It has replies, so it stays a top-level comment.</p>
+                        @endif
+                        @error('dialogParent')
+                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <x-admin.ui.textarea
+                        label="Text"
+                        id="rg-admin-discussion-dialog-text"
+                        placeholder="Write the comment in English…"
+                        :rows="4"
+                        :value="$dialogBody"
+                        :limit="\App\Support\Studio\StudioDiscussionValidationRules::BODY_LIMIT"
+                        :error="$errors->first('dialogBody') ?: null"
+                        wire:model="dialogBody"
+                    />
+
+                    <div
+                        class="rg-admin-field"
+                        wire:key="discussion-dialog-time-{{ $dialogData['parentRef'] ?? 'post' }}"
+                        x-data="{
+                            units: @js($units),
+                            parent: @js($dialogData['parentOffset']),
+                            ref: @js($dialogData['parentRef']),
+                            get unit() { return this.units[$wire.dialogUnit] ? $wire.dialogUnit : 'min' },
+                            get seconds() { return Number($wire.dialogSeconds) || 0 },
+                            shown() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
+                            pick(unit) {
+                                $wire.$set('dialogUnit', unit, false)
+                                this.$nextTick(() => { this.$refs.offset.value = this.shown() })
+                            },
+                            set(input) {
+                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
+
+                                if (Number.isNaN(n) || n < 0) return
+
+                                $wire.$set('dialogSeconds', Math.round(n * this.units[this.unit]), false)
+                            },
+                            rel(seconds) {
+                                const m = Math.round(seconds / 60)
+
+                                if (m < 60) return m + ' min'
+                                if (m < 1440) return Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '')
+
+                                return Math.floor(m / 1440) + ' d' + (Math.floor((m % 1440) / 60) ? ' ' + Math.floor((m % 1440) / 60) + ' h' : '')
+                            },
+                            get early() { return this.parent !== null && this.seconds < this.parent },
+                            get hint() {
+                                if (this.early) return 'Earlier than its parent (' + this.ref + ' at +' + this.rel(this.parent) + '). A reply can’t come before the comment it answers.'
+
+                                return '+' + this.rel(this.seconds) + ' after the post' + (this.parent !== null ? ' · ' + this.rel(this.seconds - this.parent) + ' after ' + this.ref : '')
+                            },
+                        }"
+                    >
+                        <label for="rg-admin-discussion-dialog-offset" class="rg-admin-label">Appears after the post</label>
+                        <div class="rg-admin-studio__offset rg-admin-studio__offset--large">
+                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown()" x-on:input="set($event.target)" />
+                            <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
+                                @foreach (array_keys($units) as $unit)
+                                    <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="pick(@js($unit))">{{ $unit }}</button>
+                                @endforeach
+                            </div>
+                        </div>
+                        <p class="rg-admin-hint" x-bind:class="early && 'rg-admin-studio__generate-hint--danger'" x-text="hint"></p>
+                        @error('dialogSeconds')
+                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    @error('dialog')
+                        <x-admin.ui.inline-notice tone="warning">{{ $message }}</x-admin.ui.inline-notice>
+                    @enderror
+                </div>
+
+                <div class="rg-admin-dialog__footer">
+                    <span class="rg-admin-dialog__footnote">Saved to this draft at once. Nothing is published.</span>
+                    <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
+                    <x-admin.ui.button variant="primary" wire:click="saveDialog" x-bind:disabled="! String($wire.dialogBody ?? '').trim()">Save</x-admin.ui.button>
+                </div>
+            </div>
+        </x-admin.ui.overlay>
+    @endif
 
     @if ($deletingRow !== null)
         <x-admin.ui.confirm-dialog
-            id="rg-admin-discussion-delete"
+            :title="$deletingRow['replies'] > 0 ? 'Delete '.$deletingRow['label'].' and its '.$deletingRow['replies'].' '.($deletingRow['replies'] === 1 ? 'reply' : 'replies').'?' : 'Delete '.$deletingRow['label'].'?'"
             tone="danger"
             icon="trash-2"
-            title="Delete this comment and its {{ $deletingRow['replies'] }} {{ $deletingRow['replies'] === 1 ? 'reply' : 'replies' }}?"
-            wire:key="confirm-delete-discussion-{{ $deleting }}"
-            x-on:dismiss="$wire.cancelDelete()"
+            id="rg-admin-discussion-delete"
+            x-on:dismiss="$wire.closeConfirmation()"
         >
-            <p>Replies can’t stay without their parent, so the whole branch leaves the plan.</p>
-
+            {{ $deletingRow['replies'] > 0 ? 'Replies can’t stay without their parent, so the whole branch leaves the plan.' : 'The comment leaves the plan.' }}
             <x-slot:details>
                 <div class="rg-admin-dialog-subject">
-                    <span class="rg-admin-dialog-subject__icon" aria-hidden="true"><x-admin.ui.icon name="message-square" :size="16" /></span>
+                    <span class="rg-admin-dialog-subject__icon"><x-admin.ui.icon name="message-square" :size="16" /></span>
                     <span class="rg-admin-dialog-subject__text">
-                        <span class="rg-admin-dialog-subject__title">{{ $deletingRow['body'] !== '' ? $deletingRow['body'] : 'No text yet' }}</span>
-                        <span class="rg-admin-dialog-subject__meta">{{ $deletingRow['author']['name'] ?? 'No persona' }} · removed from the draft until you save the discussion</span>
+                        <span class="rg-admin-dialog-subject__title">{{ $deletingRow['body'] }}</span>
+                        <span class="rg-admin-dialog-subject__meta">{{ $deletingRow['meta'] }}</span>
                     </span>
                 </div>
+                @if ($deletingRow['replies'] > 0)
+                    <ul class="rg-admin-dialog-facts">
+                        <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="git-branch" :size="16" />{{ $deletingRow['replies'] + 1 }} comments removed: {{ $deletingRow['labels'] }}</li>
+                    </ul>
+                @endif
             </x-slot:details>
-
+            <x-slot:footnote>You can undo it from the notice that follows.</x-slot:footnote>
             <x-slot:actions>
-                <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
-                <x-admin.ui.button variant="danger" wire:click="confirmDelete">Delete branch</x-admin.ui.button>
+                <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
+                <x-admin.ui.button variant="danger" icon="trash-2" x-on:click="hide(); $wire.confirmDelete()">{{ $deletingRow['replies'] > 0 ? 'Delete branch' : 'Delete comment' }}</x-admin.ui.button>
+            </x-slot:actions>
+        </x-admin.ui.confirm-dialog>
+    @endif
+
+    @if ($confirmingGenerate)
+        <x-admin.ui.confirm-dialog title="Replace the discussion?" tone="warning" icon="refresh-cw" id="rg-admin-discussion-replace" x-on:dismiss="$wire.closeConfirmation()">
+            A new tree replaces every comment: its text, persona and timing.
+            <x-slot:details>
+                <ul class="rg-admin-dialog-facts">
+                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="message-square" :size="16" />{{ count($rows) }} current {{ count($rows) === 1 ? 'comment is' : 'comments are' }} replaced</li>
+                </ul>
+            </x-slot:details>
+            <x-slot:actions>
+                <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
+                <x-admin.ui.button variant="primary" icon="refresh-cw" x-on:click="hide(); $wire.confirmGenerate($store.adminEditor?.changes ?? 0)">Replace discussion</x-admin.ui.button>
             </x-slot:actions>
         </x-admin.ui.confirm-dialog>
     @endif

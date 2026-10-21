@@ -1086,34 +1086,34 @@ actions (`docs/architecture/studio-plans.md`).
     while restricted.”) —, then Source URL, never the link a photo is imported from. Last, Category and tags — the
     category (an inactive one kept and marked) and up to ten tags — beside the author's answer in each active
     rating group. The steps take the whole width, as the prototype's do.
-  - **Discussion:** the comments and replies the post is to get, in a component of its own drawn once with the page
-    and hidden on the other steps, so nothing typed in it is lost by moving between them; a new publication says
-    “Save the draft first to prepare its discussion.” until its Draft exists. First, Discussion settings: Total
-    comments and Top-level comments (steppers, up to 40 in all), the personas taking part — Manual, chosen from the
-    living personas found on the server, or Random, as many as asked drawn only by Pick personas (Pick again) and
-    shown before anything is generated, one to eight —, the tone (Cheeky chosen at first) and Generate tree, or
-    Regenerate tree once there is a discussion, “One request to OpenAI … — a paid call.” It waits, saying why,
-    while the post or the discussion has unsaved changes, without a saved final title or the photo's finished
-    analysis, and while a generation is on its way; unconfigured, “Discussion generation is not configured.
-    Comments can still be written by hand.” Then Generations, a component of its own that alone is read again
-    every few seconds, and only while the newest one is on its way: Waiting for generation, Generating
-    discussion, Proposal ready, Applied, Generation failed (its own words, with Retry) or Generation may have
-    been lost, each with what it wrote, when and by whom, how many comments and the tone; ten at first, then Show
-    earlier generations. Preview proposal shows a proposal apart from the discussion: a whole tree as it would
-    be, with “Applying this proposal replaces the entire prepared discussion.”; a part as each text it changes,
-    now and proposed, “Only these texts change.”; one written from a post, photo, discussion or persona that has
-    changed since says it can no longer be applied. Apply proposal takes it in — over a saved discussion, a whole
-    tree only once “Replace the prepared discussion?” (OVL-01) is confirmed —, and Ignore proposal closes it,
-    changing nothing. Last, Prepared discussion: each comment on the post with its replies indented under it,
-    numbered #1 and #1.2, its persona (a deleted, non-persona or restricted one marked), its time after the post
-    (“+2 h 15 min”; the date in the application's time zone for a post on a chosen date), New or Edited, and Reply
-    (comments on the post only), Edit, Regenerate (a saved, unchanged comment: this reply, this comment, or the
-    whole branch), Move up and Move down among its siblings, and Delete — a comment with replies asks “Delete
-    this comment and its n replies?” (OVL-01). Edit opens the persona, searched on the server, the text (1 to
-    1,000, with its counter) and the time in days, hours, minutes and seconds. Add comment, up to 40; Discard
-    changes; Save discussion, each error kept by its comment. The discussion is saved apart from the draft: the
-    top bar's count and Save draft are the post's and its publication's, while the browser's question before
-    the page is left counts both.
+  - **Discussion:** laid out and working as the prototype's Discussion step, in a component of its own drawn once with
+    the page and hidden on the other steps; a new publication says “Save the draft first to prepare its discussion.”
+    until its Draft exists. First, Discussion settings, in the first of three columns: Total comments (0–40, with
+    “No discussion: the post publishes without automated comments.” at none), Top-level comments (“of n”, “First-level
+    comments. The rest are replies.”), Number of personas (“of n active”) while Random is chosen, and Personas —
+    Random, picked only when the tree is generated and then shown as chips, “Picked for the current tree. Generate
+    again to reshuffle.”, or Manual, every persona matching “Search by login or name” checked one by one, with “n of n
+    active personas selected”, Select all (Select n shown while searching), Clear and the chosen ones as removable
+    chips. Then a strip of its own, “Generate from the settings above”, with what they ask for (“14 comments · 5
+    top-level · 6 personas”, or “No discussion · the post publishes without automated comments”), a hint — “Select at
+    least one persona.”, why generation waits, “The tree has comments. You’ll be asked before it’s replaced.”, or “One
+    request to OpenAI — a paid call.” — and Generate tree, or Regenerate tree once there is one. It waits while the
+    post has unsaved changes or a generation is on its way; a tree that would replace comments asks “Replace the
+    discussion?” (OVL-01) first. While the tree is generated, six placeholder rows stand in for it; it is taken in the
+    moment it is ready, and a failure is said over the tree with Try again. Then Discussion tree, “n comments · n
+    top-level” and + Comment, in two tabs. Comments: each comment on the post by its time, its replies indented under
+    it on a guide, each a box with the persona's avatar, name, an Automated tag, its label (C1, C2, … in the order
+    shown), “↳ C1 · name” for a reply, a deleted, non-persona or restricted persona marked, the time after the post
+    (“+8 min”), its text, and Reply (comments on the post only), Edit, Regenerate — “Rewriting…” with the text faded,
+    then the new text and a toast “New text for C3 · same author and time” with Undo — and Delete, which asks first
+    (OVL-01, danger): “Delete C3?” or “Delete C1 and its 2 replies?”, “Replies can’t stay without their parent, so
+    the whole branch leaves the plan.”, the comment, and “3 comments removed: C1, C2, C3”, then a toast with Undo.
+    Timing: every comment by its time — #, Action, Executor, Parent, Offset from post (a number with min, h or d,
+    changed in place) and Dependency (“After the post”, “After C1 at +8 min”). A comment is written in a dialog, 560
+    wide — “New top-level comment”, “Reply to C1” or “Edit C3” — with the persona as chips found by search, Replies
+    to, Text (1 to 1,000, with its counter) and “Appears after the post” in min, h or d with “+X after the post · Y
+    after C1”, or a warning when a reply would come before its comment; Save writes it at once, “Saved to this draft
+    at once. Nothing is published.”, each refusal kept by its field.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
     zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
     saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
@@ -1123,11 +1123,11 @@ actions (`docs/architecture/studio-plans.md`).
   error stays by its field, and Save shows the step it is on. A save or a photo drawn before somebody else's save
   is refused with a toast and a warning notice whose Reload draws the plan as it is, keeping what was typed until
   then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A new publication's
-  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan. The discussion is saved
-  by Save discussion through `SaveStudioDiscussionTreeAction`, and a proposal taken in through
-  `ApplyStudioDiscussionGenerationAction`; the plan has one version, and each of the page's two saves takes the
-  version the other's write left, so neither is in conflict with the other, while one drawn before somebody else's
-  save is refused, the discussion's with Reload discussion.
+  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan. The discussion is
+  written the moment it changes, as the photo is, through `SaveStudioDiscussionTreeAction`, and what AI wrote taken in
+  through `ApplyStudioDiscussionGenerationAction`; the plan has one version, and each of the page's writes takes the
+  version the other's left, so none is in conflict with another, while one drawn before somebody else's save is
+  refused, the discussion's with Reload discussion.
 - **Delete draft (OVL-01):** from the row menu and the editor's header, “Delete this draft?” — “The draft will be
   removed. Its image will be released if nothing else uses it.” — Cancel and Delete draft, through
   `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
@@ -1502,7 +1502,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
-| Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | no votes; Discussion is the comment tree with its settings, generations and the proposal previewed, saved on its own | persona votes come with their own stage; a discussion is a plan's own draft, saved apart from the post's, and changed by AI only through a proposal an administrator applies |
+| Votes tab and Discussion | post votes, voters, timing; Comment votes and Comment voters cards, Comment votes and Voters tabs, priorities, a reply to a reply, a stale-text banner | no votes, voters or priorities; a reply answers a comment on the post; Generate writes from saved texts only | persona votes come with their own stage; a discussion has two levels; the post's title a tree was written from is not kept, so nothing can say it changed since |
 | Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |

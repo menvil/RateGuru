@@ -6,6 +6,8 @@
     'max' => null,
     'hint' => null,
     'error' => null,
+    'range' => null,
+    'unit' => null,
 ])
 
 @php
@@ -16,51 +18,66 @@
      * the input it changed, so wire:model or x-model sees a step as it sees
      * typing. Attributes go to the input (wire:model="sortOrder"); what is
      * typed is the server's to validate.
+     *
+     * Optional: `range`, the bounds said at the right of the label (“0–40”),
+     * and `unit`, what the number counts, after the control (“comments”).
      */
     $describedBy = $error !== null ? "{$id}-error" : ($hint !== null ? "{$id}-hint" : null);
     $name = \Illuminate\Support\Str::lower($label);
 @endphp
 
 <div class="rg-admin-field rg-admin-stepper-field">
-    <label for="{{ $id }}" class="rg-admin-label">{{ $label }}</label>
+    @if ($range !== null)
+        <div class="rg-admin-stepper-field__head">
+            <label for="{{ $id }}" class="rg-admin-label">{{ $label }}</label>
+            <span class="rg-admin-stepper-field__range">{{ $range }}</span>
+        </div>
+    @else
+        <label for="{{ $id }}" class="rg-admin-label">{{ $label }}</label>
+    @endif
 
-    <div
-        @class(['rg-admin-stepper', 'rg-admin-stepper--invalid' => $error !== null])
-        x-data="{
-            min: @js($min),
-            max: @js($max),
-            step(by) {
-                const input = this.$refs.input
-                const current = Number.parseInt(input.value, 10)
-                let next = (Number.isNaN(current) ? (this.min ?? 0) : current) + by
+    <div class="rg-admin-stepper-field__row">
+        <div
+            @class(['rg-admin-stepper', 'rg-admin-stepper--invalid' => $error !== null])
+            x-data="{
+                min: @js($min),
+                max: @js($max),
+                step(by) {
+                    const input = this.$refs.input
+                    const current = Number.parseInt(input.value, 10)
+                    let next = (Number.isNaN(current) ? (this.min ?? 0) : current) + by
 
-                if (this.min !== null) next = Math.max(this.min, next)
-                if (this.max !== null) next = Math.min(this.max, next)
+                    if (this.min !== null) next = Math.max(this.min, next)
+                    if (this.max !== null) next = Math.min(this.max, next)
 
-                input.value = String(next)
-                input.dispatchEvent(new Event('input', { bubbles: true }))
-                input.dispatchEvent(new Event('change', { bubbles: true }))
-            },
-        }"
-    >
-        <button type="button" class="rg-admin-stepper__button" aria-label="Decrease {{ $name }}" title="Decrease {{ $name }}" x-on:click="step(-1)">
-            <x-admin.ui.icon name="minus" :size="14" />
-        </button>
-        <input
-            id="{{ $id }}"
-            type="text"
-            inputmode="numeric"
-            value="{{ $value }}"
-            class="rg-admin-stepper__control"
-            autocomplete="off"
-            x-ref="input"
-            @if ($error !== null) aria-invalid="true" @endif
-            @if ($describedBy !== null) aria-describedby="{{ $describedBy }}" @endif
-            {{ $attributes }}
-        />
-        <button type="button" class="rg-admin-stepper__button" aria-label="Increase {{ $name }}" title="Increase {{ $name }}" x-on:click="step(1)">
-            <x-admin.ui.icon name="plus" :size="14" />
-        </button>
+                    input.value = String(next)
+                    input.dispatchEvent(new Event('input', { bubbles: true }))
+                    input.dispatchEvent(new Event('change', { bubbles: true }))
+                },
+            }"
+        >
+            <button type="button" class="rg-admin-stepper__button" aria-label="Decrease {{ $name }}" title="Decrease {{ $name }}" x-on:click="step(-1)">
+                <x-admin.ui.icon name="minus" :size="14" />
+            </button>
+            <input
+                id="{{ $id }}"
+                type="text"
+                inputmode="numeric"
+                value="{{ $value }}"
+                class="rg-admin-stepper__control"
+                autocomplete="off"
+                x-ref="input"
+                @if ($error !== null) aria-invalid="true" @endif
+                @if ($describedBy !== null) aria-describedby="{{ $describedBy }}" @endif
+                {{ $attributes }}
+            />
+            <button type="button" class="rg-admin-stepper__button" aria-label="Increase {{ $name }}" title="Increase {{ $name }}" x-on:click="step(1)">
+                <x-admin.ui.icon name="plus" :size="14" />
+            </button>
+        </div>
+        @if ($unit !== null)
+            <span class="rg-admin-stepper-field__unit">{{ $unit }}</span>
+        @endif
     </div>
 
     @if ($error !== null)

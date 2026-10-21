@@ -9,8 +9,9 @@ use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
+use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
-use App\Enums\StudioPlanPublicationMode;
+use App\Enums\StudioDiscussionGenerationStatus;
 use App\Enums\StudioPostTextTone;
 use App\Exceptions\Studio\CannotApplyStudioDiscussionGenerationException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
@@ -24,9 +25,12 @@ use App\Support\Studio\StudioDiscussionValidationRules;
 use App\Support\StudioAi\StudioDiscussionGenerator;
 use App\Support\StudioAi\StudioPostTextContext;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -34,23 +38,25 @@ use Livewire\Component;
 
 /**
  * The editor's Discussion step (docs/architecture/studio-plans.md, "The
- * editor"): the comments and replies the post is to get, edited by hand as a
- * draft of their own and saved with Save discussion
- * (SaveStudioDiscussionTreeAction) — the one way a discussion is written —
- * and written by AI on an explicit request, whole or one part at a time
- * (RequestStudioDiscussionGenerationAction), a proposal taken in only with
- * Apply proposal (ApplyStudioDiscussionGenerationAction).
+ * editor"), working as the prototype's does: Discussion settings — how many
+ * comments, how many of them on the post, and the Personas, picked at random
+ * when the tree is generated or checked one by one — Generate tree under
+ * them, and the discussion tree: each comment with Reply, Edit, Regenerate
+ * and Delete, and the Timing of them all.
  *
- * The draft (`nodes`) is this component's, compared with the discussion as
- * saved (`savedNodes`) to say what is unsaved; nothing reaches the database
- * but through the actions, which check everything again. A saved comment
- * keeps its id; a new one goes by a key of this draft's own until it is saved.
+ * Every change is written to the plan at once, as the Image step's photo is:
+ * a comment saved from its dialog, deleted, or given another moment, through
+ * SaveStudioDiscussionTreeAction — the one way a discussion is written. What
+ * AI writes is taken in through ApplyStudioDiscussionGenerationAction the
+ * moment it is ready: a whole tree, which replaces a discussion with comments
+ * only once that is confirmed, or one comment written again. Delete and
+ * Regenerate can be undone from their toast. Nothing is published.
  *
- * It lives as long as the plan's editor page does — hidden on the other
- * steps, never drawn again — so nothing typed is lost by moving between
- * steps. Generations are shown, read again while one is on its way, and
- * previewed by a component of their own (StudioPlanDiscussionProposals), so
- * reading them never draws this draft again.
+ * Generations run on the queue. While one this page asked for, or found on
+ * its way, is, the component is read again every few seconds until it
+ * settles — the whole tree drawn as placeholders, or the comment being
+ * written again faded. It lives as long as the plan's editor page does,
+ * hidden on the other steps.
  *
  * One version for the whole plan: every write here or in the editor around
  * it raises it, and each says so with `studio-plan-version-moved` — the plan,
@@ -63,17 +69,25 @@ final class StudioPlanDiscussionEditor extends Component
     /** What the two editors of a plan say a write of theirs moved its version with. */
     public const VERSION_EVENT = 'studio-plan-version-moved';
 
-    /** The most Personas offered at once to choose from. */
-    private const CHOICES = 8;
+    /** Seconds between reads while a generation is on its way. */
+    public const POLL_SECONDS = 3;
+
+    /** The units a moment after the post is given in, in seconds. */
+    public const UNITS = ['min' => 60, 'h' => 3600, 'd' => 86400];
+
+    /** The most Personas listed to check, and offered in a comment's dialog. */
+    private const PERSONA_LIST = 50;
+
+    private const DIALOG_PERSONAS = 12;
 
     #[Locked]
     public int $planId = 0;
 
-    /** The plan's lock_version as this draft last read or wrote it. */
+    /** The plan's lock_version as this page last read or wrote it. */
     #[Locked]
     public int $lockVersion = 0;
 
-    /** Whether the plan moved to a version this page did not write, so nothing here is saved until Reload. */
+    /** Whether the plan moved to a version this page did not write, so nothing here is written until Reload. */
     #[Locked]
     public bool $conflict = false;
 
@@ -85,68 +99,85 @@ final class StudioPlanDiscussionEditor extends Component
     #[Locked]
     public bool $closed = false;
 
-    /**
-     * The draft discussion, by a key of its own — `n12` for the saved comment
-     * 12, `k3` for a new one — in the order it is listed: each comment on the
-     * post, then its replies.
-     *
-     * @var array<string, array{id: int|null, parent: string|null, personaUserId: int|null, body: string, offsetSeconds: int}>
-     */
-    public array $nodes = [];
-
-    /**
-     * The discussion as saved, in the same shape: what the draft is compared
-     * with.
-     *
-     * @var array<string, array{id: int|null, parent: string|null, personaUserId: int|null, body: string, offsetSeconds: int}>
-     */
-    #[Locked]
-    public array $savedNodes = [];
-
-    /** The number the next new comment's key is made from. */
-    #[Locked]
-    public int $nextKey = 1;
-
-    /** The comment open for editing. */
-    #[Locked]
-    public ?string $editing = null;
-
-    /** The comment on the post asked to be deleted with its replies. */
-    #[Locked]
-    public ?string $deleting = null;
-
-    /** The comment whose Regenerate choices are open. */
-    #[Locked]
-    public ?string $regenerating = null;
-
-    /** The search over the Personas offered to the comment open for editing. */
-    public string $personaSearch = '';
-
-    /** How many comments and replies a whole discussion is to have. */
-    public int $totalCount = 6;
+    /** How many comments and replies a whole tree is to have; none is no discussion. */
+    public int $totalCount = 14;
 
     /** How many of them are comments on the post; the rest are replies. */
-    public int $rootCount = 3;
+    public int $rootCount = 5;
 
-    /** manual: the Personas chosen one by one; random: a team picked by Pick personas. */
-    public string $participantMode = 'manual';
+    /** random: as many Personas as asked for, picked when the tree is generated; manual: the ones checked. */
+    public string $participantMode = 'random';
+
+    /** How many Personas a random team has. */
+    public int $randomCount = 6;
 
     /**
-     * The Personas a whole discussion is to be written by.
+     * The Personas checked to take part.
      *
      * @var list<int>
      */
     #[Locked]
-    public array $participants = [];
+    public array $manual = [];
 
-    /** How many Personas Pick personas picks. */
-    public int $randomCount = 3;
-
-    /** The search over the Personas offered to take part. */
+    /** The search over the Personas listed to check. */
     public string $participantSearch = '';
 
-    /** The tone the next generation is asked in. */
-    public string $tone = StudioPostTextTone::DEFAULT->value;
+    /** The discussion tree's tab on screen: its comments, or their timing. */
+    public string $tab = 'tree';
+
+    /** The generation this page waits for, to take in the moment it is ready. */
+    #[Locked]
+    public ?int $awaiting = null;
+
+    /** The comment that generation writes again, when it writes one. */
+    #[Locked]
+    public ?int $rewriting = null;
+
+    /** Why the last whole tree asked for was not taken in. */
+    #[Locked]
+    public ?string $failure = null;
+
+    /** Whether Generate is asking before it replaces the discussion. */
+    #[Locked]
+    public bool $confirmingGenerate = false;
+
+    /** The comment Delete is asking about. */
+    #[Locked]
+    public ?int $deleting = null;
+
+    /**
+     * The comment dialog: what it does — edit a comment, reply to one, or
+     * write a new one on the post — the comment it edits, and the comment it
+     * replies to.
+     *
+     * @var array{mode: string, id: int|null, parentId: int|null}|null
+     */
+    #[Locked]
+    public ?array $dialog = null;
+
+    /** Who writes the comment in the dialog. */
+    #[Locked]
+    public ?int $dialogPersona = null;
+
+    public string $dialogBody = '';
+
+    /** When the comment in the dialog comes, in seconds after the post. */
+    public int $dialogSeconds = 0;
+
+    /** The unit that moment is given in: min, h or d. */
+    public string $dialogUnit = 'min';
+
+    /** The search over the Personas offered in the dialog. */
+    public string $dialogSearch = '';
+
+    /**
+     * The discussion as it was before the last change that can be undone, and
+     * the token its toast's Undo carries.
+     *
+     * @var array{token: string, tree: list<array<string, mixed>>}|null
+     */
+    #[Locked]
+    public ?array $undo = null;
 
     public function boot(): void
     {
@@ -157,210 +188,75 @@ final class StudioPlanDiscussionEditor extends Component
     {
         $this->planId = $planId;
 
-        if ($planId !== 0) {
-            $this->load();
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // The draft, by hand
-    // ------------------------------------------------------------------
-
-    public function addComment(): void
-    {
-        if (! $this->canAdd()) {
+        if ($planId === 0) {
             return;
         }
 
-        $latest = max([0, ...array_map(fn (array $node): int => $node['offsetSeconds'], array_filter($this->nodes, fn (array $node): bool => $node['parent'] === null))]);
-        $key = $this->newKey();
-        $this->nodes[$key] = self::node(null, null, $this->participants[0] ?? null, '', min(StudioDiscussionValidationRules::LATEST_OFFSET_SECONDS, $latest + 600));
-        $this->open($key);
-    }
-
-    public function addReply(mixed $key): void
-    {
-        $key = $this->known($key);
-
-        if ($key === null || $this->nodes[$key]['parent'] !== null || ! $this->canAdd()) {
-            return;
-        }
-
-        $siblings = $this->childrenOf($key);
-        $after = $siblings === [] ? $key : end($siblings);
-        $latest = max([$this->nodes[$key]['offsetSeconds'], ...array_map(fn (string $child): int => $this->nodes[$child]['offsetSeconds'], $siblings)]);
-        $reply = $this->newKey();
-
-        $this->nodes = self::inserted($this->nodes, $after, $reply, self::node(null, $key, null, '', min(StudioDiscussionValidationRules::LATEST_OFFSET_SECONDS, $latest + 300)));
-        $this->open($reply);
-    }
-
-    public function edit(mixed $key): void
-    {
-        $key = $this->known($key);
-
-        if ($key !== null) {
-            $this->editing === $key ? $this->closeEditor() : $this->open($key);
-        }
-    }
-
-    public function closeEditor(): void
-    {
-        $this->editing = null;
-        $this->personaSearch = '';
-    }
-
-    /** Chooses who writes a comment: a Persona that is not deleted, as the discussion's rules allow. */
-    public function choosePersona(mixed $key, mixed $id): void
-    {
-        $key = $this->known($key);
-        $persona = is_numeric($id) ? app(PersonasQuery::class)->choosable((int) $id) : null;
-
-        if ($key === null) {
-            return;
-        }
-
-        if ($persona === null) {
-            $this->addError("nodes.{$key}.personaUserId", 'Choose a persona who is not deleted.');
-
-            return;
-        }
-
-        $this->nodes[$key]['personaUserId'] = (int) $persona->id;
-        $this->personaSearch = '';
-        $this->resetErrorBag("nodes.{$key}.personaUserId");
-    }
-
-    /** Moves a comment one place up among its siblings: the comments on the post, or one comment's replies. */
-    public function moveUp(mixed $key): void
-    {
-        $this->move($key, -1);
-    }
-
-    public function moveDown(mixed $key): void
-    {
-        $this->move($key, 1);
-    }
-
-    /**
-     * Takes a reply, or a comment with no replies, out of the draft; a
-     * comment with replies is asked about first, since its replies go with it.
-     */
-    public function delete(mixed $key): void
-    {
-        $key = $this->known($key);
-
-        if ($key === null) {
-            return;
-        }
-
-        if ($this->nodes[$key]['parent'] === null && $this->childrenOf($key) !== []) {
-            $this->deleting = $key;
-
-            return;
-        }
-
-        $this->remove($key);
-    }
-
-    public function confirmDelete(): void
-    {
-        $key = $this->known($this->deleting);
-        $this->deleting = null;
-
-        if ($key !== null) {
-            $this->remove($key);
-        }
-    }
-
-    public function cancelDelete(): void
-    {
-        $this->deleting = null;
-    }
-
-    /** Puts the discussion as saved back in place of the draft, reading nothing anew. */
-    public function discardChanges(): void
-    {
-        $this->nodes = $this->savedNodes;
-        $this->closeEditor();
-        $this->deleting = null;
-        $this->regenerating = null;
-        $this->resetErrorBag();
-    }
-
-    /** Draws the discussion as it is saved now, with the plan's version: what was typed here is replaced. */
-    #[On('reload-studio-discussion')]
-    public function reload(): void
-    {
         $this->load();
-        $this->refreshProposals();
-    }
 
-    /**
-     * Saves the draft as the plan's whole discussion: comments added, changed
-     * and deleted together, through the one action that writes discussions.
-     */
-    public function save(): void
-    {
-        if (! $this->writable()) {
-            return;
+        $now = CarbonImmutable::now();
+        $underway = StudioPlanDiscussionGeneration::query()
+            ->where('studio_plan_id', $planId)
+            ->whereIn('status', [StudioDiscussionGenerationStatus::Queued, StudioDiscussionGenerationStatus::Running])
+            ->latest('id')
+            ->get()
+            ->first(fn (StudioPlanDiscussionGeneration $generation): bool => $generation->isUnderway($now));
+
+        if ($underway !== null) {
+            $this->awaiting = (int) $underway->id;
+            $this->rewriting = $underway->mode->isTargeted() ? $underway->targetNodeId() : null;
         }
 
-        $plan = StudioPlan::query()->find($this->planId);
+        // The settings the last whole tree was asked with.
+        $last = StudioPlanDiscussionGeneration::query()
+            ->where('studio_plan_id', $planId)
+            ->where('mode', StudioDiscussionGenerationMode::FullDiscussion)
+            ->latest('id')
+            ->first();
 
-        if ($plan === null) {
-            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'the discussion wasn’t saved');
-
-            return;
+        if ($last !== null) {
+            $roots = (int) ($last->parameters['root_count'] ?? 0);
+            $this->rootCount = max(1, $roots);
+            $this->totalCount = max(1, $roots + (int) ($last->parameters['reply_count'] ?? 0));
+            $this->randomCount = max(1, count($last->persona_user_ids));
         }
 
-        [$data, $order] = $this->data();
-        $this->resetErrorBag();
-
-        try {
-            $saved = app(SaveStudioDiscussionTreeAction::class)->handle($this->admin(), $plan, $data, $this->lockVersion);
-        } catch (CannotManageStudioPlanException $exception) {
-            $this->refuse($exception, 'the discussion wasn’t saved');
-
-            return;
-        } catch (ValidationException $exception) {
-            $this->showErrors($exception, $order);
-
-            return;
-        }
-
-        $this->settle($saved);
-        $this->toast('Discussion saved', 'success');
+        $this->updatedTotalCount();
+        $this->updatedRandomCount();
     }
 
     // ------------------------------------------------------------------
-    // Who takes part in a whole discussion
+    // Discussion settings
     // ------------------------------------------------------------------
-
-    public function updatedParticipantMode(): void
-    {
-        $this->participantMode = $this->participantMode === 'random' ? 'random' : 'manual';
-        $this->participants = [];
-        $this->resetErrorBag('participants');
-    }
 
     public function updatedTotalCount(): void
     {
-        $this->totalCount = max(1, min($this->mostNodes(), $this->totalCount));
-        $this->rootCount = max(1, min($this->totalCount, $this->rootCount));
+        $this->totalCount = max(0, min($this->mostNodes(), $this->totalCount));
+        $this->rootCount = $this->totalCount === 0 ? 0 : max(1, min($this->totalCount, $this->rootCount));
     }
 
     public function updatedRootCount(): void
     {
-        $this->rootCount = max(1, min($this->totalCount, $this->rootCount));
+        $this->rootCount = $this->totalCount === 0 ? 0 : max(1, min($this->totalCount, $this->rootCount));
     }
 
     public function updatedRandomCount(): void
     {
-        $this->randomCount = max(1, min($this->mostPersonas(), $this->randomCount));
+        $this->randomCount = max(1, min($this->mostRandom(), $this->randomCount));
     }
 
-    /** Adds a Persona to the team, or takes it out of it. */
+    public function updatedParticipantMode(): void
+    {
+        $this->participantMode = $this->participantMode === 'manual' ? 'manual' : 'random';
+        $this->resetErrorBag('participants');
+    }
+
+    public function updatedTab(): void
+    {
+        $this->tab = $this->tab === 'timing' ? 'timing' : 'tree';
+    }
+
+    /** Checks a Persona to take part, or unchecks it. */
     public function toggleParticipant(mixed $id): void
     {
         if (! is_numeric($id)) {
@@ -370,217 +266,391 @@ final class StudioPlanDiscussionEditor extends Component
         $id = (int) $id;
         $this->resetErrorBag('participants');
 
-        if (in_array($id, $this->participants, true)) {
-            $this->participants = array_values(array_diff($this->participants, [$id]));
+        if (in_array($id, $this->manual, true)) {
+            $this->manual = array_values(array_diff($this->manual, [$id]));
 
             return;
         }
 
-        if (count($this->participants) >= $this->mostPersonas()) {
-            $this->addError('participants', "Choose up to {$this->mostPersonas()} personas.");
+        if (count($this->manual) >= $this->mostPersonas()) {
+            $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
 
             return;
         }
 
         if (app(PersonasQuery::class)->choosable($id) !== null) {
-            $this->participants[] = $id;
+            $this->manual[] = $id;
+        }
+    }
+
+    /** Checks every Persona the search shows, as many as may take part. */
+    public function selectShown(): void
+    {
+        $this->resetErrorBag('participants');
+
+        foreach ($this->personaList() as $persona) {
+            if (in_array((int) $persona->id, $this->manual, true)) {
+                continue;
+            }
+
+            if (count($this->manual) >= $this->mostPersonas()) {
+                $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
+
+                return;
+            }
+
+            $this->manual[] = (int) $persona->id;
         }
     }
 
     public function clearParticipants(): void
     {
-        $this->participants = [];
+        $this->manual = [];
         $this->resetErrorBag('participants');
     }
 
-    /**
-     * Picks a team at random — only here, on this explicit action, and shown
-     * before anything is generated; picking again picks again.
-     */
-    public function pickPersonas(): void
-    {
-        $this->updatedRandomCount();
-        $picked = app(PersonasQuery::class)->randomChoosable($this->randomCount);
-        $this->resetErrorBag('participants');
-
-        if ($picked->count() < $this->randomCount) {
-            $this->participants = [];
-            $this->addError('participants', $picked->isEmpty()
-                ? 'There are no personas to pick from. Create a persona first.'
-                : "Only {$picked->count()} ".($picked->count() === 1 ? 'persona is' : 'personas are').' available. Pick fewer.');
-
-            return;
-        }
-
-        $this->participants = $picked->map(fn (User $persona): int => (int) $persona->id)->values()->all();
-    }
-
     // ------------------------------------------------------------------
-    // Generation
+    // Generate tree, and Regenerate
     // ------------------------------------------------------------------
 
     /**
-     * Asks for a whole discussion — an explicit, paid request — by the team
-     * shown, never one picked here. Nothing is asked while the post or this
-     * discussion has unsaved changes: the discussion is written from what is
-     * saved.
+     * Generate tree, or Regenerate tree: asks first when the discussion has
+     * comments, since the new tree replaces them all. Nothing is asked while
+     * the post has unsaved changes — the discussion is written from what is
+     * saved — or while a generation is on its way.
      */
     public function generateTree(mixed $postChanges = 0): void
     {
         $this->updatedTotalCount();
-        $this->resetErrorBag('participants');
 
-        if (! $this->readyToGenerate($postChanges)) {
-            return;
-        }
-
-        if ($this->participants === []) {
-            $this->addError('participants', $this->participantMode === 'random'
-                ? 'Pick the personas first: Pick personas shows the team before anything is generated.'
-                : 'Choose at least one persona to take part.');
-
-            return;
-        }
-
-        $this->request(new StudioDiscussionGenerationData(
-            mode: StudioDiscussionGenerationMode::FullDiscussion,
-            expectedLockVersion: $this->lockVersion,
-            personaUserIds: $this->participants,
-            rootCount: $this->rootCount,
-            replyCount: $this->totalCount - $this->rootCount,
-            tone: $this->chosenTone(),
-        ));
-    }
-
-    public function openRegenerate(mixed $key): void
-    {
-        $key = $this->known($key);
-        $this->regenerating = $key !== null && $this->regenerating !== $key ? $key : null;
-    }
-
-    /**
-     * Writes one saved part of the discussion again — a comment, a reply, or a
-     * comment with its replies — its authors, places and times kept.
-     */
-    public function regenerate(mixed $key, mixed $what, mixed $postChanges = 0): void
-    {
-        $key = $this->known($key);
-        $mode = match ($what) {
-            'comment' => StudioDiscussionGenerationMode::RegenerateComment,
-            'reply' => StudioDiscussionGenerationMode::RegenerateReply,
-            'branch' => StudioDiscussionGenerationMode::RegenerateBranch,
-            default => null,
-        };
-
-        if ($key === null || $mode === null) {
-            return;
-        }
-
-        if ($this->nodes[$key]['id'] === null || ($this->savedNodes[$key]['id'] ?? null) === null) {
-            $this->toast('Save the discussion first: only a saved comment can be written again.');
-
-            return;
-        }
-
-        if (! $this->readyToGenerate($postChanges)) {
-            return;
-        }
-
-        $this->regenerating = null;
-        $this->request(new StudioDiscussionGenerationData(
-            mode: $mode,
-            expectedLockVersion: $this->lockVersion,
-            targetNodeId: $this->nodes[$key]['id'],
-            tone: $this->chosenTone(),
-        ));
-    }
-
-    /**
-     * Asks again what a generation asked — Retry, a new explicit request of
-     * the administrator's, never one made by itself.
-     */
-    #[On('retry-studio-discussion-generation')]
-    public function retryGeneration(mixed $generationId, mixed $postChanges = 0): void
-    {
-        $generation = is_numeric($generationId)
-            ? StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $this->planId)->whereKey((int) $generationId)->first()
-            : null;
-
-        if ($generation === null || ! $this->readyToGenerate($postChanges)) {
-            return;
-        }
-
-        $parameters = $generation->parameters;
-        $this->request(new StudioDiscussionGenerationData(
-            mode: $generation->mode,
-            expectedLockVersion: $this->lockVersion,
-            personaUserIds: $generation->mode->isTargeted() ? [] : $generation->persona_user_ids,
-            targetNodeId: $generation->targetNodeId(),
-            rootCount: (int) ($parameters['root_count'] ?? 0),
-            replyCount: (int) ($parameters['reply_count'] ?? 0),
-            tone: StudioPostTextTone::tryFrom((string) ($parameters['tone'] ?? '')) ?? StudioPostTextTone::DEFAULT,
-        ));
-    }
-
-    /**
-     * Takes a proposal into the plan's discussion — only with nothing unsaved
-     * here, since the proposal is about the discussion as saved. Whether it
-     * still fits is the action's to say.
-     */
-    #[On('apply-studio-discussion-generation')]
-    public function applyGeneration(mixed $generationId): void
-    {
-        if (! is_numeric($generationId) || ! $this->writable()) {
-            return;
-        }
-
-        if ($this->dirty()) {
-            $this->toast('Save or discard your changes to the discussion first: a proposal is applied to the discussion as saved.');
-
+        if (! $this->readyToGenerate($postChanges) || ($this->totalCount > 0 && $this->team(pick: false) === null)) {
             return;
         }
 
         $plan = StudioPlan::query()->find($this->planId);
 
-        if ($plan === null) {
-            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'the proposal wasn’t applied');
+        if ($plan !== null && $plan->discussionNodes()->exists()) {
+            $this->confirmingGenerate = true;
 
             return;
         }
 
+        $this->startGeneration();
+    }
+
+    public function confirmGenerate(mixed $postChanges = 0): void
+    {
+        $this->confirmingGenerate = false;
+
+        if ($this->readyToGenerate($postChanges)) {
+            $this->startGeneration();
+        }
+    }
+
+    public function closeConfirmation(): void
+    {
+        $this->confirmingGenerate = false;
+        $this->deleting = null;
+    }
+
+    /**
+     * Regenerate: writes one comment's text again, by the same Persona, in
+     * its place and at its time — taken in the moment it is ready, with Undo.
+     */
+    public function regenerate(mixed $id, mixed $postChanges = 0): void
+    {
+        $node = is_numeric($id) ? $this->savedNode((int) $id) : null;
+
+        if ($node === null || ! $this->readyToGenerate($postChanges)) {
+            return;
+        }
+
+        $generation = $this->request(new StudioDiscussionGenerationData(
+            mode: $node->parentId === null ? StudioDiscussionGenerationMode::RegenerateComment : StudioDiscussionGenerationMode::RegenerateReply,
+            expectedLockVersion: $this->lockVersion,
+            targetNodeId: (int) $node->id,
+            tone: StudioPostTextTone::DEFAULT,
+        ));
+
+        if ($generation !== null) {
+            $this->awaiting = (int) $generation->id;
+            $this->rewriting = (int) $node->id;
+        }
+    }
+
+    /**
+     * Read again every few seconds while a generation is on its way: once it
+     * has settled, what it wrote is taken in — or why it was not, said.
+     */
+    public function check(): void
+    {
+        if ($this->awaiting === null) {
+            return;
+        }
+
+        $generation = StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $this->planId)->whereKey($this->awaiting)->first();
+        $now = CarbonImmutable::now();
+
+        if ($generation !== null && $generation->isUnderway($now)) {
+            return;
+        }
+
+        $rewriting = $this->rewriting;
+        $this->awaiting = null;
+        $this->rewriting = null;
+
+        if ($generation === null) {
+            return;
+        }
+
+        if ($generation->status !== StudioDiscussionGenerationStatus::Completed) {
+            $this->failed($generation->isStale($now) ? 'The generation did not finish. Try again.' : ($generation->error_code ?? StudioDiscussionGenerationError::UnexpectedFailure)->message(), $rewriting);
+
+            return;
+        }
+
+        if ($generation->applied_at !== null) {
+            // Taken in already, from another page of this plan.
+            $this->load();
+
+            return;
+        }
+
+        $plan = $this->writablePlan();
+
+        if ($plan === null) {
+            return;
+        }
+
+        $before = $this->savedRows($plan);
+
         try {
-            $saved = app(ApplyStudioDiscussionGenerationAction::class)->handle($this->admin(), $plan, (int) $generationId, $this->lockVersion);
+            $saved = app(ApplyStudioDiscussionGenerationAction::class)->handle($this->admin(), $plan, (int) $generation->id, $this->lockVersion);
         } catch (CannotManageStudioPlanException $exception) {
-            $this->refuse($exception, 'the proposal wasn’t applied');
+            $this->refuse($exception);
 
             return;
         } catch (CannotApplyStudioDiscussionGenerationException $exception) {
-            $this->toast($exception->error->message());
-            $this->refreshProposals();
+            $this->failed($exception->error->message(), $rewriting);
 
             return;
         } catch (ValidationException $exception) {
-            $this->toast('The proposal no longer fits the discussion’s rules, so it wasn’t applied: '.collect($exception->errors())->flatten()->first());
+            $this->failed('What was written no longer fits the discussion’s rules: '.collect($exception->errors())->flatten()->first(), $rewriting);
 
             return;
         }
 
         $this->settle($saved);
-        $this->toast('Proposal applied to the discussion', 'success');
+
+        if ($rewriting !== null) {
+            $label = self::labels(self::ordered($this->savedRows($plan)))[$rewriting] ?? 'the comment';
+            $this->remember($before);
+            $this->toast("New text for {$label} · same author and time", 'success', undoable: true);
+        }
     }
 
-    /**
-     * The generation on its way settled, as the generations' component saw:
-     * drawn again, so Generate and Regenerate are offered again. Nothing is
-     * read into the draft, which stays as it is.
-     */
-    #[On('studio-discussion-generation-settled')]
-    public function generationSettled(): void {}
+    // ------------------------------------------------------------------
+    // A comment: new, a reply, or edited
+    // ------------------------------------------------------------------
+
+    /** + Comment: a new comment on the post, twenty minutes after the last one. */
+    public function openNew(): void
+    {
+        $plan = $this->writablePlan();
+
+        if ($plan === null) {
+            return;
+        }
+
+        $roots = array_filter($this->savedRows($plan), fn (array $row): bool => $row['parentId'] === null);
+        $last = max([0, ...array_map(fn (array $row): int => (int) $row['offsetSeconds'], $roots)]);
+
+        $this->openDialog(['mode' => 'new', 'id' => null, 'parentId' => null], $this->teamPersonas()[0] ?? null, '', $last + 20 * 60);
+    }
+
+    /** Reply: an answer to a comment on the post, ten minutes after it, by somebody else. */
+    public function openReply(mixed $id): void
+    {
+        $parent = is_numeric($id) ? $this->savedNode((int) $id) : null;
+
+        if ($parent === null || $parent->parentId !== null || $this->writablePlan() === null) {
+            return;
+        }
+
+        $persona = collect($this->teamPersonas())->first(fn (int $persona): bool => $persona !== $parent->personaUserId) ?? $parent->personaUserId;
+        $this->openDialog(['mode' => 'reply', 'id' => null, 'parentId' => (int) $parent->id], $persona, '', $parent->offsetSeconds + 10 * 60);
+    }
+
+    public function openEdit(mixed $id): void
+    {
+        $node = is_numeric($id) ? $this->savedNode((int) $id) : null;
+
+        if ($node === null || $this->writablePlan() === null) {
+            return;
+        }
+
+        $this->openDialog(['mode' => 'edit', 'id' => (int) $node->id, 'parentId' => $node->parentId], $node->personaUserId, $node->body, $node->offsetSeconds);
+    }
+
+    public function closeDialog(): void
+    {
+        $this->dialog = null;
+        $this->dialogPersona = null;
+        $this->dialogBody = '';
+        $this->dialogSearch = '';
+        $this->resetErrorBag();
+    }
+
+    public function choosePersona(mixed $id): void
+    {
+        if ($this->dialog === null) {
+            return;
+        }
+
+        $persona = is_numeric($id) ? app(PersonasQuery::class)->choosable((int) $id) : null;
+
+        if ($persona === null) {
+            $this->addError('dialogPersona', 'Choose a persona who is not deleted.');
+
+            return;
+        }
+
+        $this->dialogPersona = (int) $persona->id;
+        $this->resetErrorBag('dialogPersona');
+    }
+
+    /** Replies to: a comment on the post, or none — a comment with replies stays on the post. */
+    public function chooseParent(mixed $id): void
+    {
+        if ($this->dialog === null) {
+            return;
+        }
+
+        $parent = is_numeric($id) ? $this->savedNode((int) $id) : null;
+        $editing = $this->dialog['id'];
+
+        if ($parent === null) {
+            $this->dialog['parentId'] = null;
+
+            return;
+        }
+
+        $hasReplies = $editing !== null && collect($this->savedRowsNow())->contains(fn (array $row): bool => $row['parentId'] === $editing);
+
+        if ($parent->parentId === null && (int) $parent->id !== $editing && ! $hasReplies) {
+            $this->dialog['parentId'] = (int) $parent->id;
+        }
+    }
+
+    /** Save: the comment is written to the plan at once, its errors kept in the dialog. */
+    public function saveDialog(): void
+    {
+        if ($this->dialog === null) {
+            return;
+        }
+
+        $body = trim($this->dialogBody);
+
+        if ($body === '') {
+            $this->addError('dialogBody', 'Write the comment first.');
+
+            return;
+        }
+
+        $dialog = $this->dialog;
+        $persona = $this->dialogPersona;
+        $seconds = max(0, $this->dialogSeconds);
+
+        $saved = $this->write(function (array $rows) use ($dialog, $persona, $body, $seconds): array {
+            if ($dialog['mode'] === 'edit') {
+                return array_map(fn (array $row): array => $row['id'] === $dialog['id']
+                    ? [...$row, 'parentId' => $dialog['parentId'], 'personaUserId' => $persona, 'body' => $body, 'offsetSeconds' => $seconds]
+                    : $row, $rows);
+            }
+
+            return [...$rows, self::row(null, $dialog['parentId'], $persona, $body, $seconds, key: 'new')];
+        }, focus: $dialog['mode'] === 'edit' ? 'n'.$dialog['id'] : 'new');
+
+        if ($saved !== null) {
+            $this->closeDialog();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Delete, timing, undo
+    // ------------------------------------------------------------------
+
+    public function askDelete(mixed $id): void
+    {
+        $node = is_numeric($id) ? $this->savedNode((int) $id) : null;
+        $this->deleting = $node !== null && $this->writable() ? (int) $node->id : null;
+    }
+
+    /** Delete comment, or Delete branch: a comment's replies go with it. */
+    public function confirmDelete(): void
+    {
+        $id = $this->deleting;
+        $this->deleting = null;
+        $plan = $this->writablePlan();
+
+        if ($id === null || $plan === null || $this->savedNode($id) === null) {
+            return;
+        }
+
+        $rows = $this->savedRows($plan);
+        $label = self::labels(self::ordered($rows))[$id] ?? 'the comment';
+        $branch = collect($rows)->contains(fn (array $row): bool => $row['parentId'] === $id);
+
+        $saved = $this->write(
+            fn (array $rows): array => array_values(array_filter($rows, fn (array $row): bool => $row['id'] !== $id && $row['parentId'] !== $id)),
+            remember: true,
+        );
+
+        if ($saved !== null) {
+            $this->toast(($branch ? 'Branch ' : 'Comment ').$label.' deleted', 'success', undoable: true);
+        }
+    }
+
+    /** Timing: a comment given another moment after the post, written at once. */
+    public function setOffset(mixed $id, mixed $seconds): void
+    {
+        if (! is_numeric($id) || ! is_numeric($seconds) || $this->savedNode((int) $id) === null) {
+            return;
+        }
+
+        [$id, $seconds] = [(int) $id, max(0, (int) round((float) $seconds))];
+
+        $this->write(fn (array $rows): array => array_map(
+            fn (array $row): array => $row['id'] === $id ? [...$row, 'offsetSeconds' => $seconds] : $row,
+            $rows,
+        ));
+    }
+
+    /** Undo, from the toast of a deletion or a comment written again: the discussion as it was put back. */
+    #[On('undo-studio-discussion')]
+    public function undoChange(mixed $token = null): void
+    {
+        $undo = $this->undo;
+
+        if ($undo === null || ! is_string($token) || ! hash_equals($undo['token'], $token)) {
+            return;
+        }
+
+        $this->undo = null;
+        $this->write(fn (array $rows): array => self::restored($undo['tree'], $rows));
+    }
+
+    /** Draws the discussion as it is saved now, with the plan's version. */
+    #[On('reload-studio-discussion')]
+    public function reload(): void
+    {
+        $this->load();
+    }
 
     /**
      * The other editor of this plan on the page — the post's, the photo's —
      * moved its version with a write of its own: taken, when it was written
-     * from the version this draft holds. Any other move is somebody else's.
+     * from the version this page holds. Any other move is somebody else's.
      */
     #[On(self::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
@@ -607,193 +677,260 @@ final class StudioPlanDiscussionEditor extends Component
     public function render(): View
     {
         $plan = $this->planId !== 0 ? StudioPlan::query()->with('imageAnalysis')->find($this->planId) : null;
+        $rows = $plan !== null ? $this->savedRows($plan) : [];
+        $ordered = self::ordered($rows);
+        $labels = self::labels($ordered);
+        $picked = $plan !== null ? $this->pickedForTree($plan) : [];
         $personaIds = array_values(array_unique(array_filter([
-            ...array_map(fn (array $node): ?int => $node['personaUserId'], $this->nodes),
-            ...$this->participants,
+            ...array_column($rows, 'personaUserId'),
+            ...$this->manual,
+            ...$picked,
+            $this->dialogPersona,
         ])));
         $people = User::query()->whereKey($personaIds)->with('avatarAsset.variants')->get()->keyBy('id');
-        $generator = app(StudioDiscussionGenerator::class);
         $context = $plan !== null ? StudioPostTextContext::of($plan->image_asset_id, $plan->imageAnalysis) : null;
-        $postAt = $plan?->publication_mode === StudioPlanPublicationMode::AtDate ? $plan->publish_at : null;
-        $underway = $plan !== null && StudioPlanDiscussionGeneration::query()
-            ->where('studio_plan_id', $plan->id)
-            ->whereIn('status', ['queued', 'running'])
-            ->get()
-            ->contains(fn (StudioPlanDiscussionGeneration $generation): bool => $generation->isUnderway(CarbonImmutable::now()));
-        $editingNode = $this->editing !== null ? ($this->nodes[$this->editing] ?? null) : null;
+        $listed = $this->participantMode === 'manual' ? $this->personaList() : new EloquentCollection;
 
         return view('livewire.admin.studio-plan-discussion-editor', [
-            'rows' => $this->rows($people, $postAt),
-            'count' => count($this->nodes),
-            'mostNodes' => StudioDiscussionValidationRules::MOST_NODES,
-            'dirty' => $this->dirty(),
             'editable' => $this->writable(),
-            'timezone' => (string) config('app.timezone'),
-            'postAt' => $postAt?->toIso8601String(),
-            'latestOffset' => StudioDiscussionValidationRules::LATEST_OFFSET_SECONDS,
-            'bodyLimit' => StudioDiscussionValidationRules::BODY_LIMIT,
-            'personaChoices' => $editingNode !== null ? $this->choices($this->personaSearch, $editingNode['personaUserId'] !== null ? [$editingNode['personaUserId']] : []) : [],
-            'participantChoices' => $this->participantMode === 'manual' ? $this->choices($this->participantSearch, $this->participants) : [],
-            'participantsShown' => array_values(array_filter(array_map(fn (int $id): ?array => StudioPlanFormat::author($people->get($id)), $this->participants))),
-            'mostPersonas' => $this->mostPersonas(),
-            'mostGenerated' => $this->mostNodes(),
-            'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),
-            'chosenTone' => $this->chosenTone(),
-            'configured' => $generator->isConfigured(),
+            'busy' => $this->awaiting !== null && $this->rewriting === null,
+            'underway' => $this->awaiting !== null,
+            'pollSeconds' => self::POLL_SECONDS,
+            'configured' => app(StudioDiscussionGenerator::class)->isConfigured(),
             'hasTitle' => $plan !== null && trim((string) $plan->title) !== '',
             'analysed' => $context !== null && $context->complete,
-            'underway' => $underway,
-            'generated' => $plan !== null && StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $plan->id)->exists(),
-            'deletingRow' => $this->deleting !== null && isset($this->nodes[$this->deleting])
-                ? ['replies' => count($this->childrenOf($this->deleting)), 'body' => $this->nodes[$this->deleting]['body'], 'author' => StudioPlanFormat::author($people->get((int) $this->nodes[$this->deleting]['personaUserId']))]
-                : null,
+            'mostNodes' => $this->mostNodes(),
+            'mostRandom' => $this->mostRandom(),
+            'available' => app(PersonasQuery::class)->choosableCount(),
+            'personaCount' => $this->participantMode === 'random' ? $this->randomCount : count($this->manual),
+            'pickedNames' => array_values(array_filter(array_map(fn (int $id): ?string => StudioPlanFormat::author($people->get($id))['name'] ?? null, $picked))),
+            'chosen' => array_values(array_filter(array_map(fn (int $id): ?array => StudioPlanFormat::author($people->get($id)), $this->manual))),
+            'listed' => $listed->map(fn (User $persona): array => [
+                ...(StudioPlanFormat::author($persona) ?? []),
+                'short' => Str::limit((string) ($persona->personaProfile->short_description ?? ''), 90),
+                'on' => in_array((int) $persona->id, $this->manual, true),
+            ])->values()->all(),
+            'searching' => trim($this->participantSearch) !== '',
+            'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people), $ordered),
+            'rootTotal' => count(array_filter($rows, fn (array $row): bool => $row['parentId'] === null)),
+            'timing' => $this->timingRows($rows, $labels, $people),
+            'dialogData' => $this->dialog !== null ? $this->dialogData($rows, $labels, $people) : null,
+            'deletingRow' => $this->deleting !== null ? $this->deletingData($rows, $ordered, $labels, $people) : null,
         ]);
     }
 
     // ------------------------------------------------------------------
 
-    /** Reads the plan as it is now: its version, whether it can be written, and its discussion as the draft. */
+    /** Reads the plan as it is now: its version, and whether it can be written. */
     private function load(): void
     {
         $plan = StudioPlan::query()->find($this->planId);
         $this->resetErrorBag();
-        $this->closeEditor();
-        $this->deleting = null;
-        $this->regenerating = null;
         $this->conflict = false;
+        $this->dialog = null;
+        $this->deleting = null;
+        $this->confirmingGenerate = false;
 
         if ($plan === null) {
             $this->gone = true;
-            $this->nodes = $this->savedNodes = [];
 
             return;
         }
 
         $this->lockVersion = $plan->lock_version;
         $this->closed = ! $plan->isDraft();
-        $this->nodes = $this->savedNodes = self::localTree(StudioDiscussionData::of($plan));
     }
 
-    /**
-     * Takes what a save or an applied proposal left as the draft and as what
-     * it is compared with, and says the plan's new version to the editor
-     * around it.
-     */
+    /** Takes the version a write left, and says it to the editor around this one. */
     private function settle(SavedStudioDiscussion $saved): void
     {
         $previous = $this->lockVersion;
         $this->lockVersion = $saved->lockVersion;
-        $this->nodes = $this->savedNodes = self::localTree(new StudioDiscussionData($saved->nodes
-            ->map(fn ($node): StudioDiscussionNodeData => StudioDiscussionNodeData::of($node))
-            ->values()
-            ->all()));
-        $this->closeEditor();
-        $this->deleting = null;
-        $this->regenerating = null;
-        $this->resetErrorBag();
+        $this->failure = null;
 
         $this->dispatch(self::VERSION_EVENT, planId: $this->planId, previous: $previous, current: $this->lockVersion, source: 'discussion');
-        $this->refreshProposals();
     }
 
     /**
-     * The draft as the action takes it — each comment in its order, its place
-     * among its siblings counted afresh — and which draft key each index is.
+     * Writes the discussion as the change leaves it — every comment in its
+     * place among its siblings by time — through the one action that writes
+     * discussions. What it refuses is said in the dialog when it is about the
+     * dialog's comment (`focus`), and in a toast otherwise.
      *
-     * @return array{0: StudioDiscussionData, 1: list<string>}
+     * @param  Closure(list<array<string, mixed>>): list<array<string, mixed>>  $change
      */
-    private function data(): array
+    private function write(Closure $change, ?string $focus = null, bool $remember = false): ?SavedStudioDiscussion
     {
-        $places = [];
-        $nodes = [];
-        $order = [];
+        $plan = $this->writablePlan();
 
-        foreach ($this->nodes as $key => $node) {
-            $parent = $node['parent'] !== null ? ($this->nodes[$node['parent']] ?? null) : null;
-            $siblings = $node['parent'] ?? '';
-            $places[$siblings] = ($places[$siblings] ?? -1) + 1;
-            $order[] = $key;
-
-            $nodes[] = new StudioDiscussionNodeData(
-                id: $node['id'],
-                key: $node['id'] === null ? $key : null,
-                parentId: $parent !== null ? $parent['id'] : null,
-                parentKey: $parent !== null && $parent['id'] === null ? $node['parent'] : null,
-                personaUserId: $node['personaUserId'],
-                body: (string) $node['body'],
-                sortOrder: $places[$siblings],
-                offsetSeconds: (int) $node['offsetSeconds'],
-            );
+        if ($plan === null) {
+            return null;
         }
 
-        return [new StudioDiscussionData($nodes), $order];
+        $before = $this->savedRows($plan);
+        [$data, $order] = self::data($change($before));
+
+        try {
+            $saved = app(SaveStudioDiscussionTreeAction::class)->handle($this->admin(), $plan, $data, $this->lockVersion);
+        } catch (CannotManageStudioPlanException $exception) {
+            $this->refuse($exception);
+
+            return null;
+        } catch (ValidationException $exception) {
+            $this->showErrors($exception, $order, $focus);
+
+            return null;
+        }
+
+        if ($remember) {
+            $this->remember($before);
+        }
+
+        $this->settle($saved);
+
+        return $saved;
     }
 
     /**
-     * Puts each message the action gave by the comment it is about, and opens
-     * the first such comment, the draft kept as it is.
+     * Puts each message by the field of the dialog it is about, when it is
+     * about the dialog's comment, and says the first other one in the dialog
+     * or a toast.
      *
      * @param  list<string>  $order
      */
-    private function showErrors(ValidationException $exception, array $order): void
+    private function showErrors(ValidationException $exception, array $order, ?string $focus): void
     {
-        $first = null;
+        $fields = ['body' => 'dialogBody', 'personaUserId' => 'dialogPersona', 'offsetSeconds' => 'dialogSeconds', 'parentId' => 'dialogParent', 'parentKey' => 'dialogParent'];
+        $other = null;
 
         foreach ($exception->errors() as $field => $messages) {
-            if (preg_match('/^nodes\.(\d+)\.(\w+)$/', $field, $match) === 1 && isset($order[(int) $match[1]])) {
-                $key = $order[(int) $match[1]];
-                $first ??= $key;
-                $this->addError("nodes.{$key}.{$match[2]}", (string) ($messages[0] ?? ''));
-            } else {
-                $this->addError('discussion', (string) ($messages[0] ?? ''));
+            $message = (string) ($messages[0] ?? '');
+
+            if ($focus !== null && preg_match('/^nodes\.(\d+)\.(\w+)$/', $field, $match) === 1 && ($order[(int) $match[1]] ?? null) === $focus && isset($fields[$match[2]])) {
+                $this->addError($fields[$match[2]], $message);
+
+                continue;
             }
+
+            $other ??= $message;
         }
 
-        if ($first !== null) {
-            $this->open($first);
+        if ($other === null) {
+            return;
         }
 
-        $this->toast('The discussion wasn’t saved. Fix what is marked and save again.');
-    }
-
-    /** Sends a request for a generation, and says what stands in its way when something does. */
-    private function request(StudioDiscussionGenerationData $data): void
-    {
-        $plan = StudioPlan::query()->find($this->planId);
-
-        if ($plan === null) {
-            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'nothing was sent');
+        if ($focus !== null && $this->dialog !== null) {
+            $this->addError('dialog', $other);
 
             return;
+        }
+
+        $this->toast($other);
+    }
+
+    /** Asks for a generation; says what stands in its way when something does. */
+    private function request(StudioDiscussionGenerationData $data): ?StudioPlanDiscussionGeneration
+    {
+        $plan = $this->writablePlan();
+
+        if ($plan === null) {
+            return null;
         }
 
         try {
-            app(RequestStudioDiscussionGenerationAction::class)->handle($this->admin(), $plan, $data);
+            $generation = app(RequestStudioDiscussionGenerationAction::class)->handle($this->admin(), $plan, $data);
         } catch (CannotManageStudioPlanException $exception) {
-            $this->refuse($exception, 'nothing was sent');
+            $this->refuse($exception);
 
-            return;
+            return null;
         } catch (CannotRequestStudioDiscussionGenerationException $exception) {
             $this->toast($exception->error->message());
 
-            return;
+            return null;
         } catch (ValidationException $exception) {
             $this->toast((string) collect($exception->errors())->flatten()->first());
+
+            return null;
+        }
+
+        $this->failure = null;
+
+        return $generation;
+    }
+
+    /** A whole tree by the team the settings make: none planned empties the discussion, with no request at all. */
+    private function startGeneration(): void
+    {
+        if ($this->totalCount === 0) {
+            $this->write(fn (array $rows): array => []);
 
             return;
         }
 
-        $this->refreshProposals(requested: true);
-        $this->toast('Discussion requested. It appears below as a proposal once it is written.', 'success');
+        $team = $this->team(pick: true);
+
+        if ($team === null) {
+            return;
+        }
+
+        $generation = $this->request(new StudioDiscussionGenerationData(
+            mode: StudioDiscussionGenerationMode::FullDiscussion,
+            expectedLockVersion: $this->lockVersion,
+            personaUserIds: $team,
+            rootCount: $this->rootCount,
+            replyCount: $this->totalCount - $this->rootCount,
+            tone: StudioPostTextTone::DEFAULT,
+        ));
+
+        if ($generation !== null) {
+            $this->awaiting = (int) $generation->id;
+            $this->rewriting = null;
+        }
     }
 
     /**
-     * Whether a generation may be asked for now: a draft this page may still
-     * write, nothing unsaved in the post or here, and none already on its way.
+     * Who writes a whole tree: the Personas checked, or as many picked at
+     * random as asked for — picked only when the tree is generated (`pick`),
+     * never when it is only checked whether it can be.
+     *
+     * @return list<int>|null
      */
+    private function team(bool $pick): ?array
+    {
+        $this->resetErrorBag('participants');
+
+        if ($this->participantMode === 'manual') {
+            $team = array_values(array_filter($this->manual, fn (int $id): bool => app(PersonasQuery::class)->choosable($id) !== null));
+
+            if ($team === []) {
+                $this->addError('participants', 'Select at least one persona.');
+
+                return null;
+            }
+
+            return $team;
+        }
+
+        $this->updatedRandomCount();
+        $available = app(PersonasQuery::class)->choosableCount();
+
+        if ($available < $this->randomCount) {
+            $this->addError('participants', $available === 0
+                ? 'There are no personas to pick from. Create a persona first.'
+                : "Only {$available} ".($available === 1 ? 'persona is' : 'personas are').' available. Pick fewer.');
+
+            return null;
+        }
+
+        return $pick
+            ? app(PersonasQuery::class)->randomChoosable($this->randomCount)->map(fn (User $persona): int => (int) $persona->id)->values()->all()
+            : [];
+    }
+
+    /** Whether a generation may be asked for now: a draft this page may write, the post saved, and none on its way. */
     private function readyToGenerate(mixed $postChanges): bool
     {
-        if (! $this->writable()) {
+        if ($this->writablePlan() === null) {
             return false;
         }
 
@@ -803,19 +940,7 @@ final class StudioPlanDiscussionEditor extends Component
             return false;
         }
 
-        if ($this->dirty()) {
-            $this->toast('Save or discard your changes to the discussion first: it is written from the discussion as saved.');
-
-            return false;
-        }
-
-        $underway = StudioPlanDiscussionGeneration::query()
-            ->where('studio_plan_id', $this->planId)
-            ->whereIn('status', ['queued', 'running'])
-            ->get()
-            ->contains(fn (StudioPlanDiscussionGeneration $generation): bool => $generation->isUnderway(CarbonImmutable::now()));
-
-        if ($underway) {
+        if ($this->awaiting !== null) {
             $this->toast('A generation is already on its way. Wait for it before asking for another.');
 
             return false;
@@ -824,8 +949,20 @@ final class StudioPlanDiscussionEditor extends Component
         return true;
     }
 
-    /** Says why nothing was written, keeping the draft as it is. */
-    private function refuse(CannotManageStudioPlanException $exception, string $nothing): void
+    /** A generation that settled without anything taken in: said over the tree, or of a comment in a toast. */
+    private function failed(string $message, ?int $rewriting): void
+    {
+        if ($rewriting !== null) {
+            $this->toast("The comment wasn’t written again: {$message}");
+
+            return;
+        }
+
+        $this->failure = $message;
+    }
+
+    /** Says why nothing was written. */
+    private function refuse(CannotManageStudioPlanException $exception): void
     {
         match (true) {
             $exception->isStale() => $this->conflict = true,
@@ -834,170 +971,122 @@ final class StudioPlanDiscussionEditor extends Component
             default => null,
         };
 
+        $this->dialog = null;
         $this->toast(match (true) {
-            $exception->isStale() => "Someone changed this draft after you opened it, so {$nothing}. Reload to see their version.",
-            $exception->isGone() => "This draft was deleted, so {$nothing}.",
-            $exception->isNotDraft() => "This plan is no longer a draft, so {$nothing}.",
-            default => "You can’t manage publication plans any more, so {$nothing}.",
+            $exception->isStale() => 'Someone changed this draft after you opened it, so nothing was saved. Reload to see their version.',
+            $exception->isGone() => 'This draft was deleted, so nothing was saved.',
+            $exception->isNotDraft() => 'This plan is no longer a draft, so nothing was saved.',
+            default => 'You can’t manage publication plans any more, so nothing was saved.',
         });
     }
 
+    /** @param list<array<string, mixed>> $before */
+    private function remember(array $before): void
+    {
+        $this->undo = ['token' => Str::random(16), 'tree' => $before];
+    }
+
+    /** @param array{mode: string, id: int|null, parentId: int|null} $dialog */
+    private function openDialog(array $dialog, ?int $persona, string $body, int $seconds): void
+    {
+        $this->resetErrorBag();
+        $this->dialog = $dialog;
+        $this->dialogPersona = $persona;
+        $this->dialogBody = $body;
+        $this->dialogSeconds = min(StudioDiscussionValidationRules::LATEST_OFFSET_SECONDS, max(0, $seconds));
+        $this->dialogUnit = self::unitFor($this->dialogSeconds);
+        $this->dialogSearch = '';
+    }
+
     /**
-     * The draft as rows: each comment on the post, then its replies, with who
-     * writes it, its time, and what is unsaved or wrong about it.
+     * The Personas a new comment is offered to first: the team of the current
+     * tree, the ones checked, or any.
      *
-     * @param  Collection<int, User>  $people
+     * @return list<int>
+     */
+    private function teamPersonas(): array
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+        $team = $plan !== null ? $this->pickedForTree($plan) : [];
+
+        if ($team === [] && $this->participantMode === 'manual') {
+            $team = $this->manual;
+        }
+
+        return $team !== [] ? $team : app(PersonasQuery::class)->choices('', 2)->map(fn (User $persona): int => (int) $persona->id)->values()->all();
+    }
+
+    /**
+     * The Personas the current tree was written by — the last whole tree
+     * taken in, while the discussion has comments — or the one on its way.
+     *
+     * @return list<int>
+     */
+    private function pickedForTree(StudioPlan $plan): array
+    {
+        $generation = StudioPlanDiscussionGeneration::query()
+            ->where('studio_plan_id', $plan->id)
+            ->where('mode', StudioDiscussionGenerationMode::FullDiscussion)
+            ->where(fn ($query) => $query->whereNotNull('applied_at')->when($this->awaiting !== null, fn ($query) => $query->orWhere('id', $this->awaiting)))
+            ->latest('id')
+            ->first();
+
+        if ($generation === null || ((int) $generation->id !== $this->awaiting && ! $plan->discussionNodes()->exists())) {
+            return [];
+        }
+
+        return array_map('intval', $generation->persona_user_ids);
+    }
+
+    /** @return EloquentCollection<int, User> the Personas listed to check, matching the search */
+    private function personaList(): EloquentCollection
+    {
+        return app(PersonasQuery::class)->choices(mb_substr(trim($this->participantSearch), 0, 100), self::PERSONA_LIST)->load('personaProfile');
+    }
+
+    /**
+     * The discussion as saved, a row a comment.
+     *
      * @return list<array<string, mixed>>
      */
-    private function rows($people, ?CarbonImmutable $postAt): array
+    private function savedRows(StudioPlan $plan): array
     {
-        $rows = [];
-        $roots = array_keys(array_filter($this->nodes, fn (array $node): bool => $node['parent'] === null));
-
-        foreach ($roots as $rootIndex => $root) {
-            $replies = $this->childrenOf($root);
-            $rows[] = $this->row($root, (string) ($rootIndex + 1), $rootIndex === 0, $rootIndex === count($roots) - 1, $people, $postAt, count($replies));
-
-            foreach ($replies as $replyIndex => $reply) {
-                $rows[] = $this->row($reply, ($rootIndex + 1).'.'.($replyIndex + 1), $replyIndex === 0, $replyIndex === count($replies) - 1, $people, $postAt, 0);
-            }
-        }
-
-        return $rows;
+        return array_map(
+            fn (StudioDiscussionNodeData $node): array => self::row((int) $node->id, $node->parentId, $node->personaUserId, $node->body, $node->offsetSeconds, sortOrder: $node->sortOrder),
+            StudioDiscussionData::of($plan)->nodes,
+        );
     }
 
-    /**
-     * @param  Collection<int, User>  $people
-     * @return array<string, mixed>
-     */
-    private function row(string $key, string $label, bool $first, bool $last, $people, ?CarbonImmutable $postAt, int $replies): array
+    /** @return list<array<string, mixed>> */
+    private function savedRowsNow(): array
     {
-        $node = $this->nodes[$key];
-        $parent = $node['parent'] !== null ? ($this->nodes[$node['parent']] ?? null) : null;
-        $persona = $node['personaUserId'] !== null ? $people->get($node['personaUserId']) : null;
+        $plan = StudioPlan::query()->find($this->planId);
 
-        return [
-            'key' => $key,
-            'label' => '#'.$label,
-            'reply' => $node['parent'] !== null,
-            'saved' => $node['id'] !== null && isset($this->savedNodes[$key]),
-            'changed' => ($this->savedNodes[$key] ?? null) !== $node,
-            'replies' => $replies,
-            'persona' => StudioPlanFormat::author($persona),
-            'personaUserId' => $node['personaUserId'],
-            'body' => (string) $node['body'],
-            'offset' => (int) $node['offsetSeconds'],
-            'relative' => self::relative((int) $node['offsetSeconds']),
-            'sinceParent' => $parent !== null ? self::relative(max(0, (int) $node['offsetSeconds'] - (int) $parent['offsetSeconds']), false) : null,
-            'parentOffset' => $parent !== null ? (int) $parent['offsetSeconds'] : null,
-            'at' => $postAt?->addSeconds((int) $node['offsetSeconds'])->setTimezone((string) config('app.timezone'))->format('d M Y, H:i:s'),
-            'first' => $first,
-            'last' => $last,
-        ];
+        return $plan !== null ? $this->savedRows($plan) : [];
     }
 
-    /**
-     * Personas to choose from, matching the search, never those already chosen.
-     *
-     * @param  list<int>  $chosen
-     * @return list<array<string, mixed>>
-     */
-    private function choices(string $search, array $chosen): array
+    private function savedNode(int $id): ?StudioDiscussionNodeData
     {
-        return app(PersonasQuery::class)
-            ->choices(mb_substr(trim($search), 0, 100), self::CHOICES + count($chosen))
-            ->reject(fn (User $persona): bool => in_array((int) $persona->id, $chosen, true))
-            ->take(self::CHOICES)
-            ->map(fn (User $persona): ?array => StudioPlanFormat::author($persona))
-            ->filter()
-            ->values()
-            ->all();
+        $plan = StudioPlan::query()->find($this->planId);
+
+        return $plan !== null
+            ? collect(StudioDiscussionData::of($plan)->nodes)->first(fn (StudioDiscussionNodeData $node): bool => (int) $node->id === $id)
+            : null;
     }
 
-    private function move(mixed $key, int $by): void
-    {
-        $key = $this->known($key);
-
-        if ($key === null) {
-            return;
-        }
-
-        $parent = $this->nodes[$key]['parent'];
-        $siblings = $parent === null
-            ? array_keys(array_filter($this->nodes, fn (array $node): bool => $node['parent'] === null))
-            : $this->childrenOf($parent);
-        $at = array_search($key, $siblings, true);
-        $to = $at + $by;
-
-        if ($at === false || $to < 0 || $to >= count($siblings)) {
-            return;
-        }
-
-        [$siblings[$at], $siblings[$to]] = [$siblings[$to], $siblings[$at]];
-
-        // The comments on the post in their new order, each followed by its replies.
-        $roots = $parent === null ? $siblings : array_keys(array_filter($this->nodes, fn (array $node): bool => $node['parent'] === null));
-        $nodes = [];
-
-        foreach ($roots as $root) {
-            $nodes[$root] = $this->nodes[$root];
-
-            foreach ($root === $parent ? $siblings : $this->childrenOf($root) as $child) {
-                $nodes[$child] = $this->nodes[$child];
-            }
-        }
-
-        $this->nodes = $nodes;
-    }
-
-    private function remove(string $key): void
-    {
-        foreach ([$key, ...$this->childrenOf($key)] as $gone) {
-            unset($this->nodes[$gone]);
-            $this->resetErrorBag(["nodes.{$gone}.body", "nodes.{$gone}.personaUserId", "nodes.{$gone}.offsetSeconds"]);
-        }
-
-        if ($this->editing !== null && ! isset($this->nodes[$this->editing])) {
-            $this->closeEditor();
-        }
-    }
-
-    private function open(string $key): void
-    {
-        $this->editing = $key;
-        $this->personaSearch = '';
-        $this->regenerating = null;
-    }
-
-    /** @return list<string> a comment's replies, in their order */
-    private function childrenOf(string $key): array
-    {
-        return array_keys(array_filter($this->nodes, fn (array $node): bool => $node['parent'] === $key));
-    }
-
-    private function known(mixed $key): ?string
-    {
-        return is_string($key) && isset($this->nodes[$key]) ? $key : null;
-    }
-
-    private function canAdd(): bool
+    private function writablePlan(): ?StudioPlan
     {
         if (! $this->writable()) {
-            return false;
+            return null;
         }
 
-        if (count($this->nodes) >= StudioDiscussionValidationRules::MOST_NODES) {
-            $this->toast('A discussion holds up to '.StudioDiscussionValidationRules::MOST_NODES.' comments and replies. Delete one to add another.');
+        $plan = StudioPlan::query()->find($this->planId);
 
-            return false;
+        if ($plan === null) {
+            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone());
         }
 
-        return true;
-    }
-
-    private function newKey(): string
-    {
-        return 'k'.$this->nextKey++;
+        return $plan;
     }
 
     private function writable(): bool
@@ -1005,15 +1094,148 @@ final class StudioPlanDiscussionEditor extends Component
         return $this->planId !== 0 && ! $this->gone && ! $this->closed && ! $this->conflict;
     }
 
-    /** Whether the draft holds anything the saved discussion does not. */
-    private function dirty(): bool
+    /**
+     * What a row of the tree shows.
+     *
+     * @param  array{row: array<string, mixed>, depth: int}  $entry
+     * @param  array<int, string>  $labels
+     * @param  list<array<string, mixed>>  $rows
+     * @param  Collection<int, User>  $people
+     * @return array<string, mixed>
+     */
+    private function displayRow(array $entry, array $labels, array $rows, Collection $people): array
     {
-        return self::comparable($this->nodes) !== self::comparable($this->savedNodes);
+        $row = $entry['row'];
+        $parent = $row['parentId'] !== null ? collect($rows)->firstWhere('id', $row['parentId']) : null;
+
+        return [
+            'id' => $row['id'],
+            'label' => $labels[$row['id']] ?? '',
+            'reply' => $parent !== null,
+            'replyTo' => $parent !== null ? ($labels[$parent['id']] ?? '').' · '.self::nameOf($people, $parent['personaUserId']) : null,
+            'persona' => StudioPlanFormat::author($people->get($row['personaUserId'])),
+            'body' => $row['body'],
+            'offset' => '+'.self::relative((int) $row['offsetSeconds']),
+            'rewriting' => $this->rewriting === $row['id'],
+        ];
     }
 
-    private function chosenTone(): StudioPostTextTone
+    /**
+     * The Timing tab: every comment by its moment, what it comes after, and
+     * its moment to change.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<int, string>  $labels
+     * @param  Collection<int, User>  $people
+     * @return list<array<string, mixed>>
+     */
+    private function timingRows(array $rows, array $labels, Collection $people): array
     {
-        return StudioPostTextTone::tryFrom($this->tone) ?? StudioPostTextTone::DEFAULT;
+        usort($rows, fn (array $a, array $b): int => [$a['offsetSeconds'], $a['parentId'] !== null, (int) substr($labels[$a['id']] ?? 'C0', 1)] <=> [$b['offsetSeconds'], $b['parentId'] !== null, (int) substr($labels[$b['id']] ?? 'C0', 1)]);
+        $byId = collect($rows)->keyBy('id');
+
+        return array_map(function (array $row) use ($labels, $byId, $people): array {
+            $parent = $row['parentId'] !== null ? $byId->get($row['parentId']) : null;
+
+            return [
+                'id' => $row['id'],
+                'reply' => $parent !== null,
+                'action' => ($parent !== null ? 'Reply ' : 'Comment ').($labels[$row['id']] ?? ''),
+                'who' => self::nameOf($people, $row['personaUserId']),
+                'parent' => $parent !== null ? ($labels[$parent['id']] ?? '') : 'Post',
+                'seconds' => (int) $row['offsetSeconds'],
+                'unit' => self::unitFor((int) $row['offsetSeconds']),
+                'dependency' => $parent !== null ? 'After '.($labels[$parent['id']] ?? '').' at +'.self::relative((int) $parent['offsetSeconds']) : 'After the post',
+            ];
+        }, $rows);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<int, string>  $labels
+     * @param  Collection<int, User>  $people
+     * @return array<string, mixed>
+     */
+    private function dialogData(array $rows, array $labels, Collection $people): array
+    {
+        $dialog = (array) $this->dialog;
+        $byId = collect($rows)->keyBy('id');
+        $parent = $dialog['parentId'] !== null ? $byId->get($dialog['parentId']) : null;
+        $hasReplies = $dialog['id'] !== null && collect($rows)->contains(fn (array $row): bool => $row['parentId'] === $dialog['id']);
+        $offered = app(PersonasQuery::class)->choices(mb_substr(trim($this->dialogSearch), 0, 100), self::DIALOG_PERSONAS);
+        $chosen = $this->dialogPersona !== null ? $people->get($this->dialogPersona) : null;
+
+        if ($chosen !== null && ! $offered->contains('id', $chosen->id)) {
+            $offered->prepend($chosen);
+        }
+
+        $roots = array_values(array_filter(self::ordered($rows), fn (array $entry): bool => $entry['row']['parentId'] === null && $entry['row']['id'] !== $dialog['id']));
+
+        return [
+            'title' => match ($dialog['mode']) {
+                'edit' => 'Edit '.($labels[$dialog['id']] ?? 'comment'),
+                'reply' => 'Reply to '.($labels[$dialog['parentId']] ?? 'comment'),
+                default => 'New top-level comment',
+            },
+            'personas' => $offered->map(fn (User $persona): array => [...(StudioPlanFormat::author($persona) ?? []), 'on' => (int) $persona->id === $this->dialogPersona])->values()->all(),
+            'parentLabel' => $parent !== null
+                ? ($labels[$parent['id']] ?? '').' · '.self::nameOf($people, $parent['personaUserId']).' · '.$parent['body']
+                : 'No parent · top-level comment',
+            'parentOffset' => $parent !== null ? (int) $parent['offsetSeconds'] : null,
+            'parentRef' => $parent !== null ? ($labels[$parent['id']] ?? '') : null,
+            'parents' => $hasReplies ? [] : array_map(fn (array $entry): array => [
+                'id' => $entry['row']['id'],
+                'label' => ($labels[$entry['row']['id']] ?? '').' · '.self::nameOf($people, $entry['row']['personaUserId']),
+                'sub' => $entry['row']['body'],
+                'on' => $entry['row']['id'] === $dialog['parentId'],
+            ], $roots),
+            'hasReplies' => $hasReplies,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  list<array{row: array<string, mixed>, depth: int}>  $ordered
+     * @param  array<int, string>  $labels
+     * @param  Collection<int, User>  $people
+     * @return array<string, mixed>|null
+     */
+    private function deletingData(array $rows, array $ordered, array $labels, Collection $people): ?array
+    {
+        $row = collect($rows)->firstWhere('id', $this->deleting);
+
+        if ($row === null) {
+            return null;
+        }
+
+        $branch = array_values(array_filter($ordered, fn (array $entry): bool => $entry['row']['id'] === $row['id'] || $entry['row']['parentId'] === $row['id']));
+
+        return [
+            'label' => $labels[$row['id']] ?? '',
+            'replies' => count($branch) - 1,
+            'body' => $row['body'],
+            'meta' => self::nameOf($people, $row['personaUserId']).' · +'.self::relative((int) $row['offsetSeconds']),
+            'labels' => implode(', ', array_map(fn (array $entry): string => $labels[$entry['row']['id']] ?? '', $branch)),
+        ];
+    }
+
+    private function admin(): User
+    {
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        return $user;
+    }
+
+    private function toast(string $message, string $tone = 'error', bool $undoable = false): void
+    {
+        if ($undoable && $this->undo !== null) {
+            $this->dispatch('rg-admin-toast', message: $message, tone: $tone, action: ['label' => 'Undo', 'event' => 'undo-studio-discussion', 'params' => ['token' => $this->undo['token']]]);
+
+            return;
+        }
+
+        $this->dispatch('rg-admin-toast', message: $message, tone: $tone);
     }
 
     private function mostNodes(): int
@@ -1026,109 +1248,167 @@ final class StudioPlanDiscussionEditor extends Component
         return max(1, app(StudioDiscussionGenerator::class)->maxPersonas());
     }
 
-    private function refreshProposals(bool $requested = false): void
+    /** The most Personas a random team can have: as many as there are, up to the most that take part. */
+    private function mostRandom(): int
     {
-        $this->dispatch('studio-discussion-generations-changed', requested: $requested)->to(StudioPlanDiscussionProposals::class);
+        return max(1, min($this->mostPersonas(), app(PersonasQuery::class)->choosableCount()));
     }
 
-    private function admin(): User
+    /** @param Collection<int, User> $people */
+    private static function nameOf(Collection $people, mixed $id): string
     {
-        $user = auth()->user();
-        abort_unless($user instanceof User, 403);
-
-        return $user;
-    }
-
-    private function toast(string $message, string $tone = 'error'): void
-    {
-        $this->dispatch('rg-admin-toast', message: $message, tone: $tone);
+        return StudioPlanFormat::author(is_numeric($id) ? $people->get((int) $id) : null)['name'] ?? 'A persona';
     }
 
     /**
-     * A discussion as the draft holds it: each comment on the post, then its
-     * replies, each level in its order.
+     * One comment as this component handles it.
      *
-     * @return array<string, array{id: int|null, parent: string|null, personaUserId: int|null, body: string, offsetSeconds: int}>
-     */
-    private static function localTree(StudioDiscussionData $data): array
-    {
-        $byId = [];
-
-        foreach ($data->nodes as $node) {
-            $byId[(int) $node->id] = $node;
-        }
-
-        $byPlace = fn (StudioDiscussionNodeData $a, StudioDiscussionNodeData $b): int => [$a->sortOrder, $a->id] <=> [$b->sortOrder, $b->id];
-        $roots = array_values(array_filter($byId, fn (StudioDiscussionNodeData $node): bool => $node->parentId === null));
-        usort($roots, $byPlace);
-        $tree = [];
-
-        foreach ($roots as $root) {
-            $tree['n'.$root->id] = self::node($root->id, null, $root->personaUserId, $root->body, $root->offsetSeconds);
-            $replies = array_values(array_filter($byId, fn (StudioDiscussionNodeData $node): bool => $node->parentId === $root->id));
-            usort($replies, $byPlace);
-
-            foreach ($replies as $reply) {
-                $tree['n'.$reply->id] = self::node($reply->id, 'n'.$root->id, $reply->personaUserId, $reply->body, $reply->offsetSeconds);
-            }
-        }
-
-        return $tree;
-    }
-
-    /** @return array{id: int|null, parent: string|null, personaUserId: int|null, body: string, offsetSeconds: int} */
-    private static function node(?int $id, ?string $parent, ?int $personaUserId, string $body, int $offsetSeconds): array
-    {
-        return ['id' => $id, 'parent' => $parent, 'personaUserId' => $personaUserId, 'body' => $body, 'offsetSeconds' => $offsetSeconds];
-    }
-
-    /**
-     * @param  array<string, array<string, mixed>>  $nodes
      * @return array<string, mixed>
      */
-    private static function comparable(array $nodes): array
+    private static function row(?int $id, ?int $parentId, ?int $personaUserId, string $body, int $offsetSeconds, ?string $key = null, ?string $parentKey = null, int $sortOrder = 0): array
     {
-        return array_map(fn (array $node): array => [
-            is_numeric($node['id'] ?? null) ? (int) $node['id'] : null,
-            is_string($node['parent'] ?? null) ? $node['parent'] : null,
-            is_numeric($node['personaUserId'] ?? null) ? (int) $node['personaUserId'] : null,
-            (string) ($node['body'] ?? ''),
-            (int) ($node['offsetSeconds'] ?? 0),
-        ], $nodes);
+        return ['id' => $id, 'key' => $key, 'parentId' => $parentId, 'parentKey' => $parentKey, 'personaUserId' => $personaUserId, 'body' => $body, 'offsetSeconds' => $offsetSeconds, 'sortOrder' => $sortOrder];
     }
 
     /**
-     * Inserts a node right after another, keeping every key.
+     * The comments as the action takes them, each in its place among its
+     * siblings by time, and which comment each index is: `n12` for the saved
+     * comment 12, its key for a new one.
      *
-     * @param  array<string, array<string, mixed>>  $nodes
-     * @param  array<string, mixed>  $node
-     * @return array<string, array<string, mixed>>
+     * @param  list<array<string, mixed>>  $rows
+     * @return array{0: StudioDiscussionData, 1: list<string>}
      */
-    private static function inserted(array $nodes, string $after, string $key, array $node): array
+    private static function data(array $rows): array
     {
-        $result = [];
+        $groups = [];
 
-        foreach ($nodes as $existing => $value) {
-            $result[$existing] = $value;
+        foreach ($rows as $index => $row) {
+            $groups[$row['parentId'] ?? ($row['parentKey'] !== null ? 'k:'.$row['parentKey'] : 'post')][] = $index;
+        }
 
-            if ($existing === $after) {
-                $result[$key] = $node;
+        $places = [];
+
+        foreach ($groups as $indexes) {
+            usort($indexes, fn (int $a, int $b): int => [$rows[$a]['offsetSeconds'], $rows[$a]['sortOrder'], $rows[$a]['id'] ?? PHP_INT_MAX] <=> [$rows[$b]['offsetSeconds'], $rows[$b]['sortOrder'], $rows[$b]['id'] ?? PHP_INT_MAX]);
+
+            foreach ($indexes as $place => $index) {
+                $places[$index] = $place;
             }
         }
 
-        return $result;
+        $nodes = [];
+        $order = [];
+
+        foreach ($rows as $index => $row) {
+            $order[] = $row['id'] !== null ? 'n'.$row['id'] : (string) $row['key'];
+            $nodes[] = new StudioDiscussionNodeData(
+                id: $row['id'],
+                key: $row['id'] === null ? $row['key'] : null,
+                parentId: $row['parentId'],
+                parentKey: $row['parentId'] === null ? $row['parentKey'] : null,
+                personaUserId: $row['personaUserId'],
+                body: (string) $row['body'],
+                sortOrder: $places[$index] ?? 0,
+                offsetSeconds: (int) $row['offsetSeconds'],
+            );
+        }
+
+        return [new StudioDiscussionData($nodes), $order];
     }
 
-    /** A time after the post as it is read: `+2 h 15 min`. */
-    public static function relative(int $seconds, bool $signed = true): string
+    /**
+     * The discussion as it was, put back over the one there is now: a comment
+     * still there keeps its id, one deleted since comes back as a new one.
+     *
+     * @param  list<array<string, mixed>>  $snapshot
+     * @param  list<array<string, mixed>>  $current
+     * @return list<array<string, mixed>>
+     */
+    private static function restored(array $snapshot, array $current): array
     {
-        $parts = array_filter([
-            intdiv($seconds, 86400) > 0 ? intdiv($seconds, 86400).' d' : null,
-            intdiv($seconds % 86400, 3600) > 0 ? intdiv($seconds % 86400, 3600).' h' : null,
-            intdiv($seconds % 3600, 60) > 0 ? intdiv($seconds % 3600, 60).' min' : null,
-            $seconds % 60 > 0 ? ($seconds % 60).' s' : null,
-        ]);
+        $there = array_flip(array_map(fn (array $row): int => (int) $row['id'], $current));
 
-        return ($signed ? '+' : '').($parts === [] ? '0 min' : implode(' ', $parts));
+        return array_map(function (array $row) use ($there): array {
+            $kept = isset($there[(int) $row['id']]);
+            $parentKept = $row['parentId'] === null || isset($there[(int) $row['parentId']]);
+
+            return [
+                ...$row,
+                'id' => $kept ? $row['id'] : null,
+                'key' => $kept ? null : 'u'.$row['id'],
+                'parentId' => $parentKept ? $row['parentId'] : null,
+                'parentKey' => $parentKept ? null : 'u'.$row['parentId'],
+            ];
+        }, $snapshot);
+    }
+
+    /**
+     * The comments in the order the tree shows them: each comment on the post
+     * by its time, each followed by its replies by theirs.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array{row: array<string, mixed>, depth: int}>
+     */
+    private static function ordered(array $rows): array
+    {
+        $byTime = fn (array $a, array $b): int => [$a['offsetSeconds'], $a['sortOrder'], $a['id']] <=> [$b['offsetSeconds'], $b['sortOrder'], $b['id']];
+        $roots = array_values(array_filter($rows, fn (array $row): bool => $row['parentId'] === null));
+        usort($roots, $byTime);
+        $ordered = [];
+
+        foreach ($roots as $root) {
+            $ordered[] = ['row' => $root, 'depth' => 0];
+            $replies = array_values(array_filter($rows, fn (array $row): bool => $row['parentId'] === $root['id']));
+            usort($replies, $byTime);
+
+            foreach ($replies as $reply) {
+                $ordered[] = ['row' => $reply, 'depth' => 1];
+            }
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * Each comment's label in the order the tree shows them: C1, C2, …
+     *
+     * @param  list<array{row: array<string, mixed>, depth: int}>  $ordered
+     * @return array<int, string>
+     */
+    private static function labels(array $ordered): array
+    {
+        $labels = [];
+
+        foreach ($ordered as $index => $entry) {
+            $labels[(int) $entry['row']['id']] = 'C'.($index + 1);
+        }
+
+        return $labels;
+    }
+
+    /** The unit a moment reads best in: whole days, whole hours, or minutes. */
+    public static function unitFor(int $seconds): string
+    {
+        return match (true) {
+            $seconds >= 86400 && $seconds % 86400 === 0 => 'd',
+            $seconds >= 3600 && $seconds % 3600 === 0 => 'h',
+            default => 'min',
+        };
+    }
+
+    /** A time after the post as it is read: `8 min`, `2 h 15 min`, `1 d 3 h`. */
+    public static function relative(int $seconds): string
+    {
+        $minutes = (int) round($seconds / 60);
+
+        if ($minutes < 60) {
+            return $minutes.' min';
+        }
+
+        if ($minutes < 1440) {
+            return intdiv($minutes, 60).' h'.($minutes % 60 > 0 ? ' '.($minutes % 60).' min' : '');
+        }
+
+        return intdiv($minutes, 1440).' d'.(intdiv($minutes % 1440, 60) > 0 ? ' '.intdiv($minutes % 1440, 60).' h' : '');
     }
 }

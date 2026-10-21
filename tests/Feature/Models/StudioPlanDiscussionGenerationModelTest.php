@@ -91,7 +91,7 @@ it('reaches no route, controller or public resource: only the editor\'s Discussi
         ->values()
         ->all();
 
-    expect($files)->toBe(['Admin/StudioPlanDiscussionEditor.php', 'Admin/StudioPlanDiscussionProposals.php']);
+    expect($files)->toBe(['Admin/StudioPlanDiscussionEditor.php']);
 });
 
 it('rolls back and runs again: the table goes and comes back, the plans and their discussions untouched', function () {

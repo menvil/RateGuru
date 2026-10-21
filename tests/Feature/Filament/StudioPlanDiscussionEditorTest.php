@@ -22,11 +22,12 @@ use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyExceptio
 use Livewire\Livewire;
 
 /**
- * The Discussion step, by hand: the comments and replies the post is to get
- * as a draft of their own — added, written, given a persona and a time,
- * moved, deleted — kept with Save discussion through the one action that
- * writes discussions, ids kept, every message put by the comment it is about,
- * and nothing lost or written over when somebody else changed the plan.
+ * The Discussion step, by hand, as the prototype's works: the discussion tree
+ * as saved, each comment by its time and labelled C1, C2, …; a comment
+ * written, answered or edited in a dialog and saved to the plan at once
+ * through the one action that writes discussions, ids kept; Delete asked
+ * first and undone from its toast; Timing changed in place — and nothing
+ * written over when somebody else changed the plan.
  */
 beforeEach(function () {
     Queue::fake();
@@ -37,7 +38,7 @@ beforeEach(function () {
     [$this->anna, $this->boris] = [User::factory()->persona()->create(['display_name' => 'Anna']), User::factory()->persona()->create(['display_name' => 'Boris'])];
 });
 
-/** A discussion saved for the plan: comment a by Anna with replies a1 and a2, then comment b by Boris. */
+/** A discussion saved for the plan: comment a by Anna (C1) with replies a1 (C2) and a2 (C3), then comment b by Boris (C4). */
 function savedFour($test): SavedStudioDiscussion
 {
     return savedStudioBranchFixture($test->admin, $test->plan, $test->anna, $test->boris);
@@ -53,308 +54,292 @@ it('is for administrators who may manage plans only — drawn, or clicked', func
 
     $this->actingAs($this->admin);
     $editor = discussionEditor($this->plan);
-    $this->admin->forceFill(['role' => 'user'])->save();
+    $this->admin->forceFill(['role' => 'moderator'])->save();
 
-    $editor->call('addComment')->assertForbidden();
+    $editor->call('openNew')->assertForbidden();
 });
 
-it('keeps the plan and its version where the browser cannot move them', function () {
-    expect(fn () => discussionEditor($this->plan)->set('planId', 99))->toThrow(CannotUpdateLockedPropertyException::class)
-        ->and(fn () => discussionEditor($this->plan)->set('lockVersion', 9))->toThrow(CannotUpdateLockedPropertyException::class)
-        ->and(fn () => discussionEditor($this->plan)->set('savedNodes', []))->toThrow(CannotUpdateLockedPropertyException::class);
-});
+it('keeps the plan, its version and what it acts on where the browser cannot move them', function (string $property, mixed $value) {
+    discussionEditor($this->plan)->set($property, $value);
+})->throws(CannotUpdateLockedPropertyException::class)->with([
+    'the plan' => ['planId', 99],
+    'the version' => ['lockVersion', 9],
+    'the dialog' => ['dialog', ['mode' => 'edit', 'id' => 1, 'parentId' => null]],
+    'who writes in it' => ['dialogPersona', 1],
+    'the personas checked' => ['manual', [1]],
+    'the generation awaited' => ['awaiting', 1],
+    'what Undo puts back' => ['undo', ['token' => 'x', 'tree' => []]],
+]);
 
-it('draws the saved discussion: each comment on the post, then its replies, with its persona and time', function () {
-    $saved = savedFour($this);
+it('draws the tree as saved: each comment on the post by its time, its replies under it, labelled in order', function () {
+    savedFour($this);
     $this->boris->forceFill(['status' => UserStatus::Banned])->save();
 
-    $editor = discussionEditor($this->plan);
-
-    expect(discussionEditorKeys($editor))->toBe(['n'.$saved->ids['a'], 'n'.$saved->ids['a1'], 'n'.$saved->ids['a2'], 'n'.$saved->ids['b']])
-        ->and($editor->get('nodes')['n'.$saved->ids['a1']])->toBe(['id' => $saved->ids['a1'], 'parent' => 'n'.$saved->ids['a'], 'personaUserId' => $this->boris->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]);
-    $editor->assertSeeInOrder(['Lovely light.', 'Agreed.', 'Thank you.', 'Where is this?'])
-        ->assertSee('Anna')
-        ->assertSee('+1 min')
-        ->assertSee('+2 min · 1 min after its comment')
-        // A sanctioned persona stays on its comment, said so.
+    discussionEditor($this->plan)
+        ->assertSee('Discussion tree')
+        ->assertSee('4 comments · 2 top-level')
+        ->assertSeeInOrder(['Lovely light.', 'Agreed.', 'Thank you.', 'Where is this?'])
+        ->assertSeeHtml('data-node="C1"')->assertSeeHtml('data-node="C4"')
+        ->assertSee('↳ C1 · Anna')
+        ->assertSee('+1 min')->assertSee('+3 min')
+        ->assertSee('Automated')
         ->assertSee('Banned')
         ->assertSet('lockVersion', 2);
 });
 
-it('saves an emptied discussion', function () {
+it('says there is no discussion yet, or none planned', function () {
+    discussionEditor($this->plan)->assertSee('No discussion yet')->assertSee('Set the settings above and generate the tree.')
+        ->set('totalCount', 0)->assertSee('No discussion planned')->assertSee('The post publishes without automated comments.');
+});
+
+it('writes a new comment on the post from its dialog at once, twenty minutes after the last', function () {
     savedFour($this);
 
-    $editor = discussionEditor($this->plan);
+    $editor = discussionEditor($this->plan)->call('openNew')
+        ->assertSee('New top-level comment')
+        ->assertSet('dialogSeconds', 90 + 20 * 60);
 
-    foreach (discussionEditorKeys($editor) as $key) {
-        if (array_key_exists($key, $editor->get('nodes')) && $editor->get('nodes')[$key]['parent'] === null) {
-            $editor->call('delete', $key);
-            $editor->get('deleting') !== null && $editor->call('confirmDelete');
-        }
-    }
+    $editor->call('choosePersona', $this->boris->id)->set('dialogBody', '  Fresh view.  ')->call('saveDialog')
+        ->assertHasNoErrors()
+        ->assertSet('dialog', null)
+        ->assertSet('lockVersion', 3)
+        ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'discussion');
 
-    $editor->call('save')->assertHasNoErrors()->assertSet('nodes', [])->assertSet('lockVersion', 3)->assertDispatched('rg-admin-toast', message: 'Discussion saved');
+    $added = StudioDiscussionNode::query()->where('body', 'Fresh view.')->sole();
 
-    expect(StudioDiscussionNode::query()->exists())->toBeFalse();
+    expect($added)->parent_id->toBeNull()->persona_user_id->toBe($this->boris->id)->offset_seconds->toBe(1290);
 });
 
-it('adds a comment on the post, and a reply to a saved one', function () {
+it('answers a comment on the post ten minutes after it, by somebody else, and offers no reply to a reply', function () {
     $saved = savedFour($this);
-    $editor = discussionEditor($this->plan)
-        ->call('addComment')
-        ->assertSet('editing', 'k1');
 
-    $editor->call('choosePersona', 'k1', $this->boris->id)
-        ->set('nodes.k1.body', '  A fine morning.  ')
-        ->call('addReply', 'n'.$saved->ids['b'])
-        ->call('choosePersona', 'k2', $this->anna->id)
-        ->set('nodes.k2.body', 'Brittany, I think.')
-        ->call('save')
-        ->assertHasNoErrors();
+    $editor = discussionEditor($this->plan)->call('openReply', $saved->ids['a'])
+        ->assertSee('Reply to C1')
+        ->assertSet('dialogPersona', fn ($persona) => $persona !== $this->anna->id)
+        ->assertSet('dialogSeconds', 60 + 600);
 
-    $added = StudioDiscussionNode::query()->where('body', 'A fine morning.')->sole();
-    $reply = StudioDiscussionNode::query()->where('body', 'Brittany, I think.')->sole();
+    $editor->call('choosePersona', $this->boris->id)->set('dialogBody', 'Seconded.')->call('saveDialog')->assertHasNoErrors();
 
-    expect($added)->parent_id->toBeNull()->persona_user_id->toBe($this->boris->id)->sort_order->toBe(2)
-        ->and($reply)->parent_id->toBe($saved->ids['b'])->persona_user_id->toBe($this->anna->id)
-        ->and($reply->offset_seconds)->toBe(90 + 300)
-        // The keys gave way to the ids the save gave them.
-        ->and(discussionEditorKeys($editor))->toContain('n'.$added->id, 'n'.$reply->id)->not->toContain('k1', 'k2');
+    expect(StudioDiscussionNode::query()->where('body', 'Seconded.')->sole()->parent_id)->toBe($saved->ids['a']);
+
+    $editor->call('openReply', $saved->ids['a1'])->assertSet('dialog', null)
+        ->assertSeeHtml('wire:click="openReply('.$saved->ids['a'].')"')
+        ->assertDontSeeHtml('wire:click="openReply('.$saved->ids['a1'].')"');
 });
 
-it('saves a new comment and a reply to it in one save, the reply naming its comment by its key', function () {
-    $editor = discussionEditor($this->plan)
-        ->call('addComment')
-        ->call('choosePersona', 'k1', $this->anna->id)
-        ->set('nodes.k1.body', 'Lovely light.')
-        ->call('addReply', 'k1')
-        ->call('choosePersona', 'k2', $this->boris->id)
-        ->set('nodes.k2.body', 'Agreed.')
-        ->call('save')
-        ->assertHasNoErrors();
-
-    $root = StudioDiscussionNode::query()->whereNull('parent_id')->sole();
-
-    expect(StudioDiscussionNode::query()->whereNotNull('parent_id')->sole()->parent_id)->toBe($root->id)
-        ->and($editor->get('savedNodes'))->toBe($editor->get('nodes'));
-});
-
-it('keeps every id through a change of text, persona, place and time', function () {
+it('edits a comment in its dialog, keeping every id, its place among its siblings following its time', function () {
     $saved = savedFour($this);
-    [$a, $a1, $a2, $b] = ['n'.$saved->ids['a'], 'n'.$saved->ids['a1'], 'n'.$saved->ids['a2'], 'n'.$saved->ids['b']];
 
-    discussionEditor($this->plan)
-        ->set("nodes.{$a}.body", 'Such light.')
-        ->call('choosePersona', $a1, $this->anna->id)
-        ->set("nodes.{$a2}.offsetSeconds", 3600)
-        ->call('moveUp', $b)
-        ->call('moveDown', $a1)
-        ->call('save')
+    discussionEditor($this->plan)->call('openEdit', $saved->ids['a2'])
+        ->assertSee('Edit C3')
+        ->assertSet('dialogBody', 'Thank you.')
+        ->call('choosePersona', $this->boris->id)
+        ->set('dialogBody', 'Thanks a lot.')
+        ->set('dialogSeconds', 100)
+        ->call('saveDialog')
         ->assertHasNoErrors();
 
     $expected = [
-        $saved->ids['a'] => [null, $this->anna->id, 'Such light.', 1, 60],
-        $saved->ids['a1'] => [$saved->ids['a'], $this->anna->id, 'Agreed.', 1, 120],
-        $saved->ids['a2'] => [$saved->ids['a'], $this->anna->id, 'Thank you.', 0, 3600],
-        $saved->ids['b'] => [null, $this->boris->id, 'Where is this?', 0, 90],
+        $saved->ids['a'] => [null, $this->anna->id, 'Lovely light.', 0, 60],
+        $saved->ids['a1'] => [$saved->ids['a'], $this->boris->id, 'Agreed.', 1, 120],
+        $saved->ids['a2'] => [$saved->ids['a'], $this->boris->id, 'Thanks a lot.', 0, 100],
+        $saved->ids['b'] => [null, $this->boris->id, 'Where is this?', 1, 90],
     ];
     ksort($expected);
 
     expect(storedStudioDiscussionNodes($this->plan))->toBe($expected);
 });
 
-it('moves a comment only among its siblings, never to another comment', function () {
+it('moves a reply to another comment, and keeps a comment with replies on the post', function () {
     $saved = savedFour($this);
-    [$a, $a1, $a2, $b] = ['n'.$saved->ids['a'], 'n'.$saved->ids['a1'], 'n'.$saved->ids['a2'], 'n'.$saved->ids['b']];
 
-    $editor = discussionEditor($this->plan)
-        ->call('moveUp', $a1)      // already first among a's replies
-        ->call('moveDown', $a2)    // already last
-        ->call('moveDown', $a);
+    discussionEditor($this->plan)->call('openEdit', $saved->ids['a2'])
+        ->call('chooseParent', $saved->ids['b'])
+        ->assertSet('dialog.parentId', $saved->ids['b'])
+        ->call('saveDialog')
+        ->assertHasNoErrors();
 
-    expect(discussionEditorKeys($editor))->toBe([$b, $a, $a1, $a2])
-        ->and($editor->get('nodes')[$a1]['parent'])->toBe($a);
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a2'])->parent_id)->toBe($saved->ids['b']);
+
+    discussionEditor($this->plan)->call('openEdit', $saved->ids['a'])
+        ->assertSee('It has replies, so it stays a top-level comment.')
+        ->call('chooseParent', $saved->ids['b'])
+        ->assertSet('dialog.parentId', null)
+        // Never a reply's reply.
+        ->call('openEdit', $saved->ids['a1'])->call('chooseParent', $saved->ids['a2'])
+        ->assertSet('dialog.parentId', $saved->ids['a']);
 });
 
-it('deletes a reply alone, and a comment with its replies only once confirmed — in the draft until saved', function () {
-    $saved = savedFour($this);
-    [$a, $a1, $a2, $b] = ['n'.$saved->ids['a'], 'n'.$saved->ids['a1'], 'n'.$saved->ids['a2'], 'n'.$saved->ids['b']];
-
-    $editor = discussionEditor($this->plan)->call('delete', $a1);
-
-    expect(discussionEditorKeys($editor))->toBe([$a, $a2, $b]);
-
-    $editor->call('delete', $a)
-        ->assertSet('deleting', $a)
-        ->assertSee('Delete this comment and its 1 reply?')
-        ->assertSee('Replies can’t stay without their parent, so the whole branch leaves the plan.');
-
-    expect(discussionEditorKeys($editor))->toBe([$a, $a2, $b]);
-
-    $editor->call('confirmDelete')->assertSet('deleting', null);
-
-    expect(discussionEditorKeys($editor))->toBe([$b])
-        // Nothing left the database yet.
-        ->and(StudioDiscussionNode::query()->count())->toBe(4);
-
-    $editor->call('save');
-
-    expect(StudioDiscussionNode::query()->pluck('id')->all())->toBe([$saved->ids['b']]);
-});
-
-it('offers no reply to a reply, and refuses a third level the browser makes up', function () {
-    $saved = savedFour($this);
-    $a1 = 'n'.$saved->ids['a1'];
-
-    $editor = discussionEditor($this->plan)->call('addReply', $a1);
-
-    expect(discussionEditorKeys($editor))->not->toContain('k1');
-
-    // A reply's parent forced to another reply in the browser: the action's rules refuse it.
-    $editor->call('addComment')
-        ->call('choosePersona', 'k1', $this->anna->id)
-        ->set('nodes.k1.body', 'Me too.')
-        ->set('nodes.k1.parent', $a1)
-        ->call('save')
-        ->assertHasErrors(['nodes.k1.parentId'])
-        ->assertSet('editing', 'k1');
-
-    expect(StudioDiscussionNode::query()->count())->toBe(4);
-});
-
-it('holds forty comments and replies at most, and says so', function () {
-    $editor = discussionEditor($this->plan);
-
-    foreach (range(1, 40) as $index) {
-        $editor->call('addComment');
-    }
-
-    $editor->call('addComment')
-        ->assertDispatched('rg-admin-toast', message: 'A discussion holds up to 40 comments and replies. Delete one to add another.')
-        ->assertSee('A discussion holds up to 40 comments and replies.');
-
-    expect(count($editor->get('nodes')))->toBe(40);
-});
-
-it('puts each refused field by its comment and keeps the draft as typed', function (Closure $arrange, string $field, string $message) {
-    $editor = discussionEditor($this->plan)
-        ->call('addComment')
-        ->call('choosePersona', 'k1', $this->anna->id)
-        ->set('nodes.k1.body', 'Lovely light.');
+it('keeps the dialog open with each refusal by its field, writing nothing', function (Closure $arrange, string $field, string $message) {
+    savedFour($this);
+    $editor = discussionEditor($this->plan)->call('openNew')->call('choosePersona', $this->anna->id)->set('dialogBody', 'Lovely light.');
     $arrange($editor, $this);
 
-    $before = $editor->get('nodes');
+    $editor->call('saveDialog')->assertHasErrors([$field])->assertSee($message)->assertSet('dialog.mode', 'new');
 
-    $editor->call('save')
-        ->assertHasErrors(["nodes.k1.{$field}"])
-        ->assertSet('editing', 'k1')
-        ->assertSee($message)
-        ->assertDispatched('rg-admin-toast', message: 'The discussion wasn’t saved. Fix what is marked and save again.');
-
-    expect($editor->get('nodes'))->toBe($before)
-        ->and(StudioDiscussionNode::query()->exists())->toBeFalse()
-        ->and($this->plan->fresh()->lock_version)->toBe(1);
+    expect(StudioDiscussionNode::query()->count())->toBe(4)
+        ->and($this->plan->fresh()->lock_version)->toBe(2);
 })->with([
-    'no text' => [fn ($editor) => $editor->set('nodes.k1.body', '   '), 'body', 'Write the comment.'],
-    'a text too long' => [fn ($editor) => $editor->set('nodes.k1.body', str_repeat('a', 1001)), 'body', 'Keep the comment to 1,000 characters or fewer.'],
-    'no persona' => [fn ($editor) => $editor->set('nodes.k1.personaUserId', null), 'personaUserId', 'Choose a persona who is not deleted.'],
-    'a time past thirty days' => [fn ($editor) => $editor->set('nodes.k1.offsetSeconds', 2_592_001), 'offsetSeconds', 'Set when it comes: from the post’s own moment to 30 days after it.'],
-    'a time before the post' => [fn ($editor) => $editor->set('nodes.k1.offsetSeconds', -5), 'offsetSeconds', 'Set when it comes'],
+    'no text' => [fn ($editor) => $editor->set('dialogBody', '   '), 'dialogBody', 'Write the comment first.'],
+    'a text too long' => [fn ($editor) => $editor->set('dialogBody', str_repeat('a', 1001)), 'dialogBody', 'Keep the comment to 1,000 characters or fewer.'],
+    'a time past thirty days' => [fn ($editor) => $editor->set('dialogSeconds', 2_592_001), 'dialogSeconds', 'Set when it comes: from the post’s own moment to 30 days after it.'],
+    'a persona deleted meanwhile' => [fn ($editor, $test) => $test->anna->forceFill(['status' => UserStatus::Deleted])->save(), 'dialogPersona', 'Choose a persona who is not deleted.'],
 ]);
 
-it('refuses a reply before its comment, by the reply', function () {
-    discussionEditor($this->plan)
-        ->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Lovely.')->set('nodes.k1.offsetSeconds', 600)
-        ->call('addReply', 'k1')->call('choosePersona', 'k2', $this->boris->id)->set('nodes.k2.body', 'Agreed.')->set('nodes.k2.offsetSeconds', 300)
-        ->call('save')
-        ->assertHasErrors(['nodes.k2.offsetSeconds'])
+it('refuses a reply before the comment it answers, in its dialog', function () {
+    $saved = savedFour($this);
+
+    discussionEditor($this->plan)->call('openReply', $saved->ids['b'])->set('dialogBody', 'Too early.')->set('dialogSeconds', 30)
+        ->call('saveDialog')
+        ->assertHasErrors(['dialogSeconds'])
         ->assertSee('A reply cannot come before the comment it answers.');
 
-    expect(StudioDiscussionNode::query()->exists())->toBeFalse();
+    // A comment moved past its replies is refused for them, said in the dialog.
+    discussionEditor($this->plan)->call('openEdit', $saved->ids['a'])->set('dialogSeconds', 3600)
+        ->call('saveDialog')
+        ->assertHasErrors(['dialog'])
+        ->assertSee('A reply cannot come before the comment it answers.');
+
+    expect(StudioDiscussionNode::query()->count())->toBe(4)
+        ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->offset_seconds)->toBe(60);
 });
 
-it('keeps a dated post\'s discussion inside the dates a post may carry, showing when each comment comes', function () {
+it('chooses only a living persona in the dialog', function () {
+    $this->anna->forceFill(['status' => UserStatus::Deleted])->save();
+
+    discussionEditor($this->plan)->call('openNew')->call('choosePersona', $this->anna->id)
+        ->assertHasErrors(['dialogPersona'])
+        ->assertSet('dialogPersona', fn ($persona) => $persona !== $this->anna->id);
+});
+
+it('asks before deleting, a comment with its replies as a branch, and undoes it from the toast', function () {
+    $saved = savedFour($this);
+    $editor = discussionEditor($this->plan)->call('askDelete', $saved->ids['a'])
+        ->assertSee('Delete C1 and its 2 replies?')
+        ->assertSee('Replies can’t stay without their parent, so the whole branch leaves the plan.')
+        ->assertSee('3 comments removed: C1, C2, C3')
+        ->assertSee('Delete branch');
+
+    expect(StudioDiscussionNode::query()->count())->toBe(4);
+
+    $editor->call('confirmDelete')->assertDispatched('rg-admin-toast', message: 'Branch C1 deleted', tone: 'success');
+
+    expect(StudioDiscussionNode::query()->pluck('body')->all())->toBe(['Where is this?']);
+
+    $token = $editor->get('undo')['token'];
+    $editor->dispatch('undo-studio-discussion', token: 'not-it');
+    expect(StudioDiscussionNode::query()->count())->toBe(1);
+
+    $editor->dispatch('undo-studio-discussion', token: $token)->assertSet('undo', null);
+
+    $lovely = StudioDiscussionNode::query()->where('body', 'Lovely light.')->sole();
+
+    expect(StudioDiscussionNode::query()->orderBy('offset_seconds')->pluck('body')->all())->toBe(['Lovely light.', 'Where is this?', 'Agreed.', 'Thank you.'])
+        ->and(StudioDiscussionNode::query()->where('body', 'Agreed.')->sole()->parent_id)->toBe($lovely->id)
+        ->and(StudioDiscussionNode::query()->where('body', 'Where is this?')->sole()->id)->toBe($saved->ids['b']);
+});
+
+it('asks before deleting a reply alone, and cancels', function () {
+    $saved = savedFour($this);
+
+    discussionEditor($this->plan)->call('askDelete', $saved->ids['a1'])
+        ->assertSee('Delete C2?')->assertSee('Delete comment')->assertDontSee('Delete branch')
+        ->call('closeConfirmation')->assertSet('deleting', null);
+
+    expect(StudioDiscussionNode::query()->count())->toBe(4);
+
+    discussionEditor($this->plan)->call('askDelete', $saved->ids['a1'])->call('confirmDelete')
+        ->assertDispatched('rg-admin-toast', message: 'Comment C2 deleted', tone: 'success');
+
+    expect(StudioDiscussionNode::query()->whereKey($saved->ids['a1'])->exists())->toBeFalse()
+        ->and(StudioDiscussionNode::query()->count())->toBe(3);
+});
+
+it('shows the timing of every comment and changes one in place', function () {
+    $saved = savedFour($this);
+
+    $editor = discussionEditor($this->plan)->set('tab', 'timing')
+        ->assertSee('Times are offsets from the moment the post appears.')
+        ->assertSeeInOrder(['Comment C1', 'Comment C4', 'Reply C2', 'Reply C3'])
+        ->assertSee('After C1 at +1 min')
+        ->assertSee('After the post');
+
+    $editor->call('setOffset', $saved->ids['b'], 7200)->assertHasNoErrors();
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
+
+    $editor->call('setOffset', $saved->ids['a1'], 10)
+        ->assertDispatched('rg-admin-toast', message: 'A reply cannot come before the comment it answers.');
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a1'])->offset_seconds)->toBe(120);
+});
+
+it('holds forty comments and replies at most', function () {
+    saveStudioDiscussion($this->admin, $this->plan, array_map(fn (int $index) => discussionNode(['key' => "c{$index}", 'personaUserId' => $this->anna->id, 'body' => "Comment {$index}.", 'sortOrder' => $index, 'offsetSeconds' => $index]), range(0, 39)));
+
+    commentFromDialog(discussionEditor($this->plan), $this->anna, 'One more.')->assertHasErrors(['dialog']);
+
+    expect(StudioDiscussionNode::query()->count())->toBe(40);
+});
+
+it('keeps a dated post\'s discussion inside the dates a post may carry', function () {
     $this->plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse('2038-01-18 23:00:00')])->save();
 
-    $editor = discussionEditor($this->plan)
-        ->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Just in time.')->set('nodes.k1.offsetSeconds', 3599)
-        ->call('save')
-        ->assertHasNoErrors()
-        ->assertSee('18 Jan 2038, 23:59:59');
+    commentFromDialog(discussionEditor($this->plan), $this->anna, 'Just in time.', seconds: 3599)->assertHasNoErrors();
+    commentFromDialog(discussionEditor($this->plan), $this->anna, 'Too late.', seconds: 3600)->assertHasErrors(['dialogSeconds']);
 
-    $key = discussionEditorKeys($editor)[0];
-    $editor->set("nodes.{$key}.offsetSeconds", 3600)->call('save')->assertHasErrors(["nodes.{$key}.offsetSeconds"]);
+    expect(StudioDiscussionNode::query()->pluck('body')->all())->toBe(['Just in time.']);
 });
 
-it('refuses a save drawn from a version somebody else replaced, keeping the draft and asking for Reload', function () {
+it('writes nothing over somebody else\'s save, and Reload takes theirs', function () {
     savedFour($this);
-    $editor = discussionEditor($this->plan)->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Mine, unsaved.');
-    $theirs = StudioPlan::query()->findOrFail($this->plan->id);
-    app(UpdateStudioPlanAction::class)->handle($this->admin, $theirs, new StudioPlanData(title: 'Theirs'), 2);
-    $draft = $editor->get('nodes');
+    $editor = discussionEditor($this->plan);
+    app(UpdateStudioPlanAction::class)->handle($this->admin, StudioPlan::query()->findOrFail($this->plan->id), new StudioPlanData(title: 'Theirs'), 2);
 
-    $editor->call('save')
+    commentFromDialog($editor, $this->anna, 'Mine.')
         ->assertSet('conflict', true)
+        ->assertSet('dialog', null)
         ->assertSee('Someone changed this draft after you opened it')
         ->assertSee('Reload discussion');
 
-    expect($editor->get('nodes'))->toBe($draft)
-        ->and(StudioDiscussionNode::query()->where('body', 'Mine, unsaved.')->exists())->toBeFalse();
+    expect(StudioDiscussionNode::query()->where('body', 'Mine.')->exists())->toBeFalse();
 
-    // Reload draws what is saved, the typed comment gone.
     $editor->call('reload')->assertSet('conflict', false)->assertSet('lockVersion', 3);
+    commentFromDialog($editor, $this->anna, 'Mine.')->assertHasNoErrors();
 
-    expect(collect($editor->get('nodes'))->pluck('body')->all())->not->toContain('Mine, unsaved.');
+    expect(StudioDiscussionNode::query()->where('body', 'Mine.')->exists())->toBeTrue();
 });
 
-it('refuses a persona deleted meanwhile, by its comment', function () {
-    $editor = discussionEditor($this->plan)->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Lovely.');
-    $this->anna->forceFill(['status' => UserStatus::Deleted])->save();
-
-    $editor->call('save')->assertHasErrors(['nodes.k1.personaUserId']);
-
-    expect(StudioDiscussionNode::query()->exists())->toBeFalse();
-    discussionEditor($this->plan)->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->assertHasErrors(['nodes.k1.personaUserId']);
-});
-
-it('says when the plan was deleted or approved, keeping what was typed', function (Closure $change, string $notice, string $flag) {
-    $editor = discussionEditor($this->plan)->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Typed.');
+it('says when the plan was deleted or approved, and writes nothing', function (Closure $change, string $notice, string $flag) {
+    $editor = discussionEditor($this->plan)->call('openNew');
     $change($this->plan);
 
-    $editor->call('save')->assertSet($flag, true)->assertSee($notice);
+    $editor->call('choosePersona', $this->anna->id)->set('dialogBody', 'Typed.')->call('saveDialog')
+        ->assertSet($flag, true)->assertSee($notice);
 
-    expect($editor->get('nodes')['k1']['body'])->toBe('Typed.');
+    expect(StudioDiscussionNode::query()->exists())->toBeFalse();
 })->with([
     'deleted' => [fn (StudioPlan $plan) => app(DeleteStudioPlanDraftAction::class)->handle(User::query()->findOrFail($plan->created_by_user_id), $plan, 1), 'This draft was deleted', 'gone'],
     'approved' => [fn (StudioPlan $plan) => $plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), 'This plan is no longer a draft', 'closed'],
 ]);
 
-it('discards unsaved changes back to the saved discussion, reading nothing anew', function () {
-    $saved = savedFour($this);
-    $editor = discussionEditor($this->plan)->set('nodes.n'.$saved->ids['a'].'.body', 'Changed.')->call('addComment');
+it('offers no change to a plan past its draft', function () {
+    savedFour($this);
+    $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
 
-    $editor->call('discardChanges');
-
-    expect($editor->get('nodes'))->toBe($editor->get('savedNodes'));
+    discussionEditor($this->plan)
+        ->assertSee('This plan is no longer a draft')
+        ->assertSee('Lovely light.')
+        ->assertDontSeeHtml('wire:click="openEdit(')
+        ->call('openNew')->assertSet('dialog', null);
 });
 
 it('writes nothing but the discussion: no post, comment, action or job', function () {
-    discussionEditor($this->plan)
-        ->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Lovely.')
-        ->call('save')->assertHasNoErrors();
+    commentFromDialog(discussionEditor($this->plan), $this->anna, 'Lovely.')->assertHasNoErrors();
 
     expect(Post::query()->exists())->toBeFalse()
         ->and(Comment::query()->exists())->toBeFalse()
         ->and(StudioAction::query()->exists())->toBeFalse()
         ->and(DB::table('post_votes')->exists())->toBeFalse();
     Queue::assertNothingPushed();
-});
-
-it('says the plan\'s new version to the editor around it after a save', function () {
-    discussionEditor($this->plan)
-        ->call('addComment')->call('choosePersona', 'k1', $this->anna->id)->set('nodes.k1.body', 'Lovely.')
-        ->call('save')
-        ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'discussion');
 });
 
 it('takes a version this page\'s other editor moved, and no other', function () {

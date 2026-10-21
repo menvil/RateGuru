@@ -13740,13 +13740,19 @@ function discussionEditor(StudioPlan $plan): Testable
 }
 
 /**
- * The draft key of each comment the Discussion editor holds, in its order.
- *
- * @return list<string>
+ * Writes a comment from the Discussion editor's dialog — a new one on the
+ * post, or a reply to the saved comment given — as an administrator would.
  */
-function discussionEditorKeys(Testable $editor): array
+function commentFromDialog(Testable $editor, User $persona, string $body, ?int $replyTo = null, ?int $seconds = null): Testable
 {
-    return array_keys($editor->get('nodes'));
+    $replyTo !== null ? $editor->call('openReply', $replyTo) : $editor->call('openNew');
+    $editor->call('choosePersona', $persona->id)->set('dialogBody', $body);
+
+    if ($seconds !== null) {
+        $editor->set('dialogSeconds', $seconds);
+    }
+
+    return $editor->call('saveDialog');
 }
 
 /**

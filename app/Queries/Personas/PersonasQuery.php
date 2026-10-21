@@ -61,9 +61,8 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
 
     /**
      * As many living Personas as asked for, at most, picked at random — the
-     * team a discussion is to be written by when an administrator asks for a
-     * random one, shown to them before anything is generated. Never every
-     * Persona at once.
+     * team a discussion is written by when an administrator asks for a random
+     * one, picked as the tree is generated. Never every Persona at once.
      *
      * @return Collection<int, User>
      */
@@ -74,6 +73,12 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
             ->inRandomOrder()
             ->limit(max(1, $count))
             ->get(['users.*']);
+    }
+
+    /** How many living Personas there are to choose from: what a random team is picked among. */
+    public function choosableCount(): int
+    {
+        return $this->personas()->count();
     }
 
     /** The living Persona with this id, if there is one: what a publication plan's author may be. */
