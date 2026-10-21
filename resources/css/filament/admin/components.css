@@ -5318,6 +5318,433 @@
         color: var(--rg-admin-status-due-fg);
     }
 
+    /* Step 2 · Post: its two tabs, Titles & texts and Votes, on the step's own band. */
+    .rg-admin-studio__post-tabs {
+        margin-bottom: var(--rg-admin-card-gap);
+    }
+
+    /* The Votes tab, laid out as the prototype's StudioPostVotes: the post's voters beside the Post votes card. */
+    .rg-admin-studio__votes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-studio__votes-layout {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-studio__votes-side {
+        flex: 1 1 330px;
+        min-width: min(100%, 300px);
+    }
+
+    .rg-admin-studio__votes-main {
+        display: flex;
+        flex-direction: column;
+        flex: 2.2 1 620px;
+        gap: var(--rg-admin-card-gap);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-author {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-2) 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+    }
+
+    .rg-admin-studio__votes-author-name {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-author-note {
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-random {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-random > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    /* Too few voters for what is asked: said exactly, nothing cut to fit. */
+    .rg-admin-studio__votes-warning {
+        display: flex;
+        gap: var(--rg-admin-space-2);
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+    }
+
+    .rg-admin-studio__votes-warning > svg {
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .rg-admin-studio__votes-warning-text.rg-admin-hint {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* The post's author, listed but never chosen. */
+    .rg-admin-studio__persona-option--disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    .rg-admin-studio__persona-option--disabled:hover {
+        background: transparent;
+    }
+
+    /* Up · down, Answers and Post voters, side by side on a sunken band. */
+    .rg-admin-studio__votes-stats {
+        display: flex;
+        flex-wrap: wrap;
+        overflow: hidden;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__votes-stat {
+        display: flex;
+        flex: 1 1 150px;
+        flex-direction: column;
+        min-width: 0;
+        margin-left: -1px;
+        padding: 10px 20px;
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__votes-stat-value {
+        font-size: 20px;
+        line-height: 28px;
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-stat-note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__votes-tabs {
+        padding: 0 20px;
+    }
+
+    .rg-admin-studio__votes-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) 20px;
+    }
+
+    .rg-admin-studio__votes-pad {
+        margin: 0;
+        padding: 0 20px var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__votes-body .rg-admin-studio__votes-pad {
+        padding: 0 14px 12px;
+    }
+
+    /* One target: the post's votes, or a rating question, in a bordered block. */
+    .rg-admin-studio__votes-block {
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-studio__votes-block--off {
+        opacity: 0.7;
+    }
+
+    .rg-admin-studio__votes-block-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 10px 14px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__votes-block-head--switch {
+        flex-wrap: nowrap;
+        align-items: flex-start;
+    }
+
+    .rg-admin-studio__votes-block-head--switch > .rg-admin-switch {
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+
+    .rg-admin-studio__votes-blocks {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-blocks > .rg-admin-studio__votes-block {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__votes-blocks > .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 0;
+        background: transparent;
+    }
+
+    /* First vote after, Spread over: the moments offered, the one chosen in ink. */
+    .rg-admin-studio__votes-chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__votes-chips-label {
+        flex-shrink: 0;
+        width: 110px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__votes-chip {
+        height: 26px;
+        padding: 0 9px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__votes-chip[aria-pressed="true"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__votes-chip:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .rg-admin-studio__votes-steppers {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__votes-score {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-bottom: 6px;
+        font-size: var(--rg-admin-text-caption);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-questions {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+        gap: var(--rg-admin-space-3);
+        align-items: start;
+    }
+
+    .rg-admin-studio__votes-answers {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2) 10px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__votes-answers > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    .rg-admin-studio__votes-options {
+        display: flex;
+        flex-direction: column;
+        padding: 4px 14px var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-option {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 40px auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+    }
+
+    .rg-admin-studio__votes-option-label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-option-name {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-option-name--lead {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-studio__votes-bar {
+        display: block;
+        height: 4px;
+        overflow: hidden;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-studio__votes-bar-fill {
+        display: block;
+        height: 100%;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-studio__votes-bar-fill--lead {
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-studio__votes-pct {
+        font-size: var(--rg-admin-text-caption);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-move {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .rg-admin-studio__votes-count {
+        min-width: 28px;
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* The Voters tab: search, filter, and every voter with its vote and answers. */
+    .rg-admin-studio__votes-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-3) 20px;
+    }
+
+    .rg-admin-studio__votes-search {
+        flex: 0 1 260px;
+        min-width: 180px;
+    }
+
+    .rg-admin-studio__votes-toolbar-count {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-studio__votes-table {
+        min-width: 560px;
+    }
+
+    .rg-admin-studio__votes-list {
+        max-height: 560px;
+        overflow: auto;
+    }
+
+    .rg-admin-studio__votes-idle {
+        opacity: 0.55;
+    }
+
+    .rg-admin-studio__votes-who {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-when {
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-way {
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-way--up {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-studio__votes-way--down {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-studio__votes-problem {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 2px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-studio__votes-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+        margin-left: auto;
+    }
+
     /* Step 3 · Discussion: the settings, Generate tree under them, and the discussion tree with its comment dialog */
     .rg-admin-studio__discussion {
         display: flex;

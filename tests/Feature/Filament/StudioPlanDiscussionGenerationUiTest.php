@@ -117,7 +117,8 @@ it('checks every persona shown at once, up to as many as take part — the butto
         ->call('selectShown')
         ->assertSet('manual', fn (array $ids) => collect($ids)->sort()->values()->all() === collect([$this->anna->id, $this->boris->id])->sort()->values()->all());
 
-    $editor->set('participantSearch', 'Anna')->assertSee('Select 1 shown')->call('clearParticipants')->assertSet('manual', []);
+    // By Anna's login: a name made up for Boris may well have "anna" in it.
+    $editor->set('participantSearch', $this->anna->username)->assertSee('Select 1 shown')->call('clearParticipants')->assertSet('manual', []);
 
     config(['content_studio.discussion_generation.max_personas' => 1]);
     $editor->set('participantSearch', '')->assertSee('Select first 1')->assertSee('up to 1 take part')

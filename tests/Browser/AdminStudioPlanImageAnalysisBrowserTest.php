@@ -100,7 +100,7 @@ it('makes the draft for the first photo on a new publication, and goes on with i
 
     // A title typed first, on the Post step.
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
     $page->script("(() => { const field = document.getElementById('rg-admin-studio-title'); field.value = 'Harbour at dawn'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
     $page->click('.rg-admin-studio__footer .rg-admin-button--secondary');
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 1 of 4 · Image');

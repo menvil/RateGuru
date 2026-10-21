@@ -6,7 +6,7 @@
     lands here, unsaved, and stays editable — the Persona it is published
     as, chosen from living Personas found on the server, and its source
     address; its category and tags; and the author's own answers to the
-    rating questions. Nothing here is a vote.
+    rating questions. Nothing here is a vote: the votes are the Votes tab's.
 --}}
 <div class="rg-admin-studio__post">
     <livewire:admin.studio-plan-text-suggestions-card

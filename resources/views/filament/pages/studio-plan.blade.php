@@ -2,8 +2,9 @@
     /*
      * One publication's editor (CreateStudioPlan, EditStudioPlan). The header
      * band with what the plan is, and its four steps — Image, Post,
-     * Discussion, Publication — which only change what is on screen. Under
-     * it the step on screen, and the footer kept at the foot of the window:
+     * Discussion, Publication — which only change what is on screen; the
+     * Post step has two tabs, Titles & texts and Votes. Under it the step on
+     * screen, and the footer kept at the foot of the window:
      * Back, where the editor is, and Continue, held back only while a photo
      * is on its way.
      *
@@ -40,7 +41,7 @@
 <div
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorChanged = String($wire.authorUserId ?? '') !== String($wire.saved?.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
@@ -112,9 +113,22 @@
 
         <fieldset class="rg-admin-studio__step-body" @disabled($readOnly) aria-labelledby="rg-admin-studio-step-title">
             <h2 id="rg-admin-studio-step-title" class="rg-admin-sr-only">Step {{ $stepNumber }} of 4: {{ $stepLabel }}</h2>
-            @unless ($step === 'discussion')
+            @if ($step === 'post')
+                <x-admin.ui.tabs label="Post" :active="$postTab" class="rg-admin-studio__post-tabs" :items="[
+                    ['id' => 'texts', 'label' => 'Titles & texts', 'attributes' => ['wire:click' => 'showPostTab(\'texts\')']],
+                    ['id' => 'votes', 'label' => 'Votes', 'attributes' => ['wire:click' => 'showPostTab(\'votes\')']],
+                ]" />
+                {{-- Kept while the votes are on screen, so nothing of the texts' own cards is drawn again. --}}
+                <div class="rg-admin-studio__post-texts" @if ($postTab !== 'texts') hidden @endif>
+                    @include('filament.pages.studio-plan.post')
+                </div>
+            @elseif ($step !== 'discussion')
                 @include('filament.pages.studio-plan.'.$step)
-            @endunless
+            @endif
+            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its preview live as long as the page. --}}
+            <div class="rg-admin-studio__votes-step" @if ($step !== 'post' || $postTab !== 'votes') hidden @endif>
+                @include('filament.pages.studio-plan.votes')
+            </div>
             {{-- Always drawn, hidden on the other steps: its settings, and a generation it waits for, live as long as the page. --}}
             <div class="rg-admin-studio__discussion-step" @if ($step !== 'discussion') hidden @endif>
                 @include('filament.pages.studio-plan.discussion')

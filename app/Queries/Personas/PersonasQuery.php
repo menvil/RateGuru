@@ -94,6 +94,22 @@ final class PersonasQuery implements RawSqlPersistenceBoundary, StablePagination
             ->get(['users.*']);
     }
 
+    /**
+     * The ids of every active Persona, ascending: what a plan's random post
+     * voters are drawn from, on the server. Never sent to a browser.
+     *
+     * @return list<int>
+     */
+    public function activeIds(): array
+    {
+        return $this->personas()
+            ->where('users.status', UserStatus::Active)
+            ->orderBy('users.id')
+            ->pluck('users.id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->all();
+    }
+
     /** How many active Personas there are: what a random team is picked among. */
     public function activeCount(): int
     {

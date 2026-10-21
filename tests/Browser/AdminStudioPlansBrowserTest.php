@@ -66,7 +66,8 @@ it('draws every step of the editor at every width without scrolling the page sid
 
     foreach (['Image', 'Post', 'Discussion', 'Publication'] as $index => $label) {
         $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][{$index}].click()");
-        waitForScript($page, "document.querySelector('.rg-admin-studio__position')?.textContent.trim()", 'Step '.($index + 1).' of 4 · '.$label);
+        // The Post step opens on its first tab.
+        waitForScript($page, "document.querySelector('.rg-admin-studio__position')?.textContent.trim()", 'Step '.($index + 1).' of 4 · '.$label.($label === 'Post' ? ' · Titles & texts' : ''));
 
         $steps[$label] = $page->script(<<<'JS'
             (() => ({
@@ -117,7 +118,7 @@ it('keeps what was typed across the four steps, counts it, puts it back on Disca
     expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
 
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
 
     $page->script("(() => { const field = document.getElementById('rg-admin-studio-title'); field.value = 'Harbour, renamed'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
     waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
@@ -202,7 +203,7 @@ it('keeps the footer at the foot of the window, and holds Continue back while a 
     waitForScript($page, "! document.querySelector('.rg-admin-studio__footer .rg-admin-button--primary').disabled && document.querySelector('.rg-admin-studio__reason [role=\"status\"]').offsetParent === null");
 
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
 
     // Scrolled to the end of the longer Post step, it is still at the foot.
     $page->script('window.scrollTo(0, document.body.scrollHeight)');
@@ -214,7 +215,7 @@ it('opens a menu over its trigger when the footer leaves too little room under i
     $this->seed(DefaultRatingConfigurationSeeder::class);
     $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit", 1280, 640);
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
 
     // Scrolls the trigger near the top bar or near the footer, opens its menu, and says where the menu went.
     $open = fn (string $menu, string $near): array => $page->script(<<<JS
