@@ -389,7 +389,16 @@ plan writes a `create_comment` for every comment and a `create_reply` for every 
 preflight finds the discussion publishable as it is, and the executor publishes each as a real comment or reply of its
 Persona, dated as planned, after what it depends on, once — its branch cancelled with a parent cancelled for good
 (`docs/architecture/studio-plans.md`, "Running a plan"). Nothing runs until the executor is switched on. The
-discussion's votes and the Publication screen are later stages.
+Publication screen is a later stage; the votes are Phase 6's.
+
+**Content Studio Phase 6 — Votes & ratings. Status: in progress.** Its first step is in code, on the server only: a
+Draft's prepared votes — on the post, on a comment or reply of its discussion, or for a rating option, each by a
+Persona at a moment kept as seconds after the post — stored a row per vote in `studio_plan_votes`, one per Persona and
+target whichever way it goes, each keeping its id through every edit. `SaveStudioVotesAction` saves them all at once
+under the plan's lock and version, held to one set of rules (`StudioVoteValidationRules`); a new date for the post and
+a save of the discussion are held to the votes too, and a plan with votes is not approved until they can be cast
+(`docs/architecture/studio-plans.md`, "The votes"). Nothing votes and nothing shows them yet. Still to come: the Post
+Votes step, the votes in the Discussion step, and the vote actions and their casting.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

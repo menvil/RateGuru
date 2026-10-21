@@ -43,6 +43,7 @@ enum StudioPlanApprovalProblem: string
     case DiscussionPersonaRestricted = 'discussion_persona_restricted';
     case DiscussionTimingInvalid = 'discussion_timing_invalid';
     case DiscussionDateOutOfRange = 'discussion_date_out_of_range';
+    case VotesNotPublishable = 'votes_not_publishable';
 
     public function rejection(): StudioPlanApprovalRejection
     {
@@ -57,6 +58,7 @@ enum StudioPlanApprovalProblem: string
             self::DiscussionTooLarge, self::DiscussionShapeInvalid, self::DiscussionTextInvalid,
             self::DiscussionPersonaDeleted, self::DiscussionPersonaNotPersona, self::DiscussionPersonaRestricted,
             self::DiscussionTimingInvalid, self::DiscussionDateOutOfRange => StudioPlanApprovalRejection::InvalidDiscussion,
+            self::VotesNotPublishable => StudioPlanApprovalRejection::UnsupportedVotes,
         };
     }
 
@@ -76,6 +78,7 @@ enum StudioPlanApprovalProblem: string
             self::DiscussionTooLarge, self::DiscussionShapeInvalid, self::DiscussionTextInvalid,
             self::DiscussionPersonaDeleted, self::DiscussionPersonaNotPersona, self::DiscussionPersonaRestricted,
             self::DiscussionTimingInvalid, self::DiscussionDateOutOfRange => 'discussion',
+            self::VotesNotPublishable => 'votes',
         };
     }
 
@@ -113,6 +116,7 @@ enum StudioPlanApprovalProblem: string
             self::DiscussionPersonaRestricted => 'A comment’s persona is limited, banned or shadowbanned and cannot comment. Choose another one.',
             self::DiscussionTimingInvalid => 'A comment comes before the post or more than 30 days after it, or a reply before the comment it answers. Fix its time.',
             self::DiscussionDateOutOfRange => 'A comment would come after 2038, past the latest date a post may carry. Bring it closer to the post.',
+            self::VotesNotPublishable => 'Prepared votes cannot be cast yet. Remove them to approve the post and its discussion without them.',
         };
     }
 }

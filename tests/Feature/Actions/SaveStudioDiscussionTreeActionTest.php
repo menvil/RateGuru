@@ -5,6 +5,7 @@ use App\Actions\Studio\SaveStudioDiscussionTreeAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioPlanData;
+use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
@@ -14,6 +15,7 @@ use App\Models\Post;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
@@ -50,18 +52,6 @@ function storedDiscussion(StudioPlan $plan): array
             'parent' => $node->parent?->body,
         ])
         ->all();
-}
-
-/** The save refused, and why. */
-function discussionRefusal(Closure $save): Throwable
-{
-    try {
-        $save();
-    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
-        return $refusal;
-    }
-
-    throw new RuntimeException('The save was not refused.');
 }
 
 it('saves an empty discussion, raising the version and writing nothing else', function () {
@@ -166,7 +156,7 @@ it('refuses a reply to a comment the same save deletes, leaving the discussion a
     ]);
     $before = storedDiscussion($this->plan);
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['id' => $saved->ids['a1'], 'parentId' => $saved->ids['a'], 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 120]),
     ]));
 
@@ -205,18 +195,6 @@ it('moves the whole discussion with a new date for the post, unchanged', functio
         ->and(storedDiscussion($this->plan))->toBe($before);
 });
 
-/** A new date for the plan's post, saved as the editor saves it, the rest of the draft as it is. */
-function moveStudioPost(User $admin, StudioPlan $plan, StudioPlanPublicationMode $mode, ?string $publishAt): void
-{
-    $fresh = StudioPlan::query()->findOrFail($plan->id);
-
-    app(UpdateStudioPlanAction::class)->handle($admin, $plan, new StudioPlanData(
-        title: $fresh->title,
-        publicationMode: $mode,
-        publishAt: $publishAt !== null ? CarbonImmutable::parse($publishAt) : null,
-    ), $fresh->lock_version);
-}
-
 it('moves a post with no discussion to any date it may carry, as ever', function () {
     moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:59:59');
 
@@ -247,7 +225,7 @@ it('refuses a date that would carry the discussion past the dates a post may car
     $plan = DB::table('studio_plans')->where('id', $this->plan->id)->first();
     $discussion = DB::table('studio_plan_discussion_nodes')->orderBy('id')->get();
 
-    $refusal = discussionRefusal(fn () => moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00'));
+    $refusal = studioRefusal(fn () => moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00'));
 
     expect($refusal)->toBeInstanceOf(ValidationException::class)
         ->and(array_keys($refusal->errors()))->toBe(['publishAt'])
@@ -258,7 +236,7 @@ it('refuses a date that would carry the discussion past the dates a post may car
     'switched from published at once' => [StudioPlanPublicationMode::Now],
 ]);
 
-it('reads the discussion\'s latest comment only once the plan is locked', function () {
+it('reads the discussion\'s latest comment and the latest vote only once the plan is locked', function () {
     saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60])]);
     $queries = [];
 
@@ -268,19 +246,19 @@ it('reads the discussion\'s latest comment only once the plan is locked', functi
         if (preg_match('/^select \\* from studio_plans where/', $sql) === 1 && str_contains($sql, 'limit 1')) {
             $queries[] = 'plan';
         } elseif (str_contains($sql, 'max(offset_seconds)')) {
-            $queries[] = 'discussion';
+            $queries[] = str_contains($sql, 'studio_plan_votes') ? 'votes' : 'discussion';
         }
     });
 
     moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2030-01-01 00:00:00');
 
-    expect(array_slice($queries, -2))->toBe(['plan', 'discussion']);
+    expect(array_slice($queries, -3))->toBe(['plan', 'discussion', 'votes']);
 });
 
 it('refuses a save drawn from a version somebody else replaced, writing nothing over theirs', function () {
     saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Theirs.'])]);
 
-    $refusal = discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData([
+    $refusal = studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData([
         discussionNode(['personaUserId' => $this->boris->id, 'body' => 'Mine.']),
     ]), 1));
 
@@ -293,7 +271,7 @@ it('refuses a save drawn from a version somebody else replaced, writing nothing 
 it('refuses a plan past its Draft: approved, running, completed or cancelled', function (StudioPlanStatus $status) {
     $this->plan->forceFill(['status' => $status])->save();
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Late.'])]));
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Late.'])]));
 
     expect($refusal->isNotDraft())->toBeTrue()
         ->and(StudioDiscussionNode::query()->exists())->toBeFalse()
@@ -303,14 +281,14 @@ it('refuses a plan past its Draft: approved, running, completed or cancelled', f
 it('is an active administrator\'s alone, asked before and again on the locked row', function () {
     $member = User::factory()->create();
 
-    expect(discussionRefusal(fn () => saveStudioDiscussion($member, $this->plan, []))->isNotAllowed())->toBeTrue();
+    expect(studioRefusal(fn () => saveStudioDiscussion($member, $this->plan, []))->isNotAllowed())->toBeTrue();
 
     // An administrator banned since the copy the caller holds was read: it
     // passes the first check, and the locked row refuses it.
     $this->admin->forceFill(['status' => UserStatus::Banned])->save();
     $stale = User::query()->findOrFail($this->admin->id)->forceFill(['status' => UserStatus::Active]);
 
-    expect(discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($stale, $this->plan, new StudioDiscussionData, 1))->isNotAllowed())->toBeTrue()
+    expect(studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($stale, $this->plan, new StudioDiscussionData, 1))->isNotAllowed())->toBeTrue()
         ->and($this->plan->fresh()->lock_version)->toBe(1);
 });
 
@@ -325,7 +303,7 @@ it('refuses a Persona deleted between the first check and the locked row, writin
         }
     });
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Lovely.'])]));
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Lovely.'])]));
 
     expect($tombstoned)->toBeTrue()
         ->and($refusal)->toBeInstanceOf(ValidationException::class)
@@ -347,7 +325,7 @@ it('never reaches another plan\'s comment: an id that is not this plan\'s refuse
     $theirs = StudioDiscussionNode::factory()->for($other, 'plan')->create(['body' => 'Theirs.']);
     $before = DB::table('studio_plan_discussion_nodes')->where('id', $theirs->id)->first();
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Mine.']),
         discussionNode(['id' => $theirs->id, 'personaUserId' => $this->anna->id, 'body' => 'Mine now.']),
     ]));
@@ -465,8 +443,8 @@ it('logs nothing of a save an enclosing transaction rolls back', function () {
 it('logs a refusal with its code and the fields that failed — never what they hold', function () {
     Log::spy();
 
-    discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => str_repeat('secret ', 200)])]));
-    discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData, 7));
+    studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => str_repeat('secret ', 200)])]));
+    studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData, 7));
 
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => $message === 'studio.discussion.rejected'
         && array_intersect_key($context, array_flip(['studio_plan_id', 'admin_id', 'code', 'fields']))
@@ -482,4 +460,105 @@ it('goes with its Draft when the Draft is deleted', function () {
     app(DeleteStudioPlanDraftAction::class)->handle($this->admin, $this->plan, $this->plan->fresh()->lock_version);
 
     expect(StudioDiscussionNode::query()->exists())->toBeFalse();
+});
+
+it('takes a deleted comment\'s votes with it, its replies\' too, and leaves every other vote', function () {
+    $author = User::factory()->persona()->create();
+    $this->plan->forceFill(['author_user_id' => $author->id])->save();
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'b', 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+    ]);
+    $id = $saved->ids;
+    [, [$option]] = votableRatingQuestion();
+    $votes = saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['key' => 'on-a', 'type' => 'vote_comment', 'personaUserId' => $author->id, 'voteType' => 'up', 'discussionNodeId' => $id['a'], 'offsetSeconds' => 60]),
+        studioVote(['key' => 'on-a1', 'type' => 'vote_comment', 'personaUserId' => $this->anna->id, 'voteType' => 'down', 'discussionNodeId' => $id['a1'], 'offsetSeconds' => 180]),
+        studioVote(['key' => 'on-b', 'type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $id['b'], 'offsetSeconds' => 90]),
+        studioVote(['key' => 'post', 'type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 30]),
+        studioVote(['key' => 'rating', 'type' => 'vote_rating', 'personaUserId' => $this->boris->id, 'ratingOptionId' => $option->id, 'offsetSeconds' => 30]),
+    ])->ids;
+
+    // Comment "One" left out, and its reply with it.
+    saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+    ]);
+
+    expect(StudioPlanVote::query()->orderBy('id')->pluck('id')->all())->toBe([$votes['on-b'], $votes['post'], $votes['rating']]);
+
+    // A reply left out on its own takes only its own votes.
+    $again = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'b1', 'parentId' => $id['b'], 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 120]),
+    ]);
+    $onReply = saveStudioVotes($this->admin, $this->plan, [
+        ...StudioVotesData::of($this->plan->fresh())->votes,
+        studioVote(['key' => 'on-b1', 'type' => 'vote_comment', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'discussionNodeId' => $again->ids['b1'], 'offsetSeconds' => 120]),
+    ])->ids['on-b1'];
+
+    saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+    ]);
+
+    expect(StudioPlanVote::query()->whereKey($onReply)->exists())->toBeFalse()
+        ->and(StudioPlanVote::query()->count())->toBe(3);
+});
+
+it('keeps a comment\'s votes through a new text, a new place and a move to another comment', function () {
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'b', 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'r', 'parentKey' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'Reply.', 'offsetSeconds' => 120]),
+    ]);
+    $id = $saved->ids;
+    $vote = saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['key' => 'v', 'type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $id['r'], 'offsetSeconds' => 300]),
+    ])->ids['v'];
+
+    saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $id['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['id' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+        discussionNode(['id' => $id['r'], 'parentId' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Reworded.', 'sortOrder' => 2, 'offsetSeconds' => 300]),
+    ]);
+
+    expect(StudioPlanVote::query()->findOrFail($vote))
+        ->discussion_node_id->toBe($id['r'])
+        ->offset_seconds->toBe(300);
+});
+
+it('refuses to move a comment past a vote on it, or to give it to a Persona voting on it, changing nothing', function (Closure $change, string $field) {
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+    ]);
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['a'], 'offsetSeconds' => 300]),
+    ]);
+    $discussion = DB::table('studio_plan_discussion_nodes')->orderBy('id')->get();
+    $votes = DB::table('studio_plan_votes')->orderBy('id')->get();
+
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $saved->ids['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60, ...$change($this)]),
+    ]));
+
+    expect($refusal)->toBeInstanceOf(ValidationException::class)
+        ->and(array_keys($refusal->errors()))->toBe([$field])
+        ->and(DB::table('studio_plan_discussion_nodes')->orderBy('id')->get())->toEqual($discussion)
+        ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes)
+        ->and($this->plan->fresh()->lock_version)->toBe(3);
+})->with([
+    'moved a second past its vote' => [fn ($test) => ['offsetSeconds' => 301], 'nodes.0.offsetSeconds'],
+    'given to the Persona voting on it' => [fn ($test) => ['personaUserId' => $test->boris->id], 'nodes.0.personaUserId'],
+]);
+
+it('moves a comment up to the moment of its earliest vote', function () {
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60])]);
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['a'], 'offsetSeconds' => 300]),
+    ]);
+
+    saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['id' => $saved->ids['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 300])]);
+
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->offset_seconds)->toBe(300)
+        ->and(StudioPlanVote::query()->sole()->offset_seconds)->toBe(300);
 });

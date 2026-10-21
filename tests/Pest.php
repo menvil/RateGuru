@@ -8,18 +8,26 @@ use App\Actions\Studio\RequestStudioDiscussionGenerationAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Studio\SaveStudioDiscussionTreeAction;
+use App\Actions\Studio\SaveStudioVotesAction;
+use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Data\Studio\SavedStudioDiscussion;
+use App\Data\Studio\SavedStudioVotes;
 use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
+use App\Data\Studio\StudioPlanData;
+use App\Data\Studio\StudioVoteData;
+use App\Data\Studio\StudioVotesData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
 use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
+use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
@@ -92,6 +100,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
@@ -13237,7 +13246,7 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, votes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13428,6 +13437,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // A draft's whole discussion saved; says the plan's version it left.
                 'discussion-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioDiscussionTreeAction::class)->handle(
                     $admin, $plan, new App\Data\Studio\StudioDiscussionData(array_map(fn (array $node) => new App\Data\Studio\StudioDiscussionNodeData(...$node), $job['nodes'])), $job['version'],
+                )->lockVersion."\n"),
+                // A draft's whole set of votes saved; says the plan's version it left.
+                'votes-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioVotesAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioVotesData(array_map(fn (array $vote) => new App\Data\Studio\StudioVoteData(...$vote), $job['votes'])), $job['version'],
                 )->lockVersion."\n"),
                 // A whole discussion asked for by the Personas named; says which generation it was given.
                 'discussion-request' => fwrite(STDOUT, 'generation '.app(App\Actions\Studio\RequestStudioDiscussionGenerationAction::class)->handle($admin, $plan, new App\Data\Studio\StudioDiscussionGenerationData(
@@ -13846,6 +13859,19 @@ function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): Save
     return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }
 
+/** A new date for the plan's post, saved as the editor saves it, the rest of the draft as it is. */
+function moveStudioPost(User $admin, StudioPlan $plan, StudioPlanPublicationMode $mode, ?string $publishAt): void
+{
+    $fresh = StudioPlan::query()->findOrFail($plan->id);
+
+    app(UpdateStudioPlanAction::class)->handle($admin, $plan, new StudioPlanData(
+        authorUserId: $fresh->author_user_id,
+        title: $fresh->title,
+        publicationMode: $mode,
+        publishAt: $publishAt !== null ? CarbonImmutable::parse($publishAt) : null,
+    ), $fresh->lock_version);
+}
+
 /**
  * Another administrator's save of the plan's discussion, from the version
  * the plan has now: every comment kept with its id, this one's text changed.
@@ -13863,6 +13889,56 @@ function rewordStudioComment(User $admin, StudioPlan $plan, int $nodeId, string 
         ),
         StudioDiscussionData::of(StudioPlan::query()->findOrFail($plan->id))->nodes,
     ));
+}
+
+/**
+ * A save of a Draft's discussion or votes refused, and why: the plan or the
+ * administrator (CannotManageStudioPlanException) or the fields
+ * (ValidationException). A save that goes through fails the test.
+ */
+function studioRefusal(Closure $save): Throwable
+{
+    try {
+        $save();
+    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
+        return $refusal;
+    }
+
+    throw new RuntimeException('The save was not refused.');
+}
+
+/**
+ * One prepared vote as an editor hands it in, its fields named as
+ * StudioVoteData's.
+ *
+ * @param  array<string, mixed>  $fields
+ */
+function studioVote(array $fields = []): StudioVoteData
+{
+    return new StudioVoteData(...$fields);
+}
+
+/**
+ * Saves every vote a plan prepares as an administrator who saw the plan just
+ * now would.
+ *
+ * @param  list<StudioVoteData>  $votes
+ */
+function saveStudioVotes(User $admin, StudioPlan $plan, array $votes): SavedStudioVotes
+{
+    return app(SaveStudioVotesAction::class)->handle($admin, $plan, new StudioVotesData($votes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * An active rating question with active options of its own, two unless said.
+ *
+ * @return array{0: RatingGroup, 1: list<RatingOption>}
+ */
+function votableRatingQuestion(int $options = 2): array
+{
+    $group = RatingGroup::factory()->create();
+
+    return [$group, RatingOption::factory()->count($options)->create(['rating_group_id' => $group->id])->sortBy('id')->values()->all()];
 }
 
 // =============================================================================

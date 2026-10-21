@@ -181,6 +181,19 @@ class StudioPlan extends Model
     }
 
     /**
+     * The votes it prepares for its post, its comments and its rating
+     * questions, in the order they are cast: by their moment, then their
+     * place, then id. Intentions only, until it is approved; deleted with the
+     * plan.
+     *
+     * @return HasMany<StudioPlanVote, $this>
+     */
+    public function votes(): HasMany
+    {
+        return $this->hasMany(StudioPlanVote::class)->orderBy('offset_seconds')->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
      * Every discussion generation it asked for — proposals written from its
      * post, photo, discussion and Personas as they were then, kept as history
      * whether or not one was taken into its discussion. Deleted with the plan.

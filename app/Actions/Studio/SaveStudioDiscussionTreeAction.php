@@ -12,6 +12,7 @@ use App\Models\StudioPlan;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Studio\StudioDiscussionValidationRules;
+use App\Support\Studio\StudioVoteValidationRules;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,8 +24,7 @@ use RuntimeException;
  * (docs/architecture/studio-plans.md, "The discussion"): every comment and
  * reply it is to have, written at once — added, changed and deleted together,
  * or not at all. Nothing is published: no comment, post, action or job comes
- * of it, and a plan with a discussion is not approved until discussions can
- * be published.
+ * of it — approving the plan is what has its comments written.
  *
  * A comment saved before keeps its id; a new one is given one, which the
  * result names against the key it came with, so a new reply may answer a new
@@ -41,7 +41,11 @@ use RuntimeException;
  * plans, the plan is still a Draft at the version the editor was drawn from,
  * so a save made before somebody else's is refused rather than written over
  * it, and the discussion still holds against the plan and the Personas as
- * they are now (validateAgainst()). The save raises the plan's version.
+ * they are now (validateAgainst()) and against the votes prepared on its
+ * comments (StudioVoteValidationRules::validateDiscussion()): a comment kept
+ * keeps its votes, so it is neither moved past one of them nor given to a
+ * Persona voting on it, and a comment deleted takes its votes with it. The
+ * save raises the plan's version.
  */
 final class SaveStudioDiscussionTreeAction
 {
@@ -49,6 +53,7 @@ final class SaveStudioDiscussionTreeAction
 
     public function __construct(
         private readonly StudioDiscussionValidationRules $rules,
+        private readonly StudioVoteValidationRules $voteRules,
         private readonly DomainLogger $logger,
     ) {}
 
@@ -79,6 +84,7 @@ final class SaveStudioDiscussionTreeAction
 
                 $locked = $this->currentDraft((int) $plan->getKey(), $expectedLockVersion);
                 $this->rules->validateAgainst($discussion, $locked, $users);
+                $this->voteRules->validateDiscussion($discussion, $locked);
 
                 [$ids, $removed] = $this->write($locked, $discussion);
 

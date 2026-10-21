@@ -15,6 +15,7 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Support\Facades\Validator;
@@ -48,7 +49,9 @@ use Illuminate\Validation\ValidationException;
  *   thirty days after it and within the dates a post may carry — and every
  *   Persona of it still one, not deleted, Active and able to comment, as each
  *   must be when its comment is written. A discussion written for an earlier
- *   title is an editor's warning, not a reason to refuse.
+ *   title is an editor's warning, not a reason to refuse;
+ * - no prepared votes, for now: nothing casts one yet, so a plan that
+ *   prepares any is not approved rather than published without them.
  */
 final class StudioPlanApprovalPreflight
 {
@@ -72,6 +75,7 @@ final class StudioPlanApprovalPreflight
             ...$this->taxonomyProblems($plan, $failed),
             ...$this->dateProblems($plan, $failed),
             ...$this->discussionProblems($plan),
+            ...$this->voteProblems($plan),
         ];
     }
 
@@ -282,6 +286,22 @@ final class StudioPlanApprovalPreflight
             StudioPlanApprovalProblem::cases(),
             fn (StudioPlanApprovalProblem $problem): bool => in_array($problem, $problems, true),
         ));
+    }
+
+    /**
+     * Nothing casts a prepared vote yet: approval writes a plan's post, its
+     * comments and its replies, and no vote. A plan that prepares one is not
+     * approved, rather than published without it — until the stage that
+     * casts votes replaces this with the votes' own checks
+     * (StudioVoteValidationRules::readinessErrors()).
+     *
+     * @return list<StudioPlanApprovalProblem>
+     */
+    private function voteProblems(StudioPlan $plan): array
+    {
+        return StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->exists()
+            ? [StudioPlanApprovalProblem::VotesNotPublishable]
+            : [];
     }
 
     /** @param  array<string, array<string, mixed>>  $failed */
