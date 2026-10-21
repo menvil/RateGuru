@@ -5492,7 +5492,7 @@
         color: var(--rg-admin-text-inverse);
     }
 
-    [aria-checked="true"] > .rg-admin-studio__check {
+    .rg-admin-studio__persona-option[aria-checked="true"] > .rg-admin-studio__check {
         border-color: var(--rg-admin-surface-inverse);
         background: var(--rg-admin-surface-inverse);
     }
