@@ -62,18 +62,6 @@ function storedStudioVotes(StudioPlan $plan): array
         ->all();
 }
 
-/** The save refused, and why. */
-function votesRefusal(Closure $save): Throwable
-{
-    try {
-        $save();
-    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
-        return $refusal;
-    }
-
-    throw new RuntimeException('The save was not refused.');
-}
-
 /** The plan's votes as stored, each with every field the editor would hand back. */
 function editedStudioVotes(StudioPlan $plan, Closure $edit): array
 {
@@ -184,7 +172,7 @@ it('refuses votes the rules refuse, writing nothing and keeping the version', fu
     saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
     $before = DB::table('studio_plan_votes')->orderBy('id')->get();
 
-    $refusal = votesRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [
         studioVote(['type' => 'vote_post', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
         studioVote(['type' => 'vote_post', 'personaUserId' => $this->author->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
     ]));
@@ -199,7 +187,7 @@ it('never reaches another plan\'s vote: an id that is not this plan\'s refuses t
     $theirs = StudioPlanVote::factory()->create(['persona_user_id' => $this->anna->id]);
     $before = DB::table('studio_plan_votes')->where('id', $theirs->id)->first();
 
-    $refusal = votesRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [
         studioVote(['type' => 'vote_post', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
         studioVote(['id' => $theirs->id, 'type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'down', 'offsetSeconds' => 60]),
     ]));
@@ -213,7 +201,7 @@ it('never reaches another plan\'s vote: an id that is not this plan\'s refuses t
 it('refuses a save drawn from a version somebody else replaced, writing nothing over theirs', function () {
     saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
 
-    $refusal = votesRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $this->plan, new StudioVotesData([
+    $refusal = studioRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $this->plan, new StudioVotesData([
         studioVote(['type' => 'vote_post', 'personaUserId' => $this->boris->id, 'voteType' => 'down', 'offsetSeconds' => 60]),
     ]), 1));
 
@@ -226,7 +214,7 @@ it('refuses a save drawn from a version somebody else replaced, writing nothing 
 it('refuses a plan past its Draft: approved, running, completed or cancelled', function (StudioPlanStatus $status) {
     $this->plan->forceFill(['status' => $status])->save();
 
-    $refusal = votesRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]));
+    $refusal = studioRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]));
 
     expect($refusal->isNotDraft())->toBeTrue()
         ->and(StudioPlanVote::query()->exists())->toBeFalse()
@@ -237,21 +225,21 @@ it('refuses a plan deleted meanwhile', function () {
     $stale = StudioPlan::query()->findOrFail($this->plan->id);
     app(DeleteStudioPlanDraftAction::class)->handle($this->admin, $this->plan, 1);
 
-    expect(votesRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $stale, new StudioVotesData, 1))->isGone())->toBeTrue();
+    expect(studioRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $stale, new StudioVotesData, 1))->isGone())->toBeTrue();
 });
 
 it('is an active administrator\'s alone, asked before and again on the locked row', function () {
     $member = User::factory()->create();
 
-    expect(votesRefusal(fn () => saveStudioVotes($member, $this->plan, []))->isNotAllowed())->toBeTrue()
-        ->and(votesRefusal(fn () => saveStudioVotes($this->anna, $this->plan, []))->isNotAllowed())->toBeTrue();
+    expect(studioRefusal(fn () => saveStudioVotes($member, $this->plan, []))->isNotAllowed())->toBeTrue()
+        ->and(studioRefusal(fn () => saveStudioVotes($this->anna, $this->plan, []))->isNotAllowed())->toBeTrue();
 
     // An administrator banned since the copy the caller holds was read: it
     // passes the first check, and the locked row refuses it.
     $this->admin->forceFill(['status' => UserStatus::Banned])->save();
     $stale = User::query()->findOrFail($this->admin->id)->forceFill(['status' => UserStatus::Active]);
 
-    expect(votesRefusal(fn () => app(SaveStudioVotesAction::class)->handle($stale, $this->plan, new StudioVotesData, 1))->isNotAllowed())->toBeTrue()
+    expect(studioRefusal(fn () => app(SaveStudioVotesAction::class)->handle($stale, $this->plan, new StudioVotesData, 1))->isNotAllowed())->toBeTrue()
         ->and($this->plan->fresh()->lock_version)->toBe(1);
 });
 
@@ -266,7 +254,7 @@ it('refuses a Persona deleted before the save takes its row, writing nothing', f
         }
     });
 
-    $refusal = votesRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]));
+    $refusal = studioRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'up', 'offsetSeconds' => 60])]));
 
     expect($tombstoned)->toBeTrue()
         ->and($refusal->errors())->toBe(['votes.0.personaUserId' => ['Choose a persona who is not deleted.']])
@@ -414,8 +402,8 @@ it('logs nothing of a save an enclosing transaction rolls back', function () {
 it('logs a refusal with its code and the fields that failed', function () {
     Log::spy();
 
-    votesRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'sideways', 'offsetSeconds' => 60])]));
-    votesRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $this->plan, new StudioVotesData, 7));
+    studioRefusal(fn () => saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->anna->id, 'voteType' => 'sideways', 'offsetSeconds' => 60])]));
+    studioRefusal(fn () => app(SaveStudioVotesAction::class)->handle($this->admin, $this->plan, new StudioVotesData, 7));
 
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => $message === 'studio.votes.rejected'
         && array_intersect_key($context, array_flip(['studio_plan_id', 'admin_id', 'code', 'fields']))

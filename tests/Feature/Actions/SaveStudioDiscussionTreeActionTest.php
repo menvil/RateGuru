@@ -54,18 +54,6 @@ function storedDiscussion(StudioPlan $plan): array
         ->all();
 }
 
-/** The save refused, and why. */
-function discussionRefusal(Closure $save): Throwable
-{
-    try {
-        $save();
-    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
-        return $refusal;
-    }
-
-    throw new RuntimeException('The save was not refused.');
-}
-
 it('saves an empty discussion, raising the version and writing nothing else', function () {
     $saved = saveStudioDiscussion($this->admin, $this->plan, []);
 
@@ -168,7 +156,7 @@ it('refuses a reply to a comment the same save deletes, leaving the discussion a
     ]);
     $before = storedDiscussion($this->plan);
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['id' => $saved->ids['a1'], 'parentId' => $saved->ids['a'], 'personaUserId' => $this->boris->id, 'body' => 'Reply.', 'offsetSeconds' => 120]),
     ]));
 
@@ -237,7 +225,7 @@ it('refuses a date that would carry the discussion past the dates a post may car
     $plan = DB::table('studio_plans')->where('id', $this->plan->id)->first();
     $discussion = DB::table('studio_plan_discussion_nodes')->orderBy('id')->get();
 
-    $refusal = discussionRefusal(fn () => moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00'));
+    $refusal = studioRefusal(fn () => moveStudioPost($this->admin, $this->plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00'));
 
     expect($refusal)->toBeInstanceOf(ValidationException::class)
         ->and(array_keys($refusal->errors()))->toBe(['publishAt'])
@@ -270,7 +258,7 @@ it('reads the discussion\'s latest comment and the latest vote only once the pla
 it('refuses a save drawn from a version somebody else replaced, writing nothing over theirs', function () {
     saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Theirs.'])]);
 
-    $refusal = discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData([
+    $refusal = studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData([
         discussionNode(['personaUserId' => $this->boris->id, 'body' => 'Mine.']),
     ]), 1));
 
@@ -283,7 +271,7 @@ it('refuses a save drawn from a version somebody else replaced, writing nothing 
 it('refuses a plan past its Draft: approved, running, completed or cancelled', function (StudioPlanStatus $status) {
     $this->plan->forceFill(['status' => $status])->save();
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Late.'])]));
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Late.'])]));
 
     expect($refusal->isNotDraft())->toBeTrue()
         ->and(StudioDiscussionNode::query()->exists())->toBeFalse()
@@ -293,14 +281,14 @@ it('refuses a plan past its Draft: approved, running, completed or cancelled', f
 it('is an active administrator\'s alone, asked before and again on the locked row', function () {
     $member = User::factory()->create();
 
-    expect(discussionRefusal(fn () => saveStudioDiscussion($member, $this->plan, []))->isNotAllowed())->toBeTrue();
+    expect(studioRefusal(fn () => saveStudioDiscussion($member, $this->plan, []))->isNotAllowed())->toBeTrue();
 
     // An administrator banned since the copy the caller holds was read: it
     // passes the first check, and the locked row refuses it.
     $this->admin->forceFill(['status' => UserStatus::Banned])->save();
     $stale = User::query()->findOrFail($this->admin->id)->forceFill(['status' => UserStatus::Active]);
 
-    expect(discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($stale, $this->plan, new StudioDiscussionData, 1))->isNotAllowed())->toBeTrue()
+    expect(studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($stale, $this->plan, new StudioDiscussionData, 1))->isNotAllowed())->toBeTrue()
         ->and($this->plan->fresh()->lock_version)->toBe(1);
 });
 
@@ -315,7 +303,7 @@ it('refuses a Persona deleted between the first check and the locked row, writin
         }
     });
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Lovely.'])]));
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Lovely.'])]));
 
     expect($tombstoned)->toBeTrue()
         ->and($refusal)->toBeInstanceOf(ValidationException::class)
@@ -337,7 +325,7 @@ it('never reaches another plan\'s comment: an id that is not this plan\'s refuse
     $theirs = StudioDiscussionNode::factory()->for($other, 'plan')->create(['body' => 'Theirs.']);
     $before = DB::table('studio_plan_discussion_nodes')->where('id', $theirs->id)->first();
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['personaUserId' => $this->anna->id, 'body' => 'Mine.']),
         discussionNode(['id' => $theirs->id, 'personaUserId' => $this->anna->id, 'body' => 'Mine now.']),
     ]));
@@ -455,8 +443,8 @@ it('logs nothing of a save an enclosing transaction rolls back', function () {
 it('logs a refusal with its code and the fields that failed — never what they hold', function () {
     Log::spy();
 
-    discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => str_repeat('secret ', 200)])]));
-    discussionRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData, 7));
+    studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['personaUserId' => $this->anna->id, 'body' => str_repeat('secret ', 200)])]));
+    studioRefusal(fn () => app(SaveStudioDiscussionTreeAction::class)->handle($this->admin, $this->plan, new StudioDiscussionData, 7));
 
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => $message === 'studio.discussion.rejected'
         && array_intersect_key($context, array_flip(['studio_plan_id', 'admin_id', 'code', 'fields']))
@@ -549,7 +537,7 @@ it('refuses to move a comment past a vote on it, or to give it to a Persona voti
     $discussion = DB::table('studio_plan_discussion_nodes')->orderBy('id')->get();
     $votes = DB::table('studio_plan_votes')->orderBy('id')->get();
 
-    $refusal = discussionRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
+    $refusal = studioRefusal(fn () => saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['id' => $saved->ids['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60, ...$change($this)]),
     ]));
 

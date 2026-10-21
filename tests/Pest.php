@@ -27,6 +27,7 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
@@ -99,6 +100,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
@@ -13887,6 +13889,22 @@ function rewordStudioComment(User $admin, StudioPlan $plan, int $nodeId, string 
         ),
         StudioDiscussionData::of(StudioPlan::query()->findOrFail($plan->id))->nodes,
     ));
+}
+
+/**
+ * A save of a Draft's discussion or votes refused, and why: the plan or the
+ * administrator (CannotManageStudioPlanException) or the fields
+ * (ValidationException). A save that goes through fails the test.
+ */
+function studioRefusal(Closure $save): Throwable
+{
+    try {
+        $save();
+    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
+        return $refusal;
+    }
+
+    throw new RuntimeException('The save was not refused.');
 }
 
 /**
