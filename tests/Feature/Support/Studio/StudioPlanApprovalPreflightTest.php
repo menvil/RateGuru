@@ -14,6 +14,7 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\Tag;
 use App\Models\User;
 use App\Support\Studio\StudioPlanApprovalPreflight;
@@ -181,6 +182,31 @@ it('wants a discussion the executor can publish: the discussion\'s own rules, an
     }, ['discussion_text_invalid', 'discussion_persona_restricted']],
 ]);
 
+it('stops a plan that prepares votes of any kind, for nothing casts them yet', function (Closure $vote) {
+    [$plan, $saved] = approvableStudioPlanWithDiscussion();
+    $vote($plan, $saved->ids['c1']);
+
+    expect(approvalProblemsOf($plan))->toBe(['votes_not_publishable'])
+        ->and(StudioPlanApprovalProblem::VotesNotPublishable->field())->toBe('votes')
+        ->and(StudioPlanApprovalProblem::VotesNotPublishable->rejection())->toBe(StudioPlanApprovalRejection::UnsupportedVotes);
+})->with([
+    'a vote on the post' => [fn (StudioPlan $plan) => StudioPlanVote::factory()->for($plan, 'plan')->create()],
+    'a vote on a comment' => [fn (StudioPlan $plan, int $comment) => StudioPlanVote::factory()->onComment(StudioDiscussionNode::query()->findOrFail($comment))->create()],
+    'a rating vote' => [fn (StudioPlan $plan) => StudioPlanVote::factory()->forRating(activeRatingQuestion()->options->first())->for($plan, 'plan')->create()],
+]);
+
+it('finds nothing to stop a plan whose votes were all taken away', function () {
+    $plan = approvableStudioPlan();
+    $admin = User::factory()->admin()->create();
+    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => User::factory()->persona()->create()->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+
+    expect(approvalProblemsOf($plan))->toBe(['votes_not_publishable']);
+
+    saveStudioVotes($admin, $plan, []);
+
+    expect(approvalProblemsOf($plan))->toBe([]);
+});
+
 it('wants a category, when there is one, that is active', function () {
     $plan = approvableStudioPlan(['category_id' => Category::factory()->inactive()->create()->id]);
 
@@ -284,6 +310,7 @@ it('only reads: nothing is written, queued, sent or called', function () {
     Http::preventStrayRequests();
     $plan = approvableStudioPlan(['title' => null, 'tag_ids' => [2_000_000_000]]);
     StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
+    StudioPlanVote::factory()->for($plan, 'plan')->create();
     $writes = [];
 
     DB::listen(function (QueryExecuted $query) use (&$writes): void {
@@ -292,9 +319,8 @@ it('only reads: nothing is written, queued, sent or called', function () {
         }
     });
 
-    app(StudioPlanApprovalPreflight::class)->problems($plan);
-
-    expect($writes)->toBe([]);
+    expect(array_map(fn (StudioPlanApprovalProblem $problem): string => $problem->value, app(StudioPlanApprovalPreflight::class)->problems($plan)))->toContain('votes_not_publishable')
+        ->and($writes)->toBe([]);
     Queue::assertNothingPushed();
     Bus::assertNothingDispatched();
     Http::assertNothingSent();

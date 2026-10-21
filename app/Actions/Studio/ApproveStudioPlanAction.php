@@ -44,8 +44,9 @@ use RuntimeException;
  * again: the administrator may still manage plans, the plan is still a Draft
  * at the version the administrator saw, and the approval preflight finds
  * nothing to stop it (StudioPlanApprovalPreflight) — every Persona of the
- * discussion still able to comment included. A plan approved already is no
- * Draft, so a second approval writes no second action.
+ * discussion still able to comment included, and no prepared vote, which
+ * nothing casts yet. A plan approved already is no Draft, so a second
+ * approval writes no second action.
  *
  * The moment of approval is read once. Published at once, the post happens
  * then (`occurs_at`) and may run from then (`run_after`). On a date, the post

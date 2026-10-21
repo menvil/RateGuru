@@ -364,6 +364,37 @@ it('refuses a discussion naming another Persona once the plan is locked than whe
         ->and(StudioAction::query()->exists())->toBeFalse();
 });
 
+it('approves no plan with prepared votes, nor any part of it, however often it is asked — until the votes are taken away', function () {
+    [$plan, $saved] = approvableStudioPlanWithDiscussion();
+    $voter = User::factory()->persona()->create();
+    [, [$option]] = votableRatingQuestion();
+    saveStudioVotes($this->admin, $plan, [
+        studioVote(['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $voter->id, 'voteType' => 'down', 'discussionNodeId' => $saved->ids['c2'], 'offsetSeconds' => 900]),
+        studioVote(['type' => 'vote_rating', 'personaUserId' => $voter->id, 'ratingOptionId' => $option->id, 'offsetSeconds' => 60]),
+    ]);
+    $before = DB::table('studio_plans')->where('id', $plan->id)->first();
+    $votes = DB::table('studio_plan_votes')->orderBy('id')->get();
+
+    foreach ([1, 2] as $attempt) {
+        $refusal = approvalRefusal(fn () => approveStudioPlan($this->admin, $plan));
+
+        expect($refusal->rejection)->toBe(StudioPlanApprovalRejection::UnsupportedVotes)
+            ->and($refusal->problems)->toBe([StudioPlanApprovalProblem::VotesNotPublishable])
+            ->and(DB::table('studio_plans')->where('id', $plan->id)->first())->toEqual($before)
+            ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes)
+            ->and(StudioAction::query()->exists())->toBeFalse();
+    }
+
+    saveStudioVotes($this->admin, $plan, []);
+    approveStudioPlan($this->admin, $plan);
+
+    // The post and its whole discussion, and no vote.
+    expect(StudioAction::query()->where('studio_plan_id', $plan->id)->count())->toBe(7)
+        ->and(StudioAction::query()->whereIn('type', [StudioActionType::VotePost, StudioActionType::VoteComment, StudioActionType::VoteRating])->exists())->toBeFalse()
+        ->and($plan->fresh()->status)->toBe(StudioPlanStatus::Approved);
+});
+
 it('locks the administrator, the author and every Persona of the discussion in ascending id order, then the plan', function () {
     [$plan] = approvableStudioPlanWithDiscussion();
     $locked = [];

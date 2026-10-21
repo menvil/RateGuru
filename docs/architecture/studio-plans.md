@@ -27,8 +27,8 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 The photo's analysis and the text suggestions written from it are kept beside
 the plan, each in a table of its own (see "Photo analysis" and "Post text
 suggestions" below), never in a column of the plan, and so are the discussion
-it prepares (see "The discussion" below) and the actions approval writes (see
-"Approval" below). The post a plan becomes is its
+it prepares (see "The discussion" below), the votes it prepares (see "The
+votes" below) and the actions approval writes (see "Approval" below). The post a plan becomes is its
 `create_post` action's result (`result_type`, `result_id`), not a column of the
 plan.
 
@@ -71,11 +71,12 @@ write goes through one of the actions in `app/Actions/Studio` and nothing else:
 | Action | Does |
 | --- | --- |
 | `CreateStudioPlanAction` | a new Draft at version 1, its creator the administrator |
-| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo, and no date its discussion would run past (see "The discussion") |
+| `UpdateStudioPlanAction` | replaces what `StudioPlanData` holds; never the photo, and no date its discussion or votes would run past (see "The discussion" and "The votes") |
 | `SetStudioPlanImageAction` | uploads or replaces the photo |
 | `RemoveStudioPlanImageAction` | takes the photo off |
-| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion with it |
+| `DeleteStudioPlanDraftAction` | deletes the Draft's row outright, its discussion and votes with it |
 | `SaveStudioDiscussionTreeAction` | saves the Draft's whole discussion (see "The discussion") |
+| `SaveStudioVotesAction` | saves every vote the Draft prepares (see "The votes") |
 | `RequestStudioDiscussionGenerationAction` | asks for a discussion, or a part of it, to be written (see "Discussion generation") |
 | `ApplyStudioDiscussionGenerationAction` | takes a generation's proposal into the Draft's discussion |
 | `ApproveStudioPlanAction` | approves a complete Draft and writes the action that will publish it |
@@ -126,6 +127,7 @@ the bounds and whether what the plan names exists; on top of them:
 | author's answers | answers among the active options of the active rating questions as `RatingConfigurationManager` has them now, one per question | `answer_missing`, `answer_inactive`, `answer_group_repeated` |
 | date | for `at_date`, a date from 1970 to 2038 — past or future alike; `now` needs none | `publish_at_missing`, `publish_at_out_of_range` |
 | discussion | none, or one the executor can publish as it is: the discussion's own rules (`StudioDiscussionValidationRules::validated()`) — at most 40 comments, two levels, every reply under a comment of this plan and no earlier than it, texts of a comment's length, moments from the post to 30 days after it — every comment within the dates a post may carry (`fitsPostDates()`), and every Persona of it a Persona, not deleted, `Active` and able to comment (`canComment()`). A discussion written for an earlier title is an editor's warning, never a refusal | `discussion_too_large`, `discussion_shape_invalid`, `discussion_text_invalid`, `discussion_timing_invalid`, `discussion_date_out_of_range`, `discussion_persona_deleted`, `discussion_persona_not_persona`, `discussion_persona_restricted` |
+| votes | none, for now: nothing casts a prepared vote yet, so a plan that prepares any is refused rather than published without them. The votes' own checks (`StudioVoteValidationRules::readinessErrors()`) take this one's place once votes can be cast | `votes_not_publishable` |
 
 ### Approving
 
@@ -147,8 +149,8 @@ written or none of it is.
 A refusal writes nothing and throws `CannotApproveStudioPlanException` with one
 `StudioPlanApprovalRejection` — `access_denied`, `plan_gone`, `not_draft`,
 `stale_version`, or, from the preflight, `author_unavailable`, `incomplete_plan`,
-`invalid_media`, `invalid_taxonomy`, `invalid_publication_date` or
-`invalid_discussion` — and the
+`invalid_media`, `invalid_taxonomy`, `invalid_publication_date`,
+`invalid_discussion` or `unsupported_votes` — and the
 preflight's problems. An approved plan is no Draft, so a second approval, by
 anyone, is `not_draft` and writes no second action. Two administrators
 approving one Draft at once take turns on the Persona's row and then the
@@ -184,7 +186,9 @@ Each is its comment's Persona's, `pending`, untried, its payload what it
 publishes as the plan held it when approved: `discussion_node_id` — the
 prepared comment it publishes, which a later stage names it by — and the
 trimmed `body`; nothing a screen sent. The votes (`vote_post`, `vote_comment`,
-`vote_rating`) are the queue's format; nothing writes them yet. The other states are the
+`vote_rating`) are the queue's format, and the kinds of vote a Draft may
+prepare (see "The votes"), but nothing writes their actions yet: a plan that
+prepares a vote is not approved. The other states are the
 executor's (see "Running a plan" below). The row is deleted with its plan, and
 only a Draft, which has none, is deleted.
 
@@ -314,7 +318,8 @@ comment saved before and left out is deleted, and its replies with it — logged
 as `studio.discussion.deleted_branch`; a reply left out takes nothing else
 with it. A reply that names a comment the same save leaves out refuses the save
 rather than being left dangling. Nothing outside the discussion is touched: no
-comment, post or action is deleted.
+comment, post or action is deleted — only the votes prepared on the comments
+the save deletes, which go with them (see "The votes").
 
 The rules (`StudioDiscussionValidationRules`) are one set for whoever writes
 the discussion — an administrator by hand now, the AI generator later — keyed
@@ -334,7 +339,12 @@ administrator's and every named Persona's `users` rows in ascending id order,
 then the plan (`LocksStudioPlanDraft`) — never a user after the plan — and asks
 everything again on them: the administrator may still manage plans, the plan is
 still a Draft at the version the editor was drawn from, and
-`validateAgainst()` passes. A save drawn from a version somebody else replaced
+`validateAgainst()` passes — and so does
+`StudioVoteValidationRules::validateDiscussion()`: a comment kept keeps the
+votes prepared on it, so it is neither moved later than one of them
+(`nodes.*.offsetSeconds`) nor given to a Persona voting on it
+(`nodes.*.personaUserId`); the change is refused, never the votes moved or
+taken away. A save drawn from a version somebody else replaced
 is refused, `isStale()`, rather than written over theirs; a plan past its Draft
 is `isNotDraft()`. The comments on the post are written first, then the
 replies, then the deletions; a write a model event cancels fails the whole save
@@ -461,8 +471,188 @@ anything of a Persona.
 
 ### Still to come
 
-The discussion's votes and voters, and the Publication screen, are later
-stages; the executor publishes the comments and replies themselves.
+The Publication screen is a later stage; the executor publishes the comments
+and replies themselves. The votes on them are prepared apart (see "The
+votes").
+
+## The votes
+
+A Draft may prepare the votes its post is to get — on the post, on the comments
+of its prepared discussion, and for its rating questions — each to be cast
+later by a Persona at a moment of its own, through the very vote a member casts
+(`VotePostAction`, `VoteCommentAction`, `VoteRatingOptionAction`), never a vote
+of a kind of its own. A prepared vote is an intention only: saving it makes no
+`post_votes`, `comment_votes` or `rating_votes` row, no action and no job,
+calls no paid service and changes nothing on screen. Nothing casts one yet, and
+no screen shows them yet.
+
+### What a vote holds
+
+Each vote is a row of `studio_plan_votes` (`StudioPlanVote`,
+`StudioPlan::votes()`): one Persona's intention to vote on one target one way.
+It holds no `post_id` or `comment_id` — in a Draft neither exists:
+
+| Column | Contract |
+| --- | --- |
+| `studio_plan_id` | the plan; cascades — the votes go with their Draft |
+| `persona_user_id` | the Persona who is to vote; restricted — accounts become tombstones, never deleted, so a vote is never given to another Persona |
+| `type` | `vote_post`, `vote_comment` or `vote_rating` — the three votes of `StudioActionType` |
+| `vote_type` | `up` or `down` (`VoteType`) on the post or a comment; none for a rating question |
+| `discussion_node_id` | the prepared comment or reply a `vote_comment` is on, of the same plan — `(discussion_node_id, studio_plan_id)` references the comment's `(id, studio_plan_id)`, so not even the database lets it reach another plan's comment; cascades — the vote goes with its comment |
+| `rating_group_id`, `rating_option_id` | the rating question and the option a `vote_rating` chooses, as ids only — see "Deletions" below |
+| `target_key` | what it is a vote on: `post`, `comment:{discussion_node_id}` or `rating:{rating_group_id}` |
+| `offset_seconds` | how long after the post it is cast: 0 to 30 days |
+| `sort_order` | its place among votes of one moment, 0 to 65,535; places may be equal, the id then keeping the order |
+
+The database holds each kind to its own fields on every engine — a `CHECK`
+with the table, an `enum` for each closed set: a vote on the post names no
+comment and no option and is keyed `post`; a vote on a comment names its
+comment and no option and is keyed `comment:…`; a rating vote names its
+question and option, goes neither up nor down, and is keyed `rating:…` — and
+the moment and the place to their bounds. SQLite takes a `CHECK` only with its
+table, so there the migration writes the table whole. Indexes serve a plan's
+votes in the order they are cast (`studio_plan_id`, `offset_seconds`,
+`sort_order`, `id`), a comment's votes and a Persona's prepared votes. Nothing
+is mass assignable: rows are written only by `SaveStudioVotesAction`.
+
+### Three kinds
+
+| Kind | Needs | Never |
+| --- | --- | --- |
+| `vote_post` | a Persona, `up` or `down`, a moment | the post's own author (`StudioPlan.author_user_id`) |
+| `vote_comment` | a Persona, `up` or `down`, a comment or reply of this plan's discussion, a moment no earlier than the comment's | the comment's own Persona |
+| `vote_rating` | a Persona, an option, a moment; the question is the option's own | the post's own author; an option of another question than the one named; a second option of one question |
+
+A field of another kind is refused, never ignored. Which real comment a
+`vote_comment` is on is the result of that comment's `create_comment` or
+`create_reply` once the plan runs; nothing in a Draft names it.
+
+### One vote per target
+
+A Persona votes on each target once, whichever way: up and down on one target
+are not two votes. `target_key` names the target alone — never the direction or
+the option — and `(studio_plan_id, persona_user_id, target_key)` is unique, an
+index whose columns are never null, so it holds alike on PostgreSQL, SQLite and
+MariaDB. The key is never a caller's: `StudioPlanVote` computes it from the
+target every time a row is saved (`targetKeyFor()`), whatever was set.
+
+### Times
+
+A vote's moment is kept relative to the post, as a comment's is, so a new date
+for the post moves every vote with it, unchanged. No vote comes before the
+post, nor later than 30 days after it, and no vote on a comment before the
+comment. On a plan with a date, no vote may fall past the latest date a post
+may carry, whichever changes: a save of the votes is held to the plan's date,
+and a save of the plan (`UpdateStudioPlanAction`) to its saved votes
+(`StudioVoteValidationRules::validatePlanDate()`, on the locked plan, through
+`StudioDiscussionValidationRules::fitsPostDates()`), refused on `publishAt`
+with nothing changed. A comment moved later than a vote on it is refused by
+the discussion's save (see "Saving" under "The discussion"). Nothing is ever
+moved to make it fit.
+
+### Deletions
+
+- **The Draft** — its votes go with it.
+- **A comment** — a comment deleted from the discussion takes the votes on it
+  with it, and a comment with replies takes the votes on its replies too; the
+  votes on other comments, on the post and for the rating questions stay. That
+  is the discussion's own save, an operation on the Draft itself.
+- **A rating option or question** — the rating configuration stays its own to
+  change: the ids carry no foreign key, so archiving, deactivating or deleting
+  an option is never refused or changed by a prepared vote, and the vote is
+  never moved to another option. It keeps naming the option it chose, to be
+  found by the checks before it is cast.
+- **A Persona** — accounts are never deleted, only made tombstones; a Limited,
+  Shadowbanned, Banned or deleted Persona keeps its votes, never given to
+  another Persona. Whether it can still vote is asked before its votes are
+  cast.
+- **The post's author** — a new author leaves the votes as they are; a vote it
+  would now cast on its own post is found by the next save of the votes and
+  by the checks before they are cast.
+
+### Saving
+
+`SaveStudioVotesAction::handle($admin, $plan, StudioVotesData,
+$expectedLockVersion)` saves every vote the Draft prepares at once — added,
+changed and deleted together, or not at all — and returns `SavedStudioVotes`:
+every vote, in the order they are cast, the plan's new version, and the id each
+new vote's `key` was given. A vote saved before is named by its `id` and keeps
+it through every edit, of its way, moment, place, option, Persona or target; a
+new one has none. A vote left out is deleted. An id that is not this plan's
+refuses the whole save.
+
+The rules (`StudioVoteValidationRules`) are one set for whoever writes the
+votes, keyed as the editor's fields (`votes.2.voteType`):
+
+- `validated()`, needing no row: at most 1,000 votes; each of the three kinds,
+  with the fields of its kind and none of another's; whole numbers for the
+  moment and the place, within their bounds — a fraction is refused, never cut
+  off; each id and key once;
+- `validatedAgainst()`, on the rows as they are now: an id is this plan's; each
+  Persona is still one and not deleted; no vote on the Persona's own post or
+  comment; a comment voted on is this plan's and comes no later than the vote;
+  an option newly chosen is an active option of an active rating question
+  (`RatingConfigurationManager`), of the question named if one is; one vote per
+  target; and a dated post's votes inside the dates a post may carry. It gives
+  each rating vote its option's own question.
+
+What a Draft may hold is less than what may be cast. A Limited, Shadowbanned or
+Banned Persona may stay in a Draft, as in the discussion; an option chosen
+earlier and archived, deactivated or deleted since stays chosen through any
+save that keeps the vote with it — a new choice must be open. Before the votes
+are cast, `readinessErrors()` asks more of the votes as saved, keyed by their
+place in the plan's order: whatever a Draft is held to, every Persona `Active`
+and able to vote (`canVote()`, as `PostPolicy::vote()` asks), and every option
+still open, however long ago it was chosen. It only reads.
+
+The save checks the votes first, then in one transaction locks the
+administrator's and every voting Persona's `users` rows in ascending id order —
+all named by the save itself, so nothing read meanwhile can change which they
+are — then the plan (`LocksStudioPlanDraft`), never a user after it, and asks
+everything again on them. The post's author and the comments' Personas it
+compares with are the locked plan's own rows, which nothing changes without
+that lock, so they are not locked themselves. A save drawn from a version
+somebody else replaced is refused, `isStale()`; a plan past its Draft is
+`isNotDraft()`; a plan deleted meanwhile is `isGone()`.
+
+The database holds a Persona to one vote per target at every moment, not only
+at the end, so the save deletes the votes left out first, and every vote kept
+but given another Persona or target, to write it again with its own id and its
+first date: two votes trading targets would otherwise each meet the other
+where it was. Then the votes kept in place are changed, and the moved and the
+new ones written, in the order the save lists them. A write a model event
+cancels fails the whole save as an exception would. The save raises the plan's
+version, like any other write to it.
+
+A save and a sanction or a deletion of a Persona it names lock that Persona's
+row in the same order, so they take turns rather than deadlocking: saved first,
+the vote stays; deleted first, the save is refused. A save of the votes, a save
+of the discussion, a new date for the post and an approval take turns on the
+plan's row: the later one, drawn from the version the first replaced, is
+refused.
+
+### Approving it
+
+Nothing casts a prepared vote yet: approval writes the post, its comments and
+its replies, and no vote. So the preflight refuses a plan that prepares any —
+`votes_not_publishable`, on the field `votes`, adding up to `unsupported_votes`
+— rather than approving it without them. Nothing of it is approved or written,
+however often it is asked; a plan whose votes are taken away is approved as
+before. This lasts until the stage that writes and casts the votes.
+
+### Logs
+
+`DomainLogger` events: `studio.votes.saved` (the plan, the administrator, how
+many votes of each kind, how many were deleted, the new version), written only
+once the outermost transaction has committed, and `studio.votes.rejected` (the
+plan, the administrator, a code — `access_denied`, `plan_gone`, `not_draft`,
+`stale_version` or `invalid_votes` — and the fields that failed).
+
+### Still to come
+
+The Post Votes step of the editor, the votes in the Discussion step, votes
+written from distributions, the vote actions approval is to write, and their
+casting are later stages.
 
 ## Discussion generation
 
