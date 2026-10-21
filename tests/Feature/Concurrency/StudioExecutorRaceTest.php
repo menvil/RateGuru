@@ -1,7 +1,9 @@
 <?php
 
 use App\Enums\StudioActionStatus;
+use App\Enums\StudioActionType;
 use App\Enums\StudioPlanStatus;
+use App\Models\Comment;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\ProjectSettings;
@@ -58,11 +60,56 @@ function committedSentStudioAction(User $admin, User $persona): array
     return [$action, $plan];
 }
 
+/**
+ * A plan running, its post published by the author, and a comment of its
+ * discussion by the commenter sent — or, for a reply, a comment of it
+ * published as well and the reply to it sent — committed for the competitors
+ * to see, with the executor switched on.
+ *
+ * @return array{action: StudioAction, post: Post, comment: Comment|null}
+ */
+function committedSentStudioComment(User $admin, User $author, User $commenter, bool $reply = false): array
+{
+    [$post, $plan] = committedSentStudioAction($admin, $author);
+    $published = Post::factory()->published()->connection('committed_peer')->create(['user_id' => $author->id, 'image_asset_id' => $plan->image_asset_id, 'title' => 'A quiet harbour at dawn']);
+    $plan->forceFill(['status' => StudioPlanStatus::Running])->save();
+    $post->forceFill(['status' => StudioActionStatus::Done, 'result_type' => Post::class, 'result_id' => $published->id, 'finished_at' => now()])->save();
+    $parent = $post;
+    $comment = null;
+
+    if ($reply) {
+        $comment = Comment::factory()->connection('committed_peer')->create(['post_id' => $published->id, 'user_id' => $commenter->id, 'body' => 'An earlier comment.']);
+        $parent = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->connection('committed_peer')->create([
+            'actor_user_id' => $commenter->id,
+            'payload' => ['discussion_node_id' => 1, 'body' => 'An earlier comment.'],
+            'status' => StudioActionStatus::Done,
+            'attempts' => 1,
+            'result_type' => Comment::class,
+            'result_id' => $comment->id,
+            'finished_at' => now(),
+        ]);
+    }
+
+    $action = StudioAction::factory()->childOf($parent, $reply ? StudioActionType::CreateReply : StudioActionType::CreateComment)->connection('committed_peer')->create([
+        'actor_user_id' => $commenter->id,
+        'payload' => ['discussion_node_id' => 2, 'body' => 'Raced at the harbour.'],
+        'occurs_at' => now()->subDay(),
+        'run_after' => now()->subDay(),
+        'status' => StudioActionStatus::Dispatched,
+        'attempts' => 1,
+        'dispatched_at' => now(),
+    ]);
+
+    return ['action' => $action, 'post' => $published, 'comment' => $comment];
+}
+
 /** Removes what the competitors committed, as they committed it: for real. */
 function forgetExecutorRace(ConnectionInterface $db, array $userIds, string $directory): void
 {
     $postIds = $db->table('posts')->whereIn('user_id', $userIds)->pluck('id');
 
+    $db->table('comments')->whereIn('post_id', $postIds)->whereNotNull('parent_id')->delete();
+    $db->table('comments')->whereIn('post_id', $postIds)->delete();
     $db->table('notifications')->whereIn('notifiable_id', $userIds)->delete();
     $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
     $db->table('post_votes')->whereIn('post_id', $postIds)->delete();
@@ -306,3 +353,124 @@ it('runs beside a moderator hiding and a member voting on the Persona\'s other p
         forgetExecutorRace($db, [$persona->id, $admin->id, $member->id], $directory);
     }
 })->with(['hide-post', 'vote-post'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('applies a comment once when two workers run its job at once', function () {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'sync' => 'lead', 'hold' => 'comment', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'execute', 'sync' => 'follow', 'admin' => $admin->id, 'studio_action' => $action->id]),
+        ]);
+
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['output'])->toContain('became nothing')
+            ->and($db->table('comments')->where('post_id', $post->id)->count())->toBe(1)
+            ->and((int) $db->table('posts')->where('id', $post->id)->value('comments_count'))->toBe(1)
+            ->and($db->table('notifications')->where('notifiable_id', $author->id)->count())->toBe(1)
+            ->and($db->table('studio_plan_actions')->where('id', $action->id)->first())->status->toBe('done')->attempts->toBe(1);
+    } finally {
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id], $directory);
+    }
+})->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a comment run and a ban of its Persona, or of the post\'s author it notifies, take turns rather than deadlocking', function (string $banned) {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    [$admin, $other] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
+    $target = $banned === 'commenter' ? $commenter : $author;
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'ban', 'admin' => $other->id, 'persona' => $target->id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('users')->where('id', $target->id)->value('status'))->toBe('banned');
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $comments = $db->table('comments')->where('post_id', $post->id)->count();
+
+        // Whichever took the shared row first: written before, or refused after
+        // — and a ban of the post's author never stops another Persona's comment.
+        if ($banned === 'author' || $after->status === 'done') {
+            expect($after->status)->toBe('done')->and($comments)->toBe(1);
+        } else {
+            expect($after->failure_code)->toBe('author_banned')->and($comments)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id, $other->id], $directory);
+    }
+})->with(['commenter', 'author'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a comment run and a moderator hiding its post, or a reply run and a moderator hiding its comment, take turns rather than deadlocking', function (bool $reply) {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'comment' => $comment] = committedSentStudioComment($admin, $author, $commenter, $reply);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', $reply
+                ? ['action' => 'hide-comment', 'admin' => $admin->id, 'comment' => $comment->id]
+                : ['action' => 'hide-post', 'admin' => $admin->id, 'post' => $post->id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(0, $report);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $written = $db->table('comments')->where('post_id', $post->id)->where('body', 'Raced at the harbour.')->count();
+
+        // Written before the hide, or refused after it — never under what was hidden first.
+        if ($after->status === 'done') {
+            expect($written)->toBe(1);
+        } else {
+            expect($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe($reply ? 'reply_target_unavailable' : 'post_unavailable')
+                ->and($written)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id], $directory);
+    }
+})->with(['a comment' => false, 'a reply' => true])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('writes a Persona\'s comment beside a member\'s own comment or vote on the same post, without deadlocking', function (string $beside) {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    $member = User::factory()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => $beside === 'comment' ? 'comment' : 'vote-post', 'admin' => $member->id, 'post' => $post->id]),
+        ]);
+
+        // Both update the post twice in one transaction — counts, then score.
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('comments')->where('post_id', $post->id)->count())->toBe($beside === 'comment' ? 2 : 1)
+            ->and((int) $db->table('posts')->where('id', $post->id)->value('comments_count'))->toBe($beside === 'comment' ? 2 : 1);
+    } finally {
+        $db->table('comments')->where('user_id', $member->id)->delete();
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id, $member->id], $directory);
+    }
+})->with(['comment', 'vote'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);

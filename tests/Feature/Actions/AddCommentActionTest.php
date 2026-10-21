@@ -5,6 +5,8 @@ use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Carbon;
 
 it('allows user to add comment to published post', function () {
     $user = User::factory()->create();
@@ -179,4 +181,85 @@ it('rejects replies to unsaved parent comments', function () {
     $this->assertDatabaseMissing('comments', [
         'body' => 'Reply body',
     ]);
+});
+
+it('dates a comment as it is written when no date is given, and an edit or a moderation moves its updated_at as ever', function () {
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $comment = app(AddCommentAction::class)->handle(User::factory()->create(), Post::factory()->published()->create(), 'Looks delicious.');
+
+    expect($comment->fresh()->created_at->toDateTimeString())->toBe('2026-10-20 10:00:00')
+        ->and($comment->fresh()->updated_at->toDateTimeString())->toBe('2026-10-20 10:00:00');
+
+    Carbon::setTestNow();
+});
+
+it('gives a comment the date it is given as its own created_at and updated_at, every check and lock as ever', function () {
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $post = Post::factory()->published()->create();
+    $parent = app(AddCommentAction::class)->handle(User::factory()->create(), $post, 'First.', null, CarbonImmutable::parse('2025-06-10 10:05:00'));
+    $reply = app(AddCommentAction::class)->handle(User::factory()->create(), $post, 'Second.', $parent, CarbonImmutable::parse('2025-06-10 10:12:00'));
+
+    expect($parent->fresh()->created_at->toDateTimeString())->toBe('2025-06-10 10:05:00')
+        ->and($parent->fresh()->updated_at->toDateTimeString())->toBe('2025-06-10 10:05:00')
+        ->and($reply->fresh())->parent_id->toBe($parent->id)
+        ->and($reply->fresh()->created_at->toDateTimeString())->toBe('2025-06-10 10:12:00')
+        ->and($post->fresh()->comments_count)->toBe(2);
+
+    // A date is no way around a check.
+    expect(fn () => app(AddCommentAction::class)->handle(User::factory()->banned()->create(), $post, 'Late.', null, CarbonImmutable::parse('2025-06-10 10:30:00')))
+        ->toThrow(CannotCommentException::class);
+
+    Carbon::setTestNow();
+});
+
+it('says why a comment was refused as a reason a caller can act on, the member seeing the same message as before', function (Closure $refuse, string $reason, string $message) {
+    $refusal = null;
+
+    try {
+        $refuse();
+    } catch (CannotCommentException $exception) {
+        $refusal = $exception;
+    }
+
+    expect($refusal)->not->toBeNull()
+        ->and($refusal->getMessage())->toBe(__($message))
+        ->and([
+            'rate_limited' => $refusal->isRateLimited(),
+            'post_unavailable' => $refusal->isPostUnavailable(),
+            'reply_target_unavailable' => $refusal->isReplyTargetUnavailable(),
+            'not_allowed' => $refusal->isNotAllowed(),
+            'guest' => $refusal->isGuest(),
+        ])->toBe(array_map(fn (string $key): bool => $key === $reason, ['rate_limited' => 'rate_limited', 'post_unavailable' => 'post_unavailable', 'reply_target_unavailable' => 'reply_target_unavailable', 'not_allowed' => 'not_allowed', 'guest' => 'guest']));
+})->with([
+    'a hidden post' => [fn () => app(AddCommentAction::class)->handle(User::factory()->create(), Post::factory()->hidden()->create(), 'Hi.'), 'post_unavailable', 'ui.comments.errors.post_not_public'],
+    'a reply to a reply' => [function () {
+        $post = Post::factory()->published()->create();
+        $comment = Comment::factory()->for($post)->create();
+        $reply = Comment::factory()->for($post)->create(['parent_id' => $comment->id]);
+        app(AddCommentAction::class)->handle(User::factory()->create(), $post, 'Hi.', $reply);
+    }, 'reply_target_unavailable', 'ui.comments.errors.reply_target_unavailable'],
+    'a banned member' => [fn () => app(AddCommentAction::class)->handle(User::factory()->banned()->create(), Post::factory()->published()->create(), 'Hi.'), 'not_allowed', 'ui.comments.errors.not_allowed'],
+    'a guest' => [fn () => app(AddCommentAction::class)->handle(null, Post::factory()->published()->create(), 'Hi.'), 'guest', 'ui.comments.errors.guest'],
+    'the commenting limit' => [function () {
+        config(['rate_limits.comment.max_attempts' => 1, 'rate_limits.comment.decay_seconds' => 60]);
+        $user = User::factory()->create();
+        $post = Post::factory()->published()->create();
+        app(AddCommentAction::class)->handle($user, $post, 'One.');
+        app(AddCommentAction::class)->handle($user, $post, 'Two.');
+    }, 'rate_limited', 'ui.rate_limit.commenting'],
+]);
+
+it('says how soon the commenting limit allows the next comment', function () {
+    config(['rate_limits.comment.max_attempts' => 1, 'rate_limits.comment.decay_seconds' => 60]);
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    app(AddCommentAction::class)->handle($user, $post, 'One.');
+
+    try {
+        app(AddCommentAction::class)->handle($user, $post, 'Two.');
+        $this->fail('The commenting limit was not reached.');
+    } catch (CannotCommentException $refusal) {
+        expect($refusal->retryAfterSeconds())->toBeGreaterThan(0)->toBeLessThanOrEqual(60)
+            ->and(Comment::query()->count())->toBe(1);
+    }
 });

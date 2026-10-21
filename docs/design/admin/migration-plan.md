@@ -365,15 +365,15 @@ delivered or its worker dies (`docs/architecture/studio-plans.md`, "Running a pl
 project's `content_studio_execution_enabled` flag is switched on, which is off by default, on staging and
 production too, and has no switch on screen, so a deploy publishes nothing. Still to come in this phase: the
 Publication screen with its Approve button, the Action queue screen — resuming held actions, retrying failed ones,
-cancelling — and the comments, replies and votes after the post. Phase 4 is not finished.
+cancelling — and the votes after the post; the comments and replies run since Phase 5's last step. Phase 4 is not
+finished.
 
-**Content Studio Phase 5 — Discussion generation. Status: in progress.** Its first step is in code: a Draft's
+**Content Studio Phase 5 — Discussion generation. Status: done in code, pending its staging check.** Its first step is in code: a Draft's
 discussion — comments on the post and replies to them, two levels only, up to 40, each by a Persona, its moment kept
 as seconds after the post — stored a row per comment in `studio_plan_discussion_nodes`, each keeping its id through
 every edit. `SaveStudioDiscussionTreeAction` saves the whole discussion at once under the plan's lock and version,
 held to one set of rules (`StudioDiscussionValidationRules`) for the editor and the AI generator alike
-(`docs/architecture/studio-plans.md`, "The discussion"). Nothing publishes one: until discussions can be published,
-a plan that prepares one is not approved (`unsupported_discussion`). Its second step is in code: the discussion written by OpenAI — a whole one by the
+(`docs/architecture/studio-plans.md`, "The discussion"). Its second step is in code: the discussion written by OpenAI — a whole one by the
 Personas an administrator chose, or one comment, reply or branch of it again — from the post's final texts, the
 photo's stored analysis and each Persona's profile, on an explicit request, through the queue, one paid request
 each. What comes back is a proposal, kept with every earlier one in `studio_plan_discussion_generations`; nothing
@@ -384,8 +384,12 @@ settings, Generate tree — asked first when it would replace comments, its tree
 and the discussion tree, each comment written, answered or edited in a dialog, written again by Regenerate or
 deleted, Delete and Regenerate undone from their toast until the next change, every change written to the plan at
 once, active Personas only for a new choice, and a tree written for an earlier title or description said so, with
-Regenerate and Keep as is (`docs/architecture/studio-plans.md`, "The editor"). Still to
-come in this phase: publishing the discussion as comments and replies. Phase 5 is not finished.
+Regenerate and Keep as is (`docs/architecture/studio-plans.md`, "The editor"). Its last step is in code: approving a
+plan writes a `create_comment` for every comment and a `create_reply` for every reply under its post's action, once the
+preflight finds the discussion publishable as it is, and the executor publishes each as a real comment or reply of its
+Persona, dated as planned, after what it depends on, once — its branch cancelled with a parent cancelled for good
+(`docs/architecture/studio-plans.md`, "Running a plan"). Nothing runs until the executor is switched on. The
+discussion's votes and the Publication screen are later stages.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

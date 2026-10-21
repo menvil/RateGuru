@@ -83,21 +83,24 @@ it('sends nothing before its time, and the oldest first, a batch at a time', fun
 
 it('sends no kind of action nothing runs yet, and none waiting for a parent not done', function () {
     $post = approvedStudioAction();
-    $comment = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->create(['actor_user_id' => $post->actor_user_id]);
+    $vote = StudioAction::factory()->childOf($post, StudioActionType::VotePost)->create(['actor_user_id' => $post->actor_user_id]);
     // A kind that runs, still waiting for its parent.
-    $child = StudioAction::factory()->childOf($post, StudioActionType::CreatePost)->create(['actor_user_id' => $post->actor_user_id]);
+    $comment = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->create(['actor_user_id' => $post->actor_user_id]);
+    $reply = StudioAction::factory()->childOf($comment, StudioActionType::CreateReply)->create(['actor_user_id' => $post->actor_user_id]);
 
     dispatchDueStudioActions();
 
     expect(queuedStudioActionIds())->toBe([$post->id])
-        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending)
-        ->and($child->fresh()->status)->toBe(StudioActionStatus::Pending);
+        ->and($vote->fresh()->status)->toBe(StudioActionStatus::Pending)
+        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending);
 
     $post->forceFill(['status' => StudioActionStatus::Done])->save();
     dispatchDueStudioActions();
 
-    expect(queuedStudioActionIds())->toBe([$post->id, $child->id])
-        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending);
+    // The comment, its post done; not its reply, nor the vote.
+    expect(queuedStudioActionIds())->toBe([$post->id, $comment->id])
+        ->and($reply->fresh()->status)->toBe(StudioActionStatus::Pending)
+        ->and($vote->fresh()->status)->toBe(StudioActionStatus::Pending);
 });
 
 it('sends a lost job again once it has been unclaimed long enough, counting one more attempt', function () {

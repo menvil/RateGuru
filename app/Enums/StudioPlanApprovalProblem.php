@@ -3,6 +3,7 @@
 namespace App\Enums;
 
 use App\Support\Posts\PostContentRules;
+use App\Support\Studio\StudioDiscussionValidationRules;
 
 /**
  * One reason a plan is not ready to publish, as the approval preflight finds
@@ -34,7 +35,14 @@ enum StudioPlanApprovalProblem: string
     case AnswerGroupRepeated = 'answer_group_repeated';
     case PublishAtMissing = 'publish_at_missing';
     case PublishAtOutOfRange = 'publish_at_out_of_range';
-    case DiscussionNotPublishable = 'discussion_not_publishable';
+    case DiscussionTooLarge = 'discussion_too_large';
+    case DiscussionShapeInvalid = 'discussion_shape_invalid';
+    case DiscussionTextInvalid = 'discussion_text_invalid';
+    case DiscussionPersonaDeleted = 'discussion_persona_deleted';
+    case DiscussionPersonaNotPersona = 'discussion_persona_not_persona';
+    case DiscussionPersonaRestricted = 'discussion_persona_restricted';
+    case DiscussionTimingInvalid = 'discussion_timing_invalid';
+    case DiscussionDateOutOfRange = 'discussion_date_out_of_range';
 
     public function rejection(): StudioPlanApprovalRejection
     {
@@ -46,7 +54,9 @@ enum StudioPlanApprovalProblem: string
             self::CategoryInactive, self::TagMissing, self::TagRepeated, self::TooManyTags,
             self::AnswerMissing, self::AnswerInactive, self::AnswerGroupRepeated => StudioPlanApprovalRejection::InvalidTaxonomy,
             self::PublishAtMissing, self::PublishAtOutOfRange => StudioPlanApprovalRejection::InvalidPublicationDate,
-            self::DiscussionNotPublishable => StudioPlanApprovalRejection::UnsupportedDiscussion,
+            self::DiscussionTooLarge, self::DiscussionShapeInvalid, self::DiscussionTextInvalid,
+            self::DiscussionPersonaDeleted, self::DiscussionPersonaNotPersona, self::DiscussionPersonaRestricted,
+            self::DiscussionTimingInvalid, self::DiscussionDateOutOfRange => StudioPlanApprovalRejection::InvalidDiscussion,
         };
     }
 
@@ -63,7 +73,9 @@ enum StudioPlanApprovalProblem: string
             self::TagMissing, self::TagRepeated, self::TooManyTags => 'tagIds',
             self::AnswerMissing, self::AnswerInactive, self::AnswerGroupRepeated => 'authorAnswerOptionIds',
             self::PublishAtMissing, self::PublishAtOutOfRange => 'publishAt',
-            self::DiscussionNotPublishable => 'discussion',
+            self::DiscussionTooLarge, self::DiscussionShapeInvalid, self::DiscussionTextInvalid,
+            self::DiscussionPersonaDeleted, self::DiscussionPersonaNotPersona, self::DiscussionPersonaRestricted,
+            self::DiscussionTimingInvalid, self::DiscussionDateOutOfRange => 'discussion',
         };
     }
 
@@ -93,7 +105,14 @@ enum StudioPlanApprovalProblem: string
             self::AnswerGroupRepeated => 'Choose one author’s answer for each rating question at most.',
             self::PublishAtMissing => 'Choose the publication date.',
             self::PublishAtOutOfRange => 'Choose a publication date from 1970 to 2038.',
-            self::DiscussionNotPublishable => 'A discussion cannot be published yet. Remove it to approve the post on its own.',
+            self::DiscussionTooLarge => 'Keep the discussion to '.StudioDiscussionValidationRules::MOST_NODES.' comments and replies or fewer.',
+            self::DiscussionShapeInvalid => 'A reply answers something other than a comment on this post. Fix the discussion.',
+            self::DiscussionTextInvalid => 'A comment is empty or longer than '.number_format(StudioDiscussionValidationRules::BODY_LIMIT).' characters. Fix its text.',
+            self::DiscussionPersonaDeleted => 'A comment’s persona was deleted. Choose another one.',
+            self::DiscussionPersonaNotPersona => 'A comment’s author is no longer a persona. Choose another one.',
+            self::DiscussionPersonaRestricted => 'A comment’s persona is limited, banned or shadowbanned and cannot comment. Choose another one.',
+            self::DiscussionTimingInvalid => 'A comment comes before the post or more than 30 days after it, or a reply before the comment it answers. Fix its time.',
+            self::DiscussionDateOutOfRange => 'A comment would come after 2038, past the latest date a post may carry. Bring it closer to the post.',
         };
     }
 }

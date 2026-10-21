@@ -130,18 +130,56 @@ it('wants its photo: a post image, Ready, not deleted and no post\'s already —
     'another administrator\'s upload' => [fn (StudioPlan $plan, MediaAsset $photo) => $photo->forceFill(['owner_user_id' => User::factory()->admin()->create()->id])->save(), []],
 ]);
 
-it('wants no prepared discussion while nothing publishes one, refusing it as unsupported rather than dropping it', function () {
-    $plan = approvableStudioPlan();
-    $node = StudioDiscussionNode::factory()->for($plan, 'plan')->create();
-
-    expect(approvalProblemsOf($plan))->toBe(['discussion_not_publishable'])
-        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->rejection())->toBe(StudioPlanApprovalRejection::UnsupportedDiscussion)
-        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->field())->toBe('discussion');
-
-    $node->delete();
+it('finds nothing to stop a discussion the executor can publish as it is, nor one written for an earlier title', function () {
+    [$plan] = approvableStudioPlanWithDiscussion();
+    $plan->forceFill(['title' => 'Retitled after the discussion was written'])->save();
 
     expect(approvalProblemsOf($plan))->toBe([]);
 });
+
+it('wants a discussion the executor can publish: the discussion\'s own rules, and every Persona of it able to comment now', function (Closure $arrange, array $problems) {
+    $plan = approvableStudioPlan();
+    $arrange($plan);
+
+    expect(approvalProblemsOf($plan))->toBe($problems);
+
+    foreach ($problems as $problem) {
+        expect(StudioPlanApprovalProblem::from($problem))
+            ->rejection()->toBe(StudioPlanApprovalRejection::InvalidDiscussion)
+            ->field()->toBe('discussion');
+    }
+})->with([
+    'more than forty comments' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->count(41)->for($plan, 'plan')->create(), ['discussion_too_large']],
+    'an empty comment' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '  ']), ['discussion_text_invalid']],
+    'a comment longer than a comment may be' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => str_repeat('a', 1001)]), ['discussion_text_invalid']],
+    'a reply to a reply' => [function (StudioPlan $plan) {
+        $comment = StudioDiscussionNode::factory()->for($plan, 'plan')->create();
+        $reply = StudioDiscussionNode::factory()->replyTo($comment)->create(['offset_seconds' => 120]);
+        StudioDiscussionNode::factory()->replyTo($reply)->create(['offset_seconds' => 180]);
+    }, ['discussion_shape_invalid']],
+    'a reply to another plan\'s comment' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create([
+        'parent_id' => StudioDiscussionNode::factory()->for(approvableStudioPlan(), 'plan')->create()->id,
+        'offset_seconds' => 120,
+    ]), ['discussion_shape_invalid']],
+    'a reply before the comment it answers' => [function (StudioPlan $plan) {
+        $comment = StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 600]);
+        StudioDiscussionNode::factory()->replyTo($comment)->create(['offset_seconds' => 300]);
+    }, ['discussion_timing_invalid']],
+    'a comment more than thirty days after the post' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 2_592_001]), ['discussion_timing_invalid']],
+    'a deleted Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->tombstoned()->create()->id]), ['discussion_persona_deleted']],
+    'a member, not a Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->create()->id]), ['discussion_persona_not_persona']],
+    'a limited Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]), ['discussion_persona_restricted']],
+    'a shadowbanned Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Shadowbanned])->id]), ['discussion_persona_restricted']],
+    'a banned Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Banned])->id]), ['discussion_persona_restricted']],
+    'a comment past the latest date a post may carry' => [function (StudioPlan $plan) {
+        $plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse('2038-01-18 00:00:00')])->save();
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 2 * 86_400]);
+    }, ['discussion_date_out_of_range']],
+    'several at once, each once' => [function (StudioPlan $plan) {
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '', 'persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '']);
+    }, ['discussion_text_invalid', 'discussion_persona_restricted']],
+]);
 
 it('wants a category, when there is one, that is active', function () {
     $plan = approvableStudioPlan(['category_id' => Category::factory()->inactive()->create()->id]);
@@ -245,6 +283,7 @@ it('only reads: nothing is written, queued, sent or called', function () {
     Bus::fake();
     Http::preventStrayRequests();
     $plan = approvableStudioPlan(['title' => null, 'tag_ids' => [2_000_000_000]]);
+    StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
     $writes = [];
 
     DB::listen(function (QueryExecuted $query) use (&$writes): void {

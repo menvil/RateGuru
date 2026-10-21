@@ -1262,8 +1262,8 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   сохраняет дерево целиком под блокировками `users` по возрастанию id → план и
   `lock_version` (устаревшая версия отвергается); удаление корня удаляет его
   ответы. Ничего не публикуется: ни `Comment`, ни `StudioAction`, ни заданий, ни
-  вызовов ИИ, ни интерфейса. До этапа публикации обсуждений предпроверка
-  утверждения отказывает плану с обсуждением (`discussion_not_publishable` →
+  вызовов ИИ, ни интерфейса. До этапа публикации обсуждений (MR 5.4) предпроверка
+  утверждения отказывала плану с обсуждением (`discussion_not_publishable` →
   `unsupported_discussion`), чтобы пост не был опубликован без него. Подробности —
   `docs/architecture/studio-plans.md`, «The discussion».
 - **Выполнено (MR 5.2, генерация обсуждения ИИ):** четыре режима —
@@ -1309,10 +1309,39 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   базе и отпечатка своих данных (пост или дерево); Reload одного редактора
   сообщается другому (`studio-plan-reloaded`). Ничего не публикуется. Подробности —
   `docs/architecture/studio-plans.md`, «The editor».
-- **Дальше по этапу:** MR 5.4 — публикация: действия
-  `create_comment`/`create_reply` с `parent_action_id`, полная предпроверка
-  обсуждения вместо временного отказа, дата в `AddCommentAction`, исполнитель.
-  Phase 5 не завершена.
+- **Выполнено (MR 5.4, исполнение обсуждения):** утверждение плана
+  (`ApproveStudioPlanAction`) в одной транзакции с `create_post` пишет
+  `create_comment` на каждый комментарий (родитель — `create_post`) и
+  `create_reply` на каждый ответ (родитель — `create_comment` его комментария),
+  каждое от Persona своего узла, `pending`, с неизменяемым `payload`
+  (`discussion_node_id`, нормализованный `body`); `occurs_at` = дата поста +
+  `offset_seconds`, `run_after` = max(момент утверждения, `occurs_at`), всё в UTC до
+  секунды. Перед блокировкой плана блокируются администратор, автор и все Persona
+  обсуждения по возрастанию id; состав, изменившийся к блокировке, — отказ как
+  устаревшее состояние. Временный отказ `discussion_not_publishable` заменён полной
+  предпроверкой (`StudioPlanApprovalPreflight`) на правилах
+  `StudioDiscussionValidationRules` плюс готовность каждой Persona комментировать —
+  восемь кодов `discussion_*`, отказ `invalid_discussion`. Исполнитель
+  (`ExecuteStudioAction::RUNNABLE` = пост, комментарий, ответ) в прежних двух
+  транзакциях: захват и основная; комментарий пишется через `AddCommentAction` с
+  доверенной датой `$createdAt` (только исполнитель — `StudioTrustedParametersTest`)
+  под `Post::withoutTimestamps()`/`Comment::withoutTimestamps()`; порядок блокировок —
+  действие → комментатор и автор поста по возрастанию id → план → пост → родительский
+  комментарий; на PostgreSQL строка автора поста берётся `FOR NO KEY UPDATE`, потому
+  что двойное обновление поста в публичном комментарии или голосе проверяет
+  внешний ключ через `FOR KEY SHARE` на авторе. Зависимость перепроверяется при
+  захвате и перед записью; окончательная отмена родителя каскадно отменяет ветку
+  (`CancelsDependentStudioActions`, `parent_cancelled`); скрытый или удалённый пост и
+  родительский комментарий — `post_unavailable`/`reply_target_unavailable`;
+  ограничение частоты комментариев типизировано в `CannotCommentException`
+  (`isRateLimited()`, `retryAfterSeconds()`) и возвращает действие в `pending` через
+  `deferrals`/`max_deferrals`. Уведомления `PostCommentedNotification` — штатные
+  `AddCommentAction`, фиксируются вместе с комментарием. Гонки на PostgreSQL — в
+  `StudioExecutorRaceTest` и `StudioPlanRaceTest`. Подробности —
+  `docs/architecture/studio-plans.md`, «Approval», «Running a plan».
+- **Дальше:** Phase 5 закрыта в коде; проверка критерия на staging ждёт включения
+  исполнителя (`content_studio_execution_enabled` по умолчанию выключен). Голоса
+  обсуждения (Phase 6) и экран Publication ещё не сделаны.
 - **Критерий на staging:** план с обсуждением создаёт настоящие комментарии и ответы
   персон с историческими датами в правильном порядке; `PostCommentedNotification` автору
   поста создаётся штатно с реальным временем; `updated_at` поста и комментариев остаётся

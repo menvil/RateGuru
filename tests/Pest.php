@@ -17,6 +17,7 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPostTextTone;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
@@ -13334,6 +13335,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'release' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1,
                 // A post written, its transaction still open.
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
+                // A comment written, its transaction still open.
+                'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
                 // A user's row written, its transaction still open.
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
@@ -13456,6 +13459,9 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'tombstone' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
                     ->forceFill(['status' => App\Enums\UserStatus::Deleted])->save()),
                 'hide-post' => app(App\Actions\Moderation\HidePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                // A member's own comment on a post, or a moderator hiding a comment.
+                'comment' => app(App\Actions\Comments\AddCommentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                'hide-comment' => app(App\Actions\Comments\HideCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
@@ -13889,6 +13895,52 @@ function approvedStudioAction(array $planAttributes = [], ?User $admin = null): 
     approveStudioPlan($admin ?? User::factory()->admin()->create(), $plan);
 
     return StudioAction::query()->where('studio_plan_id', $plan->id)->sole();
+}
+
+/**
+ * A complete Draft with a discussion of its own, saved as the editor saves
+ * one: comment `c1` with replies `c2` and `c3`, comment `c4` with reply `c5`,
+ * and comment `c6`, at 5, 12, 15, 20, 25 and 30 minutes after the post — the
+ * comments by the first Persona and the replies by the second, both made for
+ * it unless given.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @return array{0: StudioPlan, 1: SavedStudioDiscussion}
+ */
+function approvableStudioPlanWithDiscussion(array $attributes = [], ?User $commenter = null, ?User $replier = null): array
+{
+    $plan = approvableStudioPlan($attributes);
+    $commenter ??= User::factory()->persona()->create();
+    $replier ??= User::factory()->persona()->create();
+
+    $saved = saveStudioDiscussion(User::factory()->admin()->create(), $plan, [
+        discussionNode(['key' => 'c1', 'personaUserId' => $commenter->id, 'body' => 'Lovely light on the water.', 'offsetSeconds' => 300]),
+        discussionNode(['key' => 'c2', 'parentKey' => 'c1', 'personaUserId' => $replier->id, 'body' => 'Agreed, the mist helps.', 'offsetSeconds' => 720]),
+        discussionNode(['key' => 'c3', 'parentKey' => 'c1', 'personaUserId' => $replier->id, 'body' => 'And the boats.', 'sortOrder' => 1, 'offsetSeconds' => 900]),
+        discussionNode(['key' => 'c4', 'personaUserId' => $commenter->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 1200]),
+        discussionNode(['key' => 'c5', 'parentKey' => 'c4', 'personaUserId' => $replier->id, 'body' => 'Brittany, I think.', 'offsetSeconds' => 1500]),
+        discussionNode(['key' => 'c6', 'personaUserId' => $commenter->id, 'body' => 'Saving this one.', 'sortOrder' => 2, 'offsetSeconds' => 1800]),
+    ]);
+
+    return [$plan->fresh(), $saved];
+}
+
+/**
+ * A plan's actions by what they publish: `post`, and each comment by its key
+ * in the discussion saved for it.
+ *
+ * @return array<string, StudioAction>
+ */
+function studioActionsByNode(StudioPlan $plan, SavedStudioDiscussion $saved): array
+{
+    $keys = array_flip($saved->ids);
+    $actions = [];
+
+    foreach (StudioAction::query()->where('studio_plan_id', $plan->id)->orderBy('id')->get() as $action) {
+        $actions[$action->type === StudioActionType::CreatePost ? 'post' : $keys[$action->payload['discussion_node_id']]] = $action;
+    }
+
+    return $actions;
 }
 
 /**
