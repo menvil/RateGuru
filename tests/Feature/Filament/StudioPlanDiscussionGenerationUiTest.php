@@ -4,6 +4,7 @@ use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioDiscussionGenerationStatus;
 use App\Enums\StudioPostTextTone;
+use App\Enums\UserStatus;
 use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Comment;
@@ -12,6 +13,8 @@ use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
+use App\Support\StudioAi\StudioDiscussionContext;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -106,18 +109,57 @@ it('writes a whole tree by the personas checked, and none without one', function
     expect(StudioPlanDiscussionGeneration::query()->sole()->persona_user_ids)->toBe([$this->boris->id]);
 });
 
-it('checks every persona shown at once, as many as take part, and clears them', function () {
+it('checks every persona shown at once, up to as many as take part — the button and the count say how many — and clears them', function () {
     $editor = discussionEditor($this->plan)->set('participantMode', 'manual')
+        ->assertSee('0 of 2 active personas selected · up to 8 take part')
+        ->assertSee('Select all')
         ->call('selectShown')
         ->assertSet('manual', fn (array $ids) => collect($ids)->sort()->values()->all() === collect([$this->anna->id, $this->boris->id])->sort()->values()->all());
 
     $editor->set('participantSearch', 'Anna')->assertSee('Select 1 shown')->call('clearParticipants')->assertSet('manual', []);
 
     config(['content_studio.discussion_generation.max_personas' => 1]);
-    $editor->set('participantSearch', '')->call('selectShown')
-        ->assertHasErrors(['participants'])
+    $editor->set('participantSearch', '')->assertSee('Select first 1')->assertSee('up to 1 take part')
+        ->call('selectShown')->assertHasNoErrors()
+        ->assertSet('manual', fn (array $ids) => count($ids) === 1)
+        // Nobody more can be checked, and the click says why.
+        ->call('selectShown')->assertHasErrors(['participants'])
         ->assertSee('Up to 1 personas take part in one discussion.')
         ->assertSet('manual', fn (array $ids) => count($ids) === 1);
+});
+
+it('takes active personas only for a new choice, keeping a restricted one checked before out of the team', function (UserStatus $status) {
+    $restricted = studioPersonaWithProfile([], ['display_name' => 'Rita']);
+    $editor = discussionEditor($this->plan)->set('participantMode', 'manual')->call('toggleParticipant', $restricted->id)
+        ->assertSee('1 of 3 active personas selected');
+    $restricted->forceFill(['status' => $status])->save();
+
+    $editor->set('participantSearch', '')
+        ->assertSee('0 of 2 active personas selected')
+        ->assertDontSeeHtml('wire:click="toggleParticipant('.$restricted->id.')"')
+        ->call('toggleParticipant', $this->boris->id)->call('selectShown')
+        ->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole()->persona_user_ids)->toEqualCanonicalizing([$this->anna->id, $this->boris->id]);
+
+    // Checked again only once active again.
+    $other = studioPersonaWithProfile([], ['display_name' => 'Olga', 'status' => $status]);
+    $editor->call('toggleParticipant', $other->id)->assertSet('manual', fn (array $ids) => ! in_array($other->id, $ids, true));
+})->with([
+    'limited' => [UserStatus::Limited],
+    'shadowbanned' => [UserStatus::Shadowbanned],
+    'banned' => [UserStatus::Banned],
+]);
+
+it('picks a random team among active personas only, and counts them', function () {
+    studioPersonaWithProfile([], ['display_name' => 'Rita', 'status' => UserStatus::Banned]);
+    studioPersonaWithProfile([], ['display_name' => 'Lev', 'status' => UserStatus::Limited]);
+
+    discussionEditor($this->plan)->assertSee('of 2 active')
+        ->set('randomCount', 4)->assertSet('randomCount', 2)
+        ->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole()->persona_user_ids)->toEqualCanonicalizing([$this->anna->id, $this->boris->id]);
 });
 
 it('says so when there are too few personas to pick', function () {
@@ -126,7 +168,7 @@ it('says so when there are too few personas to pick', function () {
 
     discussionEditor($this->plan)->call('generateTree', 0)
         ->assertHasErrors(['participants'])
-        ->assertSee('There are no personas to pick from. Create a persona first.');
+        ->assertSee('There are no active personas to pick from.');
 
     expect(StudioPlanDiscussionGeneration::query()->exists())->toBeFalse();
 });
@@ -289,6 +331,77 @@ it('says why a comment was not written again, keeping it', function () {
     $editor->call('check')->assertDispatched('rg-admin-toast', message: 'The comment wasn’t written again: '.StudioDiscussionGenerationError::ProviderTimeout->message());
 
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->body)->toBe('Where is this?');
+});
+
+it('gives a comment written again its text back, and writes nothing over another administrator\'s change made since', function () {
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['text' => 'Written again.']))]);
+    $editor = discussionEditor($this->plan)->call('regenerate', $saved->ids['a'], 0);
+    runStudioDiscussionJob(StudioPlanDiscussionGeneration::query()->sole());
+    $editor->call('check');
+
+    expect($editor->get('undo')['rows'])->toHaveCount(1)
+        ->and($editor->get('undo')['rows'][0])->toMatchArray(['id' => $saved->ids['a'], 'body' => 'Lovely light.']);
+
+    rewordStudioComment(User::factory()->admin()->create(), $this->plan, $saved->ids['b'], 'Theirs.');
+    $theirs = storedStudioDiscussionNodes($this->plan);
+
+    $editor->dispatch('undo-studio-discussion', token: $editor->get('undo')['token'])->assertSet('conflict', true);
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($theirs)
+        ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->body)->toBe('Written again.');
+});
+
+it('says a tree taken in was written for an earlier title or description, until it is kept as is or generated again', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    $editor = discussionEditor($this->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0);
+    $generation = StudioPlanDiscussionGeneration::query()->sole();
+
+    expect($generation->parameters['source_text_fingerprint'])->toBe(StudioDiscussionContext::textFingerprint('A quiet harbour at dawn', $this->plan->description));
+
+    runStudioDiscussionJob($generation);
+    $editor->call('check')->assertDontSee('generated for an earlier title');
+
+    // The texts as they are stored: spaces around them change nothing.
+    $this->plan->forceFill(['title' => '  A quiet harbour at dawn '])->save();
+    discussionEditor($this->plan)->assertDontSee('generated for an earlier title');
+
+    $this->plan->forceFill(['description' => 'Mist over the water.'])->save();
+    $editor = discussionEditor($this->plan)
+        ->assertSee('The discussion was generated for an earlier title or description. It isn’t regenerated automatically.')
+        ->assertSee('Keep as is');
+
+    $editor->call('keepDiscussion')->assertHasNoErrors()->assertDontSee('generated for an earlier title');
+    discussionEditor($this->plan)->assertDontSee('generated for an earlier title');
+
+    expect($this->plan->fresh()->lock_version)->toBe(2)
+        ->and(StudioDiscussionNode::query()->count())->toBe(3);
+
+    // Changed again, it is said again; Regenerate asks before replacing the tree.
+    $this->plan->forceFill(['title' => 'Mist on the harbour'])->save();
+    discussionEditor($this->plan)->assertSee('generated for an earlier title')
+        ->call('generateTree', 0)->assertSet('confirmingGenerate', true)->assertSee('Replace the discussion?');
+});
+
+it('says nothing of the texts for an empty discussion, one written by hand, or a tree asked for before they were kept with it', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(wholeTreeAnswer()))]);
+    commentFromDialog(discussionEditor($this->plan), $this->anna, 'By hand.')->assertHasNoErrors();
+    $this->plan->forceFill(['title' => 'Mist on the harbour'])->save();
+    discussionEditor($this->plan)->assertDontSee('generated for an earlier title');
+
+    $editor = discussionEditor($this->plan)->set('totalCount', 3)->set('rootCount', 2)->call('generateTree', 0)->call('confirmGenerate', 0);
+    $generation = StudioPlanDiscussionGeneration::query()->sole();
+    runStudioDiscussionJob($generation);
+    $editor->call('check');
+    $generation->refresh()->forceFill(['parameters' => Arr::except($generation->parameters, 'source_text_fingerprint')])->save();
+    $this->plan->forceFill(['title' => 'Another title'])->save();
+
+    discussionEditor($this->plan)->assertDontSee('generated for an earlier title');
+
+    $generation->forceFill(['parameters' => [...$generation->parameters, 'source_text_fingerprint' => 'earlier']])->save();
+    discussionEditor($this->plan)->assertSee('generated for an earlier title')
+        ->set('totalCount', 0)->call('generateTree', 0)->call('confirmGenerate', 0)
+        ->assertDontSee('generated for an earlier title');
 });
 
 it('waits for a generation found on its way when the step opens', function () {

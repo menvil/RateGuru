@@ -123,6 +123,12 @@ final class CreateStudioPlan extends Page
         ];
     }
 
+    /** Whether the plan's texts and settings are the ones this page last saw saved: an empty Draft's, until Save draft. */
+    protected function holdsSaved(StudioPlan $plan): bool
+    {
+        return self::savedValuesOf(StudioPlanData::of($plan)) === $this->saved;
+    }
+
     /** The plan a photo made here, or — for the first one — an empty Draft made for it now. */
     protected function photoPlan(): ?StudioPlan
     {

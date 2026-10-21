@@ -1285,18 +1285,25 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   «Discussion generation».
 - **Выполнено (MR 5.3, шаг Discussion редактора):** `StudioPlanDiscussionEditor` —
   шаг Discussion редактора, устроенный как в прототипе: Discussion settings (Total
-  comments, Top-level comments, Number of personas, Personas — Random, выбор при
-  генерации, или Manual, отметка по одной), полоса Generate tree и Discussion tree с
-  вкладками Comments и Timing. Комментарий пишется, отвечается и правится в диалоге
-  (персона, Replies to, текст, время в min/h/d), удаляется после подтверждения,
-  переписывается кнопкой Regenerate; Delete и Regenerate отменяются через Undo в
-  тосте. Каждое изменение сразу записывается в план через
+  comments, Top-level comments, Number of personas, Personas — Random, выбор среди
+  активных при генерации, или Manual, отметка активных по одной, не больше 8),
+  полоса Generate tree и Discussion tree с вкладками Comments и Timing. Комментарий
+  пишется, отвечается и правится в диалоге (персона, Replies to, текст, время в
+  min/h/d), удаляется после подтверждения, переписывается кнопкой Regenerate;
+  Delete и Regenerate отменяются через Undo в тосте — возвращаются только удалённые
+  комментарии или прежний текст переписанного, а любая следующая запись или Reload
+  делают Undo недействительным. Каждое изменение сразу записывается в план через
   `SaveStudioDiscussionTreeAction`, отдельной кнопки сохранения нет. Генерация — всё
   дерево (с вопросом перед заменой непустого) или один комментарий — идёт через
   очередь; пока она в пути, компонент опрашивает сервер раз в 3 секунды, а готовый
-  результат сразу принимается через `ApplyStudioDiscussionGenerationAction`. Одна
-  `lock_version` на все записи страницы синхронизируется событием
-  `studio-plan-version-moved`. Ничего не публикуется. Подробности —
+  результат сразу принимается через `ApplyStudioDiscussionGenerationAction`. Полная
+  генерация хранит в параметрах отпечаток final title и description
+  (`source_text_fingerprint`); если тексты изменились, шаг говорит, что обсуждение
+  написано для прежних, с Regenerate и Keep as is (`KeepStudioDiscussionAction`).
+  Одна `lock_version` на все записи страницы синхронизируется событием
+  `studio-plan-version-moved`, которое принимается только при совпадении версии в
+  базе и отпечатка своих данных (пост или дерево); Reload одного редактора
+  сообщается другому (`studio-plan-reloaded`). Ничего не публикуется. Подробности —
   `docs/architecture/studio-plans.md`, «The editor».
 - **Дальше по этапу:** MR 5.4 — публикация: действия
   `create_comment`/`create_reply` с `parent_action_id`, полная предпроверка

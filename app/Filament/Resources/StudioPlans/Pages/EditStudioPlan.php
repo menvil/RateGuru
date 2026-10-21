@@ -103,9 +103,14 @@ final class EditStudioPlan extends Page
         }
 
         $this->draw($plan);
+        $this->saidReloaded();
     }
 
-    /** Draws the plan as it is now: its version, its photo and the draft with them. */
+    /**
+     * Draws the plan as it is now: its version, its photo and the draft with
+     * them — and says so to the discussion's editor on the page, which draws
+     * its discussion again too, so one Reload brings the whole page up to date.
+     */
     #[On('reload-studio-plan')]
     public function reload(): void
     {
@@ -119,6 +124,7 @@ final class EditStudioPlan extends Page
 
         $this->draw($plan);
         $this->resetErrorBag();
+        $this->saidReloaded();
     }
 
     #[On('save-studio-plan')]
@@ -165,6 +171,18 @@ final class EditStudioPlan extends Page
     protected function versionMovedElsewhere(): void
     {
         $this->stale = true;
+    }
+
+    /** The plan's version was taken with the post as drawn: nothing here is out of date. */
+    protected function versionTaken(): void
+    {
+        $this->stale = false;
+    }
+
+    /** Whether the plan's texts and settings are the ones the draft was drawn from: its fingerprint. */
+    protected function holdsSaved(StudioPlan $plan): bool
+    {
+        return hash_equals($this->fingerprint, self::fingerprintOf(StudioPlanData::of($plan)));
     }
 
     public function askToDelete(): void

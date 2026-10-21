@@ -3,6 +3,7 @@
 namespace App\Livewire\Admin;
 
 use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
+use App\Actions\Studio\KeepStudioDiscussionAction;
 use App\Actions\Studio\RequestStudioDiscussionGenerationAction;
 use App\Actions\Studio\SaveStudioDiscussionTreeAction;
 use App\Data\Studio\SavedStudioDiscussion;
@@ -17,11 +18,13 @@ use App\Exceptions\Studio\CannotApplyStudioDiscussionGenerationException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioDiscussionGenerationException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
+use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\StudioDiscussionValidationRules;
+use App\Support\StudioAi\StudioDiscussionContext;
 use App\Support\StudioAi\StudioDiscussionGenerator;
 use App\Support\StudioAi\StudioPostTextContext;
 use Carbon\CarbonImmutable;
@@ -39,10 +42,10 @@ use Livewire\Component;
 /**
  * The editor's Discussion step (docs/architecture/studio-plans.md, "The
  * editor"), working as the prototype's does: Discussion settings — how many
- * comments, how many of them on the post, and the Personas, picked at random
- * when the tree is generated or checked one by one — Generate tree under
- * them, and the discussion tree: each comment with Reply, Edit, Regenerate
- * and Delete, and the Timing of them all.
+ * comments, how many of them on the post, and the Personas, active ones,
+ * picked at random when the tree is generated or checked one by one —
+ * Generate tree under them, and the discussion tree: each comment with
+ * Reply, Edit, Regenerate and Delete, and the Timing of them all.
  *
  * Every change is written to the plan at once, as the Image step's photo is:
  * a comment saved from its dialog, deleted, or given another moment, through
@@ -50,7 +53,11 @@ use Livewire\Component;
  * AI writes is taken in through ApplyStudioDiscussionGenerationAction the
  * moment it is ready: a whole tree, which replaces a discussion with comments
  * only once that is confirmed, or one comment written again. Delete and
- * Regenerate can be undone from their toast. Nothing is published.
+ * Regenerate can be undone from their toast — the comments deleted come
+ * back, the comment written again gets its text back — until the discussion
+ * is written or read again. A tree written for an earlier title or
+ * description says so, until it is generated again or kept as is. Nothing is
+ * published.
  *
  * Generations run on the queue. While one this page asked for, or found on
  * its way, is, the component is read again every few seconds until it
@@ -60,14 +67,21 @@ use Livewire\Component;
  *
  * One version for the whole plan: every write here or in the editor around
  * it raises it, and each says so with `studio-plan-version-moved` — the plan,
- * the version it was written from and the one it left. A version moved by
- * this page is taken; any other — another administrator's save — is not, and
- * Reload is asked for. Every request checks the viewer may still manage plans.
+ * the version it was written from and the one it left. Such a move is taken
+ * only when the plan is at that version now and its discussion is still the
+ * one this page last read or wrote (`treeFingerprint`): what the browser says
+ * is never enough. Any other — another administrator's save — is not, and
+ * Reload is asked for; a Reload of either editor is said to the other with
+ * `studio-plan-reloaded`. Every request checks the viewer may still manage
+ * plans.
  */
 final class StudioPlanDiscussionEditor extends Component
 {
     /** What the two editors of a plan say a write of theirs moved its version with. */
     public const VERSION_EVENT = 'studio-plan-version-moved';
+
+    /** What the two editors of a plan say a Reload of theirs drew the plan at. */
+    public const RELOAD_EVENT = 'studio-plan-reloaded';
 
     /** Seconds between reads while a generation is on its way. */
     public const POLL_SECONDS = 3;
@@ -86,6 +100,10 @@ final class StudioPlanDiscussionEditor extends Component
     /** The plan's lock_version as this page last read or wrote it. */
     #[Locked]
     public int $lockVersion = 0;
+
+    /** The discussion as this page last read or wrote it, in one value (fingerprintOf()). */
+    #[Locked]
+    public string $treeFingerprint = '';
 
     /** Whether the plan moved to a version this page did not write, so nothing here is written until Reload. */
     #[Locked]
@@ -171,10 +189,11 @@ final class StudioPlanDiscussionEditor extends Component
     public string $dialogSearch = '';
 
     /**
-     * The discussion as it was before the last change that can be undone, and
-     * the token its toast's Undo carries.
+     * What Undo puts back: the comments the last change took or wrote again,
+     * as they were before it, and the token its toast's Undo carries. Gone
+     * once the discussion is written or read again.
      *
-     * @var array{token: string, tree: list<array<string, mixed>>}|null
+     * @var array{token: string, rows: list<array<string, mixed>>}|null
      */
     #[Locked]
     public ?array $undo = null;
@@ -256,7 +275,7 @@ final class StudioPlanDiscussionEditor extends Component
         $this->tab = $this->tab === 'timing' ? 'timing' : 'tree';
     }
 
-    /** Checks a Persona to take part, or unchecks it. */
+    /** Checks an active Persona to take part, or unchecks one, whatever its status now. */
     public function toggleParticipant(mixed $id): void
     {
         if (! is_numeric($id)) {
@@ -272,34 +291,41 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        if (count($this->manual) >= $this->mostPersonas()) {
+        if (count($this->activeManual()) >= $this->mostPersonas()) {
             $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
 
             return;
         }
 
-        if (app(PersonasQuery::class)->choosable($id) !== null) {
+        if (app(PersonasQuery::class)->active($id) !== null) {
             $this->manual[] = $id;
         }
     }
 
-    /** Checks every Persona the search shows, as many as may take part. */
+    /** Checks every active Persona the search shows, up to as many as take part — the button says how many. */
     public function selectShown(): void
     {
         $this->resetErrorBag('participants');
+        $taking = count($this->activeManual());
+        $added = 0;
 
         foreach ($this->personaList() as $persona) {
             if (in_array((int) $persona->id, $this->manual, true)) {
                 continue;
             }
 
-            if (count($this->manual) >= $this->mostPersonas()) {
-                $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
+            if ($taking >= $this->mostPersonas()) {
+                // The button said how many; only a click that checks nobody is told why.
+                if ($added === 0) {
+                    $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
+                }
 
                 return;
             }
 
             $this->manual[] = (int) $persona->id;
+            $taking++;
+            $added++;
         }
     }
 
@@ -379,6 +405,25 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
+     * Keep as is: the discussion stays, written for an earlier title or
+     * description, and is no longer said to be — until they change again.
+     */
+    public function keepDiscussion(): void
+    {
+        $plan = $this->writablePlan();
+
+        if ($plan === null) {
+            return;
+        }
+
+        try {
+            app(KeepStudioDiscussionAction::class)->handle($this->admin(), $plan, $this->lockVersion);
+        } catch (CannotManageStudioPlanException $exception) {
+            $this->refuse($exception);
+        }
+    }
+
+    /**
      * Read again every few seconds while a generation is on its way: once it
      * has settled, what it wrote is taken in — or why it was not, said.
      */
@@ -444,7 +489,8 @@ final class StudioPlanDiscussionEditor extends Component
 
         if ($rewriting !== null) {
             $label = self::labels(self::ordered($this->savedRows($plan)))[$rewriting] ?? 'the comment';
-            $this->remember($before);
+            // Undo gives that comment its text back, and changes nothing else.
+            $this->remember(array_values(array_filter($before, fn (array $row): bool => $row['id'] === $rewriting)));
             $this->toast("New text for {$label} · same author and time", 'success', undoable: true);
         }
     }
@@ -501,21 +547,23 @@ final class StudioPlanDiscussionEditor extends Component
         $this->resetErrorBag();
     }
 
+    /** Who writes it: an active Persona — or, for a comment edited, the one who wrote it, whatever its status now. */
     public function choosePersona(mixed $id): void
     {
         if ($this->dialog === null) {
             return;
         }
 
-        $persona = is_numeric($id) ? app(PersonasQuery::class)->choosable((int) $id) : null;
+        $id = is_numeric($id) ? (int) $id : null;
+        $author = $this->dialog['id'] !== null ? $this->savedNode($this->dialog['id'])?->personaUserId : null;
 
-        if ($persona === null) {
-            $this->addError('dialogPersona', 'Choose a persona who is not deleted.');
+        if ($id === null || ($id !== $author && app(PersonasQuery::class)->active($id) === null)) {
+            $this->addError('dialogPersona', 'Choose an active persona.');
 
             return;
         }
 
-        $this->dialogPersona = (int) $persona->id;
+        $this->dialogPersona = $id;
         $this->resetErrorBag('dialogPersona');
     }
 
@@ -599,15 +647,14 @@ final class StudioPlanDiscussionEditor extends Component
 
         $rows = $this->savedRows($plan);
         $label = self::labels(self::ordered($rows))[$id] ?? 'the comment';
-        $branch = collect($rows)->contains(fn (array $row): bool => $row['parentId'] === $id);
+        $taken = array_values(array_filter($rows, fn (array $row): bool => $row['id'] === $id || $row['parentId'] === $id));
 
-        $saved = $this->write(
-            fn (array $rows): array => array_values(array_filter($rows, fn (array $row): bool => $row['id'] !== $id && $row['parentId'] !== $id)),
-            remember: true,
-        );
+        $saved = $this->write(fn (array $rows): array => array_values(array_filter($rows, fn (array $row): bool => $row['id'] !== $id && $row['parentId'] !== $id)));
 
         if ($saved !== null) {
-            $this->toast(($branch ? 'Branch ' : 'Comment ').$label.' deleted', 'success', undoable: true);
+            // Undo brings back what was deleted, and changes nothing else.
+            $this->remember($taken);
+            $this->toast((count($taken) > 1 ? 'Branch ' : 'Comment ').$label.' deleted', 'success', undoable: true);
         }
     }
 
@@ -626,7 +673,12 @@ final class StudioPlanDiscussionEditor extends Component
         ));
     }
 
-    /** Undo, from the toast of a deletion or a comment written again: the discussion as it was put back. */
+    /**
+     * Undo, from the toast of a deletion or a comment written again: the
+     * comments deleted come back, the comment written again gets its text
+     * back — nothing else of the discussion changes. Only the last change's
+     * toast can: a write or a read since leaves nothing to undo.
+     */
     #[On('undo-studio-discussion')]
     public function undoChange(mixed $token = null): void
     {
@@ -637,20 +689,49 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->undo = null;
-        $this->write(fn (array $rows): array => self::restored($undo['tree'], $rows));
+        $this->write(fn (array $rows): array => self::restored($undo['rows'], $rows));
     }
 
-    /** Draws the discussion as it is saved now, with the plan's version. */
+    /**
+     * Reload discussion: draws the discussion as it is saved now, with the
+     * plan's version, and says so to the editor around it, which takes that
+     * version too when the post is still as it holds it.
+     */
     #[On('reload-studio-discussion')]
     public function reload(): void
     {
+        $this->load();
+
+        if (! $this->gone) {
+            $this->dispatch(self::RELOAD_EVENT, planId: $this->planId, current: $this->lockVersion, source: 'discussion');
+        }
+    }
+
+    /**
+     * The editor around this one drew the plan again — Reload, or Discard —
+     * at the version it says: the discussion is drawn again too, unless it
+     * holds that version already. Nothing here is unsaved, so nothing is lost.
+     */
+    #[On(self::RELOAD_EVENT)]
+    public function followReload(mixed $planId, mixed $current, mixed $source = null): void
+    {
+        if ($source === 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0) {
+            return;
+        }
+
+        if (is_numeric($current) && (int) $current === $this->lockVersion && ! $this->conflict && ! $this->gone) {
+            return;
+        }
+
         $this->load();
     }
 
     /**
      * The other editor of this plan on the page — the post's, the photo's —
      * moved its version with a write of its own: taken, when it was written
-     * from the version this page holds. Any other move is somebody else's.
+     * from the version this page holds, the plan is at the version it says
+     * now, and its discussion is still the one this page last read or wrote.
+     * Any other move is somebody else's — or not one at all.
      */
     #[On(self::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
@@ -665,7 +746,7 @@ final class StudioPlanDiscussionEditor extends Component
             return;
         }
 
-        if ($previous === $this->lockVersion && $current === $previous + 1) {
+        if ($previous === $this->lockVersion && $current === $previous + 1 && $this->holdsSavedAt($current)) {
             $this->lockVersion = $current;
 
             return;
@@ -690,6 +771,8 @@ final class StudioPlanDiscussionEditor extends Component
         $people = User::query()->whereKey($personaIds)->with('avatarAsset.variants')->get()->keyBy('id');
         $context = $plan !== null ? StudioPostTextContext::of($plan->image_asset_id, $plan->imageAnalysis) : null;
         $listed = $this->participantMode === 'manual' ? $this->personaList() : new EloquentCollection;
+        $checked = $this->activeManual();
+        $most = $this->mostPersonas();
 
         return view('livewire.admin.studio-plan-discussion-editor', [
             'editable' => $this->writable(),
@@ -701,10 +784,18 @@ final class StudioPlanDiscussionEditor extends Component
             'analysed' => $context !== null && $context->complete,
             'mostNodes' => $this->mostNodes(),
             'mostRandom' => $this->mostRandom(),
-            'available' => app(PersonasQuery::class)->choosableCount(),
-            'personaCount' => $this->participantMode === 'random' ? $this->randomCount : count($this->manual),
+            'mostPersonas' => $most,
+            'available' => app(PersonasQuery::class)->activeCount(),
+            'personaCount' => $this->participantMode === 'random' ? $this->randomCount : count($checked),
             'pickedNames' => array_values(array_filter(array_map(fn (int $id): ?string => StudioPlanFormat::author($people->get($id))['name'] ?? null, $picked))),
-            'chosen' => array_values(array_filter(array_map(fn (int $id): ?array => StudioPlanFormat::author($people->get($id)), $this->manual))),
+            'chosen' => array_values(array_filter(array_map(fn (int $id): ?array => StudioPlanFormat::author($people->get($id)), $checked))),
+            'selectLabel' => match (true) {
+                $listed->count() > $most => 'Select first '.$most.(trim($this->participantSearch) !== '' ? ' shown' : ''),
+                trim($this->participantSearch) !== '' => 'Select '.$listed->count().' shown',
+                default => 'Select all',
+            },
+            'staleTexts' => $plan !== null && $rows !== [] && (StudioPlanDiscussionGeneration::lastTreeTakenIn($plan->id)
+                ?->writtenForOtherTexts(StudioDiscussionContext::textFingerprint($plan->title, $plan->description)) ?? false),
             'listed' => $listed->map(fn (User $persona): array => [
                 ...(StudioPlanFormat::author($persona) ?? []),
                 'short' => Str::limit((string) ($persona->personaProfile->short_description ?? ''), 90),
@@ -739,18 +830,21 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->lockVersion = $plan->lock_version;
+        $this->treeFingerprint = self::fingerprintOf($plan->discussionNodes()->get());
         $this->closed = ! $plan->isDraft();
     }
 
     /**
-     * Takes the version a write left, and says it to the editor around this
-     * one. What Undo would put back is the discussion before an earlier
-     * change, so it goes: putting it back now would undo this write too.
+     * Takes the version a write left, with the discussion as it wrote it, and
+     * says it to the editor around this one. What Undo would put back belongs
+     * to an earlier change, so it goes: putting it back now could undo this
+     * write too.
      */
     private function settle(SavedStudioDiscussion $saved): void
     {
         $previous = $this->lockVersion;
         $this->lockVersion = $saved->lockVersion;
+        $this->treeFingerprint = self::fingerprintOf($saved->nodes);
         $this->failure = null;
         $this->undo = null;
 
@@ -765,7 +859,7 @@ final class StudioPlanDiscussionEditor extends Component
      *
      * @param  Closure(list<array<string, mixed>>): list<array<string, mixed>>  $change
      */
-    private function write(Closure $change, ?string $focus = null, bool $remember = false): ?SavedStudioDiscussion
+    private function write(Closure $change, ?string $focus = null): ?SavedStudioDiscussion
     {
         $plan = $this->writablePlan();
 
@@ -773,8 +867,7 @@ final class StudioPlanDiscussionEditor extends Component
             return null;
         }
 
-        $before = $this->savedRows($plan);
-        [$data, $order] = self::data($change($before));
+        [$data, $order] = self::data($change($this->savedRows($plan)));
 
         try {
             $saved = app(SaveStudioDiscussionTreeAction::class)->handle($this->admin(), $plan, $data, $this->lockVersion);
@@ -789,10 +882,6 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->settle($saved);
-
-        if ($remember) {
-            $this->remember($before);
-        }
 
         return $saved;
     }
@@ -895,9 +984,9 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * Who writes a whole tree: the Personas checked, or as many picked at
-     * random as asked for — picked only when the tree is generated (`pick`),
-     * never when it is only checked whether it can be.
+     * Who writes a whole tree: the active Personas checked, or as many active
+     * ones picked at random as asked for — picked only when the tree is
+     * generated (`pick`), never when it is only checked whether it can be.
      *
      * @return list<int>|null
      */
@@ -906,7 +995,7 @@ final class StudioPlanDiscussionEditor extends Component
         $this->resetErrorBag('participants');
 
         if ($this->participantMode === 'manual') {
-            $team = array_values(array_filter($this->manual, fn (int $id): bool => app(PersonasQuery::class)->choosable($id) !== null));
+            $team = $this->activeManual();
 
             if ($team === []) {
                 $this->addError('participants', 'Select at least one persona.');
@@ -918,18 +1007,18 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->updatedRandomCount();
-        $available = app(PersonasQuery::class)->choosableCount();
+        $available = app(PersonasQuery::class)->activeCount();
 
         if ($available < $this->randomCount) {
             $this->addError('participants', $available === 0
-                ? 'There are no personas to pick from. Create a persona first.'
-                : "Only {$available} ".($available === 1 ? 'persona is' : 'personas are').' available. Pick fewer.');
+                ? 'There are no active personas to pick from.'
+                : "Only {$available} ".($available === 1 ? 'persona is' : 'personas are').' active. Pick fewer.');
 
             return null;
         }
 
         return $pick
-            ? app(PersonasQuery::class)->randomChoosable($this->randomCount)->map(fn (User $persona): int => (int) $persona->id)->values()->all()
+            ? app(PersonasQuery::class)->randomActive($this->randomCount)->map(fn (User $persona): int => (int) $persona->id)->values()->all()
             : [];
     }
 
@@ -986,10 +1075,10 @@ final class StudioPlanDiscussionEditor extends Component
         });
     }
 
-    /** @param list<array<string, mixed>> $before */
-    private function remember(array $before): void
+    /** @param list<array<string, mixed>> $rows the comments a change just written took or wrote again, as they were */
+    private function remember(array $rows): void
     {
-        $this->undo = ['token' => Str::random(16), 'tree' => $before];
+        $this->undo = ['token' => Str::random(16), 'rows' => $rows];
     }
 
     /** @param array{mode: string, id: int|null, parentId: int|null} $dialog */
@@ -1005,8 +1094,8 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * The Personas a new comment is offered to first: the team of the current
-     * tree, the ones checked, or any.
+     * The Personas a new comment is offered to first: the active ones of the
+     * current tree's team, the ones checked, or any active one.
      *
      * @return list<int>
      */
@@ -1014,12 +1103,24 @@ final class StudioPlanDiscussionEditor extends Component
     {
         $plan = StudioPlan::query()->find($this->planId);
         $team = $plan !== null ? $this->pickedForTree($plan) : [];
+        $team = array_values(array_filter($team, fn (int $id): bool => app(PersonasQuery::class)->active($id) !== null));
 
         if ($team === [] && $this->participantMode === 'manual') {
-            $team = $this->manual;
+            $team = $this->activeManual();
         }
 
-        return $team !== [] ? $team : app(PersonasQuery::class)->choices('', 2)->map(fn (User $persona): int => (int) $persona->id)->values()->all();
+        return $team !== [] ? $team : app(PersonasQuery::class)->activeChoices('', 2)->map(fn (User $persona): int => (int) $persona->id)->values()->all();
+    }
+
+    /**
+     * The Personas checked that are active now: who takes part. One checked
+     * before a sanction stays checked, and takes part again once lifted.
+     *
+     * @return list<int>
+     */
+    private function activeManual(): array
+    {
+        return array_values(array_filter($this->manual, fn (int $id): bool => app(PersonasQuery::class)->active($id) !== null));
     }
 
     /**
@@ -1044,10 +1145,10 @@ final class StudioPlanDiscussionEditor extends Component
         return array_map('intval', $generation->persona_user_ids);
     }
 
-    /** @return EloquentCollection<int, User> the Personas listed to check, matching the search */
+    /** @return EloquentCollection<int, User> the active Personas listed to check, matching the search */
     private function personaList(): EloquentCollection
     {
-        return app(PersonasQuery::class)->choices(mb_substr(trim($this->participantSearch), 0, 100), self::PERSONA_LIST)->load('personaProfile');
+        return app(PersonasQuery::class)->activeChoices(mb_substr(trim($this->participantSearch), 0, 100), self::PERSONA_LIST)->load('personaProfile');
     }
 
     /**
@@ -1078,6 +1179,20 @@ final class StudioPlanDiscussionEditor extends Component
         return $plan !== null
             ? collect(StudioDiscussionData::of($plan)->nodes)->first(fn (StudioDiscussionNodeData $node): bool => (int) $node->id === $id)
             : null;
+    }
+
+    /**
+     * Whether the plan is at this version now, with the discussion this page
+     * last read or wrote: what a move said by the editor around it is taken
+     * on, never on the browser's word alone.
+     */
+    private function holdsSavedAt(int $version): bool
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+
+        return $plan !== null
+            && $plan->lock_version === $version
+            && hash_equals($this->treeFingerprint, self::fingerprintOf($plan->discussionNodes()->get()));
     }
 
     private function writablePlan(): ?StudioPlan
@@ -1168,7 +1283,8 @@ final class StudioPlanDiscussionEditor extends Component
         $byId = collect($rows)->keyBy('id');
         $parent = $dialog['parentId'] !== null ? $byId->get($dialog['parentId']) : null;
         $hasReplies = $dialog['id'] !== null && collect($rows)->contains(fn (array $row): bool => $row['parentId'] === $dialog['id']);
-        $offered = app(PersonasQuery::class)->choices(mb_substr(trim($this->dialogSearch), 0, 100), self::DIALOG_PERSONAS);
+        // Active Personas for a new choice; the one chosen is shown whatever its status now.
+        $offered = app(PersonasQuery::class)->activeChoices(mb_substr(trim($this->dialogSearch), 0, 100), self::DIALOG_PERSONAS);
         $chosen = $this->dialogPersona !== null ? $people->get($this->dialogPersona) : null;
 
         if ($chosen !== null && ! $offered->contains('id', $chosen->id)) {
@@ -1254,10 +1370,10 @@ final class StudioPlanDiscussionEditor extends Component
         return max(1, app(StudioDiscussionGenerator::class)->maxPersonas());
     }
 
-    /** The most Personas a random team can have: as many as there are, up to the most that take part. */
+    /** The most Personas a random team can have: as many as are active, up to the most that take part. */
     private function mostRandom(): int
     {
-        return max(1, min($this->mostPersonas(), app(PersonasQuery::class)->choosableCount()));
+        return max(1, min($this->mostPersonas(), app(PersonasQuery::class)->activeCount()));
     }
 
     /** @param Collection<int, User> $people */
@@ -1323,29 +1439,57 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * The discussion as it was, put back over the one there is now: a comment
-     * still there keeps its id, one deleted since comes back as a new one.
+     * What Undo puts back into the discussion there is now, and nothing else:
+     * a comment taken that is still there gets its text back — one written
+     * again — and one gone comes back as a new one, under its comment when
+     * that is still there or comes back with it.
      *
-     * @param  list<array<string, mixed>>  $snapshot
+     * @param  list<array<string, mixed>>  $taken  the comments as they were before the change
      * @param  list<array<string, mixed>>  $current
      * @return list<array<string, mixed>>
      */
-    private static function restored(array $snapshot, array $current): array
+    private static function restored(array $taken, array $current): array
     {
+        $before = array_column($taken, 'body', 'id');
         $there = array_flip(array_map(fn (array $row): int => (int) $row['id'], $current));
+        $rows = array_map(fn (array $row): array => array_key_exists($row['id'], $before) ? [...$row, 'body' => $before[$row['id']]] : $row, $current);
 
-        return array_map(function (array $row) use ($there): array {
-            $kept = isset($there[(int) $row['id']]);
-            $parentKept = $row['parentId'] === null || isset($there[(int) $row['parentId']]);
+        foreach ($taken as $row) {
+            if (isset($there[(int) $row['id']])) {
+                continue;
+            }
 
-            return [
+            $parentThere = $row['parentId'] === null || isset($there[(int) $row['parentId']]);
+            $rows[] = [
                 ...$row,
-                'id' => $kept ? $row['id'] : null,
-                'key' => $kept ? null : 'u'.$row['id'],
-                'parentId' => $parentKept ? $row['parentId'] : null,
-                'parentKey' => $parentKept ? null : 'u'.$row['parentId'],
+                'id' => null,
+                'key' => 'u'.$row['id'],
+                'parentId' => $parentThere ? $row['parentId'] : null,
+                'parentKey' => $parentThere ? null : 'u'.$row['parentId'],
             ];
-        }, $snapshot);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * A discussion in one value: every comment's id, parent, Persona, text,
+     * place and time, by id — what tells whether the plan still has the
+     * discussion this page last read or wrote.
+     *
+     * @param  iterable<StudioDiscussionNode>  $nodes
+     */
+    private static function fingerprintOf(iterable $nodes): string
+    {
+        $rows = [];
+
+        foreach ($nodes as $node) {
+            $rows[(int) $node->id] = [(int) $node->id, $node->parent_id, $node->persona_user_id, (string) $node->body, (int) $node->sort_order, (int) $node->offset_seconds];
+        }
+
+        ksort($rows);
+
+        return hash('sha256', json_encode(array_values($rows), JSON_THROW_ON_ERROR));
     }
 
     /**

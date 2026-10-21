@@ -117,6 +117,37 @@ class StudioPlanDiscussionGeneration extends Model
         return is_int($id) ? $id : null;
     }
 
+    /**
+     * The whole tree of the plan taken in last — the one its discussion was
+     * written as, unless it has been changed since — locked when asked.
+     */
+    public static function lastTreeTakenIn(int $planId, bool $lock = false): ?self
+    {
+        $query = self::query()
+            ->where('studio_plan_id', $planId)
+            ->where('mode', StudioDiscussionGenerationMode::FullDiscussion)
+            ->whereNotNull('applied_at')
+            ->orderByDesc('applied_at')
+            ->orderByDesc('id');
+
+        return ($lock ? $query->lockForUpdate() : $query)->first();
+    }
+
+    /**
+     * Whether a whole tree was written for other texts of the post than these
+     * (StudioDiscussionContext::textFingerprint()), and was not kept for
+     * them. One asked for before the texts were kept with it says nothing.
+     */
+    public function writtenForOtherTexts(string $textFingerprint): bool
+    {
+        $source = $this->parameters['source_text_fingerprint'] ?? null;
+        $kept = $this->parameters['kept_text_fingerprint'] ?? null;
+
+        return is_string($source)
+            && ! hash_equals($source, $textFingerprint)
+            && ! (is_string($kept) && hash_equals($kept, $textFingerprint));
+    }
+
     /** Whether it was written from this context: the photo, its analysis, the post with its discussion, and the Personas. */
     public function isFor(int $imageAssetId, string $analysisHash, string $discussionHash, string $personasHash): bool
     {

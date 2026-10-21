@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Studio\UpdateStudioPlanAction;
+use App\Data\Studio\StudioPlanData;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
@@ -143,6 +145,53 @@ it('takes no version written elsewhere: the post editor says the draft changed, 
     'a version skipped' => [1, 3],
     'a save from another version' => [2, 3],
 ]);
+
+it('takes no move the plan does not have: a version it is not at, or the post saved by somebody else', function (Closure $meanwhile) {
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'Typed');
+    $meanwhile($this);
+
+    $page->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'discussion')
+        ->assertSet('stale', true)->assertSet('lockVersion', 1)->assertSet('postTitle', 'Typed');
+})->with([
+    'nothing moved it' => [fn ($test) => null],
+    'another administrator\'s post' => [fn ($test) => app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $test->plan->fresh(), new StudioPlanData(title: 'Theirs'), 1)],
+]);
+
+it('writes nothing over another administrator\'s post after a move said in its name', function () {
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'Typed');
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $this->plan->fresh(), new StudioPlanData(title: 'Theirs'), 1);
+
+    $page->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'discussion')
+        ->call('save')->assertDispatched('rg-admin-toast', message: 'Someone saved this draft after you opened it, so nothing was saved.');
+
+    expect($this->plan->fresh())->title->toBe('Theirs')->lock_version->toBe(2);
+});
+
+it('reloads the discussion with the post, and takes the version the discussion reloaded at while the post is as drawn', function () {
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id]);
+    commentFromDialog(discussionEditor($this->plan), $this->persona, 'Theirs.')->assertHasNoErrors();
+
+    $page->call('reload')->assertSet('lockVersion', 2)
+        ->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 2, source: 'editor');
+    $page->call('discard')->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 2, source: 'editor');
+
+    // Somebody else's discussion save: the post is as this editor drew it, so the discussion's Reload is enough.
+    $page->set('postTitle', 'Typed');
+    commentFromDialog(discussionEditor($this->plan), $this->persona, 'More of theirs.')->assertHasNoErrors();
+    $page->call('save')->assertSet('stale', true);
+    $page->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 3, source: 'discussion')
+        ->assertSet('stale', false)->assertSet('lockVersion', 3)->assertSet('postTitle', 'Typed');
+
+    $page->call('save')->assertSet('stale', false)->assertDispatched('rg-admin-toast', message: 'Draft saved');
+    expect($this->plan->fresh())->title->toBe('Typed')->lock_version->toBe(4);
+
+    // Somebody else's post save: this editor still asks for its own Reload.
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $this->plan->fresh(), new StudioPlanData(title: 'Theirs'), 4);
+    $page->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 5, source: 'discussion')
+        ->assertSet('stale', true)->assertSet('lockVersion', 4);
+    // Its own word changes nothing.
+    $page->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 5, source: 'editor')->assertSet('lockVersion', 4);
+});
 
 it('ignores what is not its own plan\'s discussion, or a move it already holds', function (Closure $event) {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])

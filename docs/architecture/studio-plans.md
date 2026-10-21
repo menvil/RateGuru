@@ -328,22 +328,55 @@ on the post by its time with its replies under it, labelled C1, C2, … in that
 order, and writes every change to the plan the moment it is made, through
 `SaveStudioDiscussionTreeAction` and nothing else — as the Image step writes
 the photo. A comment is written, answered (comments on the post only) or
-edited in a dialog: its Persona (one `PersonasQuery` offers), the comment it
-replies to, its text and its moment after the post in minutes, hours or days;
-Save writes it, and what the action refuses stays by its field. Delete asks
-first — a comment's replies go with it — and Timing changes a comment's moment
-in place. Each comment's place among its siblings follows its time. A deletion,
-and a comment written again, can be undone from the toast that follows: the
-discussion as it was is written back, a comment deleted since coming back as a
-new one.
+edited in a dialog: its Persona, the comment it replies to, its text and its
+moment after the post in minutes, hours or days; Save writes it, and what the
+action refuses stays by its field. Delete asks first — a comment's replies go
+with it — and Timing changes a comment's moment in place. Each comment's place
+among its siblings follows its time. A deletion, and a comment written again,
+can be undone from the toast that follows, and only that: the comments deleted
+come back as new ones, under their comment when it is still there; the comment
+written again gets its text back. Nothing else of the discussion changes, and
+the next write here — or a Reload — leaves nothing to undo, so Undo never puts
+anything back over a later change.
+
+New choices are of active Personas only (`UserStatus::Active`, through
+`PersonasQuery`): the ones offered to check under Manual and counted there, a
+random team and its count, and the Personas a comment's dialog offers. A
+Limited, Shadowbanned or Banned Persona checked earlier stays checked but takes
+no part while restricted; a comment already written by one still shows it,
+and its dialog keeps it as the author. What a Draft may store is unchanged:
+`SaveStudioDiscussionTreeAction` still takes any living Persona. Select all
+checks up to as many as take part in one discussion
+(`content_studio.discussion_generation.max_personas`), and both the button and
+the count say so.
 
 The plan keeps one `lock_version` for every write, so each write on the page —
 the post's Save draft, a photo, and every change here — tells the other editor
 the version it was written from and the one it left
-(`studio-plan-version-moved`). The other takes the new version only when the
-write was made from the version it holds, one step on — never re-reading what
-it holds, which may be typed and unsaved; any other move is somebody else's
-save, and the next write there is refused until Reload.
+(`studio-plan-version-moved`). Since that comes through the browser, the other
+takes the new version only when the write was made from the version it holds,
+one step on, the plan is at that version now, and what it holds of the plan is
+still what the plan has: the post editor compares its fingerprint of the
+post's texts and settings, never re-reading the fields, which may be typed and
+unsaved; the Discussion step compares a fingerprint of the discussion as it
+last read or wrote it. Any other move is somebody else's save, and the next
+write there is refused until Reload. A Reload of either editor is said to the
+other (`studio-plan-reloaded`): the post editor's Reload, or Discard, draws the
+discussion again too; the Discussion step's Reload hands the post editor the
+version it drew, taken while the post is as that editor drew it — what is typed
+staying as typed — and otherwise leaving the post editor asking for its own.
+
+A whole tree keeps the fingerprint of the post's final title and description
+it was written for (`source_text_fingerprint` in its parameters,
+`StudioDiscussionContext::textFingerprint()`: each text trimmed, an empty one
+as none). While the discussion has comments and the whole tree taken in last
+was written for other texts than the plan holds now, the step says so — the
+discussion was generated for an earlier title or description — with
+Regenerate, which asks before replacing the tree, and Keep as is, which records
+the texts it is kept for on that generation (`kept_text_fingerprint`,
+`KeepStudioDiscussionAction`) without changing the plan or its version, until
+they change again. A tree asked for before generations kept their texts says
+nothing.
 
 Generation is asked for there, and only there, on an explicit request, never
 while the post has unsaved changes — a generation is written from what is

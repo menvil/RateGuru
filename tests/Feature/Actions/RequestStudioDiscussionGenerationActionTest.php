@@ -22,6 +22,7 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
+use App\Support\StudioAi\StudioDiscussionContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Carbon;
@@ -85,6 +86,8 @@ it('queues one whole discussion by the Personas chosen, its job carrying only tw
         ->result->toBeNull()
         ->applied_at->toBeNull()
         ->and($generation->parameters)->toMatchArray(['root_count' => 3, 'reply_count' => 4, 'tone' => 'irony', 'expected_lock_version' => 1])
+        // The post's texts it is written for, so the editor can say once they change.
+        ->and($generation->parameters['source_text_fingerprint'])->toBe(StudioDiscussionContext::textFingerprint($this->plan->title, $this->plan->description))
         ->and($generation->source_analysis_hash)->toHaveLength(64)
         ->and($generation->source_discussion_hash)->toHaveLength(64)
         ->and($generation->source_personas_hash)->toHaveLength(64)
@@ -148,7 +151,9 @@ it('writes a part of the discussion again by its own authors, whatever Personas 
     expect($generation)->mode->toBe($mode)->target_node_id->toBe($target($saved->ids))
         ->and($generation->persona_user_ids)->toBe($authors($this))
         ->and($generation->targetNodeId())->toBe($target($saved->ids))
-        ->and($generation->source_lock_version)->toBe(2);
+        ->and($generation->source_lock_version)->toBe(2)
+        // Only a whole tree says which texts it was written for.
+        ->and($generation->parameters)->not->toHaveKey('source_text_fingerprint');
 })->with([
     'a comment' => [StudioDiscussionGenerationMode::RegenerateComment, fn (array $ids) => $ids['a'], fn ($test) => [$test->anna->id]],
     'a reply' => [StudioDiscussionGenerationMode::RegenerateReply, fn (array $ids) => $ids['a1'], fn ($test) => [$test->boris->id]],

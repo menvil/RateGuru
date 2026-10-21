@@ -382,8 +382,9 @@ while the plan still has what it was written from (`docs/architecture/studio-pla
 Its third step is in code: the editor's Discussion step (`StudioPlanDiscussionEditor`), working as the prototype's:
 settings, Generate tree — asked first when it would replace comments, its tree taken in the moment it is ready —
 and the discussion tree, each comment written, answered or edited in a dialog, written again by Regenerate or
-deleted, Delete and Regenerate undone from their toast, every change written to the plan at once
-(`docs/architecture/studio-plans.md`, "The editor"). Still to
+deleted, Delete and Regenerate undone from their toast until the next change, every change written to the plan at
+once, active Personas only for a new choice, and a tree written for an earlier title or description said so, with
+Regenerate and Keep as is (`docs/architecture/studio-plans.md`, "The editor"). Still to
 come in this phase: publishing the discussion as comments and replies. Phase 5 is not finished.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it

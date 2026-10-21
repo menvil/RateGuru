@@ -49,7 +49,9 @@ use Throwable;
  * part; the part is still in the plan's discussion at the level asked; and
  * the post has a finished analysis of its photo and a final title to write
  * from (StudioDiscussionContext). What it is written from is kept as hashes,
- * so a proposal is used only while the plan still has the same.
+ * so a proposal is used only while the plan still has the same; a whole one
+ * also keeps the fingerprint of the post's final title and description, so
+ * the editor can say once a tree taken in was written for earlier texts.
  *
  * A paid request is never asked for twice by accident: while a generation of
  * the plan is waiting or running, asking again — a double click, or a second
@@ -232,6 +234,9 @@ final class RequestStudioDiscussionGenerationAction
                 'reply_count' => $data->mode->isTargeted() ? 0 : $data->replyCount,
                 'tone' => $data->tone->value,
                 'expected_lock_version' => $data->expectedLockVersion,
+                // The post's texts a whole tree is written for, so the editor
+                // can say once they have changed since.
+                ...($data->mode->isTargeted() ? [] : ['source_text_fingerprint' => StudioDiscussionContext::textFingerprint($locked->title, $locked->description)]),
             ],
             'source_lock_version' => $locked->lock_version,
             'source_image_asset_id' => $context->imageAssetId,

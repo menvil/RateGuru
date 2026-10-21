@@ -68,7 +68,8 @@ it('keeps the plan, its version and what it acts on where the browser cannot mov
     'who writes in it' => ['dialogPersona', 1],
     'the personas checked' => ['manual', [1]],
     'the generation awaited' => ['awaiting', 1],
-    'what Undo puts back' => ['undo', ['token' => 'x', 'tree' => []]],
+    'what Undo puts back' => ['undo', ['token' => 'x', 'rows' => []]],
+    'the discussion it holds' => ['treeFingerprint', 'x'],
 ]);
 
 it('draws the tree as saved: each comment on the post by its time, its replies under it, labelled in order', function () {
@@ -204,13 +205,34 @@ it('refuses a reply before the comment it answers, in its dialog', function () {
         ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->offset_seconds)->toBe(60);
 });
 
-it('chooses only a living persona in the dialog', function () {
-    $this->anna->forceFill(['status' => UserStatus::Deleted])->save();
+it('chooses only an active persona in the dialog, keeping the author of a comment edited whatever its status', function (UserStatus $status) {
+    $saved = savedFour($this);
+    $this->anna->forceFill(['status' => $status])->save();
 
-    discussionEditor($this->plan)->call('openNew')->call('choosePersona', $this->anna->id)
-        ->assertHasErrors(['dialogPersona'])
+    discussionEditor($this->plan)->call('openNew')
+        ->assertDontSeeHtml('wire:click="choosePersona('.$this->anna->id.')"')
+        ->call('choosePersona', $this->anna->id)
+        ->assertHasErrors(['dialogPersona'])->assertSee('Choose an active persona.')
         ->assertSet('dialogPersona', fn ($persona) => $persona !== $this->anna->id);
-});
+
+    if ($status === UserStatus::Deleted) {
+        return;
+    }
+
+    // Her own comment still shows her, and keeps her when saved.
+    discussionEditor($this->plan)->call('openEdit', $saved->ids['a'])
+        ->assertSet('dialogPersona', $this->anna->id)->assertSee('Anna')
+        ->call('choosePersona', $this->boris->id)->call('choosePersona', $this->anna->id)
+        ->assertHasNoErrors()->assertSet('dialogPersona', $this->anna->id)
+        ->set('dialogBody', 'Lovely light, still.')->call('saveDialog')->assertHasNoErrors();
+
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a']))->body->toBe('Lovely light, still.')->persona_user_id->toBe($this->anna->id);
+})->with([
+    'limited' => [UserStatus::Limited],
+    'shadowbanned' => [UserStatus::Shadowbanned],
+    'banned' => [UserStatus::Banned],
+    'deleted' => [UserStatus::Deleted],
+]);
 
 it('asks before deleting, a comment with its replies as a branch, and undoes it from the toast', function () {
     $saved = savedFour($this);
@@ -239,19 +261,44 @@ it('asks before deleting, a comment with its replies as a branch, and undoes it 
         ->and(StudioDiscussionNode::query()->where('body', 'Where is this?')->sole()->id)->toBe($saved->ids['b']);
 });
 
-it('forgets Undo once the discussion is written or read again, so it never puts the old one back over a later change', function () {
+it('undoes a deletion only while nothing was written or read since, never over a later change', function (Closure $since) {
     $saved = savedFour($this);
     $editor = discussionEditor($this->plan)->call('askDelete', $saved->ids['a1'])->call('confirmDelete');
     $token = $editor->get('undo')['token'];
 
-    $editor->call('setOffset', $saved->ids['b'], 7200)->assertSet('undo', null)
-        ->dispatch('undo-studio-discussion', token: $token);
+    $since($editor, $this, $saved);
+    $editor->assertSet('undo', null)->dispatch('undo-studio-discussion', token: $token);
+    $after = storedStudioDiscussionNodes($this->plan);
+
+    $editor->dispatch('undo-studio-discussion', token: $token);
 
     expect(StudioDiscussionNode::query()->whereKey($saved->ids['a1'])->exists())->toBeFalse()
-        ->and(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
+        ->and(StudioDiscussionNode::query()->where('body', 'Agreed.')->exists())->toBeFalse()
+        ->and(storedStudioDiscussionNodes($this->plan))->toBe($after);
+})->with([
+    'a comment added' => [function ($editor, $test) {
+        commentFromDialog($editor, $test->boris, 'Added since.')->assertHasNoErrors();
+        expect(StudioDiscussionNode::query()->where('body', 'Added since.')->exists())->toBeTrue();
+    }],
+    'a time changed' => [function ($editor, $test, $saved) {
+        $editor->call('setOffset', $saved->ids['b'], 7200)->assertHasNoErrors();
+        expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
+    }],
+    'a Reload' => [fn ($editor) => $editor->call('reload')],
+]);
 
-    $editor->call('askDelete', $saved->ids['b'])->call('confirmDelete')->assertSet('undo', fn ($undo) => $undo !== null)
-        ->dispatch('reload-studio-discussion')->assertSet('undo', null);
+it('puts back only what was deleted, and writes nothing over another administrator\'s change made since', function () {
+    $saved = savedFour($this);
+    $editor = discussionEditor($this->plan)->call('askDelete', $saved->ids['a'])->call('confirmDelete');
+    rewordStudioComment(User::factory()->admin()->create(), $this->plan, $saved->ids['b'], 'Theirs.');
+    $theirs = storedStudioDiscussionNodes($this->plan);
+
+    $editor->dispatch('undo-studio-discussion', token: $editor->get('undo')['token'])
+        ->assertSet('conflict', true)
+        ->assertDispatched('rg-admin-toast', message: 'Someone changed this draft after you opened it, so nothing was saved. Reload to see their version.');
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($theirs)
+        ->and(StudioDiscussionNode::query()->pluck('body')->all())->toBe(['Theirs.']);
 });
 
 it('asks before deleting a reply alone, and cancels', function () {
@@ -359,6 +406,8 @@ it('writes nothing but the discussion: no post, comment, action or job', functio
 
 it('takes a version this page\'s other editor moved, and no other', function () {
     $editor = discussionEditor($this->plan);
+    // The post editor's save, as it moves the plan.
+    $this->plan->forceFill(['title' => 'A harbour at dawn', 'lock_version' => 2])->save();
 
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('lockVersion', 2)->assertSet('conflict', false);
@@ -370,4 +419,38 @@ it('takes a version this page\'s other editor moved, and no other', function () 
     // A jump from a version it never held is somebody else's.
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 5, current: 6, source: 'editor')
         ->assertSet('lockVersion', 2)->assertSet('conflict', true);
+});
+
+it('takes no move the plan does not have: a version it is not at, or a discussion changed by somebody else', function (Closure $meanwhile) {
+    $saved = savedFour($this);
+    $editor = discussionEditor($this->plan)->assertSet('lockVersion', 2);
+    $meanwhile($this);
+    $before = storedStudioDiscussionNodes($this->plan);
+
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor')
+        ->assertSet('lockVersion', 2)->assertSet('conflict', true)
+        ->assertSee('Reload discussion');
+
+    $editor->call('askDelete', $saved->ids['a'])->call('confirmDelete');
+    commentFromDialog($editor, $this->anna, 'Mine.');
+
+    expect(storedStudioDiscussionNodes($this->plan))->toBe($before);
+})->with([
+    'nothing moved it' => [fn ($test) => null],
+    'another administrator\'s discussion' => [fn ($test) => rewordStudioComment(User::factory()->admin()->create(), $test->plan, StudioDiscussionNode::query()->where('body', 'Lovely light.')->value('id'), 'Theirs.')],
+    'moved past it' => [fn ($test) => $test->plan->forceFill(['lock_version' => 4])->save()],
+]);
+
+it('draws the discussion again when the editor around it reloads the plan, and says its own Reload to it', function () {
+    savedFour($this);
+    $editor = discussionEditor($this->plan);
+    rewordStudioComment(User::factory()->admin()->create(), $this->plan, StudioDiscussionNode::query()->where('body', 'Lovely light.')->value('id'), 'Theirs.');
+    commentFromDialog($editor, $this->anna, 'Mine.')->assertSet('conflict', true);
+
+    // The editor around it at the version it holds already: nothing to draw.
+    $editor->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 3, source: 'discussion')->assertSet('conflict', true);
+    $editor->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 3, source: 'editor')
+        ->assertSet('conflict', false)->assertSet('lockVersion', 3)->assertSee('Theirs.');
+
+    $editor->call('reload')->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 3, source: 'discussion');
 });

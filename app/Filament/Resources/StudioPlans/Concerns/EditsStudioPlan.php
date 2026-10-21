@@ -627,9 +627,12 @@ trait EditsStudioPlan
     /**
      * The discussion's editor on this page (StudioPlanDiscussionEditor) moved
      * the plan's version with a save of its own: taken, when it was written
-     * from the version this editor holds — never re-reading the post's
-     * fields, which may hold what is typed and unsaved. Any other move is
-     * somebody else's, said by versionMovedElsewhere().
+     * from the version this editor holds, the plan is at the version it says
+     * now, and the post's texts and settings are still the ones this editor
+     * drew (holdsSaved()) — what the browser says is never enough. The
+     * post's fields are never read again: they may hold what is typed and
+     * unsaved. Any other move is somebody else's, said by
+     * versionMovedElsewhere().
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
@@ -639,8 +642,34 @@ trait EditsStudioPlan
             return;
         }
 
-        if ((int) $previous === $this->lockVersion && (int) $current === $this->lockVersion + 1) {
+        if ((int) $previous === $this->lockVersion && (int) $current === $this->lockVersion + 1 && $this->holdsSavedAt((int) $current)) {
             $this->lockVersion = (int) $current;
+            $this->versionTaken();
+
+            return;
+        }
+
+        $this->versionMovedElsewhere();
+    }
+
+    /**
+     * The discussion's editor on this page drew the plan again — its Reload
+     * — at the version it says: taken here too when the plan is at it with
+     * the post as this editor drew it, what is typed staying as typed.
+     * Otherwise the post changed as well, and this editor asks for its own
+     * Reload.
+     */
+    #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
+    public function followReload(mixed $planId, mixed $current, mixed $source = null): void
+    {
+        if ($source !== 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+            || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            return;
+        }
+
+        if ($this->holdsSavedAt((int) $current)) {
+            $this->lockVersion = (int) $current;
+            $this->versionTaken();
 
             return;
         }
@@ -650,6 +679,28 @@ trait EditsStudioPlan
 
     /** The plan moved to a version neither editor on this page wrote. */
     protected function versionMovedElsewhere(): void {}
+
+    /** The plan moved to a version taken here: the other editor's, with the post as this one drew it. */
+    protected function versionTaken(): void {}
+
+    /** Whether the plan's texts and settings are still the ones this editor last drew or saved. */
+    abstract protected function holdsSaved(StudioPlan $plan): bool;
+
+    /** Says to the discussion's editor on the page that this one drew the plan again, at the version it holds now. */
+    protected function saidReloaded(): void
+    {
+        if ($this->planId !== 0) {
+            $this->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->planId, current: $this->lockVersion, source: 'editor');
+        }
+    }
+
+    /** Whether the plan is at this version now, its post as this editor holds it saved. */
+    private function holdsSavedAt(int $version): bool
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+
+        return $plan !== null && $plan->lock_version === $version && $this->holdsSaved($plan);
+    }
 
     /**
      * Takes the version a write of this editor's left, and says so to the

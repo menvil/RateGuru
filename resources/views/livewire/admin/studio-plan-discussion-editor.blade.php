@@ -108,8 +108,8 @@
                     @else
                         <x-admin.ui.search-field placeholder="Search by login or name" wire:model.live.debounce.300ms="participantSearch" autocomplete="off" />
                         <div class="rg-admin-studio__discussion-count">
-                            <span>{{ count($chosen) }} of {{ $available }} active personas selected</span>
-                            <button type="button" class="rg-admin-studio__text-button" wire:click="selectShown">{{ $searching ? 'Select '.count($listed).' shown' : 'Select all' }}</button>
+                            <span>{{ count($chosen) }} of {{ $available }} active personas selected · up to {{ $mostPersonas }} take part</span>
+                            <button type="button" class="rg-admin-studio__text-button" wire:click="selectShown">{{ $selectLabel }}</button>
                             <button type="button" class="rg-admin-studio__text-button" wire:click="clearParticipants">Clear</button>
                         </div>
                         @if ($chosen !== [])
@@ -141,7 +141,7 @@
                                     </span>
                                 </button>
                             @empty
-                                <p class="rg-admin-hint rg-admin-studio__persona-none">{{ $searching ? 'No active personas match “'.$participantSearch.'”.' : 'There are no personas yet. Create one first.' }}</p>
+                                <p class="rg-admin-hint rg-admin-studio__persona-none">{{ $searching ? 'No active personas match “'.$participantSearch.'”.' : 'There are no active personas.' }}</p>
                             @endforelse
                         </div>
                     @endif
@@ -179,6 +179,18 @@
             @if ($editable)
                 <x-slot:actions>
                     <x-admin.ui.button size="sm" icon="refresh-cw" x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)">Try again</x-admin.ui.button>
+                </x-slot:actions>
+            @endif
+        </x-admin.ui.inline-notice>
+    @endif
+
+    @if ($staleTexts && ! $busy)
+        <x-admin.ui.inline-notice tone="info">
+            The discussion was generated for an earlier title or description. It isn’t regenerated automatically.
+            @if ($editable)
+                <x-slot:actions>
+                    <x-admin.ui.button size="sm" :disabled="$generateBlocked" x-bind:disabled="{{ $generateBlocked ? 'true' : 'false' }} || $store.adminEditor?.changes > 0" x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)">Regenerate</x-admin.ui.button>
+                    <x-admin.ui.button size="sm" wire:click="keepDiscussion">Keep as is</x-admin.ui.button>
                 </x-slot:actions>
             @endif
         </x-admin.ui.inline-notice>

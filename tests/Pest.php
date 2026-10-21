@@ -13840,6 +13840,25 @@ function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): Save
     return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }
 
+/**
+ * Another administrator's save of the plan's discussion, from the version
+ * the plan has now: every comment kept with its id, this one's text changed.
+ */
+function rewordStudioComment(User $admin, StudioPlan $plan, int $nodeId, string $body): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, array_map(
+        fn (StudioDiscussionNodeData $node): StudioDiscussionNodeData => $node->id !== $nodeId ? $node : new StudioDiscussionNodeData(
+            id: $node->id,
+            parentId: $node->parentId,
+            personaUserId: $node->personaUserId,
+            body: $body,
+            sortOrder: $node->sortOrder,
+            offsetSeconds: $node->offsetSeconds,
+        ),
+        StudioDiscussionData::of(StudioPlan::query()->findOrFail($plan->id))->nodes,
+    ));
+}
+
 // =============================================================================
 // Content Studio execution
 // =============================================================================
