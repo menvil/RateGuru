@@ -14,14 +14,16 @@
     the parts of the page drawn by others: each comment's counts on the tree,
     the comment whose breakdown is open, all of them in a few words for the
     Generate strip, and whether anything is unsaved, which the step's Back,
-    Continue and steps ask about before leaving. Registered
+    Continue and steps ask about before leaving — and, from the discussion
+    editor, whether a generation is on its way, while which the Timing tab
+    moves no comment. Registered
     once, before Alpine starts; a re-render keeps the registration.
 --}}
 <script>
     (() => {
         const register = () => {
             if (! window.Alpine.store('rgCommentVotes')) {
-                window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null })
+                window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null, generating: false })
             }
         }
 

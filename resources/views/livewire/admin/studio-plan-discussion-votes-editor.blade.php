@@ -342,7 +342,21 @@
                                             },
                                         }"
                                     >
-                                        <input type="text" inputmode="decimal" class="rg-admin-studio__offset-input" aria-label="Offset of {{ $row['action'] }}{{ $row['kind'] === 'vote' ? ' by '.($row['who']['name'] ?? 'a deleted user').' on '.$row['parent'] : '' }}" :value="value" x-on:change="commit($event.target)" @disabled($row['kind'] === 'vote' ? ! $editable : ! $moving) />
+                                        {{-- No comment moves while the discussion editor says a generation is on its way. --}}
+                                        <input
+                                            type="text"
+                                            inputmode="decimal"
+                                            class="rg-admin-studio__offset-input"
+                                            aria-label="Offset of {{ $row['action'] }}{{ $row['kind'] === 'vote' ? ' by '.($row['who']['name'] ?? 'a deleted user').' on '.$row['parent'] : '' }}"
+                                            :value="value"
+                                            x-on:change="commit($event.target)"
+                                            @if ($row['kind'] === 'vote')
+                                                @disabled(! $editable)
+                                            @else
+                                                @disabled(! $moving)
+                                                x-bind:disabled="{{ $moving ? 'false' : 'true' }} || $store.rgCommentVotes?.generating"
+                                            @endif
+                                        />
                                         <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
                                             @foreach (array_keys($units) as $unit)
                                                 <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="unit = @js($unit)">{{ $unit }}</button>

@@ -16,7 +16,6 @@ use App\Models\RatingVote;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
-use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanVote;
 use App\Models\User;
 use Illuminate\Support\Facades\Bus;
@@ -437,7 +436,7 @@ it('takes the version a Save draft or a save of the post votes moved, so its own
 it('draws in the page\'s Discussion step, its cards beside the Discussion settings, the breakdown beside the tree, the voters on its tab, and a new publication asks for its draft first', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
         ->assertSeeHtml('wire:name="admin.studio-plan-discussion-votes-editor" wire:key="studio-plan-discussion-votes-'.$this->plan->id.'"')
-        ->assertSeeHtml("window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null })");
+        ->assertSeeHtml("window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null, generating: false })");
 
     discussionEditor($this->plan)->assertSeeHtmlInOrder([
         'Discussion settings',
@@ -503,12 +502,9 @@ it('lists every comment, reply and vote on them in one list on the tree\'s Timin
     $editor->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-timing">', 'Offset from post', 'After its parent', 'Comment C1', 'Reply C2', 'Vote', 'The votes changed here are not saved yet', 'Save votes', '</template>'])
         ->assertSeeHtml('x-on:change="commit($event.target)"')
         ->assertSeeHtml("\$dispatch('studio-discussion-offset', { id: {$this->c1}, seconds })")
-        ->assertViewHas('moving', true);
-
-    // While a generation is on its way, no comment is moved.
-    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id]);
-
-    discussionVotesEditor($this->plan)->assertViewHas('moving', false);
+        ->assertViewHas('moving', true)
+        // No comment moves while the discussion editor says a generation is on its way.
+        ->assertSeeHtml('x-bind:disabled="false || $store.rgCommentVotes?.generating"');
 });
 
 it('sets a vote\'s own moment on the Timing tab — never before its comment, nor past thirty days — keeps it through a save and a reload, and spreads the votes again on a new timing', function () {

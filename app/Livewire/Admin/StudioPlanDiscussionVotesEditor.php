@@ -14,12 +14,10 @@ use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
-use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\BuildStudioDiscussionVotesData;
 use App\Support\Studio\StudioVoteValidationRules;
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -627,7 +625,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
             ],
             'breakdown' => $chosenNode !== null ? $this->breakdown($chosenNode, $shown, $people, $labels, $nodes, $problems) : null,
             'timing' => $this->timing($nodes, $shown, $saved, $people, $labels, $problems),
-            'moving' => $plan !== null && ! $this->gone && ! $this->closed && ! self::generating($plan),
+            'moving' => $plan !== null && ! $this->gone && ! $this->closed,
             'changes' => $this->leaving !== null ? $this->changes($nodes, $saved, $labels) : [],
         ]);
     }
@@ -1410,12 +1408,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
         usort($rows, fn (array $a, array $b): int => [$a['seconds'], $a['order']] <=> [$b['seconds'], $b['order']]);
 
         return $rows;
-    }
-
-    /** Whether a generation of the discussion is on its way: its comments are not moved meanwhile. */
-    private static function generating(StudioPlan $plan): bool
-    {
-        return StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $plan->id)->latest('id')->first()?->isUnderway(CarbonImmutable::now()) ?? false;
     }
 
     /** A comment's label in the tree, read when one action needs it. */

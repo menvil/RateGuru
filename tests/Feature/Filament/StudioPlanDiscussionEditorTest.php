@@ -14,6 +14,7 @@ use App\Models\Post;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -386,6 +387,14 @@ it('keeps the Timing tab for the votes editor to draw, and moves a comment the t
     $editor->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['a1'], seconds: 10)
         ->assertDispatched('rg-admin-toast', message: 'A reply cannot come before the comment it answers.');
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a1'])->offset_seconds)->toBe(120);
+
+    // While a generation is on its way, it says so to the tab, and moves nothing.
+    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id]);
+
+    discussionEditor($this->plan)->assertSet('awaiting', fn (?int $awaiting): bool => $awaiting !== null)
+        ->assertSeeHtml('x-effect="$store.rgCommentVotes && ($store.rgCommentVotes.generating = $wire.awaiting !== null)"')
+        ->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['b'], seconds: 60)->assertNotDispatched(StudioPlanDiscussionEditor::VERSION_EVENT);
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
 });
 
 it('holds forty comments and replies at most', function () {

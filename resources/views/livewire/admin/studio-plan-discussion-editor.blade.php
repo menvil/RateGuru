@@ -44,6 +44,9 @@
 <div
     class="rg-admin-studio__discussion"
     data-generation="{{ $busy ? 'tree' : ($underway ? 'comment' : 'none') }}"
+    {{-- Said to the votes editor's Timing tab: no comment moves while a generation is on its way. --}}
+    x-data
+    x-effect="$store.rgCommentVotes && ($store.rgCommentVotes.generating = $wire.awaiting !== null)"
     @if ($underway) wire:poll.{{ $pollSeconds }}s.visible="check" @endif
 >
     @if ($gone)
