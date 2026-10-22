@@ -4,7 +4,7 @@ RateGuru is a Laravel application for community-driven ratings and decision supp
 
 ## Stack
 
-- PHP 8.5+
+- PHP 8.5.12+
 - Laravel
 - Livewire
 - Alpine.js

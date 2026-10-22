@@ -31,7 +31,7 @@ php artisan serve
 Expected result:
 
 - `composer install` passes.
-- `php -v` reports PHP 8.5 or newer.
+- `php -v` reports PHP 8.5.12 or newer.
 - Homebrew PostgreSQL 18.4 becomes healthy.
 - Migrations pass.
 - The generic installation preset is applied.

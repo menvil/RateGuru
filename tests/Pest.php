@@ -550,6 +550,25 @@ function executableSourceLines(string $source): string
 }
 
 /**
+ * The lowest PHP release the hosts may run — PHP_MIN_VERSION, as
+ * install-bootstrap-runtime declares it. Read from the script so the runtime
+ * installer's fixtures and Composer's PHP requirement follow one number when
+ * it is raised.
+ */
+function phpSecurityFloor(): string
+{
+    preg_match(
+        '/^PHP_MIN_VERSION="([^"]+)"$/m',
+        (string) file_get_contents(base_path('infrastructure/scripts/install-bootstrap-runtime')),
+        $floor,
+    );
+
+    expect($floor[1] ?? null)->not->toBeNull('install-bootstrap-runtime no longer declares PHP_MIN_VERSION');
+
+    return $floor[1];
+}
+
+/**
  * The sourced libraries under infrastructure/scripts: never executed
  * directly, so they must stay non-executable. Kept here beside
  * requiredCliManifestNames() so the CLI allowlist and the library exemption
