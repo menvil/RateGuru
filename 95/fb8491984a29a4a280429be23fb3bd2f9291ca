@@ -1,0 +1,101 @@
+app/Models/StudioPlanVote.php
+  s_0f80700cf0b8c6::t_bf3858f509213b 1-151
+app/Actions/Studio/SaveStudioVotesAction.php
+  s_0f80700cf0b8c6::t_a0213b51411932 1-9,11-133,137-165,167,170-186,188-246
+  s_0f80700cf0b8c6::t_f0c4945355d4da 10,187
+  s_0f80700cf0b8c6::t_49b6af4afa8c36 134-136,166,168-169
+app/Actions/Studio/SaveStudioDiscussionTreeAction.php
+  s_0f80700cf0b8c6::t_1a989483369120 15,44-48,56,87
+  s_0f80700cf0b8c6::t_5c70d8798b1019 27
+tests/Feature/Actions/SaveStudioDiscussionTreeActionTest.php
+  s_0f80700cf0b8c6::t_956a1321696619 486
+  s_0f80700cf0b8c6::t_2b68214ad80e4e 251,261,267
+  s_0f80700cf0b8c6::t_faa36f3581d793 542
+  s_0f80700cf0b8c6::t_affc73a91e8f86 8,18,476-485,487-541,543-575
+database/factories/StudioPlanVoteFactory.php
+  s_0f80700cf0b8c6::t_df7d2acea9fc02 1-67
+app/Data/Studio/StudioVotesData.php
+  s_0f80700cf0b8c6::t_80b406e4d0d040 1-59
+tests/Feature/Actions/UpdateStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_afc2cf6c3f3e8e 5,15,219-261
+tests/Feature/Actions/SaveStudioVotesActionTest.php
+  s_0f80700cf0b8c6::t_956a1321696619 44
+  s_0f80700cf0b8c6::t_50dbc390f03dd8 1-6,8-21,23-43,45-334,336-438,440-443
+  s_0f80700cf0b8c6::t_126b81872f45ca 7,22,335,439
+app/Actions/Studio/UpdateStudioPlanAction.php
+  s_0f80700cf0b8c6::t_1a989483369120 13,33-39,48,56,70,72
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_57d5cf76652b87 345-346
+  s_0f80700cf0b8c6::t_e1e3ffa79d6881 30-31,74,77,79,130,152-153,189-191,321-322,342-344,347,474-655
+database/migrations/2026_10_21_100000_create_studio_plan_votes_table.php
+  s_0f80700cf0b8c6::t_a1a5877f0bf2ef 109,128-131
+  s_0f80700cf0b8c6::t_1c144399539e28 1-108,110-127,132-137
+app/Data/Studio/SavedStudioVotes.php
+  s_0f80700cf0b8c6::t_989a4e951d06c1 1-24
+tests/Feature/Concurrency/StudioPlanRaceTest.php
+  s_0f80700cf0b8c6::t_4da0d7462d89e3 434-461
+app/Data/Studio/StudioVoteData.php
+  s_0f80700cf0b8c6::t_ce592830f7659e 1-107
+app/Enums/StudioPlanApprovalRejection.php
+  s_0f80700cf0b8c6::t_1a989483369120 11-12,26
+tests/Feature/Actions/ApproveStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_fb79bd24e9a557 367-368,370-397
+  s_0f80700cf0b8c6::t_40651d1269bc71 369
+tests/Feature/Concurrency/StudioVoteRaceTest.php
+  s_0f80700cf0b8c6::t_50d96cf5a864ce 1-79,81-186
+  s_0f80700cf0b8c6::t_4da0d7462d89e3 80
+app/Models/StudioDiscussionNode.php
+  s_0f80700cf0b8c6::t_0ebfe570923c31 97-106
+app/Models/StudioPlan.php
+  s_0f80700cf0b8c6::t_0ebfe570923c31 184-195
+tests/Feature/Models/StudioDiscussionNodeModelTest.php
+  s_0f80700cf0b8c6::t_7ddb11f301984d 97-98,100,109,116
+app/Enums/StudioPlanApprovalProblem.php
+  s_0f80700cf0b8c6::t_1a989483369120 46,61,81,119
+app/Enums/StudioActionType.php
+  s_0f80700cf0b8c6::t_5bd8eeeee61dca 12-16,26-31
+tests/Pest.php
+  s_0f80700cf0b8c6::t_126b81872f45ca 12,20,28
+  s_0f80700cf0b8c6::t_956a1321696619 13919
+  s_0f80700cf0b8c6::t_481b6e4db77907 13247,13439-13441
+  s_0f80700cf0b8c6::t_ba1beae0a5a535 13860-13872
+  s_0f80700cf0b8c6::t_c8129bf42632a8 11,16,21-22,13892-13918,13920-13923
+tests/Feature/Models/StudioPlanVoteModelTest.php
+  s_0f80700cf0b8c6::t_956a1321696619 28,137
+  s_0f80700cf0b8c6::t_20dbe000f5b6e4 1-27,29-136,138-166,168-171,173-224,227-230,232-261
+  s_0f80700cf0b8c6::t_bdac179b5175e3 167,172,225-226,231
+tests/Feature/Support/Studio/StudioPlanApprovalPreflightTest.php
+  s_0f80700cf0b8c6::t_4031c7bed11bc2 17,185-209,313,322-323
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_cdce95b65985e1 1343-1344,1370-1402
+tests/Feature/Support/Studio/StudioVoteValidationRulesTest.php
+  s_0f80700cf0b8c6::t_956a1321696619 29,155,207,210
+  s_0f80700cf0b8c6::t_b06ad75a6528b8 1-28,30-154,156-206,208-209,211-222,224-232,234,238-262,264,266-273,275,277-294
+  s_0f80700cf0b8c6::t_2e17001fd89705 223,233,235-237,276
+  s_0f80700cf0b8c6::t_fe37ea27ea6862 263,265,274
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_d3a42005570714 392-401
+app/Support/Studio/StudioVoteValidationRules.php
+  s_0f80700cf0b8c6::t_1b8666a9a0af47 294-299,345,383-384,386-387,390,396,399-402,405,408,413,417,421,426-441
+  s_0f80700cf0b8c6::t_e23c40b371972a 1-293,300-344,346-382,385,388-389,391-395,397-398,403-404,406-407,409-412,414-416,418-420,422-425,442-443
+app/Actions/Studio/ApproveStudioPlanAction.php
+  s_0f80700cf0b8c6::t_a882d7a11f13e4 47-49
+app/Support/Studio/StudioPlanApprovalPreflight.php
+  s_0f80700cf0b8c6::t_1a989483369120 18,52-54,78,291-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "95fb8491984a29a4a280429be23fb3bd2f9291ca",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

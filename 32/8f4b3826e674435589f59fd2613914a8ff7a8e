@@ -1,0 +1,25 @@
+app/Actions/Studio/ExecuteStudioAction.php
+  s_0f80700cf0b8c6::t_c033171e2c7f76 388-389,391-402,415
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_34838d1fd369cf 167-170,768-774,776-778
+tests/Feature/Actions/ExecuteStudioDiscussionActionTest.php
+  s_0f80700cf0b8c6::t_1f708e4fcc3fc0 290-310
+tests/Feature/Concurrency/StudioExecutorRaceTest.php
+  s_0f80700cf0b8c6::t_6104549280b29d 451,453-455,476,478
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "328f4b3826e674435589f59fd2613914a8ff7a8e",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
