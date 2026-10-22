@@ -5813,6 +5813,11 @@
         align-items: start;
     }
 
+    /* The Comment voters card, drawn by the votes editor, takes its place in the row as a card of its own. */
+    .rg-admin-studio__comment-voters-slot {
+        display: contents;
+    }
+
     .rg-admin-studio__discussion-fields {
         display: flex;
         flex-direction: column;

@@ -1,7 +1,8 @@
 {{--
     The Discussion step (StudioPlanDiscussionEditor), laid out and working as
-    the prototype's: Discussion settings; Generate tree in a strip of its own
-    under them; then the discussion tree — Comments, each with Reply, Edit,
+    the prototype's: Discussion settings, the Comment voters beside them
+    (drawn by StudioPlanDiscussionVotesEditor); Generate tree in a strip of its
+    own under them; then the discussion tree — Comments, each with Reply, Edit,
     Regenerate and Delete, and Timing. A comment is edited in a dialog, and
     everything is written to the plan at once. While a generation is on its
     way the step is read again every few seconds: a whole tree is drawn as
@@ -152,6 +153,8 @@
                 </div>
             </div>
         </x-admin.ui.card>
+        {{-- The place of the Comment voters card: StudioPlanDiscussionVotesEditor draws it here and keeps its state, so this editor never draws over it. --}}
+        <div id="rg-admin-studio-comment-voters" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>
     </div>
 
     <div class="rg-admin-studio__generate" x-data>

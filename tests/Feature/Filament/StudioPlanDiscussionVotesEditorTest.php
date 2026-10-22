@@ -104,7 +104,7 @@ it('lists every comment and reply by its label, Persona and moment, Normal and w
 it('asks for comments first when the discussion has none', function () {
     $plan = StudioPlan::factory()->create(['created_by_user_id' => $this->admin->id]);
 
-    discussionVotesEditor($plan)->assertSee('No comments to vote on yet')->call('build')->assertHasErrors(['votes'])->assertSet('preview', null);
+    discussionVotesEditor($plan)->assertSee('No comments to vote on yet')->assertSee('Comment voters')->call('build')->assertHasErrors(['votes'])->assertSet('preview', null);
 });
 
 it('shares the totals out by priority, Low 1, Normal 2, High 3, then lets each count be set by hand', function () {
@@ -376,9 +376,12 @@ it('takes the version a Save draft or a save of the post votes moved, so its own
         ->and(savedCommentVotes($this->plan))->toHaveCount(4);
 });
 
-it('draws in the page\'s Discussion step, and a new publication asks for its draft first', function () {
+it('draws in the page\'s Discussion step, its Comment voters in the place beside the Discussion settings, and a new publication asks for its draft first', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
         ->assertSeeHtml('wire:name="admin.studio-plan-discussion-votes-editor" wire:key="studio-plan-discussion-votes-'.$this->plan->id.'"');
+
+    discussionEditor($this->plan)->assertSeeHtmlInOrder(['Discussion settings', '<div id="rg-admin-studio-comment-voters" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>', 'Generate from the settings above']);
+    discussionVotesEditor($this->plan)->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-comment-voters">', 'Comment voters', '</template>', 'Comment votes']);
 
     Livewire::test(CreateStudioPlan::class)->call('goToStep', 'discussion')
         ->assertSee('Save the draft first to prepare its discussion.')

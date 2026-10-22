@@ -1,7 +1,8 @@
 {{--
     Step 3 · Discussion (StudioPlanDiscussionEditor): the comments and replies
     the post is to get, written by hand or by AI, each change written at once —
-    and under them the votes on them (StudioPlanDiscussionVotesEditor).
+    and the votes on them (StudioPlanDiscussionVotesEditor): its Comment voters
+    beside the Discussion settings, its Comment votes under the discussion.
     Drawn once for the plan and kept for as long as its editor is open —
     hidden on the other steps, never drawn again — so its settings, and a
     generation it waits for, survive moving between steps. A new publication has no plan to keep a
@@ -16,6 +17,6 @@
     </x-admin.ui.card>
 @else
     <livewire:admin.studio-plan-discussion-editor :plan-id="$planId" :wire:key="'studio-plan-discussion-'.$planId" />
-    {{-- The votes on the comments above (StudioPlanDiscussionVotesEditor), kept with them for as long as the page is open. --}}
+    {{-- The votes on the comments above (StudioPlanDiscussionVotesEditor), kept with them for as long as the page is open; it draws its Comment voters in the place the discussion keeps for them. --}}
     <livewire:admin.studio-plan-discussion-votes-editor :plan-id="$planId" :wire:key="'studio-plan-discussion-votes-'.$planId" />
 @endif

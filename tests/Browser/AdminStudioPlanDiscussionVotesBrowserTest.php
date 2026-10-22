@@ -8,8 +8,9 @@ use App\Models\User;
 use function Pest\Laravel\actingAs;
 
 /**
- * The Discussion step's comment votes in a real browser: drawn whole under the
- * discussion at every width, the discussion's own tabs and dialog working as
+ * The Discussion step's comment votes in a real browser: the Comment voters
+ * beside the Discussion settings and the Comment votes under the discussion,
+ * drawn whole at every width, the discussion's own tabs and dialog working as
  * before, voters chosen, the votes distributed over the comments, shown as a
  * preview, saved exactly as shown and drawn again after a reload.
  */
@@ -36,7 +37,7 @@ function visitDiscussionVotes(StudioPlan $plan, int $width = 1440): mixed
 
     $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][2].click()");
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 3 of 4 · Discussion');
-    waitForScript($page, "!! document.querySelector('.rg-admin-studio__comment-votes') && document.querySelector('.rg-admin-studio__discussion-step').hidden === false");
+    waitForScript($page, "!! document.querySelector('.rg-admin-studio__comment-votes') && !! document.querySelector('.rg-admin-studio__discussion-cards .rg-admin-studio__comment-voters') && document.querySelector('.rg-admin-studio__discussion-step').hidden === false");
 
     return $page;
 }
@@ -47,11 +48,13 @@ function commentVotesSummary(): string
     return "document.querySelector('.rg-admin-studio__comment-votes .rg-admin-studio__generate-summary')?.textContent.trim() ?? ''";
 }
 
-it('draws the comment votes whole under the discussion at every width, never scrolling the page sideways', function (int $width) {
+it('draws the comment voters beside the discussion settings and the comment votes whole under the discussion at every width, never scrolling the page sideways', function (int $width, bool $beside) {
     $page = visitDiscussionVotes($this->plan, $width);
 
     expect($page->script(<<<'JS'
         (() => ({
+            settings: [...document.querySelectorAll('.rg-admin-studio__discussion-cards .rg-admin-card__title')].map((title) => title.textContent.trim()),
+            beside: (([settings, voters]) => settings.getBoundingClientRect().top === voters.getBoundingClientRect().top)([...document.querySelectorAll('.rg-admin-studio__discussion-cards .rg-admin-card')]),
             cards: [...document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-card__title')].map((title) => title.textContent.trim()),
             tabs: [...document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__votes-tabs .rg-admin-tab')].map((tab) => tab.textContent.trim().replace(/\s+/g, ' ')),
             comments: [...document.querySelectorAll('.rg-admin-studio__comment-votes-table tbody tr')].map((row) => row.dataset.node),
@@ -59,13 +62,15 @@ it('draws the comment votes whole under the discussion at every width, never scr
             overflow: document.documentElement.scrollWidth > window.innerWidth,
         }))()
     JS))->toBe([
-        'cards' => ['Comment voters', 'Comment votes', 'Saved votes'],
+        'settings' => ['Discussion settings', 'Comment voters'],
+        'beside' => $beside,
+        'cards' => ['Comment votes', 'Saved votes'],
         'tabs' => ['Comment votes', 'Voters 0', 'Timing'],
         'comments' => ['C1', 'C2', 'C3'],
         'tree' => true,
         'overflow' => false,
     ]);
-})->with([1440, 1024, 390]);
+})->with([[1440, true], [1024, true], [390, false]]);
 
 it('keeps the discussion\'s own tabs and comment dialog working beside the votes', function () {
     $page = visitDiscussionVotes($this->plan);
@@ -82,12 +87,12 @@ it('keeps the discussion\'s own tabs and comment dialog working beside the votes
 it('chooses voters, distributes the votes over the comments, and saves exactly the preview, drawn again after a reload', function () {
     $page = visitDiscussionVotes($this->plan);
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-votes [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Choose').click()");
-    waitForScript($page, "document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__persona-option').length > 0");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-voters [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Choose').click()");
+    waitForScript($page, "document.querySelectorAll('.rg-admin-studio__comment-voters .rg-admin-studio__persona-option').length > 0");
 
     foreach ([1, 2, 3] as $chosen) {
-        $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__persona-option')].find((option) => option.getAttribute('aria-checked') === 'false').click()");
-        waitForScript($page, "document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__persona-option[aria-checked=\"true\"]').length", $chosen);
+        $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-voters .rg-admin-studio__persona-option')].find((option) => option.getAttribute('aria-checked') === 'false').click()");
+        waitForScript($page, "document.querySelectorAll('.rg-admin-studio__comment-voters .rg-admin-studio__persona-option[aria-checked=\"true\"]').length", $chosen);
     }
 
     foreach (['1', '2', '3'] as $count) {

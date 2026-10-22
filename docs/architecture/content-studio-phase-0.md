@@ -1427,9 +1427,10 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   комментарии не теряются; сохранения поста, обсуждения и голосов сменяют версию
   без ложного конфликта; ни реальных голосов, ни `StudioAction`, ни заданий не
   появляется.
-- **Выполнено (MR 6.3, голоса за комментарии в Discussion editor):** под деревом
-  обсуждения на шаге Discussion — `StudioPlanDiscussionVotesEditor`, отдельно от
-  самого обсуждения, его вкладок и диалогов. Comment voters: Random — число
+- **Выполнено (MR 6.3, голоса за комментарии в Discussion editor):** на шаге
+  Discussion — `StudioPlanDiscussionVotesEditor`, отдельно от самого обсуждения,
+  его вкладок и диалогов: карточка Comment voters — в верхнем ряду рядом с
+  Discussion settings, как в прототипе, остальное — под деревом. Comment voters: Random — число
   активных Persona с Pick others, Choose — поиск на сервере (`PersonasQuery`);
   автор комментария в списке помечен («Writes C3 · can’t vote on it») и может быть
   выбран — он не голосует только за свой комментарий. Comment votes: Up · down,

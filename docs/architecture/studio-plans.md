@@ -784,12 +784,17 @@ category or author.
 
 ### The Comment votes editor
 
-The Discussion step draws, under the discussion and apart from it,
-`StudioPlanDiscussionVotesEditor`: the votes on the prepared comments and
-replies. The discussion's own card, tabs and dialogs stay as they are; the
-votes on the post and its questions stay on Post · Votes. Like the other
-editors it is drawn once with the page, so its settings and preview live as
-long as the page does.
+The Discussion step draws `StudioPlanDiscussionVotesEditor`, apart from the
+discussion: the votes on the prepared comments and replies. Its Comment voters
+card stands in the step's settings row beside the Discussion settings, as the
+prototype's does; the rest — the Comment votes card, Build preview and Save
+votes, the Preview and Saved votes — under the discussion. The discussion
+editor keeps an empty place in that row (`#rg-admin-studio-comment-voters`,
+`wire:ignore`), and the votes editor draws its card there with `@teleport`, so
+the card's state and actions stay the votes editor's. The discussion's own
+card, tabs and dialogs stay as they are; the votes on the post and its
+questions stay on Post · Votes. Like the other editors it is drawn once with
+the page, so its settings and preview live as long as the page does.
 
 What is on it:
 
@@ -884,8 +889,10 @@ and asks for Reload.
 - Priorities are Low, Normal and High, weighted 1, 2 and 3, and the totals are
   Total up and Total down, instead of the prototype's Normal, High and Main
   with a total, a positive share and a choice of distributions.
-- The voters and the votes are cards of their own under the discussion,
-  rather than a tab of its tree.
+- The votes are a card of their own under the discussion, with Comment
+  votes, Voters and Timing tabs, rather than tabs of its tree; the votes'
+  settings (Total up and Total down, Distribute) are on that card rather than
+  in the settings row beside the Comment voters.
 - One First vote after and one Spread over, counted from each comment's own
   moment, for every comment.
 - The votes are built as a preview and saved on purpose, as on Post · Votes.
