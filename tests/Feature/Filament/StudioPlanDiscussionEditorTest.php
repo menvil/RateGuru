@@ -109,7 +109,8 @@ it('shows on each comment, beside its moment, the up and down votes saved on it,
     expect($votes($editor->html(), 'C1'))->toBe([2, 0])
         ->and($votes($editor->html(), 'C2'))->toBe([0, 0])
         ->and($votes($editor->html(), 'C4'))->toBe([0, 1]);
-    $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.']);
+    $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.'])
+        ->assertSeeHtmlInOrder(['Generate from the settings above', '>3 comment votes (+2 / −1)</span>']);
 });
 
 it('draws each comment\'s votes as the comment votes editor sets them, opens its breakdown from See breakdown, and keeps the places that editor draws in', function () {
@@ -128,9 +129,14 @@ it('draws each comment\'s votes as the comment votes editor sets them, opens its
             'See breakdown',
         ])
         ->assertSeeHtml('<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>')
-        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')
+        ->assertSeeHtmlInOrder([
+            'Generate from the settings above',
+            'x-text="$store.rgCommentVotes?.status || \'no comment votes\'">no comment votes</span>',
+            'x-show="$store.rgCommentVotes?.unsaved" x-cloak>Not saved</span>',
+        ])
+        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')->assertSeeHtml('class="rg-admin-studio__tree-timeline"  hidden >')
         ->set('tab', 'voters')->assertSet('tab', 'voters')->assertSeeHtml('class="rg-admin-studio__tree-voters" >')->assertDontSee('Lovely light.')
-        ->set('tab', 'timing')->assertSeeHtmlInOrder(['When the votes come', 'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.window ?? \'\'"'])
+        ->set('tab', 'timing')->assertSeeHtmlInOrder(['When the votes come', 'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.window ?? \'\'"', 'class="rg-admin-studio__tree-timeline" >', 'id="rg-admin-studio-comment-votes-timeline"'])
         ->set('tab', 'elsewhere')->assertSet('tab', 'tree');
 
     // Read-only, a comment still opens its breakdown.

@@ -11,10 +11,11 @@ use function Pest\Laravel\actingAs;
  * The Discussion step's comment votes in a real browser: the Comment voters
  * and the Comment votes beside the Discussion settings, drawn whole at every
  * width, the discussion's own tabs and dialog working as before, voters
- * chosen, the votes distributed over the comments and counted on them at
- * once as not saved, a comment's breakdown opened beside the tree, the votes
- * saved exactly as shown and drawn again after a reload — and the step not
- * left with them unsaved without asking.
+ * chosen, a total shared out over the comments and counted on them and in
+ * the Generate strip at once as not saved, a comment's breakdown opened
+ * beside the tree, the votes saved there exactly as shown, drawn again after
+ * a reload and in time on the Timing tab — and the step not left with them
+ * unsaved without asking, what changed listed.
  */
 beforeEach(function () {
     $admin = User::factory()->admin()->create(['username' => 'daria_k']);
@@ -44,10 +45,17 @@ function visitDiscussionVotes(StudioPlan $plan, int $width = 1440): mixed
     return $page;
 }
 
-/** The comment votes' summary line, as the strip under the tree says it. */
+/** The comment votes as the Generate strip says them after the discussion's numbers, and whether it marks them not saved. */
 function commentVotesSummary(): string
 {
-    return "document.querySelector('.rg-admin-studio__comment-votes .rg-admin-studio__generate-summary')?.textContent.trim() ?? ''";
+    return <<<'JS'
+        (() => {
+            const strip = document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__generate-summary');
+            const unsaved = strip?.querySelector('.rg-admin-studio__node-unsaved');
+
+            return (strip?.querySelector('.rg-admin-studio__generate-votes')?.textContent.trim() ?? '') + (unsaved && getComputedStyle(unsaved).display !== 'none' ? ' · Not saved' : '');
+        })()
+    JS;
 }
 
 /** Every up vote counted on the tree's comments. */
@@ -66,7 +74,8 @@ it('draws the comment voters and comment votes beside the discussion settings an
             tabs: [...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].map((tab) => tab.textContent.trim().replace(/\s+/g, ' ')),
             breakdowns: [...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-breakdown')].map((button) => button.textContent.trim()),
             cards: document.querySelectorAll('.rg-admin-studio__comment-votes > .rg-admin-card').length,
-            strip: document.querySelector('.rg-admin-studio__comment-votes .rg-admin-studio__generate-label').textContent.trim(),
+            strips: [...document.querySelectorAll('.rg-admin-studio__discussion-step .rg-admin-studio__generate-label')].map((label) => label.textContent.trim()),
+            votes: document.querySelector('.rg-admin-studio__generate-votes')?.textContent.trim(),
             overflow: document.documentElement.scrollWidth > window.innerWidth,
         }))()
     JS))->toBe([
@@ -75,7 +84,8 @@ it('draws the comment voters and comment votes beside the discussion settings an
         'tabs' => ['Comments 3', 'Voters', 'Timing'],
         'breakdowns' => ['See breakdown', 'See breakdown', 'See breakdown'],
         'cards' => 0,
-        'strip' => 'Prepared comment votes',
+        'strips' => ['Generate from the settings above'],
+        'votes' => '· no comment votes',
         'overflow' => false,
     ]);
 
@@ -107,6 +117,7 @@ it('keeps the discussion\'s own tabs and comment dialog working beside the votes
     waitForScript($page, "document.querySelector('.rg-admin-studio__tree-voters').hidden === false && !! document.querySelector('.rg-admin-studio__tree-voters .rg-admin-studio__votes-toolbar')");
     $page->script("[...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim().startsWith('Timing')).click()");
     waitForScript($page, "document.querySelector('.rg-admin-studio__tree-voters').hidden === true && [...document.querySelectorAll('.rg-admin-studio__tree-card thead th')].some((th) => th.textContent.trim() === 'When the votes come')");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__tree-timeline').hidden === false && [...document.querySelectorAll('.rg-admin-studio__tree-timeline tbody tr')].map((row) => row.cells[2].textContent.trim().replace(/\\s+/g, ' ')).join(' | ')", 'Writes C1 | Replies C2 to C1 | Writes C3');
     $page->script("[...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim().startsWith('Comments')).click()");
     waitForScript($page, "document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node').length", 3);
 
@@ -114,7 +125,7 @@ it('keeps the discussion\'s own tabs and comment dialog working beside the votes
     waitForScript($page, "!! document.querySelector('.rg-admin-studio__dialog, [role=\"dialog\"]')");
 });
 
-it('chooses voters, distributes the votes over the comments — counted on them at once as not saved — opens a breakdown, and saves exactly what is shown, drawn again after a reload', function () {
+it('chooses voters, shares a total out over the comments — counted on them and in the Generate strip at once as not saved — opens a breakdown, saves there exactly what is shown, and draws it again after a reload, in time on the Timing tab', function () {
     $page = visitDiscussionVotes($this->plan);
 
     $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-voters [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Choose').click()");
@@ -130,8 +141,7 @@ it('chooses voters, distributes the votes over the comments — counted on them 
         waitForScript($page, "document.getElementById('rg-admin-comment-votes-total-up').value", $count);
     }
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-vote-settings .rg-admin-button')].find((button) => button.textContent.trim() === 'Distribute automatically').click()");
-    waitForScript($page, commentVotesSummary(), '3 votes on 3 comments · not saved yet.');
+    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0) · Not saved');
     waitForScript($page, treeUpVotes(), 3);
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-unsaved')].filter((note) => getComputedStyle(note).display !== 'none').length", 3);
 
@@ -140,9 +150,9 @@ it('chooses voters, distributes the votes over the comments — counted on them 
     $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
     waitForScript($page, "document.querySelectorAll('.rg-admin-studio__breakdown .rg-admin-studio__breakdown-vote').length", 1);
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__votes-actions button')].find((button) => button.textContent.trim() === 'Save votes').click()");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__breakdown-footer button')].find((button) => button.textContent.trim() === 'Save votes').click()");
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Comment votes saved');
-    waitForScript($page, commentVotesSummary(), '3 votes are saved on the comments.');
+    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-unsaved')].filter((note) => getComputedStyle(note).display !== 'none').length", 0);
     waitForScript($page, treeUpVotes(), 3);
 
@@ -155,8 +165,12 @@ it('chooses voters, distributes the votes over the comments — counted on them 
 
     $again = visitDiscussionVotes($this->plan);
 
-    waitForScript($again, commentVotesSummary(), '3 votes are saved on the comments.');
+    waitForScript($again, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
     waitForScript($again, treeUpVotes(), 3);
+    $again->script("[...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim().startsWith('Timing')).click()");
+    // Each comment, then the votes on it after it.
+    waitForScript($again, "[...document.querySelectorAll('.rg-admin-studio__tree-timeline tbody tr')].filter((row) => ! row.classList.contains('rg-admin-studio__timeline-comment')).length", 3);
+    waitForScript($again, "document.querySelectorAll('.rg-admin-studio__tree-timeline tbody tr.rg-admin-studio__timeline-comment').length", 3);
     $again->script("[...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim().startsWith('Voters')).click()");
     // Each voter once, however the draw shared the three votes among them.
     waitForScript($again, "document.querySelectorAll('.rg-admin-studio__tree-voters tbody tr:not(.rg-admin-studio__votes-idle)').length", $saved->pluck('persona_user_id')->unique()->count());
@@ -167,13 +181,13 @@ it('asks before the step is left with its comment votes not saved, and goes on o
 
     $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
     $page->click('button[aria-label="More up votes on C1"]');
-    waitForScript($page, commentVotesSummary(), '1 vote on 1 comment · not saved yet.');
+    waitForScript($page, commentVotesSummary(), '· 1 comment vote (+1 / −0) · Not saved');
 
     $continue = "[...document.querySelectorAll('.rg-admin-studio__footer button')].find((button) => button.textContent.trim() === 'Continue').click()";
     $leave = fn (string $label): string => "[...document.querySelectorAll('#rg-admin-comment-votes-leave button')].find((button) => button.textContent.trim() === '{$label}').click()";
 
     $page->script($continue);
-    waitForScript($page, "!! document.querySelector('#rg-admin-comment-votes-leave')");
+    waitForScript($page, "document.querySelector('#rg-admin-comment-votes-leave .rg-admin-dialog-facts')?.textContent.trim().replace(/\\s+/g, ' ') ?? ''", 'C1 · +1 / −0 · saved +0 / −0');
     $page->script($leave('Keep editing'));
     waitForScript($page, "! document.querySelector('#rg-admin-comment-votes-leave')");
 

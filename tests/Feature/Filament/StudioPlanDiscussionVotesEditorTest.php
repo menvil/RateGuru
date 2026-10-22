@@ -27,12 +27,13 @@ use Livewire\Livewire;
 
 /**
  * The Discussion step's votes on its comments: each comment's up and down
- * votes, set by hand or shared out by priority, the Personas who cast them —
- * never on their own comment — and when after each comment; made as soon as
- * they are asked for, shown on the tree and in each comment's breakdown, and
- * saved exactly as shown, the votes on the post and its questions kept, every
- * write sharing the plan's one version with the other editors on the page,
- * and the step not left with them unsaved without asking.
+ * votes, set by hand or shared out by priority — the totals always what they
+ * add up to — the Personas who cast them, never on their own comment, and
+ * when after each comment; made as soon as they are asked for, shown on the
+ * tree, in each comment's breakdown and in time on the Timing tab, and saved
+ * exactly as shown, the votes on the post and its questions kept, every write
+ * sharing the plan's one version with the other editors on the page, and the
+ * step not left with them unsaved without asking.
  */
 beforeEach(function () {
     Queue::fake();
@@ -103,8 +104,8 @@ it('starts every comment and reply Normal and with no votes, from a random draw 
             $this->c2 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
         ])
         ->assertSet('unsaved', false)->assertSet('preview', null)->assertSet('selected', null)
-        ->assertSee('Now +0 / −0 on 0 of 3 comments.')
-        ->assertSee('No comment votes prepared · the comments get only real users’ votes.');
+        ->assertSet('totalUp', 0)->assertSet('totalDown', 0)->assertSet('status', 'no comment votes')
+        ->assertSee('On 0 of 3 comments.');
 });
 
 it('asks for comments first when the discussion has none, and has nothing to save', function () {
@@ -114,20 +115,42 @@ it('asks for comments first when the discussion has none, and has nothing to sav
         ->call('redraw')->assertHasNoErrors()->assertSet('preview', [])->assertSet('unsaved', false);
 });
 
-it('shares the totals out by priority, Low 1, Normal 2, High 3, then lets each count be set by hand', function () {
+it('shares a total out by priority as soon as it changes — Low 1, Normal 2, High 3 — and keeps the totals what the comments\' own votes add up to', function () {
     $editor = discussionVotesEditor($this->plan)
         ->call('setPriority', $this->c1, 'high')->call('setPriority', $this->c2, 'low')
-        ->set('totalUp', 12)->set('totalDown', 5)->call('distribute');
+        ->set('totalUp', 12)->set('totalDown', 5);
 
     // Up: 12 × 3/6, 2/6, 1/6 = 6, 4, 2; down: 5 × the same = 2.5, 1.67, 0.83 — 2, 1, 0, the two left to the largest fractions.
     $editor->assertSet("targets.{$this->c1}.up", 6)->assertSet("targets.{$this->r1}.up", 4)->assertSet("targets.{$this->c2}.up", 2)
         ->assertSet("targets.{$this->c1}.down", 2)->assertSet("targets.{$this->r1}.down", 2)->assertSet("targets.{$this->c2}.down", 1)
-        ->call('setVotes', $this->c2, 'up', 0)->assertSet("targets.{$this->c2}.up", 0)
-        ->call('setVotes', $this->c2, 'down', -4)->assertSet("targets.{$this->c2}.down", 0)
-        ->call('setPriority', $this->c2, 'urgent')->assertSet("targets.{$this->c2}.priority", 'low');
+        ->call('setVotes', $this->c2, 'up', 0)->assertSet("targets.{$this->c2}.up", 0)->assertSet('totalUp', 10)
+        ->call('setVotes', $this->c1, 'up', 9)->assertSet('totalUp', 13)
+        ->call('setVotes', $this->c2, 'down', -4)->assertSet("targets.{$this->c2}.down", 0)->assertSet('totalDown', 4)
+        ->call('setPriority', $this->c2, 'urgent')->assertSet("targets.{$this->c2}.priority", 'low')
+        ->assertSee('On 2 of 3 comments.');
+
+    // Distribute automatically: both totals shared out again — up 6.5, 4.33, 2.17 and down 2, 1.33, 0.67, the one left over each to the largest fraction.
+    $editor->call('distribute')
+        ->assertSet("targets.{$this->c1}.up", 7)->assertSet("targets.{$this->r1}.up", 4)->assertSet("targets.{$this->c2}.up", 2)
+        ->assertSet("targets.{$this->c1}.down", 2)->assertSet("targets.{$this->r1}.down", 1)->assertSet("targets.{$this->c2}.down", 1)
+        ->assertSet('totalUp', 13)->assertSet('totalDown', 4)->assertSee('On 3 of 3 comments.');
 
     expect(savedCommentVotes($this->plan))->toBe([])
         ->and($editor->get('unsaved'))->toBeTrue();
+});
+
+it('gives a total\'s new votes to the comments furthest below their share, and takes them back from the ones furthest above, the rest kept as set', function () {
+    discussionVotesEditor($this->plan)->set('totalUp', 3)
+        ->assertSet("targets.{$this->c1}.up", 1)->assertSet("targets.{$this->r1}.up", 1)->assertSet("targets.{$this->c2}.up", 1)
+        ->call('setVotes', $this->c1, 'up', 3)->assertSet('totalUp', 5)
+        // Six shared evenly is two each: C2 and C3 are one short, the first in the tree gets the vote.
+        ->set('totalUp', 6)
+        ->assertSet("targets.{$this->c1}.up", 3)->assertSet("targets.{$this->r1}.up", 2)->assertSet("targets.{$this->c2}.up", 1)
+        // Four is 2, 1, 1: C1 and C2 are one over each, the later in the tree gives first.
+        ->set('totalUp', 4)
+        ->assertSet("targets.{$this->c1}.up", 2)->assertSet("targets.{$this->r1}.up", 1)->assertSet("targets.{$this->c2}.up", 1)
+        ->set('totalUp', 0)->assertSet('targets', fn (array $targets): bool => array_sum(array_column($targets, 'up')) === 0)
+        ->assertSet('totalDown', 0);
 });
 
 it('makes the votes as soon as they are asked for, shows them on the tree as not saved, then saves exactly them — never a vote on a comment by its own Persona — keeping the votes on the post', function () {
@@ -140,7 +163,7 @@ it('makes the votes as soon as they are asked for, shows them on the tree as not
         ->and(collect($preview)->where(2, $this->c1)->pluck(0)->unique())->toHaveCount(3)
         ->and(savedCommentVotes($this->plan))->toBe([]);
 
-    $editor->assertSee('4 votes on 2 comments · not saved yet.')->assertSet('unsaved', true)
+    $editor->assertSet('status', '4 comment votes (+3 / −1)')->assertSet('unsaved', true)
         ->assertSet("summary.{$this->c1}.up", 2)->assertSet("summary.{$this->c1}.down", 1)->assertSet("summary.{$this->c1}.changed", true)
         ->assertSet("summary.{$this->c1}.window", '+10 min → +6 h 10 min after the post · from 5 min after the comment')
         ->assertSet("summary.{$this->r1}.changed", false)
@@ -148,7 +171,7 @@ it('makes the votes as soon as they are asked for, shows them on the tree as not
         ->assertDispatched('rg-admin-toast', message: 'Comment votes saved', tone: 'success')
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: StudioPlanDiscussionVotesEditor::SOURCE)
         ->assertSet('preview', null)->assertSet('unsaved', false)->assertSet("summary.{$this->c1}.changed", false)->assertSet("summary.{$this->c1}.up", 2)
-        ->assertSee('4 votes are saved on the comments.');
+        ->assertSet('status', '4 comment votes (+3 / −1)');
 
     expect(savedCommentVotes($this->plan))->toBe($preview)
         ->and(StudioPlanVote::query()->whereKey($this->postVote)->exists())->toBeTrue()
@@ -178,7 +201,7 @@ it('draws the votes again from what is saved when opened again', function () {
         ->assertSet("targets.{$this->c1}.first", 300)
         ->assertSet('voterMode', 'manual')->assertSet('voterIds', $voters)
         ->assertSet('totalUp', 3)->assertSet('totalDown', 1)
-        ->assertSee('4 votes are saved on the comments.');
+        ->assertSet('status', '4 comment votes (+3 / −1)');
 });
 
 it('makes the votes again whenever the settings or the comments change, and saves the ones made last', function () {
@@ -209,7 +232,7 @@ it('says on the comment how many voters it is short, and makes no votes to save'
         ->assertHasErrors(["targets.{$this->c1}" => $short])
         ->assertSet('preview', null)->assertSet("targets.{$this->c1}.up", 2)
         ->assertSet("summary.{$this->c1}.problem", $short)->assertSet("summary.{$this->c2}.problem", null)->assertSet('unsaved', true)
-        ->assertSee('Not saved · fix what is marked on C1 to save these votes.')
+        ->assertSet('status', 'comment votes: fix what is marked on C1')
         ->call('save')->assertDispatched('rg-admin-toast', message: 'These votes can’t be saved yet: fix what is marked on the comments first.', tone: 'error');
 
     expect(savedCommentVotes($this->plan))->toBe([]);
@@ -259,16 +282,17 @@ it('keeps the saved votes of a comment whose count is not changed, draws anew on
 
     $editor->call('setVotes', $this->c2, 'down', 1)->call('discard')
         ->assertSet('preview', null)->assertSet('keepSaved', true)->assertSet("targets.{$this->c2}.down", 0)
-        ->assertSee('4 votes are saved on the comments.');
+        ->assertSet('totalDown', 1)->assertSet('status', '4 comment votes (+3 / −1)');
 
     expect(savedCommentVotes($this->plan))->toBe($saved);
 });
 
-it('removes the comment votes once asked, the votes on the post staying', function () {
+it('removes the comment votes once both totals are set to none and saved, the votes on the post staying', function () {
     previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
 
-    discussionVotesEditor($this->plan)->call('askRemove')->assertSee('Remove the comment votes?')
-        ->call('confirmRemove')->assertDispatched('rg-admin-toast', message: 'Comment votes removed', tone: 'success');
+    discussionVotesEditor($this->plan)->set('totalUp', 0)->set('totalDown', 0)
+        ->assertSet('status', 'no comment votes')->assertSet('unsaved', true)->assertSet("summary.{$this->c1}.changed", true)->assertSet('preview', [])
+        ->call('save')->assertDispatched('rg-admin-toast', message: 'Comment votes saved', tone: 'success')->assertSet('unsaved', false);
 
     expect(savedCommentVotes($this->plan))->toBe([])
         ->and(StudioPlanVote::query()->pluck('id')->all())->toBe([$this->postVote]);
@@ -284,7 +308,7 @@ it('keeps a Persona restricted since in the saved votes, saying so, and gives a 
         ->assertSee('Shadowbanned')->assertSee('Deleted')
         ->assertSee('A deleted or restricted persona gets no new votes.')
         ->assertSet("summary.{$this->c2}.problem", fn (?string $problem): bool => $problem !== null)
-        ->assertSee('see what is marked on C3.')
+        ->assertSet('status', '2 comment votes (+2 / −0) · see what is marked on C3')
         ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c2)
         ->assertSee('This persona is limited, banned or shadowbanned and cannot vote. Choose another one.');
 
@@ -413,7 +437,7 @@ it('takes the version a Save draft or a save of the post votes moved, so its own
 it('draws in the page\'s Discussion step, its cards beside the Discussion settings, the breakdown beside the tree, the voters on its tab, and a new publication asks for its draft first', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
         ->assertSeeHtml('wire:name="admin.studio-plan-discussion-votes-editor" wire:key="studio-plan-discussion-votes-'.$this->plan->id.'"')
-        ->assertSeeHtml("window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false })");
+        ->assertSeeHtml("window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null })");
 
     discussionEditor($this->plan)->assertSeeHtmlInOrder([
         'Discussion settings',
@@ -422,6 +446,7 @@ it('draws in the page\'s Discussion step, its cards beside the Discussion settin
         'Generate from the settings above',
         'Discussion tree',
         '<div id="rg-admin-studio-comment-voters-table" wire:ignore></div>',
+        '<div id="rg-admin-studio-comment-votes-timeline" wire:ignore></div>',
         '<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>',
     ]);
     discussionVotesEditor($this->plan)->assertSeeHtmlInOrder([
@@ -429,8 +454,8 @@ it('draws in the page\'s Discussion step, its cards beside the Discussion settin
         '<template x-teleport="#rg-admin-studio-comment-vote-settings">', 'Comment votes', 'Distribute automatically', 'First vote after', '</template>',
         '<template x-teleport="#rg-admin-studio-comment-breakdown">', '</template>',
         '<template x-teleport="#rg-admin-studio-comment-voters-table">', 'Reshuffle', '</template>',
-        'Prepared comment votes', 'Save votes',
-    ]);
+        '<template x-teleport="#rg-admin-studio-comment-votes-timeline">', 'Comments and votes in time', '</template>',
+    ])->assertDontSee('Prepared comment votes')->assertDontSee('Save votes');
 
     Livewire::test(CreateStudioPlan::class)->call('goToStep', 'discussion')
         ->assertSee('Save the draft first to prepare its discussion.')
@@ -464,6 +489,19 @@ it('lists every voter the votes drew on the tree\'s Voters tab, with what it vot
         ->and(collect($editor->set('votersFilter', 'writers')->viewData('voterTable')['rows'])->pluck('persona.id')->all())->toBe([$this->anna->id]);
 });
 
+it('lists every comment and every vote on them in the order they come, for the tree\'s Timing tab', function () {
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
+    $timeline = collect($editor->viewData('timeline'));
+
+    expect($timeline->pluck('offset')->all())->toBe($timeline->pluck('offset')->sort()->values()->all())
+        ->and($timeline->whereNull('vote')->pluck('what')->all())->toBe(['Writes C1', 'Replies C2 to C1', 'Writes C3'])
+        ->and($timeline->whereNotNull('vote')->pluck('what')->countBy()->all())->toEqual(['Votes on C1' => 3, 'Votes on C3' => 1])
+        ->and($timeline->first())->toMatchArray(['when' => '+5 min', 'what' => 'Writes C1', 'vote' => null])
+        ->and($timeline->firstWhere('what', 'Votes on C3'))->toMatchArray(['offset' => 1200, 'when' => '+20 min', 'after' => '+5 min after it']);
+
+    $editor->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-comment-votes-timeline">', 'Comments and votes in time', '3 comments · 4 votes · the votes as set here, not saved yet', 'Writes C1', 'Votes on C1', '</template>']);
+});
+
 it('opens a comment\'s breakdown beside the tree — its votes, priority and timing, and who casts each, when — and closes it', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)
         ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c1)->assertSet('selected', $this->c1)
@@ -490,7 +528,12 @@ it('asks before the step is left with its votes not saved: saves them and goes o
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)
         ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'elsewhere')->assertSet('leaving', null)->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)
         ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'publication')->assertSet('leaving', 'publication')->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)
-        ->assertSee('Save the comment votes?')->assertSee('4 votes on 2 comments · not saved yet.')
+        ->assertSee('Save the comment votes?')
+        ->assertViewHas('changes', [
+            ['label' => 'C1', 'text' => '+2 / −1 · saved +0 / −0', 'problem' => false],
+            ['label' => 'C3', 'text' => '+1 / −0 · saved +0 / −0', 'problem' => false],
+        ])
+        ->assertSeeHtmlInOrder(['Save the comment votes?', 'C1</span> · +2 / −1 · saved +0 / −0', 'C3</span> · +1 / −0 · saved +0 / −0', 'Keep editing', 'Discard changes', 'Save and continue'])
         ->call('stay')->assertSet('leaving', null)->assertDontSee('Save the comment votes?');
 
     $editor->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')->call('saveAndLeave')
@@ -504,9 +547,12 @@ it('asks before the step is left with its votes not saved: saves them and goes o
         ->call('discardAndLeave')->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'previous')
         ->assertSet("targets.{$this->c2}.down", 0)->assertSet('unsaved', false);
 
-    // Votes that can't be saved yet: Save and continue stays.
+    // Votes that can't be saved yet: the dialog says what is marked, and Save and continue stays.
     discussionVotesEditor($this->plan)->call('clearVoters')->call('setVotes', $this->c2, 'up', 2)->assertSet('unsaved', true)
-        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')->call('saveAndLeave')
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')
+        ->assertSee('can’t be until what is marked is fixed')
+        ->assertViewHas('changes', fn (array $changes): bool => collect($changes)->contains(fn (array $change): bool => $change['label'] === 'C3' && $change['problem']))
+        ->call('saveAndLeave')
         ->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)->assertSet('leaving', null)->assertSet('unsaved', true);
 
     expect(savedCommentVotes($this->plan))->toHaveCount(4)

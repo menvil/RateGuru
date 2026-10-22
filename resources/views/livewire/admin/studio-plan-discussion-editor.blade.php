@@ -2,10 +2,11 @@
     The Discussion step (StudioPlanDiscussionEditor), laid out and working as
     the prototype's: Discussion settings, with the Comment voters and the
     Comment votes beside them (drawn by StudioPlanDiscussionVotesEditor);
-    Generate tree in a strip of its own under them; then the discussion tree —
-    Comments, each with its moment, its up and down votes as set on the step,
-    Reply, Edit, Regenerate, Delete and See breakdown, which opens the
-    comment's votes beside the tree; Voters; and Timing. A comment is edited
+    Generate tree in a strip of its own under them, saying the comment votes
+    too; then the discussion tree — Comments, each with its moment, its up and
+    down votes as set on the step, Reply, Edit, Regenerate, Delete and See
+    breakdown, which opens the comment's votes beside the tree; Voters; and
+    Timing, with every vote at its moment under the comments'. A comment is edited
     in a dialog, and everything is written to the plan at once. While a
     generation is on its way the step is read again every few seconds: a
     whole tree is drawn as placeholders, a comment written again is faded.
@@ -28,6 +29,8 @@
     $summary = $totalCount === 0
         ? 'No discussion · the post publishes without automated comments'
         : $totalCount.' '.($totalCount === 1 ? 'comment' : 'comments').' · '.$rootCount.' top-level · '.$personaCount.' '.($personaCount === 1 ? 'persona' : 'personas');
+    // The comment votes as saved, until the votes editor says them as set on the step.
+    $votesSaved = \App\Livewire\Admin\StudioPlanDiscussionVotesEditor::tallied(array_sum(array_column($rows, 'up')), array_sum(array_column($rows, 'down')));
     [$hint, $hintTone] = match (true) {
         $noTeam => ['Select at least one persona.', 'danger'],
         $totalCount > 0 && $notReady !== null => [$notReady, 'muted'],
@@ -166,7 +169,10 @@
         <span class="rg-admin-studio__generate-icon" aria-hidden="true"><x-admin.ui.icon name="git-branch" :size="16" /></span>
         <div class="rg-admin-studio__generate-text">
             <div class="rg-admin-studio__generate-label">Generate from the settings above</div>
-            <div class="rg-admin-studio__generate-summary">{{ $summary }}</div>
+            <div class="rg-admin-studio__generate-summary">
+                {{ $summary }}@if ($hasTree)<span class="rg-admin-studio__generate-votes"> · <span x-text="$store.rgCommentVotes?.status || @js($votesSaved)">{{ $votesSaved }}</span></span>
+                    <span class="rg-admin-studio__node-unsaved" x-show="$store.rgCommentVotes?.unsaved" x-cloak>Not saved</span>@endif
+            </div>
             <div @class(['rg-admin-studio__generate-hint', 'rg-admin-studio__generate-hint--danger' => $hintTone === 'danger'])>
                 <span x-show="! ($store.adminEditor?.changes > 0)">{{ $hint }}</span>
                 <span x-show="$store.adminEditor?.changes > 0" x-cloak>Save the post first: the discussion is written from the saved title and description.</span>
@@ -340,9 +346,12 @@
                 @endforeach
             </ol>
         @endif
-        {{-- The Voters tab: drawn by the votes editor in the place kept for it, shown while the tab is on screen. --}}
+        {{-- The Voters tab, and the votes in time under the Timing tab's comments: drawn by the votes editor in the places kept for them, shown while their tab is on screen. --}}
         <div class="rg-admin-studio__tree-voters" @if ($busy || ! $hasTree || $tab !== 'voters') hidden @endif>
             <div id="rg-admin-studio-comment-voters-table" wire:ignore></div>
+        </div>
+        <div class="rg-admin-studio__tree-timeline" @if ($busy || ! $hasTree || $tab !== 'timing') hidden @endif>
+            <div id="rg-admin-studio-comment-votes-timeline" wire:ignore></div>
         </div>
     </x-admin.ui.card>
     <div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>

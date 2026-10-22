@@ -3,8 +3,8 @@
     the post is to get, written by hand or by AI, each change written at once —
     and the votes on them (StudioPlanDiscussionVotesEditor): its Comment voters
     and Comment votes beside the Discussion settings, each comment's breakdown
-    beside the tree, its voters on the tree's Voters tab, and Save votes under
-    the tree. Drawn once for the plan and kept for as long as its editor is
+    beside the tree with Save votes, its voters on the tree's Voters tab and
+    its votes in time on the Timing tab. Drawn once for the plan and kept for as long as its editor is
     open — hidden on the other steps, never drawn again — so its settings, and
     a generation it waits for, survive moving between steps. A new publication
     has no plan to keep a discussion on until its Draft is made; the step says
@@ -12,15 +12,16 @@
 
     The `rgCommentVotes` store carries the comment votes as set on the step to
     the parts of the page drawn by others: each comment's counts on the tree,
-    the comment whose breakdown is open, and whether anything is unsaved, which
-    the step's Back, Continue and steps ask about before leaving. Registered
+    the comment whose breakdown is open, all of them in a few words for the
+    Generate strip, and whether anything is unsaved, which the step's Back,
+    Continue and steps ask about before leaving. Registered
     once, before Alpine starts; a re-render keeps the registration.
 --}}
 <script>
     (() => {
         const register = () => {
             if (! window.Alpine.store('rgCommentVotes')) {
-                window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false })
+                window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false, status: null })
             }
         }
 

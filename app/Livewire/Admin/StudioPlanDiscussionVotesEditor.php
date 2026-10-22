@@ -39,14 +39,16 @@ use Livewire\Component;
  * What is set here is a recipe, never saved: the votes are made of it
  * (BuildStudioDiscussionVotesData) as soon as it asks for other votes than
  * the plan has saved, drawn once and shown as they will be saved — on the
- * discussion tree, each comment's counts, and beside it the breakdown of the
- * one opened — and Save votes saves exactly those, through
- * SaveStudioVotesAction. The votes on the post and its rating questions are
- * kept as the plan has them at that moment; only the votes on comments are
- * replaced. Opened again, the editor draws the votes as they are saved: their
- * counts, their Personas, their times. Nothing is cast — prepared votes are
- * no votes on the site. Leaving the step with votes not saved asks first:
- * save them, discard them, or stay.
+ * discussion tree, each comment's counts, beside it the breakdown of the one
+ * opened, and on its Timing tab every vote at its moment — and Save votes
+ * saves exactly those, through SaveStudioVotesAction. The totals are always
+ * the comments' votes added up: a total changed gives or takes the difference
+ * by priority, a comment's own votes changed move it. The votes on the post and
+ * its rating questions are kept as the plan has them at that moment; only the
+ * votes on comments are replaced. Opened again, the editor draws the votes as
+ * they are saved: their counts, their Personas, their times. Nothing is cast
+ * — prepared votes are no votes on the site. Leaving the step with votes not
+ * saved asks first, listing what changed: save them, discard them, or stay.
  *
  * One version for the whole plan, as with the other editors on the page: a
  * save here raises it and says so with `studio-plan-version-moved` from
@@ -126,7 +128,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     public string $votersSearch = '';
 
-    /** How many up and down votes Distribute automatically shares among the comments. */
+    /** The comments' up and down votes added up; a total changed gives or takes the difference by priority. */
     public int $totalUp = 0;
 
     public int $totalDown = 0;
@@ -172,9 +174,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
     #[Locked]
     public string $restoredFor = '';
 
-    #[Locked]
-    public bool $confirmingRemove = false;
-
     /** The comment whose breakdown is open beside the discussion tree. */
     #[Locked]
     public ?int $selected = null;
@@ -191,6 +190,10 @@ final class StudioPlanDiscussionVotesEditor extends Component
      */
     #[Locked]
     public array $summary = [];
+
+    /** The comment votes as they stand, in a few words, for the Discussion step's Generate strip. */
+    #[Locked]
+    public string $status = '';
 
     /** Where the step was asked to go while the votes are not saved: a step, `next` or `previous`. */
     #[Locked]
@@ -229,23 +232,27 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->votersFilter = in_array($this->votersFilter, ['all', 'voting', 'writers', 'idle'], true) ? $this->votersFilter : 'all';
     }
 
+    /** Total up, changed: the votes it gained or lost given or taken at once, the rest kept. */
     public function updatedTotalUp(): void
     {
         $this->totalUp = self::count($this->totalUp);
+        $this->adjust('up');
     }
 
     public function updatedTotalDown(): void
     {
         $this->totalDown = self::count($this->totalDown);
+        $this->adjust('down');
     }
 
-    /** Up or Down of one comment, set by hand. */
+    /** Up or Down of one comment, set by hand: the totals follow. */
     public function setVotes(mixed $node, mixed $way, mixed $count): void
     {
         $node = (int) $node;
 
         if (isset($this->targets[$node]) && in_array($way, ['up', 'down'], true) && is_numeric($count)) {
             $this->targets[$node][$way] = self::count((int) $count);
+            $this->tally();
         }
     }
 
@@ -260,29 +267,13 @@ final class StudioPlanDiscussionVotesEditor extends Component
     }
 
     /**
-     * Distribute automatically: the total up votes and the total down votes,
-     * each shared among the comments by their priorities — Low 1, Normal 2,
-     * High 3 — the remainders to the largest fractions, then in the tree's
-     * order. Nothing is drawn and nothing is saved; each comment can be set
-     * by hand afterwards.
+     * Distribute automatically: both totals shared out again, after the
+     * comments' priorities or their own votes were changed.
      */
     public function distribute(): void
     {
-        $priorities = [];
-
-        foreach ($this->orderedNodes() as $node) {
-            if (isset($this->targets[(int) $node->id])) {
-                $priorities[(int) $node->id] = $this->targets[(int) $node->id]['priority'];
-            }
-        }
-
-        $up = BuildStudioDiscussionVotesData::distribute($priorities, $this->totalUp);
-        $down = BuildStudioDiscussionVotesData::distribute($priorities, $this->totalDown);
-
-        foreach (array_keys($priorities) as $node) {
-            $this->targets[$node]['up'] = $up[$node] ?? 0;
-            $this->targets[$node]['down'] = $down[$node] ?? 0;
-        }
+        $this->share('up');
+        $this->share('down');
     }
 
     /** First vote after, and Spread over — after each comment — for one comment, or for every comment. */
@@ -391,26 +382,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         $this->write(array_map(fn (array $vote): StudioVoteData => new StudioVoteData(...$vote), $this->preview), 'Comment votes saved');
-    }
-
-    /** Remove comment votes asks first; the votes on the post and its questions stay. */
-    public function askRemove(): void
-    {
-        $this->confirmingRemove = $this->writable();
-    }
-
-    public function closeRemove(): void
-    {
-        $this->confirmingRemove = false;
-    }
-
-    public function confirmRemove(): void
-    {
-        $this->confirmingRemove = false;
-
-        if ($this->writable()) {
-            $this->write([], 'Comment votes removed');
-        }
     }
 
     /** Discard: the settings as the saved votes have them, the votes made of others gone. */
@@ -580,18 +551,20 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->unsaved = $this->pending($saved);
         $this->summary = $this->summaryOf($nodes, $saved, $eligible, $problems);
         $chosenNode = collect($nodes)->first(fn (StudioDiscussionNode $node): bool => (int) $node->id === $this->selected);
+        $marked = array_map(fn (int $node): string => $labels[$node] ?? '', array_keys(array_filter($this->summary, fn (array $entry): bool => $entry['problem'] !== null)));
+        $this->status = match (true) {
+            $this->unsaved && $marked !== [] => 'comment votes: fix what is marked on '.implode(', ', $marked),
+            $marked !== [] => self::tallied($this->totalUp, $this->totalDown).' · see what is marked on '.implode(', ', $marked),
+            default => self::tallied($this->totalUp, $this->totalDown),
+        };
 
         return view('livewire.admin.studio-plan-discussion-votes-editor', [
             'editable' => $this->writable(),
             'cap' => $cap,
             'voters' => $voters,
             'commentCount' => count($nodes),
-            'savedCount' => count($saved),
-            'shownCount' => count($shown),
-            'up' => array_sum(array_column($this->targets, 'up')),
-            'down' => array_sum(array_column($this->targets, 'down')),
             'voted' => count(array_filter($this->targets, fn (array $target): bool => $target['up'] + $target['down'] > 0)),
-            'marked' => array_map(fn (int $node): string => $labels[$node] ?? '', array_keys(array_filter($this->summary, fn (array $entry): bool => $entry['problem'] !== null))),
+            'marked' => $marked,
             'listed' => $this->voterMode === 'manual' ? $this->personaList()->map(fn (User $persona): array => [
                 ...(StudioPlanFormat::author($persona) ?? []),
                 'short' => Str::limit((string) ($persona->personaProfile->short_description ?? ''), 90),
@@ -605,7 +578,21 @@ final class StudioPlanDiscussionVotesEditor extends Component
                 'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, array_values(array_unique(array_column($this->targets, 'spread')))),
             ],
             'breakdown' => $chosenNode !== null ? $this->breakdown($chosenNode, $shown, $people, $labels, $nodes, $problems) : null,
+            'timeline' => $this->timeline($nodes, $shown, $people, $labels, $problems),
+            'votesShown' => count($shown),
+            'changes' => $this->leaving !== null ? $this->changes($nodes, $saved, $labels) : [],
         ]);
+    }
+
+    /**
+     * Comment votes counted, as the Generate strip says them after the
+     * discussion's own numbers: how many, and how many up and down.
+     */
+    public static function tallied(int $up, int $down): string
+    {
+        return $up + $down === 0
+            ? 'no comment votes'
+            : ($up + $down).' comment '.($up + $down === 1 ? 'vote' : 'votes').' (+'.$up.' / −'.$down.')';
     }
 
     // ------------------------------------------------------------------
@@ -623,7 +610,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $plan = StudioPlan::query()->find($this->planId);
         $this->resetErrorBag();
         $this->conflict = false;
-        $this->confirmingRemove = false;
         $this->preview = null;
         $this->drawn = [];
         $this->previewFor = '';
@@ -658,8 +644,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
             ];
         }
 
-        $this->totalUp = array_sum(array_column($this->targets, 'up'));
-        $this->totalDown = array_sum(array_column($this->targets, 'down'));
+        $this->tally();
         $voters = array_values(array_unique(array_column($saved, 'personaUserId')));
         $this->voterMode = $voters !== [] ? 'manual' : 'random';
         $this->voterIds = $voters;
@@ -704,6 +689,87 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         $this->targets = $targets;
+        $this->tally();
+    }
+
+    /**
+     * One way's total shared out among the comments by their priorities —
+     * Low 1, Normal 2, High 3 — the remainders to the largest fractions, then
+     * in the tree's order. Nothing is saved; each comment can be set by hand
+     * afterwards.
+     */
+    private function share(string $way): void
+    {
+        $priorities = $this->priorities();
+        $shares = BuildStudioDiscussionVotesData::distribute($priorities, $way === 'up' ? $this->totalUp : $this->totalDown);
+
+        foreach (array_keys($priorities) as $node) {
+            $this->targets[$node][$way] = $shares[$node] ?? 0;
+        }
+
+        $this->tally();
+    }
+
+    /**
+     * One way's total changed: each vote it gained given, one at a time, to
+     * the comment furthest below its share of the new total by priority —
+     * equal ones first in the tree — and each it lost taken from the one
+     * furthest above, equal ones last in the tree. Every other comment keeps
+     * its votes as set.
+     */
+    private function adjust(string $way): void
+    {
+        $priorities = $this->priorities();
+        $total = $way === 'up' ? $this->totalUp : $this->totalDown;
+        $shares = BuildStudioDiscussionVotesData::distribute($priorities, $total);
+        $left = $total - array_sum(array_map(fn (int $node): int => $this->targets[$node][$way], array_keys($priorities)));
+
+        while ($left !== 0) {
+            $step = $left > 0 ? 1 : -1;
+            [$pick, $furthest] = [null, null];
+
+            foreach (array_keys($priorities) as $node) {
+                $gap = $step * (($shares[$node] ?? 0) - $this->targets[$node][$way]);
+
+                if (($step > 0 || $this->targets[$node][$way] > 0) && ($furthest === null || $gap > $furthest || ($step < 0 && $gap === $furthest))) {
+                    [$pick, $furthest] = [$node, $gap];
+                }
+            }
+
+            if ($pick === null) {
+                break;
+            }
+
+            $this->targets[$pick][$way] += $step;
+            $left -= $step;
+        }
+
+        $this->tally();
+    }
+
+    /**
+     * The comments' priorities, in the tree's order.
+     *
+     * @return array<int, string>
+     */
+    private function priorities(): array
+    {
+        $priorities = [];
+
+        foreach ($this->orderedNodes() as $node) {
+            if (isset($this->targets[(int) $node->id])) {
+                $priorities[(int) $node->id] = $this->targets[(int) $node->id]['priority'];
+            }
+        }
+
+        return $priorities;
+    }
+
+    /** The totals as the comments' votes add up. */
+    private function tally(): void
+    {
+        $this->totalUp = array_sum(array_column($this->targets, 'up'));
+        $this->totalDown = array_sum(array_column($this->targets, 'down'));
     }
 
     /**
@@ -1184,6 +1250,93 @@ final class StudioPlanDiscussionVotesEditor extends Component
             'waiting' => $this->drafted() && $this->preview === null,
             'votes' => $this->rows(self::on($shown, $id), $people, $labels, $nodes, $problems),
         ];
+    }
+
+    /**
+     * The discussion as it comes, for the tree's Timing tab: each comment and
+     * reply at its moment and every vote on them as it stands, in the order
+     * they come after the post — a comment before the votes at its moment.
+     *
+     * @param  list<StudioDiscussionNode>  $nodes
+     * @param  list<array<string, mixed>>  $shown
+     * @param  Collection<int, User>  $people
+     * @param  array<int, string>  $labels
+     * @param  array<int, string>  $problems
+     * @return list<array<string, mixed>>
+     */
+    private function timeline(array $nodes, array $shown, Collection $people, array $labels, array $problems): array
+    {
+        $events = [];
+
+        foreach ($nodes as $node) {
+            $events[] = [
+                'offset' => (int) $node->offset_seconds,
+                'order' => 0,
+                'when' => '+'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds),
+                'persona' => StudioPlanFormat::author($people->get($node->persona_user_id)),
+                'reply' => $node->parent_id !== null,
+                'what' => $node->parent_id !== null
+                    ? 'Replies '.($labels[(int) $node->id] ?? '').' to '.($labels[(int) $node->parent_id] ?? '')
+                    : 'Writes '.($labels[(int) $node->id] ?? ''),
+                'vote' => null,
+                'after' => '',
+                'problem' => null,
+            ];
+        }
+
+        foreach ($this->rows($shown, $people, $labels, $nodes, $problems) as $vote) {
+            $events[] = [
+                'offset' => $vote['offset'],
+                'order' => 1,
+                'when' => $vote['when'],
+                'persona' => $vote['persona'],
+                'reply' => false,
+                'what' => 'Votes on '.$vote['label'],
+                'vote' => $vote['vote'],
+                'after' => $vote['after'],
+                'problem' => $vote['problem'],
+            ];
+        }
+
+        usort($events, fn (array $a, array $b): int => [$a['offset'], $a['order']] <=> [$b['offset'], $b['order']]);
+
+        return $events;
+    }
+
+    /**
+     * What is not saved, comment by comment, for the step's question before
+     * leaving: each changed comment's votes as set here and as saved, or what
+     * stands in the way of saving them.
+     *
+     * @param  list<StudioDiscussionNode>  $nodes
+     * @param  list<array<string, mixed>>  $saved
+     * @param  array<int, string>  $labels
+     * @return list<array{label: string, text: string, problem: bool}>
+     */
+    private function changes(array $nodes, array $saved, array $labels): array
+    {
+        $changes = [];
+
+        foreach ($nodes as $node) {
+            $entry = $this->summary[(int) $node->id] ?? null;
+
+            if ($entry === null || (! $entry['changed'] && $entry['problem'] === null)) {
+                continue;
+            }
+
+            $savedOn = self::on($saved, (int) $node->id);
+            $up = count(array_filter($savedOn, fn (array $vote): bool => $vote['voteType'] === 'up'));
+            $now = '+'.$entry['up'].' / −'.$entry['down'];
+            $was = '+'.$up.' / −'.(count($savedOn) - $up);
+
+            $changes[] = [
+                'label' => $labels[(int) $node->id] ?? '',
+                'text' => $entry['problem'] ?? ($now === $was ? $now.' · other voters or moments than saved' : $now.' · saved '.$was),
+                'problem' => $entry['problem'] !== null,
+            ];
+        }
+
+        return $changes;
     }
 
     /**

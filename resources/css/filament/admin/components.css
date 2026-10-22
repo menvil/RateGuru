@@ -5745,8 +5745,8 @@
         margin-left: auto;
     }
 
-    /* Step 3 · Discussion, its comment votes: Save votes under the tree, the rest where the step lays it out. */
-    .rg-admin-studio__comment-votes {
+    /* Step 3 · Discussion, its comment votes: drawn where the step lays them out, under the tree only what keeps them from being saved. */
+    .rg-admin-studio__comment-votes > .rg-admin-notice {
         margin-top: var(--rg-admin-card-gap);
     }
 
@@ -6218,6 +6218,22 @@
     /* The tree's Voters tab, drawn by the votes editor. */
     .rg-admin-studio__tree-voters {
         padding-top: var(--rg-admin-space-1);
+    }
+
+    /* The Timing tab's comments and votes in time, under the comments' own moments: each comment on a sunken row. */
+    .rg-admin-studio__comment-votes-timeline > .rg-admin-studio__votes-block-head {
+        padding: 20px 20px var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__timeline-comment > td {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    /* The comment votes said after the discussion's numbers in the Generate strip. */
+    .rg-admin-studio__generate-summary > .rg-admin-studio__node-unsaved {
+        display: inline-block;
+        margin-left: 2px;
+        vertical-align: 1px;
     }
 
     /* The discussion tree: its tabs, then the comments, each reply indented under its comment. */
