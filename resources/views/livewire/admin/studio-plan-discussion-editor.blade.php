@@ -2,8 +2,9 @@
     The Discussion step (StudioPlanDiscussionEditor), laid out and working as
     the prototype's: Discussion settings, the Comment voters beside them
     (drawn by StudioPlanDiscussionVotesEditor); Generate tree in a strip of its
-    own under them; then the discussion tree — Comments, each with Reply, Edit,
-    Regenerate and Delete, and Timing. A comment is edited in a dialog, and
+    own under them; then the discussion tree — Comments, each with its moment,
+    the up and down votes saved on it, Reply, Edit, Regenerate and Delete, and
+    Timing. A comment is edited in a dialog, and
     everything is written to the plan at once. While a generation is on its
     way the step is read again every few seconds: a whole tree is drawn as
     placeholders, a comment written again is faded. Every text is drawn
@@ -294,7 +295,11 @@
                                     @elseif (($row['persona']['problem'] ?? null) === 'restricted' && ($row['persona']['status'] ?? null) !== null)
                                         <x-admin.ui.badge :tone="$row['persona']['status']['tone']" :dot="$row['persona']['status']['dot']">{{ $row['persona']['status']['label'] }}</x-admin.ui.badge>
                                     @endif
-                                    <span class="rg-admin-studio__node-time"><x-admin.ui.icon name="clock" :size="12" />{{ $row['offset'] }}</span>
+                                    <span class="rg-admin-studio__node-stats">
+                                        <span class="rg-admin-studio__node-time"><x-admin.ui.icon name="clock" :size="12" />{{ $row['offset'] }}</span>
+                                        <span class="rg-admin-studio__node-vote" title="Up votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-up" :size="12" label="Up votes" />{{ $row['up'] }}</span>
+                                        <span class="rg-admin-studio__node-vote" title="Down votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-down" :size="12" label="Down votes" />{{ $row['down'] }}</span>
+                                    </span>
                                 </div>
                                 <div @class(['rg-admin-studio__node-body', 'rg-admin-studio__node-body--rewriting' => $row['rewriting']])>{{ $row['body'] }}</div>
                                 @if ($editable)

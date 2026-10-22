@@ -822,6 +822,11 @@ What is on it:
   First vote after (5 min to 1 day) and Spread over (1 h to 1 week), counted
   from each comment's own moment and set for every comment at once, and when
   each comment's votes come.
+- **On the discussion itself** — each comment of the tree shows, beside its
+  moment, the up and down votes saved on it, as the prototype's tree row
+  does. They are the saved votes, not the settings or a preview: the
+  discussion editor reads them on every drawing, and the version a save or a
+  removal moves draws them again at once.
 
 Build preview, Save votes, Rebuild, Pick others and Reshuffle, Discard and the
 Saved votes and Preview cards work as on Post · Votes: the settings are a

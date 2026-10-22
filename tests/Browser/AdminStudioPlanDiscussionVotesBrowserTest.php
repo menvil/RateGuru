@@ -12,7 +12,8 @@ use function Pest\Laravel\actingAs;
  * beside the Discussion settings and the Comment votes under the discussion,
  * drawn whole at every width, the discussion's own tabs and dialog working as
  * before, voters chosen, the votes distributed over the comments, shown as a
- * preview, saved exactly as shown and drawn again after a reload.
+ * preview, saved exactly as shown — and counted on the discussion's comments
+ * at once — and drawn again after a reload.
  */
 beforeEach(function () {
     $admin = User::factory()->admin()->create(['username' => 'daria_k']);
@@ -111,6 +112,7 @@ it('chooses voters, distributes the votes over the comments, and saves exactly t
     $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-votes .rg-admin-studio__votes-actions button')].find((button) => button.textContent.trim() === 'Save votes').click()");
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Comment votes saved');
     waitForScript($page, commentVotesSummary(), '3 votes are saved on the comments.');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-vote[title^=\"Up votes\"]')].reduce((sum, count) => sum + Number(count.textContent.trim().match(/\\d+$/)[0]), 0)", 3);
 
     $saved = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->with('discussionNode')->get();
 

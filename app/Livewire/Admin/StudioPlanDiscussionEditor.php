@@ -10,10 +10,12 @@ use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
+use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioDiscussionGenerationStatus;
 use App\Enums\StudioPostTextTone;
+use App\Enums\VoteType;
 use App\Exceptions\Studio\CannotApplyStudioDiscussionGenerationException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioDiscussionGenerationException;
@@ -21,6 +23,7 @@ use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\StudioDiscussionValidationRules;
@@ -772,6 +775,7 @@ final class StudioPlanDiscussionEditor extends Component
         $rows = $plan !== null ? $this->savedRows($plan) : [];
         $ordered = self::ordered($rows);
         $labels = self::labels($ordered);
+        $votes = $plan !== null ? self::savedVotes($plan) : [];
         $picked = $plan !== null ? $this->pickedForTree($plan) : [];
         $personaIds = array_values(array_unique(array_filter([
             ...array_column($rows, 'personaUserId'),
@@ -813,7 +817,7 @@ final class StudioPlanDiscussionEditor extends Component
                 'on' => in_array((int) $persona->id, $this->manual, true),
             ])->values()->all(),
             'searching' => trim($this->participantSearch) !== '',
-            'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people), $ordered),
+            'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people, $votes), $ordered),
             'rootTotal' => count(array_filter($rows, fn (array $row): bool => $row['parentId'] === null)),
             'timing' => $this->timingRows($rows, $labels, $people),
             'dialogData' => $this->dialog !== null ? $this->dialogData($rows, $labels, $people) : null,
@@ -1299,15 +1303,17 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * What a row of the tree shows.
+     * What a row of the tree shows: with its moment, the votes the plan has
+     * saved on it, up and down (the Comment votes editor's).
      *
      * @param  array{row: array<string, mixed>, depth: int}  $entry
      * @param  array<int, string>  $labels
      * @param  list<array<string, mixed>>  $rows
      * @param  Collection<int, User>  $people
+     * @param  array<int, array{up: int, down: int}>  $votes
      * @return array<string, mixed>
      */
-    private function displayRow(array $entry, array $labels, array $rows, Collection $people): array
+    private function displayRow(array $entry, array $labels, array $rows, Collection $people, array $votes): array
     {
         $row = $entry['row'];
         $parent = $row['parentId'] !== null ? collect($rows)->firstWhere('id', $row['parentId']) : null;
@@ -1320,8 +1326,31 @@ final class StudioPlanDiscussionEditor extends Component
             'persona' => StudioPlanFormat::author($people->get($row['personaUserId'])),
             'body' => $row['body'],
             'offset' => '+'.self::relative((int) $row['offsetSeconds']),
+            'up' => $votes[$row['id']]['up'] ?? 0,
+            'down' => $votes[$row['id']]['down'] ?? 0,
             'rewriting' => $this->rewriting === $row['id'],
         ];
+    }
+
+    /**
+     * The votes the plan has saved on its comments, up and down, by comment —
+     * as they are cast once it runs. Read again on every drawing, so a save
+     * of the Comment votes editor shows here with the version it moves.
+     *
+     * @return array<int, array{up: int, down: int}>
+     */
+    private static function savedVotes(StudioPlan $plan): array
+    {
+        return StudioPlanVote::query()
+            ->where('studio_plan_id', $plan->getKey())
+            ->where('type', StudioActionType::VoteComment)
+            ->get(['discussion_node_id', 'vote_type'])
+            ->groupBy('discussion_node_id')
+            ->map(fn (EloquentCollection $votes): array => [
+                'up' => $votes->where('vote_type', VoteType::Up)->count(),
+                'down' => $votes->where('vote_type', VoteType::Down)->count(),
+            ])
+            ->all();
     }
 
     /**

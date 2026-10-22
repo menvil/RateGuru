@@ -8,6 +8,7 @@ use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\StudioAction;
@@ -86,6 +87,29 @@ it('draws the tree as saved: each comment on the post by its time, its replies u
         ->assertSee('Automated')
         ->assertSee('Banned')
         ->assertSet('lockVersion', 2);
+});
+
+it('shows on each comment, beside its moment, the up and down votes saved on it, drawn again when the comment votes editor saves', function () {
+    savedFour($this);
+    [$carl, $dana] = User::factory()->persona()->count(2)->create()->all();
+    $nodes = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->pluck('id', 'body');
+    $votes = fn (string $html, string $label): array => preg_match('/title="Up votes prepared on '.$label.'">.*?<\/svg>\s*(\d+)\s*<\/span>.*?title="Down votes prepared on '.$label.'">.*?<\/svg>\s*(\d+)\s*<\/span>/s', $html, $match) === 1 ? [(int) $match[1], (int) $match[2]] : [];
+    $editor = discussionEditor($this->plan);
+
+    expect($votes($editor->html(), 'C1'))->toBe([0, 0])->and($votes($editor->html(), 'C4'))->toBe([0, 0]);
+
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $carl->id, 'voteType' => 'up', 'discussionNodeId' => $nodes['Lovely light.'], 'offsetSeconds' => 600]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $dana->id, 'voteType' => 'up', 'discussionNodeId' => $nodes['Lovely light.'], 'offsetSeconds' => 900]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $carl->id, 'voteType' => 'down', 'discussionNodeId' => $nodes['Where is this?'], 'offsetSeconds' => 600]),
+    ]);
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: StudioPlanDiscussionVotesEditor::SOURCE)
+        ->assertSet('lockVersion', 3)->assertSet('conflict', false);
+
+    expect($votes($editor->html(), 'C1'))->toBe([2, 0])
+        ->and($votes($editor->html(), 'C2'))->toBe([0, 0])
+        ->and($votes($editor->html(), 'C4'))->toBe([0, 1]);
+    $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.']);
 });
 
 it('says there is no discussion yet, or none planned', function () {

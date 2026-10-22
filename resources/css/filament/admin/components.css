@@ -6168,13 +6168,26 @@
         font-weight: var(--rg-admin-weight-medium);
     }
 
+    /* A comment's moment, then the up and down votes saved on it, at the end of its line. */
+    .rg-admin-studio__node-stats {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-left: auto;
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
     .rg-admin-studio__node-time {
         display: inline-flex;
         align-items: center;
         gap: var(--rg-admin-space-1);
-        margin-left: auto;
-        color: var(--rg-admin-text-secondary);
-        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__node-vote {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
     }
 
     .rg-admin-studio__node-body {
@@ -6536,7 +6549,7 @@
             padding-left: var(--rg-admin-space-3);
         }
 
-        .rg-admin-studio__node-time {
+        .rg-admin-studio__node-stats {
             margin-left: 0;
         }
     }
