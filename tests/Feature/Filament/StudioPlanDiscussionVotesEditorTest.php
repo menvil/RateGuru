@@ -16,6 +16,7 @@ use App\Models\RatingVote;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanVote;
 use App\Models\User;
 use Illuminate\Support\Facades\Bus;
@@ -94,14 +95,14 @@ it('starts every comment and reply Normal and with no votes, from a random draw 
     discussionVotesEditor($this->plan)
         ->assertSet('voterMode', 'random')->assertSet('voterCount', 6)
         ->assertSet('targets', [
-            $this->c1 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600],
-            $this->r1 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600],
-            $this->c2 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600],
+            $this->c1 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600, 'moments' => []],
+            $this->r1 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600, 'moments' => []],
+            $this->c2 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600, 'moments' => []],
         ])
         ->assertSet('summary', [
-            $this->c1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
-            $this->r1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
-            $this->c2 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
+            $this->c1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null],
+            $this->r1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null],
+            $this->c2 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null],
         ])
         ->assertSet('unsaved', false)->assertSet('preview', null)->assertSet('selected', null)
         ->assertSet('totalUp', 0)->assertSet('totalDown', 0)->assertSet('status', 'no comment votes')
@@ -165,7 +166,6 @@ it('makes the votes as soon as they are asked for, shows them on the tree as not
 
     $editor->assertSet('status', '4 comment votes (+3 / −1)')->assertSet('unsaved', true)
         ->assertSet("summary.{$this->c1}.up", 2)->assertSet("summary.{$this->c1}.down", 1)->assertSet("summary.{$this->c1}.changed", true)
-        ->assertSet("summary.{$this->c1}.window", '+10 min → +6 h 10 min after the post · from 5 min after the comment')
         ->assertSet("summary.{$this->r1}.changed", false)
         ->call('save')->assertHasNoErrors()
         ->assertDispatched('rg-admin-toast', message: 'Comment votes saved', tone: 'success')
@@ -446,7 +446,7 @@ it('draws in the page\'s Discussion step, its cards beside the Discussion settin
         'Generate from the settings above',
         'Discussion tree',
         '<div id="rg-admin-studio-comment-voters-table" wire:ignore></div>',
-        '<div id="rg-admin-studio-comment-votes-timeline" wire:ignore></div>',
+        '<div id="rg-admin-studio-timing" wire:ignore></div>',
         '<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>',
     ]);
     discussionVotesEditor($this->plan)->assertSeeHtmlInOrder([
@@ -454,7 +454,7 @@ it('draws in the page\'s Discussion step, its cards beside the Discussion settin
         '<template x-teleport="#rg-admin-studio-comment-vote-settings">', 'Comment votes', 'Distribute automatically', 'First vote after', '</template>',
         '<template x-teleport="#rg-admin-studio-comment-breakdown">', '</template>',
         '<template x-teleport="#rg-admin-studio-comment-voters-table">', 'Reshuffle', '</template>',
-        '<template x-teleport="#rg-admin-studio-comment-votes-timeline">', 'Comments and votes in time', '</template>',
+        '<template x-teleport="#rg-admin-studio-timing">', 'Offset from post', '</template>',
     ])->assertDontSee('Prepared comment votes')->assertDontSee('Save votes');
 
     Livewire::test(CreateStudioPlan::class)->call('goToStep', 'discussion')
@@ -489,17 +489,86 @@ it('lists every voter the votes drew on the tree\'s Voters tab, with what it vot
         ->and(collect($editor->set('votersFilter', 'writers')->viewData('voterTable')['rows'])->pluck('persona.id')->all())->toBe([$this->anna->id]);
 });
 
-it('lists every comment and every vote on them in the order they come, for the tree\'s Timing tab', function () {
+it('lists every comment, reply and vote on them in one list on the tree\'s Timing tab, in the order they come, each with what it comes after', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
-    $timeline = collect($editor->viewData('timeline'));
+    $timing = collect($editor->viewData('timing'));
 
-    expect($timeline->pluck('offset')->all())->toBe($timeline->pluck('offset')->sort()->values()->all())
-        ->and($timeline->whereNull('vote')->pluck('what')->all())->toBe(['Writes C1', 'Replies C2 to C1', 'Writes C3'])
-        ->and($timeline->whereNotNull('vote')->pluck('what')->countBy()->all())->toEqual(['Votes on C1' => 3, 'Votes on C3' => 1])
-        ->and($timeline->first())->toMatchArray(['when' => '+5 min', 'what' => 'Writes C1', 'vote' => null])
-        ->and($timeline->firstWhere('what', 'Votes on C3'))->toMatchArray(['offset' => 1200, 'when' => '+20 min', 'after' => '+5 min after it']);
+    expect($timing->pluck('seconds')->all())->toBe($timing->pluck('seconds')->sort()->values()->all())
+        ->and($timing->where('kind', '!=', 'vote')->pluck('action')->all())->toBe(['Comment C1', 'Reply C2', 'Comment C3'])
+        ->and($timing->where('kind', 'vote')->pluck('parent')->countBy()->all())->toEqual(['C1' => 3, 'C3' => 1])
+        ->and($timing->first())->toMatchArray(['kind' => 'comment', 'parent' => 'Post', 'seconds' => 300, 'after' => null, 'dependency' => 'After the post', 'votes' => [2, 1], 'window' => '+10 min → +6 h 10 min after the post · from 5 min after the comment', 'changed' => true])
+        ->and($timing->firstWhere('kind', 'reply'))->toMatchArray(['parent' => 'C1', 'seconds' => 600, 'after' => '+5 min', 'dependency' => 'After C1 at +5 min'])
+        ->and($timing->firstWhere('parent', 'C3'))->toMatchArray(['kind' => 'vote', 'action' => 'Vote up', 'seconds' => 1200, 'after' => '+5 min', 'dependency' => 'After C3 at +15 min', 'votes' => null, 'changed' => true]);
 
-    $editor->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-comment-votes-timeline">', 'Comments and votes in time', '3 comments · 4 votes · the votes as set here, not saved yet', 'Writes C1', 'Votes on C1', '</template>']);
+    $editor->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-timing">', 'Offset from post', 'After its parent', 'Comment C1', 'Reply C2', 'Vote', 'The votes changed here are not saved yet', 'Save votes', '</template>'])
+        ->assertSeeHtml('x-on:change="commit($event.target)"')
+        ->assertSeeHtml("\$dispatch('studio-discussion-offset', { id: {$this->c1}, seconds })")
+        ->assertViewHas('moving', true);
+
+    // While a generation is on its way, no comment is moved.
+    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id]);
+
+    discussionVotesEditor($this->plan)->assertViewHas('moving', false);
+});
+
+it('sets a vote\'s own moment on the Timing tab — never before its comment, nor past thirty days — keeps it through a save and a reload, and spreads the votes again on a new timing', function () {
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
+    $votes = collect(savedCommentVotes($this->plan))->where(2, $this->c1)->values();
+    $middle = $votes[1][0];
+
+    $editor = discussionVotesEditor($this->plan)->call('setMoment', $this->c1, $middle, 9000)
+        ->assertSet("targets.{$this->c1}.moments", [$middle => 8700])->assertSet('unsaved', true)->assertSet("summary.{$this->c1}.changed", true);
+
+    expect(collect(previewedCommentVotes($editor))->where(2, $this->c1)->map(fn (array $vote): array => [$vote[0], $vote[3]])->values()->all())
+        ->toBe([[$votes[0][0], $votes[0][3]], [$middle, 9000], [$votes[2][0], $votes[2][3]]]);
+
+    $editor->call('setMoment', $this->c1, $middle, 299)
+        ->assertDispatched('rg-admin-toast', message: 'No vote can come before the comment it is on: C1 comes at +5 min.', tone: 'error')
+        ->call('setMoment', $this->c1, $middle, 2_592_001)
+        ->assertDispatched('rg-admin-toast', message: 'A vote comes at most 30 days after the post.', tone: 'error')
+        // Anna writes C1, so has no vote on it to move.
+        ->call('setMoment', $this->c1, $this->anna->id, 4000)
+        ->assertSet("targets.{$this->c1}.moments", [$middle => 8700])
+        ->call('save')->assertHasNoErrors();
+
+    expect(collect(savedCommentVotes($this->plan))->where(2, $this->c1)->firstWhere(0, $middle)[3])->toBe(9000);
+
+    // Opened again, the vote keeps its moment: nothing to save.
+    $again = discussionVotesEditor($this->plan)->assertSet("targets.{$this->c1}.moments", [$middle => 8700])->assertSet('unsaved', false)
+        ->call('setVotes', $this->c2, 'up', 2)->call('setVotes', $this->c2, 'up', 1)->assertSet('unsaved', false);
+
+    // A new timing spreads them all again.
+    $again->call('setTiming', 'spread', 3600, $this->c1)->assertSet("targets.{$this->c1}.moments", []);
+
+    expect(collect(previewedCommentVotes($again))->where(2, $this->c1)->pluck(3)->all())->toBe([600, 2400, 4200]);
+});
+
+it('follows a comment moved on the Timing tab with its saved votes, no conflict, and moves the votes not saved yet with it', function () {
+    previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
+    $editor = discussionVotesEditor($this->plan);
+    // Two votes on C3: of the three Personas voting on C1, Carl, who writes C3, is one at most.
+    $draft = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'down', 1)->assertHasNoErrors();
+    $before = collect(savedCommentVotes($this->plan))->where(2, $this->c2)->pluck(3)->all();
+
+    discussionEditor($this->plan)->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $this->c2, seconds: 4500)->assertHasNoErrors()
+        ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'discussion');
+
+    expect(collect(savedCommentVotes($this->plan))->where(2, $this->c2)->pluck(3)->all())->toBe(array_map(fn (int $offset): int => $offset + 3600, $before));
+
+    foreach ([$editor, $draft] as $votes) {
+        $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'discussion')
+            ->assertSet('conflict', false)->assertSet('lockVersion', 5);
+    }
+
+    $editor->assertSet('unsaved', false)->assertSet("targets.{$this->c2}.first", 300);
+    $draft->assertSet('unsaved', true)->assertSet("targets.{$this->c2}.down", 1);
+
+    expect(min(collect(previewedCommentVotes($draft))->where(2, $this->c2)->pluck(3)->all()))->toBe(4800);
+
+    // A comment moved past its reply is not moved, nor are its votes.
+    discussionEditor($this->plan)->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $this->c1, seconds: 3900)
+        ->assertDispatched('rg-admin-toast', message: 'A reply cannot come before the comment it answers.')
+        ->assertNotDispatched(StudioPlanDiscussionEditor::VERSION_EVENT);
 });
 
 it('opens a comment\'s breakdown beside the tree — its votes, priority and timing, and who casts each, when — and closes it', function () {

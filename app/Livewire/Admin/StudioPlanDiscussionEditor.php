@@ -48,11 +48,13 @@ use Livewire\Component;
  * comments, how many of them on the post, and the Personas, active ones,
  * picked at random when the tree is generated or checked one by one —
  * Generate tree under them, and the discussion tree: each comment with
- * Reply, Edit, Regenerate and Delete, and the Timing of them all. The votes
- * on the comments are StudioPlanDiscussionVotesEditor's: this editor keeps
- * the places it draws in — its cards beside the settings, a comment's
- * breakdown beside the tree, the tree's Voters tab — and each comment's
- * votes, drawn as saved and then as that editor sets them.
+ * Reply, Edit, Regenerate and Delete. The votes on the comments are
+ * StudioPlanDiscussionVotesEditor's: this editor keeps the places it draws
+ * in — its cards beside the settings, a comment's breakdown beside the tree,
+ * the tree's Voters tab, and its Timing tab, where the comments and the votes
+ * on them come in one list and a comment moved there is moved here
+ * (OFFSET_EVENT) — and each comment's votes, drawn as saved and then as that
+ * editor sets them.
  *
  * Every change is written to the plan at once, as the Image step's photo is:
  * a comment saved from its dialog, deleted, or given another moment, through
@@ -93,6 +95,9 @@ final class StudioPlanDiscussionEditor extends Component
 
     /** What the two editors of a plan say a Reload of theirs drew the plan at. */
     public const RELOAD_EVENT = 'studio-plan-reloaded';
+
+    /** Said by the Timing tab, drawn by the votes editor, with a comment and the moment it is moved to. */
+    public const OFFSET_EVENT = 'studio-discussion-offset';
 
     /** Seconds between reads while a generation is on its way. */
     public const POLL_SECONDS = 3;
@@ -674,10 +679,14 @@ final class StudioPlanDiscussionEditor extends Component
         }
     }
 
-    /** Timing: a comment given another moment after the post, written at once. */
+    /**
+     * Timing: a comment given another moment after the post, written at once,
+     * its votes moving with it — never while a generation is on its way.
+     */
+    #[On(self::OFFSET_EVENT)]
     public function setOffset(mixed $id, mixed $seconds): void
     {
-        if (! is_numeric($id) || ! is_numeric($seconds) || $this->savedNode((int) $id) === null) {
+        if ($this->awaiting !== null || ! is_numeric($id) || ! is_numeric($seconds) || $this->savedNode((int) $id) === null) {
             return;
         }
 
@@ -823,7 +832,6 @@ final class StudioPlanDiscussionEditor extends Component
             'searching' => trim($this->participantSearch) !== '',
             'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people, $votes), $ordered),
             'rootTotal' => count(array_filter($rows, fn (array $row): bool => $row['parentId'] === null)),
-            'timing' => $this->timingRows($rows, $labels, $people, $votes),
             'dialogData' => $this->dialog !== null ? $this->dialogData($rows, $labels, $people) : null,
             'deletingRow' => $this->deleting !== null ? $this->deletingData($rows, $ordered, $labels, $people) : null,
         ]);
@@ -1355,39 +1363,6 @@ final class StudioPlanDiscussionEditor extends Component
                 'down' => $votes->where('vote_type', VoteType::Down)->count(),
             ])
             ->all();
-    }
-
-    /**
-     * The Timing tab: every comment by its moment, what it comes after, its
-     * moment to change, and the votes saved on it.
-     *
-     * @param  list<array<string, mixed>>  $rows
-     * @param  array<int, string>  $labels
-     * @param  Collection<int, User>  $people
-     * @param  array<int, array{up: int, down: int}>  $votes
-     * @return list<array<string, mixed>>
-     */
-    private function timingRows(array $rows, array $labels, Collection $people, array $votes): array
-    {
-        usort($rows, fn (array $a, array $b): int => [$a['offsetSeconds'], $a['parentId'] !== null, (int) substr($labels[$a['id']] ?? 'C0', 1)] <=> [$b['offsetSeconds'], $b['parentId'] !== null, (int) substr($labels[$b['id']] ?? 'C0', 1)]);
-        $byId = collect($rows)->keyBy('id');
-
-        return array_map(function (array $row) use ($labels, $byId, $people, $votes): array {
-            $parent = $row['parentId'] !== null ? $byId->get($row['parentId']) : null;
-
-            return [
-                'id' => $row['id'],
-                'reply' => $parent !== null,
-                'action' => ($parent !== null ? 'Reply ' : 'Comment ').($labels[$row['id']] ?? ''),
-                'who' => self::nameOf($people, $row['personaUserId']),
-                'parent' => $parent !== null ? ($labels[$parent['id']] ?? '') : 'Post',
-                'seconds' => (int) $row['offsetSeconds'],
-                'unit' => self::unitFor((int) $row['offsetSeconds']),
-                'dependency' => $parent !== null ? 'After '.($labels[$parent['id']] ?? '').' at +'.self::relative((int) $parent['offsetSeconds']) : 'After the post',
-                'up' => $votes[$row['id']]['up'] ?? 0,
-                'down' => $votes[$row['id']]['down'] ?? 0,
-            ];
-        }, $rows);
     }
 
     /**

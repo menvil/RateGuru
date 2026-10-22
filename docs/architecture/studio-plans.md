@@ -341,10 +341,11 @@ everything again on them: the administrator may still manage plans, the plan is
 still a Draft at the version the editor was drawn from, and
 `validateAgainst()` passes — and so does
 `StudioVoteValidationRules::validateDiscussion()`: a comment kept keeps the
-votes prepared on it, so it is neither moved later than one of them
-(`nodes.*.offsetSeconds`) nor given to a Persona voting on it
-(`nodes.*.personaUserId`); the change is refused, never the votes moved or
-taken away. A save drawn from a version somebody else replaced
+votes prepared on it — moved, it takes them with it, each at its time after
+the comment, so long as they still end within thirty days of the post and the
+dates it may carry (`nodes.*.offsetSeconds`) — and is not given to a Persona
+voting on it (`nodes.*.personaUserId`); a change that would break either is
+refused, never a vote taken away. A save drawn from a version somebody else replaced
 is refused, `isStale()`, rather than written over theirs; a plan past its Draft
 is `isNotDraft()`. The comments on the post are written first, then the
 replies, then the deletions; a write a model event cancels fails the whole save
@@ -375,8 +376,10 @@ the photo. A comment is written, answered (comments on the post only) or
 edited in a dialog: its Persona, the comment it replies to, its text and its
 moment after the post in minutes, hours or days; Save writes it, and what the
 action refuses stays by its field. Delete asks first — a comment's replies go
-with it — and Timing changes a comment's moment in place. Each comment's place
-among its siblings follows its time. A deletion, and a comment written again,
+with it — and the tree's Timing tab, drawn by the Comment votes editor,
+changes a comment's moment in place (`studio-discussion-offset`); a comment
+moved takes its votes with it, each at its time after the comment. Each
+comment's place among its siblings follows its time. A deletion, and a comment written again,
 can be undone from the toast that follows, and only that: the comments deleted
 come back as new ones, under their comment when it is still there; the comment
 written again gets its text back. Nothing else of the discussion changes, and
@@ -797,8 +800,8 @@ their state and actions stay the votes editor's:
   (`#rg-admin-studio-comment-breakdown`);
 - the voters, on the tree's **Voters** tab
   (`#rg-admin-studio-comment-voters-table`);
-- the comments and votes in time, on the tree's **Timing** tab under the
-  comments' own moments (`#rg-admin-studio-comment-votes-timeline`).
+- the tree's **Timing** tab (`#rg-admin-studio-timing`): every comment,
+  reply and vote in one list.
 
 Under the tree it says only what keeps the votes from being saved: a draft
 deleted, a plan past its Draft, or somebody else's change to reload. The
@@ -836,14 +839,27 @@ What is on it:
   and a mark when something stands in the way of them; **See breakdown**
   under them opens the comment's breakdown. The Generate strip says the
   comment votes after the discussion's own numbers — how many, up and down —
-  and "Not saved" while they are not. The Timing tab adds each comment's votes
-  and when they come, and under the comments every comment and every vote in
-  the order they come after the post: who, what, which way, and how long after
-  its comment. The Voters tab lists every voter with the comments it votes on
+  and "Not saved" while they are not. The Voters tab lists every voter with the comments it votes on
   up and down and the ones it writes — All, Voting, Also commenting or Not
   used — and Reshuffle. The discussion editor draws the saved counts and the
   votes editor puts what is set over them, through the `rgCommentVotes` store
   (`filament.pages.studio-plan.discussion`).
+- **Timing** — the tree's tab lists every comment, reply and vote on them in
+  one list, in the order they come after the post, a comment before the votes
+  at its moment: #, Action (Comment C1, Reply C2, Vote up or down), Executor,
+  Parent (the post, the comment answered, or the comment voted on), Offset
+  from post, After its parent, Dependency ("After C1 at +2 min") and, for a
+  comment, its votes and when they come. Every moment changes in place, in
+  min, h or d. A comment's is the discussion editor's: told to it
+  (`StudioPlanDiscussionEditor::OFFSET_EVENT`), it is saved at once, its
+  votes moving with it — never while a generation is on its way, and never
+  before the comment a reply answers. A vote's is set here, as its Persona's
+  own moment after the comment, never before the comment nor past thirty
+  days, marked "Not saved" and kept with Save votes, which the tab offers
+  with Discard while anything is unsaved. A new First vote after or Spread
+  over for a comment spreads its votes again, none keeping a moment of its
+  own. Opened again, a vote saved away from its place in the spread keeps its
+  moment.
 - **The breakdown** — beside the tree, which moves aside for it where both
   fit and gives it its place where they do not, until it is closed: the
   comment, its up and down votes set by hand, its priority, its own First vote
@@ -857,7 +873,8 @@ than the saved ones, the votes are made of them (`BuildStudioDiscussionVotesData
 and shown as they will be saved — on the tree, in the breakdown, on the Voters
 and Timing tabs — and made again whenever the settings, the draw or the
 comments change; while the settings are the saved votes' and no new draw is
-asked, the saved votes are shown. **Save votes**, in the breakdown, saves
+asked, the saved votes are shown. **Save votes**, in the breakdown or on the
+Timing tab, saves
 every comment's votes exactly as shown; votes that are the saved ones again
 save nothing, and votes not yet made — a comment short of voters — are not
 saved until what is marked is fixed. **Pick others** and **Reshuffle** draw
@@ -934,6 +951,9 @@ and asks for Reload.
 - A comment's votes are set in its breakdown beside the tree, opened with See
   breakdown, rather than in a Comment votes tab of the tree; the tree keeps
   Comments, Voters and Timing.
+- The Timing tab lists the votes among the comments, each moment changed in
+  place; a comment moved takes its votes with it, and a vote may be given a
+  moment of its own.
 - One First vote after and one Spread over, counted from each comment's own
   moment, for every comment at once, or for one comment in its breakdown.
 - The totals are what the comments' votes add up to, and a total changed

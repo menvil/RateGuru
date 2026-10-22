@@ -142,6 +142,20 @@ it('dates each comment\'s votes from the comment, the first after it and the las
     'four, rounded down' => [4, [600, 1800, 3000, 4200]],
 ]);
 
+it('brings a vote set to a moment of its own then, the others at their places, and never one before its comment', function () {
+    $spread = buildCommentVotes($this->plan, [$this->comment->id => [3, 0, 300, 3600]]);
+    $middle = builtCommentVotes($spread)[1]['persona'];
+    $own = fn (int $seconds): array => [$this->comment->id => new StudioDiscussionVoteTargetSettings($this->comment->id, 3, 0, 'normal', 300, 3600, [$middle => $seconds])];
+    $build = fn (int $seconds) => app(BuildStudioDiscussionVotesData::class)->handle($this->plan->fresh(), new StudioDiscussionVotesSettings(voterCount: 5, seed: 3, targets: $own($seconds)));
+
+    expect(array_map(fn (array $vote): array => [$vote['persona'], $vote['offset']], builtCommentVotes($build(7200))))
+        ->toBe([[builtCommentVotes($spread)[0]['persona'], 600], [builtCommentVotes($spread)[2]['persona'], 4200], [$middle, 7500]]);
+
+    $refusal = studioRefusal(fn () => $build(-1));
+
+    expect($refusal->errors())->toBe(["timing.{$this->comment->id}" => ['No vote can come before the comment it is on.']]);
+});
+
 it('keeps the votes of one moment in one order, the same every time', function () {
     $first = buildCommentVotes($this->plan, [$this->other->id => [2, 1, 60, 0]])->votes->votes;
     $again = buildCommentVotes($this->plan, [$this->other->id => [2, 1, 60, 0]])->votes->votes;

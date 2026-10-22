@@ -406,7 +406,7 @@ Comment voters and Comment votes cards beside the Discussion settings, and each 
 (`StudioPlanDiscussionVotesEditor`) — the voters drawn at
 random or chosen, never on their own comment; each comment's and reply's up and down votes, set by hand or shared out
 by priority, a total changed giving or taking only the difference, the totals what they add up to, and their timing
-after each comment — made at once, shown on the tree, in the Generate strip and in time on the Timing tab as not
+after each comment — made at once, shown on the tree, in the Generate strip and among the comments on the Timing tab, where every moment changes in place, as not
 saved, saved exactly as shown with Save votes in a comment's breakdown, and the step left with them unsaved only after
 asking what changed, the post's votes kept (`docs/architecture/studio-plans.md`, "The Comment votes editor"). The staging checks
 of the second and third steps are still to be done. Nothing votes yet. Still to come: the vote actions and their

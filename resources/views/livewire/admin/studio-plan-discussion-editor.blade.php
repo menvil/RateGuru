@@ -6,7 +6,7 @@
     too; then the discussion tree — Comments, each with its moment, its up and
     down votes as set on the step, Reply, Edit, Regenerate, Delete and See
     breakdown, which opens the comment's votes beside the tree; Voters; and
-    Timing, with every vote at its moment under the comments'. A comment is edited
+    Timing, every comment and vote in one list, drawn by the votes editor. A comment is edited
     in a dialog, and everything is written to the plan at once. While a
     generation is on its way the step is read again every few seconds: a
     whole tree is drawn as placeholders, a comment written again is faded.
@@ -241,55 +241,6 @@
                     {{ $totalCount === 0 ? 'The post publishes without automated comments.' : 'Set the settings above and generate the tree. You can edit every comment afterwards.' }}
                 </x-admin.ui.empty-state>
             </div>
-        @elseif ($tab === 'timing')
-            <p class="rg-admin-hint rg-admin-studio__timing-note">Times are offsets from the moment the post appears. The date is set on the next step.</p>
-            <div class="rg-admin-studio__timing-scroll">
-                <table class="rg-admin-studio__timing">
-                    <thead>
-                        <tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Executor</th><th scope="col">Parent</th><th scope="col">Offset from post</th><th scope="col">Dependency</th><th scope="col">Votes</th><th scope="col">When the votes come</th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($timing as $index => $item)
-                            <tr wire:key="discussion-timing-{{ $item['id'] }}-{{ $item['seconds'] }}">
-                                <td class="rg-admin-studio__timing-n">{{ $index + 1 }}</td>
-                                <td><span class="rg-admin-studio__timing-action"><x-admin.ui.icon :name="$item['reply'] ? 'reply' : 'message-square'" :size="14" />{{ $item['action'] }}</span></td>
-                                <td class="rg-admin-studio__muted">{{ $item['who'] }}</td>
-                                <td class="rg-admin-studio__mono">{{ $item['parent'] }}</td>
-                                <td>
-                                    <div
-                                        class="rg-admin-studio__offset"
-                                        x-data="{
-                                            seconds: {{ $item['seconds'] }},
-                                            unit: @js($item['unit']),
-                                            units: @js($units),
-                                            get value() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
-                                            commit(input) {
-                                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
-
-                                                if (Number.isNaN(n) || n < 0) { input.value = this.value; return }
-
-                                                const seconds = Math.round(n * this.units[this.unit])
-
-                                                if (seconds !== this.seconds) { this.seconds = seconds; $wire.setOffset({{ $item['id'] }}, seconds) }
-                                            },
-                                        }"
-                                    >
-                                        <input type="text" inputmode="decimal" class="rg-admin-studio__offset-input" aria-label="Offset of {{ $item['action'] }}" :value="value" x-on:change="commit($event.target)" @disabled(! $editable || $underway) />
-                                        <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
-                                            @foreach (array_keys($units) as $unit)
-                                                <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="unit = @js($unit)">{{ $unit }}</button>
-                                            @endforeach
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="rg-admin-studio__timing-dependency"><x-admin.ui.icon name="circle-check" :size="13" />{{ $item['dependency'] }}</span></td>
-                                <td class="rg-admin-studio__votes-when" x-text="'+' + ($store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.up ?? {{ $item['up'] }}) + ' / −' + ($store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.down ?? {{ $item['down'] }})">+{{ $item['up'] }} / −{{ $item['down'] }}</td>
-                                <td class="rg-admin-studio__muted" x-text="$store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.window ?? ''"></td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
         @elseif ($tab === 'tree')
             <ol class="rg-admin-studio__tree" aria-label="Comments">
                 @foreach ($rows as $row)
@@ -346,12 +297,12 @@
                 @endforeach
             </ol>
         @endif
-        {{-- The Voters tab, and the votes in time under the Timing tab's comments: drawn by the votes editor in the places kept for them, shown while their tab is on screen. --}}
+        {{-- The Voters and Timing tabs: drawn by the votes editor in the places kept for them, shown while their tab is on screen. --}}
         <div class="rg-admin-studio__tree-voters" @if ($busy || ! $hasTree || $tab !== 'voters') hidden @endif>
             <div id="rg-admin-studio-comment-voters-table" wire:ignore></div>
         </div>
-        <div class="rg-admin-studio__tree-timeline" @if ($busy || ! $hasTree || $tab !== 'timing') hidden @endif>
-            <div id="rg-admin-studio-comment-votes-timeline" wire:ignore></div>
+        <div class="rg-admin-studio__tree-timing" @if ($busy || ! $hasTree || $tab !== 'timing') hidden @endif>
+            <div id="rg-admin-studio-timing" wire:ignore></div>
         </div>
     </x-admin.ui.card>
     <div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>

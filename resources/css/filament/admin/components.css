@@ -6220,13 +6220,16 @@
         padding-top: var(--rg-admin-space-1);
     }
 
-    /* The Timing tab's comments and votes in time, under the comments' own moments: each comment on a sunken row. */
-    .rg-admin-studio__comment-votes-timeline > .rg-admin-studio__votes-block-head {
-        padding: 20px 20px var(--rg-admin-space-3);
+    /* The tree's Timing tab, drawn by the votes editor: every comment, reply and vote in the order they come, each vote on a lower, sunken row. */
+    .rg-admin-studio__timing-vote > td {
+        height: 40px;
+        background: var(--rg-admin-surface-sunken);
     }
 
-    .rg-admin-studio__timeline-comment > td {
-        background: var(--rg-admin-surface-sunken);
+    .rg-admin-studio__timing-window {
+        display: block;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
     }
 
     /* The comment votes said after the discussion's numbers in the Generate strip. */

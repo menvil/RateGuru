@@ -17,6 +17,7 @@ use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
 use App\Models\User;
+use App\Support\Studio\StudioVoteValidationRules;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Bus;
@@ -505,7 +506,7 @@ it('takes a deleted comment\'s votes with it, its replies\' too, and leaves ever
         ->and(StudioPlanVote::query()->count())->toBe(3);
 });
 
-it('keeps a comment\'s votes through a new text, a new place and a move to another comment', function () {
+it('keeps a comment\'s votes through a new text, a new place and a move to another comment, moving them with its moment', function () {
     $saved = saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
         discussionNode(['key' => 'b', 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
@@ -522,12 +523,13 @@ it('keeps a comment\'s votes through a new text, a new place and a move to anoth
         discussionNode(['id' => $id['r'], 'parentId' => $id['b'], 'personaUserId' => $this->anna->id, 'body' => 'Reworded.', 'sortOrder' => 2, 'offsetSeconds' => 300]),
     ]);
 
+    // The reply moved from 2 to 5 minutes: its vote still comes 3 minutes after it.
     expect(StudioPlanVote::query()->findOrFail($vote))
         ->discussion_node_id->toBe($id['r'])
-        ->offset_seconds->toBe(300);
+        ->offset_seconds->toBe(480);
 });
 
-it('refuses to move a comment past a vote on it, or to give it to a Persona voting on it, changing nothing', function (Closure $change, string $field) {
+it('refuses to move a comment so far its votes would end past thirty days, or to give it to a Persona voting on it, changing nothing', function (Closure $change, string $field) {
     $saved = saveStudioDiscussion($this->admin, $this->plan, [
         discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
     ]);
@@ -547,18 +549,33 @@ it('refuses to move a comment past a vote on it, or to give it to a Persona voti
         ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes)
         ->and($this->plan->fresh()->lock_version)->toBe(3);
 })->with([
-    'moved a second past its vote' => [fn ($test) => ['offsetSeconds' => 301], 'nodes.0.offsetSeconds'],
+    'moved a second too far for its vote' => [fn ($test) => ['offsetSeconds' => StudioVoteValidationRules::LATEST_OFFSET_SECONDS - 239], 'nodes.0.offsetSeconds'],
     'given to the Persona voting on it' => [fn ($test) => ['personaUserId' => $test->boris->id], 'nodes.0.personaUserId'],
 ]);
 
-it('moves a comment up to the moment of its earliest vote', function () {
-    $saved = saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60])]);
-    saveStudioVotes($this->admin, $this->plan, [
-        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['a'], 'offsetSeconds' => 300]),
+it('moves a comment\'s votes with it, later or sooner, each at its time after the comment, and no other vote', function () {
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'b', 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
+    ]);
+    $votes = saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['key' => 'on-a', 'type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['a'], 'offsetSeconds' => 300]),
+        studioVote(['key' => 'also-a', 'type' => 'vote_comment', 'personaUserId' => User::factory()->persona()->create()->id, 'voteType' => 'down', 'discussionNodeId' => $saved->ids['a'], 'offsetSeconds' => 3660]),
+        studioVote(['key' => 'on-b', 'type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['b'], 'offsetSeconds' => 120]),
+        studioVote(['key' => 'post', 'type' => 'vote_post', 'personaUserId' => $this->boris->id, 'voteType' => 'up', 'offsetSeconds' => 90]),
+    ])->ids;
+    $moments = fn (): array => StudioPlanVote::query()->orderBy('id')->pluck('offset_seconds', 'id')->all();
+    $move = fn (int $seconds) => saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['id' => $saved->ids['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => $seconds]),
+        discussionNode(['id' => $saved->ids['b'], 'personaUserId' => $this->anna->id, 'body' => 'Two.', 'sortOrder' => 1, 'offsetSeconds' => 60]),
     ]);
 
-    saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['id' => $saved->ids['a'], 'personaUserId' => $this->anna->id, 'body' => 'One.', 'offsetSeconds' => 300])]);
+    $move(3600);
 
-    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->offset_seconds)->toBe(300)
-        ->and(StudioPlanVote::query()->sole()->offset_seconds)->toBe(300);
+    expect($moments())->toBe([$votes['on-a'] => 3840, $votes['also-a'] => 7200, $votes['on-b'] => 120, $votes['post'] => 90]);
+
+    $move(0);
+
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a'])->offset_seconds)->toBe(0)
+        ->and($moments())->toBe([$votes['on-a'] => 240, $votes['also-a'] => 3600, $votes['on-b'] => 120, $votes['post'] => 90]);
 });

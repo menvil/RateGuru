@@ -134,9 +134,9 @@ it('draws each comment\'s votes as the comment votes editor sets them, opens its
             'x-text="$store.rgCommentVotes?.status || \'no comment votes\'">no comment votes</span>',
             'x-show="$store.rgCommentVotes?.unsaved" x-cloak>Not saved</span>',
         ])
-        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')->assertSeeHtml('class="rg-admin-studio__tree-timeline"  hidden >')
+        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')->assertSeeHtml('class="rg-admin-studio__tree-timing"  hidden >')
         ->set('tab', 'voters')->assertSet('tab', 'voters')->assertSeeHtml('class="rg-admin-studio__tree-voters" >')->assertDontSee('Lovely light.')
-        ->set('tab', 'timing')->assertSeeHtmlInOrder(['When the votes come', 'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.window ?? \'\'"', 'class="rg-admin-studio__tree-timeline" >', 'id="rg-admin-studio-comment-votes-timeline"'])
+        ->set('tab', 'timing')->assertSeeHtmlInOrder(['class="rg-admin-studio__tree-timing" >', 'id="rg-admin-studio-timing"'])
         ->set('tab', 'elsewhere')->assertSet('tab', 'tree');
 
     // Read-only, a comment still opens its breakdown.
@@ -373,19 +373,17 @@ it('asks before deleting a reply alone, and cancels', function () {
         ->and(StudioDiscussionNode::query()->count())->toBe(3);
 });
 
-it('shows the timing of every comment and changes one in place', function () {
+it('keeps the Timing tab for the votes editor to draw, and moves a comment the tab says to, written at once — a reply never before its comment', function () {
     $saved = savedFour($this);
 
     $editor = discussionEditor($this->plan)->set('tab', 'timing')
-        ->assertSee('Times are offsets from the moment the post appears.')
-        ->assertSeeInOrder(['Comment C1', 'Comment C4', 'Reply C2', 'Reply C3'])
-        ->assertSee('After C1 at +1 min')
-        ->assertSee('After the post');
+        ->assertSeeHtml('class="rg-admin-studio__tree-timing" >')->assertSeeHtml('<div id="rg-admin-studio-timing" wire:ignore></div>')
+        ->assertDontSeeHtml('class="rg-admin-studio__timing"');
 
-    $editor->call('setOffset', $saved->ids['b'], 7200)->assertHasNoErrors();
+    $editor->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['b'], seconds: 7200)->assertHasNoErrors();
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
 
-    $editor->call('setOffset', $saved->ids['a1'], 10)
+    $editor->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['a1'], seconds: 10)
         ->assertDispatched('rg-admin-toast', message: 'A reply cannot come before the comment it answers.');
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a1'])->offset_seconds)->toBe(120);
 });

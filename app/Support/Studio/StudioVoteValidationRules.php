@@ -240,8 +240,10 @@ final class StudioVoteValidationRules
     /**
      * The rules a discussion about to be saved is held to by the votes on its
      * comments, on the plan the caller has locked: a comment kept keeps its
-     * votes, so it comes no later than any of them, and is not given to a
-     * Persona voting on it. A comment left out takes its votes with it.
+     * votes, each at its time after the comment — moved, it takes them with
+     * it (SaveStudioDiscussionTreeAction), so they must still come within
+     * thirty days of the post and the dates it may carry — and is not given to
+     * a Persona voting on it. A comment left out takes its votes with it.
      *
      * @throws ValidationException keyed as the discussion editor's fields
      */
@@ -252,6 +254,7 @@ final class StudioVoteValidationRules
             ->whereNotNull('discussion_node_id')
             ->get(['discussion_node_id', 'persona_user_id', 'offset_seconds'])
             ->groupBy('discussion_node_id');
+        $moments = StudioDiscussionNode::query()->where('studio_plan_id', $plan->getKey())->pluck('offset_seconds', 'id');
         $errors = [];
 
         foreach ($discussion->nodes as $index => $node) {
@@ -261,8 +264,13 @@ final class StudioVoteValidationRules
                 continue;
             }
 
-            if ((int) $on->min('offset_seconds') < $node->offsetSeconds) {
-                $errors["nodes.{$index}.offsetSeconds"] = 'A vote on this comment would come before it. Keep the comment earlier, or move the vote later first.';
+            // Its last vote, moved as far as the comment is.
+            $last = (int) $on->max('offset_seconds') + $node->offsetSeconds - (int) ($moments[$node->id] ?? $node->offsetSeconds);
+
+            if ($last > self::LATEST_OFFSET_SECONDS) {
+                $errors["nodes.{$index}.offsetSeconds"] = 'Its votes, moved with it, would end more than 30 days after the post. Keep the comment earlier.';
+            } elseif (! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $last)) {
+                $errors["nodes.{$index}.offsetSeconds"] = 'Its votes, moved with it, would end after 2038, past the latest date a post may carry. Keep the comment earlier.';
             }
 
             if ($on->contains('persona_user_id', $node->personaUserId)) {

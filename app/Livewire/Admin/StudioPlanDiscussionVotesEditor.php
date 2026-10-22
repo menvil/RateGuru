@@ -14,10 +14,12 @@ use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\BuildStudioDiscussionVotesData;
 use App\Support\Studio\StudioVoteValidationRules;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -40,7 +42,8 @@ use Livewire\Component;
  * (BuildStudioDiscussionVotesData) as soon as it asks for other votes than
  * the plan has saved, drawn once and shown as they will be saved — on the
  * discussion tree, each comment's counts, beside it the breakdown of the one
- * opened, and on its Timing tab every vote at its moment — and Save votes
+ * opened, and on its Timing tab every vote at its moment among the comments,
+ * where a vote's own moment is set and a comment's is moved — and Save votes
  * saves exactly those, through SaveStudioVotesAction. The totals are always
  * the comments' votes added up: a total changed gives or takes the difference
  * by priority, a comment's own votes changed move it. The votes on the post and
@@ -56,9 +59,10 @@ use Livewire\Component;
  * the plan is at that version now with this page's part of it as it was —
  * its comment votes the same, and the comments they are on too, unless the
  * move is the discussion's own, whose save may only take votes away with the
- * comments it deletes. Votes made before the comments changed are made
- * again. Any other move is somebody else's, and nothing here is written until
- * Reload. Every request checks the viewer may still manage plans.
+ * comments it deletes, or move them with the comments it moves. Votes made
+ * before the comments changed are made again. Any other move is somebody
+ * else's, and nothing here is written until Reload. Every request checks the
+ * viewer may still manage plans.
  */
 final class StudioPlanDiscussionVotesEditor extends Component
 {
@@ -135,9 +139,11 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /**
      * Each comment's votes: how many up and down, its priority for the
-     * automatic share, and when, after the comment.
+     * automatic share, and when, after the comment — spread from the first
+     * moment over the spread, but a Persona's vote set to a moment of its own
+     * (`moments`, by Persona) then.
      *
-     * @var array<int, array{up: int, down: int, priority: string, first: int, spread: int}>
+     * @var array<int, array{up: int, down: int, priority: string, first: int, spread: int, moments: array<int, int>}>
      */
     #[Locked]
     public array $targets = [];
@@ -184,9 +190,9 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /**
      * Each comment's votes as set here, for the discussion tree: how many up
-     * and down, whether not saved yet, what stands in the way, and when.
+     * and down, whether not saved yet, and what stands in the way.
      *
-     * @var array<int, array{up: int, down: int, changed: bool, problem: string|null, window: string}>
+     * @var array<int, array{up: int, down: int, changed: bool, problem: string|null}>
      */
     #[Locked]
     public array $summary = [];
@@ -276,7 +282,11 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->share('down');
     }
 
-    /** First vote after, and Spread over — after each comment — for one comment, or for every comment. */
+    /**
+     * First vote after, and Spread over — after each comment — for one
+     * comment, or for every comment: their votes spread again, none keeping a
+     * moment of its own.
+     */
     public function setTiming(mixed $field, mixed $seconds, mixed $node = null): void
     {
         if (! is_numeric($seconds) || ! in_array($field, ['first', 'spread'], true) || ($node !== null && ! isset($this->targets[(int) $node]))) {
@@ -290,8 +300,46 @@ final class StudioPlanDiscussionVotesEditor extends Component
         if (in_array($seconds, [...$offered, ...$current], true)) {
             foreach ($node !== null ? [(int) $node] : array_keys($this->targets) as $target) {
                 $this->targets[$target][$field] = $seconds;
+                $this->targets[$target]['moments'] = [];
             }
         }
+    }
+
+    /**
+     * A vote's own moment, set on the Timing tab in seconds after the post:
+     * the Persona's vote on that comment comes then, the others keeping
+     * theirs. Never before the comment, nor later than a vote may come.
+     */
+    public function setMoment(mixed $node, mixed $persona, mixed $seconds): void
+    {
+        $plan = $this->writablePlan();
+
+        if ($plan === null || ! is_numeric($node) || ! is_numeric($persona) || ! is_numeric($seconds) || ! isset($this->targets[(int) $node])) {
+            return;
+        }
+
+        [$node, $persona, $seconds] = [(int) $node, (int) $persona, (int) round((float) $seconds)];
+        $comment = StudioDiscussionNode::query()->where('studio_plan_id', $plan->id)->find($node);
+        $shown = $this->drafted() ? ($this->preview ?? []) : self::commentVotesOf($plan);
+
+        if ($comment === null || ! in_array($persona, array_column(self::on($shown, $node), 'personaUserId'), true)) {
+            return;
+        }
+
+        if ($seconds < (int) $comment->offset_seconds) {
+            $this->toast('No vote can come before the comment it is on: '.$this->labelOf($node).' comes at +'.StudioPlanDiscussionEditor::relative((int) $comment->offset_seconds).'.');
+
+            return;
+        }
+
+        if ($seconds > StudioVoteValidationRules::LATEST_OFFSET_SECONDS) {
+            $this->toast('A vote comes at most 30 days after the post.');
+
+            return;
+        }
+
+        $this->targets[$node]['moments'][$persona] = $seconds - (int) $comment->offset_seconds;
+        ksort($this->targets[$node]['moments']);
     }
 
     /** See breakdown: the comment's votes opened beside the tree, or closed when they are open already. */
@@ -578,8 +626,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
                 'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, array_values(array_unique(array_column($this->targets, 'spread')))),
             ],
             'breakdown' => $chosenNode !== null ? $this->breakdown($chosenNode, $shown, $people, $labels, $nodes, $problems) : null,
-            'timeline' => $this->timeline($nodes, $shown, $people, $labels, $problems),
-            'votesShown' => count($shown),
+            'timing' => $this->timing($nodes, $shown, $saved, $people, $labels, $problems),
+            'moving' => $plan !== null && ! $this->gone && ! $this->closed && ! self::generating($plan),
             'changes' => $this->leaving !== null ? $this->changes($nodes, $saved, $labels) : [],
         ]);
     }
@@ -626,22 +674,33 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->closed = ! $plan->isDraft();
         $saved = self::commentVotesOf($plan);
         $nodes = $this->orderedNodes();
-        $this->heldVotes = self::hashes($saved);
+        $this->heldVotes = self::hashes($saved, $nodes);
         $this->treeFingerprint = self::treeOf($nodes);
         $this->targets = [];
 
         foreach ($nodes as $node) {
             $votes = array_values(array_filter($saved, fn (array $vote): bool => $vote['discussionNodeId'] === (int) $node->id));
             $up = count(array_filter($votes, fn (array $vote): bool => $vote['voteType'] === 'up'));
-            $offsets = array_map(fn (array $vote): int => (int) $vote['offsetSeconds'] - (int) $node->offset_seconds, $votes);
+            // Each Persona's vote by its time after the comment, in the order they come.
+            $offsets = array_column(array_map(fn (array $vote): array => [(int) $vote['personaUserId'], (int) $vote['offsetSeconds'] - (int) $node->offset_seconds], $votes), 1, 0);
+            uksort($offsets, fn (int $a, int $b): int => [$offsets[$a], $a] <=> [$offsets[$b], $b]);
+            $first = $offsets !== [] ? min($offsets) : self::TIMING[0];
+            $spread = count($offsets) > 1 ? max($offsets) - min($offsets) : self::TIMING[1];
 
             $this->targets[(int) $node->id] = [
                 'up' => $up,
                 'down' => count($votes) - $up,
                 'priority' => 'normal',
-                'first' => $offsets !== [] ? min($offsets) : self::TIMING[0],
-                'spread' => count($offsets) > 1 ? max($offsets) - min($offsets) : self::TIMING[1],
+                'first' => $first,
+                'spread' => $spread,
+                // A vote away from its place in the spread came at a moment of its own.
+                'moments' => array_filter(
+                    $offsets,
+                    fn (int $after, int $persona): bool => $after !== $first + (count($offsets) > 1 ? intdiv((int) array_search($persona, array_keys($offsets), true) * $spread, count($offsets) - 1) : 0),
+                    ARRAY_FILTER_USE_BOTH,
+                ),
             ];
+            ksort($this->targets[(int) $node->id]['moments']);
         }
 
         $this->tally();
@@ -680,12 +739,12 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         $nodes = $this->orderedNodes();
-        $this->heldVotes = self::hashes(self::commentVotesOf($plan));
+        $this->heldVotes = self::hashes(self::commentVotesOf($plan), $nodes);
         $this->treeFingerprint = self::treeOf($nodes);
         $targets = [];
 
         foreach ($nodes as $node) {
-            $targets[(int) $node->id] = $this->targets[(int) $node->id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1]];
+            $targets[(int) $node->id] = $this->targets[(int) $node->id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1], 'moments' => []];
         }
 
         $this->targets = $targets;
@@ -697,6 +756,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * Low 1, Normal 2, High 3 — the remainders to the largest fractions, then
      * in the tree's order. Nothing is saved; each comment can be set by hand
      * afterwards.
+     *
+     * @param  'up'|'down'  $way
      */
     private function share(string $way): void
     {
@@ -716,6 +777,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * equal ones first in the tree — and each it lost taken from the one
      * furthest above, equal ones last in the tree. Every other comment keeps
      * its votes as set.
+     *
+     * @param  'up'|'down'  $way
      */
     private function adjust(string $way): void
     {
@@ -776,7 +839,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * Whether the plan is at this version now with this page's part of it as
      * it holds it: the comment votes the same, and the comments too — or, after
      * the discussion's own save, which may only take away the votes of the
-     * comments it deletes, no vote added or changed.
+     * comments it deletes and move those of the ones it moves, no vote added
+     * or changed but for its moment, with its comment's.
      */
     private function holdsAt(int $version, ?string $source): bool
     {
@@ -786,13 +850,14 @@ final class StudioPlanDiscussionVotesEditor extends Component
             return false;
         }
 
-        $votes = self::hashes(self::commentVotesOf($plan));
+        $nodes = $this->orderedNodes();
+        $votes = self::hashes(self::commentVotesOf($plan), $nodes);
 
         if ($source === 'discussion') {
             return array_diff($votes, $this->heldVotes) === [];
         }
 
-        return $votes === $this->heldVotes && self::treeOf($this->orderedNodes()) === $this->treeFingerprint;
+        return $votes === $this->heldVotes && self::treeOf($nodes) === $this->treeFingerprint;
     }
 
     /**
@@ -927,7 +992,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $targets = [];
 
         foreach ($this->targets as $node => $target) {
-            $targets[(int) $node] = new StudioDiscussionVoteTargetSettings((int) $node, $target['up'], $target['down'], $target['priority'], $target['first'], $target['spread']);
+            $targets[(int) $node] = new StudioDiscussionVoteTargetSettings((int) $node, $target['up'], $target['down'], $target['priority'], $target['first'], $target['spread'], $target['moments']);
         }
 
         return new StudioDiscussionVotesSettings(
@@ -945,7 +1010,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
     {
         return hash('xxh3', json_encode([
             $this->voterMode, $this->voterMode === 'manual' ? $this->voterIds : $this->voterCount,
-            array_map(fn (array $target): array => [$target['up'], $target['down'], $target['first'], $target['spread']], $this->targets),
+            array_map(fn (array $target): array => [$target['up'], $target['down'], $target['first'], $target['spread'], $target['moments']], $this->targets),
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -996,14 +1061,25 @@ final class StudioPlanDiscussionVotesEditor extends Component
     }
 
     /**
-     * Each vote in one value, the list sorted.
+     * Each vote in one value, its moment counted from its comment's — the
+     * same once the comment, moved, takes it along — the list sorted.
      *
      * @param  list<array<string, mixed>>  $votes
+     * @param  list<StudioDiscussionNode>  $nodes
      * @return list<string>
      */
-    private static function hashes(array $votes): array
+    private static function hashes(array $votes, array $nodes): array
     {
-        $hashes = array_map(fn (array $vote): string => hash('xxh3', json_encode($vote, JSON_THROW_ON_ERROR)), $votes);
+        $moments = [];
+
+        foreach ($nodes as $node) {
+            $moments[(int) $node->id] = (int) $node->offset_seconds;
+        }
+
+        $hashes = array_map(fn (array $vote): string => hash('xxh3', json_encode(
+            [...$vote, 'offsetSeconds' => (int) $vote['offsetSeconds'] - ($moments[(int) $vote['discussionNodeId']] ?? 0)],
+            JSON_THROW_ON_ERROR,
+        )), $votes);
         sort($hashes);
 
         return $hashes;
@@ -1147,14 +1223,14 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /**
      * Each comment's votes as set here, for the discussion tree to show beside
-     * its moment: how many up and down, whether that is not saved yet, what
-     * stands in the way of them, and when they come.
+     * its moment: how many up and down, whether that is not saved yet, and
+     * what stands in the way of them.
      *
      * @param  list<StudioDiscussionNode>  $nodes
      * @param  list<array<string, mixed>>  $saved
      * @param  list<int>  $eligible
      * @param  array<int, string>  $problems
-     * @return array<int, array{up: int, down: int, changed: bool, problem: string|null, window: string}>
+     * @return array<int, array{up: int, down: int, changed: bool, problem: string|null}>
      */
     private function summaryOf(array $nodes, array $saved, array $eligible, array $problems): array
     {
@@ -1162,7 +1238,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
         foreach ($nodes as $node) {
             $id = (int) $node->id;
-            $target = $this->targets[$id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1]];
+            $target = $this->targets[$id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1], 'moments' => []];
             $savedOn = self::on($saved, $id);
             $up = count(array_filter($savedOn, fn (array $vote): bool => $vote['voteType'] === 'up'));
 
@@ -1173,7 +1249,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
                     ? self::moments(self::on($this->preview, $id)) !== self::moments($savedOn)
                     : [$target['up'], $target['down']] !== [$up, count($savedOn) - $up]),
                 'problem' => $this->problemOf($node, $target, $eligible, $problems, $savedOn),
-                'window' => self::window((int) $node->offset_seconds, $target),
             ];
         }
 
@@ -1185,7 +1260,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * that can't be made, the voters it is short, or what keeps a saved vote
      * on it from being cast.
      *
-     * @param  array{up: int, down: int, priority: string, first: int, spread: int}  $target
+     * @param  array{up: int, down: int, priority: string, first: int, spread: int, moments: array<int, int>}  $target
      * @param  list<int>  $eligible
      * @param  array<int, string>  $problems
      * @param  list<array<string, mixed>>  $savedOn
@@ -1244,7 +1319,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
                 'first' => self::chips(StudioPlanPostVotesEditor::FIRST_CHOICES, [$target['first']]),
                 'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, [$target['spread']]),
             ],
-            'window' => self::window((int) $node->offset_seconds, $target),
+            'window' => self::window((int) $node->offset_seconds, $target, self::on($shown, $id)),
             'changed' => $this->summary[$id]['changed'] ?? false,
             'problem' => $this->summary[$id]['problem'] ?? null,
             'waiting' => $this->drafted() && $this->preview === null,
@@ -1253,54 +1328,102 @@ final class StudioPlanDiscussionVotesEditor extends Component
     }
 
     /**
-     * The discussion as it comes, for the tree's Timing tab: each comment and
-     * reply at its moment and every vote on them as it stands, in the order
-     * they come after the post — a comment before the votes at its moment.
+     * The tree's Timing tab: every comment, reply and vote on them in the order
+     * they come after the post — a comment before the votes at its moment —
+     * each with who, what it comes after and when, and its moment to change:
+     * a comment with its votes as set here, a vote with whether it is not
+     * saved and what keeps it from being cast.
      *
      * @param  list<StudioDiscussionNode>  $nodes
      * @param  list<array<string, mixed>>  $shown
+     * @param  list<array<string, mixed>>  $saved
      * @param  Collection<int, User>  $people
      * @param  array<int, string>  $labels
      * @param  array<int, string>  $problems
      * @return list<array<string, mixed>>
      */
-    private function timeline(array $nodes, array $shown, Collection $people, array $labels, array $problems): array
+    private function timing(array $nodes, array $shown, array $saved, Collection $people, array $labels, array $problems): array
     {
-        $events = [];
+        $byId = [];
 
         foreach ($nodes as $node) {
-            $events[] = [
-                'offset' => (int) $node->offset_seconds,
-                'order' => 0,
-                'when' => '+'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds),
-                'persona' => StudioPlanFormat::author($people->get($node->persona_user_id)),
-                'reply' => $node->parent_id !== null,
-                'what' => $node->parent_id !== null
-                    ? 'Replies '.($labels[(int) $node->id] ?? '').' to '.($labels[(int) $node->parent_id] ?? '')
-                    : 'Writes '.($labels[(int) $node->id] ?? ''),
+            $byId[(int) $node->id] = $node;
+        }
+
+        $label = fn (int $node): string => $labels[$node] ?? '';
+        $kept = array_flip(array_map(fn (array $vote): string => implode('|', [$vote['personaUserId'], $vote['discussionNodeId'], $vote['voteType'], (int) $vote['offsetSeconds']]), $saved));
+        $rows = [];
+
+        foreach ($nodes as $node) {
+            $id = (int) $node->id;
+            $parent = $node->parent_id !== null ? ($byId[(int) $node->parent_id] ?? null) : null;
+
+            $rows[] = [
+                'kind' => $parent !== null ? 'reply' : 'comment',
+                'key' => 'node-'.$id,
+                'node' => $id,
+                'persona' => null,
+                'action' => ($parent !== null ? 'Reply ' : 'Comment ').$label($id),
+                'who' => StudioPlanFormat::author($people->get($node->persona_user_id)),
+                'parent' => $parent !== null ? $label((int) $parent->id) : 'Post',
+                'seconds' => (int) $node->offset_seconds,
+                'after' => $parent !== null ? '+'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds - (int) $parent->offset_seconds) : null,
+                'dependency' => $parent !== null ? 'After '.$label((int) $parent->id).' at +'.StudioPlanDiscussionEditor::relative((int) $parent->offset_seconds) : 'After the post',
+                'votes' => [$this->summary[$id]['up'] ?? 0, $this->summary[$id]['down'] ?? 0],
+                'window' => self::window((int) $node->offset_seconds, $this->targets[$id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1], 'moments' => []], self::on($shown, $id)),
                 'vote' => null,
-                'after' => '',
-                'problem' => null,
+                'changed' => $this->summary[$id]['changed'] ?? false,
+                'problem' => $this->summary[$id]['problem'] ?? null,
+                'order' => 0,
             ];
         }
 
-        foreach ($this->rows($shown, $people, $labels, $nodes, $problems) as $vote) {
-            $events[] = [
-                'offset' => $vote['offset'],
+        foreach ($shown as $vote) {
+            $node = $byId[(int) $vote['discussionNodeId']] ?? null;
+
+            if ($node === null) {
+                continue;
+            }
+
+            $on = $label((int) $node->id);
+
+            $rows[] = [
+                'kind' => 'vote',
+                'key' => 'vote-'.$node->id.'-'.$vote['personaUserId'],
+                'node' => (int) $node->id,
+                'persona' => (int) $vote['personaUserId'],
+                'action' => $vote['voteType'] === 'up' ? 'Vote up' : 'Vote down',
+                'who' => StudioPlanFormat::author($people->get($vote['personaUserId'])),
+                'parent' => $on,
+                'seconds' => (int) $vote['offsetSeconds'],
+                'after' => '+'.StudioPlanDiscussionEditor::relative((int) $vote['offsetSeconds'] - (int) $node->offset_seconds),
+                'dependency' => 'After '.$on.' at +'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds),
+                'votes' => null,
+                'window' => null,
+                'vote' => $vote['voteType'],
+                'changed' => $this->unsaved && ! isset($kept[implode('|', [$vote['personaUserId'], $vote['discussionNodeId'], $vote['voteType'], (int) $vote['offsetSeconds']])]),
+                'problem' => $vote['id'] !== null ? ($problems[(int) $vote['id']] ?? null) : null,
                 'order' => 1,
-                'when' => $vote['when'],
-                'persona' => $vote['persona'],
-                'reply' => false,
-                'what' => 'Votes on '.$vote['label'],
-                'vote' => $vote['vote'],
-                'after' => $vote['after'],
-                'problem' => $vote['problem'],
             ];
         }
 
-        usort($events, fn (array $a, array $b): int => [$a['offset'], $a['order']] <=> [$b['offset'], $b['order']]);
+        usort($rows, fn (array $a, array $b): int => [$a['seconds'], $a['order']] <=> [$b['seconds'], $b['order']]);
 
-        return $events;
+        return $rows;
+    }
+
+    /** Whether a generation of the discussion is on its way: its comments are not moved meanwhile. */
+    private static function generating(StudioPlan $plan): bool
+    {
+        return StudioPlanDiscussionGeneration::query()->where('studio_plan_id', $plan->id)->latest('id')->first()?->isUnderway(CarbonImmutable::now()) ?? false;
+    }
+
+    /** A comment's label in the tree, read when one action needs it. */
+    private function labelOf(int $node): string
+    {
+        $rows = array_map(fn (StudioDiscussionNode $node): array => self::nodeRow($node), $this->orderedNodes());
+
+        return StudioPlanDiscussionEditor::labels(StudioPlanDiscussionEditor::ordered($rows))[$node] ?? 'its comment';
     }
 
     /**
@@ -1366,23 +1489,27 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /**
      * A comment's votes in time: when the first and the last come after the
-     * post, and after the comment.
+     * post, and after the comment — as they stand, or as asked while they
+     * can't be made.
      *
-     * @param  array{up: int, down: int, priority: string, first: int, spread: int}  $target
+     * @param  array{up: int, down: int, priority: string, first: int, spread: int, moments: array<int, int>}  $target
+     * @param  list<array<string, mixed>>  $votes  the votes on it as they stand
      */
-    private static function window(int $comment, array $target): string
+    private static function window(int $comment, array $target, array $votes): string
     {
         $count = $target['up'] + $target['down'];
+        $moments = $votes !== []
+            ? array_map(fn (array $vote): int => (int) $vote['offsetSeconds'], $votes)
+            : [$comment + $target['first'], $comment + $target['first'] + ($count > 1 ? $target['spread'] : 0)];
 
-        if ($count === 0) {
+        if ($count === 0 && $votes === []) {
             return 'No votes';
         }
 
-        $first = $comment + $target['first'];
-        $last = $first + ($count > 1 ? $target['spread'] : 0);
+        [$first, $last] = [min($moments), max($moments)];
 
-        return '+'.StudioPlanDiscussionEditor::relative($first).($count > 1 ? ' → +'.StudioPlanDiscussionEditor::relative($last) : '')
-            .' after the post · from '.StudioPlanDiscussionEditor::relative($target['first']).' after the comment';
+        return '+'.StudioPlanDiscussionEditor::relative($first).($last > $first ? ' → +'.StudioPlanDiscussionEditor::relative($last) : '')
+            .' after the post · from '.StudioPlanDiscussionEditor::relative($first - $comment).' after the comment';
     }
 
     /**

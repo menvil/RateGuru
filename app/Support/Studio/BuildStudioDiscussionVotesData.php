@@ -48,10 +48,11 @@ use Illuminate\Validation\ValidationException;
  * When: a comment's votes come one after another from its own moment, the
  * first `firstSeconds` after it and the last `spreadSeconds` later:
  *
- *     offset(i) = comment + first + floor(i * spread / (n - 1)),  i = 0 … n − 1
+ *     offset(i) = comment + first + floor(i * spread / (n − 1)),  i = 0 … n − 1
  *
- * — seconds after the post, as every prepared vote is kept. Votes of one
- * moment keep the order drawn (`sort_order`).
+ * — seconds after the post, as every prepared vote is kept — but a vote whose
+ * Persona has a moment of its own (`moments`) comes then, and never before
+ * the comment. Votes of one moment keep the order drawn (`sort_order`).
  */
 final class BuildStudioDiscussionVotesData
 {
@@ -121,14 +122,15 @@ final class BuildStudioDiscussionVotesData
                     .($need - $short).' can — '.$short.' short. Choose more personas, or ask for fewer.';
             }
 
-            $errors += self::timingErrors($plan, $node, $target);
-            $blocks[] = ['node' => $node, 'target' => $target, 'assigned' => $assigned, 'order' => self::timeOrder(
+            $moments = self::moments($node, $target, self::timeOrder(
                 array_keys($assigned),
                 $saved->where('discussion_node_id', $node->id)->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])->all(),
                 $settings->keepSaved,
                 $settings->seed,
                 'comment:'.$node->id,
-            )];
+            ));
+            $errors += self::timingErrors($plan, $node, $target, $moments);
+            $blocks[] = ['node' => $node, 'assigned' => $assigned, 'moments' => $moments];
         }
 
         $others = StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->where('type', '!=', StudioActionType::VoteComment)->count();
@@ -205,20 +207,41 @@ final class BuildStudioDiscussionVotesData
     }
 
     /**
+     * When each of a comment's votes comes, in seconds after the post, in the
+     * order they were drawn: at its Persona's own moment after the comment,
+     * or else at its place in that order, spread from the first to the last.
+     *
+     * @param  list<int>  $order
+     * @return array<int, int> by Persona
+     */
+    private static function moments(StudioDiscussionNode $node, StudioDiscussionVoteTargetSettings $target, array $order): array
+    {
+        $count = count($order);
+        $moments = [];
+
+        foreach ($order as $place => $persona) {
+            $moments[$persona] = $node->offset_seconds
+                + ($target->moments[$persona] ?? $target->firstSeconds + ($count > 1 ? intdiv($place * $target->spreadSeconds, $count - 1) : 0));
+        }
+
+        return $moments;
+    }
+
+    /**
      * Whether a comment's votes fit their moments: from the comment's own to
      * thirty days after the post, the last no later than the dates a post may
      * carry.
      *
+     * @param  array<int, int>  $moments  when each vote comes, after the post
      * @return array<string, string>
      */
-    private static function timingErrors(StudioPlan $plan, StudioDiscussionNode $node, StudioDiscussionVoteTargetSettings $target): array
+    private static function timingErrors(StudioPlan $plan, StudioDiscussionNode $node, StudioDiscussionVoteTargetSettings $target, array $moments): array
     {
-        $first = $node->offset_seconds + $target->firstSeconds;
-        $last = $first + ($target->total() > 1 ? $target->spreadSeconds : 0);
+        $last = $moments !== [] ? max($moments) : $node->offset_seconds;
         $field = "timing.{$node->id}";
 
         return match (true) {
-            $target->firstSeconds < 0, $target->spreadSeconds < 0 => [$field => 'No vote can come before the comment it is on.'],
+            $target->firstSeconds < 0, $target->spreadSeconds < 0, $moments !== [] && min($moments) < $node->offset_seconds => [$field => 'No vote can come before the comment it is on.'],
             $last > StudioVoteValidationRules::LATEST_OFFSET_SECONDS => [$field => 'Its votes would end more than 30 days after the post. Start sooner, or spread them over less time.'],
             ! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $last) => [$field => 'Its votes would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.'],
             default => [],
@@ -230,7 +253,7 @@ final class BuildStudioDiscussionVotesData
      * then the order drawn within it — each keeping the id of the saved vote
      * of the same Persona on the same comment.
      *
-     * @param  list<array{node: StudioDiscussionNode, target: StudioDiscussionVoteTargetSettings, assigned: array<int, string>, order: list<int>}>  $blocks
+     * @param  list<array{node: StudioDiscussionNode, assigned: array<int, string>, moments: array<int, int>}>  $blocks
      * @param  Collection<int, StudioPlanVote>  $saved
      * @return list<StudioVoteData>
      */
@@ -241,12 +264,9 @@ final class BuildStudioDiscussionVotesData
 
         foreach ($blocks as $index => $block) {
             $node = $block['node'];
-            $order = $block['order'];
-            $count = count($order);
 
-            foreach ($order as $place => $persona) {
-                $offset = $node->offset_seconds + $block['target']->firstSeconds
-                    + ($count > 1 ? intdiv($place * $block['target']->spreadSeconds, $count - 1) : 0);
+            foreach (array_keys($block['moments']) as $place => $persona) {
+                $offset = $block['moments'][$persona];
 
                 $entries[] = [$offset, $index, $place, [
                     'id' => $ids[$persona.'|'.$node->id] ?? null,

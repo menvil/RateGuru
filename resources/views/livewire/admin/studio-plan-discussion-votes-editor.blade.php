@@ -8,7 +8,9 @@
       its votes, its priority, when they come and who casts each, with Save
       votes and Discard;
     - on the tree's Voters tab, every voter with the comments it votes on, and
-      on its Timing tab every comment and vote in the order they come.
+      on its Timing tab every comment, reply and vote in the order they come,
+      each moment to change: a vote's here, a comment's said to the discussion
+      editor, which saves it at once and moves its votes with it.
     The tree and the Generate strip read the votes as set here from the
     `rgCommentVotes` store, and the step's Back, Continue and steps ask before
     leaving votes unsaved, listing what changed. Here, under the tree, only
@@ -16,6 +18,7 @@
 --}}
 @php
     $priorities = ['low' => 'Low', 'normal' => 'Normal', 'high' => 'High'];
+    $units = \App\Livewire\Admin\StudioPlanDiscussionEditor::UNITS;
     $shownChanges = array_slice($changes, 0, 8);
 @endphp
 
@@ -284,45 +287,77 @@
         </div>
     @endteleport
 
-    {{-- The tree's Timing tab: every comment and every vote on them, in the order they come. --}}
-    @teleport('#rg-admin-studio-comment-votes-timeline')
-        <div class="rg-admin-studio__comment-votes-timeline">
-            <div class="rg-admin-studio__votes-block-head">
-                <span class="rg-admin-studio__persona-name">Comments and votes in time</span>
-                <span class="rg-admin-studio__muted">{{ $commentCount }} {{ $commentCount === 1 ? 'comment' : 'comments' }} · {{ $votesShown }} {{ $votesShown === 1 ? 'vote' : 'votes' }} · {{ $unsaved ? 'the votes as set here, not saved yet' : 'the votes as saved' }}</span>
-            </div>
+    {{-- The tree's Timing tab: every comment, reply and vote on them in the order they come, each with its moment to change. --}}
+    @teleport('#rg-admin-studio-timing')
+        <div class="rg-admin-studio__timing-all">
+            <p class="rg-admin-hint rg-admin-studio__timing-note">Times are offsets from the moment the post appears; the date is set on the next step. A comment moved is saved at once and takes its votes with it. A vote never comes before its comment, nor a reply before the comment it answers.</p>
             <div class="rg-admin-studio__timing-scroll">
-                <table class="rg-admin-studio__timing rg-admin-studio__votes-table">
+                <table class="rg-admin-studio__timing">
                     <thead>
-                        <tr><th scope="col">When</th><th scope="col">Persona</th><th scope="col">What</th><th scope="col">Vote</th></tr>
+                        <tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Executor</th><th scope="col">Parent</th><th scope="col">Offset from post</th><th scope="col">After its parent</th><th scope="col">Dependency</th><th scope="col">Votes</th></tr>
                     </thead>
                     <tbody>
-                        @foreach ($timeline as $event)
-                            <tr @class(['rg-admin-studio__timeline-comment' => $event['vote'] === null]) wire:key="comment-votes-timeline-{{ $loop->index }}-{{ $event['offset'] }}">
-                                <td class="rg-admin-studio__votes-when">{{ $event['when'] }}</td>
-                                <td>
-                                    <span class="rg-admin-studio__votes-who">
-                                        @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $event['persona']])
-                                        <span class="rg-admin-studio__persona-name">{{ $event['persona']['name'] ?? 'Deleted user' }}</span>
-                                    </span>
-                                </td>
+                        @foreach ($timing as $index => $row)
+                            <tr @class(['rg-admin-studio__timing-vote' => $row['kind'] === 'vote']) wire:key="timing-{{ $row['key'] }}-{{ $row['seconds'] }}" data-timing="{{ $row['key'] }}">
+                                <td class="rg-admin-studio__timing-n">{{ $index + 1 }}</td>
                                 <td>
                                     <span class="rg-admin-studio__timing-action">
-                                        @if ($event['vote'] === null)
-                                            <x-admin.ui.icon :name="$event['reply'] ? 'reply' : 'message-square'" :size="14" />
+                                        <x-admin.ui.icon :name="match ($row['kind']) { 'reply' => 'reply', 'vote' => $row['vote'] === 'up' ? 'thumbs-up' : 'thumbs-down', default => 'message-square' }" :size="14" />{{ $row['action'] }}
+                                        @if ($row['changed'])
+                                            <span class="rg-admin-studio__node-unsaved">Not saved</span>
                                         @endif
-                                        {{ $event['what'] }}
+                                        @if ($row['problem'] !== null)
+                                            <span class="rg-admin-studio__node-problem" title="{{ $row['problem'] }}"><x-admin.ui.icon name="circle-alert" :size="13" :label="$row['problem']" /></span>
+                                        @endif
                                     </span>
-                                    @if ($event['after'] !== '')
-                                        <span class="rg-admin-studio__muted">· {{ $event['after'] }}</span>
-                                    @endif
                                 </td>
                                 <td>
-                                    @if ($event['vote'] !== null)
-                                        @include('livewire.admin.studio-plan-post-vote-cell', ['vote' => $event['vote']])
-                                    @endif
-                                    @if ($event['problem'] !== null)
-                                        <span class="rg-admin-studio__votes-problem"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $event['problem'] }}</span>
+                                    <span class="rg-admin-studio__votes-who">
+                                        @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $row['who']])
+                                        <span class="rg-admin-studio__persona-name">{{ $row['who']['name'] ?? 'Deleted user' }}</span>
+                                    </span>
+                                </td>
+                                <td class="rg-admin-studio__mono">{{ $row['parent'] }}</td>
+                                <td>
+                                    {{-- A comment's moment is the discussion editor's to save; a vote's is set here, saved with Save votes. --}}
+                                    <div
+                                        class="rg-admin-studio__offset"
+                                        x-data="{
+                                            seconds: {{ $row['seconds'] }},
+                                            unit: @js(\App\Livewire\Admin\StudioPlanDiscussionEditor::unitFor($row['seconds'])),
+                                            units: @js($units),
+                                            get value() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
+                                            commit(input) {
+                                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
+                                                const seconds = Math.round(n * this.units[this.unit])
+
+                                                if (Number.isNaN(n) || n < 0 || seconds === this.seconds) { input.value = this.value; return }
+
+                                                @if ($row['kind'] === 'vote')
+                                                    $wire.setMoment({{ $row['node'] }}, {{ $row['persona'] }}, seconds).then(() => { input.value = this.value })
+                                                @else
+                                                    this.seconds = seconds
+                                                    $dispatch(@js(\App\Livewire\Admin\StudioPlanDiscussionEditor::OFFSET_EVENT), { id: {{ $row['node'] }}, seconds })
+                                                @endif
+                                            },
+                                        }"
+                                    >
+                                        <input type="text" inputmode="decimal" class="rg-admin-studio__offset-input" aria-label="Offset of {{ $row['action'] }}{{ $row['kind'] === 'vote' ? ' by '.($row['who']['name'] ?? 'a deleted user').' on '.$row['parent'] : '' }}" :value="value" x-on:change="commit($event.target)" @disabled($row['kind'] === 'vote' ? ! $editable : ! $moving) />
+                                        <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
+                                            @foreach (array_keys($units) as $unit)
+                                                <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="unit = @js($unit)">{{ $unit }}</button>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </td>
+                                <td @class(['rg-admin-studio__muted' => $row['after'] === null])>{{ $row['after'] ?? '—' }}</td>
+                                <td><span class="rg-admin-studio__timing-dependency"><x-admin.ui.icon name="circle-check" :size="13" />{{ $row['dependency'] }}</span></td>
+                                <td>
+                                    @if ($row['votes'] === [0, 0])
+                                        <span class="rg-admin-studio__muted">—</span>
+                                    @elseif ($row['votes'] !== null)
+                                        <span class="rg-admin-studio__votes-when">+{{ $row['votes'][0] }} / −{{ $row['votes'][1] }}</span>
+                                        <span class="rg-admin-studio__timing-window rg-admin-studio__muted">{{ $row['window'] }}</span>
                                     @endif
                                 </td>
                             </tr>
@@ -330,6 +365,13 @@
                     </tbody>
                 </table>
             </div>
+            @if ($unsaved)
+                <div class="rg-admin-studio__breakdown-footer rg-admin-studio__timing-footer">
+                    <span class="rg-admin-studio__muted">The votes changed here are not saved yet · Save votes keeps every comment’s votes.</span>
+                    <x-admin.ui.button size="sm" wire:click="discard" :disabled="! $editable">Discard</x-admin.ui.button>
+                    <x-admin.ui.button size="sm" variant="primary" icon="check" wire:click="save" :disabled="! $editable || $marked !== []">Save votes</x-admin.ui.button>
+                </div>
+            @endif
         </div>
     @endteleport
 
