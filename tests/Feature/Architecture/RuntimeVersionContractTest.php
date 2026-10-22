@@ -19,9 +19,23 @@ it('requires PHP 8.5 across Composer and every workflow', function () {
 
     preg_match_all('/php-version:\s*[\'\"]?([^\'\"\s]+)/', $workflows, $matches);
 
-    expect($composer['require']['php'])->toBe('^8.5')
+    expect($composer['require']['php'])->toStartWith('^8.5')
         ->and(array_values(array_unique($matches[1])))->toBe(['8.5'])
         ->and(File::get(base_path('README.md')))->toContain('PHP 8.5');
+});
+
+it('keeps the PHP Composer requires at the security floor the hosts are verified against', function () {
+    $composer = json_decode(File::get(base_path('composer.json')), true, flags: JSON_THROW_ON_ERROR);
+    $lock = json_decode(File::get(base_path('composer.lock')), true, flags: JSON_THROW_ON_ERROR);
+    $floor = phpSecurityFloor();
+
+    // Composer turns this into the platform check every request and every
+    // artisan command runs first, so a build cannot boot on a PHP release
+    // that the infrastructure would reject as exploitable.
+    expect($composer['require']['php'])->toBe('^'.$floor)
+        ->and($lock['platform']['php'])->toBe('^'.$floor)
+        ->and(File::get(base_path('README.md')))->toContain('PHP '.$floor.'+')
+        ->and(File::get(base_path('docs/fresh-clone-verification.md')))->toContain('PHP '.$floor.' or newer');
 });
 
 it('pins every PostgreSQL service to 18.4', function () {
