@@ -18,9 +18,12 @@ the development commands and the three-engine CI compatibility matrix.
 
 ## Local Setup
 
-Install PHP 8.5 and PostgreSQL 18.4 through Homebrew, then start PostgreSQL.
-This comes first because `composer install` and every `php artisan` command below
-need PHP, and the role, database and migration steps need PostgreSQL running:
+Install PHP 8.5 (8.5.12 or later) and PostgreSQL 18.4 through Homebrew, then
+start PostgreSQL. This comes first because `composer install` and every
+`php artisan` command below need PHP, and the role, database and migration steps
+need PostgreSQL running. Composer refuses a PHP below 8.5.12, the release that
+fixes CVE-2026-109618 and CVE-2026-109619; on a machine that already has an older
+8.5, run `brew update && brew upgrade php`, then `composer install` again.
 
 ```bash
 brew install php
