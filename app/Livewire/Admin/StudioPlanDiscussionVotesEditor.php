@@ -10,6 +10,7 @@ use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioActionType;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
+use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
@@ -35,14 +36,17 @@ use Livewire\Component;
  * A comment's own Persona never votes on it, and votes on the others all the
  * same.
  *
- * What is set here is a recipe, never saved: Build preview makes the votes
- * of it (BuildStudioDiscussionVotesData), drawn once, and Save votes saves
- * exactly those, through SaveStudioVotesAction — nothing is drawn again on
- * Save. The votes on the post and its rating questions are kept as the plan
- * has them at that moment; only the votes on comments are replaced. Opened
- * again, the editor draws the votes as they are saved: their counts, their
- * Personas, their times. Nothing is cast — prepared votes are no votes on the
- * site.
+ * What is set here is a recipe, never saved: the votes are made of it
+ * (BuildStudioDiscussionVotesData) as soon as it asks for other votes than
+ * the plan has saved, drawn once and shown as they will be saved — on the
+ * discussion tree, each comment's counts, and beside it the breakdown of the
+ * one opened — and Save votes saves exactly those, through
+ * SaveStudioVotesAction. The votes on the post and its rating questions are
+ * kept as the plan has them at that moment; only the votes on comments are
+ * replaced. Opened again, the editor draws the votes as they are saved: their
+ * counts, their Personas, their times. Nothing is cast — prepared votes are
+ * no votes on the site. Leaving the step with votes not saved asks first:
+ * save them, discard them, or stay.
  *
  * One version for the whole plan, as with the other editors on the page: a
  * save here raises it and says so with `studio-plan-version-moved` from
@@ -50,8 +54,8 @@ use Livewire\Component;
  * the plan is at that version now with this page's part of it as it was —
  * its comment votes the same, and the comments they are on too, unless the
  * move is the discussion's own, whose save may only take votes away with the
- * comments it deletes. A preview made before the comments changed is out of
- * date. Any other move is somebody else's, and nothing here is written until
+ * comments it deletes. Votes made before the comments changed are made
+ * again. Any other move is somebody else's, and nothing here is written until
  * Reload. Every request checks the viewer may still manage plans.
  */
 final class StudioPlanDiscussionVotesEditor extends Component
@@ -67,6 +71,15 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /** The most Personas listed to choose from at once. */
     private const PERSONA_LIST = 50;
+
+    /** Said by the discussion tree's See breakdown, with the comment to open beside it. */
+    public const SELECT_EVENT = 'studio-comment-votes-select';
+
+    /** Said by the step's Back, Continue and tabs while votes are not saved, with where to go. */
+    public const LEAVE_EVENT = 'studio-comment-votes-leave';
+
+    /** Said to the plan's editor once the votes are saved or discarded: go on where it was asked to. */
+    public const STEP_EVENT = 'studio-plan-step';
 
     #[Locked]
     public int $planId = 0;
@@ -95,9 +108,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     #[Locked]
     public bool $closed = false;
-
-    /** The card's tab on screen: the comments' votes, the voters, or their timing. */
-    public string $tab = 'votes';
 
     /** random: as many as voterCount drawn from the active Personas; manual: the ones chosen. */
     public string $voterMode = 'random';
@@ -138,7 +148,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
     public bool $keepSaved = true;
 
     /**
-     * The votes Build preview made, exactly as Save votes saves them.
+     * The votes the settings make while they are not the saved votes', exactly
+     * as Save votes saves them.
      *
      * @var list<array<string, mixed>>|null
      */
@@ -164,6 +175,27 @@ final class StudioPlanDiscussionVotesEditor extends Component
     #[Locked]
     public bool $confirmingRemove = false;
 
+    /** The comment whose breakdown is open beside the discussion tree. */
+    #[Locked]
+    public ?int $selected = null;
+
+    /** Whether the votes as set here are not the saved ones, and could be saved. */
+    #[Locked]
+    public bool $unsaved = false;
+
+    /**
+     * Each comment's votes as set here, for the discussion tree: how many up
+     * and down, whether not saved yet, what stands in the way, and when.
+     *
+     * @var array<int, array{up: int, down: int, changed: bool, problem: string|null, window: string}>
+     */
+    #[Locked]
+    public array $summary = [];
+
+    /** Where the step was asked to go while the votes are not saved: a step, `next` or `previous`. */
+    #[Locked]
+    public ?string $leaving = null;
+
     public function boot(): void
     {
         abort_unless(Gate::allows('manage-studio-plans'), 403);
@@ -181,11 +213,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
     // ------------------------------------------------------------------
     // Settings
     // ------------------------------------------------------------------
-
-    public function updatedTab(): void
-    {
-        $this->tab = in_array($this->tab, ['votes', 'voters', 'timing'], true) ? $this->tab : 'votes';
-    }
 
     public function updatedVoterCount(): void
     {
@@ -258,10 +285,10 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
     }
 
-    /** First vote after, and Spread over — after each comment — for every comment. */
-    public function setTiming(mixed $field, mixed $seconds): void
+    /** First vote after, and Spread over — after each comment — for one comment, or for every comment. */
+    public function setTiming(mixed $field, mixed $seconds, mixed $node = null): void
     {
-        if (! is_numeric($seconds) || ! in_array($field, ['first', 'spread'], true)) {
+        if (! is_numeric($seconds) || ! in_array($field, ['first', 'spread'], true) || ($node !== null && ! isset($this->targets[(int) $node]))) {
             return;
         }
 
@@ -270,10 +297,22 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $offered = array_keys($field === 'first' ? StudioPlanPostVotesEditor::FIRST_CHOICES : StudioPlanPostVotesEditor::SPREAD_CHOICES);
 
         if (in_array($seconds, [...$offered, ...$current], true)) {
-            foreach (array_keys($this->targets) as $node) {
-                $this->targets[$node][$field] = $seconds;
+            foreach ($node !== null ? [(int) $node] : array_keys($this->targets) as $target) {
+                $this->targets[$target][$field] = $seconds;
             }
         }
+    }
+
+    /** See breakdown: the comment's votes opened beside the tree, or closed when they are open already. */
+    #[On(self::SELECT_EVENT)]
+    public function select(mixed $node): void
+    {
+        $this->selected = is_numeric($node) && isset($this->targets[(int) $node]) && $this->selected !== (int) $node ? (int) $node : null;
+    }
+
+    public function closeBreakdown(): void
+    {
+        $this->selected = null;
     }
 
     /** Chooses a Persona that may vote now, or takes one chosen away, whatever its status now. */
@@ -315,29 +354,19 @@ final class StudioPlanDiscussionVotesEditor extends Component
     // Preview, Save and Remove
     // ------------------------------------------------------------------
 
-    /** Build preview, or Rebuild: the votes the settings ask for, drawn once and shown as they will be saved. */
-    public function build(): void
-    {
-        if ($this->writable()) {
-            $this->seed ??= random_int(1, 2_147_483_647);
-            $this->makePreview();
-        }
-    }
-
     /** Pick others, or Reshuffle: a new draw, with the same numbers, the saved votes no longer preferred. */
     public function redraw(): void
     {
         if ($this->writable()) {
             $this->seed = random_int(1, 2_147_483_647);
             $this->keepSaved = false;
-            $this->makePreview();
         }
     }
 
     /**
-     * Save votes: exactly the preview, with the votes on the post and its
+     * Save votes: exactly the votes shown, with the votes on the post and its
      * questions as the plan has them now, through the one action that writes
-     * a plan's votes. A preview that is the saved votes again writes nothing.
+     * a plan's votes. Votes that are the saved ones again write nothing.
      */
     public function save(): void
     {
@@ -345,17 +374,18 @@ final class StudioPlanDiscussionVotesEditor extends Component
             return;
         }
 
-        if ($this->preview === null || $this->previewFor !== $this->previewKey()) {
-            $this->addError('preview', 'Build the preview first: the votes saved are the ones it shows.');
+        $this->sync();
+        $plan = StudioPlan::query()->find($this->planId);
+
+        if (! $this->drafted() || ($plan !== null && $plan->lock_version === $this->lockVersion && $this->preview !== null && self::comparable($this->preview) === self::comparable(self::commentVotesOf($plan)))) {
+            $this->load();
+            $this->toast('Nothing to save: these are the votes saved.', 'info');
 
             return;
         }
 
-        $plan = StudioPlan::query()->find($this->planId);
-
-        if ($plan !== null && $plan->lock_version === $this->lockVersion && self::comparable($this->preview) === self::comparable(self::commentVotesOf($plan))) {
-            $this->load();
-            $this->toast('Nothing to save: these are the votes saved.', 'info');
+        if ($this->preview === null) {
+            $this->toast('These votes can’t be saved yet: fix what is marked on the comments first.');
 
             return;
         }
@@ -383,10 +413,66 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
     }
 
-    /** Discard: the settings as the saved votes have them, the preview gone. */
+    /** Discard: the settings as the saved votes have them, the votes made of others gone. */
     public function discard(): void
     {
         $this->load();
+    }
+
+    /**
+     * The step's Back, Continue or one of its tabs, asked while the votes are
+     * not saved: whether to save them first, discard them, or stay. Asked with
+     * nothing unsaved, it goes on at once.
+     */
+    #[On(self::LEAVE_EVENT)]
+    public function askLeave(mixed $step): void
+    {
+        if (! is_string($step) || ! in_array($step, ['next', 'previous', ...array_keys(EditStudioPlan::STEPS)], true)) {
+            return;
+        }
+
+        if ($this->pending()) {
+            $this->leaving = $step;
+
+            return;
+        }
+
+        $this->dispatch(self::STEP_EVENT, step: $step);
+    }
+
+    public function stay(): void
+    {
+        $this->leaving = null;
+    }
+
+    /** Save and continue: on to where it was asked once the votes are saved; nowhere when they are not. */
+    public function saveAndLeave(): void
+    {
+        $to = $this->leaving;
+        $this->leaving = null;
+
+        if ($to === null) {
+            return;
+        }
+
+        $this->save();
+
+        // Saved, or nothing to save: the settings are the saved votes' again.
+        if (! $this->drafted()) {
+            $this->dispatch(self::STEP_EVENT, step: $to);
+        }
+    }
+
+    /** Discard changes: the votes as saved, and on to where it was asked. */
+    public function discardAndLeave(): void
+    {
+        $to = $this->leaving;
+        $this->leaving = null;
+
+        if ($to !== null) {
+            $this->discard();
+            $this->dispatch(self::STEP_EVENT, step: $to);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -460,19 +546,22 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     public function render(): View
     {
+        $this->sync();
         $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
         $nodes = $plan !== null ? $this->orderedNodes() : [];
         $rows = array_map(fn (StudioDiscussionNode $node): array => self::nodeRow($node), $nodes);
         $labels = StudioPlanDiscussionEditor::labels(StudioPlanDiscussionEditor::ordered($rows));
         $saved = $plan !== null ? self::commentVotesOf($plan) : [];
-        $preview = $this->preview ?? [];
+        $drafted = $this->drafted();
+        // The votes as they stand: the ones made of the settings while those are changed, the saved ones otherwise.
+        $shown = $drafted ? ($this->preview ?? []) : $saved;
         $voterIds = match (true) {
             $this->voterMode === 'manual' => $this->voterIds,
             $this->preview !== null => $this->drawn,
             default => array_values(array_unique(array_column($saved, 'personaUserId'))),
         };
         $people = User::query()
-            ->whereKey(array_values(array_unique([...$voterIds, ...array_column($saved, 'personaUserId'), ...array_column($preview, 'personaUserId'), ...array_map(fn (StudioDiscussionNode $node): int => $node->persona_user_id, $nodes)])))
+            ->whereKey(array_values(array_unique([...$voterIds, ...array_column($saved, 'personaUserId'), ...array_column($shown, 'personaUserId'), ...array_map(fn (StudioDiscussionNode $node): int => $node->persona_user_id, $nodes)])))
             ->with('avatarAsset.variants')
             ->get()
             ->keyBy('id');
@@ -480,35 +569,29 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $cap = count($active);
         $eligible = array_values(array_intersect($this->voterIds, $active));
         $voters = $this->voterMode === 'manual' ? count($eligible) : min($this->voterCount, $cap);
+        $problems = $plan !== null && ! $drafted ? $this->readiness($plan) : [];
         $wrote = [];
 
         foreach ($nodes as $node) {
             $wrote[$node->persona_user_id][] = $labels[(int) $node->id] ?? '';
         }
 
+        $this->selected = $this->selected !== null && isset($this->targets[$this->selected]) ? $this->selected : null;
+        $this->unsaved = $this->pending($saved);
+        $this->summary = $this->summaryOf($nodes, $saved, $eligible, $problems);
+        $chosenNode = collect($nodes)->first(fn (StudioDiscussionNode $node): bool => (int) $node->id === $this->selected);
+
         return view('livewire.admin.studio-plan-discussion-votes-editor', [
             'editable' => $this->writable(),
             'cap' => $cap,
             'voters' => $voters,
-            'stale' => $this->preview !== null && $this->previewFor !== $this->previewKey(),
-            'changed' => $this->settingsKey() !== $this->restoredFor,
-            'comments' => array_map(function (StudioDiscussionNode $node) use ($labels, $people, $eligible): array {
-                $target = $this->targets[(int) $node->id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1]];
-                $can = count(array_diff($eligible, [$node->persona_user_id]));
-
-                return [
-                    'id' => (int) $node->id,
-                    'label' => $labels[(int) $node->id] ?? '',
-                    'reply' => $node->parent_id !== null,
-                    'persona' => StudioPlanFormat::author($people->get($node->persona_user_id)),
-                    'body' => Str::limit((string) $node->body, 90),
-                    'at' => '+'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds),
-                    ...$target,
-                    'short' => $this->voterMode === 'manual' ? max(0, $target['up'] + $target['down'] - $can) : 0,
-                    'can' => $can,
-                    'window' => self::window((int) $node->offset_seconds, $target),
-                ];
-            }, $nodes),
+            'commentCount' => count($nodes),
+            'savedCount' => count($saved),
+            'shownCount' => count($shown),
+            'up' => array_sum(array_column($this->targets, 'up')),
+            'down' => array_sum(array_column($this->targets, 'down')),
+            'voted' => count(array_filter($this->targets, fn (array $target): bool => $target['up'] + $target['down'] > 0)),
+            'marked' => array_map(fn (int $node): string => $labels[$node] ?? '', array_keys(array_filter($this->summary, fn (array $entry): bool => $entry['problem'] !== null))),
             'listed' => $this->voterMode === 'manual' ? $this->personaList()->map(fn (User $persona): array => [
                 ...(StudioPlanFormat::author($persona) ?? []),
                 'short' => Str::limit((string) ($persona->personaProfile->short_description ?? ''), 90),
@@ -516,13 +599,12 @@ final class StudioPlanDiscussionVotesEditor extends Component
                 'writes' => $wrote[(int) $persona->id] ?? [],
             ])->values()->all() : [],
             'chosen' => array_map(fn (int $id): array => StudioPlanFormat::author($people->get($id)) ?? ['id' => $id, 'name' => 'Deleted user', 'username' => null, 'avatar' => null, 'initials' => '', 'status' => null, 'problem' => 'deleted'], $this->voterMode === 'manual' ? $this->voterIds : []),
-            'savedRows' => $this->rows($saved, $people, $labels, $nodes, $plan !== null ? $this->readiness($plan) : []),
-            'previewRows' => $this->preview !== null ? $this->rows($preview, $people, $labels, $nodes, []) : null,
-            'voterTable' => $this->voterTable($preview !== [] || $this->preview !== null ? $preview : $saved, $voterIds, $people, $labels, $wrote),
+            'voterTable' => $this->voterTable($shown, $voterIds, $people, $labels, $wrote),
             'chips' => [
                 'first' => self::chips(StudioPlanPostVotesEditor::FIRST_CHOICES, array_values(array_unique(array_column($this->targets, 'first')))),
                 'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, array_values(array_unique(array_column($this->targets, 'spread')))),
             ],
+            'breakdown' => $chosenNode !== null ? $this->breakdown($chosenNode, $shown, $people, $labels, $nodes, $problems) : null,
         ]);
     }
 
@@ -589,7 +671,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * Takes a version another editor's write left. Its comments as the plan
      * has them now — a new one asked about with no votes, a deleted one gone —
      * and the settings drawn again from the saved votes when nothing here was
-     * changed yet; a preview made before the comments changed is out of date.
+     * changed yet; votes made before the comments changed are made again.
      */
     private function take(int $version): void
     {
@@ -601,7 +683,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
             return;
         }
 
-        $untouched = $this->preview === null && $this->settingsKey() === $this->restoredFor;
+        $untouched = ! $this->drafted();
         $this->lockVersion = $version;
         $this->conflict = false;
 
@@ -693,6 +775,59 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->planId, previous: $previous, current: $this->lockVersion, source: self::SOURCE);
     }
 
+    /**
+     * The votes follow the settings: made again whenever the settings, the
+     * draw or the comments are other than the votes were made of, and none
+     * while the settings are the saved votes' and no new draw is asked.
+     */
+    private function sync(): void
+    {
+        if (! $this->drafted()) {
+            if ($this->previewFor !== '') {
+                $this->resetErrorBag();
+            }
+
+            $this->preview = null;
+            $this->drawn = [];
+            $this->previewFor = '';
+
+            return;
+        }
+
+        if ($this->writable() && $this->previewFor !== $this->previewKey()) {
+            $this->seed ??= random_int(1, 2_147_483_647);
+            $this->makePreview();
+        }
+    }
+
+    /** Whether the settings ask for other votes than the saved ones: changed, or drawn anew. */
+    private function drafted(): bool
+    {
+        return $this->settingsKey() !== $this->restoredFor || ! $this->keepSaved;
+    }
+
+    /**
+     * Whether there are votes here to save or discard: the settings changed
+     * and the votes they make — or would make, once what is marked is fixed —
+     * not the saved ones.
+     *
+     * @param  list<array<string, mixed>>|null  $saved  the comment votes as saved, read when not given
+     */
+    private function pending(?array $saved = null): bool
+    {
+        if (! $this->writable() || ! $this->drafted()) {
+            return false;
+        }
+
+        if ($this->preview === null) {
+            return true;
+        }
+
+        $plan = $saved === null ? StudioPlan::query()->find($this->planId) : null;
+
+        return self::comparable($this->preview) !== self::comparable($saved ?? ($plan !== null ? self::commentVotesOf($plan) : []));
+    }
+
     private function makePreview(): void
     {
         $plan = $this->writablePlan();
@@ -702,18 +837,13 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         $this->resetErrorBag();
-
-        if ($this->orderedNodes() === []) {
-            $this->addError('votes', 'The discussion has no comments to vote on yet.');
-
-            return;
-        }
+        $this->preview = null;
+        $this->drawn = [];
+        $this->previewFor = $this->previewKey();
 
         try {
             $built = app(BuildStudioDiscussionVotesData::class)->handle($plan, $this->settings());
         } catch (ValidationException $exception) {
-            $this->preview = null;
-
             foreach ($exception->errors() as $field => $messages) {
                 $this->addError($field, (string) ($messages[0] ?? ''));
             }
@@ -723,7 +853,6 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
         $this->preview = array_map(fn (StudioVoteData $vote): array => $vote->toArray(), $built->votes->votes);
         $this->drawn = $built->voters;
-        $this->previewFor = $this->previewKey();
     }
 
     /** The settings as BuildStudioDiscussionVotesData takes them. */
@@ -919,6 +1048,12 @@ final class StudioPlanDiscussionVotesEditor extends Component
             $by[$vote['personaUserId']][$vote['voteType']][] = $labels[(int) $vote['discussionNodeId']] ?? '?';
         }
 
+        foreach ($by as $id => $ways) {
+            foreach ($ways as $way => $list) {
+                sort($by[$id][$way], SORT_NATURAL);
+            }
+        }
+
         $search = mb_strtolower(ltrim(trim($this->votersSearch), '@'));
         $rows = [];
 
@@ -942,6 +1077,138 @@ final class StudioPlanDiscussionVotesEditor extends Component
             'pool' => count(array_unique([...$voterIds, ...array_keys($by)])),
             'voting' => count($by),
         ];
+    }
+
+    /**
+     * Each comment's votes as set here, for the discussion tree to show beside
+     * its moment: how many up and down, whether that is not saved yet, what
+     * stands in the way of them, and when they come.
+     *
+     * @param  list<StudioDiscussionNode>  $nodes
+     * @param  list<array<string, mixed>>  $saved
+     * @param  list<int>  $eligible
+     * @param  array<int, string>  $problems
+     * @return array<int, array{up: int, down: int, changed: bool, problem: string|null, window: string}>
+     */
+    private function summaryOf(array $nodes, array $saved, array $eligible, array $problems): array
+    {
+        $summary = [];
+
+        foreach ($nodes as $node) {
+            $id = (int) $node->id;
+            $target = $this->targets[$id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1]];
+            $savedOn = self::on($saved, $id);
+            $up = count(array_filter($savedOn, fn (array $vote): bool => $vote['voteType'] === 'up'));
+
+            $summary[$id] = [
+                'up' => $target['up'],
+                'down' => $target['down'],
+                'changed' => $this->unsaved && ($this->preview !== null
+                    ? self::moments(self::on($this->preview, $id)) !== self::moments($savedOn)
+                    : [$target['up'], $target['down']] !== [$up, count($savedOn) - $up]),
+                'problem' => $this->problemOf($node, $target, $eligible, $problems, $savedOn),
+                'window' => self::window((int) $node->offset_seconds, $target),
+            ];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * What stands in the way of a comment's votes: what the settings ask for
+     * that can't be made, the voters it is short, or what keeps a saved vote
+     * on it from being cast.
+     *
+     * @param  array{up: int, down: int, priority: string, first: int, spread: int}  $target
+     * @param  list<int>  $eligible
+     * @param  array<int, string>  $problems
+     * @param  list<array<string, mixed>>  $savedOn
+     */
+    private function problemOf(StudioDiscussionNode $node, array $target, array $eligible, array $problems, array $savedOn): ?string
+    {
+        $errors = $this->getErrorBag();
+        $can = count(array_diff($eligible, [$node->persona_user_id]));
+        $short = $this->voterMode === 'manual' ? max(0, $target['up'] + $target['down'] - $can) : 0;
+
+        foreach (["targets.{$node->id}", "timing.{$node->id}"] as $field) {
+            if ($errors->has($field)) {
+                return $errors->first($field);
+            }
+        }
+
+        if ($short > 0) {
+            return 'Needs '.($target['up'] + $target['down']).' voters; '.$can.' can vote on it — '.$short.' short.';
+        }
+
+        foreach ($savedOn as $vote) {
+            if ($vote['id'] !== null && isset($problems[(int) $vote['id']])) {
+                return $problems[(int) $vote['id']];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The breakdown of the comment opened beside the tree: the comment, its
+     * votes as set here — how many, its priority, when they come — and each
+     * vote as it stands: who casts it, which way, and when.
+     *
+     * @param  list<array<string, mixed>>  $shown
+     * @param  Collection<int, User>  $people
+     * @param  array<int, string>  $labels
+     * @param  list<StudioDiscussionNode>  $nodes
+     * @param  array<int, string>  $problems
+     * @return array<string, mixed>
+     */
+    private function breakdown(StudioDiscussionNode $node, array $shown, Collection $people, array $labels, array $nodes, array $problems): array
+    {
+        $id = (int) $node->id;
+        $target = $this->targets[$id];
+
+        return [
+            'id' => $id,
+            'label' => $labels[$id] ?? '',
+            'replyTo' => $node->parent_id !== null ? ($labels[(int) $node->parent_id] ?? null) : null,
+            'persona' => StudioPlanFormat::author($people->get($node->persona_user_id)),
+            'body' => Str::limit((string) $node->body, 180),
+            'at' => '+'.StudioPlanDiscussionEditor::relative((int) $node->offset_seconds),
+            ...$target,
+            'chips' => [
+                'first' => self::chips(StudioPlanPostVotesEditor::FIRST_CHOICES, [$target['first']]),
+                'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, [$target['spread']]),
+            ],
+            'window' => self::window((int) $node->offset_seconds, $target),
+            'changed' => $this->summary[$id]['changed'] ?? false,
+            'problem' => $this->summary[$id]['problem'] ?? null,
+            'waiting' => $this->drafted() && $this->preview === null,
+            'votes' => $this->rows(self::on($shown, $id), $people, $labels, $nodes, $problems),
+        ];
+    }
+
+    /**
+     * The votes on one comment.
+     *
+     * @param  list<array<string, mixed>>  $votes
+     * @return list<array<string, mixed>>
+     */
+    private static function on(array $votes, int $node): array
+    {
+        return array_values(array_filter($votes, fn (array $vote): bool => (int) $vote['discussionNodeId'] === $node));
+    }
+
+    /**
+     * Votes on one comment as its counts compare them: who, which way, when.
+     *
+     * @param  list<array<string, mixed>>  $votes
+     * @return list<array<int, mixed>>
+     */
+    private static function moments(array $votes): array
+    {
+        $rows = array_map(fn (array $vote): array => [$vote['personaUserId'], $vote['voteType'], (int) $vote['offsetSeconds']], $votes);
+        sort($rows);
+
+        return $rows;
     }
 
     /**

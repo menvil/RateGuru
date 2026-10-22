@@ -28,10 +28,11 @@ use Livewire\Livewire;
 /**
  * The Discussion step's votes on its comments: each comment's up and down
  * votes, set by hand or shared out by priority, the Personas who cast them —
- * never on their own comment — and when after each comment; made into a
- * preview drawn once and saved exactly as shown, the votes on the post and its
- * questions kept, and every write sharing the plan's one version with the
- * other editors on the page.
+ * never on their own comment — and when after each comment; made as soon as
+ * they are asked for, shown on the tree and in each comment's breakdown, and
+ * saved exactly as shown, the votes on the post and its questions kept, every
+ * write sharing the plan's one version with the other editors on the page,
+ * and the step not left with them unsaved without asking.
  */
 beforeEach(function () {
     Queue::fake();
@@ -63,18 +64,18 @@ function savedCommentVotes(StudioPlan $plan): array
         ->all();
 }
 
-/** The editor's preview, as savedCommentVotes() lists votes. */
+/** The votes the editor made of its settings, as savedCommentVotes() lists votes. */
 function previewedCommentVotes(Testable $editor): array
 {
     return array_map(fn (array $vote): array => [$vote['personaUserId'], $vote['voteType'], $vote['discussionNodeId'], $vote['offsetSeconds'], $vote['sortOrder']], $editor->get('preview') ?? []);
 }
 
-/** Two up votes and one down on C1, and one up on C2, by four Personas drawn at random. */
+/** Two up votes and one down on C1, and one up on C2, by four Personas drawn at random: made at once, not saved. */
 function previewCommentVotes(Testable $editor, int $c1, int $c2): Testable
 {
     return $editor->set('voterCount', 4)
         ->call('setVotes', $c1, 'up', 2)->call('setVotes', $c1, 'down', 1)->call('setVotes', $c2, 'up', 1)
-        ->call('build')->assertHasNoErrors();
+        ->assertHasNoErrors();
 }
 
 it('is for administrators who may manage plans only — drawn, or clicked', function () {
@@ -85,10 +86,10 @@ it('is for administrators who may manage plans only — drawn, or clicked', func
     $editor = discussionVotesEditor($this->plan);
     $this->admin->forceFill(['role' => 'moderator'])->save();
 
-    $editor->call('build')->assertForbidden();
+    $editor->call('save')->assertForbidden();
 });
 
-it('lists every comment and reply by its label, Persona and moment, Normal and with no votes, from a random draw of the active Personas', function () {
+it('starts every comment and reply Normal and with no votes, from a random draw of the active Personas, and says so to the tree', function () {
     discussionVotesEditor($this->plan)
         ->assertSet('voterMode', 'random')->assertSet('voterCount', 6)
         ->assertSet('targets', [
@@ -96,15 +97,21 @@ it('lists every comment and reply by its label, Persona and moment, Normal and w
             $this->r1 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600],
             $this->c2 => ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => 300, 'spread' => 21600],
         ])
-        ->assertSeeInOrder(['C1', 'Lovely light on the water.', 'C2', 'Agreed, the mist helps.', 'C3', 'Where is this?'])
-        ->assertSee('No comment votes prepared · the comments get only real users’ votes.')
-        ->assertSee('No votes are saved on the comments.');
+        ->assertSet('summary', [
+            $this->c1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
+            $this->r1 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
+            $this->c2 => ['up' => 0, 'down' => 0, 'changed' => false, 'problem' => null, 'window' => 'No votes'],
+        ])
+        ->assertSet('unsaved', false)->assertSet('preview', null)->assertSet('selected', null)
+        ->assertSee('Now +0 / −0 on 0 of 3 comments.')
+        ->assertSee('No comment votes prepared · the comments get only real users’ votes.');
 });
 
-it('asks for comments first when the discussion has none', function () {
+it('asks for comments first when the discussion has none, and has nothing to save', function () {
     $plan = StudioPlan::factory()->create(['created_by_user_id' => $this->admin->id]);
 
-    discussionVotesEditor($plan)->assertSee('No comments to vote on yet')->assertSee('Comment voters')->call('build')->assertHasErrors(['votes'])->assertSet('preview', null);
+    discussionVotesEditor($plan)->assertSee('No comments to vote on yet')->assertSee('Comment voters')
+        ->call('redraw')->assertHasNoErrors()->assertSet('preview', [])->assertSet('unsaved', false);
 });
 
 it('shares the totals out by priority, Low 1, Normal 2, High 3, then lets each count be set by hand', function () {
@@ -119,33 +126,46 @@ it('shares the totals out by priority, Low 1, Normal 2, High 3, then lets each c
         ->call('setVotes', $this->c2, 'down', -4)->assertSet("targets.{$this->c2}.down", 0)
         ->call('setPriority', $this->c2, 'urgent')->assertSet("targets.{$this->c2}.priority", 'low');
 
-    expect(savedCommentVotes($this->plan))->toBe([]);
+    expect(savedCommentVotes($this->plan))->toBe([])
+        ->and($editor->get('unsaved'))->toBeTrue();
 });
 
-it('shows a preview, then saves exactly it — never a vote on a comment by its own Persona — keeping the votes on the post', function () {
+it('makes the votes as soon as they are asked for, shows them on the tree as not saved, then saves exactly them — never a vote on a comment by its own Persona — keeping the votes on the post', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
     $preview = previewedCommentVotes($editor);
 
     expect($preview)->toHaveCount(4)
         ->and(collect($preview)->where(2, $this->c1)->pluck(0)->all())->not->toContain($this->anna->id)
         ->and(collect($preview)->where(2, $this->c2)->pluck(0)->all())->not->toContain($this->carl->id)
-        ->and(collect($preview)->where(2, $this->c1)->pluck(0)->unique())->toHaveCount(3);
+        ->and(collect($preview)->where(2, $this->c1)->pluck(0)->unique())->toHaveCount(3)
+        ->and(savedCommentVotes($this->plan))->toBe([]);
 
-    $editor->assertSee('4 votes in the preview, not saved yet.')
+    $editor->assertSee('4 votes on 2 comments · not saved yet.')->assertSet('unsaved', true)
+        ->assertSet("summary.{$this->c1}.up", 2)->assertSet("summary.{$this->c1}.down", 1)->assertSet("summary.{$this->c1}.changed", true)
+        ->assertSet("summary.{$this->c1}.window", '+10 min → +6 h 10 min after the post · from 5 min after the comment')
+        ->assertSet("summary.{$this->r1}.changed", false)
         ->call('save')->assertHasNoErrors()
         ->assertDispatched('rg-admin-toast', message: 'Comment votes saved', tone: 'success')
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: StudioPlanDiscussionVotesEditor::SOURCE)
-        ->assertSet('preview', null)->assertSee('4 votes are saved on the comments.');
+        ->assertSet('preview', null)->assertSet('unsaved', false)->assertSet("summary.{$this->c1}.changed", false)->assertSet("summary.{$this->c1}.up", 2)
+        ->assertSee('4 votes are saved on the comments.');
 
     expect(savedCommentVotes($this->plan))->toBe($preview)
         ->and(StudioPlanVote::query()->whereKey($this->postVote)->exists())->toBeTrue()
         ->and($this->plan->fresh()->lock_version)->toBe(4);
 });
 
-it('dates each vote from its comment', function () {
-    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'up', 3)->call('setTiming', 'first', 1800)->call('setTiming', 'spread', 3600)->call('build');
+it('dates each vote from its comment, for every comment or for the one changed in its breakdown', function () {
+    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'up', 3)->call('setTiming', 'first', 1800)->call('setTiming', 'spread', 3600);
 
     expect(array_column(previewedCommentVotes($editor), 3))->toBe([2700, 4500, 6300]);
+
+    $editor->call('setVotes', $this->c1, 'up', 1)->call('setTiming', 'first', 3600, $this->c2)
+        ->assertSet("targets.{$this->c2}.first", 3600)->assertSet("targets.{$this->c1}.first", 1800)->assertSet("targets.{$this->r1}.first", 1800)
+        ->call('setTiming', 'first', 3600, 999_999)->call('setTiming', 'first', 17, $this->c2)->assertSet("targets.{$this->c2}.first", 3600);
+
+    expect(collect(previewedCommentVotes($editor))->map(fn (array $vote): array => [$vote[2], $vote[3]])->all())
+        ->toBe([[$this->c1, 2100], [$this->c2, 4500], [$this->c2, 6300], [$this->c2, 8100]]);
 });
 
 it('draws the votes again from what is saved when opened again', function () {
@@ -161,68 +181,78 @@ it('draws the votes again from what is saved when opened again', function () {
         ->assertSee('4 votes are saved on the comments.');
 });
 
-it('saves only a preview made from the settings and the comments as they are now', function () {
+it('makes the votes again whenever the settings or the comments change, and saves the ones made last', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('setVotes', $this->c2, 'down', 1);
 
-    $editor->assertSee('The settings or the comments changed since this preview. Rebuild it to save.')
-        ->call('save')->assertHasErrors(['preview']);
+    expect(previewedCommentVotes($editor))->toHaveCount(5);
 
-    // The comments moved on the page's Discussion editor: the preview drawn for them is out of date.
+    // The comments moved on the page's Discussion editor: the votes on them are made again.
     $other = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
     $discussion = discussionEditor($this->plan)->call('setOffset', $this->c2, 1200)->assertHasNoErrors();
     $discussion->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: 'discussion');
 
     $other->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: 'discussion')
-        ->assertSet('lockVersion', 4)->assertSet('conflict', false)
-        ->call('save')->assertHasErrors(['preview'])
-        ->call('build')->call('save')->assertHasNoErrors();
+        ->assertSet('lockVersion', 4)->assertSet('conflict', false);
+
+    expect(collect(previewedCommentVotes($other))->where(2, $this->c2)->pluck(3)->all())->toBe([1500]);
+
+    $other->call('save')->assertHasNoErrors();
 
     expect(collect(savedCommentVotes($this->plan))->where(2, $this->c2)->pluck(3)->all())->toBe([1500]);
 });
 
-it('says how many voters a comment is short, and builds nothing', function () {
+it('says on the comment how many voters it is short, and makes no votes to save', function () {
+    $short = 'Its 2 votes need 2 personas who can vote on it; 1 can — 1 short. Choose more personas, or ask for fewer.';
+
     discussionVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->dana->id)
         ->call('setVotes', $this->c1, 'up', 2)
-        ->assertSee('Needs 2 voters; 1 can vote on it — 1 short.')
-        ->call('build')
-        ->assertHasErrors(["targets.{$this->c1}" => 'Its 2 votes need 2 personas who can vote on it; 1 can — 1 short. Choose more personas, or ask for fewer.'])
-        ->assertSet('preview', null)->assertSet("targets.{$this->c1}.up", 2);
+        ->assertHasErrors(["targets.{$this->c1}" => $short])
+        ->assertSet('preview', null)->assertSet("targets.{$this->c1}.up", 2)
+        ->assertSet("summary.{$this->c1}.problem", $short)->assertSet("summary.{$this->c2}.problem", null)->assertSet('unsaved', true)
+        ->assertSee('Not saved · fix what is marked on C1 to save these votes.')
+        ->call('save')->assertDispatched('rg-admin-toast', message: 'These votes can’t be saved yet: fix what is marked on the comments first.', tone: 'error');
+
+    expect(savedCommentVotes($this->plan))->toBe([]);
 });
 
 it('keeps each vote\'s id when a save changes only its moment', function () {
     previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
     $ids = StudioPlanVote::query()->where('type', StudioActionType::VoteComment)->orderBy('id')->pluck('id')->all();
 
-    discussionVotesEditor($this->plan)->call('setTiming', 'first', 3600)->call('build')->call('save')->assertHasNoErrors();
+    discussionVotesEditor($this->plan)->call('setTiming', 'first', 3600)->call('save')->assertHasNoErrors();
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteComment)->orderBy('id')->pluck('id')->all())->toBe($ids);
 });
 
-it('saves nothing for a preview that is the saved votes again, and once for Save pressed twice', function () {
+it('saves nothing for votes that are the saved ones again, and once for Save pressed twice', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
-    $editor->call('save')->assertHasErrors(['preview']);
+    $editor->call('save')->assertDispatched('rg-admin-toast', message: 'Nothing to save: these are the votes saved.', tone: 'info');
 
-    discussionVotesEditor($this->plan)->call('build')->call('save')
-        ->assertDispatched('rg-admin-toast', message: 'Nothing to save: these are the votes saved.', tone: 'info');
+    // Changed and changed back: the saved votes again, nothing to save.
+    discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'up', 2)->assertSet('unsaved', true)
+        ->call('setVotes', $this->c2, 'up', 1)->assertSet('unsaved', false)->assertSet('preview', null)
+        ->call('save')->assertDispatched('rg-admin-toast', message: 'Nothing to save: these are the votes saved.', tone: 'info');
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteComment)->count())->toBe(4)
         ->and($this->plan->fresh()->lock_version)->toBe(4);
 });
 
-it('keeps the draw on Rebuild, draws anew on Pick others, and draws the saved votes again on Discard', function () {
+it('keeps the saved votes of a comment whose count is not changed, draws anew on Pick others, and draws the saved votes again on Discard', function () {
     previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
     $saved = savedCommentVotes($this->plan);
+    $onC1 = fn (array $votes): array => collect($votes)->where(2, $this->c1)->map(fn (array $vote): array => array_slice($vote, 0, 4))->values()->all();
 
-    $editor = discussionVotesEditor($this->plan)->call('build');
+    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'down', 1)
+        ->assertSet("summary.{$this->c1}.changed", false)->assertSet("summary.{$this->c2}.changed", true);
     $seed = $editor->get('seed');
 
-    expect(previewedCommentVotes($editor))->toBe($saved);
+    expect($onC1(previewedCommentVotes($editor)))->toBe($onC1($saved));
 
-    $editor->call('build')->assertSet('seed', $seed);
+    $editor->call('setTiming', 'spread', 3600, $this->c2)->assertSet('seed', $seed);
 
-    expect(previewedCommentVotes($editor))->toBe($saved);
+    expect($onC1(previewedCommentVotes($editor)))->toBe($onC1($saved));
 
-    $editor->call('redraw')->assertHasNoErrors()->assertSet('keepSaved', false);
+    $editor->call('setVotes', $this->c2, 'down', 0)->call('setTiming', 'spread', 21600, $this->c2)->call('redraw')->assertHasNoErrors()->assertSet('keepSaved', false);
 
     expect($editor->get('seed'))->not->toBe($seed)
         ->and(previewedCommentVotes($editor))->toHaveCount(4);
@@ -246,17 +276,20 @@ it('removes the comment votes once asked, the votes on the post staying', functi
 
 it('keeps a Persona restricted since in the saved votes, saying so, and gives a deleted one no new vote', function () {
     discussionVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $this->eli->id)->call('toggleVoter', $this->dana->id)
-        ->call('setVotes', $this->c2, 'up', 2)->call('build')->call('save')->assertHasNoErrors();
+        ->call('setVotes', $this->c2, 'up', 2)->call('save')->assertHasNoErrors();
     $this->eli->forceFill(['status' => UserStatus::Shadowbanned])->save();
     $this->dana->forceFill(['status' => UserStatus::Deleted])->save();
 
     $editor = discussionVotesEditor($this->plan)
         ->assertSee('Shadowbanned')->assertSee('Deleted')
-        ->assertSee('This persona is limited, banned or shadowbanned and cannot vote. Choose another one.')
-        ->assertSee('A deleted or restricted persona gets no new votes.');
+        ->assertSee('A deleted or restricted persona gets no new votes.')
+        ->assertSet("summary.{$this->c2}.problem", fn (?string $problem): bool => $problem !== null)
+        ->assertSee('see what is marked on C3.')
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c2)
+        ->assertSee('This persona is limited, banned or shadowbanned and cannot vote. Choose another one.');
 
-    $editor->call('build')->assertHasErrors(["targets.{$this->c2}"]);
-    $editor->call('setVotes', $this->c2, 'up', 1)->call('build')->assertHasNoErrors();
+    $editor->call('setTiming', 'first', 1800)->assertHasErrors(["targets.{$this->c2}"]);
+    $editor->call('setVotes', $this->c2, 'up', 1)->assertHasNoErrors();
 
     expect(array_column(previewedCommentVotes($editor), 0))->toBe([$this->eli->id]);
 });
@@ -302,7 +335,7 @@ it('takes the whole save back when a write of it is not saved, the votes and the
 it('says which vote on the post stands in the way of a save, and changes nothing of it', function () {
     // The post's voter made its author since: its vote on the post is no vote any more.
     $this->plan->forceFill(['author_user_id' => $this->dana->id])->save();
-    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'up', 1)->call('build');
+    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'up', 1);
 
     $editor->call('save')->assertDispatched('rg-admin-toast', message: 'A vote on the post or its questions saved earlier stands in the way: The post’s own author cannot vote on it. Choose another persona. Fix it on Post · Votes.', tone: 'error');
 
@@ -311,7 +344,8 @@ it('says which vote on the post stands in the way of a save, and changes nothing
 
 it('takes a deleted comment\'s votes away with it, never putting them back from a preview made before', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
-    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c1)->assertSet('selected', $this->c1);
 
     // The whole branch of C1 deleted on the page's Discussion editor.
     discussionEditor($this->plan)->call('askDelete', $this->c1)->call('confirmDelete')
@@ -321,8 +355,8 @@ it('takes a deleted comment\'s votes away with it, never putting them back from 
 
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'discussion')
         ->assertSet('lockVersion', 5)->assertSet('conflict', false)->assertSet('targets', fn (array $targets): bool => array_keys($targets) === [$this->c2])
-        ->call('save')->assertHasErrors(['preview'])
-        ->call('build')->call('save');
+        ->assertSet('selected', null)->assertSet('summary', fn (array $summary): bool => array_keys($summary) === [$this->c2])
+        ->call('save')->assertHasNoErrors();
 
     expect(collect(savedCommentVotes($this->plan))->pluck(2)->unique()->values()->all())->toBe([$this->c2])
         ->and(StudioPlanVote::query()->whereKey($this->postVote)->exists())->toBeTrue();
@@ -376,12 +410,27 @@ it('takes the version a Save draft or a save of the post votes moved, so its own
         ->and(savedCommentVotes($this->plan))->toHaveCount(4);
 });
 
-it('draws in the page\'s Discussion step, its Comment voters in the place beside the Discussion settings, and a new publication asks for its draft first', function () {
+it('draws in the page\'s Discussion step, its cards beside the Discussion settings, the breakdown beside the tree, the voters on its tab, and a new publication asks for its draft first', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
-        ->assertSeeHtml('wire:name="admin.studio-plan-discussion-votes-editor" wire:key="studio-plan-discussion-votes-'.$this->plan->id.'"');
+        ->assertSeeHtml('wire:name="admin.studio-plan-discussion-votes-editor" wire:key="studio-plan-discussion-votes-'.$this->plan->id.'"')
+        ->assertSeeHtml("window.Alpine.store('rgCommentVotes', { nodes: {}, selected: null, unsaved: false })");
 
-    discussionEditor($this->plan)->assertSeeHtmlInOrder(['Discussion settings', '<div id="rg-admin-studio-comment-voters" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>', 'Generate from the settings above']);
-    discussionVotesEditor($this->plan)->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-comment-voters">', 'Comment voters', '</template>', 'Comment votes']);
+    discussionEditor($this->plan)->assertSeeHtmlInOrder([
+        'Discussion settings',
+        '<div id="rg-admin-studio-comment-voters" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>',
+        '<div id="rg-admin-studio-comment-vote-settings" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>',
+        'Generate from the settings above',
+        'Discussion tree',
+        '<div id="rg-admin-studio-comment-voters-table" wire:ignore></div>',
+        '<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>',
+    ]);
+    discussionVotesEditor($this->plan)->assertSeeHtmlInOrder([
+        '<template x-teleport="#rg-admin-studio-comment-voters">', 'Comment voters', '</template>',
+        '<template x-teleport="#rg-admin-studio-comment-vote-settings">', 'Comment votes', 'Distribute automatically', 'First vote after', '</template>',
+        '<template x-teleport="#rg-admin-studio-comment-breakdown">', '</template>',
+        '<template x-teleport="#rg-admin-studio-comment-voters-table">', 'Reshuffle', '</template>',
+        'Prepared comment votes', 'Save votes',
+    ]);
 
     Livewire::test(CreateStudioPlan::class)->call('goToStep', 'discussion')
         ->assertSee('Save the draft first to prepare its discussion.')
@@ -392,26 +441,87 @@ it('changes nothing of a plan past its Draft, or deleted', function () {
     $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
 
     discussionVotesEditor($this->plan)->assertSee('This plan is no longer a draft, so its comment votes can’t be changed here.')
-        ->call('setVotes', $this->c2, 'up', 1)->call('build')->assertSet('preview', null);
+        ->call('setVotes', $this->c2, 'up', 1)->call('redraw')->assertSet('preview', null)->assertSet('unsaved', false)
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')->assertSet('leaving', null)->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next');
 
     $this->plan->forceFill(['status' => StudioPlanStatus::Draft])->save();
     $editor = discussionVotesEditor($this->plan->fresh());
     app(DeleteStudioPlanDraftAction::class)->handle($this->admin, $this->plan, $this->plan->fresh()->lock_version);
 
-    $editor->call('setVotes', $this->c2, 'up', 1)->call('build')->assertSet('gone', true)
+    $editor->call('setVotes', $this->c2, 'up', 1)->assertSet('gone', true)
         ->assertDispatched('rg-admin-toast', message: 'This draft was deleted, so its votes can’t be changed any more.', tone: 'error');
 });
 
-it('lists every voter the preview drew on the Voters tab, with what it votes and writes', function () {
+it('lists every voter the votes drew on the tree\'s Voters tab, with what it votes and writes', function () {
     $editor = discussionVotesEditor($this->plan)->set('voterMode', 'manual')
         ->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->eli->id)->call('toggleVoter', $this->dana->id)
-        ->call('setVotes', $this->c2, 'up', 2)->call('build')->set('tab', 'voters');
+        ->call('setVotes', $this->c2, 'up', 2);
 
     $rows = collect($editor->viewData('voterTable')['rows'])->keyBy(fn (array $row): int => $row['persona']['id']);
 
     expect($rows->keys()->sort()->values()->all())->toBe(collect([$this->anna->id, $this->dana->id, $this->eli->id])->sort()->values()->all())
         ->and($rows[$this->anna->id]['writes'])->toBe(['C1'])
         ->and(collect($editor->set('votersFilter', 'writers')->viewData('voterTable')['rows'])->pluck('persona.id')->all())->toBe([$this->anna->id]);
+});
+
+it('opens a comment\'s breakdown beside the tree — its votes, priority and timing, and who casts each, when — and closes it', function () {
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c1)->assertSet('selected', $this->c1)
+        ->assertSeeHtmlInOrder(['<template x-teleport="#rg-admin-studio-comment-breakdown">', 'Comment votes · C1', 'Lovely light on the water.', 'Appears +5 min after the post', 'aria-label="More up votes on C1"', 'Priority', 'First vote after', 'Who votes', 'Not saved', 'after the post', '</template>']);
+    $breakdown = $editor->viewData('breakdown');
+
+    expect($breakdown['label'])->toBe('C1')
+        ->and([$breakdown['up'], $breakdown['down'], $breakdown['priority'], $breakdown['changed']])->toBe([2, 1, 'normal', true])
+        ->and(collect($breakdown['votes'])->pluck('vote')->sort()->values()->all())->toBe(['down', 'up', 'up'])
+        ->and(collect($breakdown['votes'])->pluck('persona.id'))->not->toContain($this->anna->id);
+
+    $editor->call('setPriority', $this->c1, 'high')->assertSet("targets.{$this->c1}.priority", 'high')
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c2)->assertSet('selected', $this->c2)->assertSee('Comment votes · C3')
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->c2)->assertSet('selected', null)->assertDontSee('Comment votes · C3')
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: 999_999)->assertSet('selected', null)
+        ->dispatch(StudioPlanDiscussionVotesEditor::SELECT_EVENT, node: $this->r1)->call('closeBreakdown')->assertSet('selected', null)->assertViewHas('breakdown', null);
+});
+
+it('asks before the step is left with its votes not saved: saves them and goes on, discards them and goes on, or stays', function () {
+    // Nothing unsaved: on at once.
+    discussionVotesEditor($this->plan)->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')
+        ->assertSet('leaving', null)->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next');
+
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'elsewhere')->assertSet('leaving', null)->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'publication')->assertSet('leaving', 'publication')->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)
+        ->assertSee('Save the comment votes?')->assertSee('4 votes on 2 comments · not saved yet.')
+        ->call('stay')->assertSet('leaving', null)->assertDontSee('Save the comment votes?');
+
+    $editor->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')->call('saveAndLeave')
+        ->assertDispatched('rg-admin-toast', message: 'Comment votes saved', tone: 'success')
+        ->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next')->assertSet('leaving', null)->assertSet('unsaved', false);
+
+    expect(savedCommentVotes($this->plan))->toHaveCount(4);
+
+    discussionVotesEditor($this->plan)->call('setVotes', $this->c2, 'down', 1)
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'previous')->assertSet('leaving', 'previous')
+        ->call('discardAndLeave')->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'previous')
+        ->assertSet("targets.{$this->c2}.down", 0)->assertSet('unsaved', false);
+
+    // Votes that can't be saved yet: Save and continue stays.
+    discussionVotesEditor($this->plan)->call('clearVoters')->call('setVotes', $this->c2, 'up', 2)->assertSet('unsaved', true)
+        ->dispatch(StudioPlanDiscussionVotesEditor::LEAVE_EVENT, step: 'next')->call('saveAndLeave')
+        ->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)->assertSet('leaving', null)->assertSet('unsaved', true);
+
+    expect(savedCommentVotes($this->plan))->toHaveCount(4)
+        ->and($this->plan->fresh()->lock_version)->toBe(4);
+});
+
+it('goes on to the step asked once the comment votes are saved or discarded, and asks the votes editor first from Back, Continue and the steps', function () {
+    Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
+        ->assertSeeHtml('$wire.step === &#039;discussion&#039; &amp;&amp; $store.rgCommentVotes?.unsaved ? $dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;next&#039; }) : $wire.nextStep()')
+        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;previous&#039; }) : $wire.previousStep()')
+        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;image&#039; }) : $wire.goToStep(&#039;image&#039;)')
+        ->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next')->assertSet('step', 'publication')
+        ->call('goToStep', 'discussion')->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'previous')->assertSet('step', 'post')->assertSet('postTab', 'votes')
+        ->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'image')->assertSet('step', 'image')
+        ->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'nowhere')->assertSet('step', 'image');
 });
 
 it('casts nothing: no vote, action, job or notification', function () {

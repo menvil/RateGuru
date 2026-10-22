@@ -1,14 +1,17 @@
 {{--
     The Discussion step (StudioPlanDiscussionEditor), laid out and working as
-    the prototype's: Discussion settings, the Comment voters beside them
-    (drawn by StudioPlanDiscussionVotesEditor); Generate tree in a strip of its
-    own under them; then the discussion tree — Comments, each with its moment,
-    the up and down votes saved on it, Reply, Edit, Regenerate and Delete, and
-    Timing. A comment is edited in a dialog, and
-    everything is written to the plan at once. While a generation is on its
-    way the step is read again every few seconds: a whole tree is drawn as
-    placeholders, a comment written again is faded. Every text is drawn
-    escaped.
+    the prototype's: Discussion settings, with the Comment voters and the
+    Comment votes beside them (drawn by StudioPlanDiscussionVotesEditor);
+    Generate tree in a strip of its own under them; then the discussion tree —
+    Comments, each with its moment, its up and down votes as set on the step,
+    Reply, Edit, Regenerate, Delete and See breakdown, which opens the
+    comment's votes beside the tree; Voters; and Timing. A comment is edited
+    in a dialog, and everything is written to the plan at once. While a
+    generation is on its way the step is read again every few seconds: a
+    whole tree is drawn as placeholders, a comment written again is faded.
+    The places the votes editor draws in are kept empty here (wire:ignore),
+    and the votes as set there are read from the `rgCommentVotes` store.
+    Every text is drawn escaped.
 --}}
 @php
     $units = \App\Livewire\Admin\StudioPlanDiscussionEditor::UNITS;
@@ -154,8 +157,9 @@
                 </div>
             </div>
         </x-admin.ui.card>
-        {{-- The place of the Comment voters card: StudioPlanDiscussionVotesEditor draws it here and keeps its state, so this editor never draws over it. --}}
+        {{-- The places of the Comment voters and Comment votes cards: StudioPlanDiscussionVotesEditor draws them here and keeps their state, so this editor never draws over them. --}}
         <div id="rg-admin-studio-comment-voters" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>
+        <div id="rg-admin-studio-comment-vote-settings" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>
     </div>
 
     <div class="rg-admin-studio__generate" x-data>
@@ -200,6 +204,9 @@
         </x-admin.ui.inline-notice>
     @endif
 
+    {{-- The tree, and beside it the breakdown of the comment opened from it, which the votes editor draws in the place kept for it. --}}
+    <div class="rg-admin-studio__tree-area">
+    <div class="rg-admin-studio__tree-layout">
     <x-admin.ui.card title="Discussion tree" flush :description="count($rows).' '.(count($rows) === 1 ? 'comment' : 'comments').' · '.$rootTotal.' top-level'" class="rg-admin-studio__tree-card">
         <x-slot:aside>
             <x-admin.ui.button size="sm" icon="plus" :disabled="! $editable || $underway" wire:click="openNew">Comment</x-admin.ui.button>
@@ -211,6 +218,7 @@
             :active="$tab"
             :items="[
                 ['id' => 'tree', 'label' => 'Comments', 'count' => count($rows), 'attributes' => ['wire:click' => '$set(\'tab\', \'tree\')']],
+                ['id' => 'voters', 'label' => 'Voters', 'attributes' => ['wire:click' => '$set(\'tab\', \'voters\')']],
                 ['id' => 'timing', 'label' => 'Timing', 'attributes' => ['wire:click' => '$set(\'tab\', \'timing\')']],
             ]"
         />
@@ -232,7 +240,7 @@
             <div class="rg-admin-studio__timing-scroll">
                 <table class="rg-admin-studio__timing">
                     <thead>
-                        <tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Executor</th><th scope="col">Parent</th><th scope="col">Offset from post</th><th scope="col">Dependency</th></tr>
+                        <tr><th scope="col">#</th><th scope="col">Action</th><th scope="col">Executor</th><th scope="col">Parent</th><th scope="col">Offset from post</th><th scope="col">Dependency</th><th scope="col">Votes</th><th scope="col">When the votes come</th></tr>
                     </thead>
                     <tbody>
                         @foreach ($timing as $index => $item)
@@ -269,15 +277,17 @@
                                     </div>
                                 </td>
                                 <td><span class="rg-admin-studio__timing-dependency"><x-admin.ui.icon name="circle-check" :size="13" />{{ $item['dependency'] }}</span></td>
+                                <td class="rg-admin-studio__votes-when" x-text="'+' + ($store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.up ?? {{ $item['up'] }}) + ' / −' + ($store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.down ?? {{ $item['down'] }})">+{{ $item['up'] }} / −{{ $item['down'] }}</td>
+                                <td class="rg-admin-studio__muted" x-text="$store.rgCommentVotes?.nodes?.[{{ $item['id'] }}]?.window ?? ''"></td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
             </div>
-        @else
+        @elseif ($tab === 'tree')
             <ol class="rg-admin-studio__tree" aria-label="Comments">
                 @foreach ($rows as $row)
-                    <li @class(['rg-admin-studio__node', 'rg-admin-studio__node--reply' => $row['reply']]) wire:key="discussion-node-{{ $row['id'] }}" data-node="{{ $row['label'] }}">
+                    <li @class(['rg-admin-studio__node', 'rg-admin-studio__node--reply' => $row['reply']]) wire:key="discussion-node-{{ $row['id'] }}" data-node="{{ $row['label'] }}" x-bind:class="{ 'rg-admin-studio__node--selected': $store.rgCommentVotes?.selected === {{ $row['id'] }} }">
                         <div class="rg-admin-studio__node-box">
                             @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $row['persona']])
                             <div class="rg-admin-studio__node-main">
@@ -297,13 +307,15 @@
                                     @endif
                                     <span class="rg-admin-studio__node-stats">
                                         <span class="rg-admin-studio__node-time"><x-admin.ui.icon name="clock" :size="12" />{{ $row['offset'] }}</span>
-                                        <span class="rg-admin-studio__node-vote" title="Up votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-up" :size="12" label="Up votes" />{{ $row['up'] }}</span>
-                                        <span class="rg-admin-studio__node-vote" title="Down votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-down" :size="12" label="Down votes" />{{ $row['down'] }}</span>
+                                        <span class="rg-admin-studio__node-vote" title="Up votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-up" :size="12" label="Up votes" /><span x-text="$store.rgCommentVotes?.nodes?.[{{ $row['id'] }}]?.up ?? {{ $row['up'] }}">{{ $row['up'] }}</span></span>
+                                        <span class="rg-admin-studio__node-vote" title="Down votes prepared on {{ $row['label'] }}"><x-admin.ui.icon name="thumbs-down" :size="12" label="Down votes" /><span x-text="$store.rgCommentVotes?.nodes?.[{{ $row['id'] }}]?.down ?? {{ $row['down'] }}">{{ $row['down'] }}</span></span>
+                                        <span class="rg-admin-studio__node-unsaved" x-show="$store.rgCommentVotes?.nodes?.[{{ $row['id'] }}]?.changed" x-cloak>Not saved</span>
+                                        <span class="rg-admin-studio__node-problem" x-show="$store.rgCommentVotes?.nodes?.[{{ $row['id'] }}]?.problem" x-bind:title="$store.rgCommentVotes?.nodes?.[{{ $row['id'] }}]?.problem ?? ''" x-cloak><x-admin.ui.icon name="circle-alert" :size="13" label="Its votes need a look" /></span>
                                     </span>
                                 </div>
                                 <div @class(['rg-admin-studio__node-body', 'rg-admin-studio__node-body--rewriting' => $row['rewriting']])>{{ $row['body'] }}</div>
-                                @if ($editable)
-                                    <div class="rg-admin-studio__node-actions">
+                                <div class="rg-admin-studio__node-actions">
+                                    @if ($editable)
                                         @unless ($row['reply'])
                                             <button type="button" class="rg-admin-studio__node-action" wire:click="openReply({{ $row['id'] }})" @disabled($underway)><x-admin.ui.icon name="reply" :size="13" />Reply</button>
                                         @endunless
@@ -312,15 +324,30 @@
                                             <x-admin.ui.icon :name="$row['rewriting'] ? 'loader' : 'refresh-cw'" :size="13" />{{ $row['rewriting'] ? 'Rewriting…' : 'Regenerate' }}
                                         </button>
                                         <button type="button" class="rg-admin-studio__node-action rg-admin-studio__node-action--danger" wire:click="askDelete({{ $row['id'] }})" @disabled($underway)><x-admin.ui.icon name="trash-2" :size="13" />Delete</button>
-                                    </div>
-                                @endif
+                                    @endif
+                                    <button
+                                        type="button"
+                                        class="rg-admin-studio__node-action rg-admin-studio__node-breakdown"
+                                        aria-controls="rg-admin-studio-comment-breakdown"
+                                        aria-expanded="false"
+                                        x-bind:aria-expanded="$store.rgCommentVotes?.selected === {{ $row['id'] }} ? 'true' : 'false'"
+                                        x-on:click="$dispatch(@js(\App\Livewire\Admin\StudioPlanDiscussionVotesEditor::SELECT_EVENT), { node: {{ $row['id'] }} })"
+                                    ><x-admin.ui.icon name="panel-right-open" :size="13" />See breakdown</button>
+                                </div>
                             </div>
                         </div>
                     </li>
                 @endforeach
             </ol>
         @endif
+        {{-- The Voters tab: drawn by the votes editor in the place kept for it, shown while the tab is on screen. --}}
+        <div class="rg-admin-studio__tree-voters" @if ($busy || ! $hasTree || $tab !== 'voters') hidden @endif>
+            <div id="rg-admin-studio-comment-voters-table" wire:ignore></div>
+        </div>
     </x-admin.ui.card>
+    <div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>
+    </div>
+    </div>
 
     @if ($dialogData !== null)
         <x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="$wire.closeDialog()" x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()">

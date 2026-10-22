@@ -48,7 +48,11 @@ use Livewire\Component;
  * comments, how many of them on the post, and the Personas, active ones,
  * picked at random when the tree is generated or checked one by one —
  * Generate tree under them, and the discussion tree: each comment with
- * Reply, Edit, Regenerate and Delete, and the Timing of them all.
+ * Reply, Edit, Regenerate and Delete, and the Timing of them all. The votes
+ * on the comments are StudioPlanDiscussionVotesEditor's: this editor keeps
+ * the places it draws in — its cards beside the settings, a comment's
+ * breakdown beside the tree, the tree's Voters tab — and each comment's
+ * votes, drawn as saved and then as that editor sets them.
  *
  * Every change is written to the plan at once, as the Image step's photo is:
  * a comment saved from its dialog, deleted, or given another moment, through
@@ -147,7 +151,7 @@ final class StudioPlanDiscussionEditor extends Component
     /** The search over the Personas listed to check. */
     public string $participantSearch = '';
 
-    /** The discussion tree's tab on screen: its comments, or their timing. */
+    /** The discussion tree's tab on screen: its comments, their voters, or their timing. */
     public string $tab = 'tree';
 
     /** The generation this page waits for, to take in the moment it is ready. */
@@ -269,7 +273,7 @@ final class StudioPlanDiscussionEditor extends Component
 
     public function updatedTab(): void
     {
-        $this->tab = $this->tab === 'timing' ? 'timing' : 'tree';
+        $this->tab = in_array($this->tab, ['voters', 'timing'], true) ? $this->tab : 'tree';
     }
 
     /** Checks an active Persona to take part, or unchecks one, whatever its status now. */
@@ -819,7 +823,7 @@ final class StudioPlanDiscussionEditor extends Component
             'searching' => trim($this->participantSearch) !== '',
             'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people, $votes), $ordered),
             'rootTotal' => count(array_filter($rows, fn (array $row): bool => $row['parentId'] === null)),
-            'timing' => $this->timingRows($rows, $labels, $people),
+            'timing' => $this->timingRows($rows, $labels, $people, $votes),
             'dialogData' => $this->dialog !== null ? $this->dialogData($rows, $labels, $people) : null,
             'deletingRow' => $this->deleting !== null ? $this->deletingData($rows, $ordered, $labels, $people) : null,
         ]);
@@ -1354,20 +1358,21 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * The Timing tab: every comment by its moment, what it comes after, and
-     * its moment to change.
+     * The Timing tab: every comment by its moment, what it comes after, its
+     * moment to change, and the votes saved on it.
      *
      * @param  list<array<string, mixed>>  $rows
      * @param  array<int, string>  $labels
      * @param  Collection<int, User>  $people
+     * @param  array<int, array{up: int, down: int}>  $votes
      * @return list<array<string, mixed>>
      */
-    private function timingRows(array $rows, array $labels, Collection $people): array
+    private function timingRows(array $rows, array $labels, Collection $people, array $votes): array
     {
         usort($rows, fn (array $a, array $b): int => [$a['offsetSeconds'], $a['parentId'] !== null, (int) substr($labels[$a['id']] ?? 'C0', 1)] <=> [$b['offsetSeconds'], $b['parentId'] !== null, (int) substr($labels[$b['id']] ?? 'C0', 1)]);
         $byId = collect($rows)->keyBy('id');
 
-        return array_map(function (array $row) use ($labels, $byId, $people): array {
+        return array_map(function (array $row) use ($labels, $byId, $people, $votes): array {
             $parent = $row['parentId'] !== null ? $byId->get($row['parentId']) : null;
 
             return [
@@ -1379,6 +1384,8 @@ final class StudioPlanDiscussionEditor extends Component
                 'seconds' => (int) $row['offsetSeconds'],
                 'unit' => self::unitFor((int) $row['offsetSeconds']),
                 'dependency' => $parent !== null ? 'After '.($labels[$parent['id']] ?? '').' at +'.self::relative((int) $parent['offsetSeconds']) : 'After the post',
+                'up' => $votes[$row['id']]['up'] ?? 0,
+                'down' => $votes[$row['id']]['down'] ?? 0,
             ];
         }, $rows);
     }

@@ -1429,17 +1429,24 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   появляется.
 - **Выполнено (MR 6.3, голоса за комментарии в Discussion editor):** на шаге
   Discussion — `StudioPlanDiscussionVotesEditor`, отдельно от самого обсуждения,
-  его вкладок и диалогов: карточка Comment voters — в верхнем ряду рядом с
-  Discussion settings, как в прототипе, остальное — под деревом. Comment voters: Random — число
+  его вкладок и диалогов: карточки Comment voters и Comment votes — в верхнем
+  ряду рядом с Discussion settings, как три карточки прототипа; разбор
+  комментария — справа от дерева; голосующие — на вкладке Voters дерева. Comment
+  voters: Random — число
   активных Persona с Pick others, Choose — поиск на сервере (`PersonasQuery`);
   автор комментария в списке помечен («Writes C3 · can’t vote on it») и может быть
-  выбран — он не голосует только за свой комментарий. Comment votes: Up · down,
-  Comments, Comment voters; вкладки Comment votes (все комментарии и ответы в
-  порядке дерева, приоритет Low / Normal / High, голоса вверх и вниз вручную;
-  Distribute automatically делит Total up и Total down по весам 1 / 2 / 3 методом
-  наибольших остатков, равные остатки — по порядку дерева, без случайности),
-  Voters (All, Voting, Also commenting, Not used; Reshuffle) и Timing (First vote
-  after, Spread over — от момента каждого комментария, одно значение для всех).
+  выбран — он не голосует только за свой комментарий. Comment votes: Total up и
+  Total down, Distribute automatically делит их по весам приоритетов 1 / 2 / 3
+  методом наибольших остатков, равные остатки — по порядку дерева, без
+  случайности; First vote after и Spread over — от момента каждого комментария,
+  одно значение для всех. В дереве у каждого комментария рядом со временем —
+  голоса вверх и вниз в том виде, как они заданы, пометка «Not saved», пока они
+  отличаются от сохранённых, и See breakdown: справа от дерева (на узком экране —
+  вместо него) открывается разбор комментария — голоса вверх и вниз вручную,
+  приоритет Low / Normal / High, собственные First vote after и Spread over и
+  каждый голос: кто, куда и когда. Вкладки дерева: Comments, Voters (All,
+  Voting, Also commenting, Not used; Reshuffle) и Timing (с голосами каждого
+  комментария и их окном).
   `BuildStudioDiscussionVotesData` по рецепту делает конкретные `StudioVoteData`
   `vote_comment`: автор исключён на своей цели, один голос Persona на комментарий,
   новые голоса — только `Active` и `canVote()`, ограниченная Persona сохраняет
@@ -1447,17 +1454,21 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   по Persona и комментарию; нехватка Persona по комментарию («…need 4 personas
   who can vote on it; 2 can — 2 short»), выход за 30 дней или 2038 и больше
   1 000 голосов вместе с голосами поста — отказ целиком с ключом комментария.
-  Логика выбора Persona общая с голосами поста (`DrawsPersonaVotes`). Build
-  preview → Save votes сохраняет ровно предпросмотр через `SaveStudioVotesAction`
+  Логика выбора Persona общая с голосами поста (`DrawsPersonaVotes`). Голоса
+  собираются сразу, как только настройки отличаются от сохранённых, и
+  пересобираются при каждом изменении настроек, выбора или дерева; Save votes (под
+  деревом и в разборе) сохраняет ровно их через `SaveStudioVotesAction`
   полным набором: голоса за пост и рейтинг читаются на той же версии и не
   меняются, а если один из них больше не проходит проверку — конкретная причина и
-  отсылка к Post · Votes; совпадающий с сохранённым предпросмотр ничего не пишет.
-  Rebuild, Pick others / Reshuffle (новый seed), Discard; Remove comment votes с
-  подтверждением удаляет только `vote_comment`. Повторно открытый редактор
+  отсылка к Post · Votes; совпадающий с сохранённым набор ничего не пишет.
+  Pick others / Reshuffle (новый seed), Discard; Remove comment votes с
+  подтверждением удаляет только `vote_comment`. Back, Continue и шаги редактора
+  при несохранённых голосах спрашивают: Save and continue, Discard changes или
+  Keep editing; уход со страницы — через вопрос браузера. Повторно открытый редактор
   показывает сохранённые голоса, приоритеты — Normal. Источник событий версии —
   `discussion_votes`; ход обсуждения принимается, если голоса за комментарии лишь
   ушли вместе с удалёнными комментариями, остальные — при совпадении голосов и
-  дерева; изменённое дерево делает предпросмотр устаревшим; иначе Conflict и
+  дерева; при изменённом дереве голоса собираются заново; иначе Conflict и
   Reload. Миграций нет; `VotePostAction`, `VoteCommentAction`,
   `VoteRatingOptionAction`, очередь, исполнитель и публичное голосование не
   менялись; `content_studio_execution_enabled` выключен; утверждение с голосами
@@ -1466,8 +1477,10 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
 - **Критерий на staging для MR 6.3:** администратор на шаге Discussion выбирает
   Persona для голосов за комментарии (Random и Choose), задаёт приоритеты и
   Total up / Total down, распределяет их автоматически и правит вручную, задаёт
-  время после комментария, видит предварительный набор и сохраняет ровно его;
-  после перезагрузки видны те же голоса; голоса за пост и рейтинг не меняются;
+  время после комментария, видит голоса на комментариях дерева с пометкой
+  «Not saved» и в разборе комментария (See breakdown) и сохраняет ровно их; при
+  уходе с шага с несохранёнными голосами получает вопрос; после перезагрузки
+  видны те же голоса; голоса за пост и рейтинг не меняются;
   автор комментария за него не голосует; удаление комментария удаляет голоса за
   него без ложного конфликта; ни реальных голосов, ни `StudioAction`, ни заданий
   не появляется.

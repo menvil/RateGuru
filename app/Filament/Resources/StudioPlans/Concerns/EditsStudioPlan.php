@@ -221,6 +221,20 @@ trait EditsStudioPlan
         $this->goToStep($this->stepAt(1));
     }
 
+    /**
+     * Goes on where the step was asked to — a step, `next` or `previous` — once
+     * the Discussion step's comment votes are saved or discarded.
+     */
+    #[On(StudioPlanDiscussionVotesEditor::STEP_EVENT)]
+    public function stepTo(mixed $step): void
+    {
+        match ($step) {
+            'next' => $this->nextStep(),
+            'previous' => $this->previousStep(),
+            default => $this->goToStep($step),
+        };
+    }
+
     /** Back: from the Post step's votes to its texts, and from the Discussion step to the post's votes. */
     public function previousStep(): void
     {

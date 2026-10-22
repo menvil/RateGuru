@@ -93,7 +93,7 @@ it('shows on each comment, beside its moment, the up and down votes saved on it,
     savedFour($this);
     [$carl, $dana] = User::factory()->persona()->count(2)->create()->all();
     $nodes = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->pluck('id', 'body');
-    $votes = fn (string $html, string $label): array => preg_match('/title="Up votes prepared on '.$label.'">.*?<\/svg>\s*(\d+)\s*<\/span>.*?title="Down votes prepared on '.$label.'">.*?<\/svg>\s*(\d+)\s*<\/span>/s', $html, $match) === 1 ? [(int) $match[1], (int) $match[2]] : [];
+    $votes = fn (string $html, string $label): array => preg_match('/title="Up votes prepared on '.$label.'">.*?<\/svg>\s*<span x-text="[^"]*">(\d+)<\/span>.*?title="Down votes prepared on '.$label.'">.*?<\/svg>\s*<span x-text="[^"]*">(\d+)<\/span>/s', $html, $match) === 1 ? [(int) $match[1], (int) $match[2]] : [];
     $editor = discussionEditor($this->plan);
 
     expect($votes($editor->html(), 'C1'))->toBe([0, 0])->and($votes($editor->html(), 'C4'))->toBe([0, 0]);
@@ -110,6 +110,32 @@ it('shows on each comment, beside its moment, the up and down votes saved on it,
         ->and($votes($editor->html(), 'C2'))->toBe([0, 0])
         ->and($votes($editor->html(), 'C4'))->toBe([0, 1]);
     $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.']);
+});
+
+it('draws each comment\'s votes as the comment votes editor sets them, opens its breakdown from See breakdown, and keeps the places that editor draws in', function () {
+    savedFour($this);
+    $c1 = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->where('body', 'Lovely light.')->value('id');
+
+    discussionEditor($this->plan)
+        ->assertSeeHtmlInOrder([
+            'data-node="C1"',
+            'x-bind:class="{ \'rg-admin-studio__node--selected\': $store.rgCommentVotes?.selected === '.$c1.' }"',
+            'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.up ?? 0"',
+            'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.down ?? 0"',
+            'x-show="$store.rgCommentVotes?.nodes?.['.$c1.']?.changed" x-cloak>Not saved</span>',
+            'aria-controls="rg-admin-studio-comment-breakdown"',
+            'x-on:click="$dispatch(\'studio-comment-votes-select\', { node: '.$c1.' })"',
+            'See breakdown',
+        ])
+        ->assertSeeHtml('<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>')
+        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')
+        ->set('tab', 'voters')->assertSet('tab', 'voters')->assertSeeHtml('class="rg-admin-studio__tree-voters" >')->assertDontSee('Lovely light.')
+        ->set('tab', 'timing')->assertSeeHtmlInOrder(['When the votes come', 'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.window ?? \'\'"'])
+        ->set('tab', 'elsewhere')->assertSet('tab', 'tree');
+
+    // Read-only, a comment still opens its breakdown.
+    $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
+    discussionEditor($this->plan)->assertDontSeeHtml('wire:click="openEdit(')->assertSee('See breakdown');
 });
 
 it('says there is no discussion yet, or none planned', function () {
