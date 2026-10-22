@@ -713,7 +713,9 @@ final class StudioPlanDiscussionVotesEditor extends Component
      * Takes a version another editor's write left. Its comments as the plan
      * has them now — a new one asked about with no votes, a deleted one gone —
      * and the settings drawn again from the saved votes when nothing here was
-     * changed yet; votes made before the comments changed are made again.
+     * changed yet; votes made before the comments changed are made again. A
+     * discussion written anew as a whole keeps what was asked of its votes
+     * (carryOver()).
      */
     private function take(int $version): void
     {
@@ -728,6 +730,13 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $untouched = ! $this->drafted();
         $this->lockVersion = $version;
         $this->conflict = false;
+        $kept = array_map(fn (StudioDiscussionNode $node): int => (int) $node->id, $this->orderedNodes());
+
+        if ($this->targets !== [] && $kept !== [] && array_intersect_key($this->targets, array_flip($kept)) === []) {
+            $this->carryOver($version);
+
+            return;
+        }
 
         if ($untouched) {
             $this->load();
@@ -747,6 +756,37 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
         $this->targets = $targets;
         $this->tally();
+    }
+
+    /**
+     * The whole discussion written anew — generated again, say — while votes
+     * were asked of the old one, which took its votes with it: the same
+     * voters, the same totals shared out over the new comments by priority,
+     * and the timing every voted comment had, as votes not saved yet.
+     */
+    private function carryOver(int $version): void
+    {
+        [$mode, $ids, $count, $up, $down] = [$this->voterMode, $this->voterIds, $this->voterCount, $this->totalUp, $this->totalDown];
+        $voted = array_filter($this->targets, fn (array $target): bool => $target['up'] + $target['down'] > 0) ?: $this->targets;
+        $timing = ['first' => array_unique(array_column($voted, 'first')), 'spread' => array_unique(array_column($voted, 'spread'))];
+
+        $this->load();
+        $this->lockVersion = $version;
+        [$this->voterMode, $this->voterIds, $this->voterCount] = [$mode, $ids, $count];
+
+        foreach (array_keys($this->targets) as $node) {
+            foreach ($timing as $field => $values) {
+                if (count($values) === 1) {
+                    $this->targets[$node][$field] = (int) reset($values);
+                }
+            }
+        }
+
+        // Each total shared in turn: a share adds the totals up again from the comments.
+        $this->totalUp = $up;
+        $this->share('up');
+        $this->totalDown = $down;
+        $this->share('down');
     }
 
     /**

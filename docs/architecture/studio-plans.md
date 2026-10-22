@@ -894,6 +894,12 @@ them — and asks whether to **Save and continue**, **Discard changes** or
 discarded; a save that cannot be made stays.
 Leaving the page asks as the browser does.
 
+A discussion written anew as a whole — Regenerate tree — takes the old
+comments' votes with it, but not what was asked of them: the editor keeps its
+voters, shares the same Total up and Total down out over the new comments by
+priority, and gives them the timing every voted comment had, as votes not
+saved yet. A comment deleted on its own takes its votes, and the totals drop.
+
 Opened again, the editor draws the votes as saved: each comment's up and down
 votes, their Personas as chosen by hand, and their timing after the comment.
 Priorities are not part of a vote, so every comment starts Normal; nothing

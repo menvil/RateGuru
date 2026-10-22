@@ -385,6 +385,34 @@ it('takes a deleted comment\'s votes away with it, never putting them back from 
         ->and(StudioPlanVote::query()->whereKey($this->postVote)->exists())->toBeTrue();
 });
 
+it('carries what was asked of the votes over to a discussion written anew — the voters, the totals shared out over the new comments, their timing — as votes not saved yet', function () {
+    previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
+    $editor = discussionVotesEditor($this->plan)->call('setTiming', 'first', 1800)->call('save')->assertHasNoErrors();
+    $voters = $editor->get('voterIds');
+    $version = $this->plan->fresh()->lock_version;
+
+    // The tree generated anew: every comment replaced, their votes with them.
+    $new = saveStudioDiscussion($this->admin, $this->plan, [
+        discussionNode(['key' => 'n1', 'personaUserId' => $this->anna->id, 'body' => 'A new one.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'n2', 'personaUserId' => $this->boris->id, 'body' => 'Another.', 'sortOrder' => 1, 'offsetSeconds' => 240]),
+    ])->ids;
+
+    expect(savedCommentVotes($this->plan))->toBe([]);
+
+    // Three up shared over two Normal comments: 1.5 each, the one over to the first; one down to the first.
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: $version, current: $version + 1, source: 'discussion')
+        ->assertSet('conflict', false)->assertSet('lockVersion', $version + 1)
+        ->assertSet('voterMode', 'manual')->assertSet('voterIds', $voters)
+        ->assertSet('totalUp', 3)->assertSet('totalDown', 1)
+        ->assertSet("targets.{$new['n1']}.up", 2)->assertSet("targets.{$new['n2']}.up", 1)
+        ->assertSet("targets.{$new['n1']}.down", 1)->assertSet("targets.{$new['n2']}.down", 0)
+        ->assertSet("targets.{$new['n1']}.first", 1800)->assertSet("targets.{$new['n2']}.first", 1800)
+        ->assertSet('unsaved', true)->assertSet('status', '4 comment votes (+3 / −1)')
+        ->call('save')->assertHasNoErrors();
+
+    expect(collect(savedCommentVotes($this->plan))->pluck(2)->countBy()->all())->toEqual([$new['n1'] => 3, $new['n2'] => 1]);
+});
+
 it('gives a comment Undo brings back none of the votes it had: it is a new comment', function () {
     previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2)->call('save');
     $discussion = discussionEditor($this->plan)->call('askDelete', $this->c1)->call('confirmDelete');
