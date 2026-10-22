@@ -158,7 +158,8 @@ it('chooses voters, distributes the votes over the comments — counted on them 
     waitForScript($again, commentVotesSummary(), '3 votes are saved on the comments.');
     waitForScript($again, treeUpVotes(), 3);
     $again->script("[...document.querySelectorAll('.rg-admin-studio__tree-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim().startsWith('Voters')).click()");
-    waitForScript($again, "document.querySelectorAll('.rg-admin-studio__tree-voters tbody tr:not(.rg-admin-studio__votes-idle)').length", 3);
+    // Each voter once, however the draw shared the three votes among them.
+    waitForScript($again, "document.querySelectorAll('.rg-admin-studio__tree-voters tbody tr:not(.rg-admin-studio__votes-idle)').length", $saved->pluck('persona_user_id')->unique()->count());
 });
 
 it('asks before the step is left with its comment votes not saved, and goes on once they are saved', function () {
