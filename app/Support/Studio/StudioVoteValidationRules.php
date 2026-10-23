@@ -6,6 +6,7 @@ use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioActionType;
+use App\Enums\StudioPlanApprovalProblem;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\UserStatus;
 use App\Enums\VoteType;
@@ -53,7 +54,9 @@ use Illuminate\Validation\ValidationException;
  *
  * What the votes need before they may be cast is asked apart, by
  * readinessErrors(): every Persona Active and able to vote, every option
- * still one to vote for — on top of everything a Draft is held to.
+ * still one to vote for — on top of everything a Draft is held to. The same
+ * pass says each problem as a stable code too (readinessProblems()), which is
+ * what an approval refuses the plan for.
  *
  * The same bounds hold the other way round, for the rest of the Draft: a new
  * date for the post is refused when a vote would then fall past the dates a
@@ -182,10 +185,10 @@ final class StudioVoteValidationRules
      */
     public function validatedAgainst(StudioVotesData $data, StudioPlan $plan, Collection $users): StudioVotesData
     {
-        [$errors, $resolved] = $this->errorsAgainst($data, $plan, $users, ready: false);
+        [$problems, $resolved] = $this->problemsAgainst($data, $plan, $users, ready: false);
 
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
+        if ($problems !== []) {
+            throw ValidationException::withMessages(array_map(fn (array $problem): string => $problem[1], $problems));
         }
 
         return $resolved;
@@ -203,6 +206,29 @@ final class StudioVoteValidationRules
      */
     public function readinessErrors(StudioPlan $plan): array
     {
+        return array_map(fn (array $problem): string => $problem[1], $this->readiness($plan));
+    }
+
+    /**
+     * The same as readinessErrors(), each problem said as its stable code —
+     * what an approval refuses the plan for (StudioPlanApprovalPreflight).
+     * Only reads.
+     *
+     * @return array<string, StudioPlanApprovalProblem> the first problem of each field; none when the votes may be cast
+     */
+    public function readinessProblems(StudioPlan $plan): array
+    {
+        return array_map(fn (array $problem): StudioPlanApprovalProblem => $problem[0], $this->readiness($plan));
+    }
+
+    /**
+     * Everything that stands in the way of casting the plan's saved votes,
+     * the first problem of each field as its code and its message.
+     *
+     * @return array<string, array{0: StudioPlanApprovalProblem, 1: string}>
+     */
+    private function readiness(StudioPlan $plan): array
+    {
         $data = StudioVotesData::of($plan);
 
         if ($data->votes === []) {
@@ -211,10 +237,34 @@ final class StudioVoteValidationRules
 
         $validator = Validator::make($data->toArray(), $this->rules(), $this->messages());
         $validator->passes();
-        $errors = array_map(fn (array $messages): string => (string) $messages[0], $validator->errors()->toArray());
+        $failed = $validator->failed();
+        $problems = [];
+
+        foreach ($validator->errors()->toArray() as $field => $messages) {
+            $problems[$field] = [self::ruleProblem($field, $failed[$field] ?? []), (string) $messages[0]];
+        }
+
         $users = User::query()->whereKey($data->personaIds())->get()->keyBy('id');
 
-        return $errors + $this->errorsAgainst($data, $plan, $users, ready: true)[0];
+        return $problems + $this->problemsAgainst($data, $plan, $users, ready: true)[0];
+    }
+
+    /**
+     * What a rule a vote's field fails says of it, as a stable code.
+     *
+     * @param  array<string, mixed>  $rules  the rules the field fails, keyed by their names
+     */
+    private static function ruleProblem(string $field, array $rules): StudioPlanApprovalProblem
+    {
+        $prohibited = isset($rules['Prohibited']) || isset($rules['ProhibitedIf']) || isset($rules['ProhibitedUnless']);
+
+        return match (true) {
+            $field === 'votes' => isset($rules['Max']) ? StudioPlanApprovalProblem::VotesTooMany : StudioPlanApprovalProblem::VoteShapeInvalid,
+            str_ends_with($field, '.personaUserId') => StudioPlanApprovalProblem::VotePersonaDeleted,
+            str_ends_with($field, '.voteType') && ! $prohibited => StudioPlanApprovalProblem::VoteDirectionInvalid,
+            str_ends_with($field, '.offsetSeconds') => StudioPlanApprovalProblem::VoteTimingInvalid,
+            default => StudioPlanApprovalProblem::VoteShapeInvalid,
+        };
     }
 
     /**
@@ -285,14 +335,15 @@ final class StudioVoteValidationRules
 
     /**
      * Each vote held to the plan, its discussion, its Personas and the rating
-     * configuration, the first problem of each field kept. For a Draft
-     * (`$ready` false) a Persona need only be one and not deleted, and an
-     * option already chosen is kept as it is; to be cast, neither is enough.
+     * configuration, the first problem of each field kept — as its code and
+     * its message. For a Draft (`$ready` false) a Persona need only be one and
+     * not deleted, and an option already chosen is kept as it is; to be cast,
+     * neither is enough.
      *
      * @param  Collection<int, User>  $users
-     * @return array{0: array<string, string>, 1: StudioVotesData} the problems, and the votes with each rating vote's own question
+     * @return array{0: array<string, array{0: StudioPlanApprovalProblem, 1: string}>, 1: StudioVotesData} the problems, and the votes with each rating vote's own question
      */
-    private function errorsAgainst(StudioVotesData $data, StudioPlan $plan, Collection $users, bool $ready): array
+    private function problemsAgainst(StudioVotesData $data, StudioPlan $plan, Collection $users, bool $ready): array
     {
         $saved = StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->get()->keyBy('id');
         $nodes = StudioDiscussionNode::query()
@@ -305,9 +356,14 @@ final class StudioVoteValidationRules
         )));
         $options = $optionIds !== [] ? RatingOption::query()->whereKey($optionIds)->get()->keyBy('id') : new Collection;
         $active = $optionIds !== [] ? $this->ratingConfiguration->allActiveOptionIds() : [];
-        $errors = [];
+        $problems = [];
         $targets = [];
         $resolved = [];
+
+        // The first problem of a field is the one it keeps.
+        $fail = function (string $field, StudioPlanApprovalProblem $problem, string $message) use (&$problems): void {
+            $problems[$field] ??= [$problem, $message];
+        };
 
         foreach ($data->votes as $index => $vote) {
             $field = fn (string $name): string => "votes.{$index}.{$name}";
@@ -315,21 +371,23 @@ final class StudioVoteValidationRules
             $groupId = null;
 
             if ($vote->id !== null && ! $saved->has($vote->id)) {
-                $errors[$field('id')] ??= 'This vote is not one of this plan’s. Reload the plan.';
+                $fail($field('id'), StudioPlanApprovalProblem::VoteShapeInvalid, 'This vote is not one of this plan’s. Reload the plan.');
             }
 
             // The role and the status that count are the ones the row has now.
             $persona = $vote->personaUserId !== null ? $users->get($vote->personaUserId) : null;
 
-            if ($persona === null || ! $persona->isPersona() || $persona->isTombstoned()) {
-                $errors[$field('personaUserId')] ??= self::DELETED_PERSONA;
+            if ($persona === null || $persona->isTombstoned()) {
+                $fail($field('personaUserId'), StudioPlanApprovalProblem::VotePersonaDeleted, self::DELETED_PERSONA);
+            } elseif (! $persona->isPersona()) {
+                $fail($field('personaUserId'), StudioPlanApprovalProblem::VotePersonaNotPersona, self::DELETED_PERSONA);
             } elseif ($ready && ($persona->status !== UserStatus::Active || ! $persona->canVote())) {
-                $errors[$field('personaUserId')] ??= 'This persona is limited, banned or shadowbanned and cannot vote. Choose another one.';
+                $fail($field('personaUserId'), StudioPlanApprovalProblem::VotePersonaRestricted, 'This persona is limited, banned or shadowbanned and cannot vote. Choose another one.');
             }
 
             if ($type === StudioActionType::VotePost || $type === StudioActionType::VoteRating) {
                 if ($plan->author_user_id !== null && $vote->personaUserId === $plan->author_user_id) {
-                    $errors[$field('personaUserId')] ??= 'The post’s own author cannot vote on it. Choose another persona.';
+                    $fail($field('personaUserId'), StudioPlanApprovalProblem::VoteOwnContent, 'The post’s own author cannot vote on it. Choose another persona.');
                 }
             }
 
@@ -337,14 +395,14 @@ final class StudioVoteValidationRules
                 $node = $vote->discussionNodeId !== null ? $nodes->get($vote->discussionNodeId) : null;
 
                 if ($node === null) {
-                    $errors[$field('discussionNodeId')] ??= 'The comment it votes on is not in this plan’s discussion. Reload the plan.';
+                    $fail($field('discussionNodeId'), StudioPlanApprovalProblem::VoteCommentMissing, 'The comment it votes on is not in this plan’s discussion. Reload the plan.');
                 } else {
                     if ($node->persona_user_id === $vote->personaUserId) {
-                        $errors[$field('personaUserId')] ??= 'A persona cannot vote on its own comment. Choose another one.';
+                        $fail($field('personaUserId'), StudioPlanApprovalProblem::VoteOwnContent, 'A persona cannot vote on its own comment. Choose another one.');
                     }
 
                     if ((int) $vote->offsetSeconds < $node->offset_seconds) {
-                        $errors[$field('offsetSeconds')] ??= 'A vote cannot come before the comment it is on.';
+                        $fail($field('offsetSeconds'), StudioPlanApprovalProblem::VoteTimingInvalid, 'A vote cannot come before the comment it is on.');
                     }
                 }
             }
@@ -353,12 +411,12 @@ final class StudioVoteValidationRules
                 [$groupId, $problem] = self::ratingTarget($vote, $saved->get($vote->id ?? 0), $options, $active, $ready);
 
                 if ($problem !== null) {
-                    $errors[$field($problem[0])] ??= $problem[1];
+                    $fail($field($problem[0]), StudioPlanApprovalProblem::VoteOptionUnavailable, $problem[1]);
                 }
             }
 
             if (! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, (int) $vote->offsetSeconds)) {
-                $errors[$field('offsetSeconds')] ??= 'It would come after 2038, past the latest date a post may carry. Bring it closer to the post.';
+                $fail($field('offsetSeconds'), StudioPlanApprovalProblem::VoteDateOutOfRange, 'It would come after 2038, past the latest date a post may carry. Bring it closer to the post.');
             }
 
             // Once per target, whichever way: a second vote on it is a second vote.
@@ -371,11 +429,11 @@ final class StudioVoteValidationRules
 
             if ($target !== null && $vote->personaUserId !== null) {
                 if (isset($targets[$vote->personaUserId][$target])) {
-                    $errors[$field('personaUserId')] ??= match ($type) {
+                    $fail($field('personaUserId'), StudioPlanApprovalProblem::VoteRepeated, match ($type) {
                         StudioActionType::VoteComment => 'This persona already votes on this comment. Keep one of its votes.',
                         StudioActionType::VoteRating => 'This persona already chose an option of this rating question. Keep one.',
                         default => 'This persona already votes on the post. Keep one of its votes.',
-                    };
+                    });
                 }
 
                 $targets[$vote->personaUserId][$target] = true;
@@ -384,7 +442,7 @@ final class StudioVoteValidationRules
             $resolved[] = $type === StudioActionType::VoteRating ? self::withGroup($vote, $groupId) : $vote;
         }
 
-        return [$errors, new StudioVotesData($resolved)];
+        return [$problems, new StudioVotesData($resolved)];
     }
 
     /**

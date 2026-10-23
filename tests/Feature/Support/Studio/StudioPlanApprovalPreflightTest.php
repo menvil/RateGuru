@@ -182,25 +182,55 @@ it('wants a discussion the executor can publish: the discussion\'s own rules, an
     }, ['discussion_text_invalid', 'discussion_persona_restricted']],
 ]);
 
-it('stops a plan that prepares votes of any kind, for nothing casts them yet', function (Closure $vote) {
-    [$plan, $saved] = approvableStudioPlanWithDiscussion();
-    $vote($plan, $saved->ids['c1']);
+it('finds nothing to stop votes of every kind the executor can cast as they are', function () {
+    ['plan' => $plan] = approvableStudioPlanWithVotes();
 
-    expect(approvalProblemsOf($plan))->toBe(['votes_not_publishable'])
-        ->and(StudioPlanApprovalProblem::VotesNotPublishable->field())->toBe('votes')
-        ->and(StudioPlanApprovalProblem::VotesNotPublishable->rejection())->toBe(StudioPlanApprovalRejection::UnsupportedVotes);
+    expect(approvalProblemsOf($plan))->toBe([]);
+});
+
+it('stops a plan whose votes cannot be cast as they are, each problem once as its own code, on the votes, adding up to invalid_votes', function (Closure $arrange, array $problems) {
+    $prepared = approvableStudioPlanWithVotes();
+    $arrange($prepared);
+
+    expect(approvalProblemsOf($prepared['plan']))->toBe($problems);
+
+    foreach ($problems as $code) {
+        expect(StudioPlanApprovalProblem::from($code))
+            ->field()->toBe('votes')
+            ->rejection()->toBe(StudioPlanApprovalRejection::InvalidVotes);
+    }
 })->with([
-    'a vote on the post' => [fn (StudioPlan $plan) => StudioPlanVote::factory()->for($plan, 'plan')->create()],
-    'a vote on a comment' => [fn (StudioPlan $plan, int $comment) => StudioPlanVote::factory()->onComment(StudioDiscussionNode::query()->findOrFail($comment))->create()],
-    'a rating vote' => [fn (StudioPlan $plan) => StudioPlanVote::factory()->forRating(activeRatingQuestion()->options->first())->for($plan, 'plan')->create()],
+    'a voter deleted' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['status' => UserStatus::Deleted])->save(), ['vote_persona_deleted']],
+    'a voter no longer a Persona' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['role' => 'user'])->save(), ['vote_persona_not_persona']],
+    'a limited voter' => [fn (array $prepared) => $prepared['voters']['up']->forceFill(['status' => UserStatus::Limited])->save(), ['vote_persona_restricted']],
+    'a shadowbanned voter' => [fn (array $prepared) => $prepared['voters']['up']->forceFill(['status' => UserStatus::Shadowbanned])->save(), ['vote_persona_restricted']],
+    'a banned voter' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['status' => UserStatus::Banned])->save(), ['vote_persona_restricted']],
+    'the post\'s own author voting on it' => [fn (array $prepared) => $prepared['plan']->forceFill(['author_user_id' => $prepared['voters']['up']->id])->save(), ['vote_own_content']],
+    'a comment\'s own author voting on it' => [fn (array $prepared) => StudioDiscussionNode::query()->whereKey($prepared['saved']->ids['c2'])->update(['persona_user_id' => $prepared['voters']['down']->id]), ['vote_own_content']],
+    'a vote before the comment it is on' => [fn (array $prepared) => StudioPlanVote::query()->whereKey($prepared['votes']['c1Up'])->update(['offset_seconds' => 120]), ['vote_timing_invalid']],
+    'a vote past the latest date a post may carry' => [function (array $prepared) {
+        $prepared['plan']->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse('2038-01-18 23:29:00')])->save();
+        StudioPlanVote::query()->whereKey($prepared['votes']['postDown'])->update(['offset_seconds' => 3_600]);
+    }, ['vote_date_out_of_range']],
+    'an option archived' => [fn (array $prepared) => $prepared['options'][1]->forceFill(['is_active' => false, 'archived_at' => now()])->save(), ['vote_option_unavailable']],
+    'an option deleted' => [fn (array $prepared) => DB::table('rating_options')->where('id', $prepared['options'][1]->id)->delete(), ['vote_option_unavailable']],
+    'a rating question no longer active' => [fn (array $prepared) => $prepared['group']->forceFill(['is_active' => false])->save(), ['vote_option_unavailable']],
+    'an option now another question\'s' => [fn (array $prepared) => $prepared['options'][0]->forceFill(['rating_group_id' => activeRatingQuestion()->id])->save(), ['vote_option_unavailable']],
+    'several at once, each once, in the editor\'s order' => [function (array $prepared) {
+        $prepared['voters']['up']->forceFill(['status' => UserStatus::Limited])->save();
+        $prepared['options'][0]->forceFill(['is_active' => false, 'archived_at' => now()])->save();
+        StudioPlanVote::query()->whereKey($prepared['votes']['c1Up'])->update(['offset_seconds' => 120]);
+    }, ['vote_persona_restricted', 'vote_timing_invalid', 'vote_option_unavailable']],
 ]);
 
-it('finds nothing to stop a plan whose votes were all taken away', function () {
+it('stops a plan only for the votes it has: none stops it once they are taken away', function () {
     $plan = approvableStudioPlan();
     $admin = User::factory()->admin()->create();
-    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => User::factory()->persona()->create()->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+    $voter->forceFill(['status' => UserStatus::Limited])->save();
 
-    expect(approvalProblemsOf($plan))->toBe(['votes_not_publishable']);
+    expect(approvalProblemsOf($plan))->toBe(['vote_persona_restricted']);
 
     saveStudioVotes($admin, $plan, []);
 
@@ -310,7 +340,7 @@ it('only reads: nothing is written, queued, sent or called', function () {
     Http::preventStrayRequests();
     $plan = approvableStudioPlan(['title' => null, 'tag_ids' => [2_000_000_000]]);
     StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
-    StudioPlanVote::factory()->for($plan, 'plan')->create();
+    StudioPlanVote::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
     $writes = [];
 
     DB::listen(function (QueryExecuted $query) use (&$writes): void {
@@ -319,7 +349,7 @@ it('only reads: nothing is written, queued, sent or called', function () {
         }
     });
 
-    expect(array_map(fn (StudioPlanApprovalProblem $problem): string => $problem->value, app(StudioPlanApprovalPreflight::class)->problems($plan)))->toContain('votes_not_publishable')
+    expect(array_map(fn (StudioPlanApprovalProblem $problem): string => $problem->value, app(StudioPlanApprovalPreflight::class)->problems($plan)))->toContain('vote_persona_restricted')
         ->and($writes)->toBe([]);
     Queue::assertNothingPushed();
     Bus::assertNothingDispatched();

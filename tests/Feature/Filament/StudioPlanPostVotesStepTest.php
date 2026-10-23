@@ -1,14 +1,13 @@
 <?php
 
 use App\Enums\StudioActionType;
-use App\Enums\StudioPlanApprovalRejection;
-use App\Exceptions\Studio\CannotApproveStudioPlanException;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -170,22 +169,21 @@ it('draws the votes again when the post editor is reloaded at a version whose vo
         ->assertSet('lockVersion', 2)->assertSet('up', 2)->assertSet('postOn', true)->assertSet('conflict', false);
 });
 
-it('keeps a plan with prepared votes from being approved, and approves one without them as before', function () {
+it('approves a plan with the votes its editor saved, an action for each of them, and one without them as before', function () {
     $plan = approvableStudioPlan(['created_by_user_id' => $this->admin->id]);
     savedPostVotesFromEditor($plan);
+    $votes = StudioPlanVote::query()->where('studio_plan_id', $plan->id)->count();
 
-    try {
-        approveStudioPlan($this->admin, $plan);
-        $refusal = null;
-    } catch (CannotApproveStudioPlanException $exception) {
-        $refusal = $exception;
-    }
+    approveStudioPlan($this->admin, $plan);
 
-    expect($refusal?->rejection)->toBe(StudioPlanApprovalRejection::UnsupportedVotes)
-        ->and(StudioAction::query()->exists())->toBeFalse();
+    expect($votes)->toBeGreaterThan(0)
+        ->and(StudioAction::query()->where('studio_plan_id', $plan->id)->where('type', StudioActionType::VotePost)->count())->toBe($votes)
+        ->and(StudioAction::query()->where('studio_plan_id', $plan->id)->count())->toBe($votes + 1);
 
-    postVotesEditor($plan)->call('askRemove')->call('confirmRemove');
-    approveStudioPlan($this->admin, $plan->fresh());
+    $other = approvableStudioPlan(['created_by_user_id' => $this->admin->id]);
+    savedPostVotesFromEditor($other);
+    postVotesEditor($other)->call('askRemove')->call('confirmRemove');
+    approveStudioPlan($this->admin, $other->fresh());
 
-    expect(StudioAction::query()->where('studio_plan_id', $plan->id)->count())->toBe(1);
+    expect(StudioAction::query()->where('studio_plan_id', $other->id)->count())->toBe(1);
 });
