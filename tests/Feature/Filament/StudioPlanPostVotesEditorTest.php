@@ -14,6 +14,7 @@ use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
 use App\Models\User;
+use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\BuildStudioPostVotesData;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
@@ -283,16 +284,82 @@ it('removes the post votes once asked, the discussion\'s votes staying', functio
         ->and(StudioPlanVote::query()->pluck('id')->all())->toBe([$this->commentVote->id]);
 });
 
-it('saves nothing while the post\'s author has unsaved changes, as the page says', function () {
-    $editor = postVotesEditor($this->plan)
-        ->assertSeeHtml('x-effect="$wire.authorChanged = ($store.adminEditor?.authorChanged ?? false)"')
-        ->set('authorChanged', true)->set('postOn', true)->set('up', 1)->assertHasErrors(['author'])->assertSee('Not saved');
+it('makes the votes again right after a save of the post gives it another author, who never votes on it', function () {
+    $editor = postVotesEditor($this->plan)->set('voterMode', 'manual')
+        ->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->boris->id)->call('toggleVoter', $this->carl->id)
+        ->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+    $voters = array_column(savedPostVotes($this->plan), 0);
+    // A Save draft with one of the voters as the post's author.
+    $this->plan->forceFill(['lock_version' => 3, 'author_user_id' => $voters[0]])->save();
 
-    expect(savedPostVotes($this->plan))->toBe([]);
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor')
+        ->assertSet('lockVersion', 3)->assertSet('authorId', $voters[0])->assertDispatched(StudioPlanPostVotesEditor::REMAKE_EVENT);
 
-    $editor->set('authorChanged', false)->set('up', 2)->assertHasNoErrors();
+    $editor->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)
+        ->assertHasNoErrors()->assertSet('conflict', false)->assertSet('lockVersion', 4)
+        ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: StudioPlanPostVotesEditor::SOURCE);
 
-    expect(savedPostVotes($this->plan))->toHaveCount(2);
+    $kept = array_column(savedPostVotes($this->plan), 0);
+
+    expect($kept)->toHaveCount(2)->not->toContain($voters[0])->toContain($voters[1]);
+
+    // An author who is no voter changes no vote.
+    $newcomer = User::factory()->persona()->create();
+    $this->plan->forceFill(['lock_version' => 5, 'author_user_id' => $newcomer->id])->save();
+
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor')
+        ->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)->assertSet('lockVersion', 5)->assertSet('authorId', $newcomer->id);
+
+    expect(array_column(savedPostVotes($this->plan), 0))->toBe($kept);
+});
+
+it('leaves out an author found among the saved voters when it opens, its place given to another Persona and the votes made again', function () {
+    postVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->boris->id)
+        ->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+    // A save of the post that made Anna its author while no editor of the votes was open.
+    $this->plan->forceFill(['lock_version' => 3, 'author_user_id' => $this->anna->id])->save();
+
+    $editor = postVotesEditor($this->plan)->assertDispatched(StudioPlanPostVotesEditor::REMAKE_EVENT)
+        ->assertSet('voterIds', fn (array $ids): bool => count($ids) === 2 && ! in_array($this->anna->id, $ids, true) && in_array($this->boris->id, $ids, true));
+
+    $editor->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)->assertHasNoErrors()->assertSet('lockVersion', 4);
+
+    expect(array_column(savedPostVotes($this->plan), 0))->toHaveCount(2)->not->toContain($this->anna->id)->toContain($this->boris->id);
+
+    postVotesEditor($this->plan)->assertNotDispatched(StudioPlanPostVotesEditor::REMAKE_EVENT);
+});
+
+it('draws every voter left when the post, with no author yet, is given one of a random draw of them all', function () {
+    $this->plan->forceFill(['author_user_id' => null])->save();
+    $all = count(app(PersonasQuery::class)->activeIds());
+    $editor = postVotesEditor($this->plan)->set('voterCount', $all)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+    $voters = array_column(savedPostVotes($this->plan), 0);
+    $this->plan->forceFill(['lock_version' => 3, 'author_user_id' => $voters[0]])->save();
+
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor')
+        ->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)
+        ->assertHasNoErrors()->assertSet('voterCount', $all - 1)->assertSet('lockVersion', 4);
+
+    expect(array_column(savedPostVotes($this->plan), 0))->toHaveCount(2)->not->toContain($voters[0]);
+});
+
+it('leaves the version a save of the post moved for the discussion\'s editors to take before the votes are made again for its new author', function () {
+    $votes = postVotesEditor($this->plan)->set('voterCount', 3)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+    $discussion = discussionEditor($this->plan);
+    $commentVotes = discussionVotesEditor($this->plan);
+    $this->plan->forceFill(['lock_version' => 3, 'author_user_id' => array_column(savedPostVotes($this->plan), 0)[0]])->save();
+
+    // One request takes the save to every editor: the votes editor first, writing nothing yet.
+    $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor');
+    $discussion->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor')->assertSet('conflict', false);
+    $commentVotes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: 'editor')->assertSet('conflict', false);
+
+    $votes->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)->assertSet('lockVersion', 4);
+
+    foreach ([$discussion, $commentVotes] as $editor) {
+        $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: StudioPlanPostVotesEditor::SOURCE)
+            ->assertSet('conflict', false)->assertSet('lockVersion', 4);
+    }
 });
 
 it('keeps a Persona restricted or deleted since in the saved votes, saying so and what keeps the vote from being cast', function () {

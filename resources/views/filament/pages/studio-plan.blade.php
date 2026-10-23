@@ -45,7 +45,7 @@
 <div
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorChanged = String($wire.authorUserId ?? '') !== String($wire.saved?.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')

@@ -32,10 +32,9 @@
             .($blocked > 0 ? ' · '.$blocked.' can’t be cast as '.($blocked === 1 ? 'it is' : 'they are').' — see the Timing tab' : ''),
         default => 'No votes prepared · the post gets only real users’ votes.',
     };
-    $authorChanged = '($store.adminEditor?.authorChanged ?? false)';
 @endphp
 
-<div class="rg-admin-studio__votes" x-data x-effect="$wire.authorChanged = {{ $authorChanged }}">
+<div class="rg-admin-studio__votes">
     @if ($gone)
         <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its votes can’t be changed any more.</x-admin.ui.inline-notice>
     @elseif ($closed)
@@ -48,10 +47,6 @@
             </x-slot:actions>
         </x-admin.ui.inline-notice>
     @endif
-
-    <div x-data x-show="{{ $authorChanged }}" x-cloak>
-        <x-admin.ui.inline-notice tone="warning">The post’s author has unsaved changes. Save the draft, then prepare the votes: they are made for the author the draft has saved.</x-admin.ui.inline-notice>
-    </div>
 
     <div class="rg-admin-studio__votes-layout">
         {{-- Post voters (the prototype's VoterSelect, `which="post"`). --}}
@@ -384,11 +379,9 @@
                         @endif
                     </div>
                     <div class="rg-admin-studio__generate-hint">Every change is saved at once. Prepared votes are not on the site: they are cast only once the plan is approved and runs.</div>
-                    @foreach (['author', 'votes'] as $field)
-                        @error($field)
-                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                        @enderror
-                    @endforeach
+                    @error('votes')
+                        <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                    @enderror
                 </div>
                 <div class="rg-admin-studio__votes-actions">
                     @if ($unsaved)

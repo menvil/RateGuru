@@ -72,6 +72,13 @@ final class StudioPlanPostVotesEditor extends Component
     /** When the voters come by default: the first after, and how long they are spread over, in seconds. */
     private const TIMING = [300, 86400];
 
+    /**
+     * Said to itself when a save of the post gave it another author: the votes
+     * are made again on a request of their own, once every editor on the page
+     * has taken the version that save left.
+     */
+    public const REMAKE_EVENT = 'studio-post-votes-remake';
+
     /** How many voters a random draw starts with, at most. */
     private const DEFAULT_VOTERS = 20;
 
@@ -182,13 +189,6 @@ final class StudioPlanPostVotesEditor extends Component
     /** Whether Remove is asking first. */
     #[Locked]
     public bool $confirmingRemove = false;
-
-    /**
-     * Whether the post's author has unsaved changes, as the page says: the
-     * votes are made for the author the draft has saved, so none are saved
-     * meanwhile.
-     */
-    public bool $authorChanged = false;
 
     public function boot(): void
     {
@@ -515,6 +515,13 @@ final class StudioPlanPostVotesEditor extends Component
     // The plan's one version, shared with the other editors on the page
     // ------------------------------------------------------------------
 
+    /** The votes made again for the author a save of the post gave it. */
+    #[On(self::REMAKE_EVENT)]
+    public function remake(): void
+    {
+        $this->commit();
+    }
+
     /** Reload votes: the votes as saved now, said to the other editors on the page. */
     #[On('reload-studio-post-votes')]
     public function reload(): void
@@ -679,16 +686,57 @@ final class StudioPlanPostVotesEditor extends Component
         $this->voterIds = $voters;
         $this->voterCount = $voters !== [] ? count($voters) : min(self::DEFAULT_VOTERS, $this->cap());
         $this->savedFor = $this->settingsKey();
+
+        if ($this->leaveOutAuthor($saved)) {
+            $this->dispatch(self::REMAKE_EVENT)->self();
+        }
     }
 
-    /** Takes a version the other editors' writes left, with this page's post votes as they are. */
+    /**
+     * Takes a version the other editors' writes left, with this page's post
+     * votes as they are. A save of the post that gave it another author has
+     * the votes made again right after (`remake()`), the new author left out
+     * (`leaveOutAuthor()`). Not here: the other editors take the same version
+     * on the same request, and a write now would move it under them.
+     */
     private function take(int $version): void
     {
         $this->lockVersion = $version;
         $this->conflict = false;
-        // A save of the post may have given it another author: never a voter from the next change on.
-        $this->authorId = StudioPlan::query()->whereKey($this->planId)->value('author_user_id');
-        $this->authorId = $this->authorId !== null ? (int) $this->authorId : null;
+        $plan = StudioPlan::query()->find($this->planId);
+        $author = $plan?->author_user_id;
+
+        if ($plan !== null && $author !== $this->authorId) {
+            $this->authorId = $author;
+            $this->leaveOutAuthor(self::postVotesOf($plan));
+            $this->dispatch(self::REMAKE_EVENT)->self();
+        }
+    }
+
+    /**
+     * Leaves the post's author out of its voters — it never votes on its own
+     * post: chosen, its place goes to another active Persona, drawn;
+     * drawn at random, more voters asked for than are left take all there
+     * are. Whether the author was a voter, so the votes must be made again.
+     *
+     * @param  list<array<string, mixed>>  $saved  the post votes as saved
+     */
+    private function leaveOutAuthor(array $saved): bool
+    {
+        if ($this->authorId === null || $this->closed) {
+            return false;
+        }
+
+        $this->voterCount = min($this->voterCount, $this->cap());
+        $chosen = in_array($this->authorId, $this->voterIds, true);
+
+        if ($chosen) {
+            $spare = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->voterIds));
+            usort($spare, fn (int $a, int $b): int => hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$a) <=> hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$b));
+            $this->voterIds = [...array_values(array_diff($this->voterIds, [$this->authorId])), ...array_slice($spare, 0, 1)];
+        }
+
+        return $chosen || in_array($this->authorId, array_column($saved, 'personaUserId'), true);
     }
 
     /** Whether the plan is at this version now, its post votes as this page last read or wrote them. */
@@ -704,8 +752,8 @@ final class StudioPlanPostVotesEditor extends Component
      * BuildStudioPostVotesData — a Persona keeping its saved vote and moment
      * as far as the settings allow — and written, unless they are the votes
      * saved already. What can't be made is said where it is, and nothing is
-     * saved until it is fixed. Nothing is saved while the post's author has
-     * unsaved changes: the votes are made for the author the plan has.
+     * saved until it is fixed. The votes are made for the author the draft
+     * has saved, never a voter.
      */
     private function commit(): void
     {
@@ -714,13 +762,6 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         $this->resetErrorBag();
-
-        if ($this->authorChanged) {
-            $this->addError('author', 'The post’s author has unsaved changes. Save the draft, then prepare the votes: they are made for the author the draft has saved.');
-
-            return;
-        }
-
         $plan = $this->writablePlan();
 
         if ($plan === null) {

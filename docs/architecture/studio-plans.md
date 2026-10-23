@@ -782,13 +782,16 @@ votes' (`discussion_votes`) when it was written from the version it holds and
 the plan's post and rating votes are still the ones it last read or wrote; the
 other editors take its moves the same way. Anything else is somebody else's
 save: the editor says the draft changed, writes nothing, and asks for Reload.
-A Save draft that gives the post another author is read on the move it takes:
-the new author never votes from the next change on.
-
-While the post's author has unsaved changes, no change is saved (the page
-tells the editor, `authorChanged`): the votes are made for the author the
-draft has saved, and the tab says to save the draft first. Nothing on the tab saves the post's texts, photo,
-category or author.
+The votes are made for the author the draft has saved, and are saved at once
+while the post's author still has unsaved changes. A Save draft that gives
+the post another author is read on the move it takes, and the votes are made
+again right after, on a request of their own once every editor on the page
+has taken that move (`remake()`): the new author never votes on it. Chosen
+among the voters, its place goes to another active Persona; in a random draw
+of every voter, one fewer is drawn. An author the editor finds among the
+saved voters when it opens is left out the same way, so a vote it can't cast
+never stands in the way of the comment votes' save. Nothing on the tab saves
+the post's texts, photo, category or author.
 
 #### Departures from the prototype
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\StudioActionType;
 use App\Enums\StudioPlanApprovalRejection;
 use App\Exceptions\Studio\CannotApproveStudioPlanException;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
@@ -104,12 +105,6 @@ it('asks a new publication to save its draft first, and offers the votes once a 
     expect(postVotesChildId($page, $plan))->not->toBeNull();
 });
 
-it('tells the votes editor of a post\'s unsaved author, from the draft the browser compares', function () {
-    $html = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->html();
-
-    expect($html)->toContain('$store.adminEditor.authorChanged = String($wire.authorUserId ?? \'\') !== String($wire.saved?.authorUserId ?? \'\')');
-});
-
 it('moves the version once for a votes save, which the post and discussion editors take, so their next saves are no conflict', function () {
     $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'A harbour at dawn');
     $discussion = discussionEditor($this->plan);
@@ -138,7 +133,7 @@ it('takes the version a Save draft or a photo moved in the votes editor, so its 
         ->set('postOn', true)->set('up', 1)->assertHasNoErrors()->assertSet('lockVersion', 3);
 });
 
-it('reads the author a Save draft gave the post: never a voter from the next change on', function () {
+it('reads the author a Save draft gave the post: never a voter, its place among the chosen given to another Persona', function () {
     $newAuthor = User::factory()->persona()->create();
     $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $newAuthor->id)->assertHasNoErrors();
 
@@ -146,9 +141,12 @@ it('reads the author a Save draft gave the post: never a voter from the next cha
 
     $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('authorId', $newAuthor->id)
-        ->set('postOn', true)->set('up', 1)->assertHasErrors(['post']);
+        ->assertSet('voterIds', fn (array $ids): bool => count($ids) === 1 && $ids[0] !== $newAuthor->id)
+        ->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)
+        ->set('postOn', true)->set('up', 1)->assertHasNoErrors();
 
-    expect($this->plan->fresh()->votes()->count())->toBe(0);
+    expect($this->plan->fresh()->votes()->where('type', StudioActionType::VotePost)->pluck('persona_user_id')->all())
+        ->toHaveCount(1)->not->toContain($newAuthor->id);
 });
 
 it('draws the votes again when the post editor is reloaded at a version whose votes changed', function () {
