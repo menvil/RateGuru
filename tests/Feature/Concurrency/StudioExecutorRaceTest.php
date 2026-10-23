@@ -717,6 +717,56 @@ it('lets a rating vote run and an administrator archiving its option take turns,
     'the archive first' => ['archive'],
 ])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
 
+it('lets a rating vote run and an administrator deleting its option take turns: deleted first, the vote cancelled as unavailable, never failed; cast first, the option kept', function (string $first) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'option' => $option] = committedSentStudioVote($admin, $author, $voter, 'rating');
+    $others = fn (): array => $db->table('studio_plan_actions')->where('studio_plan_id', $action->studio_plan_id)->where('id', '!=', $action->id)->orderBy('id')->pluck('status', 'id')->all();
+    $before = $others();
+    $directory = raceDirectory('studio-executor');
+    $run = ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $delete = ['action' => 'delete-option', 'admin' => $admin->id, 'option' => $option->id];
+
+    try {
+        // The deletion first: it holds its delete open while the run, having found the option still there
+        // unlocked, waits on the question's lock — and finds the option gone once it has it.
+        ['results' => $results, 'report' => $report] = finishedRace($first === 'vote'
+            ? [executorCompetitor($directory, 'a', [...$run, 'sync' => 'lead', 'hold' => 'vote']), executorCompetitor($directory, 'b', [...$delete, 'sync' => 'follow'])]
+            : [executorCompetitor($directory, 'a', [...$delete, 'sync' => 'lead', 'hold' => 'option']), executorCompetitor($directory, 'b', [...$run, 'sync' => 'follow'])]);
+        [$runResult, $deleteResult] = $first === 'vote' ? $results : array_reverse($results);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $cast = $db->table('rating_votes')->where('post_id', $post->id)->count();
+
+        expect($report)->not->toContain('eadlock')
+            ->and($runResult['status'])->toBe(0, $report)
+            // The plan's other actions untouched either way.
+            ->and($others())->toBe($before);
+
+        if ($first === 'vote') {
+            // Chosen first: an option with a vote is never deleted.
+            expect($after->status)->toBe('done')
+                ->and($cast)->toBe(1)
+                ->and($deleteResult['status'])->toBe(1, $report)
+                ->and($deleteResult['output'])->toContain('Rating options with votes cannot be deleted')
+                ->and($db->table('rating_options')->where('id', $option->id)->exists())->toBeTrue();
+        } else {
+            expect($deleteResult['status'])->toBe(0, $report)
+                ->and($db->table('rating_options')->where('id', $option->id)->exists())->toBeFalse()
+                ->and($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe('rating_option_unavailable')
+                ->and($after->result_id)->toBeNull()
+                ->and($cast)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory, $option);
+    }
+})->with([
+    'the vote first' => ['vote'],
+    'the deletion first' => ['delete'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
 it('leaves nothing of a worker killed with its vote cast, and casts it once after recovery, at its second attempt', function () {
     $db = committedConnection();
     [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();

@@ -73,6 +73,12 @@ final class CannotVoteForRatingOptionException extends DomainException
         return new self(__('ui.voting.errors.group_inactive'), self::REASON_OPTION_UNAVAILABLE);
     }
 
+    /** The option, or its rating question, deleted — or the option no longer the question's. */
+    public static function becauseOptionIsUnavailable(): self
+    {
+        return new self(__('ui.voting.option_unavailable'), self::REASON_OPTION_UNAVAILABLE);
+    }
+
     /** The option, or its rating question, is no longer one to vote for. */
     public function isOptionUnavailable(): bool
     {

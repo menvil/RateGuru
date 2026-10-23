@@ -81,12 +81,24 @@ final class VoteRatingOptionAction
                 throw CannotVoteForRatingOptionException::becausePostIsNotPublic();
             }
 
+            // The option, or its question, deleted since it was read, or the
+            // option moved to another question: none to vote for here, and no
+            // other option in its place.
             $group = RatingGroup::query()
                 ->lockForUpdate()
-                ->findOrFail($option->rating_group_id);
+                ->find($option->rating_group_id);
+
+            if ($group === null) {
+                throw CannotVoteForRatingOptionException::becauseOptionIsUnavailable();
+            }
+
             $lockedOption = $group->options()
                 ->lockForUpdate()
-                ->findOrFail($option->id);
+                ->find($option->id);
+
+            if ($lockedOption === null) {
+                throw CannotVoteForRatingOptionException::becauseOptionIsUnavailable();
+            }
 
             if (! $lockedOption->is_active) {
                 throw CannotVoteForRatingOptionException::becauseOptionIsInactive();

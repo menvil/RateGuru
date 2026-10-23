@@ -13374,8 +13374,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
                 // A vote cast — on a post, on a comment, or for a rating option — its transaction still open.
                 'vote' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?(post|comment|rating)_votes"?\s/i', $sql) === 1,
-                // A rating option written — archived, say — its transaction still open.
-                'option' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?rating_options"?\s/i', $sql) === 1,
+                // A rating option written — archived or deleted, say — its transaction still open.
+                'option' => static fn (string $sql): bool => preg_match('/^\s*(update|delete\s+from)\s+"?rating_options"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
                 // A user's row written, its transaction still open.
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
@@ -13510,6 +13510,8 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'vote-comment' => app(App\Actions\Votes\VoteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), App\Enums\VoteType::Up),
                 // An administrator archiving a rating option.
                 'archive-option' => app(App\Actions\Rating\ArchiveRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
+                // An administrator deleting a rating option.
+                'delete-option' => app(App\Actions\Rating\DeleteRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.

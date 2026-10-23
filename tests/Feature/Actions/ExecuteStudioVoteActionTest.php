@@ -401,6 +401,32 @@ it('cancels a rating vote whose option, or its question, is no longer one to vot
     }],
 ]);
 
+it('cancels a rating vote whose option is deleted after the run has looked at it and before the vote locks it — never failing it as unexpected', function () {
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    ['actions' => $actions, 'voters' => $voters, 'options' => $options] = approvedVotes($this->admin, '2025-06-10 10:00:00');
+    $actions['ratingDown']->forceFill(['run_after' => now()->addYear()])->save();
+    runStudioRoundsUntilQuiet();
+    $actions['ratingDown']->forceFill(['run_after' => now()])->save();
+    dispatchDueStudioActions();
+    $deleted = false;
+
+    // The option deleted the moment the run has read it, unlocked: the vote's own lock then finds it gone.
+    DB::listen(function (QueryExecuted $query) use ($options, &$deleted): void {
+        if (! $deleted && preg_match('/from rating_options where rating_options\.id = \?/', strtolower(str_replace(['"', '`'], '', $query->sql))) === 1) {
+            $deleted = true;
+            DB::table('rating_options')->where('id', $options[1]->id)->delete();
+        }
+    });
+
+    runStudioActionJob($actions['ratingDown']->id);
+
+    expect($deleted)->toBeTrue()
+        ->and($actions['ratingDown']->fresh())->status->toBe(StudioActionStatus::Cancelled)->failure_code->toBe('rating_option_unavailable')
+        ->and(RatingVote::query()->where('user_id', $voters['down']->id)->exists())->toBeFalse()
+        // The plan's other votes, cast before, untouched.
+        ->and(voteStatuses($actions))->toMatchArray(['postUp' => StudioActionStatus::Done, 'postDown' => StudioActionStatus::Done, 'ratingUp' => StudioActionStatus::Done, 'c1Up' => StudioActionStatus::Done, 'c2Down' => StudioActionStatus::Done]);
+});
+
 it('never votes on another plan\'s post or comment, whatever the action it depends on says it wrote', function () {
     Carbon::setTestNow('2026-10-20 10:00:00');
     ['actions' => $actions, 'comments' => $comments] = approvedVotes($this->admin, '2025-06-10 10:00:00');
