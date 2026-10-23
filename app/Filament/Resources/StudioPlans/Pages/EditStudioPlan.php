@@ -9,6 +9,7 @@ use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Filament\Resources\StudioPlans\Concerns\EditsStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\StudioPlan;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -74,6 +75,18 @@ final class EditStudioPlan extends Page
         if (is_array($created) && is_string($created['message'] ?? null)) {
             $this->toast($created['message'], is_string($created['tone'] ?? null) ? $created['tone'] : 'success');
         }
+
+        // Saved on the new publication's page: on where it was, and on with Generate tree when that saved it.
+        $resume = session(CreateStudioPlan::RESUME);
+
+        if (is_array($resume) && (int) ($resume['plan'] ?? 0) === $plan->id) {
+            $this->goToStep($resume['step'] ?? null);
+            $this->showPostTab($resume['postTab'] ?? null);
+
+            if (($resume['generate'] ?? false) === true) {
+                $this->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $plan->id);
+            }
+        }
     }
 
     public function getTitle(): string
@@ -127,8 +140,13 @@ final class EditStudioPlan extends Page
         $this->saidReloaded();
     }
 
+    /**
+     * Save draft — or Generate tree, clicked with the post changed (`then`
+     * `generate`): the discussion's editor is told to generate once the post
+     * is saved, or found saved already.
+     */
     #[On('save-studio-plan')]
-    public function save(): void
+    public function save(mixed $then = null): void
     {
         if ($this->gone || $this->closed) {
             return;
@@ -146,7 +164,11 @@ final class EditStudioPlan extends Page
 
         if (self::fingerprintOf($data) === $this->fingerprint) {
             $this->draw($plan);
-            $this->toast('Nothing to save');
+            $this->generateAfterSave($then);
+
+            if ($then !== 'generate') {
+                $this->toast('Nothing to save');
+            }
 
             return;
         }
@@ -165,6 +187,15 @@ final class EditStudioPlan extends Page
         $this->movedVersion($plan->lock_version);
         $this->draw($plan);
         $this->toast('Draft saved');
+        $this->generateAfterSave($then);
+    }
+
+    /** Generate tree waited for the post to be saved: it goes on now. */
+    private function generateAfterSave(mixed $then): void
+    {
+        if ($then === 'generate') {
+            $this->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->planId);
+        }
     }
 
     /** Somebody else saved the plan: what this editor holds is out of date until Reload. */
@@ -195,13 +226,18 @@ final class EditStudioPlan extends Page
         $this->confirmingDelete = false;
     }
 
-    /** Deletes the Draft as it was drawn, and goes back to the list. */
+    /**
+     * Deletes the Draft as it was drawn, and goes back to the list. Delete
+     * draft told the page it is leaving, so nothing unsaved asks first; a
+     * deletion refused takes that back.
+     */
     public function delete(): void
     {
         $this->confirmingDelete = false;
         $plan = StudioPlan::query()->find($this->planId);
 
         if ($plan === null) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'deleted');
 
             return;
@@ -210,6 +246,7 @@ final class EditStudioPlan extends Page
         try {
             app(DeleteStudioPlanDraftAction::class)->handle($this->admin(), $plan, $this->lockVersion);
         } catch (CannotManageStudioPlanException $exception) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->refuse($exception, 'deleted');
 
             return;

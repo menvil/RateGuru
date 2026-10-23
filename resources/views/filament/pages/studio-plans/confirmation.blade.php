@@ -26,6 +26,7 @@
 
     <x-slot:actions>
         <x-admin.ui.button x-on:click="dismiss()" autofocus>Cancel</x-admin.ui.button>
-        <x-admin.ui.button variant="danger" wire:click="delete" wire:loading.attr="disabled">Delete draft</x-admin.ui.button>
+        {{-- The draft goes with everything in it: nothing left unsaved on the page asks before the page leaves. --}}
+        <x-admin.ui.button variant="danger" wire:click="delete" x-on:click="if ($store.adminEditor) $store.adminEditor.leaving = true" wire:loading.attr="disabled">Delete draft</x-admin.ui.button>
     </x-slot:actions>
 </x-admin.ui.confirm-dialog>

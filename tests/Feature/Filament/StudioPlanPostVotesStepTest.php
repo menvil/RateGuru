@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\StudioActionType;
 use App\Enums\StudioPlanApprovalRejection;
 use App\Exceptions\Studio\CannotApproveStudioPlanException;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
@@ -48,10 +49,10 @@ function studioWrapperHidden(Testable $page, string $class): bool
     return str_contains($wrapper[1] ?? '', 'hidden');
 }
 
-/** Votes on the plan's post, made and saved as the Votes tab does. */
+/** Votes on the plan's post, saved as the Votes tab saves them: at once. */
 function savedPostVotesFromEditor(StudioPlan $plan): Testable
 {
-    return postVotesEditor($plan)->set('postOn', true)->set('up', 2)->set('voterCount', 2)->call('build', false)->call('save', false)->assertHasNoErrors();
+    return postVotesEditor($plan)->set('voterCount', 2)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
 }
 
 it('gives the Post step two tabs, Titles & texts and Votes, which Continue and Back go through in turn', function () {
@@ -104,12 +105,6 @@ it('asks a new publication to save its draft first, and offers the votes once a 
     expect(postVotesChildId($page, $plan))->not->toBeNull();
 });
 
-it('tells the votes editor of a post\'s unsaved author, from the draft the browser compares', function () {
-    $html = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->html();
-
-    expect($html)->toContain('$store.adminEditor.authorChanged = String($wire.authorUserId ?? \'\') !== String($wire.saved?.authorUserId ?? \'\')');
-});
-
 it('moves the version once for a votes save, which the post and discussion editors take, so their next saves are no conflict', function () {
     $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'A harbour at dawn');
     $discussion = discussionEditor($this->plan);
@@ -135,20 +130,33 @@ it('takes the version a Save draft or a photo moved in the votes editor, so its 
 
     $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('lockVersion', 2)->assertSet('conflict', false)
-        ->set('postOn', true)->set('up', 1)->call('build', false)->call('save', false)->assertHasNoErrors()->assertSet('lockVersion', 3);
+        ->set('postOn', true)->set('up', 1)->assertHasNoErrors()->assertSet('lockVersion', 3);
 });
 
-it('reads the author a Save draft gave the post: never a voter, and a preview made before it is out of date', function () {
-    $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->set('postOn', true)->set('up', 1);
+it('tells the votes editor of the author picked on the page, and asks it before leaving the Post step, not before moving within it', function () {
+    $html = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'post')->html();
+
+    expect($html)->toContain('$store.adminEditor.authorUserId = String($wire.authorUserId ?? \'\')')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; ($wire.postTab === &#039;votes&#039;) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;next&#039; }) : $wire.nextStep()')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; ($wire.postTab === &#039;texts&#039;) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;previous&#039; }) : $wire.previousStep()')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; (true) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;discussion&#039; }) : $wire.goToStep(&#039;discussion&#039;)')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; (false) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;post&#039; })');
+});
+
+it('reads the author a Save draft gave the post: never a voter, its place among the chosen given to another Persona', function () {
     $newAuthor = User::factory()->persona()->create();
-    $votes->call('toggleVoter', $newAuthor->id)->call('build', false)->assertHasNoErrors();
+    $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $newAuthor->id)->assertHasNoErrors();
 
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('authorUserId', (string) $newAuthor->id)->call('save');
 
     $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('authorId', $newAuthor->id)
-        ->assertSee('The settings changed since this preview. Rebuild it to save.')
-        ->call('build', false)->assertHasErrors(['post']);
+        ->assertSet('voterIds', fn (array $ids): bool => count($ids) === 1 && $ids[0] !== $newAuthor->id)
+        ->dispatch(StudioPlanPostVotesEditor::REMAKE_EVENT)
+        ->set('postOn', true)->set('up', 1)->assertHasNoErrors();
+
+    expect($this->plan->fresh()->votes()->where('type', StudioActionType::VotePost)->pluck('persona_user_id')->all())
+        ->toHaveCount(1)->not->toContain($newAuthor->id);
 });
 
 it('draws the votes again when the post editor is reloaded at a version whose votes changed', function () {

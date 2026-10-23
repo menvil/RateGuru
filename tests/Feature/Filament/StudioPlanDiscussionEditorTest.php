@@ -8,11 +8,13 @@ use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -86,6 +88,61 @@ it('draws the tree as saved: each comment on the post by its time, its replies u
         ->assertSee('Automated')
         ->assertSee('Banned')
         ->assertSet('lockVersion', 2);
+});
+
+it('shows on each comment, beside its moment, the up and down votes saved on it, drawn again when the comment votes editor saves', function () {
+    savedFour($this);
+    [$carl, $dana] = User::factory()->persona()->count(2)->create()->all();
+    $nodes = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->pluck('id', 'body');
+    $votes = fn (string $html, string $label): array => preg_match('/title="Up votes prepared on '.$label.'">.*?<\/svg>\s*<span x-text="[^"]*">(\d+)<\/span>.*?title="Down votes prepared on '.$label.'">.*?<\/svg>\s*<span x-text="[^"]*">(\d+)<\/span>/s', $html, $match) === 1 ? [(int) $match[1], (int) $match[2]] : [];
+    $editor = discussionEditor($this->plan);
+
+    expect($votes($editor->html(), 'C1'))->toBe([0, 0])->and($votes($editor->html(), 'C4'))->toBe([0, 0]);
+
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $carl->id, 'voteType' => 'up', 'discussionNodeId' => $nodes['Lovely light.'], 'offsetSeconds' => 600]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $dana->id, 'voteType' => 'up', 'discussionNodeId' => $nodes['Lovely light.'], 'offsetSeconds' => 900]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $carl->id, 'voteType' => 'down', 'discussionNodeId' => $nodes['Where is this?'], 'offsetSeconds' => 600]),
+    ]);
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: StudioPlanDiscussionVotesEditor::SOURCE)
+        ->assertSet('lockVersion', 3)->assertSet('conflict', false);
+
+    expect($votes($editor->html(), 'C1'))->toBe([2, 0])
+        ->and($votes($editor->html(), 'C2'))->toBe([0, 0])
+        ->and($votes($editor->html(), 'C4'))->toBe([0, 1]);
+    $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.'])
+        ->assertSeeHtmlInOrder(['Generate from the settings above', '>3 comment votes (+2 / −1)</span>']);
+});
+
+it('draws each comment\'s votes as the comment votes editor sets them, opens its breakdown from See breakdown, and keeps the places that editor draws in', function () {
+    savedFour($this);
+    $c1 = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->where('body', 'Lovely light.')->value('id');
+
+    discussionEditor($this->plan)
+        ->assertSeeHtmlInOrder([
+            'data-node="C1"',
+            'x-bind:class="{ \'rg-admin-studio__node--selected\': $store.rgCommentVotes?.selected === '.$c1.' }"',
+            'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.up ?? 0"',
+            'x-text="$store.rgCommentVotes?.nodes?.['.$c1.']?.down ?? 0"',
+            'x-show="$store.rgCommentVotes?.nodes?.['.$c1.']?.changed" x-cloak>Not saved</span>',
+            'aria-controls="rg-admin-studio-comment-breakdown"',
+            'x-on:click="$dispatch(\'studio-comment-votes-select\', { node: '.$c1.' })"',
+            'See breakdown',
+        ])
+        ->assertSeeHtml('<div id="rg-admin-studio-comment-breakdown" class="rg-admin-studio__breakdown-slot" wire:ignore></div>')
+        ->assertSeeHtmlInOrder([
+            'Generate from the settings above',
+            'x-text="$store.rgCommentVotes?.status || \'no comment votes\'">no comment votes</span>',
+            'x-show="$store.rgCommentVotes?.unsaved" x-cloak>Not saved</span>',
+        ])
+        ->assertSeeHtml('class="rg-admin-studio__tree-voters"  hidden >')->assertSeeHtml('class="rg-admin-studio__tree-timing"  hidden >')
+        ->set('tab', 'voters')->assertSet('tab', 'voters')->assertSeeHtml('class="rg-admin-studio__tree-voters" >')->assertDontSee('Lovely light.')
+        ->set('tab', 'timing')->assertSeeHtmlInOrder(['class="rg-admin-studio__tree-timing" >', 'id="rg-admin-studio-timing"'])
+        ->set('tab', 'elsewhere')->assertSet('tab', 'tree');
+
+    // Read-only, a comment still opens its breakdown.
+    $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
+    discussionEditor($this->plan)->assertDontSeeHtml('wire:click="openEdit(')->assertSee('See breakdown');
 });
 
 it('says there is no discussion yet, or none planned', function () {
@@ -317,21 +374,27 @@ it('asks before deleting a reply alone, and cancels', function () {
         ->and(StudioDiscussionNode::query()->count())->toBe(3);
 });
 
-it('shows the timing of every comment and changes one in place', function () {
+it('keeps the Timing tab for the votes editor to draw, and moves a comment the tab says to, written at once — a reply never before its comment', function () {
     $saved = savedFour($this);
 
     $editor = discussionEditor($this->plan)->set('tab', 'timing')
-        ->assertSee('Times are offsets from the moment the post appears.')
-        ->assertSeeInOrder(['Comment C1', 'Comment C4', 'Reply C2', 'Reply C3'])
-        ->assertSee('After C1 at +1 min')
-        ->assertSee('After the post');
+        ->assertSeeHtml('class="rg-admin-studio__tree-timing" >')->assertSeeHtml('<div id="rg-admin-studio-timing" wire:ignore></div>')
+        ->assertDontSeeHtml('class="rg-admin-studio__timing"');
 
-    $editor->call('setOffset', $saved->ids['b'], 7200)->assertHasNoErrors();
+    $editor->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['b'], seconds: 7200)->assertHasNoErrors();
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
 
-    $editor->call('setOffset', $saved->ids['a1'], 10)
+    $editor->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['a1'], seconds: 10)
         ->assertDispatched('rg-admin-toast', message: 'A reply cannot come before the comment it answers.');
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a1'])->offset_seconds)->toBe(120);
+
+    // While a generation is on its way, it says so to the tab, and moves nothing.
+    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id]);
+
+    discussionEditor($this->plan)->assertSet('awaiting', fn (?int $awaiting): bool => $awaiting !== null)
+        ->assertSeeHtml('x-effect="$store.rgCommentVotes && ($store.rgCommentVotes.generating = $wire.awaiting !== null)"')
+        ->dispatch(StudioPlanDiscussionEditor::OFFSET_EVENT, id: $saved->ids['b'], seconds: 60)->assertNotDispatched(StudioPlanDiscussionEditor::VERSION_EVENT);
+    expect(StudioDiscussionNode::query()->findOrFail($saved->ids['b'])->offset_seconds)->toBe(7200);
 });
 
 it('holds forty comments and replies at most', function () {

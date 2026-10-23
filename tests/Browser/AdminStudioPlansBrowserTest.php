@@ -93,7 +93,7 @@ it('draws every step of the editor at every width without scrolling the page sid
     ]);
 })->with([1440, 1280, 1024, 390]);
 
-it('creates an empty draft from the top bar without anything typed, and opens its editor', function () {
+it('creates a draft from the top bar without anything typed, with the author the page started with, and opens its editor', function () {
     $page = visitAdminEditor('/admin/studio-plans/create');
 
     expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => true]);
@@ -109,7 +109,8 @@ it('creates an empty draft from the top bar without anything typed, and opens it
     waitForScript($page, 'location.pathname', "/admin/studio-plans/{$plan->id}/edit");
     waitForScript($page, "document.querySelector('.rg-admin-toast .rg-admin-toast__text')?.textContent.trim()", "Untitled draft #{$plan->id} created");
 
-    expect($plan->title)->toBeNull()->and($plan->author_user_id)->toBeNull();
+    // The only active persona, drawn as the author a new publication starts with.
+    expect($plan->title)->toBeNull()->and($plan->author_user_id)->toBe($this->persona->id);
 });
 
 it('keeps what was typed across the four steps, counts it, puts it back on Discard, and saves it from the top bar', function () {

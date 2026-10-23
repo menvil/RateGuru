@@ -9,6 +9,7 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Studio\StudioDiscussionValidationRules;
@@ -43,9 +44,9 @@ use RuntimeException;
  * it, and the discussion still holds against the plan and the Personas as
  * they are now (validateAgainst()) and against the votes prepared on its
  * comments (StudioVoteValidationRules::validateDiscussion()): a comment kept
- * keeps its votes, so it is neither moved past one of them nor given to a
- * Persona voting on it, and a comment deleted takes its votes with it. The
- * save raises the plan's version.
+ * keeps its votes — moved, it takes them with it, each at its time after the
+ * comment — and is not given to a Persona voting on it, and a comment deleted
+ * takes its votes with it. The save raises the plan's version.
  */
 final class SaveStudioDiscussionTreeAction
 {
@@ -118,10 +119,11 @@ final class SaveStudioDiscussionTreeAction
     }
 
     /**
-     * Every comment written as the discussion has it, and every comment it
-     * left out deleted: the comments on the post first, so a new reply has the
-     * id of a new comment to answer, then the replies, then the deletions —
-     * once nothing kept answers a comment any more.
+     * Every comment written as the discussion has it, a comment moved taking
+     * its votes with it, and every comment it left out deleted: the comments
+     * on the post first, so a new reply has the id of a new comment to
+     * answer, then the replies, then the deletions — once nothing kept
+     * answers a comment any more.
      *
      * @return array{0: array<string, int>, 1: Collection<int, StudioDiscussionNode>} the id each key was given, and the comments deleted
      */
@@ -139,7 +141,14 @@ final class SaveStudioDiscussionTreeAction
                 }
 
                 $parentId = $parents[$index] !== null ? $written[$parents[$index]] : null;
+                $before = $saved->get($node->id ?? 0)?->offset_seconds;
                 $written[$index] = $this->writeNode($plan, $node, $parentId, $saved->get($node->id ?? 0));
+
+                if ($before !== null && $before !== $node->offsetSeconds) {
+                    // Each of its votes keeps its time after the comment.
+                    StudioPlanVote::query()->where('studio_plan_id', $plan->id)->where('discussion_node_id', $written[$index])
+                        ->increment('offset_seconds', $node->offsetSeconds - $before);
+                }
 
                 if ($node->key !== null) {
                     $ids[$node->key] = $written[$index];

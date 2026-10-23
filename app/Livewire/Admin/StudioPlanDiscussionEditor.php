@@ -10,10 +10,12 @@ use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\StudioDiscussionData;
 use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
+use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioDiscussionGenerationStatus;
 use App\Enums\StudioPostTextTone;
+use App\Enums\VoteType;
 use App\Exceptions\Studio\CannotApplyStudioDiscussionGenerationException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioDiscussionGenerationException;
@@ -21,6 +23,7 @@ use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
 use App\Support\Studio\StudioDiscussionValidationRules;
@@ -45,7 +48,13 @@ use Livewire\Component;
  * comments, how many of them on the post, and the Personas, active ones,
  * picked at random when the tree is generated or checked one by one —
  * Generate tree under them, and the discussion tree: each comment with
- * Reply, Edit, Regenerate and Delete, and the Timing of them all.
+ * Reply, Edit, Regenerate and Delete. The votes on the comments are
+ * StudioPlanDiscussionVotesEditor's: this editor keeps the places it draws
+ * in — its cards beside the settings, a comment's breakdown beside the tree,
+ * the tree's Voters tab, and its Timing tab, where the comments and the votes
+ * on them come in one list and a comment moved there is moved here
+ * (OFFSET_EVENT) — and each comment's votes, drawn as saved and then as that
+ * editor sets them.
  *
  * Every change is written to the plan at once, as the Image step's photo is:
  * a comment saved from its dialog, deleted, or given another moment, through
@@ -86,6 +95,16 @@ final class StudioPlanDiscussionEditor extends Component
 
     /** What the two editors of a plan say a Reload of theirs drew the plan at. */
     public const RELOAD_EVENT = 'studio-plan-reloaded';
+
+    /** Said by the Timing tab, drawn by the votes editor, with a comment and the moment it is moved to. */
+    public const OFFSET_EVENT = 'studio-discussion-offset';
+
+    /**
+     * Said by the plan's editor once it saved the post for Generate tree,
+     * clicked while the post had changes: the generation goes on from the
+     * post as saved.
+     */
+    public const GENERATE_EVENT = 'studio-discussion-generate';
 
     /** Seconds between reads while a generation is on its way. */
     public const POLL_SECONDS = 3;
@@ -144,7 +163,7 @@ final class StudioPlanDiscussionEditor extends Component
     /** The search over the Personas listed to check. */
     public string $participantSearch = '';
 
-    /** The discussion tree's tab on screen: its comments, or their timing. */
+    /** The discussion tree's tab on screen: its comments, their voters, or their timing. */
     public string $tab = 'tree';
 
     /** The generation this page waits for, to take in the moment it is ready. */
@@ -266,7 +285,7 @@ final class StudioPlanDiscussionEditor extends Component
 
     public function updatedTab(): void
     {
-        $this->tab = $this->tab === 'timing' ? 'timing' : 'tree';
+        $this->tab = in_array($this->tab, ['voters', 'timing'], true) ? $this->tab : 'tree';
     }
 
     /** Checks an active Persona to take part, or unchecks one, whatever its status now. */
@@ -356,6 +375,15 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->startGeneration();
+    }
+
+    /** Generate tree, clicked while the post had changes, once the plan's editor has saved them. */
+    #[On(self::GENERATE_EVENT)]
+    public function generateSaved(mixed $planId): void
+    {
+        if (is_numeric($planId) && (int) $planId === $this->planId) {
+            $this->generateTree(0);
+        }
     }
 
     /** The answer to the question Generate asked, and only that: never a way around it. */
@@ -667,10 +695,14 @@ final class StudioPlanDiscussionEditor extends Component
         }
     }
 
-    /** Timing: a comment given another moment after the post, written at once. */
+    /**
+     * Timing: a comment given another moment after the post, written at once,
+     * its votes moving with it — never while a generation is on its way.
+     */
+    #[On(self::OFFSET_EVENT)]
     public function setOffset(mixed $id, mixed $seconds): void
     {
-        if (! is_numeric($id) || ! is_numeric($seconds) || $this->savedNode((int) $id) === null) {
+        if ($this->awaiting !== null || ! is_numeric($id) || ! is_numeric($seconds) || $this->savedNode((int) $id) === null) {
             return;
         }
 
@@ -772,6 +804,7 @@ final class StudioPlanDiscussionEditor extends Component
         $rows = $plan !== null ? $this->savedRows($plan) : [];
         $ordered = self::ordered($rows);
         $labels = self::labels($ordered);
+        $votes = $plan !== null ? self::savedVotes($plan) : [];
         $picked = $plan !== null ? $this->pickedForTree($plan) : [];
         $personaIds = array_values(array_unique(array_filter([
             ...array_column($rows, 'personaUserId'),
@@ -813,9 +846,8 @@ final class StudioPlanDiscussionEditor extends Component
                 'on' => in_array((int) $persona->id, $this->manual, true),
             ])->values()->all(),
             'searching' => trim($this->participantSearch) !== '',
-            'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people), $ordered),
+            'rows' => array_map(fn (array $entry): array => $this->displayRow($entry, $labels, $rows, $people, $votes), $ordered),
             'rootTotal' => count(array_filter($rows, fn (array $row): bool => $row['parentId'] === null)),
-            'timing' => $this->timingRows($rows, $labels, $people),
             'dialogData' => $this->dialog !== null ? $this->dialogData($rows, $labels, $people) : null,
             'deletingRow' => $this->deleting !== null ? $this->deletingData($rows, $ordered, $labels, $people) : null,
         ]);
@@ -1299,15 +1331,17 @@ final class StudioPlanDiscussionEditor extends Component
     }
 
     /**
-     * What a row of the tree shows.
+     * What a row of the tree shows: with its moment, the votes the plan has
+     * saved on it, up and down (the Comment votes editor's).
      *
      * @param  array{row: array<string, mixed>, depth: int}  $entry
      * @param  array<int, string>  $labels
      * @param  list<array<string, mixed>>  $rows
      * @param  Collection<int, User>  $people
+     * @param  array<int, array{up: int, down: int}>  $votes
      * @return array<string, mixed>
      */
-    private function displayRow(array $entry, array $labels, array $rows, Collection $people): array
+    private function displayRow(array $entry, array $labels, array $rows, Collection $people, array $votes): array
     {
         $row = $entry['row'];
         $parent = $row['parentId'] !== null ? collect($rows)->firstWhere('id', $row['parentId']) : null;
@@ -1320,38 +1354,31 @@ final class StudioPlanDiscussionEditor extends Component
             'persona' => StudioPlanFormat::author($people->get($row['personaUserId'])),
             'body' => $row['body'],
             'offset' => '+'.self::relative((int) $row['offsetSeconds']),
+            'up' => $votes[$row['id']]['up'] ?? 0,
+            'down' => $votes[$row['id']]['down'] ?? 0,
             'rewriting' => $this->rewriting === $row['id'],
         ];
     }
 
     /**
-     * The Timing tab: every comment by its moment, what it comes after, and
-     * its moment to change.
+     * The votes the plan has saved on its comments, up and down, by comment —
+     * as they are cast once it runs. Read again on every drawing, so a save
+     * of the Comment votes editor shows here with the version it moves.
      *
-     * @param  list<array<string, mixed>>  $rows
-     * @param  array<int, string>  $labels
-     * @param  Collection<int, User>  $people
-     * @return list<array<string, mixed>>
+     * @return array<int, array{up: int, down: int}>
      */
-    private function timingRows(array $rows, array $labels, Collection $people): array
+    private static function savedVotes(StudioPlan $plan): array
     {
-        usort($rows, fn (array $a, array $b): int => [$a['offsetSeconds'], $a['parentId'] !== null, (int) substr($labels[$a['id']] ?? 'C0', 1)] <=> [$b['offsetSeconds'], $b['parentId'] !== null, (int) substr($labels[$b['id']] ?? 'C0', 1)]);
-        $byId = collect($rows)->keyBy('id');
-
-        return array_map(function (array $row) use ($labels, $byId, $people): array {
-            $parent = $row['parentId'] !== null ? $byId->get($row['parentId']) : null;
-
-            return [
-                'id' => $row['id'],
-                'reply' => $parent !== null,
-                'action' => ($parent !== null ? 'Reply ' : 'Comment ').($labels[$row['id']] ?? ''),
-                'who' => self::nameOf($people, $row['personaUserId']),
-                'parent' => $parent !== null ? ($labels[$parent['id']] ?? '') : 'Post',
-                'seconds' => (int) $row['offsetSeconds'],
-                'unit' => self::unitFor((int) $row['offsetSeconds']),
-                'dependency' => $parent !== null ? 'After '.($labels[$parent['id']] ?? '').' at +'.self::relative((int) $parent['offsetSeconds']) : 'After the post',
-            ];
-        }, $rows);
+        return StudioPlanVote::query()
+            ->where('studio_plan_id', $plan->getKey())
+            ->where('type', StudioActionType::VoteComment)
+            ->get(['discussion_node_id', 'vote_type'])
+            ->groupBy('discussion_node_id')
+            ->map(fn (EloquentCollection $votes): array => [
+                'up' => $votes->where('vote_type', VoteType::Up)->count(),
+                'down' => $votes->where('vote_type', VoteType::Down)->count(),
+            ])
+            ->all();
     }
 
     /**
@@ -1577,12 +1604,13 @@ final class StudioPlanDiscussionEditor extends Component
 
     /**
      * The comments in the order the tree shows them: each comment on the post
-     * by its time, each followed by its replies by theirs.
+     * by its time, each followed by its replies by theirs — the order the
+     * Comment votes editor lists and labels them in too.
      *
-     * @param  list<array<string, mixed>>  $rows
+     * @param  list<array<string, mixed>>  $rows  each with its `id`, `parentId`, `offsetSeconds` and `sortOrder`
      * @return list<array{row: array<string, mixed>, depth: int}>
      */
-    private static function ordered(array $rows): array
+    public static function ordered(array $rows): array
     {
         $byTime = fn (array $a, array $b): int => [$a['offsetSeconds'], $a['sortOrder'], $a['id']] <=> [$b['offsetSeconds'], $b['sortOrder'], $b['id']];
         $roots = array_values(array_filter($rows, fn (array $row): bool => $row['parentId'] === null));
@@ -1608,7 +1636,7 @@ final class StudioPlanDiscussionEditor extends Component
      * @param  list<array{row: array<string, mixed>, depth: int}>  $ordered
      * @return array<int, string>
      */
-    private static function labels(array $ordered): array
+    public static function labels(array $ordered): array
     {
         $labels = [];
 

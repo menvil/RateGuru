@@ -9,13 +9,16 @@
     Values compare as text, so 4 typed into a field and 4 saved are the same;
     nested values (a page's title, a feature flag) count one by one.
 
+    `leaving` is set while the page goes away with nothing to keep — its draft
+    deleted — so no part of it asks before the browser leaves.
+
     Registered once, before Alpine starts; a re-render keeps the registration.
 --}}
 <script>
     (() => {
         const register = () => {
             if (! window.Alpine.store('adminEditor')) {
-                window.Alpine.store('adminEditor', { changes: 0, blocked: false, saveLabel: null })
+                window.Alpine.store('adminEditor', { changes: 0, blocked: false, saveLabel: null, leaving: false })
             }
         }
 

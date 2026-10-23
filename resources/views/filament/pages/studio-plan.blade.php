@@ -11,7 +11,9 @@
      * The browser counts what is unsaved from the draft against `saved`
      * (filament.pages.editor.script) and asks before a page with unsaved
      * changes is left; moving between steps is never a change, and neither
-     * is the photo, which is saved the moment it is chosen. An editor drawn
+     * is the photo, which is saved the moment it is chosen. Leaving the
+     * Discussion step with its comment votes not saved asks first whether to
+     * save or discard them, and goes on once that is done. An editor drawn
      * before somebody else's save, of a plan deleted meanwhile or of one past
      * its Draft holds Save back and says so. Once a photo has made a new
      * publication's Draft, the top bar's Create draft becomes Save draft.
@@ -34,6 +36,16 @@
     $saveLabel = $creating ? "\$wire.planId ? 'Save draft' : null" : 'null';
     $title = $creating ? 'New publication' : ($plan['title'] ?? 'Publication');
     $stepKeys = array_column($steps, 'key');
+    // Leaving the Discussion step with comment votes not saved asks first (StudioPlanDiscussionVotesEditor).
+    // Leaving the Post step with a post votes change not saved asks first too (StudioPlanPostVotesEditor): Continue from its texts and Back from its votes stay on the step.
+    $leavesPost = fn (string $to): string => match ($to) {
+        'next' => "\$wire.postTab === 'votes'",
+        'previous' => "\$wire.postTab === 'texts'",
+        'post' => 'false',
+        default => 'true',
+    };
+    $leave = fn (string $to, string $go): string => ($to !== 'discussion' ? "\$wire.step === 'discussion' && \$store.rgCommentVotes?.unsaved ? \$dispatch('".\App\Livewire\Admin\StudioPlanDiscussionVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : " : '')
+        ."(\$wire.step === 'post' && \$store.rgPostVotes?.unsaved && ({$leavesPost($to)}) ? \$dispatch('".\App\Livewire\Admin\StudioPlanPostVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : \$wire.{$go})";
     $first = $step === $stepKeys[0];
     $last = $step === end($stepKeys);
 @endphp
@@ -41,7 +53,7 @@
 <div
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorChanged = String($wire.authorUserId ?? '') !== String($wire.saved?.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorUserId = String($wire.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
@@ -78,7 +90,7 @@
                     type="button"
                     @class(['rg-admin-studio__step', 'rg-admin-studio__step--current' => $item['key'] === $step])
                     @if ($item['key'] === $step) aria-current="step" @endif
-                    wire:click="goToStep('{{ $item['key'] }}')"
+                    x-on:click="{{ $leave($item['key'], "goToStep('{$item['key']}')") }}"
                 >
                     <span class="rg-admin-studio__step-number" aria-hidden="true">{{ $index + 1 }}</span>
                     <span class="rg-admin-studio__step-text">
@@ -125,7 +137,7 @@
             @elseif ($step !== 'discussion')
                 @include('filament.pages.studio-plan.'.$step)
             @endif
-            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its preview live as long as the page. --}}
+            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its draw live as long as the page. --}}
             <div class="rg-admin-studio__votes-step" @if ($step !== 'post' || $postTab !== 'votes') hidden @endif>
                 @include('filament.pages.studio-plan.votes')
             </div>
@@ -144,11 +156,11 @@
         x-data="{ busy: false }"
         x-on:rg-studio-photo-phase.window="busy = ($event.detail?.phase ?? '') !== ''"
     >
-        <x-admin.ui.button icon="arrow-left" :disabled="$first" wire:click="previousStep">Back</x-admin.ui.button>
+        <x-admin.ui.button icon="arrow-left" :disabled="$first" x-on:click="{{ $leave('previous', 'previousStep()') }}">Back</x-admin.ui.button>
         <span class="rg-admin-studio__position">Step {{ $stepNumber }} of 4 · {{ $stepLabel }}</span>
         <span class="rg-admin-studio__reason"><span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span></span>
         @unless ($last)
-            <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" wire:click="nextStep">Continue</x-admin.ui.button>
+            <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" x-on:click="{{ $leave('next', 'nextStep()') }}">Continue</x-admin.ui.button>
         @endunless
     </div>
 

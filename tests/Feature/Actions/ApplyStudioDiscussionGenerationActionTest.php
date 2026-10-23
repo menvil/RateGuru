@@ -16,6 +16,7 @@ use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanDiscussionGeneration;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -348,4 +349,34 @@ it('logs a proposal taken in, and one refused, with ids and codes only', functio
     Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => $message === 'studio.discussion_generation.rejected'
         && $context['error_code'] === 'already_applied');
     Log::shouldNotHaveReceived('info', fn (string $message, array $context): bool => str_contains(json_encode($context), 'seagulls'));
+});
+
+it('keeps the votes on a comment whose text is written again, each with its id', function () {
+    [$generation, $ids] = completedPart($this, StudioDiscussionGenerationMode::RegenerateComment, 'a', ['text' => 'Such light.']);
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $voter->id, 'voteType' => 'up', 'discussionNodeId' => $ids['a'], 'offsetSeconds' => 120]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'down', 'discussionNodeId' => $ids['a'], 'offsetSeconds' => 180]),
+    ]);
+    $votes = StudioPlanVote::query()->orderBy('id')->get(['id', 'persona_user_id', 'discussion_node_id', 'vote_type'])->toArray();
+
+    applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    expect(StudioDiscussionNode::query()->findOrFail($ids['a'])->body)->toBe('Such light.')
+        ->and(StudioPlanVote::query()->orderBy('id')->get(['id', 'persona_user_id', 'discussion_node_id', 'vote_type'])->toArray())->toBe($votes);
+});
+
+it('takes the votes on a discussion a whole new one replaces away with its comments, the post\'s staying', function () {
+    $carl = User::factory()->persona()->create();
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'c', 'personaUserId' => $carl->id, 'body' => 'By Carl, by hand.', 'offsetSeconds' => 60])]);
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $voter->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['c'], 'offsetSeconds' => 120]),
+        studioVote(['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
+    ]);
+
+    applyStudioDiscussion($this->admin, $this->plan, completedWholeDiscussion($this));
+
+    expect(StudioDiscussionNode::query()->whereKey($saved->ids['c'])->exists())->toBeFalse()
+        ->and(StudioPlanVote::query()->pluck('type')->map(fn ($type) => $type->value)->all())->toBe(['vote_post']);
 });

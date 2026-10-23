@@ -5492,14 +5492,14 @@
         background: var(--rg-admin-surface-sunken);
     }
 
+    /* A target's name in the middle of its head, beside its badge and switch. */
     .rg-admin-studio__votes-block-head--switch {
         flex-wrap: nowrap;
-        align-items: flex-start;
+        align-items: center;
     }
 
     .rg-admin-studio__votes-block-head--switch > .rg-admin-switch {
         flex-shrink: 0;
-        margin-top: 2px;
     }
 
     .rg-admin-studio__votes-blocks {
@@ -5693,6 +5693,12 @@
         min-width: 560px;
     }
 
+    /* A vote's moment, as narrow as its field: the persona, target and vote share the rest. */
+    .rg-admin-studio__votes-table .rg-admin-studio__votes-at {
+        width: 1%;
+        white-space: nowrap;
+    }
+
     .rg-admin-studio__votes-list {
         max-height: 560px;
         overflow: auto;
@@ -5745,6 +5751,54 @@
         margin-left: auto;
     }
 
+    /* Step 3 · Discussion, its comment votes: drawn where the step lays them out, under the tree only what keeps them from being saved. */
+    .rg-admin-studio__comment-votes > .rg-admin-notice {
+        margin-top: var(--rg-admin-card-gap);
+    }
+
+    /* The Comment votes card's totals, shared out by priority. */
+    .rg-admin-studio__comment-votes-distribute {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-hint {
+        flex: 1 1 100%;
+        margin: 0;
+    }
+
+    .rg-admin-studio__comment-vote-settings .rg-admin-studio__votes-block {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__comment-vote-settings .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 0;
+        background: transparent;
+    }
+
+    /* A count set in a table row: the stepper, 32 high and narrow. */
+    .rg-admin-studio__votes-mini {
+        width: 104px;
+        height: 32px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__button {
+        width: 28px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__control {
+        min-width: 0;
+    }
+
     /* Step 3 · Discussion: the settings, Generate tree under them, and the discussion tree with its comment dialog */
     .rg-admin-studio__discussion {
         display: flex;
@@ -5758,6 +5812,11 @@
         grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, calc((100% - 2 * var(--rg-admin-card-gap)) / 3))), 1fr));
         gap: var(--rg-admin-card-gap);
         align-items: start;
+    }
+
+    /* The Comment voters and Comment votes cards, drawn by the votes editor, take their places in the row as cards of their own. */
+    .rg-admin-studio__comment-voters-slot {
+        display: contents;
     }
 
     .rg-admin-studio__discussion-fields {
@@ -6020,6 +6079,172 @@
         color: var(--rg-admin-status-due-fg);
     }
 
+    /*
+     * The discussion tree, and beside it the breakdown of the comment opened
+     * from it: side by side where both fit, the breakdown in the tree's place
+     * where they do not, until it is closed.
+     */
+    .rg-admin-studio__tree-area {
+        container-type: inline-size;
+    }
+
+    .rg-admin-studio__tree-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--rg-admin-card-gap);
+        align-items: start;
+    }
+
+    .rg-admin-studio__breakdown-slot,
+    .rg-admin-studio__breakdown-host {
+        display: contents;
+    }
+
+    .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) > .rg-admin-studio__tree-card {
+        display: none;
+    }
+
+    @container (min-width: 860px) {
+        .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) {
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+        }
+
+        .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) > .rg-admin-studio__tree-card {
+            display: block;
+        }
+
+        .rg-admin-studio__breakdown {
+            position: sticky;
+            top: calc(var(--rg-admin-topbar-height) + var(--rg-admin-space-4));
+            max-height: calc(100dvh - var(--rg-admin-topbar-height) - 120px);
+            overflow-y: auto;
+        }
+    }
+
+    .rg-admin-studio__breakdown {
+        scroll-margin-top: calc(var(--rg-admin-topbar-height) + var(--rg-admin-space-4));
+    }
+
+    .rg-admin-studio__breakdown-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) 20px;
+    }
+
+    .rg-admin-studio__breakdown-comment {
+        display: flex;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__breakdown-text {
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-studio__breakdown .rg-admin-studio__votes-chips-label {
+        width: 100%;
+    }
+
+    .rg-admin-studio__breakdown .rg-admin-studio__persona-short {
+        overflow: visible;
+        white-space: normal;
+    }
+
+    .rg-admin-studio__breakdown-counts {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__breakdown-counts .rg-admin-studio__votes-when {
+        line-height: 32px;
+    }
+
+    .rg-admin-studio__breakdown-body .rg-admin-hint,
+    .rg-admin-studio__breakdown-body .rg-admin-studio__votes-problem {
+        margin: -6px 0 0;
+    }
+
+    .rg-admin-studio__breakdown-head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: 10px 20px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__breakdown-votes {
+        margin: 0;
+        padding: var(--rg-admin-space-1) 20px;
+        list-style: none;
+    }
+
+    .rg-admin-studio__breakdown-vote,
+    .rg-admin-studio__breakdown-none {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-2) 0;
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-studio__breakdown-vote + .rg-admin-studio__breakdown-vote {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__breakdown-vote > .rg-admin-studio__persona-text {
+        flex: 1;
+    }
+
+    .rg-admin-studio__breakdown-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 20px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__breakdown-footer > .rg-admin-studio__muted {
+        flex: 1 1 160px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* The tree's Voters tab, drawn by the votes editor. */
+    .rg-admin-studio__tree-voters {
+        padding-top: var(--rg-admin-space-1);
+    }
+
+    /* The tree's Timing tab, drawn by the votes editor: every comment, reply and vote in the order they come, each vote on a lower, sunken row. */
+    .rg-admin-studio__timing-vote > td {
+        height: 40px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__timing-window {
+        display: block;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* The comment votes said after the discussion's numbers in the Generate strip. */
+    .rg-admin-studio__generate-summary > .rg-admin-studio__node-unsaved {
+        display: inline-block;
+        margin-left: 2px;
+        vertical-align: 1px;
+    }
+
     /* The discussion tree: its tabs, then the comments, each reply indented under its comment. */
     .rg-admin-studio__tree-tabs {
         padding: 6px 20px 0;
@@ -6110,13 +6335,51 @@
         font-weight: var(--rg-admin-weight-medium);
     }
 
+    /* A comment's moment, then the up and down votes saved on it, at the end of its line. */
+    .rg-admin-studio__node-stats {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-left: auto;
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
     .rg-admin-studio__node-time {
         display: inline-flex;
         align-items: center;
         gap: var(--rg-admin-space-1);
-        margin-left: auto;
-        color: var(--rg-admin-text-secondary);
-        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__node-vote {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    /* Votes changed on the step and not saved yet, and votes that need a look, marked beside the counts. */
+    .rg-admin-studio__node-unsaved {
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        line-height: 18px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__node-problem {
+        display: inline-flex;
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* The comment whose breakdown is open beside the tree. */
+    .rg-admin-studio__node--selected > .rg-admin-studio__node-box {
+        border-color: var(--rg-admin-status-info-border);
+        background: var(--rg-admin-status-info-bg);
+        box-shadow: 0 0 0 1px var(--rg-admin-status-info-border);
     }
 
     .rg-admin-studio__node-body {
@@ -6163,6 +6426,16 @@
     .rg-admin-studio__node-action:disabled {
         cursor: not-allowed;
         opacity: 0.5;
+    }
+
+    /* See breakdown: at the end of the comment's actions, under its votes. */
+    .rg-admin-studio__node-breakdown {
+        margin-left: auto;
+    }
+
+    .rg-admin-studio__node-breakdown[aria-expanded="true"] {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
     }
 
     .rg-admin-studio__node-action--danger {
@@ -6478,7 +6751,7 @@
             padding-left: var(--rg-admin-space-3);
         }
 
-        .rg-admin-studio__node-time {
+        .rg-admin-studio__node-stats {
             margin-left: 0;
         }
     }
@@ -6736,9 +7009,15 @@
         bottom: calc(100% + 4px);
     }
 
+    /* The panel scrolls as a whole: a short window never squeezes its search field or its rows. */
+    .rg-admin-studio__author-panel > * {
+        flex-shrink: 0;
+    }
+
     .rg-admin-studio__author-panel-footer {
         display: flex;
         justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
     }
 
     /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */

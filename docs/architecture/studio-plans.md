@@ -341,10 +341,11 @@ everything again on them: the administrator may still manage plans, the plan is
 still a Draft at the version the editor was drawn from, and
 `validateAgainst()` passes — and so does
 `StudioVoteValidationRules::validateDiscussion()`: a comment kept keeps the
-votes prepared on it, so it is neither moved later than one of them
-(`nodes.*.offsetSeconds`) nor given to a Persona voting on it
-(`nodes.*.personaUserId`); the change is refused, never the votes moved or
-taken away. A save drawn from a version somebody else replaced
+votes prepared on it — moved, it takes them with it, each at its time after
+the comment, so long as they still end within thirty days of the post and the
+dates it may carry (`nodes.*.offsetSeconds`) — and is not given to a Persona
+voting on it (`nodes.*.personaUserId`); a change that would break either is
+refused, never a vote taken away. A save drawn from a version somebody else replaced
 is refused, `isStale()`, rather than written over theirs; a plan past its Draft
 is `isNotDraft()`. The comments on the post are written first, then the
 replies, then the deletions; a write a model event cancels fails the whole save
@@ -375,8 +376,10 @@ the photo. A comment is written, answered (comments on the post only) or
 edited in a dialog: its Persona, the comment it replies to, its text and its
 moment after the post in minutes, hours or days; Save writes it, and what the
 action refuses stays by its field. Delete asks first — a comment's replies go
-with it — and Timing changes a comment's moment in place. Each comment's place
-among its siblings follows its time. A deletion, and a comment written again,
+with it — and the tree's Timing tab, drawn by the Comment votes editor,
+changes a comment's moment in place (`studio-discussion-offset`); a comment
+moved takes its votes with it, each at its time after the comment. Each
+comment's place among its siblings follows its time. A deletion, and a comment written again,
 can be undone from the toast that follows, and only that: the comments deleted
 come back as new ones, under their comment when it is still there; the comment
 written again gets its text back. Nothing else of the discussion changes, and
@@ -409,6 +412,8 @@ other (`studio-plan-reloaded`): the post editor's Reload, or Discard, draws the
 discussion again too; the Discussion step's Reload hands the post editor the
 version it drew, taken while the post is as that editor drew it — what is typed
 staying as typed — and otherwise leaving the post editor asking for its own.
+The two vote editors on the page take part the same way (see "One version,
+four editors" and "The Comment votes editor" below).
 
 A whole tree keeps the fingerprint of the post's final title and description
 it was written for (`source_text_fingerprint` in its parameters,
@@ -424,7 +429,13 @@ nothing.
 
 Generation is asked for there, and only there, on an explicit request, never
 while the post has unsaved changes — a generation is written from what is
-saved — or another is on its way: Generate tree writes a whole discussion,
+saved — or another is on its way. Generate tree clicked with the post changed
+saves it first: the plan's editor saves the draft and then tells the
+discussion editor to generate (`StudioPlanDiscussionEditor::GENERATE_EVENT`);
+a save refused generates nothing. On a new publication's page, whose save
+opens the plan's editor, the editor opens on the same step and generates
+there, told once through the session (`CreateStudioPlan::RESUME`). Generate
+tree writes a whole discussion,
 Total comments and Top-level comments becoming the comments and replies asked
 for, by the Personas checked or, under Random, as many picked at random as
 asked for, picked only as the tree is generated; Regenerate writes one saved
@@ -472,8 +483,8 @@ anything of a Persona.
 ### Still to come
 
 The Publication screen is a later stage; the executor publishes the comments
-and replies themselves. The votes on them are prepared apart (see "The
-votes").
+and replies themselves. The votes on them are prepared apart, on the same step
+(see "The Comment votes editor").
 
 ## The votes
 
@@ -485,7 +496,9 @@ of a kind of its own. A prepared vote is an intention only: saving it makes no
 `post_votes`, `comment_votes` or `rating_votes` row, no action and no job,
 calls no paid service and changes nothing on screen. Nothing casts one yet;
 the votes on the post and its rating questions are prepared on the Post
-step's Votes tab (see "The Post votes editor" below).
+step's Votes tab (see "The Post votes editor" below), and the votes on the
+comments and replies on the Discussion step (see "The Comment votes editor"
+below).
 
 ### What a vote holds
 
@@ -660,7 +673,7 @@ Discussion's Back comes back to the votes. The footer says where the editor is
 
 The Votes tab is `StudioPlanPostVotesEditor`, drawn once with the page and
 hidden on the other steps and tab, like the Discussion step, so its settings
-and its preview live as long as the page; the texts' cards stay drawn while
+and its draw live as long as the page; the texts' cards stay drawn while
 the votes are on screen. A new publication has no plan to keep votes on until
 its Draft is made: the tab says "Save the draft first to prepare its votes.",
 and the editor appears by itself once a photo or Save has made the Draft.
@@ -677,42 +690,55 @@ What is on it, as the prototype lays it out:
   and nothing is lowered to fit.
 - **Post votes** — Up · down, Answers and Post voters at a glance; then three
   tabs. *Votes & answers*: up and down votes on the post, each a number of
-  different Personas; and each active rating question with its active options
-  (`RatingConfigurationManager`), switched on, its number of Answers spread
-  over its options in proportion to what each has, **Even split** — as even as
-  whole answers go, the rest to the first options in the question's own order
-  — and + and − moving one answer between options, the total kept. The
-  author's own answers (`authorAnswerOptionIds`) are a field of the post, not
-  these. *Voters*: every voter with its post vote and its answer to each
-  question, All, Voting or Not used, and Reshuffle. *Timing*: for the votes on
-  the post and for each question, First vote (or answer) after and Spread over
-  — 5 min to 1 day, and 1 h to 1 week — and the post's timeline of every vote.
+  different Personas, drawn at random from the post voters — who votes which
+  way is on the Voters tab, when on the Timing tab, as the block says; and
+  every active rating question with its active options
+  (`RatingConfigurationManager`) — on as it is under every post on the site,
+  no switch to turn it on, answers set to none planning none — its number of
+  Answers spread over its options in proportion to what each has, **Even
+  split** — as even as whole answers go, the rest to the first options in the
+  question's own order — and + and − moving one answer between options, the
+  total kept. The author's own answers (`authorAnswerOptionIds`) are a field
+  of the post, not these. *Voters*: every voter with its post vote and its
+  answer to each question, All, Voting or Not used, and Reshuffle. *Timing*:
+  when the voters come — First vote after and Spread over, 5 min to 1 day and
+  1 h to 1 week, one pair for all of them: each voter comes once, votes on
+  the post, then answers the questions a minute or two apart — then every
+  vote: Persona, When, on what, which way or which answer, and what keeps it
+  from being cast now (`readinessErrors()`). A vote's When is changed in
+  place, in minutes, hours or days after the post.
 
-What is set there is a recipe, and a recipe is never saved: a plan keeps the
-votes made of it. **Build preview** makes them, through
-`BuildStudioPostVotesData` (below), and shows them as they will be saved;
-**Save votes** saves exactly the preview — nothing is drawn again on Save — and
-only while it is made from the settings as they are now (a preview the
-settings moved past says so, and is rebuilt first). Rebuild keeps the draw;
-**Pick others** and **Reshuffle** make a new one. **Discard** draws the saved
-votes again, and **Remove post votes**, asked first, takes the votes on the
-post and its questions away. Saving and removing go through
-`SaveStudioVotesAction` with the plan's whole set: the discussion's votes are
-read as the plan has them at the version the save is checked against, and
-kept as they are — a comment the discussion deleted meanwhile, with its
-votes, is not put back.
+Every change is saved at once, as the prototype's draft changes with each
+setting: the votes the settings ask for are made through
+`BuildStudioPostVotesData` (below) — a Persona keeping its saved vote, and
+its moment, as far as the settings allow, so a change moves only what it
+must — and saved, unless they are the votes saved already. A change that
+can't be made — too few Personas, a moment past thirty days — is said where it
+is and in the strip under the card ("Not saved · fix what is marked"), and
+nothing is saved until it is fixed, or **Discard** draws the saved votes
+again. **Pick others** and **Reshuffle** make a new draw, saved at once.
+**Remove post votes**, asked first, takes the votes on the post and its
+questions away. Saving and removing go through `SaveStudioVotesAction` with
+the plan's whole set: the discussion's votes are read as the plan has them at
+the version the save is checked against, and kept as they are — a comment the
+discussion deleted meanwhile, with its votes, is not put back.
+
+A vote's moment set by hand — never before the post, nor more than thirty
+days after — is saved at once, every other vote keeping the moment it has:
+from then on they keep them, a vote added comes in its voter's visit, and
+First vote after or Spread over lays them all out again ("Set by hand" says
+the votes keep moments of their own).
 
 Opened again, the editor draws the votes as saved: how many vote the post up
 and down, the Personas — as chosen by hand, the ones the votes have — the
-answers to each option, and when, the first vote and the spread to the last.
-How they were drawn is not kept, and not pretended to be. The **Saved votes**
-card lists every saved vote — when, who, on what, which way or which answer —
-and what keeps one from being cast now (`readinessErrors()`), apart from the
-**Preview**, which says it is not saved. A Persona Limited, Shadowbanned,
-Banned or deleted since stays in the saved votes, with its state, until it is
-replaced; an option archived, deactivated or deleted since stays as chosen,
-marked Not open, until its answers are moved or Even split puts them on the
-open ones.
+answers to each option, and when, the first vote and the spread to the last,
+and each vote's own moment when any came away from its place in that layout.
+How they were drawn is not kept, and not pretended to be. The strip under the
+card says what is saved, and how many votes can't be cast now. A Persona
+Limited, Shadowbanned, Banned or deleted since stays in the saved votes, with
+its state, until it is replaced; an option archived, deactivated or deleted
+since stays as chosen, marked Not open, until its answers are moved or Even
+split puts them on the open ones.
 
 #### Making the votes
 
@@ -733,11 +759,16 @@ votes on the post and its rating questions and only reads:
   vote that has to change goes first to a Persona already voting on that
   target, so its row is changed rather than replaced; a new draw prefers
   nothing.
-- **When:** within each target, the votes come one after another, the first
-  after its First moment and the last after the spread:
-  `offset(i) = first + floor(i × spread / (n − 1))`, `i = 0 … n − 1`; one vote
-  comes at the first moment; equal moments keep the order drawn
-  (`sort_order`).
+- **When:** every voter comes once and casts all its votes then — on the
+  post first, then the answers in the questions' order, each 1, 2 or 3
+  minutes after the one before (`visitSteps()`, the same for the same
+  Persona, so a layout saved is read back as one). The voters come one after
+  another, the first after First vote after and the last after the spread:
+  `visit(i) = first + floor(i × spread / (n − 1))`, `i = 0 … n − 1`; one
+  voter comes at the first moment; while the saved votes are preferred, the
+  voters who had votes come in the order they came. A vote whose Persona has a
+  moment of its own on the target (`postMoments`, a question's `moments`)
+  comes then; equal moments keep the order drawn (`sort_order`).
 - **Ids:** a vote that is a saved one's Persona and target again keeps that
   vote's id, whatever changed of its way, option or moment.
 - **Refused, whole:** too few Personas, an option that is not the question's or
@@ -745,42 +776,254 @@ votes on the post and its rating questions and only reads:
   past thirty days or the dates a post may carry, or more than 1,000 votes
   with the discussion's — keyed by what to change, nothing cut to fit.
 
-#### One version, three editors
+#### One version, four editors
 
-The page's editors — the post's, the discussion's and the votes' — share the
-plan's `lock_version`. A save of the votes raises it by one and says so with
+The page's editors — the post's, the discussion's, the post votes' and the
+comment votes' (see "The Comment votes editor" below) — share the plan's
+`lock_version`. A save of the post votes raises it by one and says so with
 `studio-plan-version-moved` from `post_votes`; a Reload of it says
-`studio-plan-reloaded` from `post_votes`. The votes editor takes a move of the
-post's (`editor`) or the discussion's (`discussion`) when it was written from
-the version it holds and the plan's post and rating votes are still the ones
-it last read or wrote; the post's editor and the discussion's take its moves
-the same way. Anything else is somebody else's save: the editor says the draft
-changed, writes nothing, and asks for Reload. A Save draft that gives the post
-another author is read on the move it takes: the new author never votes, and
-a preview made before it is out of date.
+`studio-plan-reloaded` from `post_votes`. The post votes editor takes a move
+of the post's (`editor`), the discussion's (`discussion`) or the comment
+votes' (`discussion_votes`) when it was written from the version it holds and
+the plan's post and rating votes are still the ones it last read or wrote; the
+other editors take its moves the same way. Anything else is somebody else's
+save: the editor says the draft changed, writes nothing, and asks for Reload.
+An author picked on the page and not saved yet is the post's author to be
+(the page tells the editor, `$store.adminEditor.authorUserId`,
+`followAuthor()`): the Post voters card shows it as "author, not saved yet",
+and it is left out of the voters at once as the saved one is — its votes, if
+it has any, go to others — so the votes are saved at once whatever the page
+holds. A Save draft that gives
+the post another author is read on the move it takes, and the votes are made
+again right after, on a request of their own once every editor on the page
+has taken that move (`remake()`): the new author never votes on it. Chosen
+among the voters, its place goes to another active Persona; in a random draw
+of every voter, one fewer is drawn. An author the editor finds among the
+saved voters when it opens is left out the same way, so a vote it can't cast
+never stands in the way of the comment votes' save. Nothing on the tab saves
+the post's texts, photo, category or author.
 
-While the post's author has unsaved changes, the votes are neither built nor
-saved: they are made for the author the draft has saved, and the tab says to
-save the draft first. Nothing on the tab saves the post's texts, photo,
-category or author.
+A change that can't be saved is not left behind unasked: Back, Continue and
+the steps, leaving the Post step, ask the editor first (`rgPostVotes` store,
+`askLeave()`). It tries the change once more and, when it still can't be
+made, says what keeps it and offers Keep editing or Discard change, which
+goes on with the votes saved. Moving between the step's own tabs asks
+nothing.
 
 #### Departures from the prototype
 
-- The prototype changes its draft as each setting moves; here the votes are
-  built as a preview and saved on purpose, so what is saved is exactly what was
-  shown, drawn once.
+- As in the prototype, the votes change as each setting moves; here each
+  change is saved at once, a change that can't be made is said and saves
+  nothing, and each vote's moment can be set by hand.
+- The prototype times the votes on the post and each question's answers
+  apart; here one pair times the voters' visits, so a Persona's vote and
+  answers come a minute or two apart, as one visitor's would.
 - The prototype lowers the votes to fit fewer voters; here the shortfall is
   said and nothing is lowered.
 - The prototype's closed questions (not shown under a post) have no
   counterpart on the site: every active rating question is offered, and one no
   longer active shows only while saved answers name it.
-- The Saved votes and Preview lists are this editor's: the prototype has no
-  saved state apart from its draft.
+- The list of every vote on the Timing tab, with each one's moment to change,
+  is this editor's: the prototype's post timeline shows the votes in a few
+  batches.
+
+### The Comment votes editor
+
+The Discussion step draws `StudioPlanDiscussionVotesEditor`, apart from the
+discussion: the votes on the prepared comments and replies. Its parts stand
+where the step lays them out, and the discussion editor keeps an empty place
+for each (`wire:ignore`), which the votes editor draws in with `@teleport`, so
+their state and actions stay the votes editor's:
+
+- the **Comment voters** and **Comment votes** cards, in the step's settings
+  row beside the Discussion settings, as the prototype's three cards
+  (`#rg-admin-studio-comment-voters`, `#rg-admin-studio-comment-vote-settings`);
+- each comment's **breakdown**, beside the discussion tree
+  (`#rg-admin-studio-comment-breakdown`);
+- the voters, on the tree's **Voters** tab
+  (`#rg-admin-studio-comment-voters-table`);
+- the tree's **Timing** tab (`#rg-admin-studio-timing`): every comment,
+  reply and vote in one list.
+
+Under the tree it says only what keeps the votes from being saved: a draft
+deleted, a plan past its Draft, or somebody else's change to reload. The
+discussion's own card, tabs and dialogs stay as they are; the votes on the
+post and its questions stay on Post · Votes. Like the other editors it is
+drawn once with the page, so its settings and the votes made of them live as
+long as the page does.
+
+What is on it:
+
+- **Comment voters** — **Random**, a number of the active Personas who can
+  vote, of how many there are, with Pick others; or **Choose**, Personas found
+  on the server (`PersonasQuery`) and checked one by one, Select all or shown,
+  and Clear. A Persona who writes a comment is listed with it ("Writes C3 ·
+  can’t vote on it") and may still be chosen: it never votes on its own
+  comment, and votes on the others all the same. A deleted or restricted
+  Persona gets no new vote; a restricted one keeps the vote it has until it is
+  replaced.
+- **Comment votes** — with no comments yet, Total up, Total down and when the
+  votes come are what the comments to come get: once the tree is generated or
+  written, the totals are shared out over its comments by priority and their
+  votes come as asked, as votes not saved yet — the same carry-over as a tree
+  written anew. Until then they are kept for the plan in the session
+  (`StudioPlanDiscussionVotesEditor::ASKED_SESSION`), so the editor opened
+  again — by a new publication's save, say — starts from them. A comment added
+  later takes the timing last asked of every comment. Then Total up and Total down, always what the comments'
+  votes add up to. **Distribute automatically** shares both among the
+  comments by their priorities' weights (Low 1, Normal 2, High 3): each gets
+  the whole part of its share, and the votes left over go to the largest
+  remainders, equal ones to the comment first in the tree — never drawn
+  (`BuildStudioDiscussionVotesData::distribute()`). A total changed gives at
+  once only the difference: each vote gained to the comment furthest below
+  its share of the new total, equal ones first in the tree, and each lost
+  from the one furthest above, equal ones last — every other comment keeps
+  its votes as set. A comment's own votes changed in its breakdown move the
+  totals. Then when every comment's votes come: First vote after (5 min to 1
+  day) and Spread over (1 h to 1 week), counted from each comment's own
+  moment. Both totals set to none and saved take every vote on the comments
+  away.
+- **On the tree** — each comment shows, beside its moment, its up and down
+  votes as set on the step, "Not saved" while they differ from the saved ones,
+  and a mark when something stands in the way of them; **See breakdown**
+  under them opens the comment's breakdown. The Generate strip says the
+  comment votes after the discussion's own numbers — how many, up and down —
+  and "Not saved" while they are not. The Voters tab lists every voter with the comments it votes on
+  up and down and the ones it writes — All, Voting, Also commenting or Not
+  used — and Reshuffle. The discussion editor draws the saved counts and the
+  votes editor puts what is set over them, through the `rgCommentVotes` store
+  (`filament.pages.studio-plan.discussion`).
+- **Timing** — the tree's tab lists every comment, reply and vote on them in
+  one list, in the order they come after the post, a comment before the votes
+  at its moment: #, Action (Comment C1, Reply C2, Vote up or down), Executor,
+  Parent (the post, the comment answered, or the comment voted on), Offset
+  from post, After its parent, Dependency ("After C1 at +2 min") and, for a
+  comment, its votes and when they come. Every moment changes in place, in
+  min, h or d. A comment's is the discussion editor's: told to it
+  (`StudioPlanDiscussionEditor::OFFSET_EVENT`), it is saved at once, its
+  votes moving with it — never while a generation is on its way, and never
+  before the comment a reply answers. A vote's is set here, as its Persona's
+  own moment after the comment, never before the comment nor past thirty
+  days, marked "Not saved" and kept with Save votes, which the tab offers
+  with Discard while anything is unsaved. A new First vote after or Spread
+  over for a comment spreads its votes again, none keeping a moment of its
+  own. Opened again, a vote saved away from its place in the spread keeps its
+  moment.
+- **The breakdown** — beside the tree, which moves aside for it where both
+  fit and gives it its place where they do not, until it is closed: the
+  comment, its up and down votes set by hand, its priority, its own First vote
+  after and Spread over, and each vote as it stands — who casts it, which way,
+  and when, after the post and after the comment — with what keeps a saved
+  one from being cast. A comment asking for more votes than it has voters says
+  how many it needs, how many can, and how many are short.
+
+The settings are a recipe, never saved. As soon as they ask for other votes
+than the saved ones, the votes are made of them (`BuildStudioDiscussionVotesData`)
+and shown as they will be saved — on the tree, in the breakdown, on the Voters
+and Timing tabs — and made again whenever the settings, the draw or the
+comments change; while the settings are the saved votes' and no new draw is
+asked, the saved votes are shown. **Save votes**, in the breakdown or on the
+Timing tab, saves
+every comment's votes exactly as shown; votes that are the saved ones again
+save nothing, and votes not yet made — a comment short of voters — are not
+saved until what is marked is fixed. **Pick others** and **Reshuffle** draw
+anew with the same numbers; **Discard** puts the saved votes back. Saving goes
+through `SaveStudioVotesAction` with the plan's whole
+set: the votes on the post and its questions are read as the plan has them at
+the version the save is checked against, and kept as they are. When one of
+those no longer passes — its Persona deleted since, say — the save is refused,
+saying what stands in the way and that it is fixed on Post · Votes; nothing of
+them is changed here.
+
+The step is not left with votes unsaved without asking: Back, Continue and the
+editor's steps ask the votes editor first, which lists what is not saved —
+each changed comment's votes as set and as saved, or what stands in the way of
+them — and asks whether to **Save and continue**, **Discard changes** or
+**Keep editing**, and lets the step go on once the votes are saved or
+discarded; a save that cannot be made stays.
+Leaving the page asks as the browser does.
+
+A discussion written anew as a whole — Regenerate tree — takes the old
+comments' votes with it, but not what was asked of them: the editor keeps its
+voters, shares the same Total up and Total down out over the new comments by
+priority, and gives them the timing every voted comment had, as votes not
+saved yet. A comment deleted on its own takes its votes, and the totals drop.
+
+Opened again, the editor draws the votes as saved: each comment's up and down
+votes, their Personas as chosen by hand, and their timing after the comment.
+Priorities are not part of a vote, so every comment starts Normal; nothing
+else of how the votes were drawn is kept or pretended.
+
+#### Making the votes
+
+`BuildStudioDiscussionVotesData::handle($plan,
+StudioDiscussionVotesSettings)` makes the votes on the comments and only
+reads; it shares its draw with the post votes' builder
+(`DrawsPersonaVotes`):
+
+- **Who:** the Personas chosen by hand, or as many as asked for drawn from the
+  active ones — on each comment, all of them but the comment's own Persona. A
+  new vote only for an active Persona able to vote; one chosen earlier and
+  restricted since keeps the vote it has, and a deleted one keeps none.
+- **What:** each Persona votes on a comment once, up or down, so a comment's
+  votes need as many of its voters; one Persona votes on as many comments as
+  it is given.
+- **Which Persona casts which:** in an order a seed draws, one of its own
+  for each comment, so the votes are shared among the voters rather than cast
+  by the same few on every comment. While the saved votes are preferred, a
+  Persona keeps its saved vote on a comment as far as the counts allow, and
+  its place among the comment's votes in time; a new draw prefers nothing.
+- **When:** a comment's votes come one after another from its own moment:
+  `offset(i) = comment + first + floor(i × spread / (n − 1))`, seconds after
+  the post as every prepared vote is kept, so no vote comes before its
+  comment.
+- **Ids:** a vote of a Persona on a comment that it had saved keeps that
+  vote's id.
+- **Refused, whole:** too few voters for a comment, a comment the discussion
+  no longer has, a last moment past thirty days or the dates a post may carry,
+  or more than 1,000 votes with the post's — keyed by the comment to change
+  (`targets.{node}`, `timing.{node}`), nothing cut to fit.
+
+#### Its version
+
+A save of the comment votes raises the plan's version by one and says so with
+`studio-plan-version-moved` from `discussion_votes`; a Reload says
+`studio-plan-reloaded` from `discussion_votes`. It takes a move of the post's
+or the post votes' when it was written from the version it holds and the
+plan's comment votes and comments are still the ones it last read or wrote. A
+move of the discussion's own is taken the same way, its comments read again —
+a new one offered with no votes, a deleted one gone — so long as no comment
+vote was added or changed: deleting a comment takes its votes with it, and
+that is all a save of the discussion may do to them. Votes made before the
+comments changed are made again before they are saved. Anything else
+is somebody else's save: the editor says the draft changed, writes nothing,
+and asks for Reload.
+
+#### Departures from the prototype
+
+- Priorities are Low, Normal and High, weighted 1, 2 and 3, and the totals are
+  Total up and Total down, instead of the prototype's Normal, High and Main
+  with a total, a positive share and a choice of distributions.
+- A comment's votes are set in its breakdown beside the tree, opened with See
+  breakdown, rather than in a Comment votes tab of the tree; the tree keeps
+  Comments, Voters and Timing.
+- The Timing tab lists the votes among the comments, each moment changed in
+  place; a comment moved takes its votes with it, and a vote may be given a
+  moment of its own.
+- One First vote after and one Spread over, counted from each comment's own
+  moment, for every comment at once, or for one comment in its breakdown.
+- The totals are what the comments' votes add up to, and a total changed
+  gives or takes only the difference at once, as the prototype's sliders do,
+  keeping each comment's own votes.
+- The votes are made as soon as they are asked for, as the prototype's draft
+  is, but saved on purpose with Save votes in a comment's breakdown, and
+  leaving the step with them unsaved asks first, listing what changed.
+- The comment votes are said in the Generate strip, and every vote is shown
+  at its moment on the Timing tab, which the prototype does not show.
 
 ### Still to come
 
-The votes in the Discussion step, the vote actions approval is to write, and
-their casting are later stages.
+The vote actions approval is to write, and their casting, are later stages.
 
 ## Discussion generation
 
@@ -1596,9 +1839,12 @@ through `StudioPlansQuery`, a new publication and a publication's editor in four
 and Publication — described in `docs/design/admin/design-contract.md`. The pages hold no rule of their own:
 
 - A new publication exists once Create draft runs `CreateStudioPlanAction`, which an untouched editor may do too —
-  or once its first photo arrives, which makes one empty Draft to keep the photo on. The page remembers the plan
-  it has (`planId`): later photos replace that plan's photo, and Save draft writes the texts to it through
-  `UpdateStudioPlanAction` rather than making another.
+  or once its first photo arrives, which makes one Draft, empty but for its author, to keep the photo on. The page
+  starts with an active Persona drawn at random as the author (`startAuthorId`), the page's starting value rather
+  than a change, which Discard comes back to; Pick at random in the author picker draws another. The page
+  remembers the plan it has (`planId`): later photos replace that plan's photo, and Save draft writes the texts to
+  it through `UpdateStudioPlanAction` rather than making another, then opens the plan's editor on the step the page
+  was on.
 - Save draft runs `UpdateStudioPlanAction` when the texts or settings changed. The photo is no part of the draft:
   one chosen from the computer — picked or dropped — or imported from a link or a social post is stored the moment
   it arrives through `SetStudioPlanImageAction`, and Remove from draft runs `RemoveStudioPlanImageAction` at once.

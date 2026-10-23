@@ -9,8 +9,8 @@ use function Pest\Laravel\actingAs;
 
 /**
  * The Post step's Votes tab in a real browser: reached with Continue from the
- * post's texts, drawn whole at every width, its votes prepared from the
- * settings, shown as a preview and saved exactly as shown.
+ * post's texts, drawn whole at every width, its votes saved as each setting
+ * moves, and a vote's moment set by hand on the Timing tab.
  */
 beforeEach(function () {
     actingAs(User::factory()->admin()->create(['username' => 'daria_k']));
@@ -45,40 +45,44 @@ it('draws the Votes tab whole at every width, never scrolling the page sideways'
             overflow: document.documentElement.scrollWidth > window.innerWidth,
         }))()
     JS))->toBe([
-        'cards' => ['Post voters', 'Post votes', 'Saved votes'],
+        'cards' => ['Post voters', 'Post votes'],
         'tabs' => ['Votes & answers', 'Voters 0', 'Timing'],
         'author' => ['Night Owl · author', 'Can’t vote on own post'],
         'overflow' => false,
     ]);
 })->with([1440, 1024, 390]);
 
-it('prepares the post\'s up votes, shows them as a preview and saves exactly those', function () {
+it('saves the post\'s up votes as they are set, and a vote\'s moment set by hand on the Timing tab', function () {
     $page = visitPostVotes($this->plan);
+    $summary = "document.querySelector('.rg-admin-studio__votes-step .rg-admin-studio__generate-summary').textContent.replace(/\\s+/g, ' ').trim()";
 
     $page->click('button[aria-label="Plan up and down votes"]');
     waitForScript($page, "!! document.getElementById('rg-admin-votes-up')");
 
-    foreach (['1', '2'] as $count) {
+    foreach ([1 => '1 vote saved · +1 / −0 on the post · 0 answers', 2 => '2 votes saved · +2 / −0 on the post · 0 answers'] as $count => $saved) {
         $page->click('button[aria-label="Increase up votes"]');
         waitForScript($page, "document.querySelector('.rg-admin-studio__votes-stat-value').textContent.trim()", "+{$count} / −0");
+        waitForScript($page, $summary, $saved);
     }
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__votes-actions button')].find((button) => button.textContent.trim() === 'Build preview').click()");
-    waitForScript($page, "document.querySelector('.rg-admin-studio__votes-step .rg-admin-studio__generate-summary').textContent.trim()", '2 votes in the preview, not saved yet. Save keeps exactly these.');
+    $votes = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->orderBy('offset_seconds')->get();
 
-    $previewed = $page->script("[...document.querySelectorAll('.rg-admin-studio__votes-main .rg-admin-card')].find((card) => card.querySelector('.rg-admin-card__title')?.textContent.trim() === 'Preview').querySelectorAll('tbody .rg-admin-studio__persona-name').length");
+    expect($votes)->toHaveCount(2)
+        ->and($votes->pluck('type')->unique()->all())->toBe([StudioActionType::VotePost])
+        ->and($votes->pluck('persona_user_id'))->not->toContain($this->plan->author_user_id)
+        ->and($votes->pluck('offset_seconds')->all())->toBe([300, 86_700])
+        ->and($this->plan->fresh()->lock_version)->toBe(3);
 
-    expect($previewed)->toBe(2)
-        ->and(StudioPlanVote::query()->exists())->toBeFalse();
+    // The first vote, moved to two hours after the post: saved at once, the other kept where it was.
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__votes-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim() === 'Timing').click()");
+    waitForScript($page, "!! document.querySelector('.rg-admin-studio__votes-table [data-vote=\"post:{$votes[0]->persona_user_id}\"] .rg-admin-studio__offset-input')");
+    $page->script("(() => { const input = document.querySelector('.rg-admin-studio__votes-table [data-vote=\"post:{$votes[0]->persona_user_id}\"] .rg-admin-studio__offset-input'); input.value = '120'; input.dispatchEvent(new Event('change', { bubbles: true })); })()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__votes-table [data-vote=\"post:{$votes[0]->persona_user_id}\"] .rg-admin-studio__offset-input')?.value ?? ''", '2');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__votes-blocks .rg-admin-badge')].some((badge) => badge.textContent.trim() === 'Set by hand')");
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__votes-actions button')].find((button) => button.textContent.trim() === 'Save votes').click()");
-    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Votes saved');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__votes-step .rg-admin-studio__generate-summary').textContent.trim()", '2 votes are saved on the post and its questions.');
+    $moments = [$votes[0]->persona_user_id => 7200, $votes[1]->persona_user_id => 86_700];
+    ksort($moments);
 
-    $saved = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->with('persona')->get();
-
-    expect($saved)->toHaveCount(2)
-        ->and($saved->pluck('type')->unique()->all())->toBe([StudioActionType::VotePost])
-        ->and($saved->pluck('persona_user_id'))->not->toContain($this->plan->author_user_id)
-        ->and($this->plan->fresh()->lock_version)->toBe(2);
+    expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->orderBy('persona_user_id')->pluck('offset_seconds', 'persona_user_id')->all())->toBe($moments)
+        ->and($this->plan->fresh()->lock_version)->toBe(4);
 });

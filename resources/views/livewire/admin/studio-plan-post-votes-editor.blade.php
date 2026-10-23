@@ -2,14 +2,19 @@
     The Post step's Votes tab (StudioPlanPostVotesEditor), laid out as the
     prototype's StudioPostVotes: the post's voters on the left, and the Post
     votes card on the right — how many vote the post up and down and how many
-    answer each rating question, the voters those make, and when. Under it
-    the strip that builds a preview of the votes and saves exactly it, and
-    the votes as saved, apart from the preview. Every text is drawn escaped.
+    answer each rating question, the voters those make, and when, each vote's
+    moment set by hand on the Timing tab. Every change is saved at once; under
+    the card, the strip says what is saved, or what keeps a change from being
+    saved. Every text is drawn escaped.
+
+    The root follows the page: the author picked there, saved or not
+    (`$store.adminEditor.authorUserId`), is told to the editor once it
+    changes, and whether a change here is not saved goes to the
+    `rgPostVotes` store, which the step's Back, Continue and steps ask about
+    before leaving.
 --}}
 @php
-    $savedCount = count($savedRows);
-    $previewCount = $previewRows !== null ? count($previewRows) : 0;
-    $fresh = $previewRows !== null && ! $stale;
+    $savedCount = count($rows);
     $short = max(0, $need - $voters);
     $answers = 0;
     $asked = 0;
@@ -17,25 +22,33 @@
 
     foreach ($questions as $question) {
         $open += $question['open'] ? 1 : 0;
-
-        if ($ratings[$question['id']]['on'] ?? false) {
-            $asked++;
-            $answers += array_sum($ratings[$question['id']]['counts']);
-        }
+        $total = array_sum($ratings[$question['id']]['counts'] ?? []);
+        $asked += $question['open'] && $total > 0 ? 1 : 0;
+        $answers += $total;
     }
 
     $score = $postOn ? $up - $down : 0;
+    $savedUp = count(array_filter($rows, fn (array $row): bool => $row['vote'] === 'up'));
+    $savedDown = count(array_filter($rows, fn (array $row): bool => $row['vote'] === 'down'));
+    $savedAnswers = $savedCount - $savedUp - $savedDown;
+    $blocked = count(array_filter($rows, fn (array $row): bool => $row['problem'] !== null));
     $status = match (true) {
-        $previewRows !== null && $stale => 'The settings changed since this preview. Rebuild it to save.',
-        $previewRows !== null => $previewCount.' '.($previewCount === 1 ? 'vote' : 'votes').' in the preview, not saved yet. Save keeps exactly these.',
-        $changed => 'The settings changed. Build a preview to see the votes before they are saved.',
-        $savedCount > 0 => $savedCount.' '.($savedCount === 1 ? 'vote is' : 'votes are').' saved on the post and its questions.',
+        $unsaved => 'Not saved · fix what is marked, or Discard to go back to the votes saved.',
+        $savedCount > 0 => $savedCount.' '.($savedCount === 1 ? 'vote' : 'votes').' saved · +'.$savedUp.' / −'.$savedDown.' on the post · '.$savedAnswers.' '.($savedAnswers === 1 ? 'answer' : 'answers')
+            .($blocked > 0 ? ' · '.$blocked.' can’t be cast as '.($blocked === 1 ? 'it is' : 'they are').' — see the Timing tab' : ''),
         default => 'No votes prepared · the post gets only real users’ votes.',
     };
-    $authorChanged = '($store.adminEditor?.authorChanged ?? false)';
 @endphp
 
-<div class="rg-admin-studio__votes">
+<div
+    class="rg-admin-studio__votes"
+    x-data="{ author: @js((string) ($authorToBe ?? $authorId ?? '')) }"
+    x-effect="
+        if ($store.rgPostVotes) $store.rgPostVotes.unsaved = $wire.unsaved
+        const picked = $store.adminEditor?.authorUserId
+        if (picked !== undefined && picked !== author) { author = picked; $wire.followAuthor(picked) }
+    "
+>
     @if ($gone)
         <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its votes can’t be changed any more.</x-admin.ui.inline-notice>
     @elseif ($closed)
@@ -49,10 +62,6 @@
         </x-admin.ui.inline-notice>
     @endif
 
-    <div x-data x-show="{{ $authorChanged }}" x-cloak>
-        <x-admin.ui.inline-notice tone="warning">The post’s author has unsaved changes. Save the draft, then prepare the votes: they are made for the author the draft has saved.</x-admin.ui.inline-notice>
-    </div>
-
     <div class="rg-admin-studio__votes-layout">
         {{-- Post voters (the prototype's VoterSelect, `which="post"`). --}}
         <div class="rg-admin-studio__votes-side">
@@ -62,9 +71,9 @@
                         @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $author])
                         <span class="rg-admin-studio__votes-author-name">
                             @if ($author !== null)
-                                <span class="rg-admin-studio__persona-name">{{ $author['name'] }}</span> <span class="rg-admin-studio__muted">· author</span>
+                                <span class="rg-admin-studio__persona-name">{{ $author['name'] }}</span> <span class="rg-admin-studio__muted">· {{ $authorSaved ? 'author' : 'author, not saved yet' }}</span>
                             @else
-                                <span class="rg-admin-studio__muted">No author saved yet</span>
+                                <span class="rg-admin-studio__muted">No author chosen yet</span>
                             @endif
                         </span>
                         @if ($author !== null)
@@ -86,9 +95,9 @@
                                 :error="$errors->first('voterCount') ?: null"
                                 wire:model.live.debounce.400ms="voterCount"
                             />
-                            <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" x-on:click="$wire.redraw({{ $authorChanged }})">Pick others</x-admin.ui.button>
+                            <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Pick others</x-admin.ui.button>
                         </div>
-                        <p class="rg-admin-hint">Random from the active personas. Pick others keeps the number and draws different ones.</p>
+                        <p class="rg-admin-hint">Random from the active personas. Pick others keeps the number and draws different ones, saved at once.</p>
                     @else
                         <x-admin.ui.search-field placeholder="Search by login or name" wire:model.live.debounce.300ms="voterSearch" autocomplete="off" />
                         <div class="rg-admin-studio__discussion-count">
@@ -107,7 +116,7 @@
                                             <x-admin.ui.badge tone="danger">Not a persona</x-admin.ui.badge>
                                         @elseif (($persona['problem'] ?? null) === 'restricted' && ($persona['status'] ?? null) !== null)
                                             <x-admin.ui.badge :tone="$persona['status']['tone']">{{ $persona['status']['label'] }}</x-admin.ui.badge>
-                                        @elseif ($persona['id'] === $authorId)
+                                        @elseif (in_array($persona['id'], $authors, true))
                                             <x-admin.ui.badge tone="neutral">Author</x-admin.ui.badge>
                                         @endif
                                         <button type="button" class="rg-admin-studio__chip-remove" aria-label="Remove {{ $persona['name'] }}" wire:click="toggleVoter({{ $persona['id'] }})" @disabled(! $editable)>
@@ -117,7 +126,7 @@
                                 @endforeach
                             </div>
                         @endif
-                        @if (collect($chosen)->contains(fn (array $persona): bool => ($persona['problem'] ?? null) !== null || $persona['id'] === $authorId))
+                        @if (collect($chosen)->contains(fn (array $persona): bool => ($persona['problem'] ?? null) !== null || in_array($persona['id'], $authors, true)))
                             <p class="rg-admin-hint rg-admin-studio__votes-warning-text">A deleted or restricted persona, or the post’s author, gets no new votes. A restricted one keeps a vote it has until you replace it.</p>
                         @endif
                         <div class="rg-admin-studio__persona-list" role="group" aria-label="Personas to choose">
@@ -194,9 +203,9 @@
                         <x-admin.ui.search-field placeholder="Search by login or name" wire:model.live.debounce.300ms="votersSearch" autocomplete="off" class="rg-admin-studio__votes-search" />
                         <x-admin.ui.segmented label="Show" :options="['all' => 'All', 'voting' => 'Voting', 'idle' => 'Not used']" :value="$votersFilter" wire:model.live="votersFilter" />
                         <span class="rg-admin-studio__muted rg-admin-studio__votes-toolbar-count">{{ $voterTable['pool'] }} post voters · {{ $voterTable['voting'] }} vote or answer</span>
-                        <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" x-on:click="$wire.redraw({{ $authorChanged }})">Reshuffle</x-admin.ui.button>
+                        <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Reshuffle</x-admin.ui.button>
                     </div>
-                    <p class="rg-admin-hint rg-admin-studio__votes-pad">{{ $previewRows !== null ? 'The preview, not saved yet.' : 'The votes as saved.' }} Reshuffle draws other voters and assignments with the same numbers.</p>
+                    <p class="rg-admin-hint rg-admin-studio__votes-pad">The votes as saved. Reshuffle draws other voters and assignments with the same numbers, and saves them at once.</p>
                     <div class="rg-admin-studio__timing-scroll">
                         <table class="rg-admin-studio__timing rg-admin-studio__votes-table">
                             <thead>
@@ -235,36 +244,33 @@
                     <div class="rg-admin-studio__votes-body">
                         <p class="rg-admin-hint">Counted from the moment the post is published. Nothing can arrive before it. Comments have their own timing in Discussion.</p>
                         <div class="rg-admin-studio__votes-blocks">
-                            @foreach ($timing as $block)
-                                <div @class(['rg-admin-studio__votes-block', 'rg-admin-studio__votes-block--off' => ! $block['on']]) wire:key="votes-timing-{{ $block['key'] }}">
-                                    <div class="rg-admin-studio__votes-block-head">
-                                        <span class="rg-admin-studio__persona-name">{{ $block['label'] }}</span>
-                                        <span class="rg-admin-studio__muted">{{ $block['meta'] }}</span>
-                                    </div>
-                                    @if ($block['on'])
-                                        @foreach (['first' => $block['firstLabel'], 'spread' => 'Spread over'] as $field => $label)
-                                            <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $block['label'] }}: {{ $label }}">
-                                                <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
-                                                @foreach ($block[$field] as $chip)
-                                                    <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $block['key'] }}', '{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
-                                                @endforeach
-                                            </div>
-                                        @endforeach
-                                        @error('timing.'.$block['key'])
-                                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                                        @enderror
+                            <div class="rg-admin-studio__votes-block">
+                                <div class="rg-admin-studio__votes-block-head">
+                                    <span class="rg-admin-studio__persona-name">Voters come</span>
+                                    <span class="rg-admin-studio__muted">{{ $timing['meta'] }}</span>
+                                    @if ($timing['byHand'])
+                                        <x-admin.ui.badge tone="outline">Set by hand</x-admin.ui.badge>
                                     @endif
                                 </div>
-                            @endforeach
+                                <p class="rg-admin-hint">Each voter comes once: votes on the post, then answers the questions, a minute or two apart.</p>
+                                @foreach (['first' => 'First vote after', 'spread' => 'Spread over'] as $field => $label)
+                                    <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $label }}">
+                                        <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
+                                        @foreach ($timing[$field] as $chip)
+                                            <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
+                                        @endforeach
+                                    </div>
+                                @endforeach
+                                @error('timing')
+                                    <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                                @enderror
+                            </div>
                         </div>
-                        @php
-                            $timeline = collect($previewRows ?? $savedRows)->sortBy('offset')->values();
-                        @endphp
                         <div class="rg-admin-studio__votes-block-head">
-                            <span class="rg-admin-studio__persona-name">Post timeline</span>
-                            <span class="rg-admin-studio__muted">{{ $timeline->count() }} {{ $timeline->count() === 1 ? 'event' : 'events' }} · relative to publication · {{ $previewRows !== null ? 'the preview' : 'as saved' }}</span>
+                            <span class="rg-admin-studio__persona-name">Every vote</span>
+                            <span class="rg-admin-studio__muted">{{ $savedCount }} {{ $savedCount === 1 ? 'vote' : 'votes' }} · relative to publication · a moment changed here is saved at once, and every vote keeps its own until First vote after or Spread over lays them out again</span>
                         </div>
-                        @include('livewire.admin.studio-plan-post-votes-table', ['rows' => $timeline->all(), 'empty' => 'No votes on the post or its questions.'])
+                        @include('livewire.admin.studio-plan-post-votes-table', ['rows' => $rows, 'editable' => $editable])
                     </div>
                 @else
                     <div class="rg-admin-studio__votes-body">
@@ -287,6 +293,7 @@
                                         <span class="rg-admin-studio__muted">{{ $postTotal }} of {{ $voters }} post voters · {{ $postTotal }} different personas</span>
                                     </div>
                                 </div>
+                                <p class="rg-admin-hint rg-admin-studio__votes-pad">Each vote is a different post voter’s, drawn at random from the {{ $voters }} on the left: who votes which way is on the Voters tab. Each voter comes once, votes on the post and answers the questions a minute or two apart; the first comes {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($firstAfter) }} after the post and the rest are spread over {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($spreadOver) }} — each vote’s moment is on the Timing tab, to change by hand.</p>
                                 @error('post')
                                     <p class="rg-admin-error rg-admin-studio__votes-pad"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
                                 @enderror
@@ -303,7 +310,7 @@
                         <div class="rg-admin-studio__votes-questions">
                             @foreach ($questions as $question)
                                 @php
-                                    $rating = $ratings[$question['id']] ?? ['on' => false, 'counts' => [], 'first' => 0, 'spread' => 0];
+                                    $rating = $ratings[$question['id']] ?? ['counts' => [], 'first' => 0, 'spread' => 0, 'moments' => []];
                                     $total = array_sum($rating['counts']);
                                     $top = $total > 0 ? max($rating['counts']) : -1;
                                 @endphp
@@ -318,13 +325,10 @@
                                         @if (! $question['open'])
                                             <x-admin.ui.badge tone="neutral">No longer open</x-admin.ui.badge>
                                         @else
-                                            <x-admin.ui.badge :tone="$rating['on'] ? 'outline' : 'neutral'">{{ $rating['on'] ? $total.' '.($total === 1 ? 'answer' : 'answers') : 'Off' }}</x-admin.ui.badge>
+                                            <x-admin.ui.badge :tone="$total > 0 ? 'outline' : 'neutral'">{{ $total > 0 ? $total.' '.($total === 1 ? 'answer' : 'answers') : 'No answers' }}</x-admin.ui.badge>
                                         @endif
-                                        <button type="button" role="switch" class="rg-admin-switch" aria-checked="{{ $rating['on'] ? 'true' : 'false' }}" aria-label="Plan answers for {{ $question['label'] }}" wire:click="toggleRating({{ $question['id'] }})" @disabled(! $editable)>
-                                            <span class="rg-admin-switch__knob" aria-hidden="true"></span>
-                                        </button>
                                     </div>
-                                    @if ($rating['on'])
+                                    @if (isset($ratings[$question['id']]))
                                         <div class="rg-admin-studio__votes-answers">
                                             <x-admin.ui.number-stepper
                                                 label="Answers"
@@ -373,7 +377,7 @@
                                 </div>
                             @endforeach
                         </div>
-                        <p class="rg-admin-hint">When these votes and answers arrive is set on the Timing tab.</p>
+                        <p class="rg-admin-hint">Every active rating question is under the post on the site, so each is here: answers set to none plan none. When these votes and answers arrive is set on the Timing tab.</p>
                     </div>
                 @endif
             </x-admin.ui.card>
@@ -382,35 +386,25 @@
                 <span class="rg-admin-studio__generate-icon" aria-hidden="true"><x-admin.ui.icon name="thumbs-up" :size="16" /></span>
                 <div class="rg-admin-studio__generate-text">
                     <div class="rg-admin-studio__generate-label">Prepared votes</div>
-                    <div class="rg-admin-studio__generate-summary">{{ $status }}</div>
-                    <div class="rg-admin-studio__generate-hint">Prepared votes are not on the site: they are cast only once the plan is approved and runs.</div>
-                    @foreach (['preview', 'author', 'votes'] as $field)
-                        @error($field)
-                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                        @enderror
-                    @endforeach
+                    <div class="rg-admin-studio__generate-summary">
+                        {{ $status }}
+                        @if ($unsaved)
+                            <span class="rg-admin-studio__node-unsaved">Not saved</span>
+                        @endif
+                    </div>
+                    <div class="rg-admin-studio__generate-hint">Every change is saved at once. Prepared votes are not on the site: they are cast only once the plan is approved and runs.</div>
+                    @error('votes')
+                        <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                    @enderror
                 </div>
                 <div class="rg-admin-studio__votes-actions">
-                    @if ($changed || $previewRows !== null)
+                    @if ($unsaved)
                         <x-admin.ui.button wire:click="discard" :disabled="! $editable">Discard</x-admin.ui.button>
-                    @endif
-                    @if ($savedCount > 0 && $previewRows === null && ! $changed)
+                    @elseif ($savedCount > 0)
                         <x-admin.ui.button variant="ghost" icon="trash-2" wire:click="askRemove" :disabled="! $editable">Remove post votes</x-admin.ui.button>
                     @endif
-                    <x-admin.ui.button icon="refresh-cw" :disabled="! $editable" x-bind:disabled="{{ $editable ? 'false' : 'true' }} || {{ $authorChanged }}" x-on:click="$wire.build({{ $authorChanged }})">{{ $previewRows !== null ? 'Rebuild preview' : 'Build preview' }}</x-admin.ui.button>
-                    <x-admin.ui.button variant="primary" icon="check" :disabled="! $editable || ! $fresh" x-bind:disabled="{{ $editable && $fresh ? 'false' : 'true' }} || {{ $authorChanged }}" x-on:click="$wire.save({{ $authorChanged }})">Save votes</x-admin.ui.button>
                 </div>
             </div>
-
-            @if ($previewRows !== null)
-                <x-admin.ui.card title="Preview" :description="'Not saved yet · '.$previewCount.' '.($previewCount === 1 ? 'vote' : 'votes').' as Save votes keeps them'" flush>
-                    @include('livewire.admin.studio-plan-post-votes-table', ['rows' => $previewRows, 'empty' => 'The settings ask for no votes: saving takes the post’s votes away.'])
-                </x-admin.ui.card>
-            @endif
-
-            <x-admin.ui.card title="Saved votes" :description="$savedCount.' '.($savedCount === 1 ? 'vote' : 'votes').' on the post and its questions · prepared, not cast'" flush>
-                @include('livewire.admin.studio-plan-post-votes-table', ['rows' => $savedRows, 'empty' => 'No votes are saved on the post or its questions.'])
-            </x-admin.ui.card>
         </div>
     </div>
 
@@ -425,6 +419,25 @@
             <x-slot:actions>
                 <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
                 <x-admin.ui.button variant="danger" icon="trash-2" x-on:click="hide(); $wire.confirmRemove()">Remove votes</x-admin.ui.button>
+            </x-slot:actions>
+        </x-admin.ui.confirm-dialog>
+    @endif
+
+    @if ($leaving !== null)
+        <x-admin.ui.confirm-dialog title="Leave the post votes as saved?" tone="warning" icon="thumbs-up" id="rg-admin-post-votes-leave" x-on:dismiss="$wire.stay()">
+            The last change to the post votes is not saved: it can’t be made as asked. Keep editing to fix what is marked, or discard the change and go on with the votes saved.
+            @if ($errors->any())
+                <x-slot:details>
+                    <ul class="rg-admin-dialog-facts" aria-label="Not saved">
+                        @foreach (array_unique($errors->all()) as $message)
+                            <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="circle-alert" :size="16" /><span>{{ $message }}</span></li>
+                        @endforeach
+                    </ul>
+                </x-slot:details>
+            @endif
+            <x-slot:actions>
+                <x-admin.ui.button x-on:click="dismiss()">Keep editing</x-admin.ui.button>
+                <x-admin.ui.button variant="primary" x-on:click="hide(); $wire.discardAndLeave()">Discard change</x-admin.ui.button>
             </x-slot:actions>
         </x-admin.ui.confirm-dialog>
     @endif

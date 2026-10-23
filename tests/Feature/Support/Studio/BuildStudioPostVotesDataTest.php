@@ -79,6 +79,16 @@ it('leaves the author out of a draw and of a choice by hand, and counts what is 
         ->and(postVotesBuildErrors($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 7]))->toHaveKey('post');
 });
 
+it('leaves out the author picked and not saved yet as it does the saved one', function () {
+    $toBe = $this->personas[0]->id;
+    $everyone = [$this->author->id, ...$this->personas->pluck('id')->all()];
+
+    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 1, 'authorToBe' => $toBe]))->toBe(['voterCount' => 'Choose from 0 to 5 personas: that many can vote on this post.'])
+        ->and(array_column(builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 5, 'up' => 5, 'authorToBe' => $toBe])), 'persona'))->not->toContain($toBe)->not->toContain($this->author->id)
+        ->and(array_column(builtPostVotes(buildPostVotes($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 5, 'authorToBe' => $toBe])), 'persona'))->not->toContain($toBe)
+        ->and(postVotesBuildErrors($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 6, 'authorToBe' => $toBe]))->toHaveKey('post');
+});
+
 it('draws the voters from the active Personas, the same ones for the same seed, others for another', function () {
     User::factory()->persona()->create(['status' => UserStatus::Limited]);
     User::factory()->create();
@@ -113,6 +123,9 @@ it('refuses too few Personas for what is asked, saying exactly how many short, a
 
 it('gives each option exactly the answers asked for, one answer per Persona in each question', function () {
     [$second, $others] = votableRatingQuestion(2);
+    // The questions in the order they are configured: this one, then the second.
+    $this->group->update(['sort_order' => 1]);
+    $second->update(['sort_order' => 2]);
     $votes = builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 6, 'seed' => 3, 'ratings' => [
         $this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 3, $this->answers[1]->id => 1, $this->answers[2]->id => 0]),
         $second->id => new StudioRatingVotesSettings($second->id, [$others[0]->id => 2, $others[1]->id => 4]),
@@ -138,8 +151,8 @@ it('lets one Persona vote on the post and answer each question, once each', func
     expect(array_count_values(array_column($votes, 'persona')))->toEqualCanonicalizing(array_fill_keys($voters, 3));
 });
 
-it('spreads each target\'s votes from its first moment to its last, one after another', function (int $count, array $offsets) {
-    $votes = builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 6, 'up' => $count, 'postFirstSeconds' => 300, 'postSpreadSeconds' => 3600]));
+it('spreads the voters from the first moment to the last, one after another', function (int $count, array $offsets) {
+    $votes = builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 6, 'up' => $count, 'firstSeconds' => 300, 'spreadSeconds' => 3600]));
 
     expect(array_column($votes, 'offset'))->toBe($offsets);
 })->with([
@@ -150,8 +163,56 @@ it('spreads each target\'s votes from its first moment to its last, one after an
     'three, rounded down' => [3, [300, 2100, 3900]],
 ]);
 
+it('brings each voter\'s votes in one visit: on the post first, then the answers in the questions\' order, a little apart', function () {
+    [$second, $others] = votableRatingQuestion(2);
+    // The questions in the order they are configured: this one, then the second.
+    $this->group->update(['sort_order' => 1]);
+    $second->update(['sort_order' => 2]);
+    $votes = builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 6, 'up' => 1, 'down' => 1, 'firstSeconds' => 300, 'spreadSeconds' => 3600, 'seed' => 3, 'ratings' => [
+        $this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 2]),
+        $second->id => new StudioRatingVotesSettings($second->id, [$others[1]->id => 2]),
+    ]]));
+    $visits = collect($votes)->groupBy('persona');
+
+    expect($visits)->toHaveCount(2)
+        ->and($visits->map(fn ($visit): int => $visit->min('offset'))->sort()->values()->all())->toBe([300, 3900]);
+
+    foreach ($visits as $persona => $visit) {
+        $steps = BuildStudioPostVotesData::visitSteps($persona, 3);
+
+        expect($visit->map(fn (array $vote): array => [$vote['type'], $vote['option'], $vote['offset']])->all())->toBe([
+            ['vote_post', null, $visit[0]['offset']],
+            ['vote_rating', $this->answers[0]->id, $visit[0]['offset'] + $steps[1]],
+            ['vote_rating', $others[1]->id, $visit[0]['offset'] + $steps[2]],
+        ])
+            ->and($steps[1])->toBeIn([60, 120, 180])
+            ->and($steps[2] - $steps[1])->toBeIn([60, 120, 180])
+            ->and(BuildStudioPostVotesData::visitSteps($persona, 3))->toBe($steps);
+    }
+});
+
+it('brings a vote given a moment of its own then, the rest keeping their places in the spread', function () {
+    $settings = ['voterCount' => 6, 'up' => 3, 'firstSeconds' => 300, 'spreadSeconds' => 3600, 'seed' => 7];
+    $spread = builtPostVotes(buildPostVotes($this->plan, $settings));
+    $moved = builtPostVotes(buildPostVotes($this->plan, [...$settings, 'postMoments' => [$spread[1]['persona'] => 7200]]));
+
+    expect(array_column($spread, 'offset'))->toBe([300, 2100, 3900])
+        // The same Personas, the one moved now last in time, the others where they were.
+        ->and(array_map(fn (array $vote): array => [$vote['persona'], $vote['offset']], $moved))
+        ->toBe([[$spread[0]['persona'], 300], [$spread[2]['persona'], 3900], [$spread[1]['persona'], 7200]]);
+
+    // An answer's own moment the same; one past thirty days, or before the post, is refused.
+    $rating = fn (array $moments): array => ['voterCount' => 6, 'seed' => 7, 'ratings' => [$this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 1], $moments)]];
+    $persona = builtPostVotes(buildPostVotes($this->plan, $rating([])))[0]['persona'];
+
+    expect(builtPostVotes(buildPostVotes($this->plan, $rating([$persona => 90])))[0]['offset'])->toBe(90)
+        ->and(postVotesBuildErrors($this->plan, $rating([$persona => 2_592_000 + 60])))
+        ->toBe(['timing' => 'The votes and answers would end more than 30 days after the post. Start sooner, or spread them over less time.'])
+        ->and(postVotesBuildErrors($this->plan, $rating([$persona => -60])))->toBe(['timing' => 'Nothing can arrive before the post.']);
+});
+
 it('keeps the votes of one moment in one order, the same every time', function () {
-    $settings = ['voterCount' => 6, 'up' => 3, 'down' => 2, 'postFirstSeconds' => 600, 'postSpreadSeconds' => 0, 'seed' => 5];
+    $settings = ['voterCount' => 6, 'up' => 3, 'down' => 2, 'firstSeconds' => 600, 'spreadSeconds' => 0, 'seed' => 5];
     $first = buildPostVotes($this->plan, $settings)->votes->votes;
     $again = buildPostVotes($this->plan, $settings)->votes->votes;
 
@@ -161,15 +222,15 @@ it('keeps the votes of one moment in one order, the same every time', function (
 });
 
 it('refuses moments past thirty days, or past the dates a post may carry, cutting nothing', function () {
-    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 2, 'postFirstSeconds' => 2_592_000 - 60, 'postSpreadSeconds' => 3600]))
-        ->toBe(['timing.post' => 'Up and down votes would end more than 30 days after the post. Start sooner, or spread them over less time.'])
-        // One vote ends at its first moment.
-        ->and(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 1, 'postFirstSeconds' => 2_592_000 - 60, 'postSpreadSeconds' => 3600]))->toBe([]);
+    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 2, 'firstSeconds' => 2_592_000 - 60, 'spreadSeconds' => 3600]))
+        ->toBe(['timing' => 'The votes and answers would end more than 30 days after the post. Start sooner, or spread them over less time.'])
+        // One voter comes at the first moment.
+        ->and(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 1, 'firstSeconds' => 2_592_000 - 60, 'spreadSeconds' => 3600]))->toBe([]);
 
     $this->plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse(StudioPlanValidationRules::LATEST_PUBLISH_AT)->subHour()])->save();
 
-    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'ratings' => [$this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 2], 600, 3600)]]))
-        ->toBe(["timing.{$this->group->id}" => $this->group->translatedLabel().' answers would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.']);
+    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'ratings' => [$this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 2])]]))
+        ->toBe(['timing' => 'The votes and answers would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.']);
 });
 
 it('refuses more votes than a plan may prepare, counting the discussion\'s', function () {
@@ -199,7 +260,7 @@ it('keeps the id of each saved vote a Persona casts on the same target again, it
     $ids = $saved->votes->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id.'|'.$vote->target_key => $vote->id])->all();
 
     // The same voters, other ways and moments, and the answers moved to another option.
-    $again = buildPostVotes($this->plan, ['voterMode' => 'manual', 'voterIds' => $built->voters, 'up' => 1, 'down' => 3, 'postFirstSeconds' => 3600, 'seed' => 4, 'ratings' => [
+    $again = buildPostVotes($this->plan, ['voterMode' => 'manual', 'voterIds' => $built->voters, 'up' => 1, 'down' => 3, 'firstSeconds' => 3600, 'seed' => 4, 'ratings' => [
         $this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[1]->id => 2]),
     ]])->votes->votes;
 

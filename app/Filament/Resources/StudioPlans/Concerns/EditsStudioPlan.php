@@ -17,6 +17,7 @@ use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
@@ -83,8 +84,8 @@ trait EditsStudioPlan
     /** The most Personas, and tags, offered at once to choose from. */
     private const CHOICES = 8;
 
-    /** The other editors on the page whose writes and Reloads this one follows: the discussion's and the post votes'. */
-    private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE];
+    /** The other editors on the page whose writes and Reloads this one follows: the discussion's, the post votes' and the comment votes'. */
+    private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE];
 
     /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
     private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
@@ -218,6 +219,20 @@ trait EditsStudioPlan
         }
 
         $this->goToStep($this->stepAt(1));
+    }
+
+    /**
+     * Goes on where the step was asked to — a step, `next` or `previous` — once
+     * the Discussion step's comment votes are saved or discarded.
+     */
+    #[On(StudioPlanDiscussionVotesEditor::STEP_EVENT)]
+    public function stepTo(mixed $step): void
+    {
+        match ($step) {
+            'next' => $this->nextStep(),
+            'previous' => $this->previousStep(),
+            default => $this->goToStep($step),
+        };
     }
 
     /** Back: from the Post step's votes to its texts, and from the Discussion step to the post's votes. */
@@ -397,6 +412,20 @@ trait EditsStudioPlan
         $this->authorUserId = (string) $author->id;
         $this->authorSearch = '';
         $this->resetErrorBag('authorUserId');
+    }
+
+    /** Pick at random: an active Persona as the author, never the one chosen now. */
+    public function pickRandomAuthor(): void
+    {
+        $ids = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->authorUserId !== '' ? [(int) $this->authorUserId] : []));
+
+        if ($ids === []) {
+            $this->addError('authorUserId', 'There is no other active persona to pick.');
+
+            return;
+        }
+
+        $this->chooseAuthor($ids[array_rand($ids)]);
     }
 
     public function clearAuthor(): void
@@ -671,9 +700,10 @@ trait EditsStudioPlan
 
     /**
      * Another editor on this page — the discussion's
-     * (StudioPlanDiscussionEditor) or the post votes'
-     * (StudioPlanPostVotesEditor) — moved the plan's version with a save of
-     * its own: taken, when it was written
+     * (StudioPlanDiscussionEditor), the post votes'
+     * (StudioPlanPostVotesEditor) or the comment votes'
+     * (StudioPlanDiscussionVotesEditor) — moved the plan's version with a save
+     * of its own: taken, when it was written
      * from the version this editor holds, the plan is at the version it says
      * now, and the post's texts and settings are still the ones this editor
      * drew (holdsSaved()) — what the browser says is never enough. The
@@ -700,8 +730,8 @@ trait EditsStudioPlan
     }
 
     /**
-     * Another editor on this page — the discussion's or the post votes' —
-     * drew the plan again — its Reload — at the version it says: taken here too when the plan is at it with
+     * Another editor on this page — the discussion's, the post votes' or the
+     * comment votes' — drew the plan again — its Reload — at the version it says: taken here too when the plan is at it with
      * the post as this editor drew it, what is typed staying as typed.
      * Otherwise the post changed as well, and this editor asks for its own
      * Reload.
