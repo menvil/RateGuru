@@ -15,7 +15,9 @@ namespace App\Data\Studio;
  * `seed` fixes every draw made of it, so the same settings give the same
  * votes; a new one is a new draw. `keepSaved` prefers the votes a plan has
  * saved — the same Persona on the same target, so its row is changed rather
- * than replaced — until a new draw is asked for.
+ * than replaced — until a new draw is asked for. `authorToBe` is the author
+ * picked for the post and not saved yet, left out of the voters as the saved
+ * one is.
  *
  * It is never stored: a plan keeps the votes made of it, not the recipe.
  * Nothing here is checked; BuildStudioPostVotesData is.
@@ -39,6 +41,7 @@ final readonly class StudioPostVotesSettings
         public array $ratings = [],
         public int $seed = 1,
         public bool $keepSaved = true,
+        public ?int $authorToBe = null,
     ) {}
 
     /** Whether the voters are the ones chosen by hand rather than drawn. */

@@ -24,7 +24,8 @@ use Illuminate\Validation\ValidationException;
  * written, and the votes on the discussion's comments are not its to make.
  *
  * Who votes: the Personas chosen by hand, or as many as asked for drawn from
- * the active ones. Never the post's author (the plan's saved one), and a new
+ * the active ones. Never the post's author — the plan's saved one, nor the
+ * one picked and not saved yet (`authorToBe`) — and a new
  * vote only for an active Persona, able to vote. A Persona chosen earlier and
  * Limited, Shadowbanned or Banned since keeps the vote it has, as a Draft
  * may; a deleted one keeps none.
@@ -130,7 +131,7 @@ final class BuildStudioPostVotesData
     private function voters(StudioPostVotesSettings $settings, ?int $authorId, array &$errors): array
     {
         if (! $settings->isManual()) {
-            $pool = array_values(array_filter($this->personas->activeIds(), fn (int $id): bool => $id !== $authorId));
+            $pool = array_values(array_filter($this->personas->activeIds(), fn (int $id): bool => $id !== $authorId && $id !== $settings->authorToBe));
 
             if ($settings->voterCount < 0 || $settings->voterCount > count($pool)) {
                 $errors['voterCount'] = 'Choose from 0 to '.count($pool).' personas: that many can vote on this post.';
@@ -139,7 +140,7 @@ final class BuildStudioPostVotesData
             return [array_slice(self::drawn($pool, $settings->seed, 'voters'), 0, max(0, min($settings->voterCount, count($pool)))), []];
         }
 
-        return self::chosenVoters($settings->voterIds, $authorId, $settings->seed);
+        return self::chosenVoters(array_values(array_filter($settings->voterIds, fn (int $id): bool => $id !== $settings->authorToBe)), $authorId, $settings->seed);
     }
 
     /**

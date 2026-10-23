@@ -10,6 +10,7 @@ use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioActionType;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
+use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -79,6 +80,9 @@ final class StudioPlanPostVotesEditor extends Component
      */
     public const REMAKE_EVENT = 'studio-post-votes-remake';
 
+    /** The page asking, before it leaves the Post step, whether a change not saved may go. */
+    public const LEAVE_EVENT = 'studio-post-votes-leave';
+
     /** How many voters a random draw starts with, at most. */
     private const DEFAULT_VOTERS = 20;
 
@@ -109,6 +113,21 @@ final class StudioPlanPostVotesEditor extends Component
     /** The post's author as the plan has it saved: who never votes on it. */
     #[Locked]
     public ?int $authorId = null;
+
+    /**
+     * The author picked on the page and not saved yet, as the page says
+     * (followAuthor()): the post's author to be, who never votes on it either.
+     */
+    #[Locked]
+    public ?int $authorToBe = null;
+
+    /** Whether a change here is not saved, for the page to ask about before it leaves the step. */
+    #[Locked]
+    public bool $unsaved = false;
+
+    /** Where the page was asked to go while a change was not saved: asked first. */
+    #[Locked]
+    public ?string $leaving = null;
 
     /** The card's tab on screen: the votes and answers, the voters, or their timing. */
     public string $tab = 'votes';
@@ -429,7 +448,7 @@ final class StudioPlanPostVotesEditor extends Component
             return;
         }
 
-        if ($id !== $this->authorId && app(PersonasQuery::class)->active($id) !== null) {
+        if (! in_array($id, $this->authors(), true) && app(PersonasQuery::class)->active($id) !== null) {
             $this->voterIds[] = $id;
             $this->commit();
         }
@@ -438,7 +457,7 @@ final class StudioPlanPostVotesEditor extends Component
     /** Chooses every Persona the search shows that may vote, or takes them away when all are chosen. */
     public function selectShown(): void
     {
-        $shown = $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->reject(fn (int $id): bool => $id === $this->authorId)->values()->all();
+        $shown = $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->reject(fn (int $id): bool => in_array($id, $this->authors(), true))->values()->all();
 
         $this->voterIds = array_diff($shown, $this->voterIds) === []
             ? array_values(array_diff($this->voterIds, $shown))
@@ -522,6 +541,73 @@ final class StudioPlanPostVotesEditor extends Component
         $this->commit();
     }
 
+    /**
+     * The page's author changed, saved or not (`$store.adminEditor`): one
+     * picked and not saved yet is the post's author to be, left out of the
+     * voters at once — its votes, if it has any, go to others — as the saved
+     * one is.
+     */
+    public function followAuthor(mixed $id): void
+    {
+        $id = is_numeric($id) && (int) $id > 0 ? (int) $id : null;
+        $toBe = $id !== $this->authorId ? $id : null;
+
+        if ($toBe === $this->authorToBe) {
+            return;
+        }
+
+        $this->authorToBe = $toBe;
+        $plan = StudioPlan::query()->find($this->planId);
+
+        if ($plan !== null) {
+            $this->leaveOutAuthor(self::postVotesOf($plan));
+            $this->commit();
+        }
+    }
+
+    /**
+     * The step's Back, Continue or one of its tabs, asked while a change here
+     * is not saved: it is tried once more, and when it still can't be saved —
+     * what keeps it said again — whether to discard it or stay. Asked with
+     * nothing unsaved, it goes on at once.
+     */
+    #[On(self::LEAVE_EVENT)]
+    public function askLeave(mixed $step): void
+    {
+        if (! is_string($step) || ! in_array($step, ['next', 'previous', ...array_keys(EditStudioPlan::STEPS)], true)) {
+            return;
+        }
+
+        if ($this->settingsKey() !== $this->savedFor) {
+            $this->commit();
+        }
+
+        if ($this->settingsKey() !== $this->savedFor) {
+            $this->leaving = $step;
+
+            return;
+        }
+
+        $this->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: $step);
+    }
+
+    public function stay(): void
+    {
+        $this->leaving = null;
+    }
+
+    /** Discard changes: the votes as saved, and on to where it was asked. */
+    public function discardAndLeave(): void
+    {
+        $to = $this->leaving;
+        $this->leaving = null;
+
+        if ($to !== null) {
+            $this->discard();
+            $this->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: $to);
+        }
+    }
+
     /** Reload votes: the votes as saved now, said to the other editors on the page. */
     #[On('reload-studio-post-votes')]
     public function reload(): void
@@ -597,7 +683,7 @@ final class StudioPlanPostVotesEditor extends Component
             default => array_values(array_unique(array_column($saved, 'personaUserId'))),
         };
         $people = User::query()
-            ->whereKey(array_values(array_unique([...$voterIds, ...array_column($saved, 'personaUserId'), ...($this->authorId !== null ? [$this->authorId] : [])])))
+            ->whereKey(array_values(array_unique([...$voterIds, ...array_column($saved, 'personaUserId'), ...$this->authors()])))
             ->with('avatarAsset.variants')
             ->get()
             ->keyBy('id');
@@ -607,21 +693,25 @@ final class StudioPlanPostVotesEditor extends Component
         $postTotal = $settings->up + $settings->down;
         $need = max([$postTotal, ...array_map(fn (StudioRatingVotesSettings $rating): int => $rating->total(), $settings->ratings), 0]);
         $voters = $this->voterMode === 'manual' ? $this->eligibleChosen() : min($this->voterCount, $cap);
+        $this->unsaved = $this->settingsKey() !== $this->savedFor;
+        $author = $this->authorToBe ?? $this->authorId;
 
         return view('livewire.admin.studio-plan-post-votes-editor', [
             'editable' => $this->writable(),
-            'author' => $this->authorId !== null ? StudioPlanFormat::author($people->get($this->authorId)) : null,
+            'author' => $author !== null ? StudioPlanFormat::author($people->get($author)) : null,
+            'authorSaved' => $this->authorToBe === null,
+            'authors' => $this->authors(),
             'cap' => $cap,
             'voters' => $voters,
             'need' => $need,
             'postTotal' => $postTotal,
             'questions' => $questions,
-            'unsaved' => $this->settingsKey() !== $this->savedFor,
+            'unsaved' => $this->unsaved,
             'listed' => $this->voterMode === 'manual' ? $this->personaList()->map(fn (User $persona): array => [
                 ...(StudioPlanFormat::author($persona) ?? []),
                 'short' => Str::limit((string) ($persona->personaProfile->short_description ?? ''), 90),
                 'on' => in_array((int) $persona->id, $this->voterIds, true),
-                'author' => (int) $persona->id === $this->authorId,
+                'author' => in_array((int) $persona->id, $this->authors(), true),
             ])->values()->all() : [],
             'chosen' => array_map(fn (int $id): array => StudioPlanFormat::author($people->get($id)) ?? ['id' => $id, 'name' => 'Deleted user', 'username' => null, 'avatar' => null, 'initials' => '', 'status' => null, 'problem' => 'deleted'], $this->voterMode === 'manual' ? $this->voterIds : []),
             'rows' => $rows,
@@ -658,6 +748,7 @@ final class StudioPlanPostVotesEditor extends Component
         $this->lockVersion = $plan->lock_version;
         $this->closed = ! $plan->isDraft();
         $this->authorId = $plan->author_user_id;
+        $this->authorToBe = $this->authorToBe === $this->authorId ? null : $this->authorToBe;
         $saved = self::postVotesOf($plan);
         $this->votesFingerprint = self::fingerprintOf($saved);
 
@@ -708,35 +799,42 @@ final class StudioPlanPostVotesEditor extends Component
 
         if ($plan !== null && $author !== $this->authorId) {
             $this->authorId = $author;
+            $this->authorToBe = $this->authorToBe === $author ? null : $this->authorToBe;
             $this->leaveOutAuthor(self::postVotesOf($plan));
             $this->dispatch(self::REMAKE_EVENT)->self();
         }
     }
 
     /**
-     * Leaves the post's author out of its voters — it never votes on its own
-     * post: chosen, its place goes to another active Persona, drawn;
-     * drawn at random, more voters asked for than are left take all there
-     * are. Whether the author was a voter, so the votes must be made again.
+     * Leaves the post's author, saved or to be, out of its voters — it never
+     * votes on its own post: chosen, its place goes to another active
+     * Persona, drawn; drawn at random, more voters asked for than are left
+     * take all there are. Whether an author was a voter, so the votes must be
+     * made again.
      *
      * @param  list<array<string, mixed>>  $saved  the post votes as saved
      */
     private function leaveOutAuthor(array $saved): bool
     {
-        if ($this->authorId === null || $this->closed) {
+        if ($this->authors() === [] || $this->closed) {
             return false;
         }
 
         $this->voterCount = min($this->voterCount, $this->cap());
-        $chosen = in_array($this->authorId, $this->voterIds, true);
+        $voting = false;
 
-        if ($chosen) {
-            $spare = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->voterIds));
-            usort($spare, fn (int $a, int $b): int => hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$a) <=> hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$b));
-            $this->voterIds = [...array_values(array_diff($this->voterIds, [$this->authorId])), ...array_slice($spare, 0, 1)];
+        foreach ($this->authors() as $author) {
+            if (in_array($author, $this->voterIds, true)) {
+                $spare = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->voterIds, $this->authors()));
+                usort($spare, fn (int $a, int $b): int => hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$a) <=> hash('xxh3', ($this->seed ?? $this->planId).'|spare|'.$b));
+                $this->voterIds = [...array_values(array_diff($this->voterIds, [$author])), ...array_slice($spare, 0, 1)];
+                $voting = true;
+            }
+
+            $voting = $voting || in_array($author, array_column($saved, 'personaUserId'), true);
         }
 
-        return $chosen || in_array($this->authorId, array_column($saved, 'personaUserId'), true);
+        return $voting;
     }
 
     /** Whether the plan is at this version now, its post votes as this page last read or wrote them. */
@@ -876,6 +974,7 @@ final class StudioPlanPostVotesEditor extends Component
             ratings: $ratings,
             seed: $this->seed ?? 1,
             keepSaved: $this->keepSaved,
+            authorToBe: $this->authorToBe,
         );
     }
 
@@ -975,16 +1074,27 @@ final class StudioPlanPostVotesEditor extends Component
         return [];
     }
 
-    /** How many Personas can vote on the post: the active ones, but its author. */
+    /** How many Personas can vote on the post: the active ones, but its author, saved or to be. */
     private function cap(): int
     {
-        return count(array_filter(app(PersonasQuery::class)->activeIds(), fn (int $id): bool => $id !== $this->authorId));
+        return count(array_diff(app(PersonasQuery::class)->activeIds(), $this->authors()));
     }
 
-    /** How many of the Personas chosen may take a new vote: the active ones, but the post's author. */
+    /** How many of the Personas chosen may take a new vote: the active ones, but the post's author, saved or to be. */
     private function eligibleChosen(): int
     {
-        return count(array_diff(array_intersect($this->voterIds, app(PersonasQuery::class)->activeIds()), $this->authorId !== null ? [$this->authorId] : []));
+        return count(array_diff(array_intersect($this->voterIds, app(PersonasQuery::class)->activeIds()), $this->authors()));
+    }
+
+    /**
+     * Who never votes on the post: its author as saved, and the one picked on
+     * the page and not saved yet.
+     *
+     * @return list<int>
+     */
+    private function authors(): array
+    {
+        return array_values(array_unique(array_filter([$this->authorId, $this->authorToBe], fn (?int $id): bool => $id !== null)));
     }
 
     /** @return Collection<int, User> the active Personas listed to choose, matching the search */

@@ -144,6 +144,8 @@ it('deletes a draft from its editor, then shows the list with no link to it', fu
         ->set('postTitle', 'Unsaved')
         ->call('askToDelete')
         ->assertSee('Delete this draft?')
+        // Nothing left unsaved on the page asks before the browser leaves for the list.
+        ->assertSeeHtml('x-on:click="if ($store.adminEditor) $store.adminEditor.leaving = true"')
         ->call('delete')
         ->assertRedirect(ListStudioPlans::getUrl());
 
@@ -167,7 +169,9 @@ it('deletes nothing from an editor drawn before somebody else\'s save, and from 
         ->assertNoRedirect()
         ->assertDispatched('rg-admin-toast', message: 'Someone saved this draft after you opened it, so it wasn’t deleted.', tone: 'error');
 
-    expect($plan->fresh())->not->toBeNull();
+    // The page stays, so what is unsaved on it asks before leaving again.
+    expect(array_column($stale->effects['xjs'] ?? [], 'expression'))->toContain('$store.adminEditor.leaving = false')
+        ->and($plan->fresh())->not->toBeNull();
 
     StudioPlan::query()->whereKey($plan->id)->delete();
 

@@ -5,6 +5,7 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\CommentVote;
 use App\Models\PostVote;
@@ -327,6 +328,44 @@ it('leaves out an author found among the saved voters when it opens, its place g
     expect(array_column(savedPostVotes($this->plan), 0))->toHaveCount(2)->not->toContain($this->anna->id)->toContain($this->boris->id);
 
     postVotesEditor($this->plan)->assertNotDispatched(StudioPlanPostVotesEditor::REMAKE_EVENT);
+});
+
+it('leaves out at once the author picked on the page and not saved yet, saying so, and its votes go to others', function () {
+    $editor = postVotesEditor($this->plan)->set('voterMode', 'manual')
+        ->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->boris->id)
+        ->set('postOn', true)->set('up', 2)->assertHasNoErrors()
+        ->assertSeeHtml('$wire.followAuthor(picked)');
+
+    $editor->call('followAuthor', (string) $this->anna->id)
+        ->assertHasNoErrors()->assertSet('authorToBe', $this->anna->id)->assertSet('authorId', $this->author->id)
+        ->assertSet('voterIds', fn (array $ids): bool => count($ids) === 2 && ! in_array($this->anna->id, $ids, true))
+        ->assertSee('Anna')->assertSee('author, not saved yet');
+
+    expect(array_column(savedPostVotes($this->plan), 0))->toHaveCount(2)->not->toContain($this->anna->id)->toContain($this->boris->id);
+
+    // Never chosen while it is the author to be; the saved author picked again is no author to be.
+    $editor->call('toggleVoter', $this->anna->id)->assertSet('voterIds', fn (array $ids): bool => ! in_array($this->anna->id, $ids, true))
+        ->call('followAuthor', (string) $this->author->id)->assertSet('authorToBe', null)->assertSee('Author Ada');
+});
+
+it('asks before the step is left with a change not saved: discarded and on, or kept to fix; nothing unsaved goes on at once', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 3)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+
+    $editor->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'next')
+        ->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next')->assertSet('leaving', null);
+
+    // Four up votes need four voters: three are drawn.
+    $editor->set('up', 4)->assertHasErrors(['post'])->assertSet('unsaved', true)
+        ->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'image')
+        ->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)->assertSet('leaving', 'image')
+        ->assertSee('Leave the post votes as saved?')->assertHasErrors(['post'])
+        ->call('stay')->assertSet('leaving', null)->assertSet('up', 4);
+
+    $editor->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'image')->call('discardAndLeave')
+        ->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'image')
+        ->assertSet('leaving', null)->assertSet('up', 2)->assertSet('unsaved', false);
+
+    $editor->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'nowhere')->assertSet('leaving', null);
 });
 
 it('draws every voter left when the post, with no author yet, is given one of a random draw of them all', function () {

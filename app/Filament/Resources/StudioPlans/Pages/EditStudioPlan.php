@@ -195,13 +195,18 @@ final class EditStudioPlan extends Page
         $this->confirmingDelete = false;
     }
 
-    /** Deletes the Draft as it was drawn, and goes back to the list. */
+    /**
+     * Deletes the Draft as it was drawn, and goes back to the list. Delete
+     * draft told the page it is leaving, so nothing unsaved asks first; a
+     * deletion refused takes that back.
+     */
     public function delete(): void
     {
         $this->confirmingDelete = false;
         $plan = StudioPlan::query()->find($this->planId);
 
         if ($plan === null) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'deleted');
 
             return;
@@ -210,6 +215,7 @@ final class EditStudioPlan extends Page
         try {
             app(DeleteStudioPlanDraftAction::class)->handle($this->admin(), $plan, $this->lockVersion);
         } catch (CannotManageStudioPlanException $exception) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->refuse($exception, 'deleted');
 
             return;

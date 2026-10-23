@@ -782,8 +782,12 @@ votes' (`discussion_votes`) when it was written from the version it holds and
 the plan's post and rating votes are still the ones it last read or wrote; the
 other editors take its moves the same way. Anything else is somebody else's
 save: the editor says the draft changed, writes nothing, and asks for Reload.
-The votes are made for the author the draft has saved, and are saved at once
-while the post's author still has unsaved changes. A Save draft that gives
+An author picked on the page and not saved yet is the post's author to be
+(the page tells the editor, `$store.adminEditor.authorUserId`,
+`followAuthor()`): the Post voters card shows it as "author, not saved yet",
+and it is left out of the voters at once as the saved one is — its votes, if
+it has any, go to others — so the votes are saved at once whatever the page
+holds. A Save draft that gives
 the post another author is read on the move it takes, and the votes are made
 again right after, on a request of their own once every editor on the page
 has taken that move (`remake()`): the new author never votes on it. Chosen
@@ -792,6 +796,13 @@ of every voter, one fewer is drawn. An author the editor finds among the
 saved voters when it opens is left out the same way, so a vote it can't cast
 never stands in the way of the comment votes' save. Nothing on the tab saves
 the post's texts, photo, category or author.
+
+A change that can't be saved is not left behind unasked: Back, Continue and
+the steps, leaving the Post step, ask the editor first (`rgPostVotes` store,
+`askLeave()`). It tries the change once more and, when it still can't be
+made, says what keeps it and offers Keep editing or Discard change, which
+goes on with the votes saved. Moving between the step's own tabs asks
+nothing.
 
 #### Departures from the prototype
 

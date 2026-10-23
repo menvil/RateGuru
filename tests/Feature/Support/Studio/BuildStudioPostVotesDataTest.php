@@ -79,6 +79,16 @@ it('leaves the author out of a draw and of a choice by hand, and counts what is 
         ->and(postVotesBuildErrors($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 7]))->toHaveKey('post');
 });
 
+it('leaves out the author picked and not saved yet as it does the saved one', function () {
+    $toBe = $this->personas[0]->id;
+    $everyone = [$this->author->id, ...$this->personas->pluck('id')->all()];
+
+    expect(postVotesBuildErrors($this->plan, ['voterCount' => 6, 'up' => 1, 'authorToBe' => $toBe]))->toBe(['voterCount' => 'Choose from 0 to 5 personas: that many can vote on this post.'])
+        ->and(array_column(builtPostVotes(buildPostVotes($this->plan, ['voterCount' => 5, 'up' => 5, 'authorToBe' => $toBe])), 'persona'))->not->toContain($toBe)->not->toContain($this->author->id)
+        ->and(array_column(builtPostVotes(buildPostVotes($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 5, 'authorToBe' => $toBe])), 'persona'))->not->toContain($toBe)
+        ->and(postVotesBuildErrors($this->plan, ['voterMode' => 'manual', 'voterIds' => $everyone, 'up' => 6, 'authorToBe' => $toBe]))->toHaveKey('post');
+});
+
 it('draws the voters from the active Personas, the same ones for the same seed, others for another', function () {
     User::factory()->persona()->create(['status' => UserStatus::Limited]);
     User::factory()->create();

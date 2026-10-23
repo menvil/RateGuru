@@ -25,7 +25,7 @@
     class="rg-admin-studio__votes rg-admin-studio__comment-votes"
     x-data
     x-effect="Object.assign($store.rgCommentVotes ?? {}, { nodes: $wire.summary, selected: $wire.selected, unsaved: $wire.unsaved, status: $wire.status })"
-    x-on:beforeunload.window="if ($wire.unsaved) { $event.preventDefault(); $event.returnValue = '' }"
+    x-on:beforeunload.window="if ($wire.unsaved && ! $store.adminEditor?.leaving) { $event.preventDefault(); $event.returnValue = '' }"
 >
     {{-- Comment voters (the prototype's VoterSelect, `which="comment"`), drawn in the step's settings row beside the Discussion settings. --}}
     @teleport('#rg-admin-studio-comment-voters')
@@ -159,7 +159,7 @@
                             <div class="rg-admin-studio__persona-text">
                                 <span class="rg-admin-studio__persona-name">{{ $breakdown['persona']['name'] ?? 'Deleted user' }} <span class="rg-admin-studio__muted">{{ $breakdown['replyTo'] !== null ? '↳ '.$breakdown['replyTo'] : '' }}</span></span>
                                 <span class="rg-admin-studio__breakdown-text">{{ $breakdown['body'] }}</span>
-                                <span class="rg-admin-studio__persona-short">Appears {{ $breakdown['at'] }} after the post · its author can’t vote on it</span>
+                                <span class="rg-admin-studio__persona-short">Appears {{ $breakdown['at'] }} after the post</span>
                             </div>
                         </div>
 
@@ -188,7 +188,7 @@
                                 <button type="button" role="radio" class="rg-admin-studio__votes-chip" aria-checked="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" aria-pressed="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" wire:click="setPriority({{ $breakdown['id'] }}, '{{ $value }}')" @disabled(! $editable)>{{ $label }}</button>
                             @endforeach
                         </div>
-                        <p class="rg-admin-hint">Its share when the totals are distributed automatically.</p>
+                        <p class="rg-admin-hint">How much of Total up and Total down this comment gets when Distribute automatically shares them: High three parts, Normal two, Low one. It changes no vote until then.</p>
 
                         @foreach (['first' => 'First vote after', 'spread' => 'Spread over'] as $field => $label)
                             <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $label }} {{ $breakdown['label'] }}">

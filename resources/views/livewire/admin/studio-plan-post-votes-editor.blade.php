@@ -6,6 +6,12 @@
     moment set by hand on the Timing tab. Every change is saved at once; under
     the card, the strip says what is saved, or what keeps a change from being
     saved. Every text is drawn escaped.
+
+    The root follows the page: the author picked there, saved or not
+    (`$store.adminEditor.authorUserId`), is told to the editor once it
+    changes, and whether a change here is not saved goes to the
+    `rgPostVotes` store, which the step's Back, Continue and steps ask about
+    before leaving.
 --}}
 @php
     $savedCount = count($rows);
@@ -34,7 +40,15 @@
     };
 @endphp
 
-<div class="rg-admin-studio__votes">
+<div
+    class="rg-admin-studio__votes"
+    x-data="{ author: @js((string) ($authorToBe ?? $authorId ?? '')) }"
+    x-effect="
+        if ($store.rgPostVotes) $store.rgPostVotes.unsaved = $wire.unsaved
+        const picked = $store.adminEditor?.authorUserId
+        if (picked !== undefined && picked !== author) { author = picked; $wire.followAuthor(picked) }
+    "
+>
     @if ($gone)
         <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its votes can’t be changed any more.</x-admin.ui.inline-notice>
     @elseif ($closed)
@@ -57,9 +71,9 @@
                         @include('livewire.admin.studio-plan-discussion-avatar', ['persona' => $author])
                         <span class="rg-admin-studio__votes-author-name">
                             @if ($author !== null)
-                                <span class="rg-admin-studio__persona-name">{{ $author['name'] }}</span> <span class="rg-admin-studio__muted">· author</span>
+                                <span class="rg-admin-studio__persona-name">{{ $author['name'] }}</span> <span class="rg-admin-studio__muted">· {{ $authorSaved ? 'author' : 'author, not saved yet' }}</span>
                             @else
-                                <span class="rg-admin-studio__muted">No author saved yet</span>
+                                <span class="rg-admin-studio__muted">No author chosen yet</span>
                             @endif
                         </span>
                         @if ($author !== null)
@@ -102,7 +116,7 @@
                                             <x-admin.ui.badge tone="danger">Not a persona</x-admin.ui.badge>
                                         @elseif (($persona['problem'] ?? null) === 'restricted' && ($persona['status'] ?? null) !== null)
                                             <x-admin.ui.badge :tone="$persona['status']['tone']">{{ $persona['status']['label'] }}</x-admin.ui.badge>
-                                        @elseif ($persona['id'] === $authorId)
+                                        @elseif (in_array($persona['id'], $authors, true))
                                             <x-admin.ui.badge tone="neutral">Author</x-admin.ui.badge>
                                         @endif
                                         <button type="button" class="rg-admin-studio__chip-remove" aria-label="Remove {{ $persona['name'] }}" wire:click="toggleVoter({{ $persona['id'] }})" @disabled(! $editable)>
@@ -112,7 +126,7 @@
                                 @endforeach
                             </div>
                         @endif
-                        @if (collect($chosen)->contains(fn (array $persona): bool => ($persona['problem'] ?? null) !== null || $persona['id'] === $authorId))
+                        @if (collect($chosen)->contains(fn (array $persona): bool => ($persona['problem'] ?? null) !== null || in_array($persona['id'], $authors, true)))
                             <p class="rg-admin-hint rg-admin-studio__votes-warning-text">A deleted or restricted persona, or the post’s author, gets no new votes. A restricted one keeps a vote it has until you replace it.</p>
                         @endif
                         <div class="rg-admin-studio__persona-list" role="group" aria-label="Personas to choose">
@@ -405,6 +419,25 @@
             <x-slot:actions>
                 <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
                 <x-admin.ui.button variant="danger" icon="trash-2" x-on:click="hide(); $wire.confirmRemove()">Remove votes</x-admin.ui.button>
+            </x-slot:actions>
+        </x-admin.ui.confirm-dialog>
+    @endif
+
+    @if ($leaving !== null)
+        <x-admin.ui.confirm-dialog title="Leave the post votes as saved?" tone="warning" icon="thumbs-up" id="rg-admin-post-votes-leave" x-on:dismiss="$wire.stay()">
+            The last change to the post votes is not saved: it can’t be made as asked. Keep editing to fix what is marked, or discard the change and go on with the votes saved.
+            @if ($errors->any())
+                <x-slot:details>
+                    <ul class="rg-admin-dialog-facts" aria-label="Not saved">
+                        @foreach (array_unique($errors->all()) as $message)
+                            <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="circle-alert" :size="16" /><span>{{ $message }}</span></li>
+                        @endforeach
+                    </ul>
+                </x-slot:details>
+            @endif
+            <x-slot:actions>
+                <x-admin.ui.button x-on:click="dismiss()">Keep editing</x-admin.ui.button>
+                <x-admin.ui.button variant="primary" x-on:click="hide(); $wire.discardAndLeave()">Discard change</x-admin.ui.button>
             </x-slot:actions>
         </x-admin.ui.confirm-dialog>
     @endif

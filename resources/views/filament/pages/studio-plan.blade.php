@@ -37,7 +37,15 @@
     $title = $creating ? 'New publication' : ($plan['title'] ?? 'Publication');
     $stepKeys = array_column($steps, 'key');
     // Leaving the Discussion step with comment votes not saved asks first (StudioPlanDiscussionVotesEditor).
-    $leave = fn (string $to, string $go): string => "\$wire.step === 'discussion' && \$store.rgCommentVotes?.unsaved ? \$dispatch('".\App\Livewire\Admin\StudioPlanDiscussionVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : \$wire.{$go}";
+    // Leaving the Post step with a post votes change not saved asks first too (StudioPlanPostVotesEditor): Continue from its texts and Back from its votes stay on the step.
+    $leavesPost = fn (string $to): string => match ($to) {
+        'next' => "\$wire.postTab === 'votes'",
+        'previous' => "\$wire.postTab === 'texts'",
+        'post' => 'false',
+        default => 'true',
+    };
+    $leave = fn (string $to, string $go): string => ($to !== 'discussion' ? "\$wire.step === 'discussion' && \$store.rgCommentVotes?.unsaved ? \$dispatch('".\App\Livewire\Admin\StudioPlanDiscussionVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : " : '')
+        ."(\$wire.step === 'post' && \$store.rgPostVotes?.unsaved && ({$leavesPost($to)}) ? \$dispatch('".\App\Livewire\Admin\StudioPlanPostVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : \$wire.{$go})";
     $first = $step === $stepKeys[0];
     $last = $step === end($stepKeys);
 @endphp
@@ -45,7 +53,7 @@
 <div
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorUserId = String($wire.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
@@ -82,7 +90,7 @@
                     type="button"
                     @class(['rg-admin-studio__step', 'rg-admin-studio__step--current' => $item['key'] === $step])
                     @if ($item['key'] === $step) aria-current="step" @endif
-                    x-on:click="{{ $item['key'] === 'discussion' ? '$wire.goToStep(\'discussion\')' : $leave($item['key'], "goToStep('{$item['key']}')") }}"
+                    x-on:click="{{ $leave($item['key'], "goToStep('{$item['key']}')") }}"
                 >
                     <span class="rg-admin-studio__step-number" aria-hidden="true">{{ $index + 1 }}</span>
                     <span class="rg-admin-studio__step-text">

@@ -133,6 +133,16 @@ it('takes the version a Save draft or a photo moved in the votes editor, so its 
         ->set('postOn', true)->set('up', 1)->assertHasNoErrors()->assertSet('lockVersion', 3);
 });
 
+it('tells the votes editor of the author picked on the page, and asks it before leaving the Post step, not before moving within it', function () {
+    $html = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'post')->html();
+
+    expect($html)->toContain('$store.adminEditor.authorUserId = String($wire.authorUserId ?? \'\')')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; ($wire.postTab === &#039;votes&#039;) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;next&#039; }) : $wire.nextStep()')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; ($wire.postTab === &#039;texts&#039;) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;previous&#039; }) : $wire.previousStep()')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; (true) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;discussion&#039; }) : $wire.goToStep(&#039;discussion&#039;)')
+        ->toContain('$wire.step === &#039;post&#039; &amp;&amp; $store.rgPostVotes?.unsaved &amp;&amp; (false) ? $dispatch(&#039;studio-post-votes-leave&#039;, { step: &#039;post&#039; })');
+});
+
 it('reads the author a Save draft gave the post: never a voter, its place among the chosen given to another Persona', function () {
     $newAuthor = User::factory()->persona()->create();
     $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $newAuthor->id)->assertHasNoErrors();

@@ -677,11 +677,16 @@ it('asks before the step is left with its votes not saved: saves them and goes o
         ->and($this->plan->fresh()->lock_version)->toBe(4);
 });
 
+it('asks before the browser leaves with comment votes not saved, unless the page is leaving with its draft deleted', function () {
+    discussionVotesEditor($this->plan)->assertSeeHtml('x-on:beforeunload.window="if ($wire.unsaved && ! $store.adminEditor?.leaving)');
+});
+
 it('goes on to the step asked once the comment votes are saved or discarded, and asks the votes editor first from Back, Continue and the steps', function () {
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'discussion')
-        ->assertSeeHtml('$wire.step === &#039;discussion&#039; &amp;&amp; $store.rgCommentVotes?.unsaved ? $dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;next&#039; }) : $wire.nextStep()')
-        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;previous&#039; }) : $wire.previousStep()')
-        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;image&#039; }) : $wire.goToStep(&#039;image&#039;)')
+        ->assertSeeHtml('$wire.step === &#039;discussion&#039; &amp;&amp; $store.rgCommentVotes?.unsaved ? $dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;next&#039; }) : (')
+        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;previous&#039; }) : (')
+        ->assertSeeHtml('$dispatch(&#039;studio-comment-votes-leave&#039;, { step: &#039;image&#039; }) : (')
+        ->assertSeeHtml(': $wire.goToStep(&#039;image&#039;))')
         ->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next')->assertSet('step', 'publication')
         ->call('goToStep', 'discussion')->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'previous')->assertSet('step', 'post')->assertSet('postTab', 'votes')
         ->dispatch(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'image')->assertSet('step', 'image')
