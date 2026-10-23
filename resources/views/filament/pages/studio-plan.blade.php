@@ -129,7 +129,7 @@
             @elseif ($step !== 'discussion')
                 @include('filament.pages.studio-plan.'.$step)
             @endif
-            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its preview live as long as the page. --}}
+            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its draw live as long as the page. --}}
             <div class="rg-admin-studio__votes-step" @if ($step !== 'post' || $postTab !== 'votes') hidden @endif>
                 @include('filament.pages.studio-plan.votes')
             </div>

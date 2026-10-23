@@ -439,7 +439,7 @@ it('moves the version once for a save, which every other editor on the page take
 
     $page->assertSet('stale', false)->assertSet('postTitle', 'Typed, not saved')->call('save')->assertDispatched('rg-admin-toast', message: 'Draft saved')
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor');
-    $postVotes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor')->assertSet('conflict', false)->set('postOn', true)->set('up', 1)->set('voterCount', 3)->call('build', false)->call('save', false)->assertHasNoErrors();
+    $postVotes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor')->assertSet('conflict', false)->call('setTiming', 'post', 'first', 300)->assertHasNoErrors();
 
     expect($this->plan->fresh()->lock_version)->toBe(6)
         ->and(savedCommentVotes($this->plan))->toHaveCount(4)
@@ -452,7 +452,7 @@ it('takes the version a Save draft or a save of the post votes moved, so its own
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'A harbour at dawn')->call('save');
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 3, current: 4, source: 'editor')->assertSet('lockVersion', 4);
 
-    postVotesEditor($this->plan)->set('voterMode', 'random')->set('voterCount', 2)->set('postOn', true)->set('up', 2)->call('build', false)->call('save', false)->assertHasNoErrors();
+    postVotesEditor($this->plan)->call('selectShown')->set('up', 2)->assertHasNoErrors();
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: StudioPlanPostVotesEditor::SOURCE)->assertSet('lockVersion', 5);
 
     previewCommentVotes($editor, $this->c1, $this->c2)->call('save')->assertHasNoErrors()->assertSet('lockVersion', 6);

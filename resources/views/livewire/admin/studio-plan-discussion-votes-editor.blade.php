@@ -18,7 +18,6 @@
 --}}
 @php
     $priorities = ['low' => 'Low', 'normal' => 'Normal', 'high' => 'High'];
-    $units = \App\Livewire\Admin\StudioPlanDiscussionEditor::UNITS;
     $shownChanges = array_slice($changes, 0, 8);
 @endphp
 
@@ -319,50 +318,23 @@
                                 </td>
                                 <td class="rg-admin-studio__mono">{{ $row['parent'] }}</td>
                                 <td>
-                                    {{-- A comment's moment is the discussion editor's to save; a vote's is set here, saved with Save votes. --}}
-                                    <div
-                                        class="rg-admin-studio__offset"
-                                        x-data="{
-                                            seconds: {{ $row['seconds'] }},
-                                            unit: @js(\App\Livewire\Admin\StudioPlanDiscussionEditor::unitFor($row['seconds'])),
-                                            units: @js($units),
-                                            get value() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
-                                            commit(input) {
-                                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
-                                                const seconds = Math.round(n * this.units[this.unit])
-
-                                                if (Number.isNaN(n) || n < 0 || seconds === this.seconds) { input.value = this.value; return }
-
-                                                @if ($row['kind'] === 'vote')
-                                                    $wire.setMoment({{ $row['node'] }}, {{ $row['persona'] }}, seconds).then(() => { input.value = this.value })
-                                                @else
-                                                    this.seconds = seconds
-                                                    $dispatch(@js(\App\Livewire\Admin\StudioPlanDiscussionEditor::OFFSET_EVENT), { id: {{ $row['node'] }}, seconds })
-                                                @endif
-                                            },
-                                        }"
-                                    >
-                                        {{-- No comment moves while the discussion editor says a generation is on its way. --}}
-                                        <input
-                                            type="text"
-                                            inputmode="decimal"
-                                            class="rg-admin-studio__offset-input"
-                                            aria-label="Offset of {{ $row['action'] }}{{ $row['kind'] === 'vote' ? ' by '.($row['who']['name'] ?? 'a deleted user').' on '.$row['parent'] : '' }}"
-                                            :value="value"
-                                            x-on:change="commit($event.target)"
-                                            @if ($row['kind'] === 'vote')
-                                                @disabled(! $editable)
-                                            @else
-                                                @disabled(! $moving)
-                                                x-bind:disabled="{{ $moving ? 'false' : 'true' }} || $store.rgCommentVotes?.generating"
-                                            @endif
-                                        />
-                                        <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
-                                            @foreach (array_keys($units) as $unit)
-                                                <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="unit = @js($unit)">{{ $unit }}</button>
-                                            @endforeach
-                                        </div>
-                                    </div>
+                                    {{-- A comment's moment is the discussion editor's to save; a vote's is set here, saved with Save votes. No comment moves while the discussion editor says a generation is on its way. --}}
+                                    @if ($row['kind'] === 'vote')
+                                        @include('livewire.admin.studio-plan-offset-field', [
+                                            'seconds' => $row['seconds'],
+                                            'label' => 'Offset of '.$row['action'].' by '.($row['who']['name'] ?? 'a deleted user').' on '.$row['parent'],
+                                            'call' => '$wire.setMoment('.$row['node'].', '.$row['persona'].', seconds)',
+                                            'disabled' => ! $editable,
+                                        ])
+                                    @else
+                                        @include('livewire.admin.studio-plan-offset-field', [
+                                            'seconds' => $row['seconds'],
+                                            'label' => 'Offset of '.$row['action'],
+                                            'call' => '(this.seconds = seconds, $dispatch('.\Illuminate\Support\Js::from(\App\Livewire\Admin\StudioPlanDiscussionEditor::OFFSET_EVENT).', { id: '.$row['node'].', seconds }))',
+                                            'disabled' => ! $moving,
+                                            'disabledWhile' => '$store.rgCommentVotes?.generating',
+                                        ])
+                                    @endif
                                 </td>
                                 <td @class(['rg-admin-studio__muted' => $row['after'] === null])>{{ $row['after'] ?? '—' }}</td>
                                 <td><span class="rg-admin-studio__timing-dependency"><x-admin.ui.icon name="circle-check" :size="13" />{{ $row['dependency'] }}</span></td>

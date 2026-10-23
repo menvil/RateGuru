@@ -48,10 +48,10 @@ function studioWrapperHidden(Testable $page, string $class): bool
     return str_contains($wrapper[1] ?? '', 'hidden');
 }
 
-/** Votes on the plan's post, made and saved as the Votes tab does. */
+/** Votes on the plan's post, saved as the Votes tab saves them: at once. */
 function savedPostVotesFromEditor(StudioPlan $plan): Testable
 {
-    return postVotesEditor($plan)->set('postOn', true)->set('up', 2)->set('voterCount', 2)->call('build', false)->call('save', false)->assertHasNoErrors();
+    return postVotesEditor($plan)->set('voterCount', 2)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
 }
 
 it('gives the Post step two tabs, Titles & texts and Votes, which Continue and Back go through in turn', function () {
@@ -135,20 +135,20 @@ it('takes the version a Save draft or a photo moved in the votes editor, so its 
 
     $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('lockVersion', 2)->assertSet('conflict', false)
-        ->set('postOn', true)->set('up', 1)->call('build', false)->call('save', false)->assertHasNoErrors()->assertSet('lockVersion', 3);
+        ->set('postOn', true)->set('up', 1)->assertHasNoErrors()->assertSet('lockVersion', 3);
 });
 
-it('reads the author a Save draft gave the post: never a voter, and a preview made before it is out of date', function () {
-    $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->set('postOn', true)->set('up', 1);
+it('reads the author a Save draft gave the post: never a voter from the next change on', function () {
     $newAuthor = User::factory()->persona()->create();
-    $votes->call('toggleVoter', $newAuthor->id)->call('build', false)->assertHasNoErrors();
+    $votes = postVotesEditor($this->plan)->set('voterMode', 'manual')->call('toggleVoter', $newAuthor->id)->assertHasNoErrors();
 
     Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('authorUserId', (string) $newAuthor->id)->call('save');
 
     $votes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 1, current: 2, source: 'editor')
         ->assertSet('authorId', $newAuthor->id)
-        ->assertSee('The settings changed since this preview. Rebuild it to save.')
-        ->call('build', false)->assertHasErrors(['post']);
+        ->set('postOn', true)->set('up', 1)->assertHasErrors(['post']);
+
+    expect($this->plan->fresh()->votes()->count())->toBe(0);
 });
 
 it('draws the votes again when the post editor is reloaded at a version whose votes changed', function () {

@@ -150,6 +150,26 @@ it('spreads each target\'s votes from its first moment to its last, one after an
     'three, rounded down' => [3, [300, 2100, 3900]],
 ]);
 
+it('brings a vote given a moment of its own then, the rest keeping their places in the spread', function () {
+    $settings = ['voterCount' => 6, 'up' => 3, 'postFirstSeconds' => 300, 'postSpreadSeconds' => 3600, 'seed' => 7];
+    $spread = builtPostVotes(buildPostVotes($this->plan, $settings));
+    $moved = builtPostVotes(buildPostVotes($this->plan, [...$settings, 'postMoments' => [$spread[1]['persona'] => 7200]]));
+
+    expect(array_column($spread, 'offset'))->toBe([300, 2100, 3900])
+        // The same Personas, the one moved now last in time, the others where they were.
+        ->and(array_map(fn (array $vote): array => [$vote['persona'], $vote['offset']], $moved))
+        ->toBe([[$spread[0]['persona'], 300], [$spread[2]['persona'], 3900], [$spread[1]['persona'], 7200]]);
+
+    // An answer's own moment the same; one past thirty days, or before the post, is refused.
+    $rating = fn (array $moments): array => ['voterCount' => 6, 'seed' => 7, 'ratings' => [$this->group->id => new StudioRatingVotesSettings($this->group->id, [$this->answers[0]->id => 1], 600, 3600, $moments)]];
+    $persona = builtPostVotes(buildPostVotes($this->plan, $rating([])))[0]['persona'];
+
+    expect(builtPostVotes(buildPostVotes($this->plan, $rating([$persona => 90])))[0]['offset'])->toBe(90)
+        ->and(postVotesBuildErrors($this->plan, $rating([$persona => 2_592_000 + 60])))
+        ->toBe(["timing.{$this->group->id}" => $this->group->translatedLabel().' answers would end more than 30 days after the post. Start sooner, or spread them over less time.'])
+        ->and(postVotesBuildErrors($this->plan, $rating([$persona => -60])))->toBe(["timing.{$this->group->id}" => 'Nothing can arrive before the post.']);
+});
+
 it('keeps the votes of one moment in one order, the same every time', function () {
     $settings = ['voterCount' => 6, 'up' => 3, 'down' => 2, 'postFirstSeconds' => 600, 'postSpreadSeconds' => 0, 'seed' => 5];
     $first = buildPostVotes($this->plan, $settings)->votes->votes;

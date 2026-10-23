@@ -399,8 +399,9 @@ under the plan's lock and version, held to one set of rules (`StudioVoteValidati
 a save of the discussion are held to the votes too, and a plan with votes is not approved until they can be cast
 (`docs/architecture/studio-plans.md`, "The votes"). Its second step is in code: the Post step's Votes tab
 (`StudioPlanPostVotesEditor`), laid out and working as the prototype's StudioPostVotes beside Titles & texts — the
-post's voters drawn at random or chosen, never its author; up and down votes, the answers to each rating question with
-Even split, and their timing — built as a preview and saved exactly as shown, the discussion's votes kept
+post's voters drawn at random or chosen, never its author; up and down votes, the answers to every active rating question
+with Even split, and their timing, each vote's moment changed in place on the Timing tab — saved as each setting moves, a
+change that can't be made saving nothing until it is fixed or discarded, the discussion's votes kept
 (`docs/architecture/studio-plans.md`, "The Post votes editor"). Its third step is in code: the Discussion step's
 Comment voters and Comment votes cards beside the Discussion settings, and each comment's breakdown beside the tree
 (`StudioPlanDiscussionVotesEditor`) — the voters drawn at

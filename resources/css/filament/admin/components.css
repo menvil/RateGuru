@@ -5492,14 +5492,14 @@
         background: var(--rg-admin-surface-sunken);
     }
 
+    /* A target's name in the middle of its head, beside its badge and switch. */
     .rg-admin-studio__votes-block-head--switch {
         flex-wrap: nowrap;
-        align-items: flex-start;
+        align-items: center;
     }
 
     .rg-admin-studio__votes-block-head--switch > .rg-admin-switch {
         flex-shrink: 0;
-        margin-top: 2px;
     }
 
     .rg-admin-studio__votes-blocks {
@@ -5691,6 +5691,12 @@
 
     .rg-admin-studio__votes-table {
         min-width: 560px;
+    }
+
+    /* A vote's moment, as narrow as its field: the persona, target and vote share the rest. */
+    .rg-admin-studio__votes-table .rg-admin-studio__votes-at {
+        width: 1%;
+        white-space: nowrap;
     }
 
     .rg-admin-studio__votes-list {

@@ -3,7 +3,7 @@
     post and the answers to its rating questions, the Personas who cast them,
     and when. Drawn once for the plan and kept for as long as its editor is
     open — hidden on the other steps and tab, never drawn again — so its
-    settings and its preview survive moving around the editor. A new
+    settings and its draw survive moving around the editor. A new
     publication has no plan to keep votes on until its Draft is made; the tab
     says so, and the editor appears by itself once there is one.
 --}}

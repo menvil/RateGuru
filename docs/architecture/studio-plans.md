@@ -667,7 +667,7 @@ Discussion's Back comes back to the votes. The footer says where the editor is
 
 The Votes tab is `StudioPlanPostVotesEditor`, drawn once with the page and
 hidden on the other steps and tab, like the Discussion step, so its settings
-and its preview live as long as the page; the texts' cards stay drawn while
+and its draw live as long as the page; the texts' cards stay drawn while
 the votes are on screen. A new publication has no plan to keep votes on until
 its Draft is made: the tab says "Save the draft first to prepare its votes.",
 and the editor appears by itself once a photo or Save has made the Draft.
@@ -684,42 +684,54 @@ What is on it, as the prototype lays it out:
   and nothing is lowered to fit.
 - **Post votes** — Up · down, Answers and Post voters at a glance; then three
   tabs. *Votes & answers*: up and down votes on the post, each a number of
-  different Personas; and each active rating question with its active options
-  (`RatingConfigurationManager`), switched on, its number of Answers spread
-  over its options in proportion to what each has, **Even split** — as even as
-  whole answers go, the rest to the first options in the question's own order
-  — and + and − moving one answer between options, the total kept. The
-  author's own answers (`authorAnswerOptionIds`) are a field of the post, not
-  these. *Voters*: every voter with its post vote and its answer to each
-  question, All, Voting or Not used, and Reshuffle. *Timing*: for the votes on
-  the post and for each question, First vote (or answer) after and Spread over
-  — 5 min to 1 day, and 1 h to 1 week — and the post's timeline of every vote.
+  different Personas, drawn at random from the post voters — who votes which
+  way is on the Voters tab, when on the Timing tab, as the block says; and
+  every active rating question with its active options
+  (`RatingConfigurationManager`) — on as it is under every post on the site,
+  no switch to turn it on, answers set to none planning none — its number of
+  Answers spread over its options in proportion to what each has, **Even
+  split** — as even as whole answers go, the rest to the first options in the
+  question's own order — and + and − moving one answer between options, the
+  total kept. The author's own answers (`authorAnswerOptionIds`) are a field
+  of the post, not these. *Voters*: every voter with its post vote and its
+  answer to each question, All, Voting or Not used, and Reshuffle. *Timing*:
+  for the votes on the post and for each question, First vote (or answer)
+  after and Spread over — 5 min to 1 day, and 1 h to 1 week — then every
+  vote: Persona, When, on what, which way or which answer, and what keeps it
+  from being cast now (`readinessErrors()`). A vote's When is changed in
+  place, in minutes, hours or days after the post.
 
-What is set there is a recipe, and a recipe is never saved: a plan keeps the
-votes made of it. **Build preview** makes them, through
-`BuildStudioPostVotesData` (below), and shows them as they will be saved;
-**Save votes** saves exactly the preview — nothing is drawn again on Save — and
-only while it is made from the settings as they are now (a preview the
-settings moved past says so, and is rebuilt first). Rebuild keeps the draw;
-**Pick others** and **Reshuffle** make a new one. **Discard** draws the saved
-votes again, and **Remove post votes**, asked first, takes the votes on the
-post and its questions away. Saving and removing go through
-`SaveStudioVotesAction` with the plan's whole set: the discussion's votes are
-read as the plan has them at the version the save is checked against, and
-kept as they are — a comment the discussion deleted meanwhile, with its
-votes, is not put back.
+Every change is saved at once, as the prototype's draft changes with each
+setting: the votes the settings ask for are made through
+`BuildStudioPostVotesData` (below) — a Persona keeping its saved vote, and
+its moment, as far as the settings allow, so a change moves only what it
+must — and saved, unless they are the votes saved already. A change that
+can't be made — too few Personas, a moment past thirty days — is said where it
+is and in the strip under the card ("Not saved · fix what is marked"), and
+nothing is saved until it is fixed, or **Discard** draws the saved votes
+again. **Pick others** and **Reshuffle** make a new draw, saved at once.
+**Remove post votes**, asked first, takes the votes on the post and its
+questions away. Saving and removing go through `SaveStudioVotesAction` with
+the plan's whole set: the discussion's votes are read as the plan has them at
+the version the save is checked against, and kept as they are — a comment the
+discussion deleted meanwhile, with its votes, is not put back.
+
+A vote's moment set by hand — never before the post, nor more than thirty
+days after — is saved at once, the target's other votes keeping the moments
+they have: from then on they keep them, a vote added comes in the spread, and
+First vote after or Spread over spaces them all evenly again ("Set by hand"
+says which targets keep moments of their own).
 
 Opened again, the editor draws the votes as saved: how many vote the post up
 and down, the Personas — as chosen by hand, the ones the votes have — the
-answers to each option, and when, the first vote and the spread to the last.
-How they were drawn is not kept, and not pretended to be. The **Saved votes**
-card lists every saved vote — when, who, on what, which way or which answer —
-and what keeps one from being cast now (`readinessErrors()`), apart from the
-**Preview**, which says it is not saved. A Persona Limited, Shadowbanned,
-Banned or deleted since stays in the saved votes, with its state, until it is
-replaced; an option archived, deactivated or deleted since stays as chosen,
-marked Not open, until its answers are moved or Even split puts them on the
-open ones.
+answers to each option, and when, the first vote and the spread to the last,
+and each vote's own moment when any came away from its place in that spread.
+How they were drawn is not kept, and not pretended to be. The strip under the
+card says what is saved, and how many votes can't be cast now. A Persona
+Limited, Shadowbanned, Banned or deleted since stays in the saved votes, with
+its state, until it is replaced; an option archived, deactivated or deleted
+since stays as chosen, marked Not open, until its answers are moved or Even
+split puts them on the open ones.
 
 #### Making the votes
 
@@ -743,8 +755,9 @@ votes on the post and its rating questions and only reads:
 - **When:** within each target, the votes come one after another, the first
   after its First moment and the last after the spread:
   `offset(i) = first + floor(i × spread / (n − 1))`, `i = 0 … n − 1`; one vote
-  comes at the first moment; equal moments keep the order drawn
-  (`sort_order`).
+  comes at the first moment; a vote whose Persona has a moment of its own on
+  the target (`postMoments`, a question's `moments`) comes then, keeping its
+  place in the order; equal moments keep the order drawn (`sort_order`).
 - **Ids:** a vote that is a saved one's Persona and target again keeps that
   vote's id, whatever changed of its way, option or moment.
 - **Refused, whole:** too few Personas, an option that is not the question's or
@@ -765,25 +778,26 @@ the plan's post and rating votes are still the ones it last read or wrote; the
 other editors take its moves the same way. Anything else is somebody else's
 save: the editor says the draft changed, writes nothing, and asks for Reload.
 A Save draft that gives the post another author is read on the move it takes:
-the new author never votes, and a preview made before it is out of date.
+the new author never votes from the next change on.
 
-While the post's author has unsaved changes, the votes are neither built nor
-saved: they are made for the author the draft has saved, and the tab says to
-save the draft first. Nothing on the tab saves the post's texts, photo,
+While the post's author has unsaved changes, no change is saved (the page
+tells the editor, `authorChanged`): the votes are made for the author the
+draft has saved, and the tab says to save the draft first. Nothing on the tab saves the post's texts, photo,
 category or author.
 
 #### Departures from the prototype
 
-- The prototype changes its draft as each setting moves; here the votes are
-  built as a preview and saved on purpose, so what is saved is exactly what was
-  shown, drawn once.
+- As in the prototype, the votes change as each setting moves; here each
+  change is saved at once, a change that can't be made is said and saves
+  nothing, and each vote's moment can be set by hand.
 - The prototype lowers the votes to fit fewer voters; here the shortfall is
   said and nothing is lowered.
 - The prototype's closed questions (not shown under a post) have no
   counterpart on the site: every active rating question is offered, and one no
   longer active shows only while saved answers name it.
-- The Saved votes and Preview lists are this editor's: the prototype has no
-  saved state apart from its draft.
+- The list of every vote on the Timing tab, with each one's moment to change,
+  is this editor's: the prototype's post timeline shows the votes in a few
+  batches.
 
 ### The Comment votes editor
 

@@ -8,7 +8,8 @@ namespace App\Data\Studio;
  * ones, or `manual`, the ones chosen in `voterIds` — how many vote the post
  * up and down, how many answers each rating question gets to each of its
  * options, and when, relative to the post: the first after `…FirstSeconds`,
- * the rest spread over `…SpreadSeconds`.
+ * the rest spread over `…SpreadSeconds` — but a vote given a moment of its
+ * own (`postMoments`, by Persona, in seconds after the post) comes then.
  *
  * `seed` fixes every draw made of it, so the same settings give the same
  * votes; a new one is a new draw. `keepSaved` prefers the votes a plan has
@@ -22,6 +23,7 @@ final readonly class StudioPostVotesSettings
 {
     /**
      * @param  list<int>  $voterIds  the Personas chosen by hand, in the order chosen
+     * @param  array<int, int>  $postMoments  a vote on the post given a moment of its own, by Persona: seconds after the post
      * @param  array<int, StudioRatingVotesSettings>  $ratings  keyed by rating group id
      */
     public function __construct(
@@ -32,6 +34,7 @@ final readonly class StudioPostVotesSettings
         public int $down = 0,
         public int $postFirstSeconds = 300,
         public int $postSpreadSeconds = 86_400,
+        public array $postMoments = [],
         public array $ratings = [],
         public int $seed = 1,
         public bool $keepSaved = true,

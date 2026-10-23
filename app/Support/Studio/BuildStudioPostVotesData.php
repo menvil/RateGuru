@@ -53,6 +53,8 @@ use Illuminate\Validation\ValidationException;
  *
  *     offset(i) = first + floor(i * spread / (n - 1)),  i = 0 … n − 1
  *
+ * A vote whose Persona has a moment of its own on the target (`postMoments`,
+ * a question's `moments`) comes then instead, keeping its place in the order.
  * Votes of one moment keep that order (`sort_order`). Each vote that is a
  * saved one's Persona and target again keeps that vote's id.
  */
@@ -90,7 +92,8 @@ final class BuildStudioPostVotesData
                     .($need - $short).' '.($need - $short === 1 ? 'is' : 'are').' chosen — '.$short.' short. Choose more personas, or ask for fewer.';
             }
 
-            $errors += self::timingErrors($plan, $block, array_sum($block['slots']));
+            $blocks[$index]['offsets'] = self::offsets($blocks[$index], $settings->seed, $settings->keepSaved);
+            $errors += self::timingErrors($plan, $blocks[$index]);
         }
 
         $comments = StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->where('type', StudioActionType::VoteComment)->count();
@@ -105,7 +108,7 @@ final class BuildStudioPostVotesData
         }
 
         return new BuiltStudioPostVotes(
-            votes: new StudioVotesData(self::votes($blocks, $saved, $settings->seed, $settings->keepSaved)),
+            votes: new StudioVotesData(self::votes($blocks, $saved)),
             voters: [...$voters, ...$keepers],
         );
     }
@@ -159,9 +162,10 @@ final class BuildStudioPostVotesData
             'previous' => $saved->where('type', StudioActionType::VotePost)
                 ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => (string) $vote->vote_type?->value])
                 ->all(),
-            'moments' => $saved->where('type', StudioActionType::VotePost)
+            'savedAt' => $saved->where('type', StudioActionType::VotePost)
                 ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
                 ->all(),
+            'moments' => $settings->postMoments,
             'first' => $settings->postFirstSeconds,
             'spread' => $settings->postSpreadSeconds,
         ];
@@ -228,9 +232,10 @@ final class BuildStudioPostVotesData
                 'previous' => $savedHere
                     ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => 'option:'.$vote->rating_option_id])
                     ->all(),
-                'moments' => $savedHere
+                'savedAt' => $savedHere
                     ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
                     ->all(),
+                'moments' => $rating->moments,
                 'first' => $rating->firstSeconds,
                 'spread' => $rating->spreadSeconds,
             ];
@@ -240,24 +245,50 @@ final class BuildStudioPostVotesData
     }
 
     /**
-     * Whether a target's votes fit its moments: from the post's own to thirty
-     * days after it, the last no later than the dates a post may carry.
+     * When each of a target's votes comes, by Persona, in the order they come
+     * there: a moment of its own, or its place in the spread.
+     *
+     * @param  array<string, mixed>  $block
+     * @return array<int, int>
+     */
+    private static function offsets(array $block, int $seed, bool $keep): array
+    {
+        /** @var array<int, string> $assigned */
+        $assigned = $block['assigned'];
+        /** @var array<int, int> $moments */
+        $moments = $block['moments'];
+        $order = self::timeOrder(array_keys($assigned), $block['savedAt'], $keep, $seed, $block['key']);
+        $count = count($order);
+        $offsets = [];
+
+        foreach ($order as $place => $persona) {
+            $offsets[$persona] = $moments[$persona] ?? (int) $block['first'] + ($count > 1 ? intdiv($place * (int) $block['spread'], $count - 1) : 0);
+        }
+
+        return $offsets;
+    }
+
+    /**
+     * Whether a target's votes fit their moments: from the post's own to
+     * thirty days after it, the last no later than the dates a post may carry.
      *
      * @param  array<string, mixed>  $block
      * @return array<string, string>
      */
-    private static function timingErrors(StudioPlan $plan, array $block, int $count): array
+    private static function timingErrors(StudioPlan $plan, array $block): array
     {
-        if ($count === 0) {
+        /** @var array<int, int> $offsets */
+        $offsets = $block['offsets'];
+
+        if ($offsets === []) {
             return [];
         }
 
-        $first = (int) $block['first'];
-        $last = $first + ($count > 1 ? (int) $block['spread'] : 0);
+        $last = max($offsets);
         $field = $block['key'] === 'post' ? 'timing.post' : 'timing.'.$block['group'];
 
         return match (true) {
-            $first < 0, (int) $block['spread'] < 0 => [$field => 'Nothing can arrive before the post.'],
+            (int) $block['first'] < 0, (int) $block['spread'] < 0, min($offsets) < 0 => [$field => 'Nothing can arrive before the post.'],
             $last > StudioVoteValidationRules::LATEST_OFFSET_SECONDS => [$field => $block['label'].' would end more than 30 days after the post. Start sooner, or spread them over less time.'],
             ! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $last) => [$field => $block['label'].' would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.'],
             default => [],
@@ -273,7 +304,7 @@ final class BuildStudioPostVotesData
      * @param  Collection<int, StudioPlanVote>  $saved
      * @return list<StudioVoteData>
      */
-    private static function votes(array $blocks, Collection $saved, int $seed, bool $keep): array
+    private static function votes(array $blocks, Collection $saved): array
     {
         $ids = $saved->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id.'|'.$vote->target_key => (int) $vote->id])->all();
         $entries = [];
@@ -281,11 +312,11 @@ final class BuildStudioPostVotesData
         foreach ($blocks as $index => $block) {
             /** @var array<int, string> $assigned */
             $assigned = $block['assigned'];
-            $order = self::timeOrder(array_keys($assigned), $block['moments'], $keep, $seed, $block['key']);
-            $count = count($order);
+            /** @var array<int, int> $offsets */
+            $offsets = $block['offsets'];
 
-            foreach ($order as $place => $persona) {
-                $offset = (int) $block['first'] + ($count > 1 ? intdiv($place * (int) $block['spread'], $count - 1) : 0);
+            foreach (array_keys($offsets) as $place => $persona) {
+                $offset = $offsets[$persona];
                 $choice = $assigned[$persona];
                 $rating = $block['type'] === StudioActionType::VoteRating;
                 $target = StudioPlanVote::targetKeyFor($block['type'], null, $block['group']);
