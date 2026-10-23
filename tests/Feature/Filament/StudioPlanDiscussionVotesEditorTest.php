@@ -334,6 +334,31 @@ it('takes no version somebody else wrote: nothing is saved until Reload', functi
         ->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 4, source: StudioPlanDiscussionVotesEditor::SOURCE);
 });
 
+it('keeps the votes not saved through another editor\'s Reload, saying the conflict, and draws the saved ones again when there are none', function () {
+    $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
+    $made = previewedCommentVotes($editor);
+    saveStudioVotes(User::factory()->admin()->create(), $this->plan, [
+        studioVote(['type' => 'vote_post', 'personaUserId' => $this->dana->id, 'voteType' => 'up', 'offsetSeconds' => 60, 'id' => $this->postVote]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->eli->id, 'voteType' => 'down', 'discussionNodeId' => $this->c2, 'offsetSeconds' => 1000]),
+    ]);
+
+    $editor->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 4, source: 'discussion')
+        ->assertSet('conflict', true)->assertSet('lockVersion', 3)->assertSet("targets.{$this->c1}.up", 2)
+        ->assertSee('Someone changed this draft after you opened it');
+
+    expect(previewedCommentVotes($editor))->toBe($made);
+
+    $editor->call('reload')->assertSet('conflict', false)->assertSet('lockVersion', 4)->assertSet("targets.{$this->c2}.down", 1);
+
+    $untouched = discussionVotesEditor($this->plan->fresh());
+    saveStudioVotes(User::factory()->admin()->create(), $this->plan->fresh(), [
+        studioVote(['type' => 'vote_post', 'personaUserId' => $this->dana->id, 'voteType' => 'up', 'offsetSeconds' => 60, 'id' => $this->postVote]),
+    ]);
+
+    $untouched->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 5, source: 'discussion')
+        ->assertSet('conflict', false)->assertSet('lockVersion', 5)->assertSet("targets.{$this->c2}.down", 0);
+});
+
 it('refuses a save drawn from a version somebody else replaced', function () {
     $editor = previewCommentVotes(discussionVotesEditor($this->plan), $this->c1, $this->c2);
     saveStudioDiscussion(User::factory()->admin()->create(), $this->plan, array_map(fn ($node) => $node, StudioDiscussionData::of($this->plan->fresh())->nodes));

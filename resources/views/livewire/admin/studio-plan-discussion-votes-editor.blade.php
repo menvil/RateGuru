@@ -318,7 +318,7 @@
                                 </td>
                                 <td class="rg-admin-studio__mono">{{ $row['parent'] }}</td>
                                 <td>
-                                    {{-- A comment's moment is the discussion editor's to save; a vote's is set here, saved with Save votes. No comment moves while the discussion editor says a generation is on its way. --}}
+                                    {{-- A comment's moment is the discussion editor's to save: the field keeps the moment it has, and a move accepted draws the row again with the new one. A vote's is set here, saved with Save votes. No comment moves while the discussion editor says a generation is on its way. --}}
                                     @if ($row['kind'] === 'vote')
                                         @include('livewire.admin.studio-plan-offset-field', [
                                             'seconds' => $row['seconds'],
@@ -330,7 +330,7 @@
                                         @include('livewire.admin.studio-plan-offset-field', [
                                             'seconds' => $row['seconds'],
                                             'label' => 'Offset of '.$row['action'],
-                                            'call' => '(this.seconds = seconds, $dispatch('.\Illuminate\Support\Js::from(\App\Livewire\Admin\StudioPlanDiscussionEditor::OFFSET_EVENT).', { id: '.$row['node'].', seconds }))',
+                                            'call' => '$dispatch('.\Illuminate\Support\Js::from(\App\Livewire\Admin\StudioPlanDiscussionEditor::OFFSET_EVENT).', { id: '.$row['node'].', seconds })',
                                             'disabled' => ! $moving,
                                             'disabledWhile' => '$store.rgCommentVotes?.generating',
                                         ])

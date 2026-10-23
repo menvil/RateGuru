@@ -37,8 +37,9 @@ use Illuminate\Validation\ValidationException;
  * votes than a plan may prepare with the post's own: the whole request is
  * refused, keyed by the comment to change, and nothing is cut to fit.
  *
- * Which Persona casts which: drawn in an order fixed by the settings' seed.
- * While the saved votes are preferred, a Persona keeps its saved vote on a
+ * Which Persona casts which: drawn in an order fixed by the settings' seed,
+ * one of its own for each comment, so the votes are shared among the voters
+ * rather than cast by the same few on every comment. While the saved votes are preferred, a Persona keeps its saved vote on a
  * comment as far as the counts allow, and its place among the comment's votes
  * in time; a vote that must change goes first to a Persona already voting on
  * that comment, so its row is changed rather than replaced — and keeps its
@@ -103,10 +104,11 @@ final class BuildStudioDiscussionVotesData
                 continue;
             }
 
-            // Its own Persona never votes on it, and votes on every other comment all the same.
+            // Its own Persona never votes on it, and votes on every other comment all the same. Each comment draws its voters
+            // in an order of its own, so the votes are shared among all the voters rather than the same few on every comment.
             $others = fn (array $ids): array => array_values(array_filter($ids, fn (int $id): bool => $id !== $node->persona_user_id));
             [$assigned, $short] = self::assign(
-                $others($voters),
+                self::drawn($others($voters), $settings->seed, 'voters:'.$node->id),
                 $others($keepers),
                 $saved->where('discussion_node_id', $node->id)
                     ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => (string) $vote->vote_type?->value])

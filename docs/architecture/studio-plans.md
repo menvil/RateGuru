@@ -941,10 +941,11 @@ reads; it shares its draw with the post votes' builder
 - **What:** each Persona votes on a comment once, up or down, so a comment's
   votes need as many of its voters; one Persona votes on as many comments as
   it is given.
-- **Which Persona casts which:** in an order a seed draws. While the saved
-  votes are preferred, a Persona keeps its saved vote on a comment as far as
-  the counts allow, and its place among the comment's votes in time; a new
-  draw prefers nothing.
+- **Which Persona casts which:** in an order a seed draws, one of its own
+  for each comment, so the votes are shared among the voters rather than cast
+  by the same few on every comment. While the saved votes are preferred, a
+  Persona keeps its saved vote on a comment as far as the counts allow, and
+  its place among the comment's votes in time; a new draw prefers nothing.
 - **When:** a comment's votes come one after another from its own moment:
   `offset(i) = comment + first + floor(i × spread / (n − 1))`, seconds after
   the post as every prepared vote is kept, so no vote comes before its

@@ -510,7 +510,9 @@ final class StudioPlanDiscussionVotesEditor extends Component
     /**
      * Another editor on the page drew the plan again at the version it says:
      * taken when this page's part of the plan is as it holds it, the preview
-     * kept; otherwise the votes are drawn again from what is saved.
+     * kept; otherwise the votes are drawn again from what is saved — unless
+     * votes here are not saved, which stay, the conflict said, until Reload
+     * votes.
      */
     #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
     public function followReload(mixed $planId, mixed $current, mixed $source = null): void
@@ -525,6 +527,13 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
         if ($this->holdsAt((int) $current, null)) {
             $this->take((int) $current);
+
+            return;
+        }
+
+        // Votes not saved are never thrown away for another editor's Reload: the notice here asks first.
+        if ($this->drafted() && ! $this->gone) {
+            $this->conflict = true;
 
             return;
         }

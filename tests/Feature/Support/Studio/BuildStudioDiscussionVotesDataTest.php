@@ -99,6 +99,20 @@ it('lets one Persona vote on several comments, once each', function () {
         ->toEqualCanonicalizing([$this->comment->id => 2, $this->reply->id => 2, $this->other->id => 2]);
 });
 
+it('shares the votes among the voters, each comment drawing its own rather than the same few on every comment', function () {
+    $fay = User::factory()->persona()->create(['display_name' => 'Fay']);
+    $comments = collect(range(2, 4))->map(fn (int $order): int => StudioDiscussionNode::factory()->for($this->plan, 'plan')->create(['persona_user_id' => $fay->id, 'offset_seconds' => 300 * $order, 'sort_order' => $order])->id);
+    $build = fn (int $seed): array => builtCommentVotes(buildCommentVotes($this->plan, $comments->mapWithKeys(fn (int $id): array => [$id => [1, 1]])->all(), [
+        'voterMode' => 'manual', 'voterIds' => [$this->anna->id, $this->boris->id, $this->carl->id, $this->dana->id, $this->eli->id], 'seed' => $seed,
+    ]));
+
+    foreach (range(1, 5) as $seed) {
+        expect(collect($build($seed))->pluck('persona')->unique()->count())->toBeGreaterThan(2);
+    }
+
+    expect($build(3))->toBe($build(3));
+});
+
 it('refuses a comment more votes than its voters but its own Persona can give, saying how many short', function () {
     $chosen = ['voterMode' => 'manual', 'voterIds' => [$this->anna->id, $this->dana->id]];
 
