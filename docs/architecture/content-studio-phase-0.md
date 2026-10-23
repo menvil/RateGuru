@@ -1526,8 +1526,48 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   голосует — на вкладке Voters, когда — на Timing. Поле времени — общее с вкладкой
   Timing обсуждения. Подробности — `docs/architecture/studio-plans.md`, «The Post
   votes editor».
-- **Дальше:** действия голосования, их исполнение с историческими датами и снятие
-  временного отказа (MR 6.4).
+- **Выполнено (MR 6.4, действия голосования и их исполнение):** временный отказ
+  (`votes_not_publishable` → `unsupported_votes`) снят. Предпроверка держит голоса тем же,
+  что и `readinessErrors()`: `StudioVoteValidationRules::readinessProblems()` отдаёт
+  каждую проблему стабильным кодом поля `votes` (`votes_too_many`, `vote_shape_invalid`,
+  `vote_persona_deleted`, `vote_persona_not_persona`, `vote_persona_restricted`,
+  `vote_own_content`, `vote_repeated`, `vote_direction_invalid`, `vote_comment_missing`,
+  `vote_timing_invalid`, `vote_date_out_of_range`, `vote_option_unavailable`) с отказом
+  `invalid_votes`. `ApproveStudioPlanAction` блокирует строки `users` администратора,
+  автора, Persona обсуждения и всех голосующих — каждую один раз, по возрастанию ID, — затем
+  план; набор, перечитанный под блокировкой плана, должен совпасть. В той же транзакции —
+  по действию на каждый подготовленный голос: `vote_post` и `vote_rating` под
+  `create_post`, `vote_comment` под действием комментария или ответа (по ID узла);
+  payload — только утверждённое: направление или вариант и группа, `discussion_node_id`,
+  `studio_plan_vote_id`; `occurs_at = post.occurs_at + offset_seconds`, `run_after =
+  max(approved_at, occurs_at)`, порядок записи — момент, `sort_order`, ID голоса. Голоса
+  исполняет тот же `ExecuteStudioAction` (`RUNNABLE` — все виды): цель берётся из
+  результата родителя (пост — из `create_post`, комментарий — из `create_comment`/
+  `create_reply` поста этого же плана); блокировки — действие, Persona (для голоса за
+  пост — и автор поста, `FOR NO KEY UPDATE` на PostgreSQL), план, пост, комментарий; только
+  после них читается фактический голос: нет — `VotePostAction`/`VoteCommentAction`/
+  `VoteRatingOptionAction` ставит его с датой `occurs_at`; такой же — `done` без вызова
+  Action и без расхода лимита, его даты остаются его; противоположный или другой вариант —
+  не снимается и не меняется, действие `failed`, `vote_conflict`. Голос и `done`
+  фиксируются одной транзакцией. Три Action получили необязательный последний параметр
+  `?CarbonImmutable $createdAt` (`CommentVote` — `forceFill()` новой строки, `RatingVote` —
+  обе даты в `upsert`, `created_at` существующего ответа не меняется); его передаёт
+  только исполнитель (`StudioTrustedParametersTest`). Пересчёты — под
+  `Post::withoutTimestamps()`/`Comment::withoutTimestamps()`. Лимит `vote` не обходится:
+  исключения голосования несут типизированную причину и `retryAfterSeconds()`, действие
+  откладывается (`rate_limited`, `deferrals`, `max_deferrals`). Классификация: Limited/
+  Shadowbanned — `held`; Banned, удалённая, не Persona — `cancelled`; пост скрыт/удалён —
+  `post_unavailable`, комментарий — `comment_unavailable`, вариант или группа неактивны —
+  `rating_option_unavailable`; отмена родителя отменяет ветку (`parent_cancelled`).
+  Миграций нет; `content_studio_execution_enabled` по умолчанию выключен. Гонки на
+  PostgreSQL (`StudioExecutorRaceTest`, `StudioPlanRaceTest`): два воркера на голос каждого
+  вида, убитый воркер с записанным голосом, голос рядом с публичным голосом за тот же пост
+  и комментарий, со скрытием поста и комментария, с баном Persona, с архивированием
+  варианта; два утверждения, утверждение и сохранение голосов, утверждение и бан
+  голосующего — без взаимных блокировок. Подробности — `docs/architecture/studio-plans.md`,
+  «Approval», «The votes», «Running a plan» → «Votes».
+- **Phase 6 завершена в коде** (MR 6.1–6.4); на staging не проверена — исполнитель там
+  не включался.
 - **Критерий на staging:** голоса персон вверх и вниз, за комментарии и за варианты
   рейтинга создаются с историческими датами, счётчики и рейтинг корректны, `updated_at`
   поста и комментария остаётся историческим; повтор задания не меняет голос;
