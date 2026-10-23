@@ -13302,7 +13302,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
         $db = Illuminate\Support\Facades\DB::connection();
         $peer = $label === 'a' ? 'b' : 'a';
         $pid = (int) $db->selectOne('select pg_backend_pid() as pid')->pid;
-        file_put_contents("{$barrierDir}/pid-{$label}", (string) $pid);
+        // Written whole, then put in place: a file being written is there, empty, before its pid is, and a
+        // competitor reading it then would watch backend 0 wait for it, never this one.
+        file_put_contents("{$barrierDir}/pid-{$label}.part", (string) $pid);
+        rename("{$barrierDir}/pid-{$label}.part", "{$barrierDir}/pid-{$label}");
 
         $await = static function (Closure $arrived, string $failure): void {
             $deadline = microtime(true) + 20;
