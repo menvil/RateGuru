@@ -7,9 +7,10 @@ namespace App\Data\Studio;
  * votes — `random`, as many Personas as `voterCount` drawn from the active
  * ones, or `manual`, the ones chosen in `voterIds` — how many vote the post
  * up and down, how many answers each rating question gets to each of its
- * options, and when, relative to the post: the first after `…FirstSeconds`,
- * the rest spread over `…SpreadSeconds` — but a vote given a moment of its
- * own (`postMoments`, by Persona, in seconds after the post) comes then.
+ * options, and when the voters come, relative to the post: the first after
+ * `firstSeconds`, the rest spread over `spreadSeconds`, each casting all its
+ * votes in one visit — but a vote given a moment of its own (`postMoments`,
+ * by Persona, in seconds after the post) comes then.
  *
  * `seed` fixes every draw made of it, so the same settings give the same
  * votes; a new one is a new draw. `keepSaved` prefers the votes a plan has
@@ -32,8 +33,8 @@ final readonly class StudioPostVotesSettings
         public array $voterIds = [],
         public int $up = 0,
         public int $down = 0,
-        public int $postFirstSeconds = 300,
-        public int $postSpreadSeconds = 86_400,
+        public int $firstSeconds = 300,
+        public int $spreadSeconds = 86_400,
         public array $postMoments = [],
         public array $ratings = [],
         public int $seed = 1,

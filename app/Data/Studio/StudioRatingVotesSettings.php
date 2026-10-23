@@ -4,9 +4,9 @@ namespace App\Data\Studio;
 
 /**
  * How many answers one rating question is to get, to each of its options —
- * an option no longer open only as many as it had saved — and when: the
- * first `firstSeconds` after the post, the rest spread over `spreadSeconds`
- * — but an answer given a moment of its own (`moments`) comes then.
+ * an option no longer open only as many as it had saved. Each comes in its
+ * voter's visit (StudioPostVotesSettings), but an answer given a moment of
+ * its own (`moments`) comes then.
  */
 final readonly class StudioRatingVotesSettings
 {
@@ -17,8 +17,6 @@ final readonly class StudioRatingVotesSettings
     public function __construct(
         public int $groupId,
         public array $counts = [],
-        public int $firstSeconds = 600,
-        public int $spreadSeconds = 172_800,
         public array $moments = [],
     ) {}
 

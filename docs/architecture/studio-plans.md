@@ -695,8 +695,9 @@ What is on it, as the prototype lays it out:
   total kept. The author's own answers (`authorAnswerOptionIds`) are a field
   of the post, not these. *Voters*: every voter with its post vote and its
   answer to each question, All, Voting or Not used, and Reshuffle. *Timing*:
-  for the votes on the post and for each question, First vote (or answer)
-  after and Spread over — 5 min to 1 day, and 1 h to 1 week — then every
+  when the voters come — First vote after and Spread over, 5 min to 1 day and
+  1 h to 1 week, one pair for all of them: each voter comes once, votes on
+  the post, then answers the questions a minute or two apart — then every
   vote: Persona, When, on what, which way or which answer, and what keeps it
   from being cast now (`readinessErrors()`). A vote's When is changed in
   place, in minutes, hours or days after the post.
@@ -717,15 +718,15 @@ the version the save is checked against, and kept as they are — a comment the
 discussion deleted meanwhile, with its votes, is not put back.
 
 A vote's moment set by hand — never before the post, nor more than thirty
-days after — is saved at once, the target's other votes keeping the moments
-they have: from then on they keep them, a vote added comes in the spread, and
-First vote after or Spread over spaces them all evenly again ("Set by hand"
-says which targets keep moments of their own).
+days after — is saved at once, every other vote keeping the moment it has:
+from then on they keep them, a vote added comes in its voter's visit, and
+First vote after or Spread over lays them all out again ("Set by hand" says
+the votes keep moments of their own).
 
 Opened again, the editor draws the votes as saved: how many vote the post up
 and down, the Personas — as chosen by hand, the ones the votes have — the
 answers to each option, and when, the first vote and the spread to the last,
-and each vote's own moment when any came away from its place in that spread.
+and each vote's own moment when any came away from its place in that layout.
 How they were drawn is not kept, and not pretended to be. The strip under the
 card says what is saved, and how many votes can't be cast now. A Persona
 Limited, Shadowbanned, Banned or deleted since stays in the saved votes, with
@@ -752,12 +753,16 @@ votes on the post and its rating questions and only reads:
   vote that has to change goes first to a Persona already voting on that
   target, so its row is changed rather than replaced; a new draw prefers
   nothing.
-- **When:** within each target, the votes come one after another, the first
-  after its First moment and the last after the spread:
-  `offset(i) = first + floor(i × spread / (n − 1))`, `i = 0 … n − 1`; one vote
-  comes at the first moment; a vote whose Persona has a moment of its own on
-  the target (`postMoments`, a question's `moments`) comes then, keeping its
-  place in the order; equal moments keep the order drawn (`sort_order`).
+- **When:** every voter comes once and casts all its votes then — on the
+  post first, then the answers in the questions' order, each 1, 2 or 3
+  minutes after the one before (`visitSteps()`, the same for the same
+  Persona, so a layout saved is read back as one). The voters come one after
+  another, the first after First vote after and the last after the spread:
+  `visit(i) = first + floor(i × spread / (n − 1))`, `i = 0 … n − 1`; one
+  voter comes at the first moment; while the saved votes are preferred, the
+  voters who had votes come in the order they came. A vote whose Persona has a
+  moment of its own on the target (`postMoments`, a question's `moments`)
+  comes then; equal moments keep the order drawn (`sort_order`).
 - **Ids:** a vote that is a saved one's Persona and target again keeps that
   vote's id, whatever changed of its way, option or moment.
 - **Refused, whole:** too few Personas, an option that is not the question's or
@@ -790,6 +795,9 @@ category or author.
 - As in the prototype, the votes change as each setting moves; here each
   change is saved at once, a change that can't be made is said and saves
   nothing, and each vote's moment can be set by hand.
+- The prototype times the votes on the post and each question's answers
+  apart; here one pair times the voters' visits, so a Persona's vote and
+  answers come a minute or two apart, as one visitor's would.
 - The prototype lowers the votes to fit fewer voters; here the shortfall is
   said and nothing is lowered.
 - The prototype's closed questions (not shown under a post) have no

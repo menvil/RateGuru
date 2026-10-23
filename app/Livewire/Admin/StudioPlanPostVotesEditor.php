@@ -69,10 +69,8 @@ final class StudioPlanPostVotesEditor extends Component
     /** How long the votes may be spread over, in seconds. */
     public const SPREAD_CHOICES = [3600 => '1 h', 21600 => '6 h', 86400 => '1 day', 172800 => '2 days', 604800 => '1 week'];
 
-    /** When the votes on the post, and the answers, come by default. */
-    private const POST_TIMING = [300, 86400];
-
-    private const RATING_TIMING = [600, 172800];
+    /** When the voters come by default: the first after, and how long they are spread over, in seconds. */
+    private const TIMING = [300, 86400];
 
     /** How many voters a random draw starts with, at most. */
     private const DEFAULT_VOTERS = 20;
@@ -115,12 +113,15 @@ final class StudioPlanPostVotesEditor extends Component
 
     public int $down = 0;
 
-    /** When the first vote on the post comes, and how long they are spread over, in seconds. */
+    /**
+     * When the first voter comes, and how long they are spread over, in
+     * seconds: each votes on the post and answers the questions in one visit.
+     */
     #[Locked]
-    public int $postFirst = 300;
+    public int $firstAfter = 300;
 
     #[Locked]
-    public int $postSpread = 86400;
+    public int $spreadOver = 86400;
 
     /**
      * The votes on the post given a moment of their own, by Persona: seconds
@@ -132,11 +133,11 @@ final class StudioPlanPostVotesEditor extends Component
     public array $postMoments = [];
 
     /**
-     * Each rating question: how many answers each option gets, when, and the
+     * Each rating question: how many answers each option gets, and the
      * answers given a moment of their own, by Persona. An active question is
      * always one to answer, as it is under every post on the site.
      *
-     * @var array<int, array{counts: array<int, int>, first: int, spread: int, moments: array<int, int>}>
+     * @var array<int, array{counts: array<int, int>, moments: array<int, int>}>
      */
     #[Locked]
     public array $ratings = [];
@@ -347,45 +348,32 @@ final class StudioPlanPostVotesEditor extends Component
 
     /**
      * First vote after, and Spread over: one of the moments offered, or the
-     * one it has — the target's votes spread evenly again, none at a moment of
-     * its own.
+     * one it has — the voters spread evenly again, no vote at a moment of its
+     * own.
      */
-    public function setTiming(mixed $block, mixed $field, mixed $seconds): void
+    public function setTiming(mixed $field, mixed $seconds): void
     {
         if (! is_numeric($seconds) || ! in_array($field, ['first', 'spread'], true)) {
             return;
         }
 
         $seconds = (int) $seconds;
-        $offered = array_keys($field === 'first' ? self::FIRST_CHOICES : self::SPREAD_CHOICES);
+        $current = $field === 'first' ? $this->firstAfter : $this->spreadOver;
 
-        if ($block === 'post') {
-            $current = $field === 'first' ? $this->postFirst : $this->postSpread;
-
-            if (in_array($seconds, [...$offered, $current], true)) {
-                $field === 'first' ? $this->postFirst = $seconds : $this->postSpread = $seconds;
-                $this->postMoments = [];
-                $this->commit();
-            }
-
+        if (! in_array($seconds, [...array_keys($field === 'first' ? self::FIRST_CHOICES : self::SPREAD_CHOICES), $current], true)) {
             return;
         }
 
-        $group = (int) $block;
-
-        if (isset($this->ratings[$group]) && in_array($seconds, [...$offered, $this->ratings[$group][$field]], true)) {
-            $this->ratings[$group][$field] = $seconds;
-            $this->ratings[$group]['moments'] = [];
-            $this->commit();
-        }
+        $field === 'first' ? $this->firstAfter = $seconds : $this->spreadOver = $seconds;
+        $this->clearMoments();
+        $this->commit();
     }
 
     /**
      * A vote's moment, set by hand on the Timing tab: in seconds after the
-     * post, never before it nor more than thirty days after. The target's
-     * other votes keep the moments they have; a vote added to it later comes
-     * in the spread, and First vote after or Spread over spreads them all
-     * again.
+     * post, never before it nor more than thirty days after. Every other vote
+     * keeps the moment it has; a vote added later comes in its voter's visit,
+     * and First vote after or Spread over lays them all out again.
      */
     public function setMoment(mixed $target, mixed $persona, mixed $seconds): void
     {
@@ -396,10 +384,10 @@ final class StudioPlanPostVotesEditor extends Component
             return;
         }
 
-        $offsets = self::offsetsOn(self::postVotesOf($plan), $group);
+        $saved = self::postVotesOf($plan);
         [$persona, $seconds] = [(int) $persona, (int) $seconds];
 
-        if (! isset($offsets[$persona])) {
+        if (! isset(self::offsetsOn($saved, $group)[$persona])) {
             return;
         }
 
@@ -409,9 +397,19 @@ final class StudioPlanPostVotesEditor extends Component
             return;
         }
 
-        $offsets[$persona] = $seconds;
-        ksort($offsets);
-        $group === null ? $this->postMoments = $offsets : $this->ratings[$group]['moments'] = $offsets;
+        $this->postMoments = self::offsetsOn($saved, null);
+
+        foreach (array_keys($this->ratings) as $question) {
+            $this->ratings[$question]['moments'] = self::offsetsOn($saved, $question);
+        }
+
+        $group === null ? $this->postMoments[$persona] = $seconds : $this->ratings[$group]['moments'][$persona] = $seconds;
+        ksort($this->postMoments);
+
+        foreach (array_keys($this->ratings) as $question) {
+            ksort($this->ratings[$question]['moments']);
+        }
+
         $this->commit();
     }
 
@@ -471,12 +469,7 @@ final class StudioPlanPostVotesEditor extends Component
 
         $this->seed = random_int(1, 2_147_483_647);
         $this->keepSaved = false;
-        $this->postMoments = [];
-
-        foreach (array_keys($this->ratings) as $group) {
-            $this->ratings[$group]['moments'] = [];
-        }
-
+        $this->clearMoments();
         $this->commit();
     }
 
@@ -626,7 +619,7 @@ final class StudioPlanPostVotesEditor extends Component
             'chosen' => array_map(fn (int $id): array => StudioPlanFormat::author($people->get($id)) ?? ['id' => $id, 'name' => 'Deleted user', 'username' => null, 'avatar' => null, 'initials' => '', 'status' => null, 'problem' => 'deleted'], $this->voterMode === 'manual' ? $this->voterIds : []),
             'rows' => $rows,
             'voterTable' => $this->voterTable($saved, $voterIds, $people, $questions),
-            'timing' => $this->timingBlocks($questions, $rows),
+            'timing' => $this->timing($rows),
         ]);
     }
 
@@ -665,11 +658,12 @@ final class StudioPlanPostVotesEditor extends Component
         $this->up = count(array_filter($post, fn (array $vote): bool => $vote['voteType'] === 'up'));
         $this->down = count($post) - $this->up;
         $this->postOn = $post !== [];
-        [$this->postFirst, $this->postSpread, $this->postMoments] = self::timingOf(self::offsetsOn($saved, null), self::POST_TIMING);
-
+        $questions = $this->questions($saved);
+        [$this->firstAfter, $this->spreadOver, $moments] = self::timingOf($saved, [null, ...array_column($questions, 'id')]);
+        $this->postMoments = $moments[0];
         $this->ratings = [];
 
-        foreach ($this->questions($saved) as $question) {
+        foreach ($questions as $place => $question) {
             $answers = array_values(array_filter($saved, fn (array $vote): bool => $vote['ratingGroupId'] === $question['id']));
             $counts = [];
 
@@ -677,8 +671,7 @@ final class StudioPlanPostVotesEditor extends Component
                 $counts[$option['id']] = count(array_filter($answers, fn (array $vote): bool => $vote['ratingOptionId'] === $option['id']));
             }
 
-            [$first, $spread, $moments] = self::timingOf(self::offsetsOn($saved, $question['id']), self::RATING_TIMING);
-            $this->ratings[$question['id']] = ['counts' => $counts, 'first' => $first, 'spread' => $spread, 'moments' => $moments];
+            $this->ratings[$question['id']] = ['counts' => $counts, 'moments' => $moments[$place + 1]];
         }
 
         $voters = $this->savedVoters($saved);
@@ -827,7 +820,7 @@ final class StudioPlanPostVotesEditor extends Component
         $ratings = [];
 
         foreach ($this->ratings as $group => $rating) {
-            $ratings[$group] = new StudioRatingVotesSettings((int) $group, $rating['counts'], $rating['first'], $rating['spread'], $rating['moments']);
+            $ratings[$group] = new StudioRatingVotesSettings((int) $group, $rating['counts'], $rating['moments']);
         }
 
         return new StudioPostVotesSettings(
@@ -836,8 +829,8 @@ final class StudioPlanPostVotesEditor extends Component
             voterIds: $this->voterIds,
             up: $this->postOn ? $this->up : 0,
             down: $this->postOn ? $this->down : 0,
-            postFirstSeconds: $this->postFirst,
-            postSpreadSeconds: $this->postSpread,
+            firstSeconds: $this->firstAfter,
+            spreadSeconds: $this->spreadOver,
             postMoments: $this->postMoments,
             ratings: $ratings,
             seed: $this->seed ?? 1,
@@ -850,8 +843,8 @@ final class StudioPlanPostVotesEditor extends Component
     {
         return hash('xxh3', json_encode([
             $this->voterMode, $this->voterMode === 'manual' ? $this->voterIds : $this->voterCount,
-            $this->postOn ? [$this->up, $this->down, $this->postFirst, $this->postSpread, $this->postMoments] : null,
-            $this->ratings, $this->seed,
+            $this->postOn ? [$this->up, $this->down, $this->postMoments] : null,
+            $this->ratings, $this->firstAfter, $this->spreadOver, $this->seed,
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -1057,15 +1050,13 @@ final class StudioPlanPostVotesEditor extends Component
     }
 
     /**
-     * The Timing tab's blocks: the votes on the post, then each question,
-     * each with when its votes come as saved, the moments offered and the
-     * one it has, and whether a vote of it has a moment of its own.
+     * The Timing tab's head: when the voters come as saved, the moments
+     * offered and the ones chosen, and whether a vote has a moment of its own.
      *
-     * @param  list<array<string, mixed>>  $questions
      * @param  list<array<string, mixed>>  $rows
-     * @return list<array<string, mixed>>
+     * @return array<string, mixed>
      */
-    private function timingBlocks(array $questions, array $rows): array
+    private function timing(array $rows): array
     {
         $chips = function (array $offered, int $value): array {
             $offered[$value] ??= StudioPlanDiscussionEditor::relative($value);
@@ -1073,28 +1064,15 @@ final class StudioPlanPostVotesEditor extends Component
 
             return array_map(fn (int $seconds, string $label): array => ['seconds' => $seconds, 'label' => $label, 'on' => $seconds === $value], array_keys($offered), $offered);
         };
-        $block = function (string $key, string $label, string $first, string $noun, bool $on, int $firstSeconds, int $spreadSeconds, array $moments) use ($chips, $rows): array {
-            $offsets = array_column(array_filter($rows, fn (array $row): bool => $row['block'] === $key), 'offset');
+        $offsets = array_column($rows, 'offset');
+        $voters = count(array_unique(array_column($rows, 'personaId')));
 
-            return [
-                'key' => $key, 'label' => $label, 'firstLabel' => $first, 'on' => $on,
-                'meta' => $offsets === [] ? 'None saved' : count($offsets).' '.$noun.' · first '.StudioPlanDiscussionEditor::relative(min($offsets)).' after, last '.StudioPlanDiscussionEditor::relative(max($offsets)).' after',
-                'first' => $chips(self::FIRST_CHOICES, $firstSeconds), 'spread' => $chips(self::SPREAD_CHOICES, $spreadSeconds),
-                'byHand' => $moments !== [],
-            ];
-        };
-
-        $blocks = [$block('post', 'Up and down votes', 'First vote after', 'votes', $this->postOn, $this->postFirst, $this->postSpread, $this->postMoments)];
-
-        foreach ($questions as $question) {
-            $rating = $this->ratings[$question['id']] ?? null;
-
-            if ($rating !== null) {
-                $blocks[] = $block((string) $question['id'], $question['label'], 'First answer after', 'answers', array_sum($rating['counts']) > 0, $rating['first'], $rating['spread'], $rating['moments']);
-            }
-        }
-
-        return $blocks;
+        return [
+            'meta' => $offsets === [] ? 'None saved' : $voters.' '.($voters === 1 ? 'voter' : 'voters').' · first '.StudioPlanDiscussionEditor::relative(min($offsets)).' after, last '.StudioPlanDiscussionEditor::relative(max($offsets)).' after',
+            'first' => $chips(self::FIRST_CHOICES, $this->firstAfter),
+            'spread' => $chips(self::SPREAD_CHOICES, $this->spreadOver),
+            'byHand' => $this->postMoments !== [] || array_filter(array_column($this->ratings, 'moments')) !== [],
+        ];
     }
 
     /**
@@ -1137,35 +1115,61 @@ final class StudioPlanPostVotesEditor extends Component
     }
 
     /**
-     * When a target's saved votes come: the first, how long after it the
-     * last, and — when any comes away from its place in that spread — the
-     * moment of each, so a vote set by hand keeps its own and the rest keep
-     * theirs.
+     * When the saved votes come: the first voter's visit, how long after it
+     * the last's, and — when any vote comes away from its place in that
+     * layout (BuildStudioPostVotesData) — the moment of every vote, by
+     * target, so one set by hand keeps its own and the rest keep theirs.
      *
-     * @param  array<int, int>  $offsets  by Persona
-     * @param  array{0: int, 1: int}  $default
-     * @return array{0: int, 1: int, 2: array<int, int>}
+     * @param  list<array<string, mixed>>  $saved
+     * @param  list<int|null>  $targets  the post (null), then the questions, in the order a visit takes them
+     * @return array{0: int, 1: int, 2: list<array<int, int>>} the moments by target, as `$targets` lists them
      */
-    private static function timingOf(array $offsets, array $default): array
+    private static function timingOf(array $saved, array $targets): array
     {
-        if ($offsets === []) {
-            return [...$default, []];
-        }
+        $byTarget = array_map(fn (?int $group): array => self::offsetsOn($saved, $group), $targets);
+        $visits = [];
 
-        $order = array_keys($offsets);
-        usort($order, fn (int $a, int $b): int => [$offsets[$a], $a] <=> [$offsets[$b], $b]);
-        $first = min($offsets);
-        $spread = count($offsets) > 1 ? max($offsets) - $first : $default[1];
-
-        foreach ($order as $place => $persona) {
-            if ($offsets[$persona] !== $first + (count($order) > 1 ? intdiv($place * $spread, count($order) - 1) : 0)) {
-                ksort($offsets);
-
-                return [$first, $spread, $offsets];
+        foreach ($byTarget as $offsets) {
+            foreach ($offsets as $persona => $offset) {
+                $visits[$persona][] = $offset;
             }
         }
 
-        return [$first, $spread, []];
+        if ($visits === []) {
+            return [...self::TIMING, array_map(fn (): array => [], $targets)];
+        }
+
+        $came = array_map(fn (array $offsets): int => $offsets[0], $visits);
+        $order = array_keys($came);
+        usort($order, fn (int $a, int $b): int => [$came[$a], $a] <=> [$came[$b], $b]);
+        $first = min($came);
+        $spread = count($came) > 1 ? max($came) - $first : self::TIMING[1];
+
+        foreach ($order as $place => $persona) {
+            $visit = $first + (count($order) > 1 ? intdiv($place * $spread, count($order) - 1) : 0);
+
+            foreach (BuildStudioPostVotesData::visitSteps($persona, count($visits[$persona])) as $step => $after) {
+                if ($visits[$persona][$step] !== $visit + $after) {
+                    return [$first, $spread, array_map(function (array $offsets): array {
+                        ksort($offsets);
+
+                        return $offsets;
+                    }, $byTarget)];
+                }
+            }
+        }
+
+        return [$first, $spread, array_map(fn (): array => [], $targets)];
+    }
+
+    /** No vote at a moment of its own: each in its voter's visit again. */
+    private function clearMoments(): void
+    {
+        $this->postMoments = [];
+
+        foreach (array_keys($this->ratings) as $group) {
+            $this->ratings[$group]['moments'] = [];
+        }
     }
 
     /**

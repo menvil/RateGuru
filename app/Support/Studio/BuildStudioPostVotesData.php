@@ -47,16 +47,19 @@ use Illuminate\Validation\ValidationException;
  * first to a Persona already voting on that target, so its row is changed
  * rather than replaced.
  *
- * When: within each target — the post, or one question — the votes are cast
- * one after another in a drawn order, the first `firstSeconds` after the
- * post and the last `spreadSeconds` later:
+ * When: every voter comes once, and casts all its votes then — on the post
+ * first, then the answers in the questions' order, each a little after the
+ * one before (visitSteps(): 1 to 3 min, the same for the same Persona). The
+ * voters come one after another in a drawn order, the first `firstSeconds`
+ * after the post and the last `spreadSeconds` later:
  *
- *     offset(i) = first + floor(i * spread / (n - 1)),  i = 0 … n − 1
+ *     visit(i) = first + floor(i * spread / (n - 1)),  i = 0 … n − 1
  *
- * A vote whose Persona has a moment of its own on the target (`postMoments`,
- * a question's `moments`) comes then instead, keeping its place in the order.
- * Votes of one moment keep that order (`sort_order`). Each vote that is a
- * saved one's Persona and target again keeps that vote's id.
+ * While the saved votes are preferred, the voters who had votes come in the
+ * order they came. A vote whose Persona has a moment of its own on the target
+ * (`postMoments`, a question's `moments`) comes then instead. Votes of one
+ * moment keep that order (`sort_order`). Each vote that is a saved one's
+ * Persona and target again keeps that vote's id.
  */
 final class BuildStudioPostVotesData
 {
@@ -68,7 +71,7 @@ final class BuildStudioPostVotesData
     ) {}
 
     /**
-     * @throws ValidationException keyed by what to change: `voterCount`, `voters`, `up`, `down`, `post`, `ratings.{group}`, `timing.post`, `timing.{group}`, `votes`
+     * @throws ValidationException keyed by what to change: `voterCount`, `voters`, `up`, `down`, `post`, `ratings.{group}`, `timing`, `votes`
      */
     public function handle(StudioPlan $plan, StudioPostVotesSettings $settings): BuiltStudioPostVotes
     {
@@ -91,10 +94,13 @@ final class BuildStudioPostVotesData
                 $errors[$block['field']] ??= $block['label'].' need '.$need.' '.($need === 1 ? 'persona' : 'personas').' who can vote; '
                     .($need - $short).' '.($need - $short === 1 ? 'is' : 'are').' chosen — '.$short.' short. Choose more personas, or ask for fewer.';
             }
-
-            $blocks[$index]['offsets'] = self::offsets($blocks[$index], $settings->seed, $settings->keepSaved);
-            $errors += self::timingErrors($plan, $blocks[$index]);
         }
+
+        foreach (self::moments($blocks, $settings) as $index => $offsets) {
+            $blocks[$index]['offsets'] = $offsets;
+        }
+
+        $errors += self::timingErrors($plan, $blocks, $settings);
 
         $comments = StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->where('type', StudioActionType::VoteComment)->count();
         $total = $comments + array_sum(array_map(fn (array $block): int => array_sum($block['slots']), $blocks));
@@ -166,8 +172,6 @@ final class BuildStudioPostVotesData
                 ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
                 ->all(),
             'moments' => $settings->postMoments,
-            'first' => $settings->postFirstSeconds,
-            'spread' => $settings->postSpreadSeconds,
         ];
     }
 
@@ -236,8 +240,6 @@ final class BuildStudioPostVotesData
                     ->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->persona_user_id => $vote->offset_seconds])
                     ->all(),
                 'moments' => $rating->moments,
-                'first' => $rating->firstSeconds,
-                'spread' => $rating->spreadSeconds,
             ];
         }
 
@@ -245,52 +247,90 @@ final class BuildStudioPostVotesData
     }
 
     /**
-     * When each of a target's votes comes, by Persona, in the order they come
-     * there: a moment of its own, or its place in the spread.
+     * How long after a voter's first vote each of its votes comes, when it
+     * casts `$count` in one visit: the first at once, each next one 1, 2 or
+     * 3 minutes after the one before — the same steps for the same Persona,
+     * so the votes saved can be read back as laid out.
      *
-     * @param  array<string, mixed>  $block
-     * @return array<int, int>
+     * @return list<int>
      */
-    private static function offsets(array $block, int $seed, bool $keep): array
+    public static function visitSteps(int $persona, int $count): array
     {
-        /** @var array<int, string> $assigned */
-        $assigned = $block['assigned'];
-        /** @var array<int, int> $moments */
-        $moments = $block['moments'];
-        $order = self::timeOrder(array_keys($assigned), $block['savedAt'], $keep, $seed, $block['key']);
+        $steps = [];
+
+        for ($step = 0, $after = 0; $step < $count; $step++) {
+            $after += $step === 0 ? 0 : 60 * (1 + hexdec(substr(hash('xxh3', "visit|{$persona}|{$step}"), 0, 6)) % 3);
+            $steps[] = $after;
+        }
+
+        return $steps;
+    }
+
+    /**
+     * When each vote comes, by target and Persona: each voter at its visit —
+     * its place in the spread — casting its votes in the targets' order, one
+     * visit step apart; a vote with a moment of its own then instead.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     * @return array<int, array<int, int>> by target, each by Persona in the order the voters come
+     */
+    private static function moments(array $blocks, StudioPostVotesSettings $settings): array
+    {
+        $visits = [];
+        $came = [];
+
+        foreach ($blocks as $index => $block) {
+            /** @var array<int, string> $assigned */
+            $assigned = $block['assigned'];
+            /** @var array<int, int> $savedAt */
+            $savedAt = $block['savedAt'];
+
+            foreach (array_keys($assigned) as $persona) {
+                $visits[$persona][] = $index;
+            }
+
+            foreach ($savedAt as $persona => $offset) {
+                $came[$persona] = min($came[$persona] ?? PHP_INT_MAX, $offset);
+            }
+        }
+
+        $order = self::timeOrder(array_keys($visits), $came, $settings->keepSaved, $settings->seed, 'visits');
         $count = count($order);
-        $offsets = [];
+        $offsets = array_fill_keys(array_keys($blocks), []);
 
         foreach ($order as $place => $persona) {
-            $offsets[$persona] = $moments[$persona] ?? (int) $block['first'] + ($count > 1 ? intdiv($place * (int) $block['spread'], $count - 1) : 0);
+            $visit = $settings->firstSeconds + ($count > 1 ? intdiv($place * $settings->spreadSeconds, $count - 1) : 0);
+
+            foreach (self::visitSteps($persona, count($visits[$persona])) as $step => $after) {
+                $index = $visits[$persona][$step];
+                $offsets[$index][$persona] = $blocks[$index]['moments'][$persona] ?? $visit + $after;
+            }
         }
 
         return $offsets;
     }
 
     /**
-     * Whether a target's votes fit their moments: from the post's own to
-     * thirty days after it, the last no later than the dates a post may carry.
+     * Whether the votes fit their moments: from the post's own to thirty days
+     * after it, the last no later than the dates a post may carry.
      *
-     * @param  array<string, mixed>  $block
+     * @param  list<array<string, mixed>>  $blocks
      * @return array<string, string>
      */
-    private static function timingErrors(StudioPlan $plan, array $block): array
+    private static function timingErrors(StudioPlan $plan, array $blocks, StudioPostVotesSettings $settings): array
     {
-        /** @var array<int, int> $offsets */
-        $offsets = $block['offsets'];
+        $offsets = array_merge(...array_map(fn (array $block): array => array_values($block['offsets']), $blocks));
 
         if ($offsets === []) {
             return [];
         }
 
         $last = max($offsets);
-        $field = $block['key'] === 'post' ? 'timing.post' : 'timing.'.$block['group'];
 
         return match (true) {
-            (int) $block['first'] < 0, (int) $block['spread'] < 0, min($offsets) < 0 => [$field => 'Nothing can arrive before the post.'],
-            $last > StudioVoteValidationRules::LATEST_OFFSET_SECONDS => [$field => $block['label'].' would end more than 30 days after the post. Start sooner, or spread them over less time.'],
-            ! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $last) => [$field => $block['label'].' would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.'],
+            $settings->firstSeconds < 0, $settings->spreadSeconds < 0, min($offsets) < 0 => ['timing' => 'Nothing can arrive before the post.'],
+            $last > StudioVoteValidationRules::LATEST_OFFSET_SECONDS => ['timing' => 'The votes and answers would end more than 30 days after the post. Start sooner, or spread them over less time.'],
+            ! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $last) => ['timing' => 'The votes and answers would end after 2038, past the latest date a post may carry. Start sooner, or spread them over less time.'],
             default => [],
         };
     }

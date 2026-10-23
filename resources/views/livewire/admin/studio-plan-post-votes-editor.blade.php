@@ -235,34 +235,31 @@
                     <div class="rg-admin-studio__votes-body">
                         <p class="rg-admin-hint">Counted from the moment the post is published. Nothing can arrive before it. Comments have their own timing in Discussion.</p>
                         <div class="rg-admin-studio__votes-blocks">
-                            @foreach ($timing as $block)
-                                <div @class(['rg-admin-studio__votes-block', 'rg-admin-studio__votes-block--off' => ! $block['on']]) wire:key="votes-timing-{{ $block['key'] }}">
-                                    <div class="rg-admin-studio__votes-block-head">
-                                        <span class="rg-admin-studio__persona-name">{{ $block['label'] }}</span>
-                                        <span class="rg-admin-studio__muted">{{ $block['meta'] }}</span>
-                                        @if ($block['byHand'])
-                                            <x-admin.ui.badge tone="outline">Set by hand</x-admin.ui.badge>
-                                        @endif
-                                    </div>
-                                    @if ($block['on'])
-                                        @foreach (['first' => $block['firstLabel'], 'spread' => 'Spread over'] as $field => $label)
-                                            <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $block['label'] }}: {{ $label }}">
-                                                <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
-                                                @foreach ($block[$field] as $chip)
-                                                    <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $block['key'] }}', '{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
-                                                @endforeach
-                                            </div>
-                                        @endforeach
-                                        @error('timing.'.$block['key'])
-                                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                                        @enderror
+                            <div class="rg-admin-studio__votes-block">
+                                <div class="rg-admin-studio__votes-block-head">
+                                    <span class="rg-admin-studio__persona-name">Voters come</span>
+                                    <span class="rg-admin-studio__muted">{{ $timing['meta'] }}</span>
+                                    @if ($timing['byHand'])
+                                        <x-admin.ui.badge tone="outline">Set by hand</x-admin.ui.badge>
                                     @endif
                                 </div>
-                            @endforeach
+                                <p class="rg-admin-hint">Each voter comes once: votes on the post, then answers the questions, a minute or two apart.</p>
+                                @foreach (['first' => 'First vote after', 'spread' => 'Spread over'] as $field => $label)
+                                    <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $label }}">
+                                        <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
+                                        @foreach ($timing[$field] as $chip)
+                                            <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
+                                        @endforeach
+                                    </div>
+                                @endforeach
+                                @error('timing')
+                                    <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                                @enderror
+                            </div>
                         </div>
                         <div class="rg-admin-studio__votes-block-head">
                             <span class="rg-admin-studio__persona-name">Every vote</span>
-                            <span class="rg-admin-studio__muted">{{ $savedCount }} {{ $savedCount === 1 ? 'vote' : 'votes' }} · relative to publication · a moment changed here is saved at once and kept until First vote after or Spread over spaces the votes evenly again</span>
+                            <span class="rg-admin-studio__muted">{{ $savedCount }} {{ $savedCount === 1 ? 'vote' : 'votes' }} · relative to publication · a moment changed here is saved at once, and every vote keeps its own until First vote after or Spread over lays them out again</span>
                         </div>
                         @include('livewire.admin.studio-plan-post-votes-table', ['rows' => $rows, 'editable' => $editable])
                     </div>
@@ -287,7 +284,7 @@
                                         <span class="rg-admin-studio__muted">{{ $postTotal }} of {{ $voters }} post voters · {{ $postTotal }} different personas</span>
                                     </div>
                                 </div>
-                                <p class="rg-admin-hint rg-admin-studio__votes-pad">Each vote is a different post voter’s, drawn at random from the {{ $voters }} on the left: who votes which way is on the Voters tab. The first comes {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($postFirst) }} after the post and the rest are spread over {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($postSpread) }} — each vote’s moment is on the Timing tab, to change by hand.</p>
+                                <p class="rg-admin-hint rg-admin-studio__votes-pad">Each vote is a different post voter’s, drawn at random from the {{ $voters }} on the left: who votes which way is on the Voters tab. Each voter comes once, votes on the post and answers the questions a minute or two apart; the first comes {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($firstAfter) }} after the post and the rest are spread over {{ \App\Livewire\Admin\StudioPlanDiscussionEditor::relative($spreadOver) }} — each vote’s moment is on the Timing tab, to change by hand.</p>
                                 @error('post')
                                     <p class="rg-admin-error rg-admin-studio__votes-pad"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
                                 @enderror

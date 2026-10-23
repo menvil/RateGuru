@@ -439,7 +439,7 @@ it('moves the version once for a save, which every other editor on the page take
 
     $page->assertSet('stale', false)->assertSet('postTitle', 'Typed, not saved')->call('save')->assertDispatched('rg-admin-toast', message: 'Draft saved')
         ->assertDispatched(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor');
-    $postVotes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor')->assertSet('conflict', false)->call('setTiming', 'post', 'first', 300)->assertHasNoErrors();
+    $postVotes->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 4, current: 5, source: 'editor')->assertSet('conflict', false)->call('setTiming', 'first', 300)->assertHasNoErrors();
 
     expect($this->plan->fresh()->lock_version)->toBe(6)
         ->and(savedCommentVotes($this->plan))->toHaveCount(4)

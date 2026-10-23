@@ -14,6 +14,7 @@ use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
 use App\Models\User;
+use App\Support\Studio\BuildStudioPostVotesData;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
@@ -138,14 +139,14 @@ it('draws again only when asked: Pick others makes another draw, saved at once',
 it('draws the votes again from what is saved when opened again: counts, Personas, answers and times', function () {
     postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 2)->set('down', 1)
         ->call('setRatingTotal', $this->group->id, 3)
-        ->call('setTiming', 'post', 'first', 1800)->call('setTiming', 'post', 'spread', 21600)->assertHasNoErrors();
+        ->call('setTiming', 'first', 1800)->call('setTiming', 'spread', 21600)->assertHasNoErrors();
     $saved = savedPostVotes($this->plan);
     $voters = array_values(array_unique(array_column($saved, 0)));
     $ratingCounts = StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->countBy()->all();
 
     postVotesEditor($this->plan)
         ->assertSet('postOn', true)->assertSet('up', 2)->assertSet('down', 1)
-        ->assertSet('postFirst', 1800)->assertSet('postSpread', 21600)->assertSet('postMoments', [])
+        ->assertSet('firstAfter', 1800)->assertSet('spreadOver', 21600)->assertSet('postMoments', [])
         ->assertSet('voterMode', 'manual')->assertSet('voterIds', $voters)
         ->assertSet('ratings.'.$this->group->id.'.counts', [$this->answers[0]->id => $ratingCounts[$this->answers[0]->id] ?? 0, $this->answers[1]->id => $ratingCounts[$this->answers[1]->id] ?? 0])
         ->assertSee('6 votes saved · +2 / −1 on the post · 3 answers');
@@ -202,7 +203,7 @@ it('keeps each vote\'s id when a change moves only its moment', function () {
     votePostUpTwiceDownOnce($this->plan);
     $ids = StudioPlanVote::query()->where('type', StudioActionType::VotePost)->orderBy('id')->pluck('id')->all();
 
-    postVotesEditor($this->plan)->call('setTiming', 'post', 'first', 3600)->assertHasNoErrors();
+    postVotesEditor($this->plan)->call('setTiming', 'first', 3600)->assertHasNoErrors();
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VotePost)->orderBy('id')->pluck('id')->all())->toBe($ids)
         ->and(StudioPlanVote::query()->where('type', StudioActionType::VotePost)->min('offset_seconds'))->toBe(3600);
@@ -238,9 +239,30 @@ it('sets a vote\'s moment by hand, saved at once, the other votes keeping theirs
 
     // Opened again, every vote keeps its moment; Spread over spaces them evenly again.
     postVotesEditor($this->plan)->assertSet('postMoments', $now)
-        ->call('setTiming', 'post', 'spread', 21_600)->assertHasNoErrors()->assertSet('postMoments', []);
+        ->call('setTiming', 'spread', 21_600)->assertHasNoErrors()->assertSet('postMoments', []);
 
     expect(collect(postVoteMoments($this->plan))->sort()->values()->all())->toBe([300, 7500, 14_700, 21_900]);
+});
+
+it('brings each voter\'s vote and answers in one visit, read back as laid out when opened again', function () {
+    postVotesEditor($this->plan)->set('voterCount', 3)->set('postOn', true)->set('up', 2)->call('setRatingTotal', $this->group->id, 2)->assertHasNoErrors();
+    $visits = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', '!=', StudioActionType::VoteComment)->get()->groupBy('persona_user_id');
+
+    expect($visits)->toHaveCount(2);
+
+    foreach ($visits as $persona => $visit) {
+        $post = $visit->firstWhere('type', StudioActionType::VotePost);
+        $answer = $visit->firstWhere('type', StudioActionType::VoteRating);
+
+        expect($answer->offset_seconds - $post->offset_seconds)->toBe(BuildStudioPostVotesData::visitSteps($persona, 2)[1]);
+    }
+
+    $editor = postVotesEditor($this->plan)->assertSet('postMoments', [])->assertSet("ratings.{$this->group->id}.moments", [])
+        ->set('tab', 'timing')->assertSee('Voters come')->assertSee('2 voters · first 5 min after')->assertDontSee('Set by hand');
+
+    // An answer moved by hand: every vote keeps the moment it has from then on.
+    $editor->call('setMoment', $this->group->id, $visits->keys()->first(), 7200)->assertHasNoErrors()
+        ->assertSet('postMoments', fn (array $moments): bool => count($moments) === 2)->assertSee('Set by hand');
 });
 
 it('takes the post\'s votes away when they are turned off, the discussion\'s staying', function () {
@@ -297,7 +319,7 @@ it('shows an answer no longer open as such, keeps it as it was, and replaces it 
     $this->answers[0]->update(['is_active' => false, 'archived_at' => now()]);
 
     $editor = postVotesEditor($this->plan)->assertSee('Not open')->assertSee('An option no longer open keeps the answers it had');
-    $editor->call('setTiming', $this->group->id, 'first', 1800)->assertHasNoErrors();
+    $editor->call('setTiming', 'first', 1800)->assertHasNoErrors();
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->unique()->all())->toBe([$this->answers[0]->id])
         ->and(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->min('offset_seconds'))->toBe(1800);
