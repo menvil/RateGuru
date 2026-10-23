@@ -14118,14 +14118,26 @@ function studioVoteActions(StudioPlan $plan, array $votes): array
     return $actions;
 }
 
-/** One round of the dispatcher, and a worker running every job it sent, in order. */
-function runStudioRound(): void
+/**
+ * One round of the dispatcher, and a worker running every job it sent, in
+ * order — none when it sent nothing.
+ *
+ * @return int how many jobs it sent, for the first time or again
+ */
+function runStudioRound(): int
 {
-    dispatchDueStudioActions();
+    $round = dispatchDueStudioActions();
+    $sent = $round['sent'] + $round['resent'];
+
+    if ($sent === 0) {
+        return 0;
+    }
 
     foreach (StudioAction::query()->where('status', StudioActionStatus::Dispatched)->orderBy('id')->pluck('id') as $id) {
         runStudioActionJob((int) $id);
     }
+
+    return $sent;
 }
 
 /**

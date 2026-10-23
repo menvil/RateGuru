@@ -73,16 +73,12 @@ function approvedVotes(User $admin, ?string $publishAt = null): array
     ];
 }
 
-/** Rounds of the dispatcher and its worker until nothing more is sent. */
+/** Rounds of the dispatcher and its worker until a round sends nothing. */
 function runStudioRoundsUntilQuiet(): void
 {
     foreach (range(1, 10) as $round) {
-        if (dispatchDueStudioActions()['sent'] === 0) {
+        if (runStudioRound() === 0) {
             return;
-        }
-
-        foreach (StudioAction::query()->where('status', StudioActionStatus::Dispatched)->orderBy('id')->pluck('id') as $id) {
-            runStudioActionJob((int) $id);
         }
     }
 }
