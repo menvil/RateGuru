@@ -23,6 +23,7 @@ use App\Data\Studio\StudioVotesData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioActionStatus;
 use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPlanPublicationMode;
@@ -13260,14 +13261,15 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
- *   of a photo (`release`), a user's row written (`user`), a Persona's
+ *   of a photo (`release`), a vote cast (`vote`), a rating option written
+ *   (`option`), a user's row written (`user`), a Persona's
  *   profile written (`profile`), a discussion generation claimed by its job
  *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
  *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, votes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, comment?: int, option?: int, nodes?: list<array<string, mixed>>, votes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13300,7 +13302,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
         $db = Illuminate\Support\Facades\DB::connection();
         $peer = $label === 'a' ? 'b' : 'a';
         $pid = (int) $db->selectOne('select pg_backend_pid() as pid')->pid;
-        file_put_contents("{$barrierDir}/pid-{$label}", (string) $pid);
+        // Written whole, then put in place: a file being written is there, empty, before its pid is, and a
+        // competitor reading it then would watch backend 0 wait for it, never this one.
+        file_put_contents("{$barrierDir}/pid-{$label}.part", (string) $pid);
+        rename("{$barrierDir}/pid-{$label}.part", "{$barrierDir}/pid-{$label}");
 
         $await = static function (Closure $arrived, string $failure): void {
             $deadline = microtime(true) + 20;
@@ -13367,6 +13372,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
                 // A comment written, its transaction still open.
                 'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
+                // A vote cast — on a post, on a comment, or for a rating option — its transaction still open.
+                'vote' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?(post|comment|rating)_votes"?\s/i', $sql) === 1,
+                // A rating option written — archived or deleted, say — its transaction still open.
+                'option' => static fn (string $sql): bool => preg_match('/^\s*(update|delete\s+from)\s+"?rating_options"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
                 // A user's row written, its transaction still open.
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
@@ -13497,6 +13506,12 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'comment' => app(App\Actions\Comments\AddCommentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
                 'hide-comment' => app(App\Actions\Comments\HideCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
+                // A member's own vote on a comment.
+                'vote-comment' => app(App\Actions\Votes\VoteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), App\Enums\VoteType::Up),
+                // An administrator archiving a rating option.
+                'archive-option' => app(App\Actions\Rating\ArchiveRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
+                // An administrator deleting a rating option.
+                'delete-option' => app(App\Actions\Rating\DeleteRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
@@ -14046,10 +14061,88 @@ function studioActionsByNode(StudioPlan $plan, SavedStudioDiscussion $saved): ar
     $actions = [];
 
     foreach (StudioAction::query()->where('studio_plan_id', $plan->id)->orderBy('id')->get() as $action) {
-        $actions[$action->type === StudioActionType::CreatePost ? 'post' : $keys[$action->payload['discussion_node_id']]] = $action;
+        // The votes are studioVoteActions()'.
+        if (in_array($action->type, [StudioActionType::CreatePost, StudioActionType::CreateComment, StudioActionType::CreateReply], true)) {
+            $actions[$action->type === StudioActionType::CreatePost ? 'post' : $keys[$action->payload['discussion_node_id']]] = $action;
+        }
     }
 
     return $actions;
+}
+
+/**
+ * A complete Draft with its discussion (approvableStudioPlanWithDiscussion())
+ * and votes of every kind prepared on it, saved as the editors save them, by
+ * their keys: `postUp` and `postDown` on the post, one and two minutes after
+ * it; `ratingUp` and `ratingDown`, each choosing an option of the rating
+ * question made for it — the first and the second — one and three minutes
+ * after the post; `c1Up` on comment c1 and `c2Down` on reply c2, ten and
+ * fifteen minutes after the post. Persona `up` casts the up votes and chooses
+ * the first option, Persona `down` the rest; both are made for it unless
+ * given, and neither writes a comment.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @return array{plan: StudioPlan, saved: SavedStudioDiscussion, votes: array<string, int>, voters: array{up: User, down: User}, group: RatingGroup, options: list<RatingOption>}
+ */
+function approvableStudioPlanWithVotes(array $attributes = [], ?User $up = null, ?User $down = null): array
+{
+    [$plan, $saved] = approvableStudioPlanWithDiscussion($attributes);
+    $up ??= User::factory()->persona()->create();
+    $down ??= User::factory()->persona()->create();
+    [$group, $options] = votableRatingQuestion();
+
+    $votes = saveStudioVotes(User::factory()->admin()->create(), $plan, [
+        studioVote(['key' => 'postUp', 'type' => 'vote_post', 'personaUserId' => $up->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
+        studioVote(['key' => 'postDown', 'type' => 'vote_post', 'personaUserId' => $down->id, 'voteType' => 'down', 'offsetSeconds' => 120]),
+        studioVote(['key' => 'ratingUp', 'type' => 'vote_rating', 'personaUserId' => $up->id, 'ratingOptionId' => $options[0]->id, 'offsetSeconds' => 60, 'sortOrder' => 1]),
+        studioVote(['key' => 'ratingDown', 'type' => 'vote_rating', 'personaUserId' => $down->id, 'ratingOptionId' => $options[1]->id, 'offsetSeconds' => 180]),
+        studioVote(['key' => 'c1Up', 'type' => 'vote_comment', 'personaUserId' => $up->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['c1'], 'offsetSeconds' => 600]),
+        studioVote(['key' => 'c2Down', 'type' => 'vote_comment', 'personaUserId' => $down->id, 'voteType' => 'down', 'discussionNodeId' => $saved->ids['c2'], 'offsetSeconds' => 900]),
+    ]);
+
+    return ['plan' => $plan->fresh(), 'saved' => $saved, 'votes' => $votes->ids, 'voters' => ['up' => $up, 'down' => $down], 'group' => $group, 'options' => $options];
+}
+
+/**
+ * A plan's vote actions by the key their prepared vote was saved under
+ * (approvableStudioPlanWithVotes()), found by the prepared vote's id their
+ * payload keeps.
+ *
+ * @param  array<string, int>  $votes  the prepared votes' ids by key
+ * @return array<string, StudioAction>
+ */
+function studioVoteActions(StudioPlan $plan, array $votes): array
+{
+    $keys = array_flip($votes);
+    $actions = [];
+
+    foreach (StudioAction::query()->where('studio_plan_id', $plan->id)->whereIn('type', [StudioActionType::VotePost, StudioActionType::VoteComment, StudioActionType::VoteRating])->orderBy('id')->get() as $action) {
+        $actions[$keys[$action->payload['studio_plan_vote_id']]] = $action;
+    }
+
+    return $actions;
+}
+
+/**
+ * One round of the dispatcher, and a worker running every job it sent, in
+ * order — none when it sent nothing.
+ *
+ * @return int how many jobs it sent, for the first time or again
+ */
+function runStudioRound(): int
+{
+    $round = dispatchDueStudioActions();
+    $sent = $round['sent'] + $round['resent'];
+
+    if ($sent === 0) {
+        return 0;
+    }
+
+    foreach (StudioAction::query()->where('status', StudioActionStatus::Dispatched)->orderBy('id')->pluck('id') as $id) {
+        runStudioActionJob((int) $id);
+    }
+
+    return $sent;
 }
 
 /**

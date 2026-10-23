@@ -391,13 +391,12 @@ Persona, dated as planned, after what it depends on, once — its branch cancell
 (`docs/architecture/studio-plans.md`, "Running a plan"). Nothing runs until the executor is switched on. The
 Publication screen is a later stage; the votes are Phase 6's.
 
-**Content Studio Phase 6 — Votes & ratings. Status: in progress.** Its first step is in code, on the server only: a
+**Content Studio Phase 6 — Votes & ratings. Status: done in code; staging checks to come.** Its first step is in code, on the server only: a
 Draft's prepared votes — on the post, on a comment or reply of its discussion, or for a rating option, each by a
 Persona at a moment kept as seconds after the post — stored a row per vote in `studio_plan_votes`, one per Persona and
 target whichever way it goes, each keeping its id through every edit. `SaveStudioVotesAction` saves them all at once
 under the plan's lock and version, held to one set of rules (`StudioVoteValidationRules`); a new date for the post and
-a save of the discussion are held to the votes too, and a plan with votes is not approved until they can be cast
-(`docs/architecture/studio-plans.md`, "The votes"). Its second step is in code: the Post step's Votes tab
+a save of the discussion are held to the votes too (`docs/architecture/studio-plans.md`, "The votes"). Its second step is in code: the Post step's Votes tab
 (`StudioPlanPostVotesEditor`), laid out and working as the prototype's StudioPostVotes beside Titles & texts — the
 post's voters drawn at random or chosen, never its author; up and down votes, the answers to every active rating question
 with Even split, and when the voters come — each voting and answering in one visit — each vote's moment changed in place on the Timing tab — saved as each setting moves, a
@@ -410,8 +409,13 @@ by priority, a total changed giving or taking only the difference, the totals wh
 after each comment — made at once, shown on the tree, in the Generate strip and among the comments on the Timing tab, where every moment changes in place, as not
 saved, saved exactly as shown with Save votes in a comment's breakdown, and the step left with them unsaved only after
 asking what changed, the post's votes kept (`docs/architecture/studio-plans.md`, "The Comment votes editor"). The staging checks
-of the second and third steps are still to be done. Nothing votes yet. Still to come: the vote actions and their
-casting.
+of the second and third steps are still to be done. Its fourth step is in code, on the server only: a plan with votes
+is approved once every vote can be cast as it is — each problem refused with a code of its own (`invalid_votes`) —
+and approval writes an action for every prepared vote under the post's or its comment's; the executor casts each
+through the site's own vote actions, dated as the plan said, never twice, never taking back or turning a vote already
+there (`vote_conflict` for an administrator), within the voting limit (`docs/architecture/studio-plans.md`,
+"Running a plan" → "Votes"). Nothing on screen approves a plan or switches the executor on yet; the Publication screen
+and the Action queue screen are later stages, and the executor stays off on staging and production.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

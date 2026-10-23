@@ -15,7 +15,6 @@ use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
-use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Support\Facades\Validator;
@@ -50,14 +49,23 @@ use Illuminate\Validation\ValidationException;
  *   Persona of it still one, not deleted, Active and able to comment, as each
  *   must be when its comment is written. A discussion written for an earlier
  *   title is an editor's warning, not a reason to refuse;
- * - no prepared votes, for now: nothing casts one yet, so a plan that
- *   prepares any is not approved rather than published without them.
+ * - prepared votes, when there are any, the executor can cast as they are
+ *   (StudioVoteValidationRules::readinessProblems()): at most a thousand,
+ *   each of its kind's own shape — up or down on the post or a comment, an
+ *   option for a rating question — by a Persona still one, not deleted,
+ *   Active and able to vote, never on its own post or comment, once per
+ *   target; a comment voted on is one of this plan's discussion, whose action
+ *   the approval writes, and comes no later than the vote; no vote before the
+ *   post, more than thirty days after it or past the dates a post may carry;
+ *   an option still an active one of an active rating question, its own.
+ *   Each problem is said once, as its own code (`invalid_votes`).
  */
 final class StudioPlanApprovalPreflight
 {
     public function __construct(
         private readonly StudioPlanValidationRules $rules,
         private readonly StudioDiscussionValidationRules $discussionRules,
+        private readonly StudioVoteValidationRules $voteRules,
         private readonly RatingConfigurationManager $ratingConfiguration,
     ) {}
 
@@ -289,19 +297,21 @@ final class StudioPlanApprovalPreflight
     }
 
     /**
-     * Nothing casts a prepared vote yet: approval writes a plan's post, its
-     * comments and its replies, and no vote. A plan that prepares one is not
-     * approved, rather than published without it — until the stage that
-     * casts votes replaces this with the votes' own checks
-     * (StudioVoteValidationRules::readinessErrors()).
+     * What stands in the way of casting the plan's prepared votes as they
+     * are, each problem once, in the order of StudioPlanApprovalProblem — the
+     * same checks the votes are held to before they may be cast
+     * (StudioVoteValidationRules::readinessProblems()).
      *
      * @return list<StudioPlanApprovalProblem>
      */
     private function voteProblems(StudioPlan $plan): array
     {
-        return StudioPlanVote::query()->where('studio_plan_id', $plan->getKey())->exists()
-            ? [StudioPlanApprovalProblem::VotesNotPublishable]
-            : [];
+        $problems = array_values($this->voteRules->readinessProblems($plan));
+
+        return array_values(array_filter(
+            StudioPlanApprovalProblem::cases(),
+            fn (StudioPlanApprovalProblem $problem): bool => in_array($problem, $problems, true),
+        ));
     }
 
     /** @param  array<string, array<string, mixed>>  $failed */

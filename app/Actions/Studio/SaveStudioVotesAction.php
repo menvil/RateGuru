@@ -132,8 +132,10 @@ final class SaveStudioVotesAction
     {
         $saved = StudioPlanVote::query()->where('studio_plan_id', $plan->id)->orderBy('id')->get()->keyBy('id');
         $kept = collect($votes->votes)->filter(fn (StudioVoteData $vote): bool => $vote->id !== null)->keyBy('id');
-        $removed = $saved->except($kept->keys()->all());
-        $moved = $saved->only($kept->keys()->all())->filter(fn (StudioPlanVote $row): bool => self::moves($row, $kept->get($row->id)));
+        // Filtered, never taken with only() or except(): an Eloquent collection's only() and except() number
+        // what they return afresh, and the moved votes are looked up by id.
+        $removed = $saved->reject(fn (StudioPlanVote $row): bool => $kept->has($row->id));
+        $moved = $saved->filter(fn (StudioPlanVote $row): bool => $kept->has($row->id) && self::moves($row, $kept->get($row->id)));
 
         foreach ([...$removed->values(), ...$moved->values()] as $row) {
             if ($row->delete() === false) {
