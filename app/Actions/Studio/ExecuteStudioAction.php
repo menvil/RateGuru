@@ -6,7 +6,10 @@ use App\Actions\Comments\AddCommentAction;
 use App\Actions\Moderation\ApprovePostAction;
 use App\Actions\Posts\CreatePostAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
+use App\Actions\Rating\VoteRatingOptionAction;
 use App\Actions\Studio\Concerns\CancelsDependentStudioActions;
+use App\Actions\Votes\VoteCommentAction;
+use App\Actions\Votes\VotePostAction;
 use App\Data\Posts\CreatePostData;
 use App\Enums\CommentStatus;
 use App\Enums\StudioActionFailure;
@@ -14,14 +17,23 @@ use App\Enums\StudioActionStatus;
 use App\Enums\StudioActionType;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
+use App\Enums\VoteType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Exceptions\Posts\CannotCreatePostException;
+use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Exceptions\Studio\StudioActionStoppedException;
+use App\Exceptions\Votes\CannotVoteCommentException;
+use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Concerns\LocksUsersInOrder;
 use App\Models\Post;
+use App\Models\PostVote;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
+use App\Models\RatingVote;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
 use App\Models\User;
@@ -37,8 +49,9 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Runs one sent action of an approved plan — its CreatePost, or a comment or
- * reply of its discussion — and applies it once
+ * Runs one sent action of an approved plan — its CreatePost, a comment or
+ * reply of its discussion, or a Persona's vote on its post, on one of its
+ * comments or for a rating option — and applies it once
  * (docs/architecture/studio-plans.md, "Running a plan"), however often its
  * job is delivered. Called by ExecuteStudioActionJob only.
  *
@@ -69,7 +82,19 @@ use Throwable;
  *     author is who PostCommentedNotification goes to — the plan, the post,
  *     and for a reply the comment it answers; then AddCommentAction, its own
  *     locks all held already, with the action's date as the comment's
- *     `created_at` and `updated_at` (Comment::withoutTimestamps() too).
+ *     `created_at` and `updated_at` (Comment::withoutTimestamps() too);
+ *   - a vote: what it is cast on read first — the post its CreatePost wrote,
+ *     the comment its CreateComment or CreateReply wrote, a comment of the
+ *     plan's own post — then the voting Persona's row, and for a vote on the
+ *     post the post's author's too, the plan, the post and the comment; only
+ *     then, all of them held, the Persona's vote as it stands (castVote()).
+ *     None there yet: VotePostAction, VoteCommentAction or
+ *     VoteRatingOptionAction casts it, their own locks all held already, with
+ *     the action's date as the vote's own. The same vote there already: the
+ *     action is done with it, nothing cast and nothing redated. A vote the
+ *     other way, or another option: never taken back or turned — the action
+ *     fails, `vote_conflict`, for an administrator. Those actions toggle, so
+ *     none is ever called on a vote already there.
  *   The action becomes Done with what it wrote and the real `finished_at`,
  *   and the plan Completed once nothing of it is left to run or decide.
  *   Either all of it is committed, or none of it is.
@@ -78,11 +103,13 @@ use Throwable;
  * transaction of its own that writes only to the attempt it claimed: a
  * Limited or Shadowbanned Persona holds the action; a banned, deleted or
  * non-Persona author, or something the write can no longer use — the post
- * hidden or deleted, the comment a reply answers gone or hidden — cancels it,
- * and with it every action of its branch still waiting
- * (CancelsDependentStudioActions); an administrator who may no longer approve
- * or anything unexpected fails it; and a Persona at its posting or commenting
- * limit sends it back to Pending, due once the limit allows. A lost connection
+ * hidden or deleted, the comment a reply answers or a vote is on gone or
+ * hidden, a rating option or its question no longer active — cancels it, and
+ * with it every action of its branch still waiting
+ * (CancelsDependentStudioActions); an administrator who may no longer approve,
+ * a vote in conflict or anything unexpected fails it; and a Persona at its
+ * posting, commenting or voting limit sends it back to Pending, due once the
+ * limit allows. A lost connection
  * or a deadlock is no verdict: the action stays Running and recovery sends it
  * again.
  *
@@ -95,14 +122,20 @@ final class ExecuteStudioAction
     use DetectsLostConnections;
     use LocksUsersInOrder;
 
-    /** The kinds of action that run. The votes wait for the stage that runs them. */
-    public const RUNNABLE = [StudioActionType::CreatePost, StudioActionType::CreateComment, StudioActionType::CreateReply];
+    /** The kinds of action that run: every kind approval writes. */
+    public const RUNNABLE = [
+        StudioActionType::CreatePost, StudioActionType::CreateComment, StudioActionType::CreateReply,
+        StudioActionType::VotePost, StudioActionType::VoteComment, StudioActionType::VoteRating,
+    ];
 
     public function __construct(
         private readonly CreatePostAction $createPost,
         private readonly ApprovePostAction $approvePost,
         private readonly RecalculatePostScoreAction $recalculateScore,
         private readonly AddCommentAction $addComment,
+        private readonly VotePostAction $votePost,
+        private readonly VoteCommentAction $voteComment,
+        private readonly VoteRatingOptionAction $voteForOption,
         private readonly StudioExecutionSwitch $switch,
         private readonly DomainLogger $logger,
     ) {}
@@ -132,9 +165,10 @@ final class ExecuteStudioAction
             return $this->stop($actionId, $attempt, $stop->failure);
         } catch (RateLimitExceededException $limit) {
             return $this->postpone($actionId, $attempt, $limit->retryAfterSeconds());
-        } catch (CannotCommentException $refusal) {
-            // Refused before anything was committed: the commenting limit is no
-            // verdict on the comment; anything else is said as the stop it is.
+        } catch (CannotCommentException|CannotVoteException|CannotVoteCommentException|CannotVoteForRatingOptionException $refusal) {
+            // Refused before anything was committed: the commenting or voting
+            // limit is no verdict on the comment or the vote; anything else is
+            // said as the stop it is.
             return $refusal->isRateLimited()
                 ? $this->postpone($actionId, $attempt, $refusal->retryAfterSeconds() ?? 60)
                 : $this->stop($actionId, $attempt, self::failureOf($refusal), $refusal);
@@ -228,7 +262,7 @@ final class ExecuteStudioAction
         [$written, $plan] = match ($action->type) {
             StudioActionType::CreatePost => $this->publishPost($action),
             StudioActionType::CreateComment, StudioActionType::CreateReply => $this->publishComment($action),
-            default => throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure),
+            StudioActionType::VotePost, StudioActionType::VoteComment, StudioActionType::VoteRating => $this->castVote($action),
         };
 
         self::saved($action->forceFill([
@@ -271,7 +305,7 @@ final class ExecuteStudioAction
             throw new StudioActionStoppedException(StudioActionFailure::PhotoUnavailable);
         }
 
-        $persona = self::runnablePersona($users->get($action->actor_user_id), comments: false);
+        $persona = self::runnablePersona($users->get($action->actor_user_id), writes: 'post');
         $approver = $approverId !== null ? $users->get($approverId) : null;
 
         if ($approver === null) {
@@ -325,14 +359,14 @@ final class ExecuteStudioAction
             throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
         }
 
-        $users = $this->lockCommentUsers($action->actor_user_id, (int) $postAuthorId);
+        $users = $this->lockActorAndPostAuthor($action->actor_user_id, (int) $postAuthorId);
         $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
 
         if ($plan === null || $plan->status !== StudioPlanStatus::Running) {
             throw new StudioActionStoppedException(StudioActionFailure::PlanUnavailable);
         }
 
-        $persona = self::runnablePersona($users->get($action->actor_user_id), comments: true);
+        $persona = self::runnablePersona($users->get($action->actor_user_id), writes: 'comment');
         $post = Post::withTrashed()->whereKey($postId)->lockForUpdate()->first();
 
         // Hidden, deleted or no longer published: no comment is written on it,
@@ -381,12 +415,211 @@ final class ExecuteStudioAction
     }
 
     /**
-     * The `users` rows a comment's run writes under, in ascending id order,
-     * before the plan and the post: the commenting Persona's, for update, as
-     * AddCommentAction takes it; and the post's author's — who
+     * A Persona's vote on the plan's post, on a comment or reply of its
+     * discussion, or for an option of a rating question — cast once, and
+     * never by toggling one already there.
+     *
+     * What it is cast on is read before any user is locked: the action it
+     * depends on, done, and what that wrote — the post its CreatePost wrote,
+     * or the comment its CreateComment or CreateReply wrote, on the post the
+     * plan's own CreatePost wrote. Then the rows, in the project's order: the
+     * voting Persona's — and, for a vote on the post, the post's author's
+     * (lockActorAndPostAuthor()), as the vote's second update of the post
+     * checks its key — the plan, the post, and the comment. Only then is the
+     * Persona's vote read as it stands, under the post's lock every member's
+     * vote on it takes first, its own row never locked before them.
+     *
+     * @return array{0: Model, 1: StudioPlan}
+     */
+    private function castVote(StudioAction $action): array
+    {
+        $onComment = $action->type === StudioActionType::VoteComment;
+        $parent = $onComment
+            ? self::doneParent($action, StudioActionType::CreateComment, StudioActionType::CreateReply)
+            : self::doneParent($action, StudioActionType::CreatePost);
+        $postId = $onComment ? self::planPostId($action) : (int) $parent->result_id;
+
+        // The comment voted on is the one the plan named: its own comment's action.
+        if ($onComment && ($parent->payload['discussion_node_id'] ?? null) !== ($action->payload['discussion_node_id'] ?? false)) {
+            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+        }
+
+        $postAuthorId = Post::withTrashed()->whereKey($postId)->value('user_id');
+
+        if ($postAuthorId === null) {
+            throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
+        }
+
+        $users = $action->type === StudioActionType::VotePost
+            ? $this->lockActorAndPostAuthor($action->actor_user_id, (int) $postAuthorId)
+            : $this->lockUsersInOrder($action->actor_user_id);
+        $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
+
+        if ($plan === null || $plan->status !== StudioPlanStatus::Running) {
+            throw new StudioActionStoppedException(StudioActionFailure::PlanUnavailable);
+        }
+
+        $persona = self::runnablePersona($users->get($action->actor_user_id), writes: 'vote');
+        $post = Post::withTrashed()->whereKey($postId)->lockForUpdate()->first();
+
+        // Hidden, deleted or no longer published: no vote is cast on it, as none is for a member.
+        if ($post === null || ! $post->canReceiveVotes()) {
+            throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
+        }
+
+        // Its author never changes, so the rows locked are the ones the write needs.
+        if ((int) $post->user_id !== (int) $postAuthorId) {
+            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+        }
+
+        $vote = match ($action->type) {
+            StudioActionType::VotePost => $this->voteOnPost($action, $persona, $post),
+            StudioActionType::VoteComment => $this->voteOnComment($action, $persona, $post, (int) $parent->result_id),
+            default => $this->voteForOption($action, $persona, $post),
+        };
+
+        return [$vote, $plan];
+    }
+
+    /** Up or down on the post, as the plan said — or the same vote there already. */
+    private function voteOnPost(StudioAction $action, User $persona, Post $post): PostVote
+    {
+        $way = self::wayOf($action);
+        $standing = fn (): ?PostVote => PostVote::query()->where('post_id', $post->id)->where('user_id', $persona->id)->first();
+        $there = $standing();
+
+        if ($there !== null) {
+            return self::sameOrConflict($there, $there->type === $way);
+        }
+
+        // The vote's own dates are the plan's; the post's counters and score it moves leave the post's dates as they are.
+        Post::withoutTimestamps(fn () => $this->votePost->handle($persona, $post, $way, $action->occurs_at));
+
+        return $standing() ?? throw new RuntimeException('The vote of the studio action\'s run was not saved.');
+    }
+
+    /** Up or down on the comment its parent action wrote, on the plan's post — or the same vote there already. */
+    private function voteOnComment(StudioAction $action, User $persona, Post $post, int $commentId): CommentVote
+    {
+        $comment = Comment::withTrashed()->whereKey($commentId)->lockForUpdate()->first();
+
+        // Another post's comment is no target of this plan's vote.
+        if ($comment !== null && (int) $comment->post_id !== (int) $post->id) {
+            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+        }
+
+        // Deleted or hidden: no vote is cast on it, as none is for a member.
+        if ($comment === null || ! $comment->canReceiveVotes()) {
+            throw new StudioActionStoppedException(StudioActionFailure::CommentUnavailable);
+        }
+
+        $way = self::wayOf($action);
+        $standing = fn (): ?CommentVote => CommentVote::query()->where('comment_id', $comment->id)->where('user_id', $persona->id)->first();
+        $there = $standing();
+
+        if ($there !== null) {
+            return self::sameOrConflict($there, $there->type === $way);
+        }
+
+        // The vote's own dates are the plan's; the comment's counters it moves leave the comment's dates as they are.
+        Post::withoutTimestamps(fn () => Comment::withoutTimestamps(
+            fn () => $this->voteComment->handle($persona, $comment, $way, $action->occurs_at),
+        ));
+
+        return $standing() ?? throw new RuntimeException('The vote of the studio action\'s run was not saved.');
+    }
+
+    /**
+     * The option the plan chose, for its own rating question as approved —
+     * or the same option chosen there already.
+     */
+    private function voteForOption(StudioAction $action, User $persona, Post $post): RatingVote
+    {
+        $groupId = $action->payload['rating_group_id'] ?? null;
+        $optionId = $action->payload['rating_option_id'] ?? null;
+
+        if (! is_int($groupId) || ! is_int($optionId)) {
+            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+        }
+
+        $option = RatingOption::query()->find($optionId);
+        $group = RatingGroup::query()->find($groupId);
+
+        // Gone, archived, or no longer its question's — or the question no
+        // longer active: no answer is given, and no other option in its place.
+        // VoteRatingOptionAction asks again on the rows it locks.
+        if ($option === null || $group === null || (int) $option->rating_group_id !== $groupId || ! $option->is_active || ! $group->is_active) {
+            throw new StudioActionStoppedException(StudioActionFailure::RatingOptionUnavailable);
+        }
+
+        $standing = fn (): ?RatingVote => RatingVote::query()
+            ->where('user_id', $persona->id)
+            ->where('post_id', $post->id)
+            ->where('rating_group_id', $groupId)
+            ->first();
+        $there = $standing();
+
+        if ($there !== null) {
+            return self::sameOrConflict($there, (int) $there->rating_option_id === $optionId);
+        }
+
+        Post::withoutTimestamps(fn () => $this->voteForOption->handle($persona, $post, $option, $action->occurs_at));
+
+        return $standing() ?? throw new RuntimeException('The vote of the studio action\'s run was not saved.');
+    }
+
+    /**
+     * The Persona's vote there already: the action is done with it when it is
+     * the vote planned — nothing cast, its dates its own — and fails for an
+     * administrator when it goes the other way or chose another option: it is
+     * never taken back or turned to make room for the plan's.
+     *
+     * @template TVote of Model
+     *
+     * @param  TVote  $vote
+     * @return TVote
+     */
+    private static function sameOrConflict(Model $vote, bool $same): Model
+    {
+        if (! $same) {
+            throw new StudioActionStoppedException(StudioActionFailure::VoteConflict);
+        }
+
+        return $vote;
+    }
+
+    /** Up or down, as the plan said. */
+    private static function wayOf(StudioAction $action): VoteType
+    {
+        return VoteType::tryFrom((string) ($action->payload['vote_type'] ?? ''))
+            ?? throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+    }
+
+    /** The post the plan's own CreatePost wrote: the only post its comments' votes may be on. */
+    private static function planPostId(StudioAction $action): int
+    {
+        $post = StudioAction::query()
+            ->where('studio_plan_id', $action->studio_plan_id)
+            ->where('type', StudioActionType::CreatePost)
+            ->first();
+
+        if ($post === null || $post->status !== StudioActionStatus::Done
+            || $post->result_type !== (new Post)->getMorphClass() || $post->result_id === null) {
+            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
+        }
+
+        return $post->result_id;
+    }
+
+    /**
+     * The `users` rows a comment's run — or a vote's on the post — writes
+     * under, in ascending id order, before the plan and the post: the
+     * commenting or voting Persona's, for update, as AddCommentAction and
+     * VotePostAction take it; and the post's author's — who
      * PostCommentedNotification goes to, whose row the notification locks
-     * again — so no user is ever first locked after the post. The two may be
-     * one: a post's author answering under its own post.
+     * again, and whose key a vote's second update of the post checks — so no
+     * user is ever first locked after the post. The two may be one: a post's
+     * author answering under its own post.
      *
      * On PostgreSQL the author's row is locked for an update of no key,
      * whether or not the author is the one commenting: a member's comment or
@@ -403,10 +636,10 @@ final class ExecuteStudioAction
      *
      * @return Collection<int, User> keyed by id; a row gone is absent
      */
-    private function lockCommentUsers(int $commenterId, int $authorId): Collection
+    private function lockActorAndPostAuthor(int $actorId, int $authorId): Collection
     {
         $locked = new Collection;
-        $ids = array_unique([$commenterId, $authorId]);
+        $ids = array_unique([$actorId, $authorId]);
         $keyless = (new User)->getConnection()->getDriverName() === 'pgsql';
         sort($ids);
 
@@ -425,10 +658,11 @@ final class ExecuteStudioAction
     }
 
     /**
-     * The action this one depends on, done, of the kind it must be and of the
-     * same plan — or why this one cannot run now.
+     * The action this one depends on, done, of a kind it may be — a post's, or
+     * a comment's or a reply's — of the same plan, and what it wrote one of
+     * those — or why this one cannot run now.
      */
-    private static function doneParent(StudioAction $action, StudioActionType $type): StudioAction
+    private static function doneParent(StudioAction $action, StudioActionType ...$types): StudioAction
     {
         $parent = $action->parent_action_id !== null ? StudioAction::query()->find($action->parent_action_id) : null;
         $standing = self::parentStanding($action, $parent);
@@ -437,9 +671,9 @@ final class ExecuteStudioAction
             throw new StudioActionStoppedException($standing);
         }
 
-        $writes = $type === StudioActionType::CreatePost ? new Post : new Comment;
+        $writes = $parent?->type === StudioActionType::CreatePost ? new Post : new Comment;
 
-        if ($parent === null || $parent->type !== $type || $parent->studio_plan_id !== $action->studio_plan_id
+        if ($parent === null || ! in_array($parent->type, $types, true) || $parent->studio_plan_id !== $action->studio_plan_id
             || $parent->result_type !== $writes->getMorphClass() || $parent->result_id === null) {
             throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
         }
@@ -469,10 +703,12 @@ final class ExecuteStudioAction
     }
 
     /**
-     * The author, when it may publish now — a post, or a comment — otherwise
-     * why it may not.
+     * The Persona, when it may write now — a post, a comment, or a vote —
+     * otherwise why it may not.
+     *
+     * @param  'post'|'comment'|'vote'  $writes
      */
-    private static function runnablePersona(?User $author, bool $comments): User
+    private static function runnablePersona(?User $author, string $writes): User
     {
         if ($author === null) {
             throw new StudioActionStoppedException(StudioActionFailure::AuthorNotPersona);
@@ -483,7 +719,11 @@ final class ExecuteStudioAction
             ! $author->isPersona() => StudioActionFailure::AuthorNotPersona,
             $author->status === UserStatus::Banned => StudioActionFailure::AuthorBanned,
             // Limited or Shadowbanned: held until an administrator resumes it.
-            ! ($comments ? $author->canComment() : $author->canCreateContent()) => StudioActionFailure::AuthorRestricted,
+            ! match ($writes) {
+                'post' => $author->canCreateContent(),
+                'comment' => $author->canComment(),
+                'vote' => $author->canVote(),
+            } => StudioActionFailure::AuthorRestricted,
             default => null,
         };
 
@@ -722,6 +962,13 @@ final class ExecuteStudioAction
             $exception instanceof CannotCommentException && $exception->isPostUnavailable() => StudioActionFailure::PostUnavailable,
             $exception instanceof CannotCommentException && $exception->isReplyTargetUnavailable() => StudioActionFailure::ReplyTargetUnavailable,
             $exception instanceof CannotCommentException && $exception->isNotAllowed() => StudioActionFailure::AuthorRestricted,
+            $exception instanceof CannotVoteException && $exception->isPostUnavailable() => StudioActionFailure::PostUnavailable,
+            $exception instanceof CannotVoteException && $exception->isNotAllowed() => StudioActionFailure::AuthorRestricted,
+            $exception instanceof CannotVoteCommentException && $exception->isCommentUnavailable() => StudioActionFailure::CommentUnavailable,
+            $exception instanceof CannotVoteCommentException && $exception->isNotAllowed() => StudioActionFailure::AuthorRestricted,
+            $exception instanceof CannotVoteForRatingOptionException && $exception->isPostUnavailable() => StudioActionFailure::PostUnavailable,
+            $exception instanceof CannotVoteForRatingOptionException && $exception->isOptionUnavailable() => StudioActionFailure::RatingOptionUnavailable,
+            $exception instanceof CannotVoteForRatingOptionException && $exception->isNotAllowed() => StudioActionFailure::AuthorRestricted,
             $exception instanceof CannotCreatePostException && $exception->isImageUnavailable() => StudioActionFailure::PhotoUnavailable,
             $exception instanceof CannotCreatePostException && $exception->isCategoryInvalid() => StudioActionFailure::CategoryUnavailable,
             $exception instanceof CannotCreatePostException && $exception->isAuthorAnswerInvalid() => StudioActionFailure::AnswerUnavailable,
