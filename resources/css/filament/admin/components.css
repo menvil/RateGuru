@@ -7017,6 +7017,7 @@
     .rg-admin-studio__author-panel-footer {
         display: flex;
         justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
     }
 
     /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */

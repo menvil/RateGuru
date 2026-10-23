@@ -99,6 +99,13 @@ final class StudioPlanDiscussionEditor extends Component
     /** Said by the Timing tab, drawn by the votes editor, with a comment and the moment it is moved to. */
     public const OFFSET_EVENT = 'studio-discussion-offset';
 
+    /**
+     * Said by the plan's editor once it saved the post for Generate tree,
+     * clicked while the post had changes: the generation goes on from the
+     * post as saved.
+     */
+    public const GENERATE_EVENT = 'studio-discussion-generate';
+
     /** Seconds between reads while a generation is on its way. */
     public const POLL_SECONDS = 3;
 
@@ -368,6 +375,15 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         $this->startGeneration();
+    }
+
+    /** Generate tree, clicked while the post had changes, once the plan's editor has saved them. */
+    #[On(self::GENERATE_EVENT)]
+    public function generateSaved(mixed $planId): void
+    {
+        if (is_numeric($planId) && (int) $planId === $this->planId) {
+            $this->generateTree(0);
+        }
     }
 
     /** The answer to the question Generate asked, and only that: never a way around it. */

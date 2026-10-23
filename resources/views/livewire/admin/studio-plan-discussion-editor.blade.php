@@ -24,7 +24,9 @@
     };
     $hasTree = $rows !== [];
     $noTeam = $totalCount > 0 && $participantMode === 'manual' && $chosen === [];
-    $generateBlocked = ! $editable || $underway || $noTeam || ($totalCount > 0 && $notReady !== null);
+    // Only the title not saved yet keeps it: Generate tree saves the post first, so changes to save let it go on.
+    $titleOnly = $totalCount > 0 && $configured && ! $hasTitle && $analysed;
+    $generateBlocked = ! $editable || $underway || $noTeam || ($totalCount > 0 && $notReady !== null && ! $titleOnly);
     $rewriteBlocked = ! $editable || $underway || $notReady !== null;
     $summary = $totalCount === 0
         ? 'No discussion · the post publishes without automated comments'
@@ -178,15 +180,16 @@
             </div>
             <div @class(['rg-admin-studio__generate-hint', 'rg-admin-studio__generate-hint--danger' => $hintTone === 'danger'])>
                 <span x-show="! ($store.adminEditor?.changes > 0)">{{ $hint }}</span>
-                <span x-show="$store.adminEditor?.changes > 0" x-cloak>Save the post first: the discussion is written from the saved title and description.</span>
+                <span x-show="$store.adminEditor?.changes > 0" x-cloak>The post’s changes are saved first: the discussion is written from the saved title and description.</span>
             </div>
         </div>
         <x-admin.ui.button
             variant="primary"
             icon="sparkles"
-            :disabled="$generateBlocked"
-            x-bind:disabled="{{ $generateBlocked ? 'true' : 'false' }} || $store.adminEditor?.changes > 0"
-            x-on:click="$wire.generateTree($store.adminEditor?.changes ?? 0)"
+            :disabled="$generateBlocked || $titleOnly"
+            x-bind:disabled="{{ $generateBlocked ? 'true' : 'false' }} || ({{ $titleOnly ? 'true' : 'false' }} && ! ($store.adminEditor?.changes > 0))"
+            {{-- The post changed and not saved: the plan's editor saves it first, then says to generate (GENERATE_EVENT). --}}
+            x-on:click="$store.adminEditor?.changes > 0 ? $dispatch('save-studio-plan', { then: 'generate' }) : $wire.generateTree(0)"
         >{{ $hasTree ? 'Regenerate tree' : 'Generate tree' }}</x-admin.ui.button>
     </div>
 

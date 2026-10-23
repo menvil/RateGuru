@@ -82,6 +82,14 @@ final class StudioPlanDiscussionVotesEditor extends Component
     /** Said by the step's Back, Continue and tabs while votes are not saved, with where to go. */
     public const LEAVE_EVENT = 'studio-comment-votes-leave';
 
+    /**
+     * Where what is asked of the comments to come — totals, timing, voters —
+     * is kept in the session, by plan, while the plan has no comments: it
+     * outlives the page, opened again or by a save of a new publication,
+     * until the tree is written and takes it.
+     */
+    public const ASKED_SESSION = 'rg-admin-studio-comment-votes-asked';
+
     /** Said to the plan's editor once the votes are saved or discarded: go on where it was asked to. */
     public const STEP_EVENT = 'studio-plan-step';
 
@@ -130,10 +138,23 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     public string $votersSearch = '';
 
-    /** The comments' up and down votes added up; a total changed gives or takes the difference by priority. */
+    /**
+     * The comments' up and down votes added up; a total changed gives or takes
+     * the difference by priority. With no comments yet, what is asked of the
+     * comments to come: shared out over them once the tree is written.
+     */
     public int $totalUp = 0;
 
     public int $totalDown = 0;
+
+    /**
+     * When every comment's votes come, as last asked of them all: a comment
+     * added since takes it, and with no comments yet the comments to come do.
+     *
+     * @var array{first: int, spread: int}
+     */
+    #[Locked]
+    public array $timingAsked = ['first' => self::TIMING[0], 'spread' => self::TIMING[1]];
 
     /**
      * Each comment's votes: how many up and down, its priority for the
@@ -240,13 +261,19 @@ final class StudioPlanDiscussionVotesEditor extends Component
     public function updatedTotalUp(): void
     {
         $this->totalUp = self::count($this->totalUp);
-        $this->adjust('up');
+
+        if ($this->targets !== []) {
+            $this->adjust('up');
+        }
     }
 
     public function updatedTotalDown(): void
     {
         $this->totalDown = self::count($this->totalDown);
-        $this->adjust('down');
+
+        if ($this->targets !== []) {
+            $this->adjust('down');
+        }
     }
 
     /** Up or Down of one comment, set by hand: the totals follow. */
@@ -276,8 +303,10 @@ final class StudioPlanDiscussionVotesEditor extends Component
      */
     public function distribute(): void
     {
-        $this->share('up');
-        $this->share('down');
+        if ($this->targets !== []) {
+            $this->share('up');
+            $this->share('down');
+        }
     }
 
     /**
@@ -299,6 +328,10 @@ final class StudioPlanDiscussionVotesEditor extends Component
             foreach ($node !== null ? [(int) $node] : array_keys($this->targets) as $target) {
                 $this->targets[$target][$field] = $seconds;
                 $this->targets[$target]['moments'] = [];
+            }
+
+            if ($node === null) {
+                $this->timingAsked[$field] = $seconds;
             }
         }
     }
@@ -573,6 +606,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
     public function render(): View
     {
         $this->sync();
+        $this->rememberAsked();
         $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
         $nodes = $plan !== null ? $this->orderedNodes() : [];
         $rows = array_map(fn (StudioDiscussionNode $node): array => self::nodeRow($node), $nodes);
@@ -629,8 +663,8 @@ final class StudioPlanDiscussionVotesEditor extends Component
             'chosen' => array_map(fn (int $id): array => StudioPlanFormat::author($people->get($id)) ?? ['id' => $id, 'name' => 'Deleted user', 'username' => null, 'avatar' => null, 'initials' => '', 'status' => null, 'problem' => 'deleted'], $this->voterMode === 'manual' ? $this->voterIds : []),
             'voterTable' => $this->voterTable($shown, $voterIds, $people, $labels, $wrote),
             'chips' => [
-                'first' => self::chips(StudioPlanPostVotesEditor::FIRST_CHOICES, array_values(array_unique(array_column($this->targets, 'first')))),
-                'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, array_values(array_unique(array_column($this->targets, 'spread')))),
+                'first' => self::chips(StudioPlanPostVotesEditor::FIRST_CHOICES, $this->targets !== [] ? array_values(array_unique(array_column($this->targets, 'first'))) : [$this->timingAsked['first']]),
+                'spread' => self::chips(StudioPlanPostVotesEditor::SPREAD_CHOICES, $this->targets !== [] ? array_values(array_unique(array_column($this->targets, 'spread'))) : [$this->timingAsked['spread']]),
             ],
             'breakdown' => $chosenNode !== null ? $this->breakdown($chosenNode, $shown, $people, $labels, $nodes, $problems) : null,
             'timing' => $this->timing($nodes, $shown, $saved, $people, $labels, $problems),
@@ -711,11 +745,68 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         $this->tally();
+        $voted = array_filter($this->targets, fn (array $target): bool => $target['up'] + $target['down'] > 0);
+
+        foreach (['first' => self::TIMING[0], 'spread' => self::TIMING[1]] as $field => $default) {
+            $values = array_values(array_unique(array_column($voted, $field)));
+            $this->timingAsked[$field] = count($values) === 1 ? (int) $values[0] : $default;
+        }
+
         $voters = array_values(array_unique(array_column($saved, 'personaUserId')));
         $this->voterMode = $voters !== [] ? 'manual' : 'random';
         $this->voterIds = $voters;
         $this->voterCount = $voters !== [] ? count($voters) : min(self::DEFAULT_VOTERS, count(app(PersonasQuery::class)->activeIds()));
+        $this->restoreAsked();
         $this->restoredFor = $this->settingsKey();
+    }
+
+    /**
+     * With no comments yet, what was asked of the comments to come, as the
+     * session keeps it for this plan (ASKED_SESSION).
+     */
+    private function restoreAsked(): void
+    {
+        $asked = $this->targets === [] ? session(self::ASKED_SESSION.'.'.$this->planId) : null;
+
+        if (! is_array($asked)) {
+            return;
+        }
+
+        $this->totalUp = self::count((int) ($asked['up'] ?? 0));
+        $this->totalDown = self::count((int) ($asked['down'] ?? 0));
+
+        foreach (['first', 'spread'] as $field) {
+            if (is_int($asked['timing'][$field] ?? null)) {
+                $this->timingAsked[$field] = $asked['timing'][$field];
+            }
+        }
+
+        if (in_array($asked['mode'] ?? null, ['random', 'manual'], true)) {
+            $this->voterMode = $asked['mode'];
+            $this->voterIds = array_values(array_filter(array_map('intval', (array) ($asked['ids'] ?? [])), fn (int $id): bool => $id > 0));
+            $this->voterCount = self::count((int) ($asked['count'] ?? $this->voterCount));
+        }
+    }
+
+    /** What is asked of the comments to come kept in the session while there are none; forgotten once there are. */
+    private function rememberAsked(): void
+    {
+        if ($this->planId === 0 || $this->gone || $this->closed) {
+            return;
+        }
+
+        $key = self::ASKED_SESSION.'.'.$this->planId;
+
+        if ($this->targets !== [] || $this->totalUp + $this->totalDown === 0) {
+            session()->forget($key);
+
+            return;
+        }
+
+        session()->put($key, [
+            'up' => $this->totalUp, 'down' => $this->totalDown, 'timing' => $this->timingAsked,
+            'mode' => $this->voterMode, 'ids' => $this->voterIds, 'count' => $this->voterCount,
+        ]);
     }
 
     /**
@@ -741,7 +832,11 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->conflict = false;
         $kept = array_map(fn (StudioDiscussionNode $node): int => (int) $node->id, $this->orderedNodes());
 
-        if ($this->targets !== [] && $kept !== [] && array_intersect_key($this->targets, array_flip($kept)) === []) {
+        // The tree written anew as a whole, or written at last with totals asked of it already.
+        $anew = $this->targets !== [] && array_intersect_key($this->targets, array_flip($kept)) === [];
+        $first = $this->targets === [] && $this->totalUp + $this->totalDown > 0;
+
+        if ($kept !== [] && ($anew || $first)) {
             $this->carryOver($version);
 
             return;
@@ -760,7 +855,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $targets = [];
 
         foreach ($nodes as $node) {
-            $targets[(int) $node->id] = $this->targets[(int) $node->id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => self::TIMING[0], 'spread' => self::TIMING[1], 'moments' => []];
+            $targets[(int) $node->id] = $this->targets[(int) $node->id] ?? ['up' => 0, 'down' => 0, 'priority' => 'normal', 'first' => $this->timingAsked['first'], 'spread' => $this->timingAsked['spread'], 'moments' => []];
         }
 
         $this->targets = $targets;
@@ -769,19 +864,23 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
     /**
      * The whole discussion written anew — generated again, say — while votes
-     * were asked of the old one, which took its votes with it: the same
-     * voters, the same totals shared out over the new comments by priority,
-     * and the timing every voted comment had, as votes not saved yet.
+     * were asked of the old one, which took its votes with it, or written at
+     * last while totals were asked of the comments to come: the same voters,
+     * the same totals shared out over the new comments by priority, and the
+     * timing every voted comment had — or the one asked — as votes not saved
+     * yet.
      */
     private function carryOver(int $version): void
     {
-        [$mode, $ids, $count, $up, $down] = [$this->voterMode, $this->voterIds, $this->voterCount, $this->totalUp, $this->totalDown];
+        [$mode, $ids, $count, $up, $down, $asked] = [$this->voterMode, $this->voterIds, $this->voterCount, $this->totalUp, $this->totalDown, $this->timingAsked];
         $voted = array_filter($this->targets, fn (array $target): bool => $target['up'] + $target['down'] > 0) ?: $this->targets;
-        $timing = ['first' => array_unique(array_column($voted, 'first')), 'spread' => array_unique(array_column($voted, 'spread'))];
+        $timing = $voted !== []
+            ? ['first' => array_unique(array_column($voted, 'first')), 'spread' => array_unique(array_column($voted, 'spread'))]
+            : ['first' => [$asked['first']], 'spread' => [$asked['spread']]];
 
         $this->load();
         $this->lockVersion = $version;
-        [$this->voterMode, $this->voterIds, $this->voterCount] = [$mode, $ids, $count];
+        [$this->voterMode, $this->voterIds, $this->voterCount, $this->timingAsked] = [$mode, $ids, $count, $asked];
 
         foreach (array_keys($this->targets) as $node) {
             foreach ($timing as $field => $values) {

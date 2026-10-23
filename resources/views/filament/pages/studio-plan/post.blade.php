@@ -156,11 +156,12 @@
                             @else
                                 <p class="rg-admin-hint">{{ trim($authorSearch) !== '' ? 'No persona matches.' : 'No other persona to choose. Personas are made in Content Studio › Personas.' }}</p>
                             @endif
-                            @if ($author !== null)
-                                <div class="rg-admin-studio__author-panel-footer">
+                            <div class="rg-admin-studio__author-panel-footer">
+                                <x-admin.ui.button size="sm" variant="ghost" icon="shuffle" wire:click="pickRandomAuthor" x-on:click="open = false; $refs.trigger.focus()">Pick at random</x-admin.ui.button>
+                                @if ($author !== null)
                                     <x-admin.ui.button size="sm" variant="ghost" wire:click="clearAuthor" x-on:click="open = false; $refs.trigger.focus()">Clear author</x-admin.ui.button>
-                                </div>
-                            @endif
+                                @endif
+                            </div>
                         </div>
                     </div>
 

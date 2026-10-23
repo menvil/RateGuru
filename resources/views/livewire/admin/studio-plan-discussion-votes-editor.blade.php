@@ -108,37 +108,36 @@
     @teleport('#rg-admin-studio-comment-vote-settings')
         <div class="rg-admin-studio__comment-vote-settings">
             <x-admin.ui.card title="Comment votes" description="Up and down votes on the prepared comments, cast only once the plan is approved and runs. Each comment’s own are set in its breakdown: See breakdown on the comment.">
-                @if ($commentCount === 0)
-                    <x-admin.ui.empty-state icon="thumbs-up" title="No comments to vote on yet" :heading-level="3">
-                        Write or generate the discussion first; its comments get their votes here.
-                    </x-admin.ui.empty-state>
-                @else
-                    <div class="rg-admin-studio__discussion-fields">
-                        <div class="rg-admin-studio__comment-votes-distribute">
-                            <x-admin.ui.number-stepper label="Total up" id="rg-admin-comment-votes-total-up" :value="$totalUp" :min="0" wire:model.live.debounce.400ms="totalUp" />
-                            <x-admin.ui.number-stepper label="Total down" id="rg-admin-comment-votes-total-down" :value="$totalDown" :min="0" wire:model.live.debounce.400ms="totalDown" />
-                            <x-admin.ui.button size="sm" icon="shuffle" wire:click="distribute" :disabled="! $editable">Distribute automatically</x-admin.ui.button>
+                {{-- With no comments yet, the totals and the timing are what the comments to come get: shared out over them once the tree is written. --}}
+                <div class="rg-admin-studio__discussion-fields">
+                    <div class="rg-admin-studio__comment-votes-distribute">
+                        <x-admin.ui.number-stepper label="Total up" id="rg-admin-comment-votes-total-up" :value="$totalUp" :min="0" wire:model.live.debounce.400ms="totalUp" />
+                        <x-admin.ui.number-stepper label="Total down" id="rg-admin-comment-votes-total-down" :value="$totalDown" :min="0" wire:model.live.debounce.400ms="totalDown" />
+                        <x-admin.ui.button size="sm" icon="shuffle" wire:click="distribute" :disabled="! $editable || $commentCount === 0">Distribute automatically</x-admin.ui.button>
+                        @if ($commentCount === 0)
+                            <p class="rg-admin-hint">No comments yet: once the tree is generated or written, these totals are shared out over its comments by priority, and their votes come as set below — not saved until Save votes.</p>
+                        @else
                             <p class="rg-admin-hint">On {{ $voted }} of {{ $commentCount }} {{ $commentCount === 1 ? 'comment' : 'comments' }}. A total changed gives or takes the difference by each comment’s priority — Low 1, Normal 2, High 3 — keeping the rest, and a comment’s own votes add up to it. Distribute shares both totals out anew.</p>
-                            @error('votes')
-                                <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
-                            @enderror
-                        </div>
-                        <div class="rg-admin-studio__votes-block">
-                            <div class="rg-admin-studio__votes-block-head">
-                                <span class="rg-admin-studio__persona-name">When the votes come</span>
-                                <span class="rg-admin-studio__muted">{{ count(array_filter($chips['first'], fn (array $chip): bool => $chip['on'])) === 0 || count(array_filter($chips['spread'], fn (array $chip): bool => $chip['on'])) === 0 ? 'The comments’ votes come at different moments: a choice here sets them all.' : 'From each comment’s own moment, the same for every comment.' }}</span>
-                            </div>
-                            @foreach (['first' => 'First vote after', 'spread' => 'Spread over'] as $field => $label)
-                                <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $label }}">
-                                    <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
-                                    @foreach ($chips[$field] as $chip)
-                                        <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
-                                    @endforeach
-                                </div>
-                            @endforeach
-                        </div>
+                        @endif
+                        @error('votes')
+                            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
+                        @enderror
                     </div>
-                @endif
+                    <div class="rg-admin-studio__votes-block">
+                        <div class="rg-admin-studio__votes-block-head">
+                            <span class="rg-admin-studio__persona-name">When the votes come</span>
+                            <span class="rg-admin-studio__muted">{{ count(array_filter($chips['first'], fn (array $chip): bool => $chip['on'])) === 0 || count(array_filter($chips['spread'], fn (array $chip): bool => $chip['on'])) === 0 ? 'The comments’ votes come at different moments: a choice here sets them all.' : 'From each comment’s own moment, the same for every comment.' }}</span>
+                        </div>
+                        @foreach (['first' => 'First vote after', 'spread' => 'Spread over'] as $field => $label)
+                            <div class="rg-admin-studio__votes-chips" role="group" aria-label="{{ $label }}">
+                                <span class="rg-admin-studio__votes-chips-label">{{ $label }}</span>
+                                @foreach ($chips[$field] as $chip)
+                                    <button type="button" class="rg-admin-studio__votes-chip" aria-pressed="{{ $chip['on'] ? 'true' : 'false' }}" wire:click="setTiming('{{ $field }}', {{ $chip['seconds'] }})" @disabled(! $editable)>{{ $chip['label'] }}</button>
+                                @endforeach
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
             </x-admin.ui.card>
         </div>
     @endteleport

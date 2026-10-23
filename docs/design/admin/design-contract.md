@@ -1048,7 +1048,9 @@ actions (`docs/architecture/studio-plans.md`).
     stored (“Processing photo…”) and analysed, its preview kept until the saved photo has loaded in its place so
     the photo never blinks out; a link is imported (“Importing
     photo…”) once it is a whole address and typing has paused, never twice running. On a new publication the
-    first photo makes its Draft, and the top bar's Create draft becomes Save draft. Once there is a photo, the
+    first photo makes its Draft, with the author the page started with — an active Persona drawn at random, to
+    change, clear or Pick at random again — and the top bar's Create draft becomes Save draft, which then opens the
+    publication's editor on the same step. Once there is a photo, the
     sources give way to it: the photo, its file name, dimensions, size and type, a Saved or Replaced badge, Replace
     — the sources again, with Cancel — a file dropped on the photo to replace it, and Remove from draft, taken off
     at once. A failed upload or import is said by its source (FBK-02 warning, “Upload failed.”) with Try again,

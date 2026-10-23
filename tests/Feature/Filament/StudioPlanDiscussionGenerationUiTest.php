@@ -6,6 +6,7 @@ use App\Enums\StudioDiscussionGenerationStatus;
 use App\Enums\StudioPlanStatus;
 use App\Enums\StudioPostTextTone;
 use App\Enums\UserStatus;
+use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Comment;
@@ -20,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Livewire\Livewire;
 
 /**
  * Writing the discussion with AI from the Discussion step, as the prototype's
@@ -184,6 +186,38 @@ it('generates nothing while the post has unsaved changes, or a generation is on 
     $editor->call('generateTree', 0)->assertDispatched('rg-admin-toast', message: 'A generation is already on its way. Wait for it before asking for another.');
 
     expect(StudioPlanDiscussionGeneration::query()->count())->toBe(1);
+    Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
+});
+
+it('saves the post first when Generate tree is clicked with it changed, and generates once it is saved', function () {
+    discussionEditor($this->plan)
+        ->assertSeeHtml("x-on:click=\"\$store.adminEditor?.changes > 0 ? \$dispatch('save-studio-plan', { then: 'generate' }) : \$wire.generateTree(0)\"")
+        ->assertSee('The post’s changes are saved first: the discussion is written from the saved title and description.');
+
+    // The plan's editor saves the post, then says to generate.
+    Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'A harbour, renamed')
+        ->dispatch('save-studio-plan', then: 'generate')
+        ->assertDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->plan->id)
+        ->assertDispatched('rg-admin-toast', message: 'Draft saved', tone: 'success');
+
+    expect($this->plan->fresh()->title)->toBe('A harbour, renamed');
+
+    // Found saved already, it says so at once; a save refused says nothing of generating; the top bar's Save draft never does.
+    Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->dispatch('save-studio-plan', then: 'generate')
+        ->assertDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->plan->id)
+        ->assertNotDispatched('rg-admin-toast', message: 'Nothing to save');
+    Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'ab')
+        ->dispatch('save-studio-plan', then: 'generate')->assertHasErrors()->assertNotDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT);
+    Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->set('postTitle', 'Saved by the top bar')
+        ->dispatch('save-studio-plan')->assertNotDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT);
+
+    $editor = discussionEditor($this->plan->fresh());
+    $editor->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->plan->id + 1);
+
+    expect(StudioPlanDiscussionGeneration::query()->exists())->toBeFalse();
+
+    $editor->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->plan->id)->assertSet('awaiting', fn ($id) => $id !== null);
+
     Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
 });
 

@@ -414,6 +414,20 @@ trait EditsStudioPlan
         $this->resetErrorBag('authorUserId');
     }
 
+    /** Pick at random: an active Persona as the author, never the one chosen now. */
+    public function pickRandomAuthor(): void
+    {
+        $ids = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->authorUserId !== '' ? [(int) $this->authorUserId] : []));
+
+        if ($ids === []) {
+            $this->addError('authorUserId', 'There is no other active persona to pick.');
+
+            return;
+        }
+
+        $this->chooseAuthor($ids[array_rand($ids)]);
+    }
+
     public function clearAuthor(): void
     {
         $this->authorUserId = '';

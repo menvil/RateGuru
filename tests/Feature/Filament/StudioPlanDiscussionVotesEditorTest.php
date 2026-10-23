@@ -108,10 +108,10 @@ it('starts every comment and reply Normal and with no votes, from a random draw 
         ->assertSee('On 0 of 3 comments.');
 });
 
-it('asks for comments first when the discussion has none, and has nothing to save', function () {
+it('says the totals wait for the comments when the discussion has none, and has nothing to save', function () {
     $plan = StudioPlan::factory()->create(['created_by_user_id' => $this->admin->id]);
 
-    discussionVotesEditor($plan)->assertSee('No comments to vote on yet')->assertSee('Comment voters')
+    discussionVotesEditor($plan)->assertSee('No comments yet: once the tree is generated or written')->assertSee('Comment voters')
         ->call('redraw')->assertHasNoErrors()->assertSet('preview', [])->assertSet('unsaved', false);
 });
 
@@ -436,6 +436,47 @@ it('carries what was asked of the votes over to a discussion written anew — th
         ->call('save')->assertHasNoErrors();
 
     expect(collect(savedCommentVotes($this->plan))->pluck(2)->countBy()->all())->toEqual([$new['n1'] => 3, $new['n2'] => 1]);
+});
+
+it('takes totals and timing asked before the tree is written, nothing unsaved meanwhile, and shares them over its comments once it is', function () {
+    $plan = StudioPlan::factory()->authoredBy($this->author)->create(['created_by_user_id' => $this->admin->id]);
+    $editor = discussionVotesEditor($plan)->assertSee('No comments yet: once the tree is generated or written')
+        ->set('voterCount', 4)->set('totalUp', 3)->set('totalDown', 1)->call('setTiming', 'first', 1800)->call('distribute')
+        ->assertSet('totalUp', 3)->assertSet('totalDown', 1)->assertSet('timingAsked.first', 1800)->assertSet('targets', [])
+        ->assertSet('unsaved', false)->assertSet('status', '4 comment votes (+3 / −1)');
+    $version = $plan->fresh()->lock_version;
+
+    // Kept for the plan while it has no comments: the editor opened again — a new publication saved, say — starts from it.
+    $editor = discussionVotesEditor($plan)->assertSet('totalUp', 3)->assertSet('totalDown', 1)->assertSet('timingAsked.first', 1800)
+        ->assertSet('voterCount', 4)->assertSet('unsaved', false);
+
+    // The tree generated: two comments, nothing asked of them by hand.
+    $new = saveStudioDiscussion($this->admin, $plan, [
+        discussionNode(['key' => 'n1', 'personaUserId' => $this->anna->id, 'body' => 'A first one.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'n2', 'personaUserId' => $this->boris->id, 'body' => 'A second.', 'sortOrder' => 1, 'offsetSeconds' => 240]),
+    ])->ids;
+
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $plan->id, previous: $version, current: $version + 1, source: 'discussion')
+        ->assertSet('conflict', false)->assertSet('voterCount', 4)
+        ->assertSet("targets.{$new['n1']}.up", 2)->assertSet("targets.{$new['n2']}.up", 1)
+        ->assertSet("targets.{$new['n1']}.down", 1)->assertSet("targets.{$new['n2']}.down", 0)
+        ->assertSet("targets.{$new['n1']}.first", 1800)->assertSet("targets.{$new['n2']}.first", 1800)
+        ->assertSet('unsaved', true)->call('save')->assertHasNoErrors();
+
+    expect(collect(savedCommentVotes($plan))->pluck(2)->countBy()->all())->toEqual([$new['n1'] => 3, $new['n2'] => 1])
+        ->and(session(StudioPlanDiscussionVotesEditor::ASKED_SESSION.'.'.$plan->id))->toBeNull();
+});
+
+it('gives a comment added since the timing every comment was last given', function () {
+    $editor = discussionVotesEditor($this->plan)->call('setTiming', 'spread', 86400);
+    $version = $this->plan->fresh()->lock_version;
+    $added = saveStudioDiscussion($this->admin, $this->plan, [
+        ...StudioDiscussionData::of($this->plan->fresh())->nodes,
+        discussionNode(['key' => 'c3', 'personaUserId' => $this->eli->id, 'body' => 'And one more.', 'sortOrder' => 2, 'offsetSeconds' => 1200]),
+    ])->ids['c3'];
+
+    $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: $version, current: $version + 1, source: 'discussion')
+        ->assertSet("targets.{$added}.spread", 86400);
 });
 
 it('gives a comment Undo brings back none of the votes it had: it is a new comment', function () {

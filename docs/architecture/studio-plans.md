@@ -429,7 +429,13 @@ nothing.
 
 Generation is asked for there, and only there, on an explicit request, never
 while the post has unsaved changes — a generation is written from what is
-saved — or another is on its way: Generate tree writes a whole discussion,
+saved — or another is on its way. Generate tree clicked with the post changed
+saves it first: the plan's editor saves the draft and then tells the
+discussion editor to generate (`StudioPlanDiscussionEditor::GENERATE_EVENT`);
+a save refused generates nothing. On a new publication's page, whose save
+opens the plan's editor, the editor opens on the same step and generates
+there, told once through the session (`CreateStudioPlan::RESUME`). Generate
+tree writes a whole discussion,
 Total comments and Top-level comments becoming the comments and replies asked
 for, by the Personas checked or, under Random, as many picked at random as
 asked for, picked only as the tree is generated; Regenerate writes one saved
@@ -856,7 +862,14 @@ What is on it:
   comment, and votes on the others all the same. A deleted or restricted
   Persona gets no new vote; a restricted one keeps the vote it has until it is
   replaced.
-- **Comment votes** — Total up and Total down, always what the comments'
+- **Comment votes** — with no comments yet, Total up, Total down and when the
+  votes come are what the comments to come get: once the tree is generated or
+  written, the totals are shared out over its comments by priority and their
+  votes come as asked, as votes not saved yet — the same carry-over as a tree
+  written anew. Until then they are kept for the plan in the session
+  (`StudioPlanDiscussionVotesEditor::ASKED_SESSION`), so the editor opened
+  again — by a new publication's save, say — starts from them. A comment added
+  later takes the timing last asked of every comment. Then Total up and Total down, always what the comments'
   votes add up to. **Distribute automatically** shares both among the
   comments by their priorities' weights (Low 1, Normal 2, High 3): each gets
   the whole part of its share, and the votes left over go to the largest
@@ -1826,9 +1839,12 @@ through `StudioPlansQuery`, a new publication and a publication's editor in four
 and Publication — described in `docs/design/admin/design-contract.md`. The pages hold no rule of their own:
 
 - A new publication exists once Create draft runs `CreateStudioPlanAction`, which an untouched editor may do too —
-  or once its first photo arrives, which makes one empty Draft to keep the photo on. The page remembers the plan
-  it has (`planId`): later photos replace that plan's photo, and Save draft writes the texts to it through
-  `UpdateStudioPlanAction` rather than making another.
+  or once its first photo arrives, which makes one Draft, empty but for its author, to keep the photo on. The page
+  starts with an active Persona drawn at random as the author (`startAuthorId`), the page's starting value rather
+  than a change, which Discard comes back to; Pick at random in the author picker draws another. The page
+  remembers the plan it has (`planId`): later photos replace that plan's photo, and Save draft writes the texts to
+  it through `UpdateStudioPlanAction` rather than making another, then opens the plan's editor on the step the page
+  was on.
 - Save draft runs `UpdateStudioPlanAction` when the texts or settings changed. The photo is no part of the draft:
   one chosen from the computer — picked or dropped — or imported from a link or a social post is stored the moment
   it arrives through `SetStudioPlanImageAction`, and Remove from draft runs `RemoveStudioPlanImageAction` at once.
