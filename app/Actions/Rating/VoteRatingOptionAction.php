@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Cache\PostListCacheManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 final class VoteRatingOptionAction
@@ -24,7 +25,15 @@ final class VoteRatingOptionAction
         private readonly PostListCacheManager $postListCache,
     ) {}
 
-    public function handle(?User $user, Post $post, RatingOption $option): void
+    /**
+     * A member's answer to a rating question: the option chosen, in place of
+     * one chosen before.
+     *
+     * @param  CarbonImmutable|null  $createdAt  the date a new answer takes as its own — Content Studio's executor only,
+     *                                           for an answer it has found not given yet; never from a screen. An answer
+     *                                           changed keeps its own `created_at` whatever is given.
+     */
+    public function handle(?User $user, Post $post, RatingOption $option, ?CarbonImmutable $createdAt = null): void
     {
         if ($user === null) {
             throw CannotVoteForRatingOptionException::becauseGuest();
@@ -50,10 +59,10 @@ final class VoteRatingOptionAction
                 message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
-            throw CannotVoteForRatingOptionException::becauseRateLimited($e->getMessage());
+            throw CannotVoteForRatingOptionException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        $changed = DB::transaction(function () use ($user, $post, $option): bool {
+        $changed = DB::transaction(function () use ($user, $post, $option, $createdAt): bool {
             // Lock order: Actor User -> Post -> rating group -> option
             // (docs/architecture/user-lifecycle.md). Pre-checks ran on
             // possibly stale instances; the locked rows decide.
@@ -99,8 +108,8 @@ final class VoteRatingOptionAction
                     'post_id' => $post->id,
                     'rating_group_id' => $group->id,
                     'rating_option_id' => $lockedOption->id,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'created_at' => $createdAt ?? now(),
+                    'updated_at' => $createdAt ?? now(),
                 ]],
                 ['user_id', 'post_id', 'rating_group_id'],
                 ['rating_option_id', 'updated_at'],
