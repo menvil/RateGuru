@@ -1,0 +1,9 @@
+composer.lock
+  ai_agent 3771,3775,3779-3780,3835,3843
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2c0794bb30342299d5e9fbb34b7ba0e60c414bf",
+  "prompts": {}
+}
