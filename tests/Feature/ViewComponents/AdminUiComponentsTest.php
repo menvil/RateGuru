@@ -1,5 +1,6 @@
 <?php
 
+use Carbon\CarbonImmutable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\View\ViewException;
@@ -514,6 +515,75 @@ it('leads a combobox of things with an icon instead of a flag, and shows identif
         // The icon of the option not chosen starts hidden, before Alpine runs.
         ->and($html)->toMatch('/<svg[^>]*style="display: none;?"[^>]*x-show="display\[selected\]\?\.icon === \'boxes\'"/s')
         ->and($html)->not->toContain('style=";"');
+});
+
+it('draws a date and time field: a trigger with the moment and how far it is, over a dialog with a calendar, the time and Apply', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-24 12:00:00', 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field label="Publication date and time" id="publish-at" value="2026-10-26T14:00" min="1970-01-02T00:00" max="2038-01-18T23:59" timezone="UTC" :required="false" hint="Any date from 1970 to 2038." wire:model.live="publishAt" />');
+
+    expect($html)
+        // The label names the trigger together with the moment it shows; the hint describes it.
+        ->toContain('<label for="publish-at" id="publish-at-label" class="rg-admin-label">Publication date and time</label>')
+        ->toContain('<span class="rg-admin-field__tag">Optional</span>')
+        ->toMatch('/<button\s+type="button"\s+id="publish-at"\s+class="rg-admin-date-time__trigger"\s+aria-haspopup="dialog"\s+aria-expanded="false"\s+aria-controls="publish-at-dialog"\s+aria-labelledby="publish-at-label publish-at-value"\s+aria-describedby="publish-at-hint"/')
+        ->toMatch('/x-text="chosen === null \? \'Choose a date and time\' : long\(chosen\)"\s*>Mon 26 Oct 2026 · 14:00<\/span>/')
+        ->toMatch('/x-text="chosen === null \? \'\' : relative\(chosen\)\.text"\s*>in 2 days<\/span>/')
+        ->toContain('<p id="publish-at-hint" class="rg-admin-hint">Any date from 1970 to 2038.</p>')
+        // The value goes both ways through wire:model or x-model, its bounds and the moment the page was drawn with it.
+        ->toContain('x-modelable="value"')
+        ->toContain('wire:model.live="publishAt"')
+        ->toContain('data-now="2026-10-24T12:00:00"')
+        ->toContain("min: '1970-01-02T00:00'")
+        ->toContain("max: '2038-01-18T23:59'")
+        // The dialog: quick picks, the month as a grid of days under its weekdays, the months of a year, the time and Apply.
+        ->toMatch('/id="publish-at-dialog"\s+role="dialog"\s+aria-labelledby="publish-at-label"/')
+        ->toContain('role="group" aria-label="Quick picks"')
+        ->toContain('role="grid" class="rg-admin-date-time__grid" aria-labelledby="publish-at-title"')
+        ->toContain('<span role="columnheader" class="rg-admin-date-time__weekday" aria-label="Monday">Mo</span>')
+        ->toContain('<span role="columnheader" class="rg-admin-date-time__weekday" aria-label="Sunday">Su</span>')
+        ->toContain('role="gridcell"')
+        ->toContain('x-bind:aria-current="isToday(day) ? \'date\' : false"')
+        ->toContain('x-bind:aria-label="`Months of ${view.year}`"')
+        ->toContain('role="group" aria-label="Time"')
+        ->toContain('aria-label="Hour earlier"')
+        ->toContain('aria-label="Hour later"')
+        ->toContain('aria-label="5 minutes earlier"')
+        ->toContain('aria-label="5 minutes later"')
+        ->toContain('aria-live="polite"')
+        ->and(substr_count($html, 'class="rg-admin-date-time__chip"'))->toBe(5)
+        ->and($html)->toMatch('/>\s*Cancel\s*<\/button>/')
+        ->and($html)->toMatch('/x-bind:disabled="draft === null \|\| ! allowed\(draft\)"[^>]*>\s*Apply\s*<\/button>/');
+});
+
+it('says how far a date and time field\'s moment is from now, the past in the due colour, with its seconds when it has any', function (string $value, string $label, string $relative, bool $past) {
+    $this->travelTo(CarbonImmutable::parse('2026-10-24 12:00:00', 'UTC'));
+
+    $html = (string) $this->blade('<x-admin.ui.date-time-field label="When" id="when" :value="$value" timezone="UTC" />', ['value' => $value]);
+
+    expect($html)
+        ->toMatch('/long\(chosen\)"\s*>'.preg_quote($label, '/').'<\/span>/')
+        ->toMatch('/relative\(chosen\)\.text"\s*>'.preg_quote($relative, '/').'<\/span>/')
+        ->and(str_contains($html, 'class="rg-admin-date-time__relative rg-admin-date-time__relative--past"'))->toBe($past);
+})->with([
+    'within the minute' => ['2026-10-24T12:00:40', 'Sat 24 Oct 2026 · 12:00:40', 'Now', false],
+    'in hours' => ['2026-10-24T15:10', 'Sat 24 Oct 2026 · 15:10', 'in 3 h', false],
+    'in days' => ['2026-10-26T14:00', 'Mon 26 Oct 2026 · 14:00', 'in 2 days', false],
+    'minutes ago' => ['2026-10-24T11:15', 'Sat 24 Oct 2026 · 11:15', '45 min ago · in the past', true],
+    'months ago' => ['2025-03-01T18:00', 'Sat 01 Mar 2025 · 18:00', '20 months ago · in the past', true],
+    'years ago, with seconds' => ['2019-05-06T07:08:09', 'Mon 06 May 2019 · 07:08:09', '7 years ago · in the past', true],
+]);
+
+it('draws a date and time field with no moment as its placeholder, and an error in place of its hint', function () {
+    $html = (string) $this->blade('<x-admin.ui.date-time-field label="When" id="when" value="" hint="Any date." error="Choose a date from 1970 to 2038." />');
+
+    expect($html)
+        ->toMatch('/class="rg-admin-date-time__value rg-admin-date-time__value--empty"[^>]*>Choose a date and time<\/span>/')
+        ->toMatch('/x-show="chosen !== null"[^>]*style="display: none"/')
+        ->toContain('class="rg-admin-date-time__trigger rg-admin-date-time__trigger--invalid"')
+        ->toContain('aria-describedby="when-error"')
+        ->toContain('Choose a date from 1970 to 2038.')
+        ->not->toContain('Any date.');
 });
 
 it('pages a list with links: the range, the pages around the current one with gaps, and arrows disabled at the ends', function () {

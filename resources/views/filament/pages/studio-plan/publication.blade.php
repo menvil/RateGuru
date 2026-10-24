@@ -13,18 +13,17 @@
             @enderror
 
             @if ($publicationMode === 'at_date')
-                <x-admin.ui.text-field
+                <x-admin.ui.date-time-field
                     label="Publication date and time"
                     id="rg-admin-studio-publish-at"
-                    type="datetime-local"
                     :value="$publishAt"
+                    :min="$limits['earliest']"
+                    :max="$limits['latest']"
+                    :timezone="$timezone"
                     :required="false"
                     :hint="'Any date from 1970 to 2038, past or future, in '.$timezone.'.'"
                     :error="$errors->first('publishAt') ?: null"
-                    min="{{ $limits['earliest'] }}"
-                    max="{{ $limits['latest'] }}"
-                    step="{{ substr_count($publishAt, ':') === 2 ? 1 : 60 }}"
-                    wire:model.live.debounce.500ms="publishAt"
+                    wire:model.live="publishAt"
                 />
                 @if (trim($publishAt) === '' && ! $errors->has('publishAt'))
                     <x-admin.ui.inline-notice tone="warning">Publication date not selected</x-admin.ui.inline-notice>
