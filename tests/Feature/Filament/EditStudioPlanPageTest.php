@@ -188,6 +188,26 @@ it('says a chosen date is missing without refusing the draft', function () {
     expect($plan->fresh())->publication_mode->toBe(StudioPlanPublicationMode::AtDate)->publish_at->toBeNull();
 });
 
+it('chooses the publication date in a calendar rather than the browser\'s own field, bounded as a post\'s date is', function () {
+    $plan = studioPlanWithEverything();
+
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->call('goToStep', 'publication');
+
+    expect($page->html())
+        ->toContain('aria-controls="rg-admin-studio-publish-at-dialog"')
+        ->toContain('wire:model.live="publishAt"')
+        ->toContain("min: '1970-01-02T00:00'")
+        ->toContain("max: '2038-01-18T23:59'")
+        ->toContain('Any date from 1970 to 2038, past or future, in UTC.')
+        ->toMatch('/long\(chosen\)"\s*>Mon 06 May 2019 · 07:08<\/span>/')
+        ->not->toContain('type="datetime-local"');
+
+    // What the calendar takes is the field's own text, kept as typing it was.
+    $page->set('publishAt', '2031-12-24T18:30')
+        ->assertSee('24 Dec 2031, 18:30')
+        ->assertSeeHtml('>Wed 24 Dec 2031 · 18:30</span>');
+});
+
 it('changes the author without touching the photo', function () {
     Queue::fake();
     $plan = StudioPlan::factory()->withImage()->authoredBy(User::factory()->persona()->create())->create(['created_by_user_id' => $this->admin->id]);
