@@ -1128,7 +1128,15 @@ actions (`docs/architecture/studio-plans.md`).
     at once. Nothing is published.”, each refusal kept by its field.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
     zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
-    saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
+    saved or not, with “This is a draft. Saving it does not publish or schedule anything.” The date is chosen in
+    the prototype's date and time field (`x-admin.ui.date-time-field`), never the browser's own: a 48-high trigger
+    with the moment and how far it is from now — the past in the due colour — over a dialog of quick picks (Now,
+    Today 18:00, Tomorrow 09:00, In 2 days, A week ago, A month ago), the month as a grid of days from Monday, the
+    time in hours and five-minute steps with 09:00, 12:00, 14:00, 18:00 and 21:00, and the moment as it stands;
+    Apply takes it, Cancel, Escape or a click outside leave the date as it was. The days are an ARIA `grid` with
+    one tab stop: the arrows move a day or a week, Home and End to the week's ends, Page Up and Page Down a month
+    (with Shift a year). The dialog opens under the trigger, over it when only there is room for all of it, and
+    otherwise wherever it is whole between the top bar and the footer.
 - **Saving:** the texts through `CreateStudioPlanAction` or `UpdateStudioPlanAction`; the photo the moment it is
   chosen through `SetStudioPlanImageAction` or `RemoveStudioPlanImageAction` — each handed the version the editor
   last read or wrote, so neither is in conflict with the other, and the texts typed stay unsaved until Save. Each
@@ -1517,6 +1525,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; Comment votes and Comment voters cards, Comment votes and Voters tabs, priorities Normal, High and Main with a total, a positive share and distribution modes, a reply to a reply | post votes, voters and timing on Post · Votes, saved as each setting moves, every active rating question on, each voter voting and answering in one visit, and every vote listed on its Timing tab with its moment changed in place; the Comment voters and Comment votes cards beside the Discussion settings, each comment of the tree with its up and down votes as set, "Not saved" while they differ from the saved ones, and See breakdown opening the comment's votes, priority, timing and voters beside the tree; the tree's Comments, Voters and Timing tabs, Timing listing every comment, reply and vote in one list by its time, each moment changed in place, a comment moved taking its votes along; the comment votes said in the Generate strip with "Not saved"; priorities Low, Normal and High, Total up and Total down always what the comments' votes add up to, a total changed giving or taking only the difference by priority, one timing after each comment or one of a comment's own; the votes made at once, kept by Save votes in a comment's breakdown, and the step left with them unsaved only after asking, what changed listed; a reply answers a comment on the post; Generate writes from saved texts only | a vote is one Persona's on one target, so up and down are set as counts of Personas and saved exactly as shown; a discussion has two levels |
 | Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
+| Publication date field | a calendar stepping a month at a time, any date | the same, with its title opening the months of a year, and only the dates a post's timestamps hold, 1970 to 2038 | a past date is as much an editorial choice as a future one, and decades away is too many months to step through |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
 | Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
