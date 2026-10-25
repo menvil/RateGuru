@@ -187,7 +187,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
-  | Content Studio | Publications & plans · Personas |
+  | Content Studio | Publications & plans · Action queue · Personas |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -1004,25 +1004,27 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 ```text
 Content Studio
 ├── Publications & plans
+├── Action queue
 └── Personas
 ```
 
 Content Studio is where administrators run the accounts the site's editorial content comes from and prepare what
-they publish. Its section holds only screens that work: the prototype's Reply rules, Reply log and Action queue
-arrive with their own screens, never as items before them.
+they publish. Its section holds only screens that work: the prototype's Reply rules and Reply log arrive with their
+own screens, never as items before them.
 
 ### Publications & plans
 
 The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a publication's editor
 (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan` (`StudioPlanResource`). A plan is a draft of a post, never
-a post: nothing on these pages publishes, schedules or queues anything, and every write goes through the plan's
-actions (`docs/architecture/studio-plans.md`).
+a post, until Review and confirm on its Publication step approves it; its actions then run, and are managed, in the
+Action queue. Every write goes through the plan's actions (`docs/architecture/studio-plans.md`).
 
 - **List header band:** “Prepare publication drafts before reviewing and publishing them.” Stats: Total plans,
   Drafts, With image and With author — figures that can be counted now; nothing about scheduled or published posts,
   comments or votes, which no plan has yet.
 - **Toolbar (TBL-02):** the search over the title, the id (`#123` or `123`) and the author's username and names —
-  never a deleted author's; State (All, Draft) and Image (With image, Without image) as filter dropdowns with their
+  never a deleted author's; State (All, Draft, Approved, Running, Completed, Cancelled) and Image (With image, Without
+  image) as filter dropdowns with their
   chips, in the URL, a value the list does not offer dropped; 25 a page, the most recently saved first
   (`StudioPlansQuery`, a registered stable pagination boundary); a page past the end shows the last one.
 - **Table (TBL-01):** the title — a link to the editor — or “Untitled draft #ID”, with the id; the author with
@@ -1037,9 +1039,9 @@ actions (`docs/architecture/studio-plans.md`).
   with the count of unsaved changes, Discard and Create draft or Save draft, and the browser's question before a
   page with unsaved changes is left. Four steps under the title — Image (Upload & analysis), Post (Texts, author &
   votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back (disabled on the first),
-  “Step n of 4” and Continue in a footer kept at the foot of the window; moving between them saves nothing and
-  loses nothing, and none is locked by an incomplete draft. Continue waits only while a photo is on its way,
-  saying “Wait for the photo to finish uploading.”
+  “Step n of 4” and Continue — on the last step Review and confirm — in a footer kept at the foot of the window;
+  moving between them saves nothing and loses nothing, and none is locked by an incomplete draft. Continue waits
+  only while a photo is on its way, saying “Wait for the photo to finish uploading.”
   - **Image:** nothing waits for Save. While there is no photo, its sources (FRM-08): Upload — Upload image, or a
     file dropped on the drop zone, the limit read from `uploads.images.max_kilobytes` —, From link — a direct link
     to an image — and From social post — a public post's link, with the sites read directly (Instagram, X,
@@ -1127,8 +1129,27 @@ actions (`docs/architecture/studio-plans.md`).
     after C1”, or a warning when a reply would come before its comment; Save writes it at once, “Saved to this draft
     at once. Nothing is published.”, each refusal kept by its field.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
-    zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
-    saved or not, with “This is a draft. Saving it does not publish or schedule anything.” The date is chosen in
+    zone, “Publication date not selected” while there is none; Overdue actions, once any action's moment has
+    passed — how many, and that they run as soon as the plan is approved, in plan order, keeping their planned
+    dates, with no choice offered; Ready to approve? — every problem the approval preflight finds on the saved
+    plan, each with a button to the step that holds it, or that everything is in order, and a warning while
+    anything on the page is unsaved; the Final publication card — the photo, title and description, author,
+    category, date and how many actions, then the post's votes and answers and the discussion's comments,
+    replies and votes, each part with Edit — with “Saving the draft publishes and schedules nothing. Review and
+    confirm approves it.”; and beside them the Action plan (`StudioPlanActionPlan`): Total actions, Overdue and
+    In the future, a legend, the post's and the discussion's lanes on a timeline with a line for now, All · Post
+    · Discussion (FRM-08), and a table of every action — Planned, Part, Action (what it does, its text or
+    option, and after what: the post, C1), Executor, Runs at (On approval, or its moment) and State (Ready to
+    run, Scheduled, Overdue) — 25 a page (NAV-04), with Recalculate; a preview of exactly what approval writes,
+    nothing written. Review and confirm (OVL-01) asks “Confirm this publication?” with the post, its author and
+    date, the comments and replies, the votes and answers, how many actions, how many overdue and how many wait
+    for later, and whether the executor is on; Approve and publish approves the plan as saved. It is disabled
+    while the preflight finds anything, held back with anything unsaved — “Save your changes before approving.”
+    — and refused with Reload for a version somebody else saved since. An approved plan opens here, closed: its
+    Publication status — the state, who approved it and when, its post with Open post, a warning while the
+    executor is off — with Open in Action queue and Stop remaining actions (OVL-01, warning), over its own actions
+    as they stand, each with when it ran or why it stopped and Open post or Open comment; it reads itself again
+    while the executor is on and anything waits or runs. The date is chosen in
     the prototype's date and time field (`x-admin.ui.date-time-field`), never the browser's own: a 48-high trigger
     with the moment and how far it is from now — the past in the due colour — over a dialog of quick picks (Now,
     Today 18:00, Tomorrow 09:00, In 2 days, A week ago, A month ago), the month as a grid of days from Monday, the
@@ -1154,6 +1175,32 @@ actions (`docs/architecture/studio-plans.md`).
   `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
 - **Access:** an active administrator's (`manage-studio-plans`): the navigation item, every page and every
   Livewire request ask, and so do the actions.
+
+
+### Action queue
+
+The Action queue (`StudioActionQueue`, `/admin/studio-actions`) is drawn in Admin v2 over Content Studio's business
+queue itself (`studio_plan_actions`), never Laravel's jobs: every action approved plans wrote.
+
+- **Header band:** “Every action approved publications run: posts, comments, replies, votes and rating answers.
+  Planned and actual times are kept apart.” Stats: Pending, Running (sent or running), Held and Errors.
+- **Executor:** a band under it says whether the executor is on — each action sent the moment it is due, the
+  minute's run sending whatever was missed — or off, nothing sent or run; Switch on or Switch off asks first
+  (OVL-01, warning), with how many actions are pending (`SwitchStudioExecutionAction`).
+- **Toolbar (TBL-02):** the search over the publication's title, the action's id (`#123` or `123`) and its persona's
+  username and names — never a deleted account's; State, Kind and Publication as filter dropdowns with their chips,
+  in the URL, a value the list does not offer dropped; Planned: latest first or earliest first; 25 a page
+  (`StudioActionsQuery`, a registered stable pagination boundary).
+- **Table (TBL-01):** Publication — a link to the plan — with its id and the action's; Action — what it does and its
+  kind, after what; Executor — avatar, username and name; Planned, the due colour while it waits past its moment;
+  Runs — Due now, its moment, Sent, Since, Ran or Failed, with its attempt; State (STS-01) with its failure code;
+  Retry for a failed action, Resume for a held one, Cancel for one not yet run, and Details, which opens in place:
+  why it stopped, its planned and earliest moments, when it finished, its attempts, the action it depends on, Open
+  plan and Open post or Open comment.
+- **Cancel (OVL-01, warning):** “Cancel this action?” — cancelled for good with every action of its branch still
+  waiting; nothing already published is taken back — Keep it and Cancel action (`CancelStudioActionAction`).
+- **Reading itself again:** every five seconds while the executor is on and anything waits or runs.
+- **Access:** an active administrator's (`manage-studio-plans`); the switch also asks `manage-project-settings`.
 
 ### Personas
 
@@ -1517,14 +1564,15 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
 | Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
-| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
-| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
-| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
+| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | the figures a plan's own row counts; what ran is the Action queue's |
+| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status — Draft, Approved, Running, Completed, Cancelled; Edit draft and Delete draft, or Open | how a plan runs is shown on its Publication step and in the Action queue; Unschedule is Stop remaining actions there, never back to a draft |
+| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | the same, Review and confirm disabled while the approval preflight finds anything and held back with anything unsaved on the page, each said in the footer; Continue waits only for a photo on its way | approval publishes the plan as it is saved, and only once nothing stops it; no step is locked by an incomplete draft |
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; Comment votes and Comment voters cards, Comment votes and Voters tabs, priorities Normal, High and Main with a total, a positive share and distribution modes, a reply to a reply | post votes, voters and timing on Post · Votes, saved as each setting moves, every active rating question on, each voter voting and answering in one visit, and every vote listed on its Timing tab with its moment changed in place; the Comment voters and Comment votes cards beside the Discussion settings, each comment of the tree with its up and down votes as set, "Not saved" while they differ from the saved ones, and See breakdown opening the comment's votes, priority, timing and voters beside the tree; the tree's Comments, Voters and Timing tabs, Timing listing every comment, reply and vote in one list by its time, each moment changed in place, a comment moved taking its votes along; the comment votes said in the Generate strip with "Not saved"; priorities Low, Normal and High, Total up and Total down always what the comments' votes add up to, a total changed giving or taking only the difference by priority, one timing after each comment or one of a comment's own; the votes made at once, kept by Save votes in a comment's breakdown, and the step left with them unsaved only after asking, what changed listed; a reply answers a comment on the post; Generate writes from saved texts only | a vote is one Persona's on one target, so up and down are set as counts of Personas and saved exactly as shown; a discussion has two levels |
-| Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
+| Publication step | overdue actions with Run overdue now, Spread from now and Skip overdue, an action plan, and a note that real timestamps are never backdated | the mode, the date, what is overdue said as a count with no choice, Ready to approve?, the final card and the action plan — a preview of what approval writes, then the plan's own actions as they run | every action whose moment has passed runs as soon as the plan is approved, keeping its planned date — the post, its comments and votes take the plan's dates as their own (H1); spreading or skipping them would contradict that, and the note would not be true |
+| Action queue | demo states Pending, Running, Done, Error, Cancelled; Cancel and Retry; Open post on site | the business queue's own states — Pending, Dispatched, Running, Done, Held, Failed, Cancelled — with Retry, Resume, Cancel asked first, Details in place, Pending, Running, Held and Errors counted, and the executor's switch, asked first | the states are the queue's own, a held action needs Resume, and the executor stays off until an administrator switches it on |
 | Publication date field | a calendar stepping a month at a time, any date | the same, with its title opening the months of a year, and only the dates a post's timestamps hold, 1970 to 2038 | a past date is as much an editorial choice as a future one, and decades away is too many months to step through |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |

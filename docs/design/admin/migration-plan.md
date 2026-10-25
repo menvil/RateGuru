@@ -316,7 +316,7 @@ migrated from v1; each screen brings its navigation item, and no item comes befo
 |---|---|---|
 | 1 | Personas — the list, a new persona and a persona's editor | **done** |
 | 2 | Publications & plans with the publication editor | **done** |
-| 3 | Action queue | planned |
+| 3 | Action queue | **done** |
 | 4 | Reply rules and Reply log | planned |
 
 **Publications & plans. Status: done.** The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a
@@ -335,8 +335,7 @@ while a batch is on its way; choosing a title or a description puts it in the fi
 by Save draft. The Discussion step works as the prototype's: its settings, Generate tree, and the discussion tree
 with Reply, Edit, Regenerate and Delete in a dialog or a confirmation, and its Timing — every change written to the
 plan at once, what AI writes taken in the moment it is ready, the component alone polling while a generation is on
-its way. Everything else a later stage brings is left out rather than drawn: votes, approval, the action plan and the
-queue; the editor says where each will come. The kit
+its way. The Publication step approves the plan and follows it (see Phase 4 below); the votes are Phase 6's. The kit
 gained the `newspaper`, `arrow-left`, `share-2`, `image-up`, `replace`, `loader`, `file` and `file-image` icons and
 the card's `aside` slot, a status beside its title; the steps, the drop zone, the upload's progress and the footer
 kept at the foot of the window are the screen's own.
@@ -349,24 +348,31 @@ criterion has been checked on staging: the analysis and the suggestions appear i
 chosen and edited, and with an empty key both say they are not configured while the rest of the application
 works.
 
-**Content Studio Phase 4 — Publishing & historical actions. Status: in progress.** Its first step is in code: the
-approval of a complete Draft and the lasting record of what will publish it. `ApproveStudioPlanAction` asks the
-approval preflight (`StudioPlanApprovalPreflight`) whether the plan is ready, marks it Approved — by whom, when — and
-writes the one Pending `create_post` row of Content Studio's business queue (`studio_plan_actions`), when the post
-happens (`occurs_at`) and when it may run (`run_after`) fixed at approval, past dates kept as the post's own. Nothing
-on screen approves a plan yet — no Approve or Publish button.
+**Content Studio Phase 4 — Publishing & historical actions. Status: done in code; its staging check is what is
+left.** A complete Draft is approved from its editor's Publication step: Review and confirm — held back with
+anything unsaved on the page, refused at a version somebody else saved since, disabled while the approval preflight
+(`StudioPlanApprovalPreflight`) finds anything, each problem said with the step that holds it — asks first with what
+approval writes, then runs `ApproveStudioPlanAction`, which marks the plan Approved and writes every action of
+Content Studio's business queue (`studio_plan_actions`) that will publish it: exactly the set `StudioPlanSchedule`
+works out, the one source the step's Action plan previews before anything is written. Past dates are the post's,
+its comments' and its votes' own (decision H1); every action whose moment has passed runs as soon as the plan is
+approved, in plan order and within its Persona's limits, and the prototype's Spread from now and Skip overdue are
+left out. The executor — `studio:dispatch-due` every minute as the schedule and the recovery, woken at once on an
+approval, on a run done with actions due waiting for it, on Retry or Resume and on the executor switched on
+(`StudioDispatchWake`), so a historical plan runs generation after generation without waiting a minute — writes the
+Persona's post through `CreatePostAction` with the plan's stored photo and its planned dates, publishes it through
+`ApprovePostAction` as the approving administrator on that date, scores it, then its comments, replies and votes,
+each once however often its job is delivered or its worker dies (`docs/architecture/studio-plans.md`, "Running a
+plan"). An approved plan opens closed on its Publication step, its own actions followed as they run.
 
-Its second step, the executor, is in code and switched off. `studio:dispatch-due`, every minute through the
-existing scheduler, sends the due `create_post` actions to the queue and sends again those lost on their way or
-left by a dead worker; `ExecuteStudioAction` claims one and, in one transaction, writes the Persona's post through
-`CreatePostAction` with the plan's stored photo and its planned dates, publishes it through `ApprovePostAction` as
-the approving administrator on that date, scores it and marks the action done — once, however often its job is
-delivered or its worker dies (`docs/architecture/studio-plans.md`, "Running a plan"). It runs nothing until the
-project's `content_studio_execution_enabled` flag is switched on, which is off by default, on staging and
-production too, and has no switch on screen, so a deploy publishes nothing. Still to come in this phase: the
-Publication screen with its Approve button, the Action queue screen — resuming held actions, retrying failed ones,
-cancelling — and the votes after the post; the comments and replies run since Phase 5's last step. Phase 4 is not
-finished.
+The Action queue (`StudioActionQueue`) is the business queue itself: every action, narrowed by state, kind and
+publication and searched on the server, 25 a page, with Retry for a failed one, Resume for a held one, Cancel for
+one not yet run — its branch with it, asked first — and the executor's switch, asked first too. The
+`content_studio_execution_enabled` flag stays off by default, on staging and production too, so a deploy publishes
+nothing until an administrator switches it on there (`docs/architecture/studio-plans.md`, "The Action queue").
+What is left is the staging check, not more building: a plan approved with a past date, now and in the future, the
+executor switched on for it, every action run once with its planned dates and its real `finished_at`, then the
+executor switched off again.
 
 **Content Studio Phase 5 — Discussion generation. Status: done in code, pending its staging check.** Its first step is in code: a Draft's
 discussion — comments on the post and replies to them, two levels only, up to 40, each by a Persona, its moment kept
@@ -388,10 +394,10 @@ Regenerate and Keep as is (`docs/architecture/studio-plans.md`, "The editor"). I
 plan writes a `create_comment` for every comment and a `create_reply` for every reply under its post's action, once the
 preflight finds the discussion publishable as it is, and the executor publishes each as a real comment or reply of its
 Persona, dated as planned, after what it depends on, once — its branch cancelled with a parent cancelled for good
-(`docs/architecture/studio-plans.md`, "Running a plan"). Nothing runs until the executor is switched on. The
-Publication screen is a later stage; the votes are Phase 6's.
+(`docs/architecture/studio-plans.md`, "Running a plan"). Nothing runs until the executor is switched on; the votes are
+Phase 6's.
 
-**Content Studio Phase 6 — Votes & ratings. Status: done in code; staging checks to come.** Its first step is in code, on the server only: a
+**Content Studio Phase 6 — Votes & ratings. Status: done in code; its staging checks are what is left.** Its first step is in code, on the server only: a
 Draft's prepared votes — on the post, on a comment or reply of its discussion, or for a rating option, each by a
 Persona at a moment kept as seconds after the post — stored a row per vote in `studio_plan_votes`, one per Persona and
 target whichever way it goes, each keeping its id through every edit. `SaveStudioVotesAction` saves them all at once
@@ -414,8 +420,10 @@ is approved once every vote can be cast as it is — each problem refused with a
 and approval writes an action for every prepared vote under the post's or its comment's; the executor casts each
 through the site's own vote actions, dated as the plan said, never twice, never taking back or turning a vote already
 there (`vote_conflict` for an administrator), within the voting limit (`docs/architecture/studio-plans.md`,
-"Running a plan" → "Votes"). Nothing on screen approves a plan or switches the executor on yet; the Publication screen
-and the Action queue screen are later stages, and the executor stays off on staging and production.
+"Running a plan" → "Votes"). A rating option deleted, or moved, between the run's own check and its lock is cancelled
+as `rating_option_unavailable`, never failed as unexpected. The Publication step approves the plan and the Action
+queue retries, resumes or cancels its votes (Phase 4 above); the executor stays off on staging and production until
+an administrator switches it on.
 
 **Personas. Status: done.** The list (`ListPersonas`) and a persona's editor in the drawer over it
 (`PersonaEditor`), new or existing, are drawn in Admin v2 over `User` narrowed to the Persona role, for an active administrator

@@ -40,7 +40,9 @@ which no editor's write — a save, a photo, a deletion — touches it. Its firs
 action claimed, it is Running; once none of its actions is left to run or to
 decide, it is Completed when its post was published and Cancelled when it never
 will be (see "Running a plan" below). A held or failed action keeps it Running,
-waiting for an administrator.
+waiting for an administrator, who may also stop what is left of an Approved or
+Running plan in the Action queue — settling it the same way (see "The Action
+queue" below).
 
 ## A Draft may be incomplete
 
@@ -102,8 +104,9 @@ also what a second delete of the same plan says, releasing nothing again.
 
 Approving a plan is an administrator's trusted permission for its Persona to
 publish it (`docs/architecture/content-studio-phase-0.md`, D3): the plan is
-complete and current, and nothing about it changes any more. Nothing on screen
-approves a plan yet; `ApproveStudioPlanAction` is called by its tests alone.
+complete and current, and nothing about it changes any more. It is given on
+the plan's Publication step, with Review and confirm, through
+`ApproveStudioPlanAction` (see "The Publication step" below).
 
 ### The preflight
 
@@ -169,7 +172,11 @@ found by it.
 
 `studio_plan_actions` (`StudioAction`) is Content Studio's business queue: one
 row per scheduled domain write of an approved plan, kept in the main database
-(`docs/architecture/content-studio-phase-0.md`, E2–E6). Approval writes the
+(`docs/architecture/content-studio-phase-0.md`, E2–E6). What approval writes is
+worked out by one class, `StudioPlanSchedule`, from the plan as it is: the
+approval writes exactly its set, and the Publication step's Action plan shows
+exactly its set before anything is written — never a second reckoning that could
+drift from the first. Approval writes the
 plan's root action, `create_post` — its Persona as the actor, no parent, an
 empty payload: the approved plan, which nothing writes any more, is what it
 publishes — `pending`, untried (`attempts` 0); then the discussion's actions
@@ -263,8 +270,10 @@ vote.run_after = max(approved_at, vote.occurs_at)
 
 A `pending` row is a passive record until the executor is switched on: no queue,
 worker or command acts on it, nothing is sent to Redis, no post is made, and
-nothing notifies anybody. Once it is on, `studio:dispatch-due` sends it when its
-`run_after` comes (see "Running a plan" below).
+nothing notifies anybody. Once it is on, it is sent when its `run_after` comes
+and what it depends on is done: at once when that is already so — the dispatcher
+is woken the moment the approval commits — and otherwise by the run that finds
+it due (see "Running a plan" below).
 
 ### Logs
 
@@ -520,10 +529,12 @@ code — `access_denied`, `plan_gone`, `not_draft`, `stale_version` or
 `invalid_discussion` — and the fields that failed). Never a comment's text nor
 anything of a Persona.
 
-### Still to come
+### Publishing it
 
-The Publication screen is a later stage; the executor publishes the comments
-and replies themselves. The votes on them are prepared apart, on the same step
+The executor publishes the comments and replies themselves, each once what it
+answers is done (see "Running a plan"); the Publication step shows each as an
+action of the plan before approval and as it runs afterwards (see "The
+Publication step"). The votes on them are prepared apart, on the same step
 (see "The Comment votes editor").
 
 ## The votes
@@ -1062,12 +1073,12 @@ and asks for Reload.
 - The comment votes are said in the Generate strip, and every vote is shown
   at its moment on the Timing tab, which the prototype does not show.
 
-### Still to come
+### Casting them
 
-Nothing of the votes themselves: approval writes their actions and the
-executor casts them (see "Running a plan", "Votes"). The Publication screen
-that approves a plan and the Action queue screen that shows and resumes its
-actions are later stages.
+Approval writes their actions and the executor casts them (see "Running a
+plan", "Votes"); the Publication step shows each before approval and as it
+runs, and the Action queue retries, resumes or cancels one (see "The
+Publication step", "The Action queue").
 
 ## Discussion generation
 
@@ -1301,7 +1312,8 @@ delivery), or, its parent cancelled, is cancelled with its branch; and right
 before writing, the run asks the parent once more. Nothing is
 deleted: a held, cancelled or failed action stays as the record of what
 happened. Nothing resumes a held action by itself; resuming, retrying and
-cancelling are an administrator's, on the Action queue screen to come.
+cancelling are an administrator's, in the Action queue (see "The Action queue"
+below).
 
 ### The dispatcher
 
@@ -1331,6 +1343,35 @@ posting limit sent back (`deferrals`) — is failed instead,
 leaves the action `dispatched`, so it is found lost and sent again: nothing is
 left that could never be sent again. Every kind approval writes runs, so every
 kind is sent, sent again, counted and failed alike.
+
+### Waking the dispatcher
+
+The minute is the schedule and the recovery, never a delay between one
+generation of a plan and the next. The moment something may have become due,
+the dispatcher is woken (`StudioDispatchWake`), once the write that made it so
+has committed — never inside its transaction, and never for one rolled back:
+
+- an approval, so a post due at once — published now, or on a past date — is
+  sent straight away;
+- a run done with actions of its own already due waiting for it — a past-dated
+  post's comments and votes, a comment's replies and votes — so they are sent
+  at once, and a whole historical plan runs post, comments, replies and votes
+  without a minute between them; an action still to come waits for its own
+  moment and the minute's run;
+- an administrator's Retry or Resume in the Action queue;
+- the executor switched on, so whatever became due while it was off runs now.
+
+Waking sends one `DispatchDueStudioActionsJob`, which runs the very pass the
+minute runs — the same selection, locks, attempts, recovery and switch, no
+second queue and no second executor. It is unique until a worker takes it: one
+waits on the queue at most, however often it is asked for, and one asked for
+while it runs waits behind it, so nothing that became due during a run is left
+for the minute. A run that sent a whole `batch_size` may have left more due, and
+asks for the next one; a run that sent less found everything due there was, so
+a plan larger than a batch is carried through to its end, a batch a run, and the
+chain stops. Nothing is waked while the executor is off, a wake that fails is
+only logged (`studio.dispatch.wake_failed`), and the minute's run, beside it or
+after it, sends whatever is due: two runs at once never send one action twice.
 
 ### The job and the run
 
@@ -1567,16 +1608,21 @@ more after `max_deferrals` is failed, `rate_limited`, for an administrator.
 
 The project's `content_studio_execution_enabled` flag (`ProjectSettingsManager`,
 `StudioExecutionSwitch`) is **off** by default, on staging and production too,
-and nothing on screen switches it: the settings page neither shows it nor
-clears it when saved. While it is off, `studio:dispatch-due` sends nothing,
+and only an administrator switches it, from the Action queue, after
+confirming (`SwitchStudioExecutionAction`) — one who may both manage plans and
+the project's settings; the settings page neither shows it nor clears it when
+saved, and every other setting and flag is kept as stored. While it is off,
+`studio:dispatch-due` sends nothing,
 takes nothing back and changes nothing, and a job already sent begins nothing.
 It is read afresh every time, never from what a long-lived worker resolved
-earlier, so switching it off stops the very next job.
+earlier, so switching it off stops the very next send and the very next claim;
+a run a worker already claimed finishes, and nothing written is taken back.
+Switched on, the dispatcher is woken at once.
 
 A deploy therefore publishes nothing: the migrations run, the new code goes
 live, the worker restarts as it always does, and the actions stay as they are
-until the flag is switched on deliberately — later, once the Publication screen
-and the later stages exist. A job a worker of an older release does not know
+until an administrator switches the flag on deliberately. A job a worker of an
+older release does not know
 fails there and leaves its action `dispatched`, and recovery sends it again.
 
 ### Configuration
@@ -1597,7 +1643,10 @@ fails there and leaves its action `dispatched`, and recovery sends it again.
 `.skipped`, `.discarded` (a run that found its attempt gone), `.done`,
 `.held`, `.cancelled`, `.failed`, `.postponed` and `.job_failed` — with the
 action's id, the plan, the Persona, the type, the state, the attempt, the
-failure code and the moments. Never the post's texts.
+failure code and the moments — and, for an administrator's operations,
+`studio.action.retried`, `.resumed`, `.cancelled` (with the administrator),
+`studio_plan.stopped` (how many it cancelled), `studio.execution.switched` and
+`studio.dispatch.wake_failed`. Never the post's texts.
 
 ### Testing it
 
@@ -1617,7 +1666,111 @@ cast, and a vote beside a member's own vote on the same post or comment, a
 moderator hiding the post or the comment, a ban of its Persona, and an
 administrator archiving its option, both orders. Approval races two
 administrators on a plan with votes, a save of its votes and a ban of a voter
-(`tests/Feature/Concurrency/StudioPlanRaceTest.php`).
+(`tests/Feature/Concurrency/StudioPlanRaceTest.php`); an administrator's Cancel
+races a run of the same action, both orders, Retry races Cancel, and Stop
+remaining actions races a comment's run.
+
+A whole plan runs on the queue as tests run it — every job handled the moment
+it is pushed — so nothing moves the clock between generations
+(`tests/Feature/Actions/StudioPlanRunTest.php`): a historical plan published the
+moment it is approved, generation after generation, its one future vote left
+for its moment; a plan published now and one in the future; one larger than a
+batch; the executor switched on after the approval; and a Persona's voting
+limit. The wake on its own (`StudioDispatchWakeTest`) and the Action queue's
+operations (`ManageStudioActionsTest`) are tested beside them.
+
+## The Publication step
+
+The editor's last step (`resources/views/filament/pages/studio-plan/publication.blade.php`)
+is where a Draft is approved and where an approved plan is followed.
+
+**A Draft.** Its publication mode and date, as on every step. What of the plan is
+already overdue — its actions whose moment is past by now — said as a count, and
+that each runs as soon as the plan is approved, in plan order and each once what
+it depends on is done, within its Persona's limits, keeping its planned date
+(decision H1: the post, its comments and votes are dated as planned; when each
+really ran is kept in the queue). Nothing else is offered for them: running
+them at once is the only rule, so the prototype's Spread from now and Skip
+overdue are left out. Then whether the plan is ready to approve — every problem
+the preflight finds on the plan as it is saved, each with the step that holds it
+— and the final publication card: the photo, the title and description, the
+author, the category, the date, how many actions the plan holds, the post's
+votes and answers and the discussion's comments, replies and votes, each part
+with Edit. Beside them the Action plan (`StudioPlanActionPlan`,
+`StudioActionPlan`): the preview of exactly what approval writes now
+(`StudioPlanSchedule`), from the saved plan — when each happens, its part (the
+post's or the discussion's), what it does and after what (C1, C1's replies), its
+Persona, when it runs (on approval, or at its own moment) and how it stands
+(Ready to run, Scheduled, Overdue) — over a timeline of the two parts, narrowed
+to a part and read 25 a page on the server. Nothing of it is written or sent; it
+is drawn afresh when another editor on the page saves, and Recalculate draws it
+again.
+
+**Review and confirm**, in the footer, approves the plan — only as it is saved:
+with anything unsaved on the page (the draft's own values, the post's votes or
+the comment votes) it is held back and says so; at a version somebody else saved
+since, it is refused with Reload; with anything the preflight finds, it is
+disabled and says so. It asks first, with what approval writes: the post's
+date, the comments and replies, the votes and answers, how many actions, how
+many are overdue and how many wait for later, and whether the executor is on.
+Confirmed, it calls `ApproveStudioPlanAction` with the editor's version — a
+second press finds the plan approved and writes nothing — and opens the plan
+again, closed.
+
+**An approved plan** opens on this step, closed: its mode and card as approved,
+and how the publication stands — who approved it and when, its post (published,
+dated, when it ran, a link to it), whether the executor runs — over the plan's
+own actions as they stand, each with when it ran or why it stopped and a link to
+what it wrote, Open in Action queue, and Stop remaining actions. The Action plan
+alone reads itself again every five seconds while the executor is on and any
+action waits, is sent or runs, and stops once nothing is left to move; a plan
+that moves on meanwhile — Running, Completed — tells the editor, whose header
+says so.
+
+## The Action queue
+
+Content Studio's Action queue (`StudioActionQueue`, `/admin/studio-actions`) is
+the business queue itself, `studio_plan_actions` — never Laravel's `jobs` or
+`failed_jobs`. Every action of every approved plan: its publication (a link to
+the plan), what it does, its Persona, when it is planned (`occurs_at`), when it
+may run (`run_after`), when it finished (`finished_at`), its state by the
+queue's own names — Pending, Dispatched, Running, Done, Held, Failed,
+Cancelled — and why it stopped, with its details opened in place: its attempts
+and deferrals, the action it depends on, and the post or comment it wrote.
+Pending, Running, Held and Errors are counted in the header; State, Kind and
+Publication narrow it and a search finds a publication's title, an action's id
+or a Persona, on the server, 25 a page (`StudioActionsQuery`). It reads itself
+again every five seconds while the executor is on and anything waits or runs.
+
+An administrator's operations, each asked again on the locked rows, the
+administrator read afresh — never locked first, as a run locks its action
+before the approving administrator's row:
+
+- **Retry** a failed action (`RetryStudioActionAction`): pending again, its
+  attempts and deferrals counted afresh, its dates as they were; every check
+  of the run asks again, so a vote still in conflict fails again rather than
+  taking anything back. Never an action done or cancelled, nor one whose parent
+  is not done.
+- **Resume** a held action (`ResumeStudioActionAction`): pending again, the same
+  way; a Persona still restricted holds it again.
+- **Cancel** an action not yet run — pending, held, failed, or sent and not yet
+  claimed — asked first (`CancelStudioActionAction`): cancelled for good,
+  `cancelled_by_administrator`, its branch with it (`parent_cancelled`), the
+  plan settled. Never an action done, so nothing published is taken back, nor
+  one a worker runs; a job sent before claims nothing.
+- **Stop remaining actions** of an approved or running plan, from its
+  Publication step and asked first (`StopStudioPlanAction`): every action of it
+  not yet run cancelled, `cancelled_by_administrator`, in ascending id order,
+  then the plan settled — Completed when its post was published, Cancelled when
+  it never will be. A published post, and the comments and votes already
+  written, stay; a run already claimed finishes, and nothing follows it. Nothing
+  goes back to a draft.
+- **Switch the executor** on or off, asked first (`SwitchStudioExecutionAction`,
+  see "The switch").
+
+Retry and Resume wake the dispatcher, so the action runs now rather than at the
+next minute. Each refusal — the action moved on meanwhile, gone, or its parent
+not done, the administrator no longer allowed — writes nothing and says why.
 
 ## The photo
 
@@ -2009,3 +2162,10 @@ and Publication — described in `docs/design/admin/design-contract.md`. The pag
   checks on the server that the batch is still the photo's and its analysis's and hands the text
   to the editor (`use-studio-suggestion`), which sets its final field as typing would: unsaved, counted among the
   unsaved changes, editable, and saved only by Save draft.
+- The Publication step's Action plan is a component of its own (`StudioPlanActionPlan`), drawing a preview of what
+  approval writes (`StudioPlanSchedule`) for a Draft and the plan's own actions once approved; Review and confirm
+  runs `ApproveStudioPlanAction` with the version the page showed, only with nothing unsaved on the page, and Stop
+  remaining actions runs `StopStudioPlanAction` (see "The Publication step").
+- The Action queue is a page of its own (`StudioActionQueue`): Retry, Resume, Cancel and the executor's switch run
+  `RetryStudioActionAction`, `ResumeStudioActionAction`, `CancelStudioActionAction` and
+  `SwitchStudioExecutionAction` (see "The Action queue").

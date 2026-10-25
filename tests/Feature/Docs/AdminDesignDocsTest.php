@@ -341,12 +341,12 @@ it('describes Users on v2: status only through the moderation actions, said as t
         ->toContain('`UpdateUserAccountAction`');
 });
 
-it('describes Content Studio with Publications & plans and Personas, built in Admin v2 and leaving out what does not work yet', function () {
+it('describes Content Studio with Publications & plans, the Action queue and Personas, built in Admin v2 and leaving out what does not work yet', function () {
     $contract = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/design-contract.md')));
     $plan = (string) preg_replace('/\s+/', ' ', (string) file_get_contents(base_path(ADMIN_DESIGN_DOCS.'/migration-plan.md')));
 
     expect($contract)
-        ->toContain('| Content Studio | Publications & plans · Personas |')
+        ->toContain('| Content Studio | Publications & plans · Action queue · Personas |')
         ->toContain('## Content Studio')
         ->toContain('### Publications & plans')
         ->toContain('### Personas')
@@ -359,6 +359,12 @@ it('describes Content Studio with Publications & plans and Personas, built in Ad
         ->toContain('The date is chosen in the prototype\'s date and time field (`x-admin.ui.date-time-field`), never the browser\'s own')
         ->toContain('Apply takes it, Cancel, Escape or a click outside leave the date as it was.')
         ->toContain('| Publication date field | a calendar stepping a month at a time, any date |')
+        ->toContain('### Action queue')
+        ->toContain('The Action queue (`StudioActionQueue`, `/admin/studio-actions`) is drawn in Admin v2 over Content Studio\'s business queue itself')
+        ->toContain('`StudioActionsQuery`, a registered stable pagination boundary')
+        ->toContain('Review and confirm (OVL-01) asks “Confirm this publication?”')
+        ->toContain('what is overdue said as a count with no choice')
+        ->toContain('| Action queue | demo states Pending, Running, Done, Error, Cancelled; Cancel and Retry; Open post on site |')
         ->toContain('`PersonaResource` is over `User`, narrowed to the Persona role')
         ->toContain('Status is changed only there: Content Studio has no moderation of its own and no Deactivate.')
         ->toContain('an active administrator\'s (`manage-personas`)')
@@ -369,6 +375,8 @@ it('describes Content Studio with Publications & plans and Personas, built in Ad
         ->toContain('### Content Studio')
         ->toContain('| 1 | Personas — the list, a new persona and a persona\'s editor | **done** |')
         ->toContain('| 2 | Publications & plans with the publication editor | **done** |')
+        ->toContain('| 3 | Action queue | **done** |')
+        ->toContain('**Content Studio Phase 4 — Publishing & historical actions. Status: done in code; its staging check is what is left.**')
         ->toContain('**Personas. Status: done.**')
         ->toContain('**Publications & plans. Status: done.**')
         ->toContain('`PersonasQuery`, a registered stable pagination boundary');
