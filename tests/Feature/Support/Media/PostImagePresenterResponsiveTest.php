@@ -123,3 +123,44 @@ it('excludes the master from the fullscreen srcset when it is drastically larger
     expect($image->srcset)->toContain('1920w')
         ->and($image->srcset)->not->toContain('6000w');
 });
+
+it('never offers a slot wider than the widest file, so a photo smaller than its place is drawn at its own size, not stretched', function (PostImageContext $context, string $sizes) {
+    // A 443 × 460 upload: every display variant is the photo's own size, never upscaled.
+    $asset = MediaAsset::factory()->postImage()->dimensions(443, 460)->create();
+
+    foreach ([MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920] as $name) {
+        MediaVariant::factory()->named($name)->create(['media_asset_id' => $asset->id, 'width' => 443, 'height' => 460]);
+    }
+
+    $post = Post::factory()->published()->create(['image_asset_id' => $asset->id])->load('imageAsset.variants');
+
+    expect(app(PostImagePresenter::class)->responsive($post, $context)->sizes)->toBe($sizes);
+})->with([
+    'feed' => [PostImageContext::Feed, '(max-width: 639px) min(100vw, 443px), min(820px, 443px)'],
+    'drawer' => [PostImageContext::Drawer, '(max-width: 1023px) min(100vw, 443px), min(min(70vw, 960px), 443px)'],
+    'standalone' => [PostImageContext::Standalone, '(max-width: 639px) min(100vw, 443px), min(820px, 443px)'],
+    // The master, as small as the detail variant, is offered too: still 443 wide.
+    'fullscreen' => [PostImageContext::Fullscreen, '(max-width: 639px) min(100vw, 443px), min(min(96vw, 1200px), 443px)'],
+]);
+
+it('caps the slot at the widest file offered in the context, which leaves a photo wider than its place filling it as before', function () {
+    $post = postWithVariants([
+        MediaVariantName::PostFeed640->value => [640, 427],
+        MediaVariantName::PostFeed1280->value => [1280, 853],
+        MediaVariantName::PostDetail1920->value => [1920, 1280],
+    ]);
+    $presenter = app(PostImagePresenter::class);
+
+    expect($presenter->responsive($post, PostImageContext::Feed)->sizes)->toBe('(max-width: 639px) min(100vw, 1280px), min(820px, 1280px)')
+        ->and($presenter->responsive($post, PostImageContext::Standalone)->sizes)->toBe('(max-width: 639px) min(100vw, 1920px), min(820px, 1920px)');
+
+    // 700 wide: the feed's 1280 variant is the photo's own 700, so its slot is 700, not 820.
+    $narrow = postWithVariants([
+        MediaVariantName::PostFeed640->value => [640, 480],
+        MediaVariantName::PostFeed1280->value => [700, 525],
+    ]);
+
+    expect($presenter->responsive($narrow, PostImageContext::Feed))
+        ->srcset->toBe(variantUrl($narrow, MediaVariantName::PostFeed640).' 640w, '.variantUrl($narrow, MediaVariantName::PostFeed1280).' 700w')
+        ->sizes->toBe('(max-width: 639px) min(100vw, 700px), min(820px, 700px)');
+});
