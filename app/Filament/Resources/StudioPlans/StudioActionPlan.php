@@ -110,7 +110,7 @@ final class StudioActionPlan
             'part' => self::partOf($item->type),
             'at' => $item->occursAt,
             'tone' => self::overdue($plan, $item->key, $item->occursAt, $now) ? 'overdue' : ($item->runAfter->greaterThan($now) ? 'scheduled' : 'ready'),
-            'title' => self::at($item->occursAt).' · '.$this->what($item->type, $item->payload, $labels)['action'],
+            'title' => self::short($item->occursAt, $now).' · '.$this->what($item->type, $item->payload, $labels)['action'],
         ], $planned);
 
         $shown = array_values(array_filter($planned, fn (PlannedStudioAction $item): bool => $part === 'all' || self::partOf($item->type) === $part));
@@ -120,15 +120,19 @@ final class StudioActionPlan
             $what = $this->what($item->type, $item->payload, $labels);
             $ready = ! $item->runAfter->greaterThan($now);
 
+            $overdue = self::overdue($plan, $item->key, $item->occursAt, $now);
+
             return [
                 'key' => $item->key,
-                'planned' => self::at($item->occursAt),
-                'overdue' => self::overdue($plan, $item->key, $item->occursAt, $now),
+                'planned' => self::short($item->occursAt, $now),
+                'overdue' => $overdue,
+                // Marked on the row and under its state, as the prototype marks it, for what follows the post only.
+                'flag' => $overdue && $item->type !== StudioActionType::CreatePost,
                 ...self::part($item->type),
                 ...$what,
                 'after' => $this->after($plan, $item->key, $item->type, $item->payload, $labels, $item->occursAt, $now),
                 'executor' => $this->executor($item->actorId, $labels),
-                'runs' => $ready ? 'On approval' : self::at($item->runAfter),
+                'runs' => $ready ? 'On approval' : self::short($item->runAfter, $now),
                 'runsNote' => null,
                 'state' => $ready ? ['label' => 'Ready to run', 'tone' => 'info', 'dot' => false] : ['label' => 'Scheduled', 'tone' => 'neutral', 'dot' => false],
                 'reason' => null,
@@ -181,24 +185,27 @@ final class StudioActionPlan
             'part' => self::partOf($action->type),
             'at' => $action->occurs_at,
             'tone' => self::tone($action, $now),
-            'title' => self::at($action->occurs_at).' · '.$action->status->name,
+            'title' => self::short($action->occurs_at, $now).' · '.$action->status->name,
         ])->values()->all();
 
         $rows = array_map(function (StudioAction $action) use ($plan, $labels, $now, $byId): array {
             $failure = StudioActionFailure::tryFrom((string) $action->failure_code);
             $parent = $action->parent_action_id !== null ? $byId->get($action->parent_action_id) : null;
 
+            $overdue = $action->status === StudioActionStatus::Pending && $action->occurs_at->lessThan($now);
+
             return [
                 'key' => 'action:'.$action->id,
                 'id' => (int) $action->id,
-                'planned' => self::at($action->occurs_at),
-                'overdue' => $action->status === StudioActionStatus::Pending && $action->occurs_at->lessThan($now),
+                'planned' => self::short($action->occurs_at, $now),
+                'overdue' => $overdue,
+                'flag' => $overdue && $action->type !== StudioActionType::CreatePost,
                 ...self::part($action->type),
                 ...$this->what($action->type, $action->payload, $labels),
                 'after' => $this->after($plan, $action->type === StudioActionType::CreatePost ? 'post' : 'action', $action->type, $action->payload, $labels, $action->occurs_at, $now)
                     .($parent !== null ? ' · #'.$parent->id : ''),
                 'executor' => $this->executor($action->actor_user_id, $labels),
-                ...self::runs($action, $now),
+                ...self::runs($action, $now, short: true),
                 'state' => self::state($action->status),
                 'reason' => $failure !== null && $action->status !== StudioActionStatus::Done ? $failure->description() : null,
                 'links' => self::links($action),
@@ -227,10 +234,30 @@ final class StudioActionPlan
         ];
     }
 
-    /** A moment as the Action plan and the Action queue show it, in the application's time zone. */
+    /** A moment as the Action queue and the Publication step's notes show it, in the application's time zone. */
     public static function at(CarbonInterface $at): string
     {
         return $at->copy()->setTimezone((string) config('app.timezone'))->format('d M Y, H:i');
+    }
+
+    /**
+     * A moment as the Action plan's table shows it, as the prototype's does:
+     * Today, Yesterday or Tomorrow with the time, or the day and month — the
+     * year only when it is not this one — in the application's time zone.
+     */
+    public static function short(CarbonInterface $at, CarbonInterface $now): string
+    {
+        $zone = (string) config('app.timezone');
+        $at = CarbonImmutable::instance($at)->setTimezone($zone);
+        $today = CarbonImmutable::instance($now)->setTimezone($zone)->startOfDay();
+        $days = (int) $today->diffInDays($at->startOfDay(), false);
+
+        return match ($days) {
+            0 => 'Today',
+            -1 => 'Yesterday',
+            1 => 'Tomorrow',
+            default => $at->format($at->year === $today->year ? 'd M' : 'd M Y'),
+        }.' '.$at->format('H:i');
     }
 
     /** The part of the plan an action belongs to: the post's — itself, its votes and its rating answers — or the discussion's. */
@@ -263,18 +290,21 @@ final class StudioActionPlan
      *
      * @return array{runs: string, runsNote: ?string}
      */
-    public static function runs(StudioAction $action, CarbonImmutable $now): array
+    public static function runs(StudioAction $action, CarbonImmutable $now, bool $short = false): array
     {
+        // A moment after a word reads on in lower case: “Ran today 19:23”.
+        $at = fn (CarbonInterface $at): string => $short ? lcfirst(self::short($at, $now)) : self::at($at);
+
         return match ($action->status) {
             StudioActionStatus::Pending => [
-                'runs' => $action->run_after->greaterThan($now) ? self::at($action->run_after) : 'Due now',
+                'runs' => $action->run_after->greaterThan($now) ? ($short ? self::short($action->run_after, $now) : self::at($action->run_after)) : 'Due now',
                 'runsNote' => $action->deferrals > 0 ? 'Held back by its persona’s limit '.$action->deferrals.' '.Str::plural('time', $action->deferrals) : null,
             ],
             StudioActionStatus::Held => ['runs' => 'Waits to be resumed', 'runsNote' => null],
-            StudioActionStatus::Dispatched => ['runs' => 'Sent '.self::at($action->dispatched_at ?? $now), 'runsNote' => 'Attempt '.$action->attempts],
-            StudioActionStatus::Running => ['runs' => 'Since '.self::at($action->claimed_at ?? $now), 'runsNote' => 'Attempt '.$action->attempts],
-            StudioActionStatus::Done => ['runs' => 'Ran '.self::at($action->finished_at ?? $now), 'runsNote' => null],
-            StudioActionStatus::Failed => ['runs' => 'Failed '.self::at($action->finished_at ?? $now), 'runsNote' => 'After '.$action->attempts.' '.Str::plural('attempt', $action->attempts)],
+            StudioActionStatus::Dispatched => ['runs' => 'Sent '.$at($action->dispatched_at ?? $now), 'runsNote' => 'Attempt '.$action->attempts],
+            StudioActionStatus::Running => ['runs' => 'Since '.$at($action->claimed_at ?? $now), 'runsNote' => 'Attempt '.$action->attempts],
+            StudioActionStatus::Done => ['runs' => 'Ran '.$at($action->finished_at ?? $now), 'runsNote' => null],
+            StudioActionStatus::Failed => ['runs' => 'Failed '.$at($action->finished_at ?? $now), 'runsNote' => 'After '.$action->attempts.' '.Str::plural('attempt', $action->attempts)],
             StudioActionStatus::Cancelled => ['runs' => 'Not run', 'runsNote' => null],
         };
     }
@@ -332,29 +362,32 @@ final class StudioActionPlan
     }
 
     /**
-     * What an action does, in words: its icon, a line and the detail under it.
+     * What an action does, in the prototype's words — Publish post, Comment ·
+     * C1, Reply to C1 · C2, Upvote C1, Answer · the question · the option —
+     * with its icon, and a comment's own text to show when it is pointed at.
      *
      * @param  array<string, mixed>  $payload
      * @param  array{users: array<int, User>, nodes: array<int, string>, bodies: array<int, string>, parents: array<int, int>, groups: array<int, string>, options: array<int, string>}  $labels
-     * @return array{icon: string, action: string, detail: ?string, strong: bool}
+     * @return array{icon: string, action: string, title: ?string, strong: bool}
      */
     private function what(StudioActionType $type, array $payload, array $labels): array
     {
         $node = is_int($payload['discussion_node_id'] ?? null) ? $payload['discussion_node_id'] : null;
         $label = $node !== null ? ($labels['nodes'][$node] ?? 'a removed comment') : null;
+        $parent = $node !== null && isset($labels['parents'][$node]) ? ($labels['nodes'][$labels['parents'][$node]] ?? 'its comment') : 'its comment';
         $up = ($payload['vote_type'] ?? null) === 'up';
-        $excerpt = fn (?string $body): ?string => $body !== null ? Str::limit(trim($body), self::EXCERPT) : null;
+        $text = fn (): ?string => ($body = $payload['body'] ?? ($node !== null ? $labels['bodies'][$node] ?? null : null)) !== null ? Str::limit(trim((string) $body), self::EXCERPT) : null;
 
         return match ($type) {
-            StudioActionType::CreatePost => ['icon' => 'newspaper', 'action' => 'Publish the post', 'detail' => null, 'strong' => true],
-            StudioActionType::CreateComment => ['icon' => 'message-square', 'action' => 'Comment '.$label, 'detail' => $excerpt($payload['body'] ?? ($node !== null ? $labels['bodies'][$node] ?? null : null)), 'strong' => false],
-            StudioActionType::CreateReply => ['icon' => 'reply', 'action' => 'Reply '.$label, 'detail' => $excerpt($payload['body'] ?? ($node !== null ? $labels['bodies'][$node] ?? null : null)), 'strong' => false],
-            StudioActionType::VotePost => ['icon' => $up ? 'thumbs-up' : 'thumbs-down', 'action' => ($up ? 'Upvote' : 'Downvote').' the post', 'detail' => null, 'strong' => false],
-            StudioActionType::VoteComment => ['icon' => $up ? 'thumbs-up' : 'thumbs-down', 'action' => ($up ? 'Upvote ' : 'Downvote ').$label, 'detail' => null, 'strong' => false],
+            StudioActionType::CreatePost => ['icon' => 'newspaper', 'action' => 'Publish post', 'title' => null, 'strong' => true],
+            StudioActionType::CreateComment => ['icon' => 'message-square', 'action' => 'Comment · '.$label, 'title' => $text(), 'strong' => false],
+            StudioActionType::CreateReply => ['icon' => 'reply', 'action' => 'Reply to '.$parent.' · '.$label, 'title' => $text(), 'strong' => false],
+            StudioActionType::VotePost => ['icon' => $up ? 'thumbs-up' : 'thumbs-down', 'action' => ($up ? 'Upvote' : 'Downvote').' the post', 'title' => null, 'strong' => false],
+            StudioActionType::VoteComment => ['icon' => $up ? 'thumbs-up' : 'thumbs-down', 'action' => ($up ? 'Upvote ' : 'Downvote ').$label, 'title' => null, 'strong' => false],
             StudioActionType::VoteRating => [
                 'icon' => 'star',
-                'action' => 'Answer “'.($labels['groups'][(int) ($payload['rating_group_id'] ?? 0)] ?? 'a removed question').'”',
-                'detail' => $labels['options'][(int) ($payload['rating_option_id'] ?? 0)] ?? 'A removed option',
+                'action' => 'Answer · '.($labels['groups'][(int) ($payload['rating_group_id'] ?? 0)] ?? 'a removed question').' · '.($labels['options'][(int) ($payload['rating_option_id'] ?? 0)] ?? 'a removed option'),
+                'title' => null,
                 'strong' => false,
             ],
         };
@@ -471,7 +504,7 @@ final class StudioActionPlan
         }
 
         $nowAt = $now->getTimestamp();
-        $short = fn (int $at): string => CarbonImmutable::createFromTimestamp($at, 'UTC')->setTimezone((string) config('app.timezone'))->format('d M, H:i');
+        $short = fn (int $at): string => self::short(CarbonImmutable::createFromTimestamp($at, 'UTC'), $now);
 
         return [
             'lanes' => $lanes,

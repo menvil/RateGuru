@@ -2894,8 +2894,8 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: var(--rg-admin-text-caption);
-        line-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-secondary);
     }
 
@@ -2925,8 +2925,8 @@
     }
 
     .rg-admin-studio__plan-lane-label {
-        font-size: var(--rg-admin-text-caption);
-        line-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-secondary);
         white-space: nowrap;
@@ -2963,8 +2963,8 @@
         justify-content: space-between;
         gap: var(--rg-admin-space-2);
         margin-left: calc(120px + var(--rg-admin-space-3));
-        font-size: var(--rg-admin-text-micro);
-        line-height: var(--rg-admin-leading-micro);
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
         font-variant-numeric: tabular-nums;
         color: var(--rg-admin-text-tertiary);
     }
@@ -2981,10 +2981,35 @@
     .rg-admin-studio__plan-filter-note {
         flex: 1;
         min-width: 180px;
-        font-size: var(--rg-admin-text-caption);
-        line-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
         text-wrap: pretty;
+    }
+
+    /*
+     * The Action plan's table as the prototype draws it (StudioPublish): a 36 high head, 50 high rows, the first
+     * and last columns 20 in from the card's edges and none between the others but the action's own; times and
+     * actions at 13/18, everything under them at 12/16, the state a 22 high chip with Overdue under it.
+     */
+    .rg-admin-studio__plan-table .rg-admin-table__row {
+        min-height: 50px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__row--head {
+        min-height: 36px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell {
+        padding: 0;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
     }
 
     .rg-admin-studio__plan-row--overdue {
@@ -2993,8 +3018,8 @@
 
     .rg-admin-studio__plan-time {
         white-space: nowrap;
-        font-size: var(--rg-admin-text-ui);
-        line-height: var(--rg-admin-leading-ui);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
         font-variant-numeric: tabular-nums;
         color: var(--rg-admin-text-strong);
     }
@@ -3004,8 +3029,8 @@
     }
 
     .rg-admin-studio__plan-overdue {
-        font-size: var(--rg-admin-text-micro);
-        line-height: var(--rg-admin-leading-micro);
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-status-due-fg);
     }
@@ -3014,8 +3039,8 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: var(--rg-admin-text-caption);
-        line-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-secondary);
     }
@@ -3027,15 +3052,26 @@
         min-width: 0;
     }
 
+    .rg-admin-studio__plan-table .rg-admin-studio__plan-action {
+        padding: 6px var(--rg-admin-space-3) 6px 0;
+    }
+
     .rg-admin-studio__plan-action-icon {
         flex-shrink: 0;
         margin-top: 2px;
         color: var(--rg-admin-text-tertiary);
     }
 
+    .rg-admin-studio__plan-action-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
     .rg-admin-studio__plan-action-label {
-        font-size: var(--rg-admin-text-ui);
-        line-height: var(--rg-admin-leading-ui);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-regular);
         color: var(--rg-admin-text-strong);
     }
 
@@ -3043,11 +3079,73 @@
         font-weight: var(--rg-admin-weight-semibold);
     }
 
+    /* What it wrote, linked, keeps the label's own weight: 400, or 600 for the post. */
+    .rg-admin-studio__plan-action-label .rg-admin-link {
+        font-weight: inherit;
+    }
+
+    .rg-admin-studio__plan-id {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-sub {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-sub--clip {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__plan-executor {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-runs,
+    .rg-admin-studio__plan-state {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__plan-state {
+        align-items: flex-start;
+        gap: 3px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-badge {
+        height: 22px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-badge--neutral,
+    .rg-admin-studio__plan-table .rg-admin-badge--outline {
+        border-color: transparent;
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-state--cancelled .rg-admin-badge {
+        color: var(--rg-admin-text-tertiary);
+    }
+
     .rg-admin-studio__plan-note {
         margin: 0;
         padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
-        font-size: var(--rg-admin-text-caption);
-        line-height: var(--rg-admin-leading-caption);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
         color: var(--rg-admin-text-tertiary);
         text-wrap: pretty;
     }

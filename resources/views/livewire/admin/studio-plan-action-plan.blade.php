@@ -8,7 +8,8 @@
      * stands. Header and rows share one grid, which scrolls sideways in a
      * narrow card (TBL-01).
      */
-    $columns = '--rg-admin-table-columns: 156px 104px minmax(220px, 1.4fr) 140px 176px 150px; --rg-admin-table-min-width: 950px';
+    // The prototype's columns and width (StudioPublish): Planned, Part, Action, Executor, Runs at, State.
+    $columns = '--rg-admin-table-columns: 132px 100px minmax(190px, 1.3fr) 130px 150px 120px; --rg-admin-table-min-width: 800px';
 @endphp
 
 <div class="rg-admin-studio__plan" @if ($polling) wire:poll.{{ \App\Livewire\Admin\StudioPlanActionPlan::POLL_SECONDS }}s @endif>
@@ -113,7 +114,7 @@
 
             @if ($data['rows'] !== [])
                 <div class="rg-admin-table__scroll">
-                    <div class="rg-admin-table__grid" role="table" aria-label="Action plan" style="{{ $columns }}">
+                    <div class="rg-admin-table__grid rg-admin-studio__plan-table" role="table" aria-label="Action plan" style="{{ $columns }}">
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Planned</div>
                             <div class="rg-admin-table__cell" role="columnheader">Part</div>
@@ -124,53 +125,45 @@
                         </div>
 
                         @foreach ($data['rows'] as $row)
-                            <div @class(['rg-admin-table__row', 'rg-admin-studio__plan-row--overdue' => $row['overdue']]) role="row" wire:key="plan-row-{{ $row['key'] }}">
-                                <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
-                                    <div class="rg-admin-table__stack">
-                                        <span @class(['rg-admin-studio__plan-time', 'rg-admin-studio__plan-time--due' => $row['overdue']])>{{ $row['planned'] }}</span>
-                                        @if ($row['overdue'])
-                                            <span class="rg-admin-studio__plan-overdue">Overdue</span>
-                                        @endif
-                                    </div>
+                            <div @class(['rg-admin-table__row', 'rg-admin-studio__plan-row--overdue' => $row['flag']]) role="row" wire:key="plan-row-{{ $row['key'] }}">
+                                <div class="rg-admin-table__cell" role="cell">
+                                    <span @class(['rg-admin-studio__plan-time', 'rg-admin-studio__plan-time--due' => $row['overdue']])>{{ $row['planned'] }}</span>
                                 </div>
                                 <div class="rg-admin-table__cell" role="cell">
                                     <span class="rg-admin-studio__plan-part"><span class="rg-admin-studio__plan-swatch rg-admin-studio__plan-swatch--part-{{ $row['partKey'] }}" aria-hidden="true"></span>{{ $row['part'] }}</span>
                                 </div>
-                                <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
-                                    <div class="rg-admin-studio__plan-action">
-                                        <x-admin.ui.icon :name="$row['icon']" :size="14" class="rg-admin-studio__plan-action-icon" />
-                                        <div class="rg-admin-table__stack">
-                                            <span @class(['rg-admin-studio__plan-action-label', 'rg-admin-studio__plan-action-label--strong' => $row['strong']])>
-                                                @isset($row['id'])<span class="rg-admin-mono rg-admin-table__meta--small">#{{ $row['id'] }}</span> @endisset{{ $row['action'] }}
-                                            </span>
-                                            @if ($row['detail'] !== null)
-                                                <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ $row['detail'] }}</span>
+                                <div class="rg-admin-table__cell rg-admin-studio__plan-action" role="cell">
+                                    <x-admin.ui.icon :name="$row['icon']" :size="14" class="rg-admin-studio__plan-action-icon" />
+                                    {{-- Two lines, as the prototype's: what it does — a link to what it wrote, once that is on the site — and after what. --}}
+                                    <span class="rg-admin-studio__plan-action-text">
+                                        <span @class(['rg-admin-studio__plan-action-label', 'rg-admin-studio__plan-action-label--strong' => $row['strong']]) @if ($row['title'] !== null) title="{{ $row['title'] }}" @endif>
+                                            @isset($row['id'])<span class="rg-admin-studio__plan-id">#{{ $row['id'] }}</span> @endisset
+                                            @if ($row['links'] !== [])
+                                                <a href="{{ $row['links'][0]['url'] }}" target="_blank" rel="noopener" class="rg-admin-link" title="{{ $row['links'][0]['label'] }}">{{ $row['action'] }}</a>
+                                            @else
+                                                {{ $row['action'] }}
                                             @endif
-                                            <span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $row['after'] }}</span>
-                                            @foreach ($row['links'] as $link)
-                                                <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="rg-admin-link rg-admin-table__meta--small">{{ $link['label'] }}</a>
-                                            @endforeach
-                                        </div>
-                                    </div>
+                                        </span>
+                                        <span class="rg-admin-studio__plan-sub">{{ $row['after'] }}</span>
+                                    </span>
                                 </div>
                                 <div class="rg-admin-table__cell" role="cell">
-                                    <span class="rg-admin-table__meta rg-admin-table__ellipsis">{{ $row['executor'] }}</span>
+                                    <span class="rg-admin-studio__plan-executor">{{ $row['executor'] }}</span>
                                 </div>
-                                <div class="rg-admin-table__cell" role="cell">
-                                    <div class="rg-admin-table__stack">
-                                        <span class="rg-admin-studio__plan-time">{{ $row['runs'] }}</span>
-                                        @if ($row['runsNote'] !== null)
-                                            <span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $row['runsNote'] }}</span>
-                                        @endif
-                                    </div>
+                                <div class="rg-admin-table__cell rg-admin-studio__plan-runs" role="cell">
+                                    <span class="rg-admin-studio__plan-time">{{ $row['runs'] }}</span>
+                                    @if ($row['runsNote'] !== null)
+                                        <span class="rg-admin-studio__plan-sub">{{ $row['runsNote'] }}</span>
+                                    @endif
                                 </div>
-                                <div class="rg-admin-table__cell" role="cell">
-                                    <div class="rg-admin-table__stack">
-                                        <span><x-admin.ui.badge :tone="$row['state']['tone']" :dot="$row['state']['dot']">{{ $row['state']['label'] }}</x-admin.ui.badge></span>
-                                        @if ($row['reason'] !== null)
-                                            <span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $row['reason'] }}</span>
-                                        @endif
-                                    </div>
+                                <div @class(['rg-admin-table__cell', 'rg-admin-studio__plan-state', 'rg-admin-studio__plan-state--cancelled' => $row['state']['label'] === 'Cancelled']) role="cell">
+                                    <x-admin.ui.badge :tone="$row['state']['tone']" :dot="$row['state']['dot']">{{ $row['state']['label'] }}</x-admin.ui.badge>
+                                    @if ($row['flag'])
+                                        <span class="rg-admin-studio__plan-overdue">Overdue</span>
+                                    @endif
+                                    @if ($row['reason'] !== null)
+                                        <span class="rg-admin-studio__plan-sub">{{ $row['reason'] }}</span>
+                                    @endif
                                 </div>
                             </div>
                         @endforeach

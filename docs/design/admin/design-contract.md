@@ -1138,10 +1138,12 @@ Action queue. Every write goes through the plan's actions (`docs/architecture/st
     replies and votes, each part with Edit — with “Saving the draft publishes and schedules nothing. Review and
     confirm approves it.”; and beside them the Action plan (`StudioPlanActionPlan`): Total actions, Overdue and
     In the future, a legend, the post's and the discussion's lanes on a timeline with a line for now, All · Post
-    · Discussion (FRM-08), and a table of every action — Planned, Part, Action (what it does, its text or
-    option, and after what: the post, C1), Executor, Runs at (On approval, or its moment) and State (Ready to
-    run, Scheduled, Overdue) — 25 a page (NAV-04), with Recalculate; a preview of exactly what approval writes,
-    nothing written. Review and confirm (OVL-01) asks “Confirm this publication?” with the post, its author and
+    · Discussion (FRM-08), and a table of every action laid out as the prototype's — its columns, a 36 high
+    head and 50 high rows, 13/18 type and 12/16 under it, moments as Today, Yesterday, Tomorrow or 20 Oct 12:00
+    — Planned, Part, Action (in two lines: Publish post, Comment · C1, Reply to C1 · C2, Upvote C1 or Answer · the
+    question · the option, a comment's text when it is pointed at; and after what: the post, C1), Executor,
+    Runs at (On approval, or its moment) and State (Ready to run or Scheduled, Overdue under it) — 25 a page
+    (NAV-04), with Recalculate; a preview of exactly what approval writes, nothing written. Review and confirm (OVL-01) asks “Confirm this publication?” with the post, its author and
     date, the comments and replies, the votes and answers, how many actions, how many overdue and how many wait
     for later, and whether the executor is on; Approve and publish approves the plan as saved. It is disabled
     while the preflight finds anything, held back with anything unsaved — “Save your changes before approving.”

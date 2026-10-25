@@ -47,16 +47,18 @@ it('previews every action a historical plan\'s approval would write — overdue,
 
     Livewire::test(StudioPlanActionPlan::class, ['planId' => $plan->id])
         ->assertSee('Action plan')
-        ->assertSee('Publish the post')
+        ->assertSee('Publish post')
         ->assertSee('Starts the plan · keeps its past date')
-        ->assertSee('Comment C1')
-        ->assertSee('Reply C2')
+        ->assertSee('Comment · C1')
+        ->assertSee('Reply to C1 · C2')
         ->assertSee('After C1')
         ->assertSee('Upvote the post')
         ->assertSee('Downvote the post')
         ->assertSee('Upvote C1')
-        ->assertSee('Answer “')
-        ->assertSee('20 Oct 2026, 12:00')
+        ->assertSee('Answer · ')
+        // The prototype's moments: the day and month, the year only when it is not this one.
+        ->assertSee('20 Oct 12:00')
+        ->assertSeeHtml('title="Lovely light on the water."')
         ->assertSee('On approval')
         ->assertSee('Ready to run')
         ->assertSee('Overdue')
@@ -78,8 +80,8 @@ it('narrows the preview to the post\'s part or the discussion\'s, and reads it 2
 
     Livewire::test(StudioPlanActionPlan::class, ['planId' => $plan->id])
         ->assertSee('1–25 of 31 actions')
-        ->call('goToPage', 2)->assertSee('26–31 of 31 actions')->assertSee('Comment number 30')
-        ->set('part', 'post')->assertSet('page', 1)->assertSee('Publish the post')->assertDontSee('Comment number 1')
+        ->call('goToPage', 2)->assertSee('26–31 of 31 actions')->assertSeeHtml('title="Comment number 30"')
+        ->set('part', 'post')->assertSet('page', 1)->assertSee('Publish post')->assertDontSee('Comment number 1')
         // The timeline keeps every action; the table only the part shown.
         ->set('part', 'discussion')->assertDontSeeHtml('rg-admin-studio__plan-action-label--strong')->assertSee('Comment number 1')
         ->set('part', 'elsewhere')->assertSet('part', 'all');
