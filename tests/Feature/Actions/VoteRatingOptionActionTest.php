@@ -102,6 +102,24 @@ it('does not allow voting in an inactive rating group', function () {
         ->toThrow(CannotVoteForRatingOptionException::class);
 });
 
+it('refuses an option gone, in a question gone, or no longer its question\'s by the time it is locked — as an option no longer to vote for, never a missing row', function (Closure $change) {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create();
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    // The option as it was read before the vote; the change comes after.
+    $change($option);
+
+    expect(fn () => app(VoteRatingOptionAction::class)->handle($user, $post, $option))
+        ->toThrow(fn (CannotVoteForRatingOptionException $refused) => expect($refused->isOptionUnavailable())->toBeTrue()
+            ->and($refused->getMessage())->toBe(__('ui.voting.option_unavailable')))
+        ->and(RatingVote::query()->exists())->toBeFalse();
+})->with([
+    'the option deleted' => [fn (RatingOption $option) => RatingOption::query()->whereKey($option->id)->delete()],
+    'its question deleted, and the option with it' => [fn (RatingOption $option) => RatingGroup::query()->whereKey($option->rating_group_id)->delete()],
+    'the option moved to another question' => [fn (RatingOption $option) => RatingOption::query()->whereKey($option->id)->update(['rating_group_id' => RatingGroup::factory()->create()->id])],
+]);
+
 it('does not allow a blocked user to vote for a rating option', function () {
     $user = User::factory()->banned()->create();
     $post = Post::factory()->published()->create();

@@ -16,7 +16,9 @@ use Illuminate\Database\Eloquent\Model;
  * Content Studio's Publications & plans: the list (ListStudioPlans), a new
  * publication (CreateStudioPlan) and a publication's editor
  * (EditStudioPlan), drawn in Admin v2 over StudioPlan. A plan is a draft of a
- * post, never a post: nothing here publishes, schedules or queues anything.
+ * post until its editor's Review and confirm approves it
+ * (ApproveStudioPlanAction); its actions then run, and are managed, in the
+ * Action queue (StudioActionQueue).
  *
  * Only an active administrator gets here (`manage-studio-plans`): the
  * navigation item, every page and every Livewire request on them ask, and

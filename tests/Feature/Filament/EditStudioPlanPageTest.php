@@ -85,7 +85,7 @@ it('moves between the four steps without saving or losing anything typed', funct
         // The Post step's texts, then its votes, as the prototype goes.
         ->call('nextStep')->assertSet('step', 'post')->assertSet('postTab', 'votes')->assertSee('Step 2 of 4 · Post · Votes')
         ->call('nextStep')->assertSet('step', 'discussion')->assertSeeHtml('wire:name="admin.studio-plan-discussion-editor"')->assertDontSee('Generated conversations')
-        ->call('nextStep')->assertSet('step', 'publication')->assertSee('This is a draft. Saving it does not publish or schedule anything.')->assertDontSee('Review and confirm')
+        ->call('nextStep')->assertSet('step', 'publication')->assertSee('Saving the draft publishes and schedules nothing. Review and confirm approves it.')->assertSee('Review and confirm')
         ->call('nextStep')->assertSet('step', 'publication')
         ->call('goToStep', 'image')->assertSet('step', 'image')
         ->call('goToStep', 'somewhere')->assertSet('step', 'image')
@@ -186,6 +186,26 @@ it('says a chosen date is missing without refusing the draft', function () {
         ->assertHasNoErrors();
 
     expect($plan->fresh())->publication_mode->toBe(StudioPlanPublicationMode::AtDate)->publish_at->toBeNull();
+});
+
+it('chooses the publication date in a calendar rather than the browser\'s own field, bounded as a post\'s date is', function () {
+    $plan = studioPlanWithEverything();
+
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->call('goToStep', 'publication');
+
+    expect($page->html())
+        ->toContain('aria-controls="rg-admin-studio-publish-at-dialog"')
+        ->toContain('wire:model.live="publishAt"')
+        ->toContain("min: '1970-01-02T00:00'")
+        ->toContain("max: '2038-01-18T23:59'")
+        ->toContain('Any date from 1970 to 2038, past or future, in UTC.')
+        ->toMatch('/long\(chosen\)"\s*>Mon 06 May 2019 · 07:08<\/span>/')
+        ->not->toContain('type="datetime-local"');
+
+    // What the calendar takes is the field's own text, kept as typing it was.
+    $page->set('publishAt', '2031-12-24T18:30')
+        ->assertSee('24 Dec 2031, 18:30')
+        ->assertSeeHtml('>Wed 24 Dec 2031 · 18:30</span>');
 });
 
 it('changes the author without touching the photo', function () {

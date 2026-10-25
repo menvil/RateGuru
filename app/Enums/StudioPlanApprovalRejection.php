@@ -8,8 +8,8 @@ namespace App\Enums;
  * which part of the plan the approval preflight found not ready to publish —
  * each preflight problem belongs to one of these (StudioPlanApprovalProblem):
  * a prepared discussion that cannot be published as it is adds up to
- * invalid_discussion, and prepared votes — which nothing casts yet — to
- * unsupported_votes.
+ * invalid_discussion, and prepared votes that cannot be cast as they are to
+ * invalid_votes.
  */
 enum StudioPlanApprovalRejection: string
 {
@@ -23,5 +23,5 @@ enum StudioPlanApprovalRejection: string
     case InvalidTaxonomy = 'invalid_taxonomy';
     case InvalidPublicationDate = 'invalid_publication_date';
     case InvalidDiscussion = 'invalid_discussion';
-    case UnsupportedVotes = 'unsupported_votes';
+    case InvalidVotes = 'invalid_votes';
 }

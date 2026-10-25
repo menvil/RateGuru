@@ -10,9 +10,9 @@ namespace App\Enums;
  * domain action that does the same for a member.
  *
  * The whole set is the business queue's format. Approving a plan makes its
- * CreatePost and a CreateComment or CreateReply for each comment of its
- * prepared discussion, and the executor runs them; nothing makes or runs the
- * votes yet. The three votes are also the kinds of vote a Draft prepares
+ * CreatePost, a CreateComment or CreateReply for each comment of its prepared
+ * discussion and an action for each of its prepared votes, and the executor
+ * runs them all. The three votes are also the kinds of vote a Draft prepares
  * (StudioPlanVote).
  */
 enum StudioActionType: string

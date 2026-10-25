@@ -146,7 +146,10 @@ it('gives a vote another Persona or target, keeping its id — two votes even tr
         studioVote(['key' => 'rating', 'type' => 'vote_rating', 'personaUserId' => $this->boris->id, 'ratingOptionId' => $this->option->id, 'offsetSeconds' => 60]),
     ]);
     $id = $saved->ids;
-    $created = StudioPlanVote::query()->findOrFail($id['on-comment'])->created_at;
+    $dates = fn (): array => StudioPlanVote::query()->orderBy('id')->get()->mapWithKeys(fn (StudioPlanVote $vote): array => [$vote->id => $vote->created_at->toDateTimeString()])->all();
+    $created = $dates();
+    // Saved again later: every vote keeps the date it was first saved on.
+    $this->travel(5)->minutes();
 
     // The author's two votes trade comments; Anna's vote on the post becomes
     // Boris's; Boris's rating vote becomes Anna's vote on the post.
@@ -163,7 +166,7 @@ it('gives a vote another Persona or target, keeping its id — two votes even tr
         [$id['post'], $this->boris->id, 'post'],
         [$id['rating'], $this->anna->id, 'post'],
     ])
-        ->and(StudioPlanVote::query()->findOrFail($id['on-comment'])->created_at)->toEqual($created)
+        ->and($dates())->toBe($created)
         ->and(StudioPlanVote::query()->findOrFail($id['rating']))
         ->type->toBe(StudioActionType::VotePost)->rating_group_id->toBeNull()->rating_option_id->toBeNull();
 });

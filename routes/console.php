@@ -39,7 +39,10 @@ Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 
 // Content Studio's dispatcher (docs/architecture/studio-plans.md, "Running a
 // plan"): sends the approved plans' actions that are due and sends again
-// those lost on their way. Off until the project's
+// those lost on their way. The schedule and the recovery: an approval, a run
+// done with actions waiting for it, a Retry or a Resume and switching the
+// executor on wake the same dispatcher at once (StudioDispatchWake), so a
+// plan never waits a minute between generations. Off until the project's
 // content_studio_execution_enabled flag is switched on: until then every
 // run is a no-op that sends and changes nothing. Its overlap lock lasts five
 // minutes, not the default day: a scheduler killed in the middle of a run

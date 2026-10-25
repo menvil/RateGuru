@@ -2,15 +2,21 @@
 
 namespace App\Filament\Resources\StudioPlans\Pages;
 
+use App\Actions\Studio\ApproveStudioPlanAction;
 use App\Actions\Studio\DeleteStudioPlanDraftAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioPlanData;
+use App\Enums\StudioPlanApprovalRejection;
+use App\Exceptions\Studio\CannotApproveStudioPlanException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Filament\Resources\StudioPlans\Concerns\EditsStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Livewire\Admin\StudioPlanActionPlan;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\StudioPlan;
+use App\Support\Studio\StudioExecutionSwitch;
+use App\Support\Studio\StudioPlanApprovalPreflight;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Livewire\Attributes\Locked;
@@ -26,7 +32,14 @@ use Livewire\Attributes\On;
  * The editor remembers the version it last read or wrote (`lockVersion`): a
  * save or a photo after somebody else's save is refused, keeps what was typed
  * and says so, and Reload draws the plan as it is now. A plan deleted
- * meanwhile can no longer be saved, and one past its Draft opens closed.
+ * meanwhile can no longer be saved, and one past its Draft opens closed, on
+ * its Publication step, where its actions are followed as they run.
+ *
+ * Review and confirm, on the Publication step, approves the plan
+ * (ApproveStudioPlanAction) — only as it is saved, at the version this editor
+ * holds, with nothing unsaved on the page and nothing the approval preflight
+ * finds in the way — once its confirmation, which says what will be written
+ * and how it will run, is confirmed.
  */
 final class EditStudioPlan extends Page
 {
@@ -59,6 +72,10 @@ final class EditStudioPlan extends Page
     #[Locked]
     public bool $confirmingDelete = false;
 
+    /** Whether Review and confirm is asking to be confirmed. */
+    #[Locked]
+    public bool $confirmingApproval = false;
+
     public function mount(int|string $record): void
     {
         $plan = is_numeric($record) ? StudioPlan::query()->find((int) $record) : null;
@@ -68,6 +85,11 @@ final class EditStudioPlan extends Page
 
         $this->planId = $plan->id;
         $this->draw($plan);
+
+        // A plan past its Draft is followed where its actions are.
+        if ($this->closed) {
+            $this->step = 'publication';
+        }
 
         // Created a moment ago, on the page that redirected here.
         $created = session('rg-admin-toast');
@@ -214,6 +236,140 @@ final class EditStudioPlan extends Page
     protected function holdsSaved(StudioPlan $plan): bool
     {
         return hash_equals($this->fingerprint, self::fingerprintOf(StudioPlanData::of($plan)));
+    }
+
+    /**
+     * Review and confirm: the confirmation of the approval, once the plan is
+     * a Draft at the version this editor holds, nothing on the page is
+     * unsaved — the votes' own editors are asked in the browser — and the
+     * approval preflight finds nothing in its way. Otherwise says why not.
+     */
+    public function askToApprove(): void
+    {
+        $this->confirmingApproval = false;
+        $plan = $this->approvablePlan();
+
+        if ($plan === null) {
+            return;
+        }
+
+        $problems = app(StudioPlanApprovalPreflight::class)->problems($plan);
+
+        if ($problems !== []) {
+            $this->toast('This plan isn’t ready to publish yet: '.$problems[0]->message(), 'error');
+
+            return;
+        }
+
+        $this->confirmingApproval = true;
+    }
+
+    public function closeApproval(): void
+    {
+        $this->confirmingApproval = false;
+    }
+
+    /**
+     * Approves the plan as it is saved, at the version this editor holds —
+     * every action it will run written at once, and the executor woken — and
+     * opens it again, closed, where its actions are followed as they run.
+     */
+    public function approve(): void
+    {
+        $this->confirmingApproval = false;
+        $plan = $this->approvablePlan();
+
+        if ($plan === null) {
+            return;
+        }
+
+        try {
+            app(ApproveStudioPlanAction::class)->handle($this->admin(), $plan, $this->lockVersion);
+        } catch (CannotApproveStudioPlanException $exception) {
+            $this->refuseApproval($exception);
+
+            return;
+        }
+
+        session()->flash('rg-admin-toast', [
+            'message' => app(StudioExecutionSwitch::class)->isOn()
+                ? 'Publication approved. Its actions run as they become due.'
+                : 'Publication approved. The executor is switched off, so nothing runs until it is switched on in the Action queue.',
+            'tone' => 'success',
+        ]);
+
+        $this->redirect(self::getUrl(['record' => $plan->id]));
+    }
+
+    /**
+     * The plan as Review and confirm finds it — a Draft at this editor's
+     * version, with nothing on the page unsaved — or none, with the reason
+     * said.
+     */
+    private function approvablePlan(): ?StudioPlan
+    {
+        if ($this->gone || $this->closed) {
+            return null;
+        }
+
+        $plan = StudioPlan::query()->find($this->planId);
+
+        if ($plan === null) {
+            $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'approved');
+
+            return null;
+        }
+
+        if (! $plan->isDraft()) {
+            $this->refuse(CannotManageStudioPlanException::becausePlanIsNotDraft(), 'approved');
+
+            return null;
+        }
+
+        if ($this->stale || $plan->lock_version !== $this->lockVersion) {
+            $this->refuse(CannotManageStudioPlanException::becausePlanChanged(), 'approved');
+
+            return null;
+        }
+
+        if ($this->unsavedValues() > 0) {
+            $this->toast('Save your changes first: approval publishes the draft as it is saved.', 'error');
+
+            return null;
+        }
+
+        return $plan;
+    }
+
+    /** Says why the plan was not approved, keeping the draft as it is until Reload. */
+    private function refuseApproval(CannotApproveStudioPlanException $exception): void
+    {
+        match ($exception->rejection) {
+            StudioPlanApprovalRejection::AccessDenied => $this->refuse(CannotManageStudioPlanException::becauseUserIsNotAllowed(), 'approved'),
+            StudioPlanApprovalRejection::PlanGone => $this->refuse(CannotManageStudioPlanException::becausePlanIsGone(), 'approved'),
+            StudioPlanApprovalRejection::NotDraft => $this->refuse(CannotManageStudioPlanException::becausePlanIsNotDraft(), 'approved'),
+            StudioPlanApprovalRejection::StaleVersion => $this->refuse(CannotManageStudioPlanException::becausePlanChanged(), 'approved'),
+            default => $this->toast('This plan isn’t ready to publish yet: '.($exception->problems !== [] ? $exception->problems[0]->message() : 'its author can’t publish any more.'), 'error'),
+        };
+    }
+
+    /**
+     * The plan moved on while its Action plan was followed — approved
+     * elsewhere, running, completed: the header says so, and a plan past its
+     * Draft is closed here.
+     */
+    #[On(StudioPlanActionPlan::MOVED_EVENT)]
+    public function planMoved(mixed $planId = null): void
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+
+        if ($plan === null) {
+            $this->gone = true;
+
+            return;
+        }
+
+        $this->closed = ! $plan->isDraft();
     }
 
     public function askToDelete(): void

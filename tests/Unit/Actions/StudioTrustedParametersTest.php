@@ -8,8 +8,10 @@ uses(TestCase::class);
  * A trip-wire for the trusted parameters only Content Studio's executor may
  * give: CreatePostData's stored image and dates (`imageAssetId`, `createdAt`,
  * `updatedAt`), ApprovePostAction's publication date (`publishedAt`, its
- * fourth argument) and AddCommentAction's comment date (`createdAt`, its
- * fifth). Nothing a visitor or an administrator's screen sends may reach them
+ * fourth argument), AddCommentAction's comment date (`createdAt`, its fifth)
+ * and the vote date of VotePostAction, VoteCommentAction and
+ * VoteRatingOptionAction (`createdAt`, the fourth of each). Nothing a visitor
+ * or an administrator's screen sends may reach them
  * — not by name, not by position, not by spreading a request's array into the
  * data. The source is read token by token, its comments left out, so a file
  * that only mentions them in prose is not one that uses them.
@@ -273,6 +275,45 @@ it('lets nothing but the executor give AddCommentAction a date', function () {
         ->toContain('Livewire/Comments/CommentForm.php')
         ->toContain('Services/Comments/CommentReplyService.php');
 });
+
+it('lets nothing but the executor give a vote action a date', function (string $class, string $own, array $public) {
+    $voters = [];
+
+    foreach (appSourceTokens() as $path => $tokens) {
+        if ($path === $own || array_filter($tokens, fn (PhpToken $token): bool => namesClass($token, $class)) === []) {
+            continue;
+        }
+
+        // A file that holds the action without calling it — a constant or a
+        // type read from it — gives it nothing; one that calls it in a shape
+        // this guard does not know would escape it, so every call must be found.
+        if (preg_match_all('/->\s*handle\s*\(/', implode(' ', array_map(fn (PhpToken $token): string => $token->text, $tokens))) === 0) {
+            continue;
+        }
+
+        $calls = callArguments($tokens, opensHandleOf($tokens, $class));
+
+        expect($calls)->not->toBe([], "{$path} names {$class}, but no call to it is recognised there.");
+
+        foreach ($calls as $arguments) {
+            $voters[] = $path;
+
+            if ($path !== STUDIO_EXECUTOR) {
+                expect(namesTrustedParameter($arguments))->toBeFalse("{$path} gives {$class} a date.")
+                    ->and(spreadsAnArray($arguments))->toBeFalse("{$path} spreads an array into {$class}.")
+                    ->and(argumentCount($arguments))->toBeLessThanOrEqual(3, "{$path} gives {$class} a date by position.");
+            }
+        }
+    }
+
+    sort($voters);
+
+    expect(array_values(array_unique($voters)))->toBe([STUDIO_EXECUTOR, ...$public]);
+})->with([
+    'a vote on a post' => ['VotePostAction', 'Actions/Votes/VotePostAction.php', ['Livewire/Posts/PostVoting.php']],
+    'a vote on a comment' => ['VoteCommentAction', 'Actions/Votes/VoteCommentAction.php', ['Services/Comments/CommentVotingService.php']],
+    'a rating answer' => ['VoteRatingOptionAction', 'Actions/Rating/VoteRatingOptionAction.php', ['Livewire/Voting/RatingVoting.php']],
+]);
 
 it('keeps every trusted name out of the screens a request reaches', function () {
     foreach (appSourceTokens() as $path => $tokens) {

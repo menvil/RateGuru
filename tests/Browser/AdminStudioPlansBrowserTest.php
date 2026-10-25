@@ -146,6 +146,60 @@ it('keeps what was typed across the four steps, counts it, puts it back on Disca
     expect($this->plan->fresh())->title->toBe('Harbour, saved')->lock_version->toBe(2);
 });
 
+it('takes the publication date from the calendar on Apply alone, whole in the window at every width, and saves it', function (int $width) {
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit", $width);
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][3].click()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position')?.textContent.trim()", 'Step 4 of 4 · Publication');
+    waitForScript($page, "document.querySelector('#rg-admin-studio-publish-at .rg-admin-date-time__value')?.textContent.trim()", 'Mon 06 May 2019 · 07:08');
+
+    // It opens on the chosen day, whole between the top bar and the footer, the page no wider.
+    $page->click('#rg-admin-studio-publish-at');
+    waitForScript($page, 'document.activeElement?.getAttribute("aria-label")', 'Monday 6 May 2019');
+
+    expect($page->script(<<<'JS'
+        (() => {
+            const box = document.getElementById('rg-admin-studio-publish-at-dialog').getBoundingClientRect()
+            const ceiling = document.querySelector('[data-admin-ceiling]').getBoundingClientRect().bottom
+            const floor = document.querySelector('[data-admin-floor]').getBoundingClientRect().top
+
+            return {
+                title: document.getElementById('rg-admin-studio-publish-at-title').textContent.trim(),
+                whole: box.left >= 0 && box.right <= window.innerWidth && box.top >= ceiling && box.bottom <= floor,
+                overflow: document.documentElement.scrollWidth > window.innerWidth,
+            }
+        })()
+    JS))->toBe(['title' => 'May 2019', 'whole' => true, 'overflow' => false]);
+
+    // A day and a time, then Cancel: nothing is taken.
+    $page->click('#rg-admin-studio-publish-at-dialog button[aria-label="Monday 20 May 2019"]');
+    $page->click('#rg-admin-studio-publish-at-dialog .rg-admin-date-time__chip:nth-child(3)');
+    waitForScript($page, "document.querySelector('#rg-admin-studio-publish-at-dialog .rg-admin-date-time__summary').textContent.startsWith('Mon 20 May 2019 · 14:00 · ')");
+    $page->click('#rg-admin-studio-publish-at-dialog .rg-admin-button--secondary');
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-studio-publish-at-dialog')).display", 'none');
+    waitForScript($page, 'document.activeElement?.id', 'rg-admin-studio-publish-at');
+
+    expect($page->script("document.querySelector('#rg-admin-studio-publish-at .rg-admin-date-time__value').textContent.trim()"))->toBe('Mon 06 May 2019 · 07:08')
+        ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+
+    // The next month, a day and a time, then Apply: the field, the publication card and the unsaved count take it.
+    $page->click('#rg-admin-studio-publish-at');
+    $page->click('#rg-admin-studio-publish-at-dialog button[aria-label="Next month"]');
+    waitForScript($page, "document.getElementById('rg-admin-studio-publish-at-title').textContent.trim()", 'June 2019');
+    $page->click('#rg-admin-studio-publish-at-dialog button[aria-label="Monday 3 June 2019"]');
+    $page->click('#rg-admin-studio-publish-at-dialog .rg-admin-date-time__chip:nth-child(4)');
+    $page->click('#rg-admin-studio-publish-at-dialog .rg-admin-button--primary');
+
+    waitForScript($page, "document.querySelector('#rg-admin-studio-publish-at .rg-admin-date-time__value').textContent.trim()", 'Mon 03 Jun 2019 · 18:00');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-detail-row')].find((row) => row.textContent.includes('Publication date'))?.querySelector('dd').textContent.trim()", '03 Jun 2019, 18:00');
+    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
+
+    $page->click('.rg-admin-topbar__editor .rg-admin-button--primary');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Draft saved');
+
+    expect($this->plan->fresh()->publish_at->toDateTimeString())->toBe('2019-06-03 18:00:00');
+})->with([1440, 390]);
+
 it('opens a draft\'s editor from the list', function () {
     $page = visitAdminEditor('/admin/studio-plans');
 

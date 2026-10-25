@@ -44,7 +44,8 @@ class ProjectSettingsManager
             'allow_guest_viewing' => true,
             'allow_url_imports' => true,
             // Content Studio's executor: off on every installation until it
-            // is switched on deliberately; nothing on screen switches it.
+            // is switched on deliberately, by an administrator, from the
+            // Action queue (SwitchStudioExecutionAction).
             'content_studio_execution_enabled' => false,
         ],
     ];

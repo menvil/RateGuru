@@ -106,11 +106,10 @@ it('shares the votes among the voters, each comment drawing its own rather than 
         'voterMode' => 'manual', 'voterIds' => [$this->anna->id, $this->boris->id, $this->carl->id, $this->dana->id, $this->eli->id], 'seed' => $seed,
     ]));
 
-    foreach (range(1, 5) as $seed) {
-        expect(collect($build($seed))->pluck('persona')->unique()->count())->toBeGreaterThan(2);
-    }
-
-    expect($build(3))->toBe($build(3));
+    // Each comment's draw follows its id, which differs run to run: one seed may give all three the same two
+    // voters by chance, but the same few on every comment give two for every seed.
+    expect(collect(range(1, 5))->map(fn (int $seed): int => collect($build($seed))->pluck('persona')->unique()->count())->max())->toBeGreaterThan(2)
+        ->and($build(3))->toBe($build(3));
 });
 
 it('refuses a comment more votes than its voters but its own Persona can give, saying how many short', function () {

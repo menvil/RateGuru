@@ -7,6 +7,8 @@ use App\Models\Comment;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
 use App\Models\User;
@@ -103,11 +105,71 @@ function committedSentStudioComment(User $admin, User $author, User $commenter, 
     return ['action' => $action, 'post' => $published, 'comment' => $comment];
 }
 
-/** Removes what the competitors committed, as they committed it: for real. */
-function forgetExecutorRace(ConnectionInterface $db, array $userIds, string $directory): void
+/**
+ * A plan running, its post published by the author — and, for a vote on a
+ * comment, a comment of its discussion by the author published too, or for a
+ * rating answer a rating question of its own — and a vote of it by the voter,
+ * up or for the question's option, sent: committed for the competitors to
+ * see, with the executor switched on.
+ *
+ * @param  'post'|'comment'|'rating'  $on
+ * @return array{action: StudioAction, post: Post, comment: Comment|null, option: RatingOption|null}
+ */
+function committedSentStudioVote(User $admin, User $author, User $voter, string $on): array
+{
+    [$post, $plan] = committedSentStudioAction($admin, $author);
+    $published = Post::factory()->published()->connection('committed_peer')->create(['user_id' => $author->id, 'image_asset_id' => $plan->image_asset_id, 'title' => 'A quiet harbour at dawn']);
+    $plan->forceFill(['status' => StudioPlanStatus::Running])->save();
+    $post->forceFill(['status' => StudioActionStatus::Done, 'result_type' => Post::class, 'result_id' => $published->id, 'finished_at' => now()])->save();
+    [$parent, $comment, $option] = [$post, null, null];
+    $payload = ['vote_type' => 'up', 'studio_plan_vote_id' => 1];
+
+    if ($on === 'comment') {
+        $comment = Comment::factory()->connection('committed_peer')->create(['post_id' => $published->id, 'user_id' => $author->id, 'body' => 'An earlier comment.']);
+        $parent = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->connection('committed_peer')->create([
+            'actor_user_id' => $author->id,
+            'payload' => ['discussion_node_id' => 1, 'body' => 'An earlier comment.'],
+            'status' => StudioActionStatus::Done,
+            'attempts' => 1,
+            'result_type' => Comment::class,
+            'result_id' => $comment->id,
+            'finished_at' => now(),
+        ]);
+        $payload = ['vote_type' => 'up', 'discussion_node_id' => 1, 'studio_plan_vote_id' => 1];
+    }
+
+    if ($on === 'rating') {
+        $group = RatingGroup::factory()->connection('committed_peer')->create();
+        // Three options: one may be archived and the question still keep the two it must.
+        $option = RatingOption::factory()->connection('committed_peer')->create(['rating_group_id' => $group->id]);
+        RatingOption::factory()->count(2)->connection('committed_peer')->create(['rating_group_id' => $group->id]);
+        $payload = ['rating_group_id' => $group->id, 'rating_option_id' => $option->id, 'studio_plan_vote_id' => 1];
+    }
+
+    $action = StudioAction::factory()->childOf($parent, match ($on) {
+        'post' => StudioActionType::VotePost,
+        'comment' => StudioActionType::VoteComment,
+        'rating' => StudioActionType::VoteRating,
+    })->connection('committed_peer')->create([
+        'actor_user_id' => $voter->id,
+        'payload' => $payload,
+        'occurs_at' => now()->subDay(),
+        'run_after' => now()->subDay(),
+        'status' => StudioActionStatus::Dispatched,
+        'attempts' => 1,
+        'dispatched_at' => now(),
+    ]);
+
+    return ['action' => $action, 'post' => $published, 'comment' => $comment, 'option' => $option];
+}
+
+/** Removes what the competitors committed, as they committed it: for real — and a rating question made for the race. */
+function forgetExecutorRace(ConnectionInterface $db, array $userIds, string $directory, ?RatingOption $option = null): void
 {
     $postIds = $db->table('posts')->whereIn('user_id', $userIds)->pluck('id');
 
+    $db->table('rating_votes')->whereIn('post_id', $postIds)->delete();
+    $db->table('comment_votes')->whereIn('comment_id', $db->table('comments')->whereIn('post_id', $postIds)->pluck('id'))->delete();
     $db->table('comments')->whereIn('post_id', $postIds)->whereNotNull('parent_id')->delete();
     $db->table('comments')->whereIn('post_id', $postIds)->delete();
     $db->table('notifications')->whereIn('notifiable_id', $userIds)->delete();
@@ -117,7 +179,14 @@ function forgetExecutorRace(ConnectionInterface $db, array $userIds, string $dir
     $db->table('studio_plans')->whereIn('created_by_user_id', $userIds)->delete();
     $db->table('media_assets')->whereIn('owner_user_id', $userIds)->delete();
     $db->table('project_settings')->where('id', 1)->delete();
+    $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
     $db->table('users')->whereIn('id', $userIds)->delete();
+
+    if ($option !== null) {
+        $db->table('rating_options')->where('rating_group_id', $option->rating_group_id)->delete();
+        $db->table('rating_groups')->where('id', $option->rating_group_id)->delete();
+    }
+
     File::deleteDirectory($directory);
 }
 
@@ -476,3 +545,359 @@ it('writes a Persona\'s comment beside a member\'s own comment or vote on the sa
         forgetExecutorRace($db, [$author->id, $other->id, $admin->id, $member->id], $directory);
     }
 })->with(['comment', 'vote'])->with(['another Persona\'s comment' => false, 'the post\'s author\'s own' => true])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('casts a vote once when two workers run its job at once', function (string $on, string $table) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'option' => $option] = committedSentStudioVote($admin, $author, $voter, $on);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'sync' => 'lead', 'hold' => 'vote', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'execute', 'sync' => 'follow', 'admin' => $admin->id, 'studio_action' => $action->id]),
+        ]);
+
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['output'])->toContain('became nothing')
+            ->and($db->table($table)->where('user_id', $voter->id)->count())->toBe(1)
+            ->and($db->table('studio_plan_actions')->where('id', $action->id)->first())->status->toBe('done')->attempts->toBe(1);
+
+        if ($on === 'post') {
+            expect((int) $db->table('posts')->where('id', $post->id)->value('upvotes_count'))->toBe(1);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory, $option);
+    }
+})->with([
+    'on the post' => ['post', 'post_votes'],
+    'on a comment' => ['comment', 'comment_votes'],
+    'for a rating option' => ['rating', 'rating_votes'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('casts a Persona\'s vote beside a member\'s own vote on the same post or comment, without deadlocking', function (string $on) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    $member = User::factory()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'comment' => $comment] = committedSentStudioVote($admin, $author, $voter, $on);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', $on === 'post'
+                ? ['action' => 'vote-post', 'admin' => $member->id, 'post' => $post->id]
+                : ['action' => 'vote-comment', 'admin' => $member->id, 'comment' => $comment->id]),
+        ]);
+
+        // A vote on the post updates it twice in one transaction — counts, then score — on both sides.
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['status'])->toBe(0, $report);
+
+        $on === 'post'
+            ? expect((int) $db->table('posts')->where('id', $post->id)->value('upvotes_count'))->toBe(2)
+                ->and($db->table('post_votes')->where('post_id', $post->id)->count())->toBe(2)
+            : expect((int) $db->table('comments')->where('id', $comment->id)->value('upvotes_count'))->toBe(2)
+                ->and($db->table('comment_votes')->where('comment_id', $comment->id)->count())->toBe(2);
+    } finally {
+        $db->table('post_votes')->where('user_id', $member->id)->delete();
+        $db->table('comment_votes')->where('user_id', $member->id)->delete();
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id, $member->id], $directory);
+    }
+})->with(['post', 'comment'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a vote run and a moderator hiding its post or comment take turns rather than deadlocking, never voting on what was hidden first', function (string $on) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'comment' => $comment] = committedSentStudioVote($admin, $author, $voter, $on);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', $on === 'post'
+                ? ['action' => 'hide-post', 'admin' => $admin->id, 'post' => $post->id]
+                : ['action' => 'hide-comment', 'admin' => $admin->id, 'comment' => $comment->id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(0, $report);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $cast = $db->table($on === 'post' ? 'post_votes' : 'comment_votes')->where('user_id', $voter->id)->count();
+
+        // Cast before the hide, or refused after it.
+        if ($after->status === 'done') {
+            expect($cast)->toBe(1);
+        } else {
+            expect($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe($on === 'post' ? 'post_unavailable' : 'comment_unavailable')
+                ->and($cast)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory);
+    }
+})->with(['post', 'comment'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a vote run and a ban of its Persona take turns rather than deadlocking', function () {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    [$admin, $other] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioVote($admin, $author, $voter, 'post');
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'ban', 'admin' => $other->id, 'persona' => $voter->id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('users')->where('id', $voter->id)->value('status'))->toBe('banned');
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $cast = $db->table('post_votes')->where('post_id', $post->id)->count();
+
+        // Whichever took the Persona's row first: cast before the ban, or refused after it.
+        if ($after->status === 'done') {
+            expect($cast)->toBe(1);
+        } else {
+            expect($after->failure_code)->toBe('author_banned')->and($cast)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id, $other->id], $directory);
+    }
+})->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a rating vote run and an administrator archiving its option take turns, never choosing an option archived first', function (string $first) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'option' => $option] = committedSentStudioVote($admin, $author, $voter, 'rating');
+    $directory = raceDirectory('studio-executor');
+    $run = ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $archive = ['action' => 'archive-option', 'admin' => $admin->id, 'option' => $option->id];
+
+    try {
+        // Neither locks a user the other does: the one first holds its rows open until the other waits on them.
+        ['results' => $results, 'report' => $report] = finishedRace($first === 'vote'
+            ? [executorCompetitor($directory, 'a', [...$run, 'sync' => 'lead', 'hold' => 'vote']), executorCompetitor($directory, 'b', [...$archive, 'sync' => 'follow'])]
+            : [executorCompetitor($directory, 'a', [...$archive, 'sync' => 'lead', 'hold' => 'option']), executorCompetitor($directory, 'b', [...$run, 'sync' => 'follow'])]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('rating_options')->where('id', $option->id)->value('is_active'))->toBeFalse();
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $cast = $db->table('rating_votes')->where('post_id', $post->id)->count();
+
+        // Chosen before the archive, and kept; or, the option archived first, never chosen.
+        if ($first === 'vote') {
+            expect($after->status)->toBe('done')->and($cast)->toBe(1);
+        } else {
+            expect($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe('rating_option_unavailable')
+                ->and($cast)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory, $option);
+    }
+})->with([
+    'the vote first' => ['vote'],
+    'the archive first' => ['archive'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets a rating vote run and an administrator deleting its option take turns: deleted first, the vote cancelled as unavailable, never failed; cast first, the option kept', function (string $first) {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post, 'option' => $option] = committedSentStudioVote($admin, $author, $voter, 'rating');
+    $others = fn (): array => $db->table('studio_plan_actions')->where('studio_plan_id', $action->studio_plan_id)->where('id', '!=', $action->id)->orderBy('id')->pluck('status', 'id')->all();
+    $before = $others();
+    $directory = raceDirectory('studio-executor');
+    $run = ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $delete = ['action' => 'delete-option', 'admin' => $admin->id, 'option' => $option->id];
+
+    try {
+        // The deletion first: it holds its delete open while the run, having found the option still there
+        // unlocked, waits on the question's lock — and finds the option gone once it has it.
+        ['results' => $results, 'report' => $report] = finishedRace($first === 'vote'
+            ? [executorCompetitor($directory, 'a', [...$run, 'sync' => 'lead', 'hold' => 'vote']), executorCompetitor($directory, 'b', [...$delete, 'sync' => 'follow'])]
+            : [executorCompetitor($directory, 'a', [...$delete, 'sync' => 'lead', 'hold' => 'option']), executorCompetitor($directory, 'b', [...$run, 'sync' => 'follow'])]);
+        [$runResult, $deleteResult] = $first === 'vote' ? $results : array_reverse($results);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $cast = $db->table('rating_votes')->where('post_id', $post->id)->count();
+
+        expect($report)->not->toContain('eadlock')
+            ->and($runResult['status'])->toBe(0, $report)
+            // The plan's other actions untouched either way.
+            ->and($others())->toBe($before);
+
+        if ($first === 'vote') {
+            // Chosen first: an option with a vote is never deleted.
+            expect($after->status)->toBe('done')
+                ->and($cast)->toBe(1)
+                ->and($deleteResult['status'])->toBe(1, $report)
+                ->and($deleteResult['output'])->toContain('Rating options with votes cannot be deleted')
+                ->and($db->table('rating_options')->where('id', $option->id)->exists())->toBeTrue();
+        } else {
+            expect($deleteResult['status'])->toBe(0, $report)
+                ->and($db->table('rating_options')->where('id', $option->id)->exists())->toBeFalse()
+                ->and($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe('rating_option_unavailable')
+                ->and($after->result_id)->toBeNull()
+                ->and($cast)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory, $option);
+    }
+})->with([
+    'the vote first' => ['vote'],
+    'the deletion first' => ['delete'],
+])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('leaves nothing of a worker killed with its vote cast, and casts it once after recovery, at its second attempt', function () {
+    $db = committedConnection();
+    [$author, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioVote($admin, $author, $voter, 'post');
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        // The worker dies with the vote inserted and its transaction open.
+        $killed = finishedRace([executorCompetitor($directory, 'a', ['action' => 'execute', 'sync' => 'lead', 'hold' => 'vote', 'die' => true, 'admin' => $admin->id, 'studio_action' => $action->id])])['results'][0];
+
+        expect($killed['status'])->toBe(137, $killed['output'].$killed['stderr'])
+            ->and($db->table('post_votes')->where('post_id', $post->id)->exists())->toBeFalse()
+            ->and((int) $db->table('posts')->where('id', $post->id)->value('upvotes_count'))->toBe(0)
+            ->and($db->table('studio_plan_actions')->where('id', $action->id)->first())
+            ->status->toBe('running')
+            ->attempts->toBe(1);
+
+        // Recovery, then the job it sent.
+        $recovered = finishedRace([executorCompetitor($directory, 'b', ['action' => 'dispatch-execute', 'sync' => 'solo', 'admin' => $admin->id, 'studio_action' => $action->id, 'config' => ['content_studio.actions.running_stale_after_seconds' => 0]])])['results'][0];
+
+        expect($recovered['status'])->toBe(0, $recovered['output'].$recovered['stderr'])
+            ->and($recovered['output'])->toContain('"resent":1')->toContain('became done')
+            ->and($db->table('post_votes')->where('post_id', $post->id)->count())->toBe(1)
+            ->and((int) $db->table('posts')->where('id', $post->id)->value('upvotes_count'))->toBe(1)
+            ->and($db->table('studio_plan_actions')->where('id', $action->id)->first())
+            ->status->toBe('done')
+            ->attempts->toBe(2);
+    } finally {
+        forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory);
+    }
+})->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets an administrator\'s Cancel and a run of the same action take turns: run first, it is done and Cancel refused; Cancel first, the run writes nothing', function (string $first) {
+    $db = committedConnection();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    [$action] = committedSentStudioAction($admin, $persona);
+    $directory = raceDirectory('studio-executor');
+    $run = ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $cancel = ['action' => 'cancel-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace($first === 'run'
+            ? [
+                executorCompetitor($directory, 'a', [...$run, 'sync' => 'lead', 'hold' => 'post']),
+                executorCompetitor($directory, 'b', [...$cancel, 'sync' => 'follow']),
+            ]
+            : [
+                executorCompetitor($directory, 'a', [...$cancel, 'sync' => 'lead', 'hold' => 'action']),
+                executorCompetitor($directory, 'b', [...$run, 'sync' => 'follow']),
+            ]);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $posts = $db->table('posts')->where('user_id', $persona->id)->count();
+
+        expect($report)->not->toContain('eadlock');
+
+        if ($first === 'run') {
+            expect($results[0]['output'])->toContain('became done')
+                ->and($results[1]['output'])->toContain('failed: App\Exceptions\Studio\CannotManageStudioActionException')
+                ->and($after->status)->toBe('done')
+                ->and($posts)->toBe(1);
+        } else {
+            expect($results[0]['status'])->toBe(0, $report)
+                ->and($results[1]['output'])->toContain('became nothing')
+                ->and($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe('cancelled_by_administrator')
+                ->and($posts)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$persona->id, $admin->id], $directory);
+    }
+})->with(['the run first' => 'run', 'Cancel first' => 'cancel'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets Retry and Cancel of one failed action take turns, never leaving it both pending and cancelled', function (string $first) {
+    $db = committedConnection();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    [$action] = committedSentStudioAction($admin, $persona);
+    $db->table('studio_plan_actions')->where('id', $action->id)->update(['status' => 'failed', 'failure_code' => 'unexpected_failure', 'finished_at' => now()]);
+    $directory = raceDirectory('studio-executor');
+    $retry = ['action' => 'retry-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $cancel = ['action' => 'cancel-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', [...($first === 'retry' ? $retry : $cancel), 'sync' => 'lead', 'hold' => 'action']),
+            executorCompetitor($directory, 'b', [...($first === 'retry' ? $cancel : $retry), 'sync' => 'follow']),
+        ]);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            // Retried first, the pending action is then cancelled; cancelled first, Retry finds nothing to retry.
+            ->and($after->status)->toBe('cancelled')
+            ->and($after->failure_code)->toBe('cancelled_by_administrator')
+            ->and($results[1]['status'])->toBe($first === 'retry' ? 0 : 1, $report);
+    } finally {
+        forgetExecutorRace($db, [$persona->id, $admin->id], $directory);
+    }
+})->with(['Retry first' => 'retry', 'Cancel first' => 'cancel'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('stops what is left of a plan beside a comment\'s run without deadlocking: the comment written once, nothing published taken back', function () {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
+    $waiting = StudioAction::factory()->childOf(StudioAction::on('committed_peer')->findOrFail($action->parent_action_id))->connection('committed_peer')->create([
+        'actor_user_id' => $commenter->id,
+        'payload' => ['discussion_node_id' => 3, 'body' => 'Later.'],
+        'occurs_at' => now()->addDay(),
+        'run_after' => now()->addDay(),
+    ]);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'sync' => 'lead', 'hold' => 'comment', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'stop-plan', 'sync' => 'follow', 'admin' => $admin->id, 'studio_plan' => $action->studio_plan_id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('comments')->where('post_id', $post->id)->count())->toBe(1)
+            ->and($db->table('posts')->where('id', $post->id)->whereNull('deleted_at')->count())->toBe(1)
+            ->and($db->table('studio_plan_actions')->where('id', $waiting->id)->value('status'))->toBe('cancelled')
+            ->and($db->table('studio_plans')->where('id', $action->studio_plan_id)->value('status'))->toBe('completed');
+    } finally {
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id], $directory);
+    }
+})->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);

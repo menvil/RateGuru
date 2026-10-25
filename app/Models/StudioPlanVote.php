@@ -17,7 +17,10 @@ use LogicException;
  * of its prepared discussion, or for one option of a rating question — the
  * same three votes a member casts (VotePostAction, VoteCommentAction,
  * VoteRatingOptionAction), never a vote of a kind of its own. It is an
- * intention only: no vote exists for it, and saving one casts nothing.
+ * intention only: no vote exists for it, and saving one casts nothing. Once
+ * the plan is approved, an action of its own casts it
+ * (ApproveStudioPlanAction, ExecuteStudioAction), its id kept in that
+ * action's payload.
  *
  * - `vote_post`: up or down on the post;
  * - `vote_comment`: up or down on a comment or reply of the discussion,

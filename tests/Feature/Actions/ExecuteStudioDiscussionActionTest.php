@@ -66,16 +66,6 @@ function approvedDiscussion($test, ?string $publishAt = null): array
     return studioActionsByNode($plan, $saved);
 }
 
-/** One round of the dispatcher, and a worker running every job it sent. */
-function runStudioRound(): void
-{
-    dispatchDueStudioActions();
-
-    foreach (StudioAction::query()->where('status', StudioActionStatus::Dispatched)->orderBy('id')->pluck('id') as $id) {
-        runStudioActionJob((int) $id);
-    }
-}
-
 /**
  * @param  array<string, StudioAction>  $actions
  * @return array<string, StudioActionStatus>

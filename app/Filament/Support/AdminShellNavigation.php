@@ -6,6 +6,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\StudioActionQueue;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -51,6 +52,7 @@ final class AdminShellNavigation
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
         StudioPlanResource::class => 'newspaper',
+        StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',

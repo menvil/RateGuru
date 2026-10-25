@@ -13,6 +13,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 final class VoteCommentAction
@@ -24,7 +25,14 @@ final class VoteCommentAction
         private readonly ActionRateLimiter $rateLimiter,
     ) {}
 
-    public function handle(?User $user, Comment $comment, VoteType $type): void
+    /**
+     * A member's vote on a comment, toggled: the same way again takes it back,
+     * the other way turns it.
+     *
+     * @param  CarbonImmutable|null  $createdAt  the date a new vote takes as its own — Content Studio's executor only,
+     *                                           for a vote it has found not cast yet; never from a screen
+     */
+    public function handle(?User $user, Comment $comment, VoteType $type, ?CarbonImmutable $createdAt = null): void
     {
         if ($user === null) {
             throw CannotVoteCommentException::becauseGuest();
@@ -50,10 +58,10 @@ final class VoteCommentAction
                 message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
-            throw CannotVoteCommentException::becauseRateLimited($e->getMessage());
+            throw CannotVoteCommentException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        DB::transaction(function () use ($user, $comment, $type): void {
+        DB::transaction(function () use ($user, $comment, $type, $createdAt): void {
             // Lock order: Actor User -> Post -> Comment -> vote rows; the
             // pre-checks ran on possibly stale instances. A still-Visible
             // comment beneath an author-deleted or Hidden post is not a
@@ -103,6 +111,15 @@ final class VoteCommentAction
                 } else {
                     $existingVote->update(['type' => $type]);
                 }
+            } elseif ($createdAt !== null) {
+                // Its dates are no field a caller fills: given here, on the new row only.
+                (new CommentVote)->forceFill([
+                    'user_id' => $user->id,
+                    'comment_id' => $lockedComment->id,
+                    'type' => $type,
+                    'created_at' => $createdAt,
+                    'updated_at' => $createdAt,
+                ])->save();
             } else {
                 CommentVote::create([
                     'user_id' => $user->id,
