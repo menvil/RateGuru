@@ -54,7 +54,9 @@ use Livewire\Component;
  * the tree's Voters tab, and its Timing tab, where the comments and the votes
  * on them come in one list and a comment moved there is moved here
  * (OFFSET_EVENT) — and each comment's votes, drawn as saved and then as that
- * editor sets them.
+ * editor sets them. The settings are the next tree's, not the plan's: they are
+ * kept in the session for the plan (SETTINGS_SESSION), and with none kept they
+ * are the ones the last whole tree was asked with.
  *
  * Every change is written to the plan at once, as the Image step's photo is:
  * a comment saved from its dialog, deleted, or given another moment, through
@@ -111,6 +113,15 @@ final class StudioPlanDiscussionEditor extends Component
 
     /** The units a moment after the post is given in, in seconds. */
     public const UNITS = ['min' => 60, 'h' => 3600, 'd' => 86400];
+
+    /**
+     * Where the Discussion settings as last set here — the counts, and the
+     * Personas random or checked — are kept in the session, by plan: they
+     * outlive the page, opened again or by a save of a new publication, whose
+     * editor opens anew and generates there when Generate tree asked for the
+     * save.
+     */
+    public const SETTINGS_SESSION = 'rg-admin-studio-discussion-settings';
 
     /** The most Personas listed to check, and offered in a comment's dialog. */
     private const PERSONA_LIST = 50;
@@ -250,8 +261,10 @@ final class StudioPlanDiscussionEditor extends Component
             $this->randomCount = max(1, count($last->persona_user_ids));
         }
 
-        $this->updatedTotalCount();
-        $this->updatedRandomCount();
+        // Unless they were set here since, as the session keeps them.
+        $this->restoreSettings();
+        $this->boundCounts();
+        $this->boundRandomCount();
 
         // A generation on its way, or one finished while nobody was here to take it in.
         $this->resume();
@@ -263,24 +276,27 @@ final class StudioPlanDiscussionEditor extends Component
 
     public function updatedTotalCount(): void
     {
-        $this->totalCount = max(0, min($this->mostNodes(), $this->totalCount));
-        $this->rootCount = $this->totalCount === 0 ? 0 : max(1, min($this->totalCount, $this->rootCount));
+        $this->boundCounts();
+        $this->rememberSettings();
     }
 
     public function updatedRootCount(): void
     {
-        $this->rootCount = $this->totalCount === 0 ? 0 : max(1, min($this->totalCount, $this->rootCount));
+        $this->boundCounts();
+        $this->rememberSettings();
     }
 
     public function updatedRandomCount(): void
     {
-        $this->randomCount = max(1, min($this->mostRandom(), $this->randomCount));
+        $this->boundRandomCount();
+        $this->rememberSettings();
     }
 
     public function updatedParticipantMode(): void
     {
         $this->participantMode = $this->participantMode === 'manual' ? 'manual' : 'random';
         $this->resetErrorBag('participants');
+        $this->rememberSettings();
     }
 
     public function updatedTab(): void
@@ -300,6 +316,7 @@ final class StudioPlanDiscussionEditor extends Component
 
         if (in_array($id, $this->manual, true)) {
             $this->manual = array_values(array_diff($this->manual, [$id]));
+            $this->rememberSettings();
 
             return;
         }
@@ -312,6 +329,7 @@ final class StudioPlanDiscussionEditor extends Component
 
         if (app(PersonasQuery::class)->active($id) !== null) {
             $this->manual[] = $id;
+            $this->rememberSettings();
         }
     }
 
@@ -333,19 +351,22 @@ final class StudioPlanDiscussionEditor extends Component
                     $this->addError('participants', "Up to {$this->mostPersonas()} personas take part in one discussion.");
                 }
 
-                return;
+                break;
             }
 
             $this->manual[] = (int) $persona->id;
             $taking++;
             $added++;
         }
+
+        $this->rememberSettings();
     }
 
     public function clearParticipants(): void
     {
         $this->manual = [];
         $this->resetErrorBag('participants');
+        $this->rememberSettings();
     }
 
     // ------------------------------------------------------------------
@@ -360,7 +381,7 @@ final class StudioPlanDiscussionEditor extends Component
      */
     public function generateTree(mixed $postChanges = 0): void
     {
-        $this->updatedTotalCount();
+        $this->boundCounts();
 
         if (! $this->readyToGenerate($postChanges) || ($this->totalCount > 0 && $this->team(pick: false) === null)) {
             return;
@@ -1121,7 +1142,7 @@ final class StudioPlanDiscussionEditor extends Component
             return $team;
         }
 
-        $this->updatedRandomCount();
+        $this->boundRandomCount();
         $available = app(PersonasQuery::class)->activeCount();
 
         if ($available < $this->randomCount) {
@@ -1484,6 +1505,57 @@ final class StudioPlanDiscussionEditor extends Component
     private function mostRandom(): int
     {
         return max(1, min($this->mostPersonas(), app(PersonasQuery::class)->activeCount()));
+    }
+
+    /** Total comments within bounds, and as many of them on the post as there are, at least one. */
+    private function boundCounts(): void
+    {
+        $this->totalCount = max(0, min($this->mostNodes(), $this->totalCount));
+        $this->rootCount = $this->totalCount === 0 ? 0 : max(1, min($this->totalCount, $this->rootCount));
+    }
+
+    private function boundRandomCount(): void
+    {
+        $this->randomCount = max(1, min($this->mostRandom(), $this->randomCount));
+    }
+
+    /** The Discussion settings as the session keeps them for this plan (SETTINGS_SESSION), when it does. */
+    private function restoreSettings(): void
+    {
+        $kept = session(self::SETTINGS_SESSION.'.'.$this->planId);
+
+        if (! is_array($kept) || $this->closed) {
+            return;
+        }
+
+        foreach (['total' => 'totalCount', 'root' => 'rootCount', 'random' => 'randomCount'] as $key => $property) {
+            if (is_int($kept[$key] ?? null)) {
+                $this->{$property} = $kept[$key];
+            }
+        }
+
+        if (in_array($kept['mode'] ?? null, ['random', 'manual'], true)) {
+            $this->participantMode = $kept['mode'];
+        }
+
+        // Checked once; whether each still takes part is asked as the tree is generated (activeManual()).
+        $this->manual = array_values(array_unique(array_filter(array_map(intval(...), (array) ($kept['manual'] ?? [])), fn (int $id): bool => $id > 0)));
+    }
+
+    /** The Discussion settings as set now, kept in the session for this plan. */
+    private function rememberSettings(): void
+    {
+        if ($this->planId === 0 || $this->gone || $this->closed) {
+            return;
+        }
+
+        session()->put(self::SETTINGS_SESSION.'.'.$this->planId, [
+            'total' => $this->totalCount,
+            'root' => $this->rootCount,
+            'mode' => $this->participantMode,
+            'random' => $this->randomCount,
+            'manual' => $this->manual,
+        ]);
     }
 
     /** @param Collection<int, User> $people */

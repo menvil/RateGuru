@@ -483,7 +483,11 @@ saves it first: the plan's editor saves the draft and then tells the
 discussion editor to generate (`StudioPlanDiscussionEditor::GENERATE_EVENT`);
 a save refused generates nothing. On a new publication's page, whose save
 opens the plan's editor, the editor opens on the same step and generates
-there, told once through the session (`CreateStudioPlan::RESUME`). Generate
+there, told once through the session (`CreateStudioPlan::RESUME`), with the
+Discussion settings as they were set: the counts and the Personas are kept in
+the session for the plan (`StudioPlanDiscussionEditor::SETTINGS_SESSION`), so
+the editor opened again — by that save, or by a reload — draws them as last
+set, and only with none kept as the last whole tree was asked. Generate
 tree writes a whole discussion,
 Total comments and Top-level comments becoming the comments and replies asked
 for, by the Personas checked or, under Random, as many picked at random as
