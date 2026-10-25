@@ -98,6 +98,41 @@ it('picks a random team only as the tree is generated, and asks for the counts s
     $editor->assertSee('Generating the discussion', escape: false)->assertSee('Picked for the current tree. Generate again to reshuffle.');
 });
 
+it('keeps the settings as last set for the plan, so the editor opened anew by a new publication\'s save generates with them, not the defaults', function () {
+    discussionEditor($this->plan)->set('totalCount', 1)->set('randomCount', 1)
+        ->assertSee('1 comment · 1 top-level · 1 persona');
+
+    // The save Generate tree asked for on a new publication's page opens the plan's editor, which says to generate.
+    discussionEditor($this->plan)
+        ->assertSet('totalCount', 1)->assertSet('rootCount', 1)->assertSet('randomCount', 1)
+        ->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->plan->id)
+        ->assertSet('awaiting', fn ($id) => $id !== null);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole())
+        ->parameters->toMatchArray(['root_count' => 1, 'reply_count' => 0])
+        ->persona_user_ids->toHaveCount(1);
+
+    // Another plan keeps its own.
+    discussionEditor(discussionReadyStudioPlan(['created_by_user_id' => $this->admin->id]))->assertSet('totalCount', 14)->assertSet('rootCount', 5);
+});
+
+it('keeps the personas checked as last set for the plan, and the counts over those the last whole tree was asked with', function () {
+    discussionEditor($this->plan)->set('totalCount', 7)->set('rootCount', 3)->call('generateTree', 0);
+
+    discussionEditor($this->plan)->assertSet('totalCount', 7)->assertSet('rootCount', 3)
+        ->set('totalCount', 2)->set('participantMode', 'manual')->call('toggleParticipant', $this->boris->id);
+
+    discussionEditor($this->plan)
+        ->assertSet('totalCount', 2)->assertSet('rootCount', 2)
+        ->assertSet('participantMode', 'manual')
+        ->assertSet('manual', [$this->boris->id])
+        ->assertSee('1 of 2 active personas selected');
+
+    // With none kept, the ones the last whole tree was asked with.
+    session()->forget(StudioPlanDiscussionEditor::SETTINGS_SESSION);
+    discussionEditor($this->plan)->assertSet('totalCount', 7)->assertSet('rootCount', 3)->assertSet('participantMode', 'random');
+});
+
 it('writes a whole tree by the personas checked, and none without one', function () {
     $editor = discussionEditor($this->plan)->set('participantMode', 'manual')
         ->assertSee('0 of 2 active personas selected')
