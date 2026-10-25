@@ -21,8 +21,8 @@ use Livewire\Attributes\Url;
  * Content Studio's Publications & plans in Admin v2: every plan, the most
  * recently saved first, searched and narrowed by state and photo on the
  * server, 25 at a time, each with its editor and, while it is a Draft, Delete
- * draft. A plan is only ever a draft here: nothing on this page publishes or
- * schedules anything.
+ * draft. Nothing on this page publishes or schedules anything: a plan is
+ * approved from its own editor, and runs in the Action queue.
  */
 final class ListStudioPlans extends Page
 {
@@ -33,8 +33,8 @@ final class ListStudioPlans extends Page
     // A screen drawn in Admin v2 brings its own header band and gutter.
     protected Width|string|null $maxContentWidth = 'rg-admin-main';
 
-    /** The states the list can be narrowed to; the others are shown, never offered. */
-    public const STATES = [StudioPlanStatus::Draft];
+    /** The states the list can be narrowed to: every state a plan passes through. */
+    public const STATES = [StudioPlanStatus::Draft, StudioPlanStatus::Approved, StudioPlanStatus::Running, StudioPlanStatus::Completed, StudioPlanStatus::Cancelled];
 
     /** The search over the title, the id and the author. */
     #[Url(except: '')]

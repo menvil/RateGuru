@@ -9,11 +9,13 @@ use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\SetStudioPlanImageAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\ImageInputSource;
+use App\Enums\StudioPlanApprovalProblem;
 use App\Enums\StudioPlanPublicationMode;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
+use App\Filament\Resources\StudioPlans\StudioActionPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
@@ -33,6 +35,8 @@ use App\Support\Import\ImportProviderDetector;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Studio\StudioExecutionSwitch;
+use App\Support\Studio\StudioPlanApprovalPreflight;
 use App\Support\Studio\StudioPlanValidationRules;
 use App\Support\StudioAi\StudioImageAnalyzer;
 use Carbon\CarbonImmutable;
@@ -194,6 +198,27 @@ trait EditsStudioPlan
     {
         if (is_string($step) && array_key_exists($step, self::STEPS)) {
             $this->step = $step;
+        }
+    }
+
+    /**
+     * Edit on the final publication card, or a problem the approval preflight
+     * found: the step — and the Post step's tab — that holds it.
+     */
+    public function editPart(mixed $part): void
+    {
+        [$step, $tab] = match ($part) {
+            'image' => ['image', null],
+            'texts' => ['post', 'texts'],
+            'votes' => ['post', 'votes'],
+            'discussion' => ['discussion', null],
+            'publication' => ['publication', null],
+            default => [null, null],
+        };
+
+        if ($step !== null) {
+            $this->goToStep($step);
+            $this->showPostTab($tab);
         }
     }
 
@@ -842,6 +867,7 @@ trait EditsStudioPlan
                 StudioPlanPublicationMode::AtDate->value => ['label' => 'On a chosen date', 'help' => 'A future or past date the post will carry as its own.'],
             ],
             'timezone' => (string) config('app.timezone'),
+            'publication' => $this->publicationViewData($plan),
             'card' => [
                 'image' => $photo['url'] ?? null,
                 'title' => trim($this->postTitle),
@@ -894,6 +920,70 @@ trait EditsStudioPlan
         }
 
         return null;
+    }
+
+    /**
+     * How many of the draft's values differ from what is saved, compared as
+     * the browser compares them (filament.pages.editor.script): each as text,
+     * each list of ids in ascending order.
+     */
+    protected function unsavedValues(): int
+    {
+        $ids = function (array $ids): string {
+            $ids = array_map(intval(...), array_values($ids));
+            sort($ids);
+
+            return implode(',', $ids);
+        };
+
+        $draft = [
+            'title' => $this->postTitle,
+            'description' => $this->postDescription,
+            'sourceUrl' => $this->sourceUrl,
+            'authorUserId' => $this->authorUserId,
+            'categoryId' => $this->categoryId,
+            'tagIds' => $ids($this->tagIds),
+            'authorAnswers' => $ids(array_filter($this->authorAnswers, fn (mixed $option): bool => $option !== '' && $option !== null)),
+            'publicationMode' => $this->publicationMode,
+            'publishAt' => $this->publicationMode === StudioPlanPublicationMode::AtDate->value ? $this->publishAt : '',
+        ];
+
+        return count(array_filter($this->saved, fn (string $value, string $key): bool => (string) ($draft[$key] ?? '') !== $value, ARRAY_FILTER_USE_BOTH));
+    }
+
+    /**
+     * What the Publication step shows of the saved plan: what approving it
+     * now would write and how it would run (StudioActionPlan::summary()),
+     * every reason the approval preflight finds it is not ready — each with
+     * the step that holds it — and whether the executor runs. Worked out only
+     * while the step is on screen.
+     *
+     * @return array{summary: ?array<string, mixed>, problems: list<array{code: string, message: string, part: string, where: string}>, approvable: bool, executorOn: bool}
+     */
+    protected function publicationViewData(?StudioPlan $plan): array
+    {
+        if ($this->step !== 'publication' || $plan === null) {
+            return ['summary' => null, 'problems' => [], 'approvable' => false, 'executorOn' => false];
+        }
+
+        $problems = $plan->isDraft() ? app(StudioPlanApprovalPreflight::class)->problems($plan) : [];
+
+        return [
+            'summary' => app(StudioActionPlan::class)->summary($plan),
+            'problems' => array_map(fn (StudioPlanApprovalProblem $problem): array => [
+                'code' => $problem->value,
+                'message' => $problem->message(),
+                ...match ($problem->field()) {
+                    'photo' => ['part' => 'image', 'where' => 'Image'],
+                    'publishAt' => ['part' => 'publication', 'where' => 'Publication'],
+                    'discussion' => ['part' => 'discussion', 'where' => 'Discussion'],
+                    'votes' => ['part' => 'votes', 'where' => 'Post · Votes'],
+                    default => ['part' => 'texts', 'where' => 'Post'],
+                },
+            ], $problems),
+            'approvable' => $plan->isDraft() && $problems === [],
+            'executorOn' => app(StudioExecutionSwitch::class)->isOn(),
+        ];
     }
 
     /** The step that holds a field, by its key in the error bag. */

@@ -134,8 +134,8 @@
                 <div class="rg-admin-studio__post-texts" @if ($postTab !== 'texts') hidden @endif>
                     @include('filament.pages.studio-plan.post')
                 </div>
-            @elseif ($step !== 'discussion')
-                @include('filament.pages.studio-plan.'.$step)
+            @elseif ($step === 'image')
+                @include('filament.pages.studio-plan.image')
             @endif
             {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its draw live as long as the page. --}}
             <div class="rg-admin-studio__votes-step" @if ($step !== 'post' || $postTab !== 'votes') hidden @endif>
@@ -147,24 +147,56 @@
             </div>
         </fieldset>
 
+        {{-- Outside the step's fieldset: on a plan past its Draft, its Action plan's own controls still work. --}}
+        @if ($step === 'publication')
+            @include('filament.pages.studio-plan.publication')
+        @endif
     </div>
 
     {{-- Kept at the window's foot, so a popover near it opens upward instead (`data-admin-floor`). --}}
     <div
         class="rg-admin-studio__footer"
         data-admin-floor
-        x-data="{ busy: false }"
+        x-data="{
+            busy: false,
+            get unsaved() { return $store.adminEditor?.changes > 0 || Boolean($store.rgPostVotes?.unsaved) || Boolean($store.rgCommentVotes?.unsaved) },
+        }"
         x-on:rg-studio-photo-phase.window="busy = ($event.detail?.phase ?? '') !== ''"
     >
         <x-admin.ui.button icon="arrow-left" :disabled="$first" x-on:click="{{ $leave('previous', 'previousStep()') }}">Back</x-admin.ui.button>
         <span class="rg-admin-studio__position">Step {{ $stepNumber }} of 4 · {{ $stepLabel }}</span>
-        <span class="rg-admin-studio__reason"><span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span></span>
+        <span class="rg-admin-studio__reason">
+            <span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span>
+            @if ($last && ! $readOnly)
+                @if ($creating || $planId === 0)
+                    <span role="status">Save the draft before approving it.</span>
+                @elseif (! $publication['approvable'])
+                    <span role="status">Fix what stops the plan before approving it.</span>
+                @else
+                    <span x-show="! busy && unsaved" x-cloak role="status">Save your changes before approving.</span>
+                @endif
+            @endif
+        </span>
         @unless ($last)
             <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" x-on:click="{{ $leave('next', 'nextStep()') }}">Continue</x-admin.ui.button>
+        @elseif (! $readOnly)
+            {{-- Review and confirm: the approval, asked first (EditStudioPlan::askToApprove()); never with anything unsaved on the page. --}}
+            <x-admin.ui.button
+                variant="primary"
+                icon="clipboard-check"
+                :disabled="$creating || $planId === 0 || ! $publication['approvable']"
+                x-bind:disabled="{{ $creating || $planId === 0 || ! $publication['approvable'] ? 'true' : 'busy || unsaved' }}"
+                wire:click="askToApprove"
+                wire:loading.attr="disabled"
+            >Review and confirm</x-admin.ui.button>
         @endunless
     </div>
 
     @if (! $creating && $confirmingDelete && $plan !== null)
         @include('filament.pages.studio-plans.confirmation', ['plan' => ['id' => $plan['id'], 'title' => $plan['title']]])
+    @endif
+
+    @if (! $creating && ($confirmingApproval ?? false) && $plan !== null && $publication['summary'] !== null)
+        @include('filament.pages.studio-plan.approval', ['summary' => $publication['summary'], 'executorOn' => $publication['executorOn']])
     @endif
 </div>

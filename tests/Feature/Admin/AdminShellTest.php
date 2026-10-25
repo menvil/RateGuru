@@ -4,6 +4,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
+use App\Filament\Pages\StudioActionQueue;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -41,7 +42,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Overview' => ['Dashboard'],
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
-    'Content Studio' => ['Publications & plans', 'Personas'],
+    'Content Studio' => ['Publications & plans', 'Action queue', 'Personas'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -155,6 +156,7 @@ it('marks the destination of the current page', function (string $path, string $
     'media diagnostics' => ['/admin/media-diagnostics', 'Media diagnostics'],
     'personas' => ['/admin/personas', 'Personas'],
     'publications and plans' => ['/admin/studio-plans', 'Publications & plans'],
+    'action queue' => ['/admin/studio-actions', 'Action queue'],
 ]);
 
 it('keeps a resource marked on its create and edit pages, with a breadcrumb back to its list', function (Closure $url, string $active) {
@@ -201,6 +203,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Tags' => TagResource::canAccess(),
         'Rating groups' => RatingGroupResource::canAccess(),
         'Publications & plans' => StudioPlanResource::canAccess(),
+        'Action queue' => StudioActionQueue::canAccess(),
         'Personas' => PersonaResource::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
@@ -220,6 +223,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
     $this->get(ProjectSettingsPage::getUrl())->assertForbidden();
     $this->get(PersonaResource::getUrl('index'))->assertForbidden();
     $this->get(StudioPlanResource::getUrl('index'))->assertForbidden();
+    $this->get(StudioActionQueue::getUrl())->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -248,7 +252,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(15);
+    expect($keys)->toHaveCount(16);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -264,6 +268,7 @@ it('has an Admin v2 icon for every production destination', function () {
         TagResource::class => 'tag',
         RatingGroupResource::class => 'star',
         StudioPlanResource::class => 'newspaper',
+        StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',

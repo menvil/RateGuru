@@ -129,6 +129,12 @@ final class CreateStudioPlan extends Page
         $this->redirect(EditStudioPlan::getUrl(['record' => $plan->id]));
     }
 
+    /** A new publication is approved from its own editor, once its draft is saved. */
+    public function askToApprove(): void
+    {
+        $this->toast('Save the draft before approving it.', 'info');
+    }
+
     /**
      * @return array<string, mixed>
      */

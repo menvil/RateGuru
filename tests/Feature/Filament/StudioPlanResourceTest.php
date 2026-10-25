@@ -27,13 +27,12 @@ it('sits first in Content Studio, before Personas, with a list, a new publicatio
     $this->actingAs(User::factory()->admin()->create());
     $html = $this->get('/admin')->assertOk()->getContent();
 
-    // The section holds the two screens that work, in this order, each a real page.
+    // The section holds the three screens that work, in this order, each a real page.
     $section = adminShellNavigation($html)['Content Studio'];
 
-    expect(array_keys($section))->toBe(['Publications & plans', 'Personas'])
+    expect(array_keys($section))->toBe(['Publications & plans', 'Action queue', 'Personas'])
         ->and($html)->not->toContain('Reply rules')
-        ->not->toContain('Reply log')
-        ->not->toContain('Action queue');
+        ->not->toContain('Reply log');
 
     $this->get($section['Publications & plans'])->assertOk()->assertSee('Publications &amp; plans', false);
 });

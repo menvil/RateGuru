@@ -85,7 +85,7 @@ it('moves between the four steps without saving or losing anything typed', funct
         // The Post step's texts, then its votes, as the prototype goes.
         ->call('nextStep')->assertSet('step', 'post')->assertSet('postTab', 'votes')->assertSee('Step 2 of 4 · Post · Votes')
         ->call('nextStep')->assertSet('step', 'discussion')->assertSeeHtml('wire:name="admin.studio-plan-discussion-editor"')->assertDontSee('Generated conversations')
-        ->call('nextStep')->assertSet('step', 'publication')->assertSee('This is a draft. Saving it does not publish or schedule anything.')->assertDontSee('Review and confirm')
+        ->call('nextStep')->assertSet('step', 'publication')->assertSee('Saving the draft publishes and schedules nothing. Review and confirm approves it.')->assertSee('Review and confirm')
         ->call('nextStep')->assertSet('step', 'publication')
         ->call('goToStep', 'image')->assertSet('step', 'image')
         ->call('goToStep', 'somewhere')->assertSet('step', 'image')
