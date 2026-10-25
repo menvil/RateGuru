@@ -13490,6 +13490,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // Content Studio's executor and dispatcher; the executor says what the action became.
                 'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
                 'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
+                // An administrator's operations in the Action queue; each says what it did, or why it did nothing.
+                'cancel-action' => fwrite(STDOUT, 'cancelled '.json_encode(app(App\Actions\Studio\CancelStudioActionAction::class)->handle($admin, (int) $job['studio_action']))."\n"),
+                'retry-action' => fwrite(STDOUT, 'retried '.app(App\Actions\Studio\RetryStudioActionAction::class)->handle($admin, (int) $job['studio_action'])->id."\n"),
+                'stop-plan' => fwrite(STDOUT, 'stopped '.json_encode(app(App\Actions\Studio\StopStudioPlanAction::class)->handle($admin, (int) $job['studio_plan']))."\n"),
                 // Recovery sends it again, and a worker runs what it sent.
                 'dispatch-execute' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"
                     .'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),

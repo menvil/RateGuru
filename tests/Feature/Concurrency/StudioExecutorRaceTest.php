@@ -799,3 +799,105 @@ it('leaves nothing of a worker killed with its vote cast, and casts it once afte
         forgetExecutorRace($db, [$author->id, $voter->id, $admin->id], $directory);
     }
 })->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets an administrator\'s Cancel and a run of the same action take turns: run first, it is done and Cancel refused; Cancel first, the run writes nothing', function (string $first) {
+    $db = committedConnection();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    [$action] = committedSentStudioAction($admin, $persona);
+    $directory = raceDirectory('studio-executor');
+    $run = ['action' => 'execute', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $cancel = ['action' => 'cancel-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace($first === 'run'
+            ? [
+                executorCompetitor($directory, 'a', [...$run, 'sync' => 'lead', 'hold' => 'post']),
+                executorCompetitor($directory, 'b', [...$cancel, 'sync' => 'follow']),
+            ]
+            : [
+                executorCompetitor($directory, 'a', [...$cancel, 'sync' => 'lead', 'hold' => 'action']),
+                executorCompetitor($directory, 'b', [...$run, 'sync' => 'follow']),
+            ]);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+        $posts = $db->table('posts')->where('user_id', $persona->id)->count();
+
+        expect($report)->not->toContain('eadlock');
+
+        if ($first === 'run') {
+            expect($results[0]['output'])->toContain('became done')
+                ->and($results[1]['output'])->toContain('failed: App\Exceptions\Studio\CannotManageStudioActionException')
+                ->and($after->status)->toBe('done')
+                ->and($posts)->toBe(1);
+        } else {
+            expect($results[0]['status'])->toBe(0, $report)
+                ->and($results[1]['output'])->toContain('became nothing')
+                ->and($after->status)->toBe('cancelled')
+                ->and($after->failure_code)->toBe('cancelled_by_administrator')
+                ->and($posts)->toBe(0);
+        }
+    } finally {
+        forgetExecutorRace($db, [$persona->id, $admin->id], $directory);
+    }
+})->with(['the run first' => 'run', 'Cancel first' => 'cancel'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('lets Retry and Cancel of one failed action take turns, never leaving it both pending and cancelled', function (string $first) {
+    $db = committedConnection();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    [$action] = committedSentStudioAction($admin, $persona);
+    $db->table('studio_plan_actions')->where('id', $action->id)->update(['status' => 'failed', 'failure_code' => 'unexpected_failure', 'finished_at' => now()]);
+    $directory = raceDirectory('studio-executor');
+    $retry = ['action' => 'retry-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+    $cancel = ['action' => 'cancel-action', 'admin' => $admin->id, 'studio_action' => $action->id];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', [...($first === 'retry' ? $retry : $cancel), 'sync' => 'lead', 'hold' => 'action']),
+            executorCompetitor($directory, 'b', [...($first === 'retry' ? $cancel : $retry), 'sync' => 'follow']),
+        ]);
+
+        $after = $db->table('studio_plan_actions')->where('id', $action->id)->first();
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['status'])->toBe(0, $report)
+            // Retried first, the pending action is then cancelled; cancelled first, Retry finds nothing to retry.
+            ->and($after->status)->toBe('cancelled')
+            ->and($after->failure_code)->toBe('cancelled_by_administrator')
+            ->and($results[1]['status'])->toBe($first === 'retry' ? 0 : 1, $report);
+    } finally {
+        forgetExecutorRace($db, [$persona->id, $admin->id], $directory);
+    }
+})->with(['Retry first' => 'retry', 'Cancel first' => 'cancel'])->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);
+
+it('stops what is left of a plan beside a comment\'s run without deadlocking: the comment written once, nothing published taken back', function () {
+    $db = committedConnection();
+    [$author, $commenter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    $admin = User::factory()->admin()->connection('committed_peer')->create();
+    ['action' => $action, 'post' => $post] = committedSentStudioComment($admin, $author, $commenter);
+    $waiting = StudioAction::factory()->childOf(StudioAction::on('committed_peer')->findOrFail($action->parent_action_id))->connection('committed_peer')->create([
+        'actor_user_id' => $commenter->id,
+        'payload' => ['discussion_node_id' => 3, 'body' => 'Later.'],
+        'occurs_at' => now()->addDay(),
+        'run_after' => now()->addDay(),
+    ]);
+    $directory = raceDirectory('studio-executor');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            executorCompetitor($directory, 'a', ['action' => 'execute', 'sync' => 'lead', 'hold' => 'comment', 'admin' => $admin->id, 'studio_action' => $action->id]),
+            executorCompetitor($directory, 'b', ['action' => 'stop-plan', 'sync' => 'follow', 'admin' => $admin->id, 'studio_plan' => $action->studio_plan_id]),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[0]['output'])->toContain('became done')
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('comments')->where('post_id', $post->id)->count())->toBe(1)
+            ->and($db->table('posts')->where('id', $post->id)->whereNull('deleted_at')->count())->toBe(1)
+            ->and($db->table('studio_plan_actions')->where('id', $waiting->id)->value('status'))->toBe('cancelled')
+            ->and($db->table('studio_plans')->where('id', $action->studio_plan_id)->value('status'))->toBe('completed');
+    } finally {
+        forgetExecutorRace($db, [$author->id, $commenter->id, $admin->id], $directory);
+    }
+})->skip(fn (): bool => config('database.default') !== 'pgsql', EXECUTOR_RACE_SKIP);

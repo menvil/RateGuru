@@ -3,10 +3,9 @@
 namespace App\Actions\Studio;
 
 use App\Actions\Studio\Concerns\LocksStudioPlanDraft;
+use App\Data\Studio\PlannedStudioAction;
 use App\Enums\StudioActionStatus;
-use App\Enums\StudioActionType;
 use App\Enums\StudioPlanApprovalProblem;
-use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Exceptions\Studio\CannotApproveStudioPlanException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
@@ -16,7 +15,9 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
+use App\Support\Studio\StudioDispatchWake;
 use App\Support\Studio\StudioPlanApprovalPreflight;
+use App\Support\Studio\StudioPlanSchedule;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -25,21 +26,17 @@ use RuntimeException;
  * An administrator's approval of a complete Draft: the trusted permission for
  * its Personas to publish it (docs/architecture/studio-plans.md, "Approval").
  * One transaction marks the plan Approved — by whom, when, at a new version —
- * and writes every action that will publish it, Pending and untried: the
- * CreatePost, a CreateComment under it for each comment of the prepared
- * discussion, and a CreateReply under that for each reply — each by the
- * comment's own Persona, its text and its comment's id kept in its payload,
- * read from the discussion as it is now, never from anything a screen sent —
- * and one action for each prepared vote, by its Persona: a VotePost or a
- * VoteRating under the CreatePost, a VoteComment under the action of the
- * comment it is on, found by the comment's id. A vote's payload keeps only
- * what was approved — its way or its option, its question, its comment's id
- * and the prepared vote's own id — never a post, a comment or a user a run
- * would act on: the executor takes those from what the action it depends on
- * wrote, and from its actor. Either all of it is written or none of it is.
+ * and writes every action that will publish it, Pending and untried: exactly
+ * the set StudioPlanSchedule works out from the plan as it is now, never from
+ * anything a screen sent — the CreatePost, a CreateComment or CreateReply for
+ * each comment of the prepared discussion and an action for each prepared
+ * vote, each under the action it depends on. Either all of it is written or
+ * none of it is.
  *
- * Nothing is published here, and nothing is sent anywhere: the actions are
- * passive rows until the executor is switched on.
+ * Nothing is published here. Once the approval has committed, the dispatcher
+ * is woken (StudioDispatchWake), so a post due at once is sent to the
+ * executor straight away rather than at the next minute — when the executor
+ * is switched on; until then the actions are passive rows.
  *
  * The locks are taken in the project's order (LocksStudioPlanDraft): the
  * `users` rows of the administrator, the author, every Persona of the
@@ -56,13 +53,9 @@ use RuntimeException;
  * prepared vote one the executor can cast. A plan approved already is no
  * Draft, so a second approval writes no second action.
  *
- * The moment of approval is read once. Published at once, the post happens
- * then (`occurs_at`) and may run from then (`run_after`). On a date, the post
- * happens on that date; a past date may run at once, a future one only from
- * that date. Each comment happens its `offset_seconds` after the post and may
- * run from then, or from the approval when that is later — and never before
- * the action it answers is done, which the dispatcher asks besides. So does
- * each vote, its `offset_seconds` after the post.
+ * The moment of approval is read once, and decides when each action may run
+ * (StudioPlanSchedule): a past date runs as soon as it may, under that past
+ * date; a future one waits for it.
  */
 final class ApproveStudioPlanAction
 {
@@ -70,6 +63,8 @@ final class ApproveStudioPlanAction
 
     public function __construct(
         private readonly StudioPlanApprovalPreflight $preflight,
+        private readonly StudioPlanSchedule $schedule,
+        private readonly StudioDispatchWake $wake,
         private readonly DomainLogger $logger,
     ) {}
 
@@ -119,7 +114,7 @@ final class ApproveStudioPlanAction
                 }
 
                 $approvedAt = CarbonImmutable::now('UTC')->startOfSecond();
-                [$occursAt, $runAfter] = self::moments($locked, $approvedAt);
+                $planned = $this->schedule->of($locked, $approvedAt);
 
                 // A save a model event cancels returns false rather than
                 // throwing: either is taken as the whole approval failing, so
@@ -136,10 +131,7 @@ final class ApproveStudioPlanAction
                 }
 
                 // The approved plan, which nothing writes any more, is what the post publishes.
-                $actions = [self::written(StudioActionType::CreatePost, $locked->id, null, (int) $authorId, [], $occursAt, $runAfter)];
-                $comments = self::discussionActions($locked, $actions[0], $occursAt, $approvedAt);
-                array_push($actions, ...array_values($comments));
-                array_push($actions, ...self::voteActions($locked, $actions[0], $comments, $occursAt, $approvedAt));
+                $actions = self::written($locked->id, $planned);
 
                 $plan->setRawAttributes($locked->getAttributes(), true);
                 $plan->unsetRelations();
@@ -148,6 +140,7 @@ final class ApproveStudioPlanAction
                 // one be inside another — so a rolled-back approval is never
                 // logged as one.
                 DB::afterCommit(fn () => $this->approved($lockedAdmin, $locked, $actions));
+                $this->wake->afterCommit();
             });
         } catch (CannotManageStudioPlanException $refusal) {
             throw $this->rejected($admin, $plan, $authorId, CannotApproveStudioPlanException::because($refusal));
@@ -177,151 +170,49 @@ final class ApproveStudioPlanAction
     }
 
     /**
-     * An action for every comment of the discussion, under the post's, and
-     * for every reply, under its comment's — the parent of each taken from
-     * the discussion's own tree, never from its text or its order. Each comment
-     * happens its offset after the post, and may run from then, or from the
-     * approval when that is later. Written by time — then place, then id — so
-     * comments due at once are sent in the order they come.
+     * Every planned action, in order, each under the action written for the
+     * one it depends on — or the whole approval taken back: a save a model
+     * event cancels returns false rather than throwing.
      *
-     * @return array<int, StudioAction> keyed by the comment's id in the discussion
+     * @param  non-empty-list<PlannedStudioAction>  $planned  the post's first
+     * @return non-empty-list<StudioAction> the post's first
      */
-    private static function discussionActions(StudioPlan $plan, StudioAction $post, CarbonImmutable $postOccursAt, CarbonImmutable $approvedAt): array
+    private static function written(int $planId, array $planned): array
     {
-        $nodes = StudioDiscussionNode::query()
-            ->where('studio_plan_id', $plan->id)
-            ->orderBy('offset_seconds')
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
-        // In the order written: the comments, then the replies.
-        $comments = [];
-
-        foreach ([false, true] as $replies) {
-            foreach ($nodes as $node) {
-                if ($node->isRoot() === $replies) {
-                    continue;
-                }
-
-                $parent = $replies ? ($comments[$node->parent_id] ?? null) : $post;
-
-                // The preflight found two levels, each reply under a comment of this plan.
-                if ($parent === null) {
-                    throw new RuntimeException('A reply of the approved discussion has no comment of it to answer.');
-                }
-
-                $occursAt = $postOccursAt->addSeconds($node->offset_seconds);
-                $action = self::written(
-                    $replies ? StudioActionType::CreateReply : StudioActionType::CreateComment,
-                    $plan->id,
-                    $parent->id,
-                    $node->persona_user_id,
-                    ['discussion_node_id' => $node->id, 'body' => trim($node->body)],
-                    $occursAt,
-                    $occursAt->greaterThan($approvedAt) ? $occursAt : $approvedAt,
-                );
-
-                $comments[$node->id] = $action;
-            }
-        }
-
-        return $comments;
-    }
-
-    /**
-     * An action for every prepared vote: on the post or a rating question
-     * under the post's, on a comment under that comment's own — found by the
-     * comment's id, never its text, its place or its time — each by the
-     * vote's Persona. Each vote happens its offset after the post, and may run
-     * from then, or from the approval when that is later. Written by time,
-     * then place, then the prepared vote's id, so votes due at once are sent in
-     * that order — each after the action it depends on, which the dispatcher
-     * waits for besides.
-     *
-     * @param  array<int, StudioAction>  $comments  the discussion's actions, keyed by the comment's id
-     * @return list<StudioAction>
-     */
-    private static function voteActions(StudioPlan $plan, StudioAction $post, array $comments, CarbonImmutable $postOccursAt, CarbonImmutable $approvedAt): array
-    {
-        $votes = StudioPlanVote::query()
-            ->where('studio_plan_id', $plan->id)
-            ->orderBy('offset_seconds')
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
         $written = [];
 
-        foreach ($votes as $vote) {
-            [$parent, $payload] = match ($vote->type) {
-                StudioActionType::VotePost => [$post, ['vote_type' => $vote->vote_type?->value, 'studio_plan_vote_id' => $vote->id]],
-                StudioActionType::VoteComment => [$comments[(int) $vote->discussion_node_id] ?? null, [
-                    'vote_type' => $vote->vote_type?->value,
-                    'discussion_node_id' => $vote->discussion_node_id,
-                    'studio_plan_vote_id' => $vote->id,
-                ]],
-                StudioActionType::VoteRating => [$post, [
-                    'rating_group_id' => $vote->rating_group_id,
-                    'rating_option_id' => $vote->rating_option_id,
-                    'studio_plan_vote_id' => $vote->id,
-                ]],
-                default => [null, []],
-            };
+        foreach ($planned as $item) {
+            $parent = $item->parentKey !== null ? ($written[$item->parentKey] ?? null) : null;
 
-            // The preflight found every vote on a comment of this plan, whose action is written above.
-            if ($parent === null) {
-                throw new RuntimeException('A prepared vote of the approved plan depends on no action of it.');
+            // The preflight found two levels, each reply under a comment of
+            // this plan, and every vote on the post or a comment of it, whose
+            // action is written before it.
+            if ($item->key !== 'post' && $parent === null) {
+                throw new RuntimeException('An action of the approved plan depends on no action of it written before it.');
             }
 
-            $occursAt = $postOccursAt->addSeconds($vote->offset_seconds);
-            $written[] = self::written($vote->type, $plan->id, $parent->id, $vote->persona_user_id, $payload, $occursAt, $occursAt->greaterThan($approvedAt) ? $occursAt : $approvedAt);
+            $action = new StudioAction;
+
+            $saved = $action->forceFill([
+                'studio_plan_id' => $planId,
+                'parent_action_id' => $parent?->id,
+                'type' => $item->type,
+                'actor_user_id' => (int) $item->actorId,
+                'payload' => $item->payload,
+                'occurs_at' => $item->occursAt,
+                'run_after' => $item->runAfter,
+                'status' => StudioActionStatus::Pending,
+                'attempts' => 0,
+            ])->save();
+
+            if (! $saved) {
+                throw new RuntimeException('An action of the approved plan was not saved.');
+            }
+
+            $written[$item->key] = $action;
         }
 
-        return $written;
-    }
-
-    /**
-     * One action, Pending and untried — or the whole approval taken back: a
-     * save a model event cancels returns false rather than throwing.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    private static function written(StudioActionType $type, int $planId, ?int $parentId, int $actorId, array $payload, CarbonImmutable $occursAt, CarbonImmutable $runAfter): StudioAction
-    {
-        $action = new StudioAction;
-
-        $saved = $action->forceFill([
-            'studio_plan_id' => $planId,
-            'parent_action_id' => $parentId,
-            'type' => $type,
-            'actor_user_id' => $actorId,
-            'payload' => $payload,
-            'occurs_at' => $occursAt,
-            'run_after' => $runAfter,
-            'status' => StudioActionStatus::Pending,
-            'attempts' => 0,
-        ])->save();
-
-        if (! $saved) {
-            throw new RuntimeException('An action of the approved plan was not saved.');
-        }
-
-        return $action;
-    }
-
-    /**
-     * When the post happens, and when it may run.
-     *
-     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
-     */
-    private static function moments(StudioPlan $plan, CarbonImmutable $approvedAt): array
-    {
-        if ($plan->publication_mode !== StudioPlanPublicationMode::AtDate || $plan->publish_at === null) {
-            return [$approvedAt, $approvedAt];
-        }
-
-        $occursAt = $plan->publish_at->utc()->startOfSecond();
-
-        return [$occursAt, $occursAt->greaterThan($approvedAt) ? $occursAt : $approvedAt];
+        return array_values($written);
     }
 
     /** @param  non-empty-list<StudioAction>  $actions  the post's first */

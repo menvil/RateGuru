@@ -8,6 +8,7 @@ use App\Actions\Posts\CreatePostAction;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Actions\Studio\Concerns\CancelsDependentStudioActions;
+use App\Actions\Studio\Concerns\SettlesStudioPlan;
 use App\Actions\Votes\VoteCommentAction;
 use App\Actions\Votes\VotePostAction;
 use App\Data\Posts\CreatePostData;
@@ -38,6 +39,7 @@ use App\Models\StudioAction;
 use App\Models\StudioPlan;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
+use App\Support\Studio\StudioDispatchWake;
 use App\Support\Studio\StudioExecutionSwitch;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\DetectsConcurrencyErrors;
@@ -113,6 +115,11 @@ use Throwable;
  * or a deadlock is no verdict: the action stays Running and recovery sends it
  * again.
  *
+ * Done, with actions due already waiting for it — a past-dated post's
+ * comments and votes, a comment's replies — it wakes the dispatcher once the
+ * run has committed (StudioDispatchWake), so they are sent at once rather
+ * than at the next minute.
+ *
  * Nothing runs while the executor is switched off (StudioExecutionSwitch).
  */
 final class ExecuteStudioAction
@@ -121,6 +128,7 @@ final class ExecuteStudioAction
     use DetectsConcurrencyErrors;
     use DetectsLostConnections;
     use LocksUsersInOrder;
+    use SettlesStudioPlan;
 
     /** The kinds of action that run: every kind approval writes. */
     public const RUNNABLE = [
@@ -137,6 +145,7 @@ final class ExecuteStudioAction
         private readonly VoteCommentAction $voteComment,
         private readonly VoteRatingOptionAction $voteForOption,
         private readonly StudioExecutionSwitch $switch,
+        private readonly StudioDispatchWake $wake,
         private readonly DomainLogger $logger,
     ) {}
 
@@ -178,6 +187,7 @@ final class ExecuteStudioAction
             if ($this->isDone($actionId, $attempt)) {
                 report($exception);
                 $this->logDone($actionId);
+                $this->wakeForWaiting($actionId);
 
                 return StudioActionStatus::Done;
             }
@@ -198,8 +208,30 @@ final class ExecuteStudioAction
         }
 
         $this->logDone($actionId);
+        $this->wakeForWaiting($actionId);
 
         return StudioActionStatus::Done;
+    }
+
+    /**
+     * Done, with actions of its own already due waiting for it — a published
+     * post's comments and votes on a past date, a comment's replies: the
+     * dispatcher is woken, so they are sent now rather than at the next
+     * minute, and a whole historical plan runs generation after generation
+     * without a minute between them. Those still to come wait for their own
+     * moment, which the minute's run finds.
+     */
+    private function wakeForWaiting(int $actionId): void
+    {
+        $waiting = StudioAction::query()
+            ->where('parent_action_id', $actionId)
+            ->where('status', StudioActionStatus::Pending)
+            ->where('run_after', '<=', CarbonImmutable::now())
+            ->exists();
+
+        if ($waiting) {
+            $this->wake->now();
+        }
     }
 
     /**
@@ -732,33 +764,6 @@ final class ExecuteStudioAction
         }
 
         return $author;
-    }
-
-    /**
-     * The plan, once nothing of it is left to run or to decide: Completed when
-     * its post was published — its comments done, or cancelled for good —
-     * Cancelled when the post never will be. An action still waiting, or held
-     * or failed for an administrator, keeps the plan Running; one comment's
-     * failure takes back nothing already published.
-     */
-    private function settlePlan(StudioPlan $plan): void
-    {
-        $open = StudioAction::query()
-            ->where('studio_plan_id', $plan->id)
-            ->whereIn('status', [StudioActionStatus::Pending, StudioActionStatus::Held, StudioActionStatus::Dispatched, StudioActionStatus::Running, StudioActionStatus::Failed])
-            ->exists();
-
-        if ($open) {
-            return;
-        }
-
-        $published = StudioAction::query()
-            ->where('studio_plan_id', $plan->id)
-            ->where('type', StudioActionType::CreatePost)
-            ->where('status', StudioActionStatus::Done)
-            ->exists();
-
-        self::saved($plan->forceFill(['status' => $published ? StudioPlanStatus::Completed : StudioPlanStatus::Cancelled]));
     }
 
     /** Records why the run stopped, on the attempt it claimed only. */
