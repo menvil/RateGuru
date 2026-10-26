@@ -102,7 +102,7 @@ it('says what to do when a new group cannot be saved', function (array $draft, s
     'a key in use' => [['draftLabel' => 'Existing', 'draftKey' => 'existing_group'], 'draftKey', 'This key is already used by another group. Choose another one.'],
     'a key that is not lowercase with underscores' => [['draftLabel' => 'Group', 'draftKey' => 'Existing group'], 'draftKey', 'Use lowercase letters and numbers, with single underscores between words: real_or_fake.'],
     'a minimum above the maximum' => [['draftLabel' => 'Group', 'draftMin' => 5, 'draftMax' => 4], 'draftMin', 'Minimum can’t be higher than the maximum.'],
-    'a maximum past the most a group allows' => [['draftLabel' => 'Group', 'draftMax' => 11], 'draftMax', 'Enter a whole number from 2 to 10.'],
+    'a maximum past the most a group allows' => [['draftLabel' => 'Group', 'draftMax' => 16], 'draftMax', 'Enter a whole number from 2 to 15.'],
 ]);
 
 it('saves a group\'s settings from the top bar, keeping its key', function () {

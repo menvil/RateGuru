@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\RatingGroup;
 use Illuminate\Support\Str;
 
 it('project presets have required shape', function () {
@@ -68,6 +69,11 @@ it('project presets have required shape', function () {
                 foreach ($group['options'] as $option) {
                     expect($option)->toHaveKeys(['key', 'label', 'sort_order']);
                 }
+
+                // A preset's group is made with the widest range a group may
+                // have, so its options must fit in it.
+                expect(count($group['options']))->toBeGreaterThanOrEqual(RatingGroup::FEWEST_OPTIONS)
+                    ->toBeLessThanOrEqual(RatingGroup::MOST_OPTIONS);
             }
         }
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\RatingGroup;
 use Carbon\CarbonImmutable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
@@ -876,8 +877,8 @@ it('draws a group\'s active options against its range as one named picture', fun
 it('numbers the editor\'s slots, dimming those outside the range', function () {
     $view = (string) $this->blade('<x-admin.ui.range-slots size="editor" :active="3" :min="2" :max="4" />');
 
-    expect(substr_count($view, 'rg-admin-range-slots__cell'))->toBe(10)
-        ->and(substr_count($view, 'rg-admin-range-slots__number--outside'))->toBe(7)
+    expect(substr_count($view, 'rg-admin-range-slots__cell'))->toBe(RatingGroup::MOST_OPTIONS)
+        ->and(substr_count($view, 'rg-admin-range-slots__number--outside'))->toBe(RatingGroup::MOST_OPTIONS - 3)
         ->and($view)->toContain('rg-admin-range-slots--editor');
 });
 

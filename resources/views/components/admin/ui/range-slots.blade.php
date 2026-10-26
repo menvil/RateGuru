@@ -2,7 +2,7 @@
     'active',
     'min',
     'max',
-    'count' => 10,
+    'count' => \App\Models\RatingGroup::MOST_OPTIONS,
     'size' => 'table',
 ])
 
