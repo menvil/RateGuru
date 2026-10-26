@@ -47,6 +47,10 @@ class ProjectSettingsManager
             // is switched on deliberately, by an administrator, from the
             // Action queue (SwitchStudioExecutionAction).
             'content_studio_execution_enabled' => false,
+            // Content Studio's confirmation that everyone shown in its photos
+            // is a verified adult: off until an administrator says so in the
+            // project's settings (StudioVerifiedAdults).
+            'content_studio_verified_adults' => false,
         ],
     ];
 

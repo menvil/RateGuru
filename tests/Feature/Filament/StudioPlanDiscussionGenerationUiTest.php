@@ -388,7 +388,7 @@ it('offers the tones, the site’s own chosen first, and asks for a tree — or 
         ->assertSet('tone', StudioPostTextTone::DEFAULT->value)
         ->assertSee('· Cheeky')
         ->set('tone', 'spicy')
-        ->assertSee('Grown-up, flirty and saucy — clever innuendo, never graphic.')
+        ->assertSee('Horny, crude and funny, like an adult forum — never graphic.')
         ->assertSee('2 personas · Spicy / Adult humour');
 
     $editor->call('generateTree', 0);

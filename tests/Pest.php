@@ -70,6 +70,7 @@ use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioExecutionSwitch;
+use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -14006,6 +14007,21 @@ function switchStudioExecution(bool $on): void
     DB::transaction(function () use ($on): void {
         $row = app(ProjectSettingsManager::class)->lockedRow();
         $row->forceFill(['feature_flags' => [...($row->feature_flags ?? []), StudioExecutionSwitch::FLAG => $on]])->save();
+    });
+
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
+ * Says, or unsays, that everyone shown in Content Studio's photos is a
+ * verified adult, as the project's flag is stored — the confirmation
+ * StudioVerifiedAdults reads afresh for every request.
+ */
+function confirmStudioVerifiedAdults(bool $confirmed = true): void
+{
+    DB::transaction(function () use ($confirmed): void {
+        $row = app(ProjectSettingsManager::class)->lockedRow();
+        $row->forceFill(['feature_flags' => [...($row->feature_flags ?? []), StudioVerifiedAdults::FLAG => $confirmed]])->save();
     });
 
     app(ProjectSettingsManager::class)->flush();

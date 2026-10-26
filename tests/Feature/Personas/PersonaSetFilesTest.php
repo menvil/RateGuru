@@ -50,6 +50,26 @@ it('holds a hundred personas for Tits Guru', function () {
     expect(personaSets()['tits-guru.json'])->toHaveCount(100);
 });
 
+it('writes Tits Guru’s personas as men, two of them as women', function () {
+    // Who a persona is written as, from the pronouns that open the sentences
+    // of its character — the persona itself, never somebody it mentions in
+    // passing — and only when every one of them says the same.
+    $written = array_map(function (PersonaData $persona): string {
+        preg_match_all('/(?:^|[.!?;:]\s+)(He|His|Him|She|Her|Hers)\b/', (string) $persona->character, $pronouns);
+        $as = array_values(array_unique(array_map(fn (string $pronoun): string => in_array($pronoun, ['She', 'Her', 'Hers'], true) ? 'she' : 'he', $pronouns[1])));
+
+        return count($as) === 1 ? $as[0] : 'unclear';
+    }, personaSets()['tits-guru.json']);
+
+    expect(array_count_values($written))->toEqual(['he' => 98, 'she' => 2]);
+});
+
+it('gives nine in ten Tits Guru usernames as one word, as forum regulars pick them', function () {
+    $oneWord = array_filter(personaSets()['tits-guru.json'], fn (PersonaData $persona): bool => preg_match('/^[a-z0-9]+$/', (string) $persona->username) === 1);
+
+    expect(count($oneWord))->toBeGreaterThanOrEqual(90);
+});
+
 it('lets no persona reply on its own', function () {
     foreach (personaSets() as $personas) {
         foreach ($personas as $persona) {

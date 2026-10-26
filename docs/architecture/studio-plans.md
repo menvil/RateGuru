@@ -1143,16 +1143,21 @@ first in what it writes) and the mode's, in which only the request's own
 aliases and counts are filled in: a task says which comment to write and by
 whom as `existing_3` and `persona_2`, never by a display name, a post's text
 or a comment, which an administrator may have typed and which travel only as
-data. The model gives no id; the server maps the aliases back. The rules match the post text
-suggestions': nothing invented about the photo or the people in it, never
-explicit, never sexualising anyone who is or may be a minor or whose age is
-unclear, age never judged from looks, and no sexualised remark about a
-specific person shown — that would need separate, reliable confirmation that
-the person is an adult, and nothing a request carries is one: the analysis
-never judges age, and a tone, Spicy included, is a mood, never a fact about
-anyone's age; the innuendo, flirting and double meanings play on the
-situation, the post, wordplay and the commenters' own banter — never
-demeaning, threatening or discriminating, English, plain text.
+data. The model gives no id; the server maps the aliases back. The rules match
+the post text suggestions': nothing invented about the photo or the people in
+it, no description of sexual acts, never sexualising anyone who is or may be a
+minor or whose age is unclear, age never judged from looks, and no sexualised
+remark about a specific person shown unless an administrator has confirmed, in
+the project's settings, that everyone in Content Studio's photos is a verified
+adult (`StudioVerifiedAdults`, `docs/architecture/studio-personas.md`).
+Nothing a request carries stands in for that: the analysis never judges age,
+and a tone, Spicy included, is a mood, never a fact about anyone's age.
+Without it the innuendo, flirting and double meanings play on the situation,
+the post, wordplay and the commenters' own banter; with it the Personas may
+flirt with and compliment the people shown too — never demeaning, threatening
+or discriminating, English, plain text. The comments are typed like a forum
+thread, not written: mostly a few words to a line, slang where a Persona has
+it, nothing literary.
 
 What makes the conversation is said as fixed text too:
 
@@ -2081,20 +2086,22 @@ in the input as JSON inside a `<photo_analysis>` block and the author inside a
 block, and both are declared data, never instructions: text quoted from the
 photo, or typed into a Persona's profile, cannot change the rules, the tone,
 the count or the format. The rules keep to what the analysis says is visible,
-English, no hashtags, numbering or emoji in titles; never explicit, never
-sexualising anyone who is or may be a minor or whose age is unclear, and never
-humiliating a person shown. Age is never judged from looks, and no sexualised
-remark is made about a specific person shown: it would need separate, reliable
-confirmation that the person is an adult, and nothing a request carries is one
-— not the analysis, which never judges age, not the author or text quoted
-from the photo, and not the tone, which is a mood, never a fact about anyone's
-age. The innuendo and double meanings play on the situation, the setting and
-wordplay instead.
+English, no hashtags, numbering or emoji in titles; no description of sexual
+acts, never sexualising anyone who is or may be a minor or whose age is
+unclear, and never humiliating a person shown. Age is never judged from looks,
+and no sexualised remark is made about a specific person shown unless an
+administrator has confirmed, in the project's settings, that everyone in
+Content Studio's photos is a verified adult (`StudioVerifiedAdults`) — nothing
+a request carries is such a confirmation: not the analysis, which never judges
+age, not the author or text quoted from the photo, and not the tone, which is
+a mood, never a fact about anyone's age. Without it the innuendo and double
+meanings play on the situation, the setting and wordplay instead.
 
-With an author, the texts are written as the author writes — its vocabulary,
-rhythm, punctuation and kind of humour: a sarcastic author ironic, a flirt
-with light double meanings, an aesthete noticing light, composition and mood, a
-meme lover reaching for absurd comparisons, a blunt one short and bold — never
+With an author, the texts are written as the author types on a forum — its
+vocabulary, rhythm, casing, punctuation, slang and kind of humour, never
+polished into an editor's prose: a sarcastic author dry, a flirt flirting, a
+hype man hyping, a meme lover reaching for absurd comparisons, a blunt one
+short and loud, a nerd joking in his own field — never
 about what it never writes about, with emoji in descriptions only as often as
 it uses them, and never naming it or quoting its profile. The tone comes first:
 where the author's habits clash with it, the texts keep the tone and only the

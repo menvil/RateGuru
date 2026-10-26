@@ -41,14 +41,14 @@ present (a text may be `null`), and no others:
 
 ```json
 {
-    "displayName": "Velvet Footnote",
-    "username": "velvet_footnote",
-    "bio": "Reads the small print. Flirts in it too.",
-    "shortDescription": "A shy flirt who hides compliments in footnotes.",
-    "character": "Warm, bookish and a little evasive…",
-    "speechStyle": "One line, lowercase, ends with a footnote marker…",
-    "topics": "Small print, accidental innuendo, library humour",
-    "neverWritesAbout": "Anything graphic, guessing anyone's age",
+    "displayName": "Tom",
+    "username": "tomontheroof",
+    "bio": "fixes roofs, rates pics. both with care",
+    "shortDescription": "A roofer who comments from ladders and rates everything like a quote for a job.",
+    "character": "He is cheerful, practical and a little too proud of his trade…",
+    "speechStyle": "Lowercase, five to ten words, the odd typo from cold fingers…",
+    "topics": "weather, ladders, quotes for jobs, tea breaks",
+    "neverWritesAbout": "his old boss, the van's MOT",
     "emojiFrequency": "none",
     "engagement": "off",
     "maxRepliesPerDay": 0
@@ -65,30 +65,36 @@ from 0 to 50. Every username appears once.
 ### The Tits Guru set
 
 `tits-guru.json` holds 100 Personas, in English, for an English-speaking
-adult-humour community. They were written to differ in what they do, not only
-in what they are called, and are ordered by the kind of character each was
-written as — a guide for writing them, never a role or a column:
+adult-humour community: forum regulars, written to sound like the people who
+comment on an NSFW forum rather than characters from a book — short, casual,
+mostly lowercase, with slang, the odd typo, crude words where they fit, and
+banter with each other. They differ in what they do, not only in what they are
+called, and are ordered by the kind of regular each was written as — a guide
+for writing them, never a role or a column:
 
 | Entries | Kind | Count |
 | --- | --- | ---: |
-| 1–20 | flirty, playful, coquettish | 20 |
-| 21–30 | romantics, aesthetes, admirers of beauty | 10 |
-| 31–50 | ironic, sarcastic, acerbic | 20 |
+| 1–20 | flirts and simps | 20 |
+| 21–30 | admirers and hype men | 10 |
+| 31–50 | sarcastic regulars | 20 |
 | 51–60 | meme lovers and absurdists | 10 |
-| 61–75 | blunt and bold | 15 |
-| 76–90 | intellectual jokers | 15 |
-| 91–100 | sceptics, arguers, provocateurs | 10 |
+| 61–75 | blunt and loud | 15 |
+| 76–90 | nerdy jokers | 15 |
+| 91–100 | contrarians and arguers | 10 |
 
 Each has a recognisable strength and flaw, likes and dislikes, its own limits
 in `neverWritesAbout`, and a speech style that says how long it writes, its
-punctuation and casing, its vocabulary, how readily it replies and to whom,
-its emoji — the two or three of its own, when it uses any — and one signature
-habit of its own. Women, men and Personas written as “they” are mixed in every
-kind, a third of each, with no gender tied to flirting or to any other trait.
-Most are not sexual at all: flirting is witty and light, and several flirts
-flirt with the conversation rather than the photo. 43 never use emoji, 38
-sometimes and 19 often. None is a real person or plays on one, none claims a
-real identity or credentials, and none sounds like a generic assistant.
+punctuation and casing, its slang, how readily it replies and to whom, its
+emoji — the one to three of its own, when it uses any — and one signature
+habit of its own. As on the forum it is written for, they are men but for two
+women. Nine in ten usernames are one word, as a regular picks one
+(`hiyeshello`, `romeo1989`); the rest are the odd handle with an underscore
+(`mike_t87`, `throwaway_8812`). Display names are what such a regular calls
+himself: a first name, a nickname, or the username again. 39 never use emoji,
+38 sometimes and 23 often. None is a real person or plays on one, none claims
+a real identity or credentials, and none sounds like a generic assistant.
+However a Persona's profile reads, what is generated in its voice keeps to the
+rules below (“What stays ruled out”).
 
 Every Persona of the set has engagement Off and a daily reply limit of 0: none
 replies on its own, and every one can still take part in an approved plan.
@@ -97,10 +103,11 @@ replies on its own, and every one can still take part in an approved plan.
 reads it whole; Tits Guru's holds 100; nobody replies on its own; no two
 Personas share a display name, bio, description, character, speech style,
 topics or limits, nor come close to it (no two of those texts share more than
-four words in ten); every emoji frequency is used by at least a tenth of the
-set; each Persona that uses emoji names its own, no set shared; and no entry
-uses stock praise (“Absolutely stunning”, “What a beautiful picture”, “Wow,
-just wow”, “Amazing content”, “Love this”).
+four words in ten); Tits Guru's are men but for two women, and nine in ten of
+its usernames are one word; every emoji frequency is used by at least a tenth
+of the set; each Persona that uses emoji names its own, no set shared; and no
+entry uses stock praise (“Absolutely stunning”, “What a beautiful picture”,
+“Wow, just wow”, “Amazing content”, “Love this”).
 
 ## Importing
 
@@ -178,11 +185,44 @@ missing ones are created. A Persona edited in the persona editor since its
 import is reported as a conflict and left as edited: the file never wins over
 an administrator's edit. To import the rest anyway, add `--skip-conflicts`.
 
+### Replacing a set
+
+An import never removes a Persona, so a set replaced by one with other
+usernames leaves the old set's Personas behind. Retire them before importing
+the new one, as any account is deleted (`AnonymizeUserAccountAction`): each
+becomes a deleted account's tombstone — its name, username, avatar and Content
+Studio profile gone, its posts, comments and votes kept under “Deleted user”.
+
+Run both from the release that still holds the set being replaced — before
+the release with the new set is deployed — so its usernames are the ones
+retired. The first counts that set's Personas; the second retires them and
+prints how many are left — 0 once done. On staging:
+
+```bash
+sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="echo App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\"))->count().PHP_EOL;"'
+sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="\$left = fn () => App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\")); \$left()->get()->each(fn (\$u) => app(App\Actions\Profile\AnonymizeUserAccountAction::class)->execute(\$u)); echo \$left()->count().PHP_EOL;"'
+```
+
+Then deploy the release with the new set and import it as above. Production
+retires its own the same way (“On production”).
+
 ### On production
 
 The same file, the same command, run from a terminal (`ssh -t`): production
 asks “Create n personas in production?” before it writes, and with no terminal
 to answer it stops unless `--force` says not to ask.
+
+When the release replaces a set production already has, retire that set first,
+before the release is deployed, exactly as on staging (“Replacing a set”) —
+the same selection, the same account deletion, as production's own user and
+from its current release:
+
+```bash
+sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan tinker --execute="echo App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\"))->count().PHP_EOL;"'
+sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan tinker --execute="\$left = fn () => App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\")); \$left()->get()->each(fn (\$u) => app(App\Actions\Profile\AnonymizeUserAccountAction::class)->execute(\$u)); echo \$left()->count().PHP_EOL;"'
+```
+
+Then deploy the release, and import the new set, checked first:
 
 ```bash
 sudo -u rateguru-production bash -c 'cd /home/www/rateguru/production/current && php8.5 artisan studio:personas:import resources/studio/personas/tits-guru.json --admin=<id> --dry-run'
@@ -197,16 +237,19 @@ gets exactly what staging was checked with: the file is the release's.
 - **Post titles and descriptions** are written in the voice of the post's
   author: its display name, short description, character, speech style, topics
   and jokes, what it never writes about and its emoji habit (in descriptions
-  only — titles have none). A sarcastic author's texts are ironic, a flirt's
-  play with light double meanings, an aesthete's notice light, composition and
-  mood, a meme lover's reach for absurd comparisons, a blunt one's are short
-  and bold. The tone an administrator chooses comes first: the author's habits
-  that clash with it are dropped.
+  only — titles have none), typed the way it types on a forum — lowercase and
+  all, if that is how it writes — never polished into an editor's prose. A
+  sarcastic author's texts are dry, a flirt's flirt, a hype man's hype, a meme
+  lover's reach for absurd comparisons, a blunt one's are short and loud, and
+  a nerd's joke in his own field. The tone an administrator chooses comes
+  first: the author's habits that clash with it are dropped.
 - **Discussions** give every Persona taking part its own voice — length,
   vocabulary, punctuation, kind of humour, topics, limits, emoji — and its own
-  part in the conversation, as its character suggests. Quirks of grammar are
-  only the Personas' whose speech style has them, and innuendo only theirs whose
-  character has it.
+  part in the conversation, as its character suggests, typed like a forum
+  thread rather than written: mostly a few words to a line, slang and swearing
+  where a Persona and the tone have them, nothing literary. Quirks of grammar
+  are only the Personas' whose speech style has them, and innuendo only theirs
+  whose character has it.
 
 The model is told nothing else of a Persona: never its email, username, id,
 password, sign-in or security setting, and not its engagement or daily reply
@@ -218,30 +261,57 @@ used (`docs/architecture/studio-plans.md`).
 ## Spicy
 
 Spicy / Adult humour is the sixth tone, beside Playful, Humour, Cheeky, Irony
-and Neutral, in the Post step's suggestions and in Discussion settings: grown-up,
-playful and flirtatious — saucy innuendo, clever double meanings, teasing,
-sarcasm and self-irony in a relaxed, conversational voice, the jokes on the
-situation, the post and the commenters' own banter. It is never the default
-(Cheeky is), and is only ever chosen, by an administrator.
+and Neutral, in the Post step's suggestions and in Discussion settings: the
+boldest — horny, crude and funny, the way regulars talk on an adult forum:
+open flirting, dirty jokes and innuendo that is not subtle, swearing and crude
+words, teasing and roasting each other, and self-irony about being horny. It
+is never the default (Cheeky is), and is only ever chosen, by an
+administrator.
 
-Spicy is a mood for the text, never a statement about anyone's age. Choosing it
-confirms nothing about the people in a photo, and every rule about them holds
-in it exactly as in the other tones.
+Spicy is a mood for the text, never a statement about anyone's age. Choosing
+it confirms nothing about the people in a photo: what may be said about them
+is the rules' to say, exactly as in the other tones.
+
+## Verified adults
+
+Project settings › Feature flags › **Content Studio photos show verified
+adults** (`content_studio_verified_adults`, read by `StudioVerifiedAdults`) is
+an administrator's confirmation that everyone shown in the photos Content
+Studio uses is a verified adult, 18 or over, who agreed to their publication.
+It is the only confirmation of anyone's age the texts and discussions Content
+Studio writes ever rely on — never the photo analysis, the post, a Persona's
+profile, the comments or a tone.
+
+It is off on every installation until an administrator saves it on, and
+applying a project preset switches it off again. On, post titles, descriptions
+and discussions may flirt with, compliment and react to the people shown —
+their looks and bodies included — the way regulars on an adult forum do, with
+crude words where the tone and the Personas have them. Off, they keep to the
+situation. It is read afresh for every request: switching it changes what is
+written next, and what was written before stays for the administrator to
+review, as everything does.
 
 ## What stays ruled out
 
 Whatever the tone and whatever a Persona's profile says:
 
-- nothing describes sexual acts; humour stays suggestive, never graphic;
+- nothing describes sexual acts: flirting, innuendo, dirty jokes and crude
+  words where they fit, never graphic;
 - nobody who is, or may be, a minor, or whose age is unclear, is sexualised,
   and age is never judged from looks;
-- no sexualised remark is made about a specific person shown. It would need
-  separate, reliable confirmation that the person is an adult, and the
-  application has none to give: photo analysis never judges age, the post's
-  texts and a Persona's profile are not checked facts, and a tone — Spicy
-  included — is a mood, never a fact about anyone's age. Nothing stands in for
-  that confirmation. The innuendo, flirting and double meanings play on the
-  situation, the post, wordplay and the commenters' own banter;
+- no sexualised remark is made about a specific person shown unless an
+  administrator has confirmed that everyone in Content Studio's photos is a
+  verified adult (“Verified adults” above). Nothing else stands in for that
+  confirmation: photo analysis never judges age, the post's texts and a
+  Persona's profile are not checked facts, and a tone — Spicy included — is a
+  mood, never a fact about anyone's age. Without it the innuendo, flirting and
+  double meanings play on the situation, the post, wordplay and the
+  commenters' own banter;
+- with it, still never anything that plays on youth (teen, young, girl,
+  schoolgirl, barely legal and the like), nothing about force or lack of
+  consent, nothing that degrades or body-shames anyone, and nothing sexual
+  about anyone the data suggests may be under 18 — the confirmation does not
+  cover them;
 - nothing humiliates a person shown or demeans anyone's body, and nothing
   threatens or discriminates; Personas tease each other, never cruelly;
 - nothing is invented about the people in a photo — names, identities,

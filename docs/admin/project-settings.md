@@ -120,6 +120,7 @@ Feature flags are stored in `feature_flags` JSON column:
 | `show_saved_posts` | false | Saved/bookmarked posts UI |
 | `allow_user_uploads` | true | Upload button visibility |
 | `allow_guest_viewing` | true | Whether guests can see the feed |
+| `content_studio_verified_adults` | false | An administrator's confirmation that everyone in Content Studio's photos is a verified adult; lets its texts and discussions flirt with the people shown (`docs/architecture/studio-personas.md`). Applying a preset switches it off |
 
 ### Security warning for feature flags
 
