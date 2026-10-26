@@ -484,8 +484,8 @@ discussion editor to generate (`StudioPlanDiscussionEditor::GENERATE_EVENT`);
 a save refused generates nothing. On a new publication's page, whose save
 opens the plan's editor, the editor opens on the same step and generates
 there, told once through the session (`CreateStudioPlan::RESUME`), with the
-Discussion settings as they were set: the counts and the Personas are kept in
-the session for the plan (`StudioPlanDiscussionEditor::SETTINGS_SESSION`), so
+Discussion settings as they were set: the counts, the Personas and the tone
+are kept in the session for the plan (`StudioPlanDiscussionEditor::SETTINGS_SESSION`), so
 the editor opened again — by that save, or by a reload — draws them as last
 set, and only with none kept as the last whole tree was asked. Generate
 tree writes a whole discussion,
@@ -1135,7 +1135,8 @@ Everything from the plan and the Personas is data, never instructions: it
 travels as JSON with `<` and `>` escaped, so nothing inside it can close its
 block. The instructions are fixed text of the application's own, the tone's
 (`StudioPostTextTone`, chosen under Tone in Discussion settings — Cheeky at
-first, then the tone the last whole tree was asked in — and asked of every
+first, then as last set for the plan, kept with the other settings, or else
+the tone the last whole tree was asked in — and asked of every
 generation, a whole tree or a part; each Persona's own way of speaking comes
 first in what it writes) and the mode's, in which only the request's own
 aliases and counts are filled in: a task says which comment to write and by

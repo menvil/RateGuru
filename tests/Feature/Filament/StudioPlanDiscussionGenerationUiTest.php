@@ -407,9 +407,26 @@ it('offers the tones, the site’s own chosen first, and asks for a tree — or 
 
 it('opens with the tone the last whole tree was asked in, and takes nothing that is no tone', function () {
     discussionEditor($this->plan)->set('tone', 'spicy')->call('generateTree', 0);
+    session()->forget(StudioPlanDiscussionEditor::SETTINGS_SESSION);
 
     discussionEditor($this->plan)->assertSet('tone', 'spicy')
         ->set('tone', 'shouty')->assertSet('tone', StudioPostTextTone::DEFAULT->value);
+});
+
+it('keeps the tone as last set for the plan with the other settings, so the editor opened anew asks in it', function () {
+    discussionEditor($this->plan)->set('tone', 'irony');
+
+    expect(session(StudioPlanDiscussionEditor::SETTINGS_SESSION.'.'.$this->plan->id))->toMatchArray(['tone' => 'irony']);
+
+    discussionEditor($this->plan)->assertSet('tone', 'irony')->call('generateTree', 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole()->parameters['tone'])->toBe('irony');
+
+    // Another plan's editor opens on the default, and a tone kept that is no tone is not taken.
+    discussionEditor(discussionReadyStudioPlan())->assertSet('tone', StudioPostTextTone::DEFAULT->value);
+    session()->put(StudioPlanDiscussionEditor::SETTINGS_SESSION.'.'.$this->plan->id.'.tone', 'shouty');
+    StudioPlanDiscussionGeneration::query()->delete();
+    discussionEditor($this->plan)->assertSet('tone', StudioPostTextTone::DEFAULT->value);
 });
 
 it('waits for the comment another tab asked to write again when a whole tree is asked for, replacing nothing else', function () {

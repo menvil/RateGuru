@@ -25,15 +25,14 @@ function personaSets(): array
     return $sets;
 }
 
-/** The words a text is made of, without the ones every sentence has. */
+/** The words a text is made of, of three letters or more, without the ones every sentence has. */
 function personaTextWords(?string $text): array
 {
-    preg_match_all('/[a-z]+/', mb_strtolower((string) $text), $matches);
+    preg_match_all('/[a-z]{3,}/', mb_strtolower((string) $text), $matches);
 
     return array_values(array_diff(array_unique($matches[0]), [
-        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'every', 'for', 'from', 'he', 'her', 'his', 'in', 'is', 'it', 'its',
-        'never', 'no', 'not', 'of', 'on', 'one', 'or', 'she', 'than', 'that', 'the', 'their', 'them', 'they', 'this', 'to', 'two',
-        'when', 'who', 'with',
+        'and', 'are', 'but', 'every', 'for', 'from', 'her', 'his', 'its', 'never', 'not', 'one', 'she', 'than', 'that', 'the',
+        'their', 'them', 'they', 'this', 'two', 'when', 'who', 'with',
     ]));
 }
 

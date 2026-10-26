@@ -1103,7 +1103,8 @@ Action queue. Every write goes through the plan's actions (`docs/architecture/st
     checked one by one, with “n of n active personas selected · up to 8 take part”, Select all (Select n shown while
     searching, Select first 8 when more are shown than take part), Clear and the chosen ones as removable chips; a
     persona restricted after it was checked stays checked but takes no part; and Tone — the six tones of the Post
-    step's suggestions as toggle buttons, Cheeky chosen at first, or the one the last whole tree was asked in, the
+    step's suggestions as toggle buttons, Cheeky chosen at first, then the one last set for the plan, or else the one
+    the last whole tree was asked in, the
     tone's hint under them — asked of every generation, a whole tree or a part written again. Then a strip of its own, “Generate from the settings above”, with what they ask for (“14 comments · 5
     top-level · 6 personas · Cheeky”, or “No discussion · the post publishes without automated comments”), a hint — “Select at
     least one persona.”, why generation waits, “The tree has comments. You’ll be asked before it’s replaced.”, or “One

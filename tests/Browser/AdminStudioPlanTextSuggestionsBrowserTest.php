@@ -56,13 +56,13 @@ it('asks for a batch in the chosen tone, polls until it is written, and puts the
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'ready');
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
-        ->and($page->script("document.querySelector('.rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()"))->toBe('Cheeky')
+    expect($page->script("[...document.querySelectorAll('.rg-admin-studio__texts .rg-admin-studio__tone')].map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
+        ->and($page->script("document.querySelector('.rg-admin-studio__texts .rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()"))->toBe('Cheeky')
         ->and($page->script("document.querySelector('[data-suggestions]').hasAttribute('wire:poll.3s.visible')"))->toBeFalse();
 
     // A tone picked, then Generate suggestions.
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].find((tone) => tone.textContent.trim() === 'Playful').click()");
-    waitForScript($page, "document.querySelector('.rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()", 'Playful');
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__texts .rg-admin-studio__tone')].find((tone) => tone.textContent.trim() === 'Playful').click()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__texts .rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()", 'Playful');
     $page->script(suggestionsGenerateButton().'.click()');
 
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'queued');
@@ -118,7 +118,7 @@ it('waits for the photo\'s analysis on a draft without one, offering nothing to 
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'analysis_pending');
 
     expect($page->script("document.querySelector('[data-suggestions]').textContent"))->toContain('Text suggestions will be available when photo analysis is complete.')
-        ->and($page->script("document.querySelectorAll('.rg-admin-studio__tones').length"))->toBe(0)
+        ->and($page->script("document.querySelectorAll('.rg-admin-studio__texts .rg-admin-studio__tones').length"))->toBe(0)
         ->and($page->script(suggestionsGenerateButton()))->toBeNull();
 });
 

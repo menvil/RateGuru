@@ -72,6 +72,14 @@ final class StudioPlanTextSuggestionsCard extends Component
     /** The tone the next batch is asked in. */
     public string $tone = StudioPostTextTone::DEFAULT->value;
 
+    /**
+     * The author the plan is saved with, as the card last drew it — what the
+     * editor's own choice is held up to in the browser, read again with every
+     * drawing so it follows a save at once.
+     */
+    #[Locked]
+    public string $savedAuthorId = '';
+
     public function boot(): void
     {
         abort_unless(Gate::allows('manage-studio-plans'), 403);
@@ -153,6 +161,7 @@ final class StudioPlanTextSuggestionsCard extends Component
         $generator = app(StudioPostTextGenerator::class);
         $now = CarbonImmutable::now();
         $context = $plan !== null ? StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis) : null;
+        $this->savedAuthorId = $plan?->author_user_id !== null ? (string) $plan->author_user_id : '';
 
         $state = match (true) {
             $this->planId === 0 => 'no_image',
@@ -194,7 +203,6 @@ final class StudioPlanTextSuggestionsCard extends Component
             'photo' => $plan?->imageAsset !== null && $plan->image_asset_id === $this->imageAssetId ? app(PostImagePresenter::class)->assetPreviewUrl($plan->imageAsset) : null,
             'summary' => $state === 'ready' ? $context->description->summary : null,
             'voice' => $state === 'ready' && $context->author !== null ? ['name' => $context->author->name, 'about' => $context->author->shortDescription] : null,
-            'savedAuthorId' => $plan?->author_user_id !== null ? (string) $plan->author_user_id : '',
             'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),
             'chosenTone' => $this->chosenTone(),
             'batch' => $batch === null ? null : [

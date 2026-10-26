@@ -44,10 +44,9 @@
 <div
     class="rg-admin-studio__texts"
     data-suggestions="{{ $phase ?? $state }}"
-    data-saved-author="{{ $savedAuthorId }}"
     x-data="{
-        get editorAuthor() { return String(this.$wire.$parent?.authorUserId ?? this.$root.dataset.savedAuthor) },
-        get authorChanged() { return this.editorAuthor !== this.$root.dataset.savedAuthor },
+        get editorAuthor() { return String(this.$wire.$parent?.authorUserId ?? this.$wire.savedAuthorId) },
+        get authorChanged() { return this.editorAuthor !== this.$wire.savedAuthorId },
         ask() { this.authorChanged ? this.$dispatch('save-studio-plan', { then: 'suggest' }) : this.$wire.generate(this.editorAuthor) },
     }"
     @if ($polling) wire:poll.{{ $poll }}s.visible @endif

@@ -388,13 +388,13 @@ it('says whose voice the texts are written in: the saved author’s, or the site
 
     suggestionsCard(studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]))
         ->assertSeeInOrder(['Author’s voice', 'Deadpan Dora — A dry-witted observer of the obvious.'])
-        ->assertSeeHtml('data-saved-author="'.$author->id.'"')
+        ->assertSet('savedAuthorId', (string) $author->id)
         ->assertSee('Another author is chosen: generating saves the draft first, so the texts are written in the new author’s voice.')
         ->assertSeeHtml('x-on:click="ask()"');
 
     suggestionsCard(studioPlanWithFinishedAnalysis())
         ->assertSee('No author: the texts are written as the site’s own.')
-        ->assertSeeHtml('data-saved-author=""');
+        ->assertSet('savedAuthorId', '');
 });
 
 it('asks in the voice of the author the editor shows, and for nothing when it is not the one saved', function () {
@@ -426,6 +426,7 @@ it('shows a batch no more, and uses nothing of it, once the plan has another aut
 
     // A save of the plan anywhere on the page draws the card again.
     $card->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $plan->id, previous: 1, current: 2, source: 'editor')
+        ->assertSet('savedAuthorId', (string) ($plan->fresh()->author_user_id ?? ''))
         ->assertDontSee('Beach zoomies, level expert')
         ->call('useTitle', $batch->id, 0)
         ->assertNotDispatched('use-studio-suggestion')
