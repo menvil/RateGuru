@@ -303,6 +303,8 @@ return [
         'report_title' => 'Report user',
         'unknown' => 'Unknown user',
         'deleted' => 'Deleted user',
+        'persona' => 'AI persona',
+        'persona_hint' => 'A character account run by this site. Its posts and comments are written with AI.',
     ],
     'theme_options' => [
         'system' => 'System',

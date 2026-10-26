@@ -436,3 +436,14 @@ it('resolves post author avatar via the resolved avatar accessor', function () {
 
     expect($html)->toContain($author->resolved_avatar_url);
 });
+
+it('marks a post a persona published as an AI persona’s, and nobody else’s', function () {
+    $byPersona = Post::factory()->published()->for(User::factory()->persona(), 'user')->create();
+    $byMember = Post::factory()->published()->create();
+
+    expect(Blade::render('<x-feed.post-card :post="$post" />', ['post' => $byPersona]))
+        ->toContain('data-testid="persona-badge"')
+        ->toContain('AI persona')
+        ->and(Blade::render('<x-feed.post-card :post="$post" />', ['post' => $byMember]))
+        ->not->toContain('data-testid="persona-badge"');
+});

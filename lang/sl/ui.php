@@ -303,6 +303,8 @@ return [
         'report_title' => 'Prijavi uporabnika',
         'unknown' => 'Neznan uporabnik',
         'deleted' => 'Izbrisan uporabnik',
+        'persona' => 'UI-persona',
+        'persona_hint' => 'Račun lika, ki ga upravlja ta stran. Njegove objave in komentarji so napisani s pomočjo UI.',
     ],
     'theme_options' => [
         'system' => 'Sistemska',

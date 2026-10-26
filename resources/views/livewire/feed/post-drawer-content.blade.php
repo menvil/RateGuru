@@ -48,6 +48,7 @@
                         @if($post->user?->public_username)
                             {{ '@' . $post->user->public_username }}
                         @endif
+                        <x-ui.persona-badge :user="$post->user" class="mx-0.5 align-middle" />
                         @if($post->published_at)
                             {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                         @endif

@@ -303,6 +303,8 @@ return [
         'report_title' => 'Rapportera användare',
         'unknown' => 'Okänd användare',
         'deleted' => 'Raderad användare',
+        'persona' => 'AI-persona',
+        'persona_hint' => 'Ett rollfigurskonto som drivs av den här webbplatsen. Dess inlägg och kommentarer är skrivna med AI.',
     ],
     'theme_options' => [
         'system' => 'System',

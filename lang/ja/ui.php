@@ -303,6 +303,8 @@ return [
         'report_title' => 'ユーザーを通報',
         'unknown' => '不明なユーザー',
         'deleted' => '削除されたユーザー',
+        'persona' => 'AIペルソナ',
+        'persona_hint' => 'このサイトが運営するキャラクターのアカウントです。投稿とコメントはAIを使って書かれています。',
     ],
     'theme_options' => [
         'system' => 'システム',

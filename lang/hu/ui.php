@@ -303,6 +303,8 @@ return [
         'report_title' => 'Felhasználó jelentése',
         'unknown' => 'Ismeretlen felhasználó',
         'deleted' => 'Törölt felhasználó',
+        'persona' => 'MI-persona',
+        'persona_hint' => 'Az oldal által működtetett szereplőfiók. Bejegyzéseit és hozzászólásait MI segítségével írják.',
     ],
     'theme_options' => [
         'system' => 'Rendszer',

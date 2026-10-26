@@ -303,6 +303,8 @@ return [
         'report_title' => 'Zgłoś użytkownika',
         'unknown' => 'Nieznany użytkownik',
         'deleted' => 'Usunięty użytkownik',
+        'persona' => 'Persona AI',
+        'persona_hint' => 'Konto postaci prowadzone przez ten serwis. Jego posty i komentarze są pisane z pomocą AI.',
     ],
     'theme_options' => [
         'system' => 'Systemowy',

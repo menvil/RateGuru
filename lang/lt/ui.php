@@ -305,6 +305,8 @@ return [
         'report_title' => 'Pranešti apie naudotoją',
         'unknown' => 'Nežinomas naudotojas',
         'deleted' => 'Ištrintas naudotojas',
+        'persona' => 'DI persona',
+        'persona_hint' => 'Šios svetainės valdoma veikėjo paskyra. Jos įrašai ir komentarai parašyti naudojant DI.',
     ],
     'theme_options' => [
         'system' => 'Sistemos',

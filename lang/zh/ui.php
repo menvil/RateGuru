@@ -303,6 +303,8 @@ return [
         'report_title' => '举报用户',
         'unknown' => '未知用户',
         'deleted' => '已注销用户',
+        'persona' => 'AI 角色',
+        'persona_hint' => '由本站运营的角色账号，其帖子和评论由 AI 撰写。',
     ],
     'theme_options' => [
         'system' => '跟随系统',
