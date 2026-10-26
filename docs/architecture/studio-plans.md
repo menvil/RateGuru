@@ -1145,10 +1145,13 @@ or a comment, which an administrator may have typed and which travel only as
 data. The model gives no id; the server maps the aliases back. The rules match the post text
 suggestions': nothing invented about the photo or the people in it, never
 explicit, never sexualising anyone who is or may be a minor or whose age is
-unclear — age never judged from looks, innuendo about a person shown only once
-the context confirms an adult (the Spicy tone), and otherwise jokes about the
-people shown kept non-sexual — never demeaning, threatening or discriminating,
-English, plain text.
+unclear, age never judged from looks, and no sexualised remark about a
+specific person shown — that would need separate, reliable confirmation that
+the person is an adult, and nothing a request carries is one: the analysis
+never judges age, and a tone, Spicy included, is a mood, never a fact about
+anyone's age; the innuendo, flirting and double meanings play on the
+situation, the post, wordplay and the commenters' own banter — never
+demeaning, threatening or discriminating, English, plain text.
 
 What makes the conversation is said as fixed text too:
 
@@ -2079,11 +2082,13 @@ photo, or typed into a Persona's profile, cannot change the rules, the tone,
 the count or the format. The rules keep to what the analysis says is visible,
 English, no hashtags, numbering or emoji in titles; never explicit, never
 sexualising anyone who is or may be a minor or whose age is unclear, and never
-humiliating a person shown. Age is never judged from looks: innuendo about a
-person shown needs the context to confirm an adult — the Spicy tone, chosen by
-an administrator for a post they know to be adult content about adults, says
-so; anything suggesting someone may be young rules it out whatever the tone —
-and without that the jokes about the people shown stay non-sexual.
+humiliating a person shown. Age is never judged from looks, and no sexualised
+remark is made about a specific person shown: it would need separate, reliable
+confirmation that the person is an adult, and nothing a request carries is one
+— not the analysis, which never judges age, not the author or text quoted
+from the photo, and not the tone, which is a mood, never a fact about anyone's
+age. The innuendo and double meanings play on the situation, the setting and
+wordplay instead.
 
 With an author, the texts are written as the author writes — its vocabulary,
 rhythm, punctuation and kind of humour: a sarcastic author ironic, a flirt

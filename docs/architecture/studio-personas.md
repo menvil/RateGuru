@@ -219,22 +219,29 @@ used (`docs/architecture/studio-plans.md`).
 
 Spicy / Adult humour is the sixth tone, beside Playful, Humour, Cheeky, Irony
 and Neutral, in the Post step's suggestions and in Discussion settings: grown-up,
-playful and flirtatious — saucy innuendo, clever double meanings, teasing and
-self-irony in a relaxed, conversational voice. It is never the default
-(Cheeky is), and is only ever chosen, by an administrator, for a post they know
-to be adult content about adults.
+playful and flirtatious — saucy innuendo, clever double meanings, teasing,
+sarcasm and self-irony in a relaxed, conversational voice, the jokes on the
+situation, the post and the commenters' own banter. It is never the default
+(Cheeky is), and is only ever chosen, by an administrator.
+
+Spicy is a mood for the text, never a statement about anyone's age. Choosing it
+confirms nothing about the people in a photo, and every rule about them holds
+in it exactly as in the other tones.
 
 ## What stays ruled out
 
 Whatever the tone and whatever a Persona's profile says:
 
 - nothing describes sexual acts; humour stays suggestive, never graphic;
-- nobody who is, or may be, a minor, or whose age is unclear, is sexualised.
-  Age is never judged from looks: innuendo about a person shown needs the
-  context to confirm an adult — the Spicy tone is that confirmation — and
-  anything in the post or the analysis suggesting someone may be young rules it
-  out whatever the tone. Without it, jokes about the people shown stay
-  non-sexual;
+- nobody who is, or may be, a minor, or whose age is unclear, is sexualised,
+  and age is never judged from looks;
+- no sexualised remark is made about a specific person shown. It would need
+  separate, reliable confirmation that the person is an adult, and the
+  application has none to give: photo analysis never judges age, the post's
+  texts and a Persona's profile are not checked facts, and a tone — Spicy
+  included — is a mood, never a fact about anyone's age. Nothing stands in for
+  that confirmation. The innuendo, flirting and double meanings play on the
+  situation, the post, wordplay and the commenters' own banter;
 - nothing humiliates a person shown or demeans anyone's body, and nothing
   threatens or discriminates; Personas tease each other, never cruelly;
 - nothing is invented about the people in a photo — names, identities,

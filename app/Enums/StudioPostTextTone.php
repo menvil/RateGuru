@@ -8,8 +8,9 @@ namespace App\Enums;
  * application's own: nothing typed by anyone becomes part of what the model
  * is told.
  *
- * Spicy is adult humour, for a post an administrator knows to be for adults:
- * it is never the default, and is only ever chosen.
+ * Spicy is adult humour, a mood an administrator chooses and never the
+ * default. It is a tone of voice, never a fact about anyone's age: the rules
+ * about the people shown hold in it exactly as in every other tone.
  */
 enum StudioPostTextTone: string
 {
@@ -55,7 +56,7 @@ enum StudioPostTextTone: string
             self::Playful => 'Playful: light, warm and cheerful. Gentle wordplay and a friendly wink; no sarcasm, no innuendo.',
             self::Humour => 'Humour: openly funny. Punchlines, comic exaggeration and absurd observations about what is visible; aim for a laugh.',
             self::Cheeky => 'Cheeky: bold and saucy, with flirtatious double meanings and innuendo where the photo invites them — suggestive, never explicit, and never about anyone who may be a minor.',
-            self::Spicy => 'Spicy (adult humour): grown-up, playful and flirtatious, in a relaxed, conversational voice — saucy innuendo, clever double meanings, teasing and self-irony; the boldest of the tones. The editor chose it for a post they know to be adult content about adults: that is the confirmation of an adult context the rules ask for, unless anything in the data suggests someone shown may be under 18, which rules innuendo about them out. Suggestive, never graphic: no description of sexual acts, and nothing that humiliates or degrades anyone.',
+            self::Spicy => 'Spicy (adult humour): grown-up, playful and flirtatious, in a relaxed, conversational voice — saucy innuendo, clever double meanings, teasing, sarcasm and self-irony; the boldest of the tones. It sets the mood of the text and says nothing about anyone\'s age: the rules about the people shown hold exactly as in every other tone, so its innuendo plays on the situation, the post and wordplay, and on the commenters\' own banter. Suggestive, never graphic: no description of sexual acts, and nothing that humiliates or degrades anyone.',
             self::Irony => 'Irony: dry irony and deadpan sarcasm. Understatement, mock seriousness and knowing remarks, aimed at the situation, never at a person.',
             self::Neutral => 'Neutral: plain editorial. Clear, descriptive and engaging; no jokes, no innuendo, no sarcasm.',
         };

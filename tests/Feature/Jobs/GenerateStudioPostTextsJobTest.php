@@ -6,6 +6,7 @@ use App\Enums\StudioImageAnalysisStatus;
 use App\Enums\StudioPlanStatus;
 use App\Enums\StudioPostTextGenerationError;
 use App\Enums\StudioPostTextGenerationStatus;
+use App\Enums\StudioPostTextTone;
 use App\Enums\UserStatus;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Models\MediaAsset;
@@ -198,6 +199,26 @@ it('keeps the texts when only what the model is not told of the author changed',
     'its public bio' => [fn (User $author) => $author->forceFill(['bio' => 'A new bio.'])->save()],
     'its engagement and daily replies' => [fn (User $author) => PersonaProfile::query()->where('user_id', $author->id)->update(['engagement' => 'high', 'max_replies_per_day' => 20])],
 ]);
+
+it('sends a batch asked in Spicy in that tone, with the rule that it is no word about anyone\'s age', function () {
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => studioPersonaWithProfile()->id]);
+    $generation = requestStudioPostTexts($this->admin, $plan, StudioPostTextTone::Spicy);
+    Http::fake(['api.openai.com/*' => Http::response(studioPostTextsBody())]);
+
+    runStudioPostTextsJob($generation);
+
+    Http::assertSent(function ($request): bool {
+        $instructions = $request->data()['instructions'];
+
+        expect($instructions)->toContain('Tone: '.StudioPostTextTone::Spicy->instruction())
+            ->toContain('not the tone, which — Spicy included — sets the mood of the text and is never a fact about anyone\'s age')
+            ->toContain('So make no sexualised remark about a person shown')
+            ->and($request->data()['input'][0]['content'][0]['text'])->toContain('in the Spicy / Adult humour tone.');
+
+        return true;
+    });
+    expect($generation->refresh())->tone->toBe(StudioPostTextTone::Spicy)->status->toBe(StudioPostTextGenerationStatus::Completed);
+});
 
 it('sends nothing when the job is delivered again, or after its batch has ended', function () {
     $plan = studioPlanWithFinishedAnalysis();

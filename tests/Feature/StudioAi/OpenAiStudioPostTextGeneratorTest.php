@@ -112,20 +112,46 @@ it('writes each tone with an instruction of its own, keeping the same rules', fu
             ->toContain('Do not invent names, identities')
             ->toContain('never humiliate or insult a person')
             ->toContain('Visible nudity is not a reason to refuse')
-            ->toContain('Never judge age from looks alone')
+            ->toContain('never judge age from looks')
+            ->toContain('A sexualised remark about a specific person shown needs separate, reliable confirmation that this person is an adult, and nothing in this request is one')
+            ->toContain('Spicy included — sets the mood of the text and is never a fact about anyone\'s age')
+            ->toContain('So make no sexualised remark about a person shown')
             ->toContain('never "Absolutely stunning"');
     }
 });
 
-it('offers Spicy as adult humour, its own instruction confirming an adult context, never the default', function () {
+it('offers Spicy as adult humour — a mood, never the default, and never a word about anyone\'s age', function () {
     expect(StudioPostTextTone::Spicy->value)->toBe('spicy')
         ->and(StudioPostTextTone::Spicy->label())->toBe('Spicy / Adult humour')
         ->and(StudioPostTextTone::DEFAULT)->toBe(StudioPostTextTone::Cheeky)
         ->and(array_map(fn (StudioPostTextTone $tone): string => $tone->value, StudioPostTextTone::cases()))->toBe(['playful', 'humour', 'cheeky', 'spicy', 'irony', 'neutral'])
-        ->and(StudioPostTextTone::Spicy->instruction())->toContain('confirmation of an adult context')
-        ->toContain('under 18')
-        ->toContain('never graphic')
-        ->and(StudioPostTextTone::Cheeky->instruction())->not->toContain('confirmation of an adult context');
+        ->and(StudioPostTextTone::Spicy->instruction())->toContain('saucy innuendo, clever double meanings, teasing, sarcasm and self-irony')
+        ->toContain('says nothing about anyone\'s age')
+        ->toContain('the rules about the people shown hold exactly as in every other tone')
+        ->toContain('never graphic');
+
+    // No tone stands in for anyone's age.
+    foreach (StudioPostTextTone::cases() as $tone) {
+        expect(mb_strtolower($tone->instruction()))->not->toContain('confirm')
+            ->not->toContain('adult content about adults')
+            ->not->toContain('know to be');
+    }
+});
+
+it('never takes the Spicy tone it is asked in for the people shown being adults', function () {
+    Http::fake(['api.openai.com/*' => Http::response(studioPostTextsBody())]);
+
+    app(StudioPostTextGenerator::class)->generate(textsTestDescription(), StudioPostTextTone::Spicy);
+
+    $instructions = collect(Http::recorded())->first()[0]->data()['instructions'];
+
+    expect($instructions)->toContain('Tone: '.StudioPostTextTone::Spicy->instruction())
+        ->toContain('nothing in this request is one')
+        ->toContain('not the tone, which — Spicy included — sets the mood of the text and is never a fact about anyone\'s age')
+        ->toContain('So make no sexualised remark about a person shown')
+        ->not->toContain('the tone says when')
+        ->not->toContain('confirmation of an adult context')
+        ->not->toContain('adult content about adults');
 });
 
 it('keeps the analysis data, so text in the photo cannot close its block or become an instruction', function () {
