@@ -739,9 +739,13 @@ it('steps a number with buttons named after the field, within its bounds', funct
         ->toContain("input.dispatchEvent(new Event('input', { bubbles: true }))")
         // The number is typed straight in: focusing selects it, and the arrows step it.
         ->toContain('title="Type a number, or step it with − and + or the arrow keys"')
-        ->toContain('x-on:focus="$el.select(); justFocused = true"')
+        ->toContain('x-on:focus="$el.select(); justFocused = true; if (whole($el.value)) kept = $el.value"')
         ->toContain('x-on:keydown.arrow-up.prevent="step(1)"')
-        ->toContain('x-on:keydown.arrow-down.prevent="step(-1)"');
+        ->toContain('x-on:keydown.arrow-down.prevent="step(-1)"')
+        // Anything but a whole number — the field emptied to type another — never reaches wire:model, and left so, the field gets its last number back.
+        ->toContain('x-on:input.capture="if (whole($el.value)) { kept = $el.value } else { $event.stopImmediatePropagation() }"')
+        ->toContain('x-on:change.capture="if (! whole($el.value)) { $event.stopImmediatePropagation(); restore($el) }"')
+        ->toContain('x-on:blur="justFocused = false; if (! whole($el.value)) restore($el)"');
 });
 
 it('draws a switch as a real button with role switch, its state in words and a hint for each state', function () {

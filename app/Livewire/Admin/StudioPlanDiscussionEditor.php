@@ -40,6 +40,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -823,42 +824,51 @@ final class StudioPlanDiscussionEditor extends Component
      * reading each comment's votes from the `rgCommentVotes` store.
      */
     #[On(self::VERSION_EVENT)]
+    #[Renderless]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
         if ($source === 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || ! is_numeric($previous) || ! is_numeric($current)) {
-            $this->skipRender();
-
             return;
         }
 
         [$previous, $current] = [(int) $previous, (int) $current];
 
         if ($current === $this->lockVersion) {
-            $this->skipRender();
-
             return;
         }
 
         if ($previous === $this->lockVersion && $current === $previous + 1 && $this->holdsSavedAt($current)) {
             $this->lockVersion = $current;
 
-            if (in_array($source, [StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
-                $this->skipRender();
+            if (! in_array($source, [StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
+                $this->forceRender();
             }
 
             return;
         }
 
         $this->conflict = true;
+        $this->forceRender();
     }
 
     /** The step on screen again: drawn again if it was waiting for the photo's analysis, which may be complete now. */
     #[On(self::SHOWN_EVENT)]
+    #[Renderless]
     public function shown(mixed $planId = null): void
     {
-        if (! $this->waitsForAnalysis || ! is_numeric($planId) || (int) $planId !== $this->planId) {
-            $this->skipRender();
+        if ($this->waitsForAnalysis && is_numeric($planId) && (int) $planId === $this->planId) {
+            $this->forceRender();
         }
+    }
+
+    /**
+     * A field set on a request that also carries another editor's write is
+     * drawn too: the listeners above are renderless (#[Renderless]), which
+     * Livewire honours only when a request carries nothing else.
+     */
+    public function updated(): void
+    {
+        $this->forceRender();
     }
 
     public function render(): View

@@ -50,6 +50,7 @@ use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
 
@@ -747,12 +748,11 @@ trait EditsStudioPlan
      * versionMovedElsewhere().
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
+    #[Renderless]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
         if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($previous) || ! is_numeric($current) || (int) $current === $this->lockVersion) {
-            $this->skipRender();
-
             return;
         }
 
@@ -764,6 +764,7 @@ trait EditsStudioPlan
         }
 
         $this->versionMovedElsewhere();
+        $this->forceRender();
     }
 
     /**
@@ -774,12 +775,11 @@ trait EditsStudioPlan
      * Reload.
      */
     #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
+    #[Renderless]
     public function followReload(mixed $planId, mixed $current, mixed $source = null): void
     {
         if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($current) || (int) $current === $this->lockVersion) {
-            $this->skipRender();
-
             return;
         }
 
@@ -791,6 +791,7 @@ trait EditsStudioPlan
         }
 
         $this->versionMovedElsewhere();
+        $this->forceRender();
     }
 
     /** The plan moved to a version neither editor on this page wrote. */
@@ -809,12 +810,21 @@ trait EditsStudioPlan
      * Another editor's write, taken, is drawn again only where the page shows
      * it — the Publication step's plan as saved, or a notice it takes back:
      * the other editors draw their own, and the post as typed is unchanged.
+     * The listeners are renderless (#[Renderless]), which Livewire honours only
+     * when a request carries nothing else for the page: a step clicked on the
+     * same request is drawn as ever.
      */
     private function drawnAgainIf(bool $changed): void
     {
-        if (! $changed && $this->step !== 'publication') {
-            $this->skipRender();
+        if ($changed || $this->step === 'publication') {
+            $this->forceRender();
         }
+    }
+
+    /** A field set on a request that also carries another editor's write is drawn too. */
+    public function updated(): void
+    {
+        $this->forceRender();
     }
 
     /** Whether the plan's texts and settings are still the ones this editor last drew or saved. */

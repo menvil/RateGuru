@@ -107,3 +107,35 @@ it('takes an option\'s answers typed straight in, saving them, the total followi
     expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->countBy()->all())
         ->toBe([$natural->id => 2, $silicone->id => 1]);
 });
+
+it('sends nothing for a number field emptied to type another, gives the number back when the field is left, and saves the number typed', function () {
+    $page = visitPostVotes($this->plan);
+    $summary = "document.querySelector('.rg-admin-studio__votes-step .rg-admin-studio__generate-summary').textContent.replace(/\\s+/g, ' ').trim()";
+
+    $page->click('button[aria-label="Plan up and down votes"]');
+    waitForScript($page, "!! document.getElementById('rg-admin-votes-up')");
+    $page->click('button[aria-label="Increase up votes"]');
+    waitForScript($page, $summary, '1 vote saved · +1 / −0 on the post · 0 answers');
+    $version = $this->plan->fresh()->lock_version;
+
+    // Focused, the number is selected: Backspace empties the field, and nothing is sent for it.
+    $page->click('#rg-admin-votes-up');
+    $page->keys('#rg-admin-votes-up', ['Backspace']);
+    $page->script('new Promise((resolve) => setTimeout(() => resolve(true), 700))');
+
+    expect($page->script("document.getElementById('rg-admin-votes-up').value"))->toBe('')
+        ->and($page->script("!! document.getElementById('livewire-error')"))->toBeFalse()
+        ->and($this->plan->fresh()->lock_version)->toBe($version);
+
+    // Left empty, the field gets its number back.
+    $page->script("document.getElementById('rg-admin-votes-up').blur()");
+    waitForScript($page, "document.getElementById('rg-admin-votes-up').value", '1');
+
+    // A number typed is saved: three up votes, drawn from as many voters.
+    $page->click('#rg-admin-votes-up');
+    $page->keys('#rg-admin-votes-up', ['3']);
+    waitForScript($page, $summary, '3 votes saved · +3 / −0 on the post · 0 answers');
+
+    expect($page->script("!! document.getElementById('livewire-error')"))->toBeFalse()
+        ->and(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VotePost)->count())->toBe(3);
+});

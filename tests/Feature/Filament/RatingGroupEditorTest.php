@@ -134,11 +134,30 @@ it('checks the range against the active options as it is typed, and refuses to s
         ->assertHasErrors(['draftMin']);
 
     $page->set('draftMin', 2)->set('draftMax', 2)
-        ->assertSeeHtml('3 options are active. Deactivate or archive 1 first.')
+        ->assertSeeHtml('3 options are active. Raise the maximum to 3, or deactivate or archive 1.')
         ->dispatch('save-rating-group')
         ->assertHasErrors(['draftMax']);
 
     expect($group->fresh())->min_options->toBe(2)->max_options->toBe(4);
+});
+
+it('offers to raise a maximum left under the group\'s active options, as a group made when fewer were allowed has it, and saves it raised', function () {
+    $page = groupEditor(11, ['is_active' => true, 'max_options' => 10]);
+    $group = RatingGroup::query()->latest('id')->firstOrFail();
+
+    $page->assertSet('settingsBlocked', true)
+        ->assertSeeHtml('11 options are active. Raise the maximum to 11, or deactivate or archive 1.')
+        ->set('draftMax', 11)
+        ->assertSet('settingsBlocked', false)
+        ->assertDontSeeHtml('options are active.')
+        ->dispatch('save-rating-group')
+        ->assertHasNoErrors();
+
+    expect($group->fresh()->max_options)->toBe(11);
+
+    // More active options than any maximum may be: only fewer of them will do.
+    groupEditor(RatingGroup::MOST_OPTIONS + 1, ['is_active' => true, 'max_options' => 10])
+        ->assertSeeHtml((RatingGroup::MOST_OPTIONS + 1).' options are active. Deactivate or archive 6 first.');
 });
 
 it('lets an inactive group sit outside its range while its options are made', function () {
