@@ -360,12 +360,27 @@
                                                     <span class="rg-admin-studio__muted rg-admin-studio__votes-pct">{{ $pct }}%</span>
                                                     <span class="rg-admin-studio__votes-move">
                                                         <x-admin.ui.icon-button icon="minus" :label="'Move an answer away from '.$option['label']" variant="ghost" size="sm" wire:click="moveAnswer({{ $question['id'] }}, {{ $option['id'] }}, 'down')" :disabled="! $editable || $count <= 0" />
-                                                        <span class="rg-admin-studio__votes-count">{{ $count }}</span>
+                                                        <input
+                                                            type="text"
+                                                            inputmode="numeric"
+                                                            class="rg-admin-studio__votes-count"
+                                                            value="{{ $count }}"
+                                                            aria-label="Answers for {{ $option['label'] }}"
+                                                            title="Type the answers for {{ $option['label'] }}"
+                                                            autocomplete="off"
+                                                            x-data="{ justFocused: false }"
+                                                            x-on:focus="$el.select(); justFocused = true"
+                                                            x-on:mouseup="if (justFocused) $event.preventDefault(); justFocused = false"
+                                                            x-on:blur="justFocused = false"
+                                                            x-on:keydown.enter.prevent="$el.blur()"
+                                                            x-on:change="$wire.setAnswerCount({{ $question['id'] }}, {{ $option['id'] }}, $event.target.value)"
+                                                            @disabled(! $editable || (! $option['open'] && $count <= 0))
+                                                        />
                                                         <x-admin.ui.icon-button icon="plus" :label="'Move an answer to '.$option['label']" variant="ghost" size="sm" wire:click="moveAnswer({{ $question['id'] }}, {{ $option['id'] }}, 'up')" :disabled="! $editable || ! $option['open'] || $total - $count <= 0" />
                                                     </span>
                                                 </div>
                                             @endforeach
-                                            <span class="rg-admin-hint">{{ $total > 0 ? '+ and − move one answer between options, from or to the most-answered other one. The total stays at '.$total.'; change it in Answers.' : 'Set the number of answers first.' }}</span>
+                                            <span class="rg-admin-hint">{{ $total > 0 ? 'Type an option\'s answers and the total follows. + and − move one answer between options, from or to the most-answered other one, keeping the total at '.$total.'.' : 'Type an option\'s answers, or set the number of answers first.' }}</span>
                                             @if (collect($question['options'])->contains(fn (array $option): bool => ! $option['open'] && ($rating['counts'][$option['id']] ?? 0) > 0))
                                                 <span class="rg-admin-hint rg-admin-studio__votes-warning-text">An option no longer open keeps the answers it had, and gets no new ones. Move them to an open option, or Even split.</span>
                                             @endif

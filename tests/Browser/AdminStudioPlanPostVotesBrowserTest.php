@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\StudioActionType;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanVote;
 use App\Models\User;
@@ -85,4 +87,23 @@ it('saves the post\'s up votes as they are set, and a vote\'s moment set by hand
 
     expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->orderBy('persona_user_id')->pluck('offset_seconds', 'persona_user_id')->all())->toBe($moments)
         ->and($this->plan->fresh()->lock_version)->toBe(4);
+});
+
+it('takes an option\'s answers typed straight in, saving them, the total following', function () {
+    $group = RatingGroup::factory()->create(['label' => 'Is it fake or real?', 'is_active' => true]);
+    $natural = RatingOption::factory()->for($group, 'group')->create(['label' => 'Natural', 'sort_order' => 1, 'is_active' => true]);
+    $silicone = RatingOption::factory()->for($group, 'group')->create(['label' => 'Silicone', 'sort_order' => 2, 'is_active' => true]);
+    $page = visitPostVotes($this->plan);
+    $badge = "[...document.querySelectorAll('.rg-admin-studio__votes-block-head--switch')].find((head) => head.textContent.includes('Is it fake or real?')).querySelector('.rg-admin-badge').textContent.trim()";
+
+    waitForScript($page, "!! document.querySelector('input[aria-label=\"Answers for Natural\"]')");
+    $page->click('input[aria-label="Answers for Natural"]');
+    $page->keys('input[aria-label="Answers for Natural"]', ['2', 'Enter']);
+    waitForScript($page, $badge, '2 answers');
+    $page->click('input[aria-label="Answers for Silicone"]');
+    $page->keys('input[aria-label="Answers for Silicone"]', ['1', 'Enter']);
+    waitForScript($page, $badge, '3 answers');
+
+    expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->countBy()->all())
+        ->toBe([$natural->id => 2, $silicone->id => 1]);
 });

@@ -366,6 +366,32 @@ final class StudioPlanPostVotesEditor extends Component
     }
 
     /**
+     * An option's answers, typed: that many go to it, the others keep theirs
+     * and the question's total follows. An option no longer open only gives
+     * answers up, never takes new ones.
+     */
+    public function setAnswerCount(mixed $group, mixed $option, mixed $count): void
+    {
+        [$group, $option] = [(int) $group, (int) $option];
+
+        if (! isset($this->ratings[$group]['counts'][$option]) || ! is_numeric($count)) {
+            return;
+        }
+
+        $current = $this->ratings[$group]['counts'][$option];
+        $count = self::count((int) $count);
+
+        if (! in_array($option, $this->openOptions($group), true)) {
+            $count = min($count, $current);
+        }
+
+        if ($count !== $current) {
+            $this->ratings[$group]['counts'][$option] = $count;
+            $this->commit();
+        }
+    }
+
+    /**
      * First vote after, and Spread over: one of the moments offered, or the
      * one it has — the voters spread evenly again, no vote at a moment of its
      * own.

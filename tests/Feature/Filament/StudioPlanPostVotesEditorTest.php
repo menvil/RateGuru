@@ -201,6 +201,25 @@ it('splits the answers evenly, the rest to the first options, and moves one at a
         ->call('setRatingTotal', $group->id, 10)->assertSet("ratings.{$group->id}.counts", fn (array $counts): bool => array_sum($counts) === 10 && $counts[$ids[0]] === 0);
 });
 
+it('takes an option\'s answers typed, the others keeping theirs and the total following', function () {
+    [$group, $answers] = votableRatingQuestion(3);
+    collect($answers)->each(fn ($option, int $place) => $option->update(['sort_order' => $place]));
+    $ids = array_map(fn ($option): int => $option->id, $answers);
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->call('setRatingTotal', $group->id, 3)->call('evenSplit', $group->id);
+
+    $editor->call('setAnswerCount', $group->id, $ids[0], '2')->assertSet("ratings.{$group->id}.counts", [$ids[0] => 2, $ids[1] => 1, $ids[2] => 1])
+        ->call('setAnswerCount', $group->id, $ids[2], 0)->assertSet("ratings.{$group->id}.counts", [$ids[0] => 2, $ids[1] => 1, $ids[2] => 0])
+        // Nothing that is not a count, and never fewer than none.
+        ->call('setAnswerCount', $group->id, $ids[1], 'many')->assertSet("ratings.{$group->id}.counts", [$ids[0] => 2, $ids[1] => 1, $ids[2] => 0])
+        ->call('setAnswerCount', $group->id, $ids[1], -3)->assertSet("ratings.{$group->id}.counts", [$ids[0] => 2, $ids[1] => 0, $ids[2] => 0])
+        ->assertHasNoErrors()
+        ->assertSeeHtml('aria-label="Answers for '.$answers[0]->label.'"')
+        ->assertSee('Type an option\'s answers and the total follows.');
+
+    expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->where('rating_option_id', $ids[0])->count())->toBe(2)
+        ->and(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->whereIn('rating_option_id', $ids)->count())->toBe(2);
+});
+
 it('keeps each vote\'s id when a change moves only its moment', function () {
     votePostUpTwiceDownOnce($this->plan);
     $ids = StudioPlanVote::query()->where('type', StudioActionType::VotePost)->orderBy('id')->pluck('id')->all();
@@ -433,6 +452,19 @@ it('shows an answer no longer open as such, keeps it as it was, and replaces it 
     postVotesEditor($this->plan)->call('evenSplit', $this->group->id)->assertHasNoErrors();
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->unique()->values()->all())->toBe([$this->answers[1]->id]);
+});
+
+it('lets an option no longer open give answers up when typed, never take new ones', function () {
+    postVotesEditor($this->plan)->call('setRatingTotal', $this->group->id, 2)
+        ->call('moveAnswer', $this->group->id, $this->answers[1]->id, 'down')->assertHasNoErrors();
+    $this->answers[0]->update(['is_active' => false, 'archived_at' => now()]);
+
+    postVotesEditor($this->plan)
+        ->call('setAnswerCount', $this->group->id, $this->answers[0]->id, 5)->assertSet("ratings.{$this->group->id}.counts.{$this->answers[0]->id}", 2)
+        ->call('setAnswerCount', $this->group->id, $this->answers[0]->id, 1)->assertSet("ratings.{$this->group->id}.counts.{$this->answers[0]->id}", 1)
+        ->assertHasNoErrors();
+
+    expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->all())->toBe([$this->answers[0]->id]);
 });
 
 it('takes the version another editor on the page moved, and saves on from it', function (string $source) {
