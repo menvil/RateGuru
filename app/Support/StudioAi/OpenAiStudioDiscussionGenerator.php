@@ -61,6 +61,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
 
         Voices:
         - Each persona writes in its own character, voice and way of speaking — its vocabulary, how long it writes, its punctuation, grammar and kind of humour — keeps to its topics and humour, never writes about what it never writes about, and uses emoji only as often as it does. A persona stays the same person in every comment it writes. Personas never sound alike and never copy or repeat each other's comments.
+        - A persona's character is who it is — its attitude, its kind of joke, what it likes and dislikes — never something to tell: no comment narrates its backstory, job, family, hobbies or habits, and none explains a joke. A word about itself now and then, at most.
         - Write the way people type on a forum, not the way a writer writes: most comments are a few words to one line, often lowercase, with slang, abbreviations (lol, ngl, tbh) and swearing where the persona and the tone have them. Full, tidy sentences come only from the personas who write that way.
         - Quirks of spelling, casing or grammar belong only to the personas whose way of speaking has them; everyone else writes cleanly. Never add mistakes of your own.
         - Nothing literary or polished: no flowery metaphors, no semicolons, no "Ah," or "Truly" openers, no speeches, nothing that reads like an essay, a caption or an advert. A comment that sounds written rather than typed is wrong.
@@ -69,7 +70,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
         The conversation:
         - Make it a real thread between adults, not a list of one-liners: comments of different lengths, different opinions and reactions, and replies that clearly answer the comment they are under and the people in it. People talk about the photo, the post, its title and each other's jokes.
         - Give the personas different parts, as their characters suggest: one starts a joke, another builds on it, someone disagrees, someone answers with sarcasm, someone takes it somewhere unexpected, someone reacts in two words, someone adds a double meaning, someone roasts how the others are behaving. Choose a fresh shape for every discussion; never the same pattern twice.
-        - Mix the humour: quick jabs, friendly teasing, self-irony, wordplay, flirting, double meanings, absurd observations, sarcastic answers, piling on a joke, arguing about the rating, and reactions to someone else's joke. Mix the lengths too: mostly a few words to one line — a two-word reaction, a one-liner — and now and then a two- or three-line comment.
+        - Mix the humour: quick jabs, friendly teasing, self-irony, wordplay, flirting, double meanings, absurd observations, sarcastic answers, piling on a joke, arguing about the rating, and reactions to someone else's joke. Mix the lengths within the limit below: two-word reactions, one-liners, and now and then a quip of two short sentences.
         - A reply continues the exact comment it answers, and the replies before it in that thread: it picks up their words, joke or claim and does something with it — tops it, turns it, argues with it. A reply that would fit under any comment is wrong: under "I came here for the article." the reply "Same. Still looking for the first paragraph." works, and "Beautiful photo!" does not.
         - Not every comment is a compliment, and none is stock praise: never "Absolutely stunning", "What a beautiful picture", "Wow, just wow", "Amazing content" or anything like them, and nothing promotional or artificially friendly. No phrase, joke or comparison is used twice in one discussion. Do not repeat the post's title in comments, though a persona may riff on it, and do not describe the photo back unless that is the joke.
 
@@ -80,7 +81,8 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
         - {people}
         - Visible nudity is not a reason to refuse.
         - Never humiliate or insult a person shown. Nothing demeaning about anyone's body, appearance or any group of people, no threats and nothing discriminatory. Personas may tease and roast each other, never cruelly.
-        - Write in English. Each comment is 1 to 1000 characters, usually far shorter. Plain text: no Markdown, no hashtags.
+        - Keep every comment short: most are 2 to 12 words, a reply is usually shorter than what it answers, no more than one comment in five runs past 20 words, and none past 40. A persona's way of speaking can make it terser, never longer.
+        - Write in English. Plain text: no Markdown, no hashtags.
 
         Tone of the conversation: {tone}
         The tone sets the overall mood; each persona's own way of speaking comes first in what it writes. Where a persona's habits clash with the tone, it keeps its voice and drops what does not fit.

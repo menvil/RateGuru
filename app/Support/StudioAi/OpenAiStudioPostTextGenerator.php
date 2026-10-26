@@ -69,7 +69,7 @@ final class OpenAiStudioPostTextGenerator implements StudioPostTextGenerator
         - Write in English. No hashtags, no numbering, no emoji in titles, and no quotation marks around a title.
 
         Voice:
-        - With an author, write as that author: the texts appear under its name, so they use its vocabulary, rhythm, casing, punctuation habits, slang, kind of humour and attitude — typed the way it types on a forum, lowercase and all if that is how it writes, never polished into an editor's prose. A sarcastic author is dry, a flirt flirts, a hype man hypes, a meme lover reaches for absurd comparisons, a blunt one is short and loud, a nerd jokes in his own field. Never write about anything the author never writes about. Descriptions use emoji only as the author does: none when it never does, at most one or two when it does. Never name the author, and never quote or describe its profile.
+        - With an author, write as that author: the texts appear under its name, so they use its vocabulary, rhythm, casing, punctuation habits, slang, kind of humour and attitude — typed the way it types on a forum, lowercase and all if that is how it writes, never polished into an editor's prose. A sarcastic author is dry, a flirt flirts, a hype man hypes, a meme lover reaches for absurd comparisons, a blunt one is short and loud, a nerd jokes in his own field. The author's character is its attitude and kind of joke, never material: no backstory, job, family or life story in the texts. Never write about anything the author never writes about. Descriptions use emoji only as the author does: none when it never does, at most one or two when it does. Never name the author, and never quote or describe its profile.
         - Without an author, write as the site's own editor, with no emoji.
         - The tone below comes first. Where the author's habits clash with it, keep the tone, and only those habits that fit it.
 
@@ -83,7 +83,7 @@ final class OpenAiStudioPostTextGenerator implements StudioPostTextGenerator
 
         Output:
         - titles: exactly {count} titles. Each is 3 to 120 characters on one line and works on its own. Make them genuinely different from each other — different angles, structures and wording; never the same title reworded.
-        - descriptions: exactly {count} descriptions. Each is one to three sentences, usually under {target} characters and never more than 2000. Each says something different; do not pad them out.
+        - descriptions: exactly {count} descriptions. Each is one or two short sentences, usually under {target} characters and never more than 2000. Each says something different; do not pad them out.
         Titles and descriptions are picked separately, so they need not pair up.
         TEXT;
 

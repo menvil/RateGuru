@@ -241,15 +241,19 @@ gets exactly what staging was checked with: the file is the release's.
   all, if that is how it writes — never polished into an editor's prose. A
   sarcastic author's texts are dry, a flirt's flirt, a hype man's hype, a meme
   lover's reach for absurd comparisons, a blunt one's are short and loud, and
-  a nerd's joke in his own field. The tone an administrator chooses comes
-  first: the author's habits that clash with it are dropped.
+  a nerd's joke in his own field — never its life story. Descriptions are one
+  or two short sentences. The tone an administrator chooses comes first: the
+  author's habits that clash with it are dropped.
 - **Discussions** give every Persona taking part its own voice — length,
   vocabulary, punctuation, kind of humour, topics, limits, emoji — and its own
   part in the conversation, as its character suggests, typed like a forum
-  thread rather than written: mostly a few words to a line, slang and swearing
-  where a Persona and the tone have them, nothing literary. Quirks of grammar
-  are only the Personas' whose speech style has them, and innuendo only theirs
-  whose character has it.
+  thread rather than written: most comments 2 to 12 words, a reply usually
+  shorter than what it answers, hardly one in five past 20 words and none past
+  40, slang and swearing where a Persona and the tone have them, nothing
+  literary. A Persona's character is its attitude and kind of joke, never
+  material: no comment tells its backstory, job, family or habits. Quirks of
+  grammar are only the Personas' whose speech style has them, and innuendo
+  only theirs whose character has it.
 
 The model is told nothing else of a Persona: never its email, username, id,
 password, sign-in or security setting, and not its engagement or daily reply
