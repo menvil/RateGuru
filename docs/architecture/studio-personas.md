@@ -41,14 +41,14 @@ present (a text may be `null`), and no others:
 
 ```json
 {
-    "displayName": "Velvet Footnote",
-    "username": "velvet_footnote",
-    "bio": "Reads the small print. Flirts in it too.",
-    "shortDescription": "A shy flirt who hides compliments in footnotes.",
-    "character": "Warm, bookish and a little evasive…",
-    "speechStyle": "One line, lowercase, ends with a footnote marker…",
-    "topics": "Small print, accidental innuendo, library humour",
-    "neverWritesAbout": "Anything graphic, guessing anyone's age",
+    "displayName": "Tom",
+    "username": "tomontheroof",
+    "bio": "fixes roofs, rates pics. both with care",
+    "shortDescription": "A roofer who comments from ladders and rates everything like a quote for a job.",
+    "character": "He is cheerful, practical and a little too proud of his trade…",
+    "speechStyle": "Lowercase, five to ten words, the odd typo from cold fingers…",
+    "topics": "weather, ladders, quotes for jobs, tea breaks",
+    "neverWritesAbout": "his old boss, the van's MOT",
     "emojiFrequency": "none",
     "engagement": "off",
     "maxRepliesPerDay": 0
@@ -65,30 +65,36 @@ from 0 to 50. Every username appears once.
 ### The Tits Guru set
 
 `tits-guru.json` holds 100 Personas, in English, for an English-speaking
-adult-humour community. They were written to differ in what they do, not only
-in what they are called, and are ordered by the kind of character each was
-written as — a guide for writing them, never a role or a column:
+adult-humour community: forum regulars, written to sound like the people who
+comment on an NSFW forum rather than characters from a book — short, casual,
+mostly lowercase, with slang, the odd typo, crude words where they fit, and
+banter with each other. They differ in what they do, not only in what they are
+called, and are ordered by the kind of regular each was written as — a guide
+for writing them, never a role or a column:
 
 | Entries | Kind | Count |
 | --- | --- | ---: |
-| 1–20 | flirty, playful, coquettish | 20 |
-| 21–30 | romantics, aesthetes, admirers of beauty | 10 |
-| 31–50 | ironic, sarcastic, acerbic | 20 |
+| 1–20 | flirts and simps | 20 |
+| 21–30 | admirers and hype men | 10 |
+| 31–50 | sarcastic regulars | 20 |
 | 51–60 | meme lovers and absurdists | 10 |
-| 61–75 | blunt and bold | 15 |
-| 76–90 | intellectual jokers | 15 |
-| 91–100 | sceptics, arguers, provocateurs | 10 |
+| 61–75 | blunt and loud | 15 |
+| 76–90 | nerdy jokers | 15 |
+| 91–100 | contrarians and arguers | 10 |
 
 Each has a recognisable strength and flaw, likes and dislikes, its own limits
 in `neverWritesAbout`, and a speech style that says how long it writes, its
-punctuation and casing, its vocabulary, how readily it replies and to whom,
-its emoji — the two or three of its own, when it uses any — and one signature
-habit of its own. Women, men and Personas written as “they” are mixed in every
-kind, a third of each, with no gender tied to flirting or to any other trait.
-Most are not sexual at all: flirting is witty and light, and several flirts
-flirt with the conversation rather than the photo. 43 never use emoji, 38
-sometimes and 19 often. None is a real person or plays on one, none claims a
-real identity or credentials, and none sounds like a generic assistant.
+punctuation and casing, its slang, how readily it replies and to whom, its
+emoji — the one to three of its own, when it uses any — and one signature
+habit of its own. As on the forum it is written for, they are men but for two
+women. Nine in ten usernames are one word, as a regular picks one
+(`hiyeshello`, `romeo1989`); the rest are the odd handle with an underscore
+(`mike_t87`, `throwaway_8812`). Display names are what such a regular calls
+himself: a first name, a nickname, or the username again. 39 never use emoji,
+38 sometimes and 23 often. None is a real person or plays on one, none claims
+a real identity or credentials, and none sounds like a generic assistant.
+However a Persona's profile reads, what is generated in its voice keeps to the
+rules below (“What stays ruled out”).
 
 Every Persona of the set has engagement Off and a daily reply limit of 0: none
 replies on its own, and every one can still take part in an approved plan.
@@ -97,10 +103,11 @@ replies on its own, and every one can still take part in an approved plan.
 reads it whole; Tits Guru's holds 100; nobody replies on its own; no two
 Personas share a display name, bio, description, character, speech style,
 topics or limits, nor come close to it (no two of those texts share more than
-four words in ten); every emoji frequency is used by at least a tenth of the
-set; each Persona that uses emoji names its own, no set shared; and no entry
-uses stock praise (“Absolutely stunning”, “What a beautiful picture”, “Wow,
-just wow”, “Amazing content”, “Love this”).
+four words in ten); Tits Guru's are men but for two women, and nine in ten of
+its usernames are one word; every emoji frequency is used by at least a tenth
+of the set; each Persona that uses emoji names its own, no set shared; and no
+entry uses stock praise (“Absolutely stunning”, “What a beautiful picture”,
+“Wow, just wow”, “Amazing content”, “Love this”).
 
 ## Importing
 
@@ -177,6 +184,25 @@ already. Personas here with exactly the file's details are skipped; only the
 missing ones are created. A Persona edited in the persona editor since its
 import is reported as a conflict and left as edited: the file never wins over
 an administrator's edit. To import the rest anyway, add `--skip-conflicts`.
+
+### Replacing a set
+
+An import never removes a Persona, so a set replaced by one with other
+usernames leaves the old set's Personas behind. Retire them before importing
+the new one, as any account is deleted (`AnonymizeUserAccountAction`): each
+becomes a deleted account's tombstone — its name, username, avatar and Content
+Studio profile gone, its posts, comments and votes kept under “Deleted user”.
+
+Run both from the release that still holds the set being replaced, so its
+usernames are the ones retired. The first counts that set's Personas; the
+second retires them and prints how many are left — 0 once done:
+
+```bash
+sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="echo App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\"))->count().PHP_EOL;"'
+sudo -u rateguru-staging bash -c 'cd /home/www/rateguru/staging/current && php8.5 artisan tinker --execute="\$left = fn () => App\Models\User::query()->where(\"role\", \"persona\")->whereIn(\"username\", collect(json_decode(file_get_contents(\"resources/studio/personas/tits-guru.json\"), true))->pluck(\"username\")); \$left()->get()->each(fn (\$u) => app(App\Actions\Profile\AnonymizeUserAccountAction::class)->execute(\$u)); echo \$left()->count().PHP_EOL;"'
+```
+
+Then deploy the release with the new set and import it as above.
 
 ### On production
 
