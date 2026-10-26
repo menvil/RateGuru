@@ -304,7 +304,7 @@ return [
         'unknown' => 'Unbekannter Nutzer',
         'deleted' => 'Gelöschter Nutzer',
         'persona' => 'KI-Persona',
-        'persona_hint' => 'Ein Figurenkonto, das diese Website betreibt. Seine Beiträge und Kommentare sind mit KI geschrieben.',
+        'persona_hint' => 'Ein Figurenkonto, das von dieser Website betrieben wird. Seine Beiträge und Kommentare sind mit KI geschrieben.',
     ],
     'theme_options' => [
         'system' => 'System',

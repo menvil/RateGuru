@@ -144,9 +144,11 @@ told apart the same way. An administrator who may no longer manage Personas
 stops the import where it is; the rest are reported as not attempted.
 
 The report says how many were created, skipped as here already, skipped as
-conflicts, failed and not attempted. The command exits 0 when every Persona of
-the file is here, and 1 otherwise — a problem in the file, a conflict, a
-failure, an answer of no. A dry run exits 0 when an import would.
+conflicts, failed and not attempted. The command exits 1 for a problem in the
+file, an administrator who may not, a conflict without `--skip-conflicts`, a
+Persona that failed or was not attempted, or an answer of no; otherwise 0 —
+every Persona of the file here, or, with `--skip-conflicts`, every one but the
+conflicts left alone. A dry run exits as the import would.
 
 `persona.created` is logged for each Persona, and `persona.import.finished`
 once, with the administrator's id and the counts — never a name or a text.
