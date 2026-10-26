@@ -18,22 +18,31 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
  * AI text suggestions, on the editor's Post step: the photo and what its
- * analysis says, the tone of the next batch, Generate suggestions — then
- * Generate 10 more, or Try again after a failure — each an explicit, paid
- * request (RequestStudioPostTextGenerationAction), and the newest batch
- * written from the photo and analysis the plan has now, its titles and its
- * descriptions side by side. A new batch takes the place of the one before;
- * the earlier ones stay stored, but are shown no more.
+ * analysis says, whose voice the texts are written in — the saved author's
+ * — the tone of the next batch, Generate suggestions — then Generate 10
+ * more, or Try again after a failure — each an explicit, paid request
+ * (RequestStudioPostTextGenerationAction), and the newest batch written from
+ * the photo, analysis and author's voice the plan has now, its titles and
+ * its descriptions side by side. A new batch takes the place of the one
+ * before; the earlier ones stay stored, but are shown no more.
+ *
+ * The texts are written in the voice of the author the plan is saved with.
+ * Generate, clicked with another author chosen in the editor and not saved
+ * yet, has the editor save the draft first (`save-studio-plan`, `then`
+ * `suggest`), and the batch is asked for once the editor says it is saved
+ * (GENERATE_EVENT); a save of the plan from anywhere on the page draws the
+ * card again, so a batch for another author is shown no more.
  *
  * Choosing a title or a description hands it to the editor's draft
  * (`use-studio-suggestion`), as typing it would: nothing is saved, nothing
  * else changes, and the final texts stay the editor's to edit and to save
- * with Save draft. A batch written for another photo or another analysis is
- * shown no more and used never.
+ * with Save draft. A batch written for another photo, analysis or author's
+ * voice is shown no more and used never.
  *
  * A component of its own, so that while a batch — or the photo's analysis
  * it waits for — is on its way it alone is read again every few seconds,
@@ -45,6 +54,13 @@ final class StudioPlanTextSuggestionsCard extends Component
 {
     /** Seconds between reads while a batch, or the analysis, is on its way. */
     public const POLL_SECONDS = 3;
+
+    /**
+     * Said by the plan's editor once it saved the draft for Generate, clicked
+     * with another author chosen: the batch is asked for in the voice of the
+     * author saved.
+     */
+    public const GENERATE_EVENT = 'studio-text-suggestions-generate';
 
     #[Locked]
     public int $planId = 0;
@@ -68,12 +84,18 @@ final class StudioPlanTextSuggestionsCard extends Component
         $this->imageAssetId = $imageAssetId;
     }
 
-    /** Asks for a batch in the chosen tone: the first, another, or one in place of a failure. */
-    public function generate(): void
+    /**
+     * Asks for a batch in the chosen tone: the first, another, or one in
+     * place of a failure — in the voice of the author the editor shows, which
+     * must be the one saved.
+     */
+    public function generate(mixed $authorUserId = null): void
     {
         if ($this->planId === 0 || $this->imageAssetId === null) {
             return;
         }
+
+        $authorId = is_numeric($authorUserId) && (int) $authorUserId > 0 ? (int) $authorUserId : null;
 
         $plan = StudioPlan::query()->find($this->planId);
 
@@ -84,7 +106,7 @@ final class StudioPlanTextSuggestionsCard extends Component
         }
 
         try {
-            app(RequestStudioPostTextGenerationAction::class)->handle($this->admin(), $plan, $this->imageAssetId, $this->chosenTone());
+            app(RequestStudioPostTextGenerationAction::class)->handle($this->admin(), $plan, $this->imageAssetId, $authorId, $this->chosenTone());
         } catch (CannotManageStudioPlanException $exception) {
             $this->toast(match (true) {
                 $exception->isGone() => 'This draft was deleted, so nothing was sent.',
@@ -97,6 +119,23 @@ final class StudioPlanTextSuggestionsCard extends Component
                 : $exception->error->message());
         }
     }
+
+    /** The editor saved the draft for Generate: the batch is asked for now, in the voice of the author it saved. */
+    #[On(self::GENERATE_EVENT)]
+    public function generateOnceSaved(mixed $planId = null, mixed $authorUserId = null): void
+    {
+        if ((int) $planId === $this->planId) {
+            $this->generate($authorUserId);
+        }
+    }
+
+    /**
+     * The plan was saved or drawn again on the page: drawn again here too,
+     * so a batch written for an author it no longer has is shown no more.
+     */
+    #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
+    #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
+    public function planMoved(): void {}
 
     public function useTitle(mixed $generationId, mixed $index): void
     {
@@ -113,7 +152,7 @@ final class StudioPlanTextSuggestionsCard extends Component
         $plan = $this->planId !== 0 ? StudioPlan::query()->with(['imageAnalysis', 'imageAsset.variants'])->find($this->planId) : null;
         $generator = app(StudioPostTextGenerator::class);
         $now = CarbonImmutable::now();
-        $context = $plan !== null ? StudioPostTextContext::of($plan->image_asset_id, $plan->imageAnalysis) : null;
+        $context = $plan !== null ? StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis) : null;
 
         $state = match (true) {
             $this->planId === 0 => 'no_image',
@@ -126,7 +165,7 @@ final class StudioPlanTextSuggestionsCard extends Component
 
         $generations = $plan !== null && $context !== null
             ? StudioPlanTextGeneration::query()->where('studio_plan_id', $plan->id)->orderByDesc('id')->get()
-                ->filter(fn (StudioPlanTextGeneration $generation): bool => $generation->isFor($context->imageAssetId, $context->analysisHash))
+                ->filter(fn (StudioPlanTextGeneration $generation): bool => $generation->isFor($context->imageAssetId, $context->sourceHash()))
                 ->values()
             : collect();
 
@@ -154,6 +193,8 @@ final class StudioPlanTextSuggestionsCard extends Component
             'draft' => $plan?->isDraft() === true,
             'photo' => $plan?->imageAsset !== null && $plan->image_asset_id === $this->imageAssetId ? app(PostImagePresenter::class)->assetPreviewUrl($plan->imageAsset) : null,
             'summary' => $state === 'ready' ? $context->description->summary : null,
+            'voice' => $state === 'ready' && $context->author !== null ? ['name' => $context->author->name, 'about' => $context->author->shortDescription] : null,
+            'savedAuthorId' => $plan?->author_user_id !== null ? (string) $plan->author_user_id : '',
             'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),
             'chosenTone' => $this->chosenTone(),
             'batch' => $batch === null ? null : [
@@ -169,20 +210,20 @@ final class StudioPlanTextSuggestionsCard extends Component
 
     /**
      * Hands one text of a batch to the editor's draft — only from a batch
-     * written for the photo and analysis the plan has now.
+     * written for the photo, analysis and author's voice the plan has now.
      */
     private function use(string $field, mixed $generationId, mixed $index): void
     {
         $plan = $this->planId !== 0 ? StudioPlan::query()->with('imageAnalysis')->find($this->planId) : null;
-        $context = $plan !== null ? StudioPostTextContext::of($plan->image_asset_id, $plan->imageAnalysis) : null;
+        $context = $plan !== null ? StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis) : null;
         $generation = $plan !== null && is_numeric($generationId)
             ? StudioPlanTextGeneration::query()->where('studio_plan_id', $plan->id)->whereKey((int) $generationId)->first()
             : null;
 
         if ($plan === null || $context === null || $generation === null || $plan->image_asset_id !== $this->imageAssetId
             || $generation->status !== StudioPostTextGenerationStatus::Completed
-            || ! $generation->isFor($context->imageAssetId, $context->analysisHash)) {
-            $this->toast('These suggestions were written for an earlier photo or analysis, so nothing was used.');
+            || ! $generation->isFor($context->imageAssetId, $context->sourceHash())) {
+            $this->toast('These suggestions were written for an earlier photo, analysis or author, so nothing was used.');
 
             return;
         }

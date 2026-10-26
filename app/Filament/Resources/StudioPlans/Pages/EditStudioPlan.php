@@ -14,6 +14,7 @@ use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Livewire\Admin\StudioPlanActionPlan;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanTextSuggestionsCard;
 use App\Models\StudioPlan;
 use App\Support\Studio\StudioExecutionSwitch;
 use App\Support\Studio\StudioPlanApprovalPreflight;
@@ -98,7 +99,8 @@ final class EditStudioPlan extends Page
             $this->toast($created['message'], is_string($created['tone'] ?? null) ? $created['tone'] : 'success');
         }
 
-        // Saved on the new publication's page: on where it was, and on with Generate tree when that saved it.
+        // Saved on the new publication's page: on where it was, and on with
+        // Generate tree, or Generate suggestions, when that saved it.
         $resume = session(CreateStudioPlan::RESUME);
 
         if (is_array($resume) && (int) ($resume['plan'] ?? 0) === $plan->id) {
@@ -107,6 +109,10 @@ final class EditStudioPlan extends Page
 
             if (($resume['generate'] ?? false) === true) {
                 $this->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $plan->id);
+            }
+
+            if (($resume['suggest'] ?? false) === true) {
+                $this->dispatch(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id, authorUserId: $plan->author_user_id);
             }
         }
     }
@@ -164,8 +170,10 @@ final class EditStudioPlan extends Page
 
     /**
      * Save draft — or Generate tree, clicked with the post changed (`then`
-     * `generate`): the discussion's editor is told to generate once the post
-     * is saved, or found saved already.
+     * `generate`), or Generate suggestions, clicked with another author
+     * chosen (`then` `suggest`): the discussion's editor, or the suggestions'
+     * card, is told to generate once the post is saved, or found saved
+     * already.
      */
     #[On('save-studio-plan')]
     public function save(mixed $then = null): void
@@ -188,7 +196,7 @@ final class EditStudioPlan extends Page
             $this->draw($plan);
             $this->generateAfterSave($then);
 
-            if ($then !== 'generate') {
+            if ($then !== 'generate' && $then !== 'suggest') {
                 $this->toast('Nothing to save');
             }
 
@@ -212,11 +220,15 @@ final class EditStudioPlan extends Page
         $this->generateAfterSave($then);
     }
 
-    /** Generate tree waited for the post to be saved: it goes on now. */
+    /** Generate tree, or Generate suggestions, waited for the post to be saved: it goes on now. */
     private function generateAfterSave(mixed $then): void
     {
         if ($then === 'generate') {
             $this->dispatch(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $this->planId);
+        }
+
+        if ($then === 'suggest') {
+            $this->dispatch(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $this->planId, authorUserId: $this->authorUserId !== '' ? (int) $this->authorUserId : null);
         }
     }
 

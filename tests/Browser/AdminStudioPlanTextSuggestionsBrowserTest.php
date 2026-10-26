@@ -4,6 +4,7 @@ use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\User;
+use App\Support\StudioAi\StudioPostTextContext;
 use Database\Factories\StudioPlanTextGenerationFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -55,7 +56,7 @@ it('asks for a batch in the chosen tone, polls until it is written, and puts the
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'ready');
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Irony', 'Neutral'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-studio__tone')].map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
         ->and($page->script("document.querySelector('.rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()"))->toBe('Cheeky')
         ->and($page->script("document.querySelector('[data-suggestions]').hasAttribute('wire:poll.3s.visible')"))->toBeFalse();
 
@@ -119,4 +120,40 @@ it('waits for the photo\'s analysis on a draft without one, offering nothing to 
     expect($page->script("document.querySelector('[data-suggestions]').textContent"))->toContain('Text suggestions will be available when photo analysis is complete.')
         ->and($page->script("document.querySelectorAll('.rg-admin-studio__tones').length"))->toBe(0)
         ->and($page->script(suggestionsGenerateButton()))->toBeNull();
+});
+
+it('writes in the voice of the author on screen: another author chosen is saved first, and the batch asked for once it is', function () {
+    $anna = studioPersonaWithProfile(['short_description' => 'Deadpan to the bone.'], ['display_name' => 'Anna Deadpan']);
+    $boris = studioPersonaWithProfile(['short_description' => 'Flirts with the furniture.'], ['display_name' => 'Boris Swoon']);
+    $plan = studioPlanWithFinishedAnalysis(['title' => 'A harbour', 'author_user_id' => $anna->id]);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    $voice = "document.querySelector('[data-testid=\"studio-suggestions-voice\"] .rg-admin-studio__context-analysis').textContent.trim()";
+    $warning = "getComputedStyle(document.querySelector('[data-testid=\"studio-suggestions-voice\"] .rg-admin-studio__context-warning')).display";
+
+    $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'ready');
+
+    expect($page->script($voice))->toBe('Anna Deadpan — Deadpan to the bone.')
+        ->and($page->script($warning))->toBe('none');
+
+    // Another author chosen in the editor, not saved yet: the card says what Generate will do.
+    $page->script("document.querySelector('.rg-admin-studio__author-trigger').click()");
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__choice')].some((choice) => choice.textContent.includes('Boris Swoon'))");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__choice')].find((choice) => choice.textContent.includes('Boris Swoon')).click()");
+    waitForScript($page, $warning." !== 'none'");
+
+    expect($plan->fresh()->author_user_id)->toBe($anna->id);
+
+    // Generate saves the draft with the new author, then asks for the batch in that author's voice.
+    $page->script(suggestionsGenerateButton().'.click()');
+    waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'queued');
+    waitForScript($page, $voice, 'Boris Swoon — Flirts with the furniture.');
+
+    $plan->refresh();
+
+    expect($plan->author_user_id)->toBe($boris->id)
+        ->and(StudioPlanTextGeneration::query()->sole()->source_analysis_hash)->toBe(StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis)->sourceHash())
+        ->and($page->script($warning))->toBe('none')
+        ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+    Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
 });

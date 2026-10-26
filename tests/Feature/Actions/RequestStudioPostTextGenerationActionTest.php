@@ -15,6 +15,7 @@ use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\User;
 use App\Support\StudioAi\StudioImageDescription;
+use App\Support\StudioAi\StudioPostTextContext;
 use Database\Factories\StudioPlanImageAnalysisFactory;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Carbon;
@@ -145,9 +146,37 @@ it('asks for nothing until the photo\'s analysis has finished with a valid descr
 it('asks for nothing for a plan with no photo', function () {
     $plan = StudioPlan::factory()->create();
 
-    expect(fn () => app(RequestStudioPostTextGenerationAction::class)->handle($this->admin, $plan, 1, StudioPostTextTone::Cheeky))
+    expect(fn () => app(RequestStudioPostTextGenerationAction::class)->handle($this->admin, $plan, 1, $plan->author_user_id, StudioPostTextTone::Cheeky))
         ->toThrow(CannotRequestStudioPostTextGenerationException::class);
 });
+
+it('keeps what a batch is written from: the analysis alone for a post with no author, and the author’s voice with it for one with an author', function () {
+    $analysisHash = StudioImageDescription::from(StudioPlanImageAnalysisFactory::description())->hash();
+    $alone = requestStudioPostTexts($this->admin, studioPlanWithFinishedAnalysis());
+
+    $author = studioPersonaWithProfile(['character' => 'Blunt and brief.']);
+    $voiced = requestStudioPostTexts($this->admin, studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]));
+    $context = StudioPostTextContext::ofPlan($voiced->plan, $voiced->plan->imageAnalysis);
+
+    expect($alone->source_analysis_hash)->toBe($analysisHash)
+        ->and($voiced->source_analysis_hash)->not->toBe($analysisHash)
+        ->toBe($context->sourceHash())
+        ->and($context->author?->character)->toBe('Blunt and brief.');
+});
+
+it('asks for nothing in the voice of an author the editor no longer shows', function (Closure $shown) {
+    $author = studioPersonaWithProfile();
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]);
+
+    expect(fn () => app(RequestStudioPostTextGenerationAction::class)->handle($this->admin, $plan, (int) $plan->image_asset_id, $shown(), StudioPostTextTone::Cheeky))
+        ->toThrow(fn (CannotRequestStudioPostTextGenerationException $exception) => expect($exception->error)->toBe(StudioPostTextGenerationError::AuthorChanged));
+
+    expect(StudioPlanTextGeneration::query()->exists())->toBeFalse();
+    Queue::assertNothingPushed();
+})->with([
+    'another persona' => [fn () => studioPersonaWithProfile()->id],
+    'no author' => [fn () => null],
+]);
 
 it('asks for nothing for a photo the editor no longer shows', function () {
     $plan = studioPlanWithFinishedAnalysis();

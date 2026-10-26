@@ -11,7 +11,10 @@ enum StudioPostTextGenerationError: string
 {
     case NotConfigured = 'not_configured';
     case AnalysisMissing = 'analysis_missing';
+    /** The photo, its analysis, or the voice of the post's author changed: the batch no longer fits. */
     case StaleAnalysis = 'stale_analysis';
+    /** The author is not the one the editor showed when the batch was asked for. */
+    case AuthorChanged = 'author_changed';
     case PlanClosed = 'plan_closed';
     case AuthenticationFailed = 'authentication_failed';
     case RateLimited = 'rate_limited';
@@ -27,7 +30,8 @@ enum StudioPostTextGenerationError: string
         return match ($this) {
             self::NotConfigured => 'Text suggestions are not configured.',
             self::AnalysisMissing => 'Text suggestions will be available when photo analysis is complete.',
-            self::StaleAnalysis => 'The photo or its analysis changed while the suggestions were written, so they were not kept.',
+            self::StaleAnalysis => 'The photo, its analysis or the post’s author changed while the suggestions were written, so they were not kept.',
+            self::AuthorChanged => 'The post’s author was changed meanwhile, so nothing was sent. Reload the draft to write texts in its author’s voice.',
             self::PlanClosed => 'This plan is no longer a draft, so the suggestions were not kept.',
             self::AuthenticationFailed => 'OpenAI did not accept the configured API key.',
             self::RateLimited => 'OpenAI is limiting requests right now. Try again in a few minutes.',

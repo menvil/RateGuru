@@ -8,14 +8,18 @@ use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanTextSuggestionsCard;
 use App\Models\MediaAsset;
+use App\Models\PersonaProfile;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\User;
+use App\Support\StudioAi\StudioPostTextContext;
 use Database\Factories\StudioPlanImageAnalysisFactory;
 use Database\Factories\StudioPlanTextGenerationFactory;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -102,7 +106,7 @@ it('offers the five tones, Cheeky first chosen, and Generate suggestions before 
 
     expect($card->html())->toMatch('/aria-pressed="true"[^>]*>Cheeky</')
         // Nothing on its way: Generate suggestions can be pressed.
-        ->not->toMatch('/<button type="button" disabled [^>]*wire:click="generate"/');
+        ->not->toMatch('/<button type="button" disabled [^>]*x-on:click="ask\(\)"/');
 });
 
 it('asks for a batch in each tone chosen, polling while it waits and runs, the draft untouched', function (StudioPostTextTone $tone) {
@@ -116,7 +120,7 @@ it('asks for a batch in each tone chosen, polling while it waits and runs, the d
         ->assertSeeHtml('wire:poll.3s.visible');
 
     // Generate cannot be pressed again while the batch is on its way.
-    expect($card->html())->toMatch('/<button type="button" disabled [^>]*wire:click="generate"/')
+    expect($card->html())->toMatch('/<button type="button" disabled [^>]*x-on:click="ask\(\)"/')
         ->and(StudioPlanTextGeneration::query()->sole()->tone)->toBe($tone);
     Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
     Http::assertNothingSent();
@@ -275,7 +279,7 @@ it('uses nothing from a batch written for another photo or another analysis, and
 
     $card->call('useTitle', $batch->id, 0)
         ->assertNotDispatched('use-studio-suggestion')
-        ->assertDispatched('rg-admin-toast', message: 'These suggestions were written for an earlier photo or analysis, so nothing was used.', tone: 'error');
+        ->assertDispatched('rg-admin-toast', message: 'These suggestions were written for an earlier photo, analysis or author, so nothing was used.', tone: 'error');
 
     suggestionsCard($plan->fresh())->assertDontSee('Beach zoomies, level expert');
 })->with([
@@ -368,3 +372,122 @@ it('is for administrators who may manage plans only — drawn, polled or clicked
 it('keeps which plan and which photo it is about out of the browser\'s reach', function () {
     suggestionsCard(studioPlanWithFinishedAnalysis())->set('imageAssetId', 999);
 })->throws(CannotUpdateLockedPropertyException::class);
+
+it('offers Spicy among the tones, never chosen first', function () {
+    suggestionsCard(studioPlanWithFinishedAnalysis())
+        ->assertSeeInOrder(['Tone of new variants', 'Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
+        ->assertSet('tone', 'cheeky')
+        ->set('tone', 'spicy')->call('generate')
+        ->assertSee('Waiting for text suggestions…');
+
+    expect(StudioPlanTextGeneration::query()->sole()->tone)->toBe(StudioPostTextTone::Spicy);
+});
+
+it('says whose voice the texts are written in: the saved author’s, or the site’s own', function () {
+    $author = studioPersonaWithProfile(['short_description' => 'A dry-witted observer of the obvious.'], ['display_name' => 'Deadpan Dora']);
+
+    suggestionsCard(studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]))
+        ->assertSeeInOrder(['Author’s voice', 'Deadpan Dora — A dry-witted observer of the obvious.'])
+        ->assertSeeHtml('data-saved-author="'.$author->id.'"')
+        ->assertSee('Another author is chosen: generating saves the draft first, so the texts are written in the new author’s voice.')
+        ->assertSeeHtml('x-on:click="ask()"');
+
+    suggestionsCard(studioPlanWithFinishedAnalysis())
+        ->assertSee('No author: the texts are written as the site’s own.')
+        ->assertSeeHtml('data-saved-author=""');
+});
+
+it('asks in the voice of the author the editor shows, and for nothing when it is not the one saved', function () {
+    $author = studioPersonaWithProfile();
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]);
+    $card = suggestionsCard($plan);
+
+    $card->call('generate', studioPersonaWithProfile()->id)
+        ->assertDispatched('rg-admin-toast', message: StudioPostTextGenerationError::AuthorChanged->message(), tone: 'error');
+    $card->call('generate', null)
+        ->assertDispatched('rg-admin-toast', message: StudioPostTextGenerationError::AuthorChanged->message(), tone: 'error');
+
+    expect(StudioPlanTextGeneration::query()->exists())->toBeFalse();
+
+    $card->call('generate', (string) $author->id)->assertSee('Waiting for text suggestions…');
+
+    expect(StudioPlanTextGeneration::query()->sole()->source_analysis_hash)
+        ->toBe(StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis)->sourceHash());
+    Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
+});
+
+it('shows a batch no more, and uses nothing of it, once the plan has another author or its author writes otherwise', function (Closure $change) {
+    $author = studioPersonaWithProfile();
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]);
+    $batch = StudioPlanTextGeneration::factory()->forPlan($plan)->completed()->create();
+    $card = suggestionsCard($plan)->assertSee('Beach zoomies, level expert');
+
+    $change($plan, $author);
+
+    // A save of the plan anywhere on the page draws the card again.
+    $card->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $plan->id, previous: 1, current: 2, source: 'editor')
+        ->assertDontSee('Beach zoomies, level expert')
+        ->call('useTitle', $batch->id, 0)
+        ->assertNotDispatched('use-studio-suggestion')
+        ->assertDispatched('rg-admin-toast', message: 'These suggestions were written for an earlier photo, analysis or author, so nothing was used.', tone: 'error');
+})->with([
+    'another author' => [fn (StudioPlan $plan) => $plan->forceFill(['author_user_id' => studioPersonaWithProfile()->id])->save()],
+    'no author' => [fn (StudioPlan $plan) => $plan->forceFill(['author_user_id' => null])->save()],
+    'its character rewritten' => [fn (StudioPlan $plan, User $author) => PersonaProfile::query()->where('user_id', $author->id)->update(['character' => 'Another person entirely.'])],
+]);
+
+it('asks once the editor has saved the draft for it, in the voice of the author saved, and only for its own plan', function () {
+    $author = studioPersonaWithProfile();
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $author->id]);
+    $card = suggestionsCard($plan);
+
+    $card->dispatch(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id + 1, authorUserId: $author->id);
+
+    expect(StudioPlanTextGeneration::query()->exists())->toBeFalse();
+
+    $card->dispatch(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id, authorUserId: $author->id)
+        ->assertSee('Waiting for text suggestions…');
+
+    Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
+});
+
+it('saves the draft with the author chosen when Generate asks it to, then says to generate', function () {
+    [$anna, $boris] = [studioPersonaWithProfile(), studioPersonaWithProfile()];
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $anna->id]);
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->call('goToStep', 'post')->call('chooseAuthor', $boris->id)
+        ->dispatch('save-studio-plan', then: 'suggest')
+        ->assertDispatched(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id, authorUserId: $boris->id)
+        ->assertDispatched('rg-admin-toast', message: 'Draft saved', tone: 'success');
+
+    expect($plan->fresh()->author_user_id)->toBe($boris->id);
+
+    // Found saved already, it says so at once, and never that there is nothing to save.
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->dispatch('save-studio-plan', then: 'suggest')
+        ->assertDispatched(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id, authorUserId: $boris->id)
+        ->assertNotDispatched('rg-admin-toast', message: 'Nothing to save');
+
+    // The top bar's Save draft never generates.
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->call('chooseAuthor', $anna->id)
+        ->dispatch('save-studio-plan')->assertNotDispatched(StudioPlanTextSuggestionsCard::GENERATE_EVENT);
+});
+
+it('opens the editor a save on the new publication’s page makes, and asks there when Generate suggestions asked for the save — once', function () {
+    $author = studioPersonaWithProfile();
+    $page = Livewire::test(CreateStudioPlan::class)
+        ->upload('photo', [UploadedFile::fake()->image('a.jpg', 50, 50)])
+        ->call('goToStep', 'post')->call('chooseAuthor', $author->id)
+        ->dispatch('save-studio-plan', then: 'suggest');
+    $plan = StudioPlan::query()->sole();
+
+    $page->assertRedirect(EditStudioPlan::getUrl(['record' => $plan->id]));
+    expect($plan->author_user_id)->toBe($author->id)
+        ->and(session(CreateStudioPlan::RESUME))->toMatchArray(['plan' => $plan->id, 'step' => 'post', 'generate' => false, 'suggest' => true]);
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->assertSet('step', 'post')
+        ->assertDispatched(StudioPlanTextSuggestionsCard::GENERATE_EVENT, planId: $plan->id, authorUserId: $author->id);
+
+    session()->forget(CreateStudioPlan::RESUME);
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->assertNotDispatched(StudioPlanTextSuggestionsCard::GENERATE_EVENT);
+});

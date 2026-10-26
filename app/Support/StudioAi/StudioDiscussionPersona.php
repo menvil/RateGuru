@@ -62,11 +62,7 @@ final readonly class StudioDiscussionPersona
             'speech_style' => $this->speechStyle,
             'topics_and_jokes' => $this->topics,
             'never_writes_about' => $this->neverWritesAbout,
-            'emoji' => match ($this->emojiFrequency) {
-                PersonaEmojiFrequency::None => 'never',
-                PersonaEmojiFrequency::Occasional => 'sometimes',
-                PersonaEmojiFrequency::Frequent => 'often',
-            },
+            'emoji' => $this->emojiFrequency->inWords(),
         ];
     }
 

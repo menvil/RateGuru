@@ -24,15 +24,17 @@ use Throwable;
 /**
  * An administrator asks for a batch of post text suggestions — Generate
  * suggestions, Generate 10 more or Try again on the editor's Post step — in
- * a tone. Nothing is sent from here: a batch is queued, and
- * GenerateStudioPostTextsJob makes the one request after the commit.
+ * a tone, and in the voice of the post's author. Nothing is sent from here:
+ * a batch is queued, and GenerateStudioPostTextsJob makes the one request
+ * after the commit.
  *
  * In one transaction, in the project's locking order: the administrator's
  * row (LocksStudioPlanDraft) — who may still manage plans — then the plan,
- * still there and still a Draft, whose photo must be the one the editor
- * showed (`$imageAssetId`), then its photo analysis, which must have
- * finished with a valid description of that photo, then the plan's batches
- * on their way. The plan is not changed: its version stays, so asking for
+ * still there and still a Draft, whose photo and author must be the ones
+ * the editor showed (`$imageAssetId`, `$authorUserId`) — the voice the
+ * texts are written in is the saved author's, so the editor saves a new one
+ * first — then its photo analysis, which must have finished with a valid
+ * description of that photo, then the plan's batches on their way. The plan is not changed: its version stays, so asking for
  * texts never stands in the way of a save.
  *
  * A paid request is never asked for twice by accident: while a batch of the
@@ -42,8 +44,9 @@ use Throwable;
  * lost, and the new one takes its place.
  *
  * Each batch is a row of its own, so a new one never takes earlier texts
- * away. It records what it is written from — the photo and the analysis's
- * hash — so it is told apart once either changes.
+ * away. It records what it is written from — the photo, and the analysis
+ * with the author's voice in one hash (StudioPostTextContext::sourceHash())
+ * — so it is told apart once any of them changes.
  */
 final class RequestStudioPostTextGenerationAction
 {
@@ -57,12 +60,13 @@ final class RequestStudioPostTextGenerationAction
 
     /**
      * @param  int  $imageAssetId  the photo the editor showed
+     * @param  int|null  $authorUserId  the author the editor showed, or none
      * @return StudioPlanTextGeneration the batch queued now, or the one already on its way
      *
      * @throws CannotManageStudioPlanException when the administrator may not, or the plan is gone or past its Draft
-     * @throws CannotRequestStudioPostTextGenerationException when writing texts is not configured, the photo has no finished analysis, or the photo changed
+     * @throws CannotRequestStudioPostTextGenerationException when writing texts is not configured, the photo has no finished analysis, or the photo or the author changed
      */
-    public function handle(User $admin, StudioPlan $plan, int $imageAssetId, StudioPostTextTone $tone): StudioPlanTextGeneration
+    public function handle(User $admin, StudioPlan $plan, int $imageAssetId, ?int $authorUserId, StudioPostTextTone $tone): StudioPlanTextGeneration
     {
         if (! $admin->can('manage-studio-plans')) {
             throw CannotManageStudioPlanException::becauseUserIsNotAllowed();
@@ -75,7 +79,7 @@ final class RequestStudioPostTextGenerationAction
         $now = CarbonImmutable::now();
 
         /** @var array{0: StudioPlanTextGeneration, 1: bool, 2: list<array{0: int, 1: string}>} $outcome */
-        $outcome = DB::transaction(function () use ($admin, $plan, $imageAssetId, $tone, $now): array {
+        $outcome = DB::transaction(function () use ($admin, $plan, $imageAssetId, $authorUserId, $tone, $now): array {
             $this->lockAdministratorAndAuthor($admin);
 
             $locked = StudioPlan::query()->whereKey($plan->getKey())->lockForUpdate()->first();
@@ -96,8 +100,12 @@ final class RequestStudioPostTextGenerationAction
                 throw CannotRequestStudioPostTextGenerationException::becauseImageChanged();
             }
 
+            if ($locked->author_user_id !== $authorUserId) {
+                throw CannotRequestStudioPostTextGenerationException::becauseAuthorChanged();
+            }
+
             $analysis = StudioPlanImageAnalysis::query()->where('studio_plan_id', $locked->id)->lockForUpdate()->first();
-            $context = StudioPostTextContext::of($locked->image_asset_id, $analysis);
+            $context = StudioPostTextContext::ofPlan($locked, $analysis);
 
             if ($context === null || ! $context->complete) {
                 throw CannotRequestStudioPostTextGenerationException::becauseAnalysisIsMissing();
@@ -131,7 +139,7 @@ final class RequestStudioPostTextGenerationAction
             $generation->forceFill([
                 'studio_plan_id' => $locked->id,
                 'source_image_asset_id' => $context->imageAssetId,
-                'source_analysis_hash' => $context->analysisHash,
+                'source_analysis_hash' => $context->sourceHash(),
                 'tone' => $tone,
                 'status' => StudioPostTextGenerationStatus::Queued,
                 'attempt_id' => (string) Str::uuid(),

@@ -29,9 +29,10 @@ use Throwable;
  * administrator's choice.
  *
  * Once claimed it checks, on the plan as it is now, that the plan is still a
- * Draft whose photo and analysis are the ones the batch is for, and that
- * writing texts is still configured; then it sends the stored analysis —
- * never the photo. No transaction is open while it waits for the provider.
+ * Draft whose photo, analysis and author's voice are the ones the batch is
+ * for (StudioPostTextContext::sourceHash()), and that writing texts is still
+ * configured; then it sends the stored analysis — never the photo — and the
+ * author's voice. No transaction is open while it waits for the provider.
  * What comes back is kept through CompleteStudioPostTextGenerationAction,
  * which checks the plan again; a failure ends the batch with its reason
  * (FailStudioPostTextGenerationAction).
@@ -70,14 +71,14 @@ final class GenerateStudioPostTextsJob implements ShouldQueue
             return;
         }
 
-        $context = StudioPostTextContext::of(
-            $plan->image_asset_id,
+        $context = StudioPostTextContext::ofPlan(
+            $plan,
             StudioPlanImageAnalysis::query()->where('studio_plan_id', $plan->id)->first(),
         );
 
         $refusal = match (true) {
             ! $plan->isDraft() => StudioPostTextGenerationError::PlanClosed,
-            $context === null || ! $generation->isFor($context->imageAssetId, $context->analysisHash) => StudioPostTextGenerationError::StaleAnalysis,
+            $context === null || ! $generation->isFor($context->imageAssetId, $context->sourceHash()) => StudioPostTextGenerationError::StaleAnalysis,
             ! $generator->isConfigured() => StudioPostTextGenerationError::NotConfigured,
             default => null,
         };
@@ -89,7 +90,7 @@ final class GenerateStudioPostTextsJob implements ShouldQueue
         }
 
         try {
-            $result = $generator->generate($context->description, $generation->tone);
+            $result = $generator->generate($context->description, $generation->tone, $context->author);
         } catch (StudioPostTextGenerationFailedException $exception) {
             $fail->handle($this->generationId, $this->attemptId, $exception->error, $exception->call);
 
