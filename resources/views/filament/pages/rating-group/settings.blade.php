@@ -79,7 +79,7 @@
             :max="\App\Models\RatingGroup::MOST_OPTIONS"
             hint="Voters always see at least this many."
             :error="$minError"
-            wire:model.live="draftMin"
+            wire:model.live.debounce.400ms="draftMin"
         />
 
         <x-admin.ui.number-stepper
@@ -90,7 +90,7 @@
             :max="\App\Models\RatingGroup::MOST_OPTIONS"
             hint="Keeps the vote form short."
             :error="$maxError"
-            wire:model.live="draftMax"
+            wire:model.live.debounce.400ms="draftMax"
         />
 
         <x-admin.ui.number-stepper

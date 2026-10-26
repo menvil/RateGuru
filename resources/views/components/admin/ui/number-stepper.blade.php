@@ -14,10 +14,12 @@
     /*
      * FRM-05. A whole number with a minus and a plus: 40 high, 132 wide, the
      * buttons 36 wide and named after the field (“Decrease sort order”). The
-     * buttons step from what the field holds, within min and max, and tell
-     * the input it changed, so wire:model or x-model sees a step as it sees
-     * typing. Attributes go to the input (wire:model="sortOrder"); what is
-     * typed is the server's to validate.
+     * number is typed straight in: focusing it selects it, so what is typed
+     * replaces it, and ↑ and ↓ step it as the buttons do. A step starts from
+     * what the field holds, stays within min and max, and tells the input it
+     * changed, so wire:model or x-model sees a step as it sees typing.
+     * Attributes go to the input (wire:model="sortOrder"); what is typed is
+     * the server's to validate.
      *
      * Optional: `range`, the bounds said at the right of the label (“0–40”),
      * and `unit`, what the number counts, after the control (“comments”).
@@ -42,6 +44,9 @@
             x-data="{
                 min: @js($min),
                 max: @js($max),
+                // Focused by a click: the click's mouseup would put the caret
+                // in and lose the selection focusing made, so that one is held.
+                justFocused: false,
                 step(by) {
                     const input = this.$refs.input
                     const current = Number.parseInt(input.value, 10)
@@ -66,7 +71,13 @@
                 value="{{ $value }}"
                 class="rg-admin-stepper__control"
                 autocomplete="off"
+                title="Type a number, or step it with − and + or the arrow keys"
                 x-ref="input"
+                x-on:focus="$el.select(); justFocused = true"
+                x-on:mouseup="if (justFocused) $event.preventDefault(); justFocused = false"
+                x-on:blur="justFocused = false"
+                x-on:keydown.arrow-up.prevent="step(1)"
+                x-on:keydown.arrow-down.prevent="step(-1)"
                 @if ($error !== null) aria-invalid="true" @endif
                 @if ($describedBy !== null) aria-describedby="{{ $describedBy }}" @endif
                 {{ $attributes }}

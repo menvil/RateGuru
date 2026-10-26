@@ -387,7 +387,8 @@ Grid templates used in the prototype, for reference:
 - **Locked identifiers (FRM-04):** slugs and keys are generated on create and locked afterwards: sunken field,
   mono value, `lock` 12 with “Locked”, a “Change slug” text link that unlocks and shows a warning notice (“Links to
   /c/old will stop working after you save”). Never change a slug or key silently.
-- **Number stepper (FRM-05):** 40 high, 132 wide, 36-wide minus and plus buttons with labels.
+- **Number stepper (FRM-05):** 40 high, 132 wide, 36-wide minus and plus buttons with labels on a grey ground,
+  the number between them on white, a field to type in.
 - **Switch (FRM-06):** 36×20 track, 16 knob; ink on, gray-300 off; `role="switch"` and `aria-checked`; disabled at
   50% with the reason. Switches that remove access ask for confirmation when turned off.
 - **Checkbox (FRM-07):** 18×18, radius 5; ink fill with a 12px white check (stroke 3); a minus for mixed.
@@ -407,8 +408,9 @@ In production the locked identifier, the number stepper and the switch are Blade
   `unlock` slot (“Change slug”) once saved; the value in mono, read-only but focusable while locked; the hint or
   the error, and the warning notice once unlocked, all tied to the input. Attributes go to the input.
 - **`x-admin.ui.number-stepper` (FRM-05):** minus and plus named after the field (“Decrease sort order”) that step
-  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing; what is
-  typed is the server's to validate.
+  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing. The number
+  is typed straight in: focusing it selects it, so typing replaces it, and ↑ and ↓ step it as the buttons do; what
+  is typed is the server's to validate.
 - **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
   state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
   `wire:model` and `x-model` (`x-modelable`).

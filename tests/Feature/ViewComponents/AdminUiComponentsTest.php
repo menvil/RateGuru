@@ -736,7 +736,12 @@ it('steps a number with buttons named after the field, within its bounds', funct
         ->toContain('min: 0')
         ->toContain('max: 999')
         // A step is seen as typing is.
-        ->toContain("input.dispatchEvent(new Event('input', { bubbles: true }))");
+        ->toContain("input.dispatchEvent(new Event('input', { bubbles: true }))")
+        // The number is typed straight in: focusing selects it, and the arrows step it.
+        ->toContain('title="Type a number, or step it with − and + or the arrow keys"')
+        ->toContain('x-on:focus="$el.select(); justFocused = true"')
+        ->toContain('x-on:keydown.arrow-up.prevent="step(1)"')
+        ->toContain('x-on:keydown.arrow-down.prevent="step(-1)"');
 });
 
 it('draws a switch as a real button with role switch, its state in words and a hint for each state', function () {

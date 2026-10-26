@@ -99,6 +99,25 @@ it('keeps Save waiting while the range cannot hold the active options, and says 
     expect(adminEditorTopBar($page))->toBe(['unsaved' => true, 'discard' => true, 'save' => false]);
 });
 
+it('takes a number typed straight into a stepper: a click selects it, typing replaces it, and the arrows step it', function () {
+    $page = visitAdminEditor("/admin/rating-groups/{$this->group->id}/edit");
+
+    $page->click('#rg-admin-rating-group-max');
+    waitForScript($page, "(() => { const input = document.getElementById('rg-admin-rating-group-max'); return input.selectionStart === 0 && input.selectionEnd === input.value.length })()");
+    $page->keys('#rg-admin-rating-group-max', ['8']);
+    waitForScript($page, "document.getElementById('rg-admin-rating-group-max').value", '8');
+    $page->keys('#rg-admin-rating-group-max', ['ArrowUp']);
+    waitForScript($page, "document.getElementById('rg-admin-rating-group-max').value", '9');
+    $page->keys('#rg-admin-rating-group-max', ['ArrowDown', 'ArrowDown']);
+    waitForScript($page, "document.getElementById('rg-admin-rating-group-max').value", '7');
+
+    waitForScript($page, "! document.querySelector('.rg-admin-topbar__editor .rg-admin-button--primary').disabled");
+    $page->click('.rg-admin-topbar__editor .rg-admin-button--primary');
+    waitForScript($page, "getComputedStyle(document.querySelector('.rg-admin-topbar__unsaved')).display === 'none'");
+
+    expect($this->group->fresh()->max_options)->toBe(7);
+});
+
 it('archives an option from its row menu after asking', function () {
     $sleepy = $this->group->options()->where('key', 'sleepy')->firstOrFail();
     $page = visitAdminEditor("/admin/rating-groups/{$this->group->id}/edit");
