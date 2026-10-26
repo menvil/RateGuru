@@ -199,15 +199,3 @@ it('does not break when created_at is missing', function () {
         ->toContain('No timestamp')
         ->not->toContain('<time');
 });
-
-it('marks a comment a persona wrote as an AI persona’s, and nobody else’s', function () {
-    $persona = User::factory()->persona()->create();
-    $byPersona = Comment::factory()->for($persona, 'user')->create(['status' => CommentStatus::Visible]);
-    $byMember = Comment::factory()->create(['status' => CommentStatus::Visible]);
-
-    expect(Blade::render('<x-comments.comment-item :comment="$comment" />', ['comment' => $byPersona]))
-        ->toContain('data-testid="persona-badge"')
-        ->toContain('AI persona')
-        ->and(Blade::render('<x-comments.comment-item :comment="$comment" />', ['comment' => $byMember]))
-        ->not->toContain('data-testid="persona-badge"');
-});

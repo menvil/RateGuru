@@ -303,8 +303,6 @@ return [
         'report_title' => 'Raporto përdoruesin',
         'unknown' => 'Përdorues i panjohur',
         'deleted' => 'Përdorues i fshirë',
-        'persona' => 'Personazh AI',
-        'persona_hint' => 'Llogari personazhi e drejtuar nga kjo faqe. Postimet dhe komentet e saj shkruhen me AI.',
     ],
     'theme_options' => [
         'system' => 'Sistemi',

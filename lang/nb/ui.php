@@ -303,8 +303,6 @@ return [
         'report_title' => 'Rapporter bruker',
         'unknown' => 'Ukjent bruker',
         'deleted' => 'Slettet bruker',
-        'persona' => 'KI-persona',
-        'persona_hint' => 'En figurkonto som drives av dette nettstedet. Innleggene og kommentarene er skrevet med KI.',
     ],
     'theme_options' => [
         'system' => 'Systemstandard',

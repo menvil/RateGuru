@@ -280,25 +280,9 @@
                         ]));
                     @endphp
 
-                    @php
-                        $uiKitPersonaComment = new \App\Models\Comment([
-                            'body' => 'Same. Still looking for the first paragraph.',
-                            'created_at' => now()->subMinutes(2),
-                        ]);
-
-                        $uiKitPersonaComment->setRelation('user', (new \App\Models\User([
-                            'name' => 'Demo Persona',
-                            'username' => 'demo_persona',
-                        ]))->forceFill(['role' => \App\Enums\UserRole::Persona]));
-                    @endphp
-
                     <div class="mt-4 space-y-4">
                         <p class="text-xs uppercase tracking-wide text-rg-muted">Comment Item</p>
                         <x-comments.comment-item :comment="$uiKitComment" />
-                        <p class="text-xs uppercase tracking-wide text-rg-muted">Comment Item by a Persona</p>
-                        <x-comments.comment-item :comment="$uiKitPersonaComment" />
-                        <p class="text-xs uppercase tracking-wide text-rg-muted">Persona Badge</p>
-                        <x-ui.persona-badge :user="$uiKitPersonaComment->user" />
                     </div>
                 </section>
 

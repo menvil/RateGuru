@@ -303,8 +303,6 @@ return [
         'report_title' => 'Raportează utilizatorul',
         'unknown' => 'Utilizator necunoscut',
         'deleted' => 'Utilizator șters',
-        'persona' => 'Persona AI',
-        'persona_hint' => 'Un cont de personaj administrat de acest site. Postările și comentariile sale sunt scrise cu ajutorul AI.',
     ],
     'theme_options' => [
         'system' => 'Sistem',

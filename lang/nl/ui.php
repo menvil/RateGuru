@@ -303,8 +303,6 @@ return [
         'report_title' => 'Gebruiker melden',
         'unknown' => 'Onbekende gebruiker',
         'deleted' => 'Verwijderde gebruiker',
-        'persona' => 'AI-persona',
-        'persona_hint' => 'Een personageaccount dat door deze site wordt beheerd. De berichten en reacties zijn met AI geschreven.',
     ],
     'theme_options' => [
         'system' => 'Systeem',

@@ -303,8 +303,6 @@ return [
         'report_title' => 'Anmeld bruger',
         'unknown' => 'Ukendt bruger',
         'deleted' => 'Slettet bruger',
-        'persona' => 'AI-persona',
-        'persona_hint' => 'En karakterkonto, som drives af dette site. Dens opslag og kommentarer er skrevet med AI.',
     ],
     'theme_options' => [
         'system' => 'System',

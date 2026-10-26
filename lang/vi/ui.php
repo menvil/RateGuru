@@ -303,8 +303,6 @@ return [
         'report_title' => 'Báo cáo người dùng',
         'unknown' => 'Người dùng không xác định',
         'deleted' => 'Người dùng đã bị xóa',
-        'persona' => 'Nhân vật AI',
-        'persona_hint' => 'Tài khoản nhân vật do trang này vận hành. Bài đăng và bình luận của tài khoản được viết bằng AI.',
     ],
     'theme_options' => [
         'system' => 'Hệ thống',

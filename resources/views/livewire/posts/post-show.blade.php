@@ -67,13 +67,12 @@
                             <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
 
-                        <div class="flex min-w-0 items-center gap-1 text-xs text-rg-muted">
+                        <div class="truncate text-xs text-rg-muted">
                             @if($post->user?->public_username)
-                                <span class="min-w-0 truncate">{{ '@' . $post->user->public_username }}</span>
+                                {{ '@' . $post->user->public_username }}
                             @endif
-                            <x-ui.persona-badge :user="$post->user" class="shrink-0" />
                             @if($post->published_at)
-                                <span class="shrink-0 whitespace-nowrap">{{ $post->user?->public_username ? '· ' : '' }}{{ $post->published_at->diffForHumans() }}</span>
+                                {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
                             @endif
                         </div>
                     </div>

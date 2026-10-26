@@ -10,15 +10,15 @@ Content Studio › Personas; a project's starting set is imported from a file
 discussion generation writes comments in Personas' voices
 (`docs/architecture/studio-plans.md`).
 
-## Marked as what they are
+## Like any account in public
 
-Wherever a Persona is named publicly — its profile, the author line of its
-posts in the feed, the drawer and the post's page, and its comments — it
-carries an **AI persona** badge (`x-ui.persona-badge`), with “A character
-account run by this site. Its posts and comments are written with AI.” as its
-title and for screen readers, in every language the site ships. Nothing else
-of the Persona is said: its profile stays internal, hidden from every
-serialisation of the account. Nobody else's account carries the badge.
+On the public site a Persona is an account like any other. Its profile, the
+author line of its posts in the feed, the drawer and the post's page, and its
+comments are drawn exactly as a member's, and nothing on any page — no badge,
+no label, no hint — says it is a Persona. Its profile stays internal, hidden
+from every serialisation of the account. Only administrators know which
+accounts are Personas, in Content Studio › Personas.
+`tests/Feature/Personas/PersonaPublicPresenceTest.php` keeps it so.
 
 ## Closed accounts
 
