@@ -1156,8 +1156,9 @@ Without it the innuendo, flirting and double meanings play on the situation,
 the post, wordplay and the commenters' own banter; with it the Personas may
 flirt with and compliment the people shown too — never demeaning, threatening
 or discriminating, English, plain text. The comments are typed like a forum
-thread, not written: mostly a few words to a line, slang where a Persona has
-it, nothing literary.
+thread, not written: most 2 to 12 words, a reply usually shorter than what it
+answers, hardly one in five past 20 words and none past 40, slang where a
+Persona has it, nothing literary, and never a Persona's backstory.
 
 What makes the conversation is said as fixed text too:
 

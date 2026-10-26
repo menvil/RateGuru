@@ -19,7 +19,7 @@ use App\Support\Posts\PostContentRules;
 final readonly class StudioPostTextSuggestions
 {
     /** The length a description is asked to keep to; the post's own limit is the hard one. */
-    public const DESCRIPTION_TARGET_CHARS = 300;
+    public const DESCRIPTION_TARGET_CHARS = 160;
 
     /**
      * How alike two texts in a list may be before they count as one: the

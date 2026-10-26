@@ -153,7 +153,12 @@ it('asks for a lively conversation of distinct voices: parts of its own for each
         ->toContain('A reply continues the exact comment it answers, and the replies before it in that thread')
         ->toContain('"Same. Still looking for the first paragraph." works')
         // Lengths and humour mixed, nothing repeated, nothing generic.
-        ->toContain('mostly a few words to one line — a two-word reaction, a one-liner — and now and then a two- or three-line comment')
+        ->toContain('two-word reactions, one-liners, and now and then a quip of two short sentences')
+        // Short, and about the photo and each other, never a persona's life story.
+        ->toContain('Keep every comment short: most are 2 to 12 words, a reply is usually shorter than what it answers, no more than one comment in five runs past 20 words, and none past 40')
+        ->toContain('A persona\'s way of speaking can make it terser, never longer')
+        ->toContain('no comment narrates its backstory, job, family, hobbies or habits, and none explains a joke')
+        ->not->toContain('1 to 1000 characters')
         // Typed on a forum, not written.
         ->toContain('Write the way people type on a forum, not the way a writer writes')
         ->toContain('Full, tidy sentences come only from the personas who write that way')
