@@ -149,11 +149,49 @@ it('draws the votes again from what is saved when opened again: counts, Personas
     postVotesEditor($this->plan)
         ->assertSet('postOn', true)->assertSet('up', 2)->assertSet('down', 1)
         ->assertSet('firstAfter', 1800)->assertSet('spreadOver', 21600)->assertSet('postMoments', [])
-        ->assertSet('voterMode', 'manual')->assertSet('voterIds', $voters)
+        ->assertSet('voterMode', 'random')->assertSet('voterCount', 4)->assertSet('voterIds', [])
         ->assertSet('ratings.'.$this->group->id.'.counts', [$this->answers[0]->id => $ratingCounts[$this->answers[0]->id] ?? 0, $this->answers[1]->id => $ratingCounts[$this->answers[1]->id] ?? 0])
-        ->assertSee('6 votes saved · +2 / −1 on the post · 3 answers');
+        ->assertSee('6 votes saved · +2 / −1 on the post · 3 answers')
+        ->assertDontSee('Not saved');
 
-    expect(array_sum($ratingCounts))->toBe(3);
+    expect(array_sum($ratingCounts))->toBe(3)
+        ->and($voters)->toHaveCount(3);
+});
+
+it('keeps the Personas voting in a random draw when opened again in another session, so one vote more is never short of them', function () {
+    postVotesEditor($this->plan)->set('voterCount', 2)->set('postOn', true)->set('up', 2)->assertHasNoErrors();
+    $voting = array_column(savedPostVotes($this->plan), 0);
+    session()->forget(StudioPlanPostVotesEditor::VOTERS_SESSION.'.'.$this->plan->id);
+
+    postVotesEditor($this->plan)->assertSet('voterMode', 'random')->assertSet('voterCount', 4)->assertSet('unsaved', false)
+        ->set('up', 3)->assertHasNoErrors()->assertSet('unsaved', false);
+
+    $now = array_column(savedPostVotes($this->plan), 0);
+
+    expect($now)->toHaveCount(3)
+        ->and(array_diff($voting, $now))->toBe([]);
+});
+
+it('chooses the voters by hand again when opened again in the session they were chosen in', function () {
+    postVotesEditor($this->plan)->set('voterMode', 'manual')->call('clearVoters')
+        ->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->boris->id)->call('toggleVoter', $this->carl->id)
+        ->set('postOn', true)->set('up', 1)->assertHasNoErrors();
+
+    postVotesEditor($this->plan)->assertSet('voterMode', 'manual')->assertSet('voterIds', [$this->anna->id, $this->boris->id, $this->carl->id])
+        ->assertSet('up', 1)->assertSet('unsaved', false);
+});
+
+it('draws more voters at random as the votes and answers ask for more, as far as there are Personas', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 2)->set('postOn', true)
+        ->set('up', 3)->assertHasNoErrors()->assertSet('voterCount', 3)
+        ->call('setRatingTotal', $this->group->id, 4)->assertHasNoErrors()->assertSet('voterCount', 4);
+
+    expect(savedPostVotes($this->plan))->toHaveCount(7);
+
+    // Five up votes are more than the four Personas but the author: all four are drawn, and the votes say how many short.
+    $editor->set('up', 5)->assertSet('voterCount', 4)->assertHasErrors(['post'])->assertSet('unsaved', true);
+
+    expect(savedPostVotes($this->plan))->toHaveCount(7);
 });
 
 it('says exactly how many Personas are short, saves nothing of it — cutting nothing to fit — and Discard goes back to the votes saved', function () {
@@ -373,12 +411,12 @@ it('asks before the step is left with a change not saved: discarded and on, or k
     $editor->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'next')
         ->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'next')->assertSet('leaving', null);
 
-    // Four up votes need four voters: three are drawn.
-    $editor->set('up', 4)->assertHasErrors(['post'])->assertSet('unsaved', true)
+    // Five up votes need five voters: there are four to draw.
+    $editor->set('up', 5)->assertHasErrors(['post'])->assertSet('unsaved', true)
         ->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'image')
         ->assertNotDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT)->assertSet('leaving', 'image')
         ->assertSee('Leave the post votes as saved?')->assertHasErrors(['post'])
-        ->call('stay')->assertSet('leaving', null)->assertSet('up', 4);
+        ->call('stay')->assertSet('leaving', null)->assertSet('up', 5);
 
     $editor->dispatch(StudioPlanPostVotesEditor::LEAVE_EVENT, step: 'image')->call('discardAndLeave')
         ->assertDispatched(StudioPlanDiscussionVotesEditor::STEP_EVENT, step: 'image')

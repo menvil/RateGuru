@@ -49,6 +49,27 @@ trait DrawsPersonaVotes
     }
 
     /**
+     * As many voters as asked for, drawn from the pool in the order the seed
+     * fixes — but while the saved votes are preferred, the Personas who cast
+     * them first, so a draw opened again, with a seed of its own, keeps them
+     * as long as it asks for as many voters as they are, or more.
+     *
+     * @param  list<int>  $pool
+     * @param  list<int>  $saved  the Personas with a saved vote
+     * @return list<int>
+     */
+    private static function randomVoters(array $pool, array $saved, int $count, int $seed, bool $keep): array
+    {
+        $drawn = self::drawn($pool, $seed, 'voters');
+
+        if ($keep) {
+            $drawn = [...array_values(array_intersect($drawn, $saved)), ...array_values(array_diff($drawn, $saved))];
+        }
+
+        return array_slice($drawn, 0, max(0, min($count, count($drawn))));
+    }
+
+    /**
      * Gives each choice its count of Personas: first the saved choices kept —
      * always on a choice no longer open, which nobody new may take, and on the
      * others while the saved votes are preferred — then the open choices

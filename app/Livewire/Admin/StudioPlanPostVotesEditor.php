@@ -38,18 +38,21 @@ use Livewire\Component;
  * option, and when, with the voters and the timeline those make.
  *
  * Every change is saved at once, as the prototype's draft changes with each
- * setting: the votes the settings ask for are made (BuildStudioPostVotesData)
- * and saved through SaveStudioVotesAction, a Persona keeping its saved vote
- * and its moment as far as the settings allow, so a change moves only what it
- * must. The votes on the discussion's comments are kept as the plan has them
- * at that moment; only the votes on the post and its rating questions are
- * replaced. A change that can't be made — too few Personas, a moment past
- * thirty days — is said where it is, and nothing is saved until it is fixed,
- * or Discard goes back to the votes saved. Each vote's moment is set by hand
- * on the Timing tab. Opened again, the editor draws the votes as they are
- * saved: their counts, their Personas, their options and their times, the
- * Personas as chosen by hand. Nothing is cast — prepared votes are no votes
- * on the site.
+ * setting — once for a request, however many settings it carries: the votes
+ * the settings ask for are made (BuildStudioPostVotesData) and saved through
+ * SaveStudioVotesAction, a Persona keeping its saved vote and its moment as
+ * far as the settings allow, so a change moves only what it must. Drawn at
+ * random, the voters grow with the votes and answers asked for. The votes on
+ * the discussion's comments are kept as the plan has them at that moment;
+ * only the votes on the post and its rating questions are replaced. A change
+ * that can't be made — too few Personas, a moment past thirty days — is said
+ * where it is, and nothing is saved until it is fixed, or Discard goes back
+ * to the votes saved. Each vote's moment is set by hand on the Timing tab.
+ * Opened again, the editor draws the votes as they are saved: their counts,
+ * their Personas, their options and their times, and the voters chosen as
+ * this session left them (VOTERS_SESSION) — or, with nothing kept, drawn at
+ * random, the Personas voting kept in the draw. Nothing is cast — prepared
+ * votes are no votes on the site.
  *
  * One version for the whole plan, as with the Discussion step: a save here
  * raises it and says so with `studio-plan-version-moved` from `post_votes`,
@@ -85,6 +88,13 @@ final class StudioPlanPostVotesEditor extends Component
 
     /** How many voters a random draw starts with, at most. */
     private const DEFAULT_VOTERS = 20;
+
+    /**
+     * Where how the voters are chosen — the mode, the Personas chosen, how
+     * many drawn — is kept in the session, by plan, so the editor opened
+     * again chooses them as it was left.
+     */
+    public const VOTERS_SESSION = 'rg-admin-studio-post-voters';
 
     /** The most Personas listed to choose from at once. */
     private const PERSONA_LIST = 50;
@@ -209,6 +219,13 @@ final class StudioPlanPostVotesEditor extends Component
     #[Locked]
     public bool $confirmingRemove = false;
 
+    /**
+     * Whether a setting changed on this request: the votes are saved once,
+     * as the request leaves them, before the editor is drawn — never once
+     * for each setting a request carries.
+     */
+    private bool $changed = false;
+
     public function boot(): void
     {
         abort_unless(Gate::allows('manage-studio-plans'), 403);
@@ -234,25 +251,28 @@ final class StudioPlanPostVotesEditor extends Component
 
     public function updatedPostOn(): void
     {
-        $this->commit();
+        $this->growVoters();
+        $this->change();
     }
 
     public function updatedUp(): void
     {
         $this->up = self::count($this->up);
-        $this->commit();
+        $this->growVoters();
+        $this->change();
     }
 
     public function updatedDown(): void
     {
         $this->down = self::count($this->down);
-        $this->commit();
+        $this->growVoters();
+        $this->change();
     }
 
     public function updatedVoterCount(): void
     {
         $this->voterCount = self::count($this->voterCount);
-        $this->commit();
+        $this->change();
     }
 
     /** Choose starts from the voters drawn, so switching to it changes no vote. */
@@ -264,7 +284,8 @@ final class StudioPlanPostVotesEditor extends Component
             $this->voterIds = $this->drawn !== [] ? $this->drawn : $this->savedVoters();
         }
 
-        $this->commit();
+        $this->growVoters();
+        $this->change();
     }
 
     public function updatedVotersFilter(): void
@@ -298,7 +319,8 @@ final class StudioPlanPostVotesEditor extends Component
 
         $weights = array_intersect_key($counts, array_flip($open));
         $this->ratings[$group]['counts'] = $closed + self::split($open, array_sum($weights) > 0 ? $weights : array_fill_keys($open, 1), $total);
-        $this->commit();
+        $this->growVoters();
+        $this->change();
     }
 
     /** Even split: the question's total spread over its open options as evenly as whole answers go, the rest to the first ones. */
@@ -319,7 +341,7 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         $this->ratings[$group]['counts'] = $even + array_map(fn (): int => 0, $this->ratings[$group]['counts']);
-        $this->commit();
+        $this->change();
     }
 
     /**
@@ -361,7 +383,7 @@ final class StudioPlanPostVotesEditor extends Component
 
         if ($counts !== $this->ratings[$group]['counts']) {
             $this->ratings[$group]['counts'] = $counts;
-            $this->commit();
+            $this->change();
         }
     }
 
@@ -387,7 +409,8 @@ final class StudioPlanPostVotesEditor extends Component
 
         if ($count !== $current) {
             $this->ratings[$group]['counts'][$option] = $count;
-            $this->commit();
+            $this->growVoters();
+            $this->change();
         }
     }
 
@@ -411,7 +434,7 @@ final class StudioPlanPostVotesEditor extends Component
 
         $field === 'first' ? $this->firstAfter = $seconds : $this->spreadOver = $seconds;
         $this->clearMoments();
-        $this->commit();
+        $this->change();
     }
 
     /**
@@ -455,7 +478,7 @@ final class StudioPlanPostVotesEditor extends Component
             ksort($this->ratings[$question]['moments']);
         }
 
-        $this->commit();
+        $this->change();
     }
 
     /** Chooses a Persona that may vote now, or takes one chosen away, whatever its status now. */
@@ -469,14 +492,14 @@ final class StudioPlanPostVotesEditor extends Component
 
         if (in_array($id, $this->voterIds, true)) {
             $this->voterIds = array_values(array_diff($this->voterIds, [$id]));
-            $this->commit();
+            $this->change();
 
             return;
         }
 
         if (! in_array($id, $this->authors(), true) && app(PersonasQuery::class)->active($id) !== null) {
             $this->voterIds[] = $id;
-            $this->commit();
+            $this->change();
         }
     }
 
@@ -488,13 +511,13 @@ final class StudioPlanPostVotesEditor extends Component
         $this->voterIds = array_diff($shown, $this->voterIds) === []
             ? array_values(array_diff($this->voterIds, $shown))
             : array_values(array_unique([...$this->voterIds, ...$shown]));
-        $this->commit();
+        $this->change();
     }
 
     public function clearVoters(): void
     {
         $this->voterIds = [];
-        $this->commit();
+        $this->change();
     }
 
     // ------------------------------------------------------------------
@@ -515,7 +538,7 @@ final class StudioPlanPostVotesEditor extends Component
         $this->seed = random_int(1, 2_147_483_647);
         $this->keepSaved = false;
         $this->clearMoments();
-        $this->commit();
+        $this->change();
     }
 
     /** Remove post votes asks first; the discussion's votes stay. */
@@ -547,6 +570,7 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         $this->savedFor = $this->settingsKey();
+        $this->rememberVoters();
         $this->toast('Post votes removed', 'success');
     }
 
@@ -675,22 +699,30 @@ final class StudioPlanPostVotesEditor extends Component
      * own: taken when it was written from the version this page holds, the
      * plan is at the version it says now, and its post votes are still the
      * ones this page last read or wrote. Any other move is somebody else's.
+     * Drawn again only for the post's own save — its author, its date — or a
+     * conflict: the discussion's writes change nothing drawn here.
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
         if ($source === self::SOURCE || ! is_numeric($planId) || (int) $planId !== $this->planId || ! is_numeric($previous) || ! is_numeric($current)) {
+            $this->drawnAgainIf(false);
+
             return;
         }
 
         [$previous, $current] = [(int) $previous, (int) $current];
 
         if ($current === $this->lockVersion) {
+            $this->drawnAgainIf(false);
+
             return;
         }
 
         if ($previous === $this->lockVersion && $current === $previous + 1 && $this->holdsSavedAt($current)) {
+            $author = $this->authorId;
             $this->take($current);
+            $this->drawnAgainIf($source === 'editor' || $this->authorId !== $author);
 
             return;
         }
@@ -698,8 +730,20 @@ final class StudioPlanPostVotesEditor extends Component
         $this->conflict = true;
     }
 
+    /** Draws the editor again only when something it shows changed, or a change of its own on this request is still to be saved. */
+    private function drawnAgainIf(bool $changed): void
+    {
+        if (! $changed && ! $this->changed) {
+            $this->skipRender();
+        }
+    }
+
     public function render(): View
     {
+        if ($this->changed) {
+            $this->commit();
+        }
+
         $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
         $questions = $this->questions();
         $saved = $plan !== null ? self::postVotesOf($plan) : [];
@@ -798,10 +842,7 @@ final class StudioPlanPostVotesEditor extends Component
             $this->ratings[$question['id']] = ['counts' => $counts, 'moments' => $moments[$place + 1]];
         }
 
-        $voters = $this->savedVoters($saved);
-        $this->voterMode = $voters !== [] ? 'manual' : 'random';
-        $this->voterIds = $voters;
-        $this->voterCount = $voters !== [] ? count($voters) : min(self::DEFAULT_VOTERS, $this->cap());
+        $this->restoreVoters($this->savedVoters($saved));
         $this->savedFor = $this->settingsKey();
 
         if ($this->leaveOutAuthor($saved)) {
@@ -871,6 +912,28 @@ final class StudioPlanPostVotesEditor extends Component
         return $plan !== null && $plan->lock_version === $version && hash_equals($this->votesFingerprint, self::fingerprintOf(self::postVotesOf($plan)));
     }
 
+    /** A setting changed: the votes are saved as the request leaves them (render()). */
+    private function change(): void
+    {
+        $this->changed = true;
+    }
+
+    /**
+     * Drawn at random, the voters are as many as the votes and answers asked
+     * for need, as far as there are Personas to draw: asking for more votes
+     * draws more voters rather than being refused. Chosen by hand, they are
+     * the ones chosen.
+     */
+    private function growVoters(): void
+    {
+        if ($this->voterMode !== 'random') {
+            return;
+        }
+
+        $need = max([$this->postOn ? $this->up + $this->down : 0, ...array_map(fn (array $rating): int => array_sum($rating['counts']), $this->ratings), 0]);
+        $this->voterCount = max($this->voterCount, min($need, $this->cap()));
+    }
+
     /**
      * Saves the votes the settings ask for now: made by
      * BuildStudioPostVotesData — a Persona keeping its saved vote and moment
@@ -881,6 +944,8 @@ final class StudioPlanPostVotesEditor extends Component
      */
     private function commit(): void
     {
+        $this->changed = false;
+
         if (! $this->writable()) {
             return;
         }
@@ -928,6 +993,44 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         $this->savedFor = $this->settingsKey();
+        $this->rememberVoters();
+    }
+
+    /**
+     * How the voters are chosen, as the session kept it for this plan
+     * (VOTERS_SESSION) — chosen by hand, the Personas voting now always among
+     * them — or else drawn at random: as many as a draw starts with, or as
+     * vote now if they are more, the Personas voting now kept in the draw
+     * (BuildStudioPostVotesData). Never the hand-chosen list of exactly those
+     * voting, which one vote more would be short of.
+     *
+     * @param  list<int>  $voting  the Personas the saved votes are given to
+     */
+    private function restoreVoters(array $voting): void
+    {
+        $kept = session(self::VOTERS_SESSION.'.'.$this->planId);
+        $kept = is_array($kept) ? $kept : [];
+
+        if (($kept['mode'] ?? null) === 'manual') {
+            $chosen = array_values(array_filter(array_map(intval(...), (array) ($kept['ids'] ?? [])), fn (int $id): bool => $id > 0));
+            $this->voterMode = 'manual';
+            $this->voterIds = array_values(array_unique([...$chosen, ...$voting]));
+            $this->voterCount = is_int($kept['count'] ?? null) ? self::count($kept['count']) : count($this->voterIds);
+
+            return;
+        }
+
+        $this->voterMode = 'random';
+        $this->voterIds = [];
+        $this->voterCount = min($this->cap(), max(count($voting), is_int($kept['count'] ?? null) ? self::count($kept['count']) : self::DEFAULT_VOTERS));
+    }
+
+    /** How the voters are chosen, kept in the session for this plan (VOTERS_SESSION) as the votes saved were made. */
+    private function rememberVoters(): void
+    {
+        if ($this->planId !== 0) {
+            session()->put(self::VOTERS_SESSION.'.'.$this->planId, ['mode' => $this->voterMode, 'ids' => $this->voterIds, 'count' => $this->voterCount]);
+        }
     }
 
     /**

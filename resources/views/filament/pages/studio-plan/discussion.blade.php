@@ -3,18 +3,20 @@
     the post is to get, written by hand or by AI, each change written at once —
     and the votes on them (StudioPlanDiscussionVotesEditor): its Comment voters
     and Comment votes beside the Discussion settings, each comment's breakdown
-    beside the tree with Save votes, its voters on the tree's Voters tab and
-    its votes in time on the Timing tab. Drawn once for the plan and kept for as long as its editor is
-    open — hidden on the other steps, never drawn again — so its settings, and
-    a generation it waits for, survive moving between steps. A new publication
+    beside the tree, its voters on the tree's Voters tab and its votes in time
+    on the Timing tab, each change saved at once. Drawn once for the plan and
+    kept for as long as its editor is open — hidden on the other steps, never
+    drawn again — so its settings, and a generation it waits for, survive
+    moving between steps; coming back to the step, the discussion's editor
+    looks again at what Generate tree waited for. A new publication
     has no plan to keep a discussion on until its Draft is made; the step says
     so, and the editor appears by itself once there is one.
 
     The `rgCommentVotes` store carries the comment votes as set on the step to
     the parts of the page drawn by others: each comment's counts on the tree,
     the comment whose breakdown is open, all of them in a few words for the
-    Generate strip, and whether anything is unsaved, which the step's Back,
-    Continue and steps ask about before leaving — and, from the discussion
+    Generate strip, and whether a change can't be saved, which the step's
+    Back, Continue and steps ask about before leaving — and, from the discussion
     editor, whether a generation is on its way, while which the Timing tab
     moves no comment. Registered
     once, before Alpine starts; a re-render keeps the registration.
