@@ -51,13 +51,17 @@ it('holds a hundred personas for Tits Guru', function () {
 });
 
 it('writes Tits Guru’s personas as men, two of them as women', function () {
+    // Who a persona is written as, from the pronouns that open the sentences
+    // of its character — the persona itself, never somebody it mentions in
+    // passing — and only when every one of them says the same.
     $written = array_map(function (PersonaData $persona): string {
-        preg_match('/\b(he|she|they)\b/i', (string) $persona->character, $pronoun);
+        preg_match_all('/(?:^|[.!?;:]\s+)(He|His|Him|She|Her|Hers)\b/', (string) $persona->character, $pronouns);
+        $as = array_values(array_unique(array_map(fn (string $pronoun): string => in_array($pronoun, ['She', 'Her', 'Hers'], true) ? 'she' : 'he', $pronouns[1])));
 
-        return mb_strtolower($pronoun[1] ?? 'none');
+        return count($as) === 1 ? $as[0] : 'unclear';
     }, personaSets()['tits-guru.json']);
 
-    expect(array_count_values($written))->toBe(['he' => 98, 'she' => 2]);
+    expect(array_count_values($written))->toEqual(['he' => 98, 'she' => 2]);
 });
 
 it('gives nine in ten Tits Guru usernames as one word, as forum regulars pick them', function () {
