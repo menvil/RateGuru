@@ -1215,6 +1215,7 @@
         border-color: var(--rg-admin-status-danger-fg);
     }
 
+    /* The buttons on a grey ground, the number on white: a field to type in */
     .rg-admin-stepper__button {
         display: grid;
         place-items: center;
@@ -1222,13 +1223,13 @@
         width: 36px;
         padding: 0;
         border: 0;
-        background: transparent;
+        background: var(--rg-admin-surface-sunken);
         color: var(--rg-admin-text-secondary);
         cursor: pointer;
     }
 
     .rg-admin-stepper__button:hover {
-        background: var(--rg-admin-surface-hover);
+        background: var(--rg-admin-surface-pill);
     }
 
     .rg-admin-stepper__button:focus-visible {
@@ -1247,12 +1248,13 @@
         border-right: 1px solid var(--rg-admin-border-default);
         border-left: 1px solid var(--rg-admin-border-default);
         outline: none;
-        background: transparent;
+        background: var(--rg-admin-surface-card);
         color: var(--rg-admin-text-strong);
         font-family: var(--rg-admin-font-sans);
         font-size: var(--rg-admin-text-body);
         font-variant-numeric: tabular-nums;
         text-align: center;
+        cursor: text;
     }
 
     /* FRM-06 · Switch: 36×20 track, 16 knob; ink on, gray-300 off */
