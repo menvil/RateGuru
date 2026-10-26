@@ -6583,12 +6583,34 @@
         gap: 2px;
     }
 
+    /* An option's answers: a small field to type in, between its minus and plus */
     .rg-admin-studio__votes-count {
-        min-width: 28px;
+        width: 44px;
+        height: 28px;
+        margin: 0;
+        padding: 0 4px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
         font-size: var(--rg-admin-text-ui);
         font-weight: var(--rg-admin-weight-medium);
         text-align: center;
         font-variant-numeric: tabular-nums;
+        cursor: text;
+    }
+
+    .rg-admin-studio__votes-count:focus {
+        outline: none;
+        border-color: var(--rg-admin-focus-ring);
+        box-shadow: var(--rg-admin-focus-halo);
+    }
+
+    .rg-admin-studio__votes-count:disabled {
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+        cursor: default;
     }
 
     /* The Voters tab: search, filter, and every voter with its vote and answers. */
