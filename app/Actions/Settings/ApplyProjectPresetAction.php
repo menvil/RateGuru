@@ -162,8 +162,8 @@ class ApplyProjectPresetAction
                     'description_translations' => $descriptionTranslations,
                     'sort_order' => $groupData['sort_order'] ?? 10,
                     'is_active' => true,
-                    'min_options' => 2,
-                    'max_options' => 10,
+                    'min_options' => RatingGroup::FEWEST_OPTIONS,
+                    'max_options' => RatingGroup::MOST_OPTIONS,
                 ],
             );
 

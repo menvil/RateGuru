@@ -82,6 +82,17 @@ it('creates a usable generic rating configuration on an empty project', function
         ->and(Category::query()->active()->count())->toBe(3);
 });
 
+it('gives every rating group a preset makes the widest range a group may have, so none starts with more active options than it allows', function () {
+    app(ApplyProjectPresetAction::class)->handle('breasts');
+
+    $cupSize = RatingGroup::query()->where('key', 'cup_size')->sole();
+
+    expect(RatingGroup::query()->pluck('max_options')->unique()->all())->toBe([RatingGroup::MOST_OPTIONS])
+        ->and(RatingGroup::query()->pluck('min_options')->unique()->all())->toBe([RatingGroup::FEWEST_OPTIONS])
+        ->and($cupSize->options()->active()->count())->toBe(11)
+        ->and($cupSize->hasRoomForActiveOption(11))->toBeTrue();
+});
+
 it('creates the settings singleton with id one after the sequence has advanced', function () {
     $attributes = ProjectSettings::factory()->raw();
     unset($attributes['id']);

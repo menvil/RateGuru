@@ -16,7 +16,7 @@ class RatingGroup extends Model
     public const FEWEST_OPTIONS = 2;
 
     /** The most active options any group's range may allow: the vote form stays short. */
-    public const MOST_OPTIONS = 10;
+    public const MOST_OPTIONS = 15;
 
     protected $fillable = [
         'key',

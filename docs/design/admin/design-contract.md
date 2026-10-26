@@ -923,11 +923,11 @@ navigation item, the policy and global search, whose results open a group's edit
   own. Save also waits while the draft's range cannot hold the group's active options and the group would be active.
 - **Group card (LAY-02):** “English reference text.”; Key (FRM-04) — made from the label on create until typed,
   then “Fixed after creation”, with nothing to unlock it; Label (“English · reference”); Description (FRM-03,
-  counted to its translation limit); Minimum and Maximum active options (FRM-05, 2 to 10) and Sort order; Active
+  counted to its translation limit); Minimum and Maximum active options (FRM-05, 2 to 15) and Sort order; Active
   (FRM-06), unavailable on a new group, which has no options yet. Minimum, Maximum and Active are sent as they
   change, so their errors — “3 options are active, fewer than this minimum.”, “3 options are active. Deactivate or
   archive 1 first.”, “Minimum can’t be higher than the maximum.” — show before Save.
-- **Active options check:** the slots at editor size (STS-04, up to 10) for the draft's range, “3 active · 2–4
+- **Active options check:** the slots at editor size (STS-04, up to 15) for the draft's range, “3 active · 2–4
   allowed”, and a notice: valid with room for n more (success), at the maximum (info), or outside the range
   (warning — saving blocked while the group would be active, otherwise what to do before activating it).
 - **Translations of this group:** each offered language besides English with “Label and description”, “Description
@@ -1499,8 +1499,8 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
 | Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | Categories and Tags: the drawer's one destructive action replaces it; an editor's drawer keeps its confirmations over it |
 | Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
-| Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 10 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
-| Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 10 | the limits the content had before the redesign, which its translations are held to |
+| Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 15 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
+| Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 15 | the limits the content had before the redesign, which its translations are held to |
 | Rating group Delete | a group without votes can be deleted | unavailable: “Groups are kept · deactivate instead” | a group is never deleted; deactivating keeps its votes and its place in results |
 | Rating group and option hints | “Shown as the question above the options on post pages”, “Tooltip on the vote button. Also given to AI translation as context.” | “What the group asks voters about.”, “What a vote for this option means.” | descriptions are not shown on post pages; the hint says what they are |
 | Group card translations note | “English reference text. Translations are managed in Translation Center.” | “English reference text.” | as on Categories and Tags: Translation Center is already the one editor of translations |
