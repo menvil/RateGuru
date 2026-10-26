@@ -226,3 +226,18 @@ it('asks before the step is left with its comment votes not saved, and goes on o
 
     expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VoteComment)->count())->toBe(1);
 });
+
+it('picks the discussion’s tone among its settings, saying it in the Generate strip, whole at every width', function (int $width) {
+    $page = visitDiscussionVotes($this->plan, $width);
+    $tones = "[...document.querySelectorAll('.rg-admin-studio__discussion .rg-admin-studio__tone')]";
+    $chosen = "document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__tone[aria-pressed=\"true\"]').textContent.trim()";
+
+    expect($page->script("{$tones}.map((tone) => tone.textContent.trim())"))->toBe(['Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
+        ->and($page->script($chosen))->toBe('Cheeky')
+        ->and($page->script("{$tones}.every((tone) => tone.getBoundingClientRect().right <= document.documentElement.clientWidth)"))->toBeTrue()
+        ->and($page->script('document.documentElement.scrollWidth > window.innerWidth'))->toBeFalse();
+
+    $page->script("{$tones}.find((tone) => tone.textContent.trim() === 'Spicy / Adult humour').click()");
+    waitForScript($page, $chosen, 'Spicy / Adult humour');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__generate-summary').textContent.includes('· Spicy / Adult humour')");
+})->with([1440, 390]);

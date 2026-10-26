@@ -382,6 +382,36 @@ it('waits for the whole tree another tab asked for when a comment is asked to be
     Http::assertSentCount(1);
 });
 
+it('offers the tones, the site’s own chosen first, and asks for a tree — or a comment written again — in the one chosen', function () {
+    $editor = discussionEditor($this->plan)
+        ->assertSeeInOrder(['Tone', 'Playful', 'Humour', 'Cheeky', 'Spicy / Adult humour', 'Irony', 'Neutral'])
+        ->assertSet('tone', StudioPostTextTone::DEFAULT->value)
+        ->assertSee('· Cheeky')
+        ->set('tone', 'spicy')
+        ->assertSee('Grown-up, flirty and saucy — clever innuendo, never graphic.')
+        ->assertSee('2 personas · Spicy / Adult humour');
+
+    $editor->call('generateTree', 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole()->parameters['tone'])->toBe('spicy');
+
+    // A part written again is asked in the tone chosen too.
+    StudioPlanDiscussionGeneration::query()->delete();
+    $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
+    discussionEditor($this->plan)->set('tone', 'irony')->call('regenerate', $saved->ids['a'], 0);
+
+    expect(StudioPlanDiscussionGeneration::query()->sole())
+        ->mode->toBe(StudioDiscussionGenerationMode::RegenerateComment)
+        ->parameters->toMatchArray(['tone' => 'irony']);
+});
+
+it('opens with the tone the last whole tree was asked in, and takes nothing that is no tone', function () {
+    discussionEditor($this->plan)->set('tone', 'spicy')->call('generateTree', 0);
+
+    discussionEditor($this->plan)->assertSet('tone', 'spicy')
+        ->set('tone', 'shouty')->assertSet('tone', StudioPostTextTone::DEFAULT->value);
+});
+
 it('waits for the comment another tab asked to write again when a whole tree is asked for, replacing nothing else', function () {
     $saved = savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
     $before = storedStudioDiscussionNodes($this->plan);
