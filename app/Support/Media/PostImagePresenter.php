@@ -43,12 +43,17 @@ final class PostImagePresenter
      * fullscreen's modal is `sm:max-w-[min(96vw,1200px)]`
      * (components/ui/modal.blade.php). These are measured, not copied
      * verbatim from any illustrative example.
+     *
+     * Each is the slot by media condition, the last unconditional. sizes()
+     * caps every slot at the widest file the srcset offers: with `w`
+     * descriptors a browser draws the image as wide as its slot, so a photo
+     * narrower than the slot would be stretched past its own pixels.
      */
     private const array SIZES = [
-        'feed' => '(max-width: 639px) 100vw, 820px',
-        'drawer' => '(max-width: 1023px) 100vw, min(70vw, 960px)',
-        'standalone' => '(max-width: 639px) 100vw, 820px',
-        'fullscreen' => '(max-width: 639px) 100vw, min(96vw, 1200px)',
+        'feed' => ['(max-width: 639px)' => '100vw', '' => '820px'],
+        'drawer' => ['(max-width: 1023px)' => '100vw', '' => 'min(70vw, 960px)'],
+        'standalone' => ['(max-width: 639px)' => '100vw', '' => '820px'],
+        'fullscreen' => ['(max-width: 639px)' => '100vw', '' => 'min(96vw, 1200px)'],
     ];
 
     public function __construct(
@@ -187,17 +192,33 @@ final class PostImagePresenter
             // width cannot be weighed against the detail variant, so the master
             // simply is not offered.
             if ($detail !== null && $asset->width !== null && $asset->width <= $detail->width * self::FULLSCREEN_MASTER_INCLUDE_RATIO) {
-                $srcsetEntries[] = "{$masterUrl} {$asset->width}w";
+                $srcsetEntries[$masterUrl] = $asset->width;
             }
         }
 
         return new ResponsiveImage(
             src: $srcUrl,
-            srcset: $srcsetEntries === [] ? null : implode(', ', $srcsetEntries),
-            sizes: $srcsetEntries === [] ? null : self::SIZES[$context->value],
+            srcset: $srcsetEntries === [] ? null : implode(', ', array_map(fn (string $url, int $width): string => "{$url} {$width}w", array_keys($srcsetEntries), $srcsetEntries)),
+            sizes: $srcsetEntries === [] ? null : self::sizes($context, max($srcsetEntries)),
             width: $chosen->width,
             height: $chosen->height,
         );
+    }
+
+    /**
+     * The context's slots (SIZES), each no wider than the widest file
+     * offered: a photo is never drawn past its own pixels, however small it
+     * was uploaded, and one wider than the slot keeps the slot as it is.
+     */
+    private static function sizes(PostImageContext $context, int $widest): string
+    {
+        $slots = [];
+
+        foreach (self::SIZES[$context->value] as $media => $slot) {
+            $slots[] = ltrim("{$media} min({$slot}, {$widest}px)");
+        }
+
+        return implode(', ', $slots);
     }
 
     /**
@@ -322,9 +343,11 @@ final class PostImagePresenter
     }
 
     /**
+     * Each variant offered, by its URL, with its width.
+     *
      * @param  Collection<string, MediaVariant>  $variants
      * @param  list<MediaVariantName>  $names
-     * @return list<string>
+     * @return array<string, int>
      */
     private function srcsetEntries(Collection $variants, array $names, MediaVisibility $visibility): array
     {
@@ -338,7 +361,7 @@ final class PostImagePresenter
             }
 
             $url = $this->resolver->publicUrl(new MediaLocation($variant->disk, $variant->path), $visibility);
-            $entries[] = "{$url} {$variant->width}w";
+            $entries[$url] = $variant->width;
         }
 
         return $entries;
