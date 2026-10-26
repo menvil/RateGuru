@@ -109,20 +109,24 @@ it('counts a persona another run made meanwhile as here already, and fails one w
         ->and(importFinishedLog())->toBe(['created' => 1, 'unchanged' => 1, 'conflicts' => 0, 'failed' => 1, 'not_attempted' => 0]);
 });
 
-it('fails a persona the rules refuse, saying why, and goes on with the others', function () {
+it('fails a persona the rules refuse, saying why — its username too — and goes on with the others', function () {
     Log::spy();
     $plan = app(ImportPersonasAction::class)->plan([
         importedPersona('too_long_a_bio', ['bio' => str_repeat('a', 501)]),
+        importedPersona('Not A Username!'),
         importedPersona('perfectly_fine'),
     ]);
 
     $report = app(ImportPersonasAction::class)->handle($this->admin, $plan);
 
     expect($report->created)->toBe(['perfectly_fine'])
-        ->and($report->failed)->toBe(['too_long_a_bio' => 'Keep the bio to 500 characters or fewer.'])
+        ->and($report->failed)->toBe([
+            'too_long_a_bio' => 'Keep the bio to 500 characters or fewer.',
+            'Not A Username!' => 'Use lowercase letters, numbers and underscores.',
+        ])
         ->and($report->finished())->toBeFalse()
-        ->and(User::query()->where('username', 'too_long_a_bio')->exists())->toBeFalse()
-        ->and(importFinishedLog())->toBe(['created' => 1, 'unchanged' => 0, 'conflicts' => 0, 'failed' => 1, 'not_attempted' => 0]);
+        ->and(User::query()->whereIn('username', ['too_long_a_bio', 'Not A Username!'])->exists())->toBeFalse()
+        ->and(importFinishedLog())->toBe(['created' => 1, 'unchanged' => 0, 'conflicts' => 0, 'failed' => 2, 'not_attempted' => 0]);
 });
 
 it('leaves the plan’s conflicts out of what it creates, and reports them', function () {
