@@ -67,10 +67,13 @@ it('runs within the queue\'s timings, once, failing on its timeout', function ()
     $job = new GenerateStudioDiscussionJob(1, 'attempt');
 
     expect($job->tries)->toBe(1)
-        ->and($job->timeout)->toBe(75)
+        ->and($job->timeout)->toBe(80)
         ->and($job->failOnTimeout)->toBeTrue()
-        ->and($job->timeout)->toBeLessThan(config('queue.connections.redis.retry_after'))
-        ->and(config('content_studio.discussion_generation.timeout'))->toBeLessThan($job->timeout);
+        // Stopped with a margin before Redis could hand the job to another worker.
+        ->and($job->timeout)->toBeLessThanOrEqual(config('queue.connections.redis.retry_after') - 10)
+        // A whole tree takes OpenAI half a minute or more: the request may take more than twice that.
+        ->and(config('content_studio.discussion_generation.timeout'))->toBe(70)
+        ->and(config('content_studio.discussion_generation.connect_timeout') + config('content_studio.discussion_generation.timeout'))->toBeLessThan($job->timeout);
 });
 
 it('writes a whole discussion and keeps it as a proposal with the call\'s metadata, the plan and its discussion untouched', function () {

@@ -1283,7 +1283,7 @@ proposal was written; `applied_at` says it was taken in.
   the plan can no longer take in stays as history and stands in the way of
   nothing. One on its way longer than `stale_after_seconds` is ended as lost.
 - `GenerateStudioDiscussionJob` carries the generation's id and attempt id only;
-  `tries` 1, `timeout` 75, `failOnTimeout`, the request's own timeout 45 s. It
+  `tries` 1, `timeout` 80, `failOnTimeout`, the request's own timeout 70 s. It
   claims its generation first (`StartStudioDiscussionGenerationAction`): only a
   queued one with that attempt id is claimed, so a job delivered twice sends
   nothing. It sends nothing unless the plan is still a Draft with the same
@@ -1351,7 +1351,7 @@ analysis.
 The key, model, base URL and switch are photo analysis's
 (`content_studio.image_analysis`): one Content Studio integration, never
 Translation AI's key. `content_studio.discussion_generation` holds the rest:
-`connect_timeout` 5, `timeout` 45, `max_output_tokens` 8000,
+`connect_timeout` 5, `timeout` 70, `max_output_tokens` 8000,
 `stale_after_seconds` 180, `max_nodes` 40, `max_personas` 8. Switched off, a
 discussion is still written and saved by hand.
 
@@ -2192,7 +2192,7 @@ photo, an analysis and an author's voice still with that hash, still
 configured — and sends the request with no transaction open. An author changed,
 or one whose profile changed, before the job ran ends the batch
 (`stale_analysis`) without a paid call. Its timings nest inside the queue's: request
-45 s, job 75 s (`tries = 1`, `failOnTimeout`), Redis `retry_after` 90 s. It is
+70 s, job 80 s (`tries = 1`, `failOnTimeout`), Redis `retry_after` 90 s. It is
 never retried: whether to try again is the administrator's choice.
 
 `CompleteStudioPostTextGenerationAction` locks the plan, then the analysis row,
@@ -2237,7 +2237,7 @@ texts in `content_studio.post_text_generation`, config only:
 | Setting | Default |
 | --- | --- |
 | `batch_size` | 10 |
-| `connect_timeout`, `timeout` | 5 s, 45 s |
+| `connect_timeout`, `timeout` | 5 s, 70 s |
 | `max_output_tokens` | 4000 |
 | `stale_after_seconds` | 180 |
 

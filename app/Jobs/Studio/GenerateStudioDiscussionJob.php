@@ -22,7 +22,7 @@ use Throwable;
  *
  * It carries only the generation's id and attempt id — no Persona, no
  * analysis, no discussion and no key — and its timings nest as photo
- * analysis's do: the provider's 45 s inside this job's 75 s, inside the Redis
+ * analysis's do: the provider's 70 s inside this job's 80 s, inside the Redis
  * queue's 90 s retry_after. Exactly once, at most: the job claims its
  * generation before anything else (StartStudioDiscussionGenerationAction),
  * and only a queued generation with that attempt id can be claimed, so a job
@@ -45,7 +45,7 @@ final class GenerateStudioDiscussionJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 75;
+    public int $timeout = 80;
 
     public bool $failOnTimeout = true;
 

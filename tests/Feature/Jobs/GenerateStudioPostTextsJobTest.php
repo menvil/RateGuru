@@ -41,8 +41,13 @@ it('runs within the queue\'s timings, once, failing on its timeout', function ()
     $job = new GenerateStudioPostTextsJob(1, 'attempt');
 
     expect($job->tries)->toBe(1)
-        ->and($job->timeout)->toBe(75)
-        ->and($job->failOnTimeout)->toBeTrue();
+        ->and($job->timeout)->toBe(80)
+        ->and($job->failOnTimeout)->toBeTrue()
+        // Stopped with a margin before Redis could hand the job to another worker.
+        ->and($job->timeout)->toBeLessThanOrEqual(config('queue.connections.redis.retry_after') - 10)
+        // A batch of texts takes OpenAI up to half a minute: the request may take more than twice that.
+        ->and(config('content_studio.post_text_generation.timeout'))->toBe(70)
+        ->and(config('content_studio.post_text_generation.connect_timeout') + config('content_studio.post_text_generation.timeout'))->toBeLessThan($job->timeout);
 });
 
 it('writes the batch and keeps ten titles and ten descriptions with the call\'s metadata, the plan untouched', function () {

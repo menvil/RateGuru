@@ -67,10 +67,11 @@ return [
         // Titles, and descriptions, in one batch: one request returns both.
         'batch_size' => 10,
 
-        // Seconds, nested inside the job's 75 s timeout and the Redis queue's
-        // 90 s retry_after, as photo analysis's are.
+        // Seconds, nested inside the job's 80 s timeout and the Redis queue's
+        // 90 s retry_after. Longer than photo analysis's: a batch of texts
+        // takes OpenAI up to half a minute, a slow moment more.
         'connect_timeout' => 5,
-        'timeout' => 45,
+        'timeout' => 70,
 
         // Twenty texts with the JSON around them; a batch that would need more
         // comes back incomplete, and is refused as such.
@@ -93,10 +94,11 @@ return [
     // analysis's above: one Content Studio integration, switched on and off
     // as one. Only what is particular to writing a discussion is here.
     'discussion_generation' => [
-        // Seconds, nested inside the job's 75 s timeout and the Redis queue's
-        // 90 s retry_after, as photo analysis's are.
+        // Seconds, nested inside the job's 80 s timeout and the Redis queue's
+        // 90 s retry_after. Longer than photo analysis's: a whole tree is the
+        // longest answer Content Studio asks for, half a minute or more.
         'connect_timeout' => 5,
-        'timeout' => 45,
+        'timeout' => 70,
 
         // Forty comments with the JSON around them; a discussion that would
         // need more comes back incomplete, and is refused as such.
