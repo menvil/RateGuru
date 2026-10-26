@@ -1070,11 +1070,14 @@ Action queue. Every write goes through the plan's actions (`docs/architecture/st
     Save draft.
   - **Post:** laid out as the prototype's Titles & texts. First, AI text suggestions, a component of its own about
     the saved photo, in three cards side by side until they no longer fit. Context: the photo, the analysis's
-    summary under Photo analysis, Tone of new variants (Playful, Humour, Cheeky — chosen at first —, Irony,
-    Neutral; toggle buttons whose choice changes nothing until the next batch, a choice other than the tone the
-    lists were written in said in the hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10
-    descriptions — a paid call.”; then Generate 10 more — Generate 10 in the tone chosen, when it is another —, or
-    Try again after a failure. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
+    summary under Photo analysis, Author’s voice — the saved author's name and short description, or “No author:
+    the texts are written as the site’s own.”, and, while another author is chosen and not saved, “Another author is
+    chosen: generating saves the draft first, so the texts are written in the new author’s voice.” —, Tone of new
+    variants (Playful, Humour, Cheeky — chosen at first —, Spicy / Adult humour, Irony, Neutral; toggle buttons whose
+    choice changes nothing until the next batch, a choice other than the tone the lists were written in said in the
+    hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10 descriptions — a paid call.”; then
+    Generate 10 more — Generate 10 in the tone chosen, when it is another —, or Try again after a failure. With
+    another author chosen, Generate saves the draft first and asks once it is saved. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
     analysis as they are now under “Set n · written in tone”, numbered; choosing one puts it in Final title or
     Final description as typing would — unsaved, counted in the top bar, editable, saved only by Save draft — and
     marks it in use. A new batch takes the place of the one before: while it is on its way both cards wait for it
@@ -1084,7 +1087,7 @@ Action queue. Every write goes through the plan's actions (`docs/architecture/st
     Until the photo's analysis is complete, “Text suggestions will be available when photo analysis is
     complete.”; with no photo, “Add a photo on the Image step first: suggestions are written from its analysis.”;
     unconfigured, “Text suggestions are not configured.”, the step working as before. Batches written for an
-    earlier photo or analysis are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
+    earlier photo, analysis or author's voice are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
     counter), Final description (up to 2,000) and Post author side by side — the persona chosen on a trigger, the
     living personas found on the server in a panel under it (a restricted one with “This persona cannot publish
     while restricted.”) —, then Source URL, never the link a photo is imported from. Last, Category and tags — the
@@ -1099,8 +1102,11 @@ Action queue. Every write goes through the plan's actions (`docs/architecture/st
     current tree. Generate again to reshuffle.”, or Manual, every active persona matching “Search by login or name”
     checked one by one, with “n of n active personas selected · up to 8 take part”, Select all (Select n shown while
     searching, Select first 8 when more are shown than take part), Clear and the chosen ones as removable chips; a
-    persona restricted after it was checked stays checked but takes no part. Then a strip of its own, “Generate from the settings above”, with what they ask for (“14 comments · 5
-    top-level · 6 personas”, or “No discussion · the post publishes without automated comments”), a hint — “Select at
+    persona restricted after it was checked stays checked but takes no part; and Tone — the six tones of the Post
+    step's suggestions as toggle buttons, Cheeky chosen at first, then the one last set for the plan, or else the one
+    the last whole tree was asked in, the
+    tone's hint under them — asked of every generation, a whole tree or a part written again. Then a strip of its own, “Generate from the settings above”, with what they ask for (“14 comments · 5
+    top-level · 6 personas · Cheeky”, or “No discussion · the post publishes without automated comments”), a hint — “Select at
     least one persona.”, why generation waits, “The tree has comments. You’ll be asked before it’s replaced.”, or “One
     request to OpenAI — a paid call.” — and Generate tree, or Regenerate tree once there is one. It waits while the
     post has unsaved changes or a generation is on its way; a tree that would replace comments asks “Replace the
@@ -1571,6 +1577,7 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | the same, Review and confirm disabled while the approval preflight finds anything and held back with anything unsaved on the page, each said in the footer; Continue waits only for a photo on its way | approval publishes the plan as it is saved, and only once nothing stops it; no step is locked by an incomplete draft |
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
+| Tones and the author's voice | five tones, on the Post step only; suggestions with no author; Discussion settings without a tone | a sixth tone, Spicy / Adult humour, never chosen at first; the same six in Discussion settings, the tone the last whole tree was asked in chosen on opening; the suggestions written in the saved author's voice, said under Author’s voice, Generate saving the draft first while another author is chosen | adult humour is an administrator's explicit choice for a post they know to be for adults; a post's texts appear under its author's name, so they are written as the author writes |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
 | Votes tab and Discussion | post votes, voters, timing; Comment votes and Comment voters cards, Comment votes and Voters tabs, priorities Normal, High and Main with a total, a positive share and distribution modes, a reply to a reply | post votes, voters and timing on Post · Votes, saved as each setting moves, every active rating question on, each voter voting and answering in one visit, and every vote listed on its Timing tab with its moment changed in place; the Comment voters and Comment votes cards beside the Discussion settings, each comment of the tree with its up and down votes as set, "Not saved" while they differ from the saved ones, and See breakdown opening the comment's votes, priority, timing and voters beside the tree; the tree's Comments, Voters and Timing tabs, Timing listing every comment, reply and vote in one list by its time, each moment changed in place, a comment moved taking its votes along; the comment votes said in the Generate strip with "Not saved"; priorities Low, Normal and High, Total up and Total down always what the comments' votes add up to, a total changed giving or taking only the difference by priority, one timing after each comment or one of a comment's own; the votes made at once, kept by Save votes in a comment's breakdown, and the step left with them unsaved only after asking, what changed listed; a reply answers a comment on the post; Generate writes from saved texts only | a vote is one Persona's on one target, so up and down are set as counts of Personas and saved exactly as shown; a discussion has two levels |
 | Publication step | overdue actions with Run overdue now, Spread from now and Skip overdue, an action plan, and a note that real timestamps are never backdated | the mode, the date, what is overdue said as a count with no choice, Ready to approve?, the final card and the action plan — a preview of what approval writes, then the plan's own actions as they run | every action whose moment has passed runs as soon as the plan is approved, keeping its planned date — the post, its comments and votes take the plan's dates as their own (H1); spreading or skipping them would contradict that, and the note would not be true |

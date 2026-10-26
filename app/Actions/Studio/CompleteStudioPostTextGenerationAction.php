@@ -20,9 +20,11 @@ use Illuminate\Support\Facades\DB;
  * In one transaction, in the project's locking order: the plan, its photo
  * analysis, then the batch. The texts are kept only when the plan is still
  * there and still a Draft, its photo is still the one the batch was written
- * for and its analysis still the one it was written from (the hash), and
- * the batch is still running. A photo or an analysis changed meanwhile, or a
- * plan past its Draft, ends the batch with the reason and drops the texts; a
+ * for, its analysis and its author's voice still the ones it was written
+ * from (StudioPostTextContext::sourceHash()), and the batch is still
+ * running. A photo, an analysis, an author or the author's profile changed
+ * meanwhile, or a plan past its Draft, ends the batch with the reason and
+ * drops the texts; a
  * plan deleted, or a batch already ended, leaves everything as it is. Each
  * drop is logged as discarded, with what the call cost.
  *
@@ -53,11 +55,11 @@ final class CompleteStudioPostTextGenerationAction
                 return ['superseded', null];
             }
 
-            $context = StudioPostTextContext::of($plan->image_asset_id, $analysis);
+            $context = StudioPostTextContext::ofPlan($plan, $analysis);
 
             $error = match (true) {
                 ! $plan->isDraft() => StudioPostTextGenerationError::PlanClosed,
-                $context === null || ! $generation->isFor($context->imageAssetId, $context->analysisHash) => StudioPostTextGenerationError::StaleAnalysis,
+                $context === null || ! $generation->isFor($context->imageAssetId, $context->sourceHash()) => StudioPostTextGenerationError::StaleAnalysis,
                 default => null,
             };
 

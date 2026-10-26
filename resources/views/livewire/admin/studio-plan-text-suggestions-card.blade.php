@@ -1,10 +1,12 @@
 {{--
     AI text suggestions on the Post step (StudioPlanTextSuggestionsCard), as
     three cards side by side until they no longer fit. Context: the photo,
-    what its analysis says, the tone of the next batch and Generate
-    suggestions — then Generate 10 more, or Try again. Then the newest batch
-    written from the photo and analysis the plan has now: its titles in one
-    card, its descriptions in another. A new batch takes the place of the one
+    what its analysis says, whose voice the texts are written in — the saved
+    author's — the tone of the next batch and Generate suggestions — then
+    Generate 10 more, or Try again; with another author chosen and not saved
+    yet, Generate saves the draft first. Then the newest batch written from
+    the photo, analysis and author's voice the plan has now: its titles in
+    one card, its descriptions in another. A new batch takes the place of the one
     before — while it is on its way both lists wait for it, and a failure is
     said in their place. Choosing a title or a description puts it in the
     draft's final field, unsaved, marked here as in use; nothing is generated
@@ -42,6 +44,11 @@
 <div
     class="rg-admin-studio__texts"
     data-suggestions="{{ $phase ?? $state }}"
+    x-data="{
+        get editorAuthor() { return String(this.$wire.$parent?.authorUserId ?? this.$wire.savedAuthorId) },
+        get authorChanged() { return this.editorAuthor !== this.$wire.savedAuthorId },
+        ask() { this.authorChanged ? this.$dispatch('save-studio-plan', { then: 'suggest' }) : this.$wire.generate(this.editorAuthor) },
+    }"
     @if ($polling) wire:poll.{{ $poll }}s.visible @endif
 >
     <x-admin.ui.card flush title="Context" class="rg-admin-studio__context">
@@ -74,6 +81,20 @@
                 @endif
             </div>
 
+            @if ($state === 'ready')
+                <div class="rg-admin-studio__context-part" data-testid="studio-suggestions-voice">
+                    <span class="rg-admin-overline">Author’s voice</span>
+                    @if ($voice !== null)
+                        <p class="rg-admin-studio__context-analysis">{{ $voice['name'].($voice['about'] !== null ? ' — '.$voice['about'] : '') }}</p>
+                    @else
+                        <p class="rg-admin-hint">No author: the texts are written as the site’s own.</p>
+                    @endif
+                    @if ($draft)
+                        <p class="rg-admin-hint rg-admin-studio__context-warning" x-show="authorChanged" x-cloak>Another author is chosen: generating saves the draft first, so the texts are written in the new author’s voice.</p>
+                    @endif
+                </div>
+            @endif
+
             @if ($state === 'ready' && ! $configured)
                 <x-admin.ui.inline-notice tone="info">Text suggestions are not configured.</x-admin.ui.inline-notice>
             @elseif ($state === 'ready' && $draft)
@@ -102,7 +123,7 @@
                             :variant="$batch === null && ! $failed ? 'primary' : 'secondary'"
                             icon="sparkles"
                             :disabled="$busy"
-                            wire:click="generate"
+                            x-on:click="ask()"
                             wire:loading.attr="disabled"
                             wire:target="generate"
                             aria-describedby="rg-admin-studio-suggestions-note"
@@ -133,7 +154,7 @@
                     <p class="rg-admin-studio__suggestion-failure-title">Generation failed</p>
                     <p class="rg-admin-studio__suggestion-failure-text">{{ $phase === 'stale' ? 'The suggestions did not arrive. Try again.' : $error }} The final title and description are unchanged.</p>
                     @if ($draft && $configured)
-                        <x-admin.ui.button size="sm" wire:click="generate" wire:loading.attr="disabled" wire:target="generate">Try again</x-admin.ui.button>
+                        <x-admin.ui.button size="sm" x-on:click="ask()" wire:loading.attr="disabled" wire:target="generate">Try again</x-admin.ui.button>
                     @endif
                 </div>
             @elseif ($lists === 'ready')

@@ -303,6 +303,8 @@ return [
         'report_title' => 'Prijavi korisnika',
         'unknown' => 'Nepoznat korisnik',
         'deleted' => 'Obrisan korisnik',
+        'persona' => 'AI persona',
+        'persona_hint' => 'Nalog lika kojim upravlja ovaj sajt. Njegove objave i komentari napisani su uz pomoć AI.',
     ],
     'theme_options' => [
         'system' => 'Sistemska',

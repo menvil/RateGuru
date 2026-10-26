@@ -64,6 +64,23 @@ final class PersonaValidationRules
     }
 
     /**
+     * The rules a Persona described in a file to import is held to before it
+     * is matched with the accounts there are: those a new one is held to,
+     * with its username required — the one thing an import knows it by — and
+     * whether another account has it left to the import to say
+     * (ImportPersonasAction::plan()).
+     *
+     * @return array<string, list<mixed>>
+     */
+    public function importRules(): array
+    {
+        return [
+            ...$this->rules(null),
+            'username' => ['required', 'string', 'regex:'.self::USERNAME_PATTERN, 'max:'.self::USERNAME_LIMIT],
+        ];
+    }
+
+    /**
      * What each message says to do.
      *
      * @return array<string, string>

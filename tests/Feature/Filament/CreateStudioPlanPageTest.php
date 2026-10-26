@@ -361,7 +361,7 @@ it('opens the editor a save here makes on the step it was on, generating there w
 
     $page->assertRedirect(EditStudioPlan::getUrl(['record' => $plan->id]));
     expect($plan->title)->toBe('A harbour at dawn')
-        ->and(session(CreateStudioPlan::RESUME))->toBe(['plan' => $plan->id, 'step' => 'discussion', 'postTab' => 'texts', 'generate' => true]);
+        ->and(session(CreateStudioPlan::RESUME))->toBe(['plan' => $plan->id, 'step' => 'discussion', 'postTab' => 'texts', 'generate' => true, 'suggest' => false]);
 
     Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->assertSet('step', 'discussion')
         ->assertDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $plan->id);

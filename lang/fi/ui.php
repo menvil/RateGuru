@@ -303,6 +303,8 @@ return [
         'report_title' => 'Ilmoita käyttäjästä',
         'unknown' => 'Tuntematon käyttäjä',
         'deleted' => 'Poistettu käyttäjä',
+        'persona' => 'Tekoälyhahmo',
+        'persona_hint' => 'Tämän sivuston ylläpitämä hahmotili. Sen julkaisut ja kommentit on kirjoitettu tekoälyn avulla.',
     ],
     'theme_options' => [
         'system' => 'Järjestelmä',

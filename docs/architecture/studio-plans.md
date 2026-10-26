@@ -484,8 +484,8 @@ discussion editor to generate (`StudioPlanDiscussionEditor::GENERATE_EVENT`);
 a save refused generates nothing. On a new publication's page, whose save
 opens the plan's editor, the editor opens on the same step and generates
 there, told once through the session (`CreateStudioPlan::RESUME`), with the
-Discussion settings as they were set: the counts and the Personas are kept in
-the session for the plan (`StudioPlanDiscussionEditor::SETTINGS_SESSION`), so
+Discussion settings as they were set: the counts, the Personas and the tone
+are kept in the session for the plan (`StudioPlanDiscussionEditor::SETTINGS_SESSION`), so
 the editor opened again — by that save, or by a reload — draws them as last
 set, and only with none kept as the last whole tree was asked. Generate
 tree writes a whole discussion,
@@ -1117,7 +1117,8 @@ govern replies it would write on its own — play no part. The model is told of
 each only what its `PersonaProfile` says of how it writes: display name, short
 description, character, speech style, topics and jokes, what it never writes
 about, and how often it uses emoji — never an email, username, id, password,
-sign-in or security setting (`StudioDiscussionPersona`).
+sign-in or security setting (`StudioDiscussionPersona`). How a project's
+Personas are made, imported and marked is `docs/architecture/studio-personas.md`.
 
 ### What it is written from
 
@@ -1133,16 +1134,50 @@ paid for (`analysis_missing`, `incomplete_post`).
 Everything from the plan and the Personas is data, never instructions: it
 travels as JSON with `<` and `>` escaped, so nothing inside it can close its
 block. The instructions are fixed text of the application's own, the tone's
-(`StudioPostTextTone`, Cheeky by default; each Persona's own way of speaking
-comes first in what it writes) and the mode's, in which only the request's own
+(`StudioPostTextTone`, chosen under Tone in Discussion settings — Cheeky at
+first, then as last set for the plan, kept with the other settings, or else
+the tone the last whole tree was asked in — and asked of every
+generation, a whole tree or a part; each Persona's own way of speaking comes
+first in what it writes) and the mode's, in which only the request's own
 aliases and counts are filled in: a task says which comment to write and by
 whom as `existing_3` and `persona_2`, never by a display name, a post's text
 or a comment, which an administrator may have typed and which travel only as
 data. The model gives no id; the server maps the aliases back. The rules match the post text
-suggestions': a conversation rather than one-liners, each Persona in its own
-voice, no copying between Personas or of the title, nothing invented about the
-photo or the people in it, never explicit, never sexualising anyone who may be
-a minor, never demeaning anyone.
+suggestions': nothing invented about the photo or the people in it, never
+explicit, never sexualising anyone who is or may be a minor or whose age is
+unclear — age never judged from looks, innuendo about a person shown only once
+the context confirms an adult (the Spicy tone), and otherwise jokes about the
+people shown kept non-sexual — never demeaning, threatening or discriminating,
+English, plain text.
+
+What makes the conversation is said as fixed text too:
+
+- **Voices.** Each Persona writes as its profile says — vocabulary, length,
+  punctuation, grammar, kind of humour, topics, what it never writes about,
+  emoji — and stays the same person throughout; quirks of spelling or grammar
+  are only the Personas' whose speech style has them, never mistakes of the
+  model's; innuendo only from Personas whose character has it.
+- **Parts.** The Personas take different parts as their characters suggest —
+  one starts a joke, another builds on it, someone disagrees, someone answers
+  with sarcasm, someone changes the angle, someone reacts in two words, someone
+  adds a double meaning, someone comments on how the others behave — in a shape
+  chosen fresh for every discussion, never assigned and never the same pattern.
+- **Replies.** A reply continues the exact comment it answers and the replies
+  before it in its thread — picks up its words, joke or claim and does
+  something with it; one that would fit under any comment is wrong (under “I
+  came here for the article.”, “Same. Still looking for the first paragraph.”,
+  never “Beautiful photo!”).
+- **Variety.** Quick jabs, teasing, self-irony, wordplay, flirting, double
+  meanings, absurd observations, sarcastic answers, ironic disagreement and
+  reactions to each other's jokes; two-word reactions beside one-liners,
+  two-line jokes and the odd longer observation; no phrase, joke or comparison
+  twice; not every comment a compliment, and no stock praise or anything
+  promotional. The title is never repeated, but may be riffed on; the photo is
+  not described back unless that is the joke.
+
+The limits are the ones they were: one to eight Personas a generation
+(`max_personas`), up to 40 comments and replies, two levels, 1 to 1,000
+characters a comment.
 
 ### The answer
 
@@ -1960,9 +1995,10 @@ or the provider's answer.
 ## Post text suggestions
 
 An administrator can have OpenAI write title and description options for a
-Draft, from its photo's stored analysis: ten titles and ten descriptions a
-batch, in one of five tones (`StudioPostTextTone`: Playful, Humour, Cheeky —
-the default — Irony, Neutral). They are options, never the post's texts:
+Draft, from its photo's stored analysis and in the voice of its author: ten
+titles and ten descriptions a batch, in one of six tones (`StudioPostTextTone`:
+Playful, Humour, Cheeky — the default — Spicy / Adult humour, Irony, Neutral).
+They are options, never the post's texts:
 choosing a title or a description puts it in the editor's final field,
 unsaved, and the plan's `title` and `description` change only with Save draft.
 Nothing is written by itself — not on opening the editor, not on Save draft,
@@ -1970,8 +2006,14 @@ not when a photo or its analysis arrives — and nothing written ever replaces
 a final text. Every batch is a separate, paid call, asked for by Generate
 suggestions, Generate 10 more or Try again.
 
-A batch is written from the analysis alone, never the photo, which is not sent
-again. The Persona is not part of it. It can be asked for only while the plan
+A batch is written from the analysis, never the photo, which is not sent
+again, and in the voice of the post's author (`StudioPostTextAuthor`): the
+Persona the plan is saved with, told to the model as the discussion's Personas
+are — display name, short description, character, speech style, topics and
+jokes, what it never writes about, and how often it uses emoji; never an email,
+username, id, password, sign-in or security setting, and not its engagement or
+daily reply limit. A post with no author, or one whose author is no longer a
+Persona or is deleted, is written as the site's own. It can be asked for only while the plan
 is a Draft whose photo has a completed analysis — the row about that very photo,
 its stored result passing `StudioImageDescription::from()` again — and text
 suggestions are configured; until then the editor says “Text suggestions will
@@ -1986,7 +2028,7 @@ every batch of a plan kept, deleted with the plan:
 | --- | --- |
 | `studio_plan_id` | the plan; cascades on delete |
 | `source_image_asset_id` | the photo the batch was written for; a plain id, no foreign key |
-| `source_analysis_hash` | SHA-256 of the analysis it was written from (`StudioImageDescription::hash()`) |
+| `source_analysis_hash` | what it was written from, in one SHA-256 (`StudioPostTextContext::sourceHash()`): the analysis's own hash (`StudioImageDescription::hash()`) for a post with no author's voice — as every batch written before authors were told has — and otherwise one hash of the analysis's and everything the model was told of the author |
 | `tone` | `StudioPostTextTone` |
 | `status` | `StudioPostTextGenerationStatus`: `queued`, `running`, `completed`, `failed` |
 | `attempt_id` | the batch's UUID; unique |
@@ -1995,15 +2037,21 @@ every batch of a plan kept, deleted with the plan:
 | `model`, `request_id`, `input_tokens`, `output_tokens`, `total_tokens`, `latency_ms` | the call that wrote it |
 | `requested_at`, `started_at`, `finished_at` | its timings |
 
-A batch belongs to the photo and the analysis it names: the editor lets an
-administrator use only the completed batches whose image id and hash match the
-plan's photo and that photo's analysis now, and shows the newest of them — a
+A batch belongs to the photo, the analysis and the author's voice it names:
+the editor lets an administrator use only the completed batches whose image id
+and hash match the plan's photo, that photo's analysis and its author's voice
+now, and shows the newest of them — a
 new batch takes the place of the one before in view, while every earlier one
 stays stored. While a batch is on its way, or after it fails, none is shown:
 the lists wait for it, or say why there is none. A replaced photo, or an
-analysis re-run with a different result, leaves the earlier batches stored but
-no longer shown or usable; a re-run that gives the very same description keeps
-them. `source_image_asset_id` holds nothing, like the analysis row's: the media
+analysis re-run with a different result, another author saved, or an author
+whose profile now says otherwise of how it writes, leaves the earlier batches
+stored but no longer shown or usable; a re-run that gives the very same
+description keeps them, and so does a change of what the model is not told —
+the author's bio, avatar, engagement or daily reply limit. A batch written
+before authors were told counts as one with no author's voice: on a post with
+an author it is shown no more, and the next Generate writes in the author's
+voice. `source_image_asset_id` holds nothing, like the analysis row's: the media
 lifecycle releases and purges a replaced photo as before. Only the validated
 texts and the call's metadata are stored — never the prompt, the analysis sent,
 the API key or the provider's raw answer.
@@ -2021,15 +2069,33 @@ tool or web search, the answer required as strict Structured Output named
 }
 ```
 
-The instructions are fixed text — the rules, then the tone's own instruction
-from `StudioPostTextTone`, then how many of each and how long. The analysis
-travels in the input as JSON inside a `<photo_analysis>` block, `<` and `>`
-escaped so nothing in it can close the block, and is declared data, never
-instructions: text quoted from the photo cannot change the rules, the tone,
+The instructions are fixed text — the rules, how the author's voice is used,
+what makes a good option, then the tone's own instruction from
+`StudioPostTextTone`, then how many of each and how long. The analysis travels
+in the input as JSON inside a `<photo_analysis>` block and the author inside a
+`<post_author>` block, `<` and `>` escaped so nothing in either can close its
+block, and both are declared data, never instructions: text quoted from the
+photo, or typed into a Persona's profile, cannot change the rules, the tone,
 the count or the format. The rules keep to what the analysis says is visible,
-English, no hashtags, emoji or numbering; suggestive humour is allowed for
-adults where the photo invites it, never explicit, never about anyone who is
-or may be a minor, and never humiliating a person shown.
+English, no hashtags, numbering or emoji in titles; never explicit, never
+sexualising anyone who is or may be a minor or whose age is unclear, and never
+humiliating a person shown. Age is never judged from looks: innuendo about a
+person shown needs the context to confirm an adult — the Spicy tone, chosen by
+an administrator for a post they know to be adult content about adults, says
+so; anything suggesting someone may be young rules it out whatever the tone —
+and without that the jokes about the people shown stay non-sexual.
+
+With an author, the texts are written as the author writes — its vocabulary,
+rhythm, punctuation and kind of humour: a sarcastic author ironic, a flirt
+with light double meanings, an aesthete noticing light, composition and mood, a
+meme lover reaching for absurd comparisons, a blunt one short and bold — never
+about what it never writes about, with emoji in descriptions only as often as
+it uses them, and never naming it or quoting its profile. The tone comes first:
+where the author's habits clash with it, the texts keep the tone and only the
+habits that fit. Stock praise (“Absolutely stunning”, “What a beautiful
+picture”, “Wow, just wow”, “Amazing content”), a compliment that would fit any
+photo, a description that only describes, and one joke reworded ten times are
+all ruled out.
 
 An answer is kept only when it passes `StudioPostTextSuggestions::from()` whole:
 exactly those two fields, each a list of exactly `batch_size` strings, valid
@@ -2044,19 +2110,20 @@ stores nothing.
 
 | Class | Does |
 | --- | --- |
-| `RequestStudioPostTextGenerationAction` | queues a batch for the photo the editor showed, in the chosen tone |
+| `RequestStudioPostTextGenerationAction` | queues a batch for the photo and the author the editor showed, in the chosen tone |
 | `GenerateStudioPostTextsJob` | the one request to OpenAI, from the queue |
 | `StartStudioPostTextGenerationAction` | the job's claim: `queued` → `running`, for its attempt id only |
-| `CompleteStudioPostTextGenerationAction` | keeps the texts while the photo and analysis are still the batch's |
+| `CompleteStudioPostTextGenerationAction` | keeps the texts while the photo, the analysis and the author's voice are still the batch's |
 | `FailStudioPostTextGenerationAction` | ends an unfinished batch with its reason |
 | `OpenAiStudioPostTextGenerator` (`StudioPostTextGenerator`) | the Responses API call and the reading of its answer |
-| `StudioPostTextContext` | the plan's photo, its analysis and the analysis's hash, as a batch is checked against them |
+| `StudioPostTextContext` | the plan's photo, its analysis, the analysis's hash and the author's voice, and what a batch is written from in one hash (`sourceHash()`), as a batch is checked against them |
+| `StudioPostTextAuthor` | the voice of the post's author, as the model is told it and as a batch keeps a hash of it |
 
 A request asks `manage-studio-plans`, checks the configuration, then locks the
 administrator's row, the plan (`LocksStudioPlanDraft`), the analysis row and
 the plan's batches, in that order, and checks on them that the plan is still a
-Draft, its photo is still the one the editor showed and its analysis is
-complete and valid. It writes nothing of the plan — not a field, not
+Draft, its photo and its author are still the ones the editor showed and its
+analysis is complete and valid. It writes nothing of the plan — not a field, not
 `lock_version` — so a batch never makes a save of the texts stale. The job is
 dispatched after the commit and carries only the batch id and the attempt id.
 
@@ -2069,21 +2136,36 @@ then be asked for; its job, should it still arrive, finds nothing to claim.
 
 The job claims its batch before anything else, so a redelivered job sends
 nothing. It then checks the plan as it is now — still a Draft, still that
-photo, an analysis still with that hash, still configured — and sends the
-request with no transaction open. Its timings nest inside the queue's: request
+photo, an analysis and an author's voice still with that hash, still
+configured — and sends the request with no transaction open. An author changed,
+or one whose profile changed, before the job ran ends the batch
+(`stale_analysis`) without a paid call. Its timings nest inside the queue's: request
 45 s, job 75 s (`tries = 1`, `failOnTimeout`), Redis `retry_after` 90 s. It is
 never retried: whether to try again is the administrator's choice.
 
 `CompleteStudioPostTextGenerationAction` locks the plan, then the analysis row,
 then the batch, and keeps the texts only when the plan is still there and a
-Draft, its photo and analysis hash are still the batch's, and the batch is still
-running. Otherwise the batch ends (`stale_analysis`, `plan_closed`) and its texts
-are dropped. The plan itself is never written.
+Draft, its photo and its source hash — analysis and author's voice — are still
+the batch's, and the batch is still running. Otherwise the batch ends
+(`stale_analysis`, `plan_closed`) and its texts are dropped, so texts written
+for one author never quietly land on a post that has another. The plan itself
+is never written.
+
+Generate is asked of the author the plan is saved with. Clicked while another
+author is chosen in the editor and not saved, it has the editor save the draft
+first (`save-studio-plan`, `then` `suggest`) and asks once the editor says it
+is saved (`StudioPlanTextSuggestionsCard::GENERATE_EVENT`) — on a new
+publication's page, in the editor the save opens (`CreateStudioPlan::RESUME`,
+`suggest`). An author saved by somebody else meanwhile refuses the request
+(`author_changed`) and nothing is paid for. A save of the plan anywhere on the
+page draws the card again.
 
 ### Errors
 
 `StudioPostTextGenerationError`, each with the sentence the editor shows:
-`not_configured`, `analysis_missing`, `stale_analysis`, `plan_closed`,
+`not_configured`, `analysis_missing`, `stale_analysis` (the photo, its
+analysis or the author's voice changed), `author_changed` (the author is not
+the one the editor showed; a request refused, never a batch), `plan_closed`,
 `authentication_failed` (HTTP 401, 403), `rate_limited` (429),
 `provider_timeout` (408, 504, a timed-out connection), `provider_unavailable`
 (5xx, no connection), `provider_rejected` (another 4xx), `provider_refused` (a

@@ -13519,7 +13519,7 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
-                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
+                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, $plan->author_user_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
                 // What Release in Media diagnostics runs.
                 'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
             };
@@ -13692,10 +13692,10 @@ function studioPlanWithFinishedAnalysis(array $attributes = [], ?array $descript
     return $plan;
 }
 
-/** Generate suggestions for the photo the editor shows — the plan's own — in a tone. */
+/** Generate suggestions for the photo and the author the editor shows — the plan's own — in a tone. */
 function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTone $tone = StudioPostTextTone::Cheeky, ?int $imageAssetId = null): StudioPlanTextGeneration
 {
-    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $tone);
+    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $plan->author_user_id, $tone);
 }
 
 /** Runs the job of that batch, as a worker would. */

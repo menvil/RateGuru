@@ -303,6 +303,8 @@ return [
         'report_title' => 'Teata kasutajast',
         'unknown' => 'Tundmatu kasutaja',
         'deleted' => 'Kustutatud kasutaja',
+        'persona' => 'TI-persoon',
+        'persona_hint' => 'Selle saidi hallatav tegelaskonto. Selle postitused ja kommentaarid on kirjutatud tehisintellekti abil.',
     ],
     'theme_options' => [
         'system' => 'Süsteemi',

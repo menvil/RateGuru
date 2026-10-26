@@ -303,6 +303,8 @@ return [
         'report_title' => 'I-report ang user',
         'unknown' => 'Hindi kilalang user',
         'deleted' => 'Na-delete na user',
+        'persona' => 'AI persona',
+        'persona_hint' => 'Isang character account na pinapatakbo ng site na ito. Isinulat gamit ang AI ang mga post at komento nito.',
     ],
     'theme_options' => [
         'system' => 'Sistema',

@@ -42,12 +42,13 @@
                 @else
                     <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
                 @endif
-                <span class="block truncate text-xs text-rg-muted">
+                <span class="flex min-w-0 items-center gap-1 text-xs text-rg-muted">
                     @if($post->user?->public_username)
-                        {{ '@' . $post->user->public_username }}
+                        <span class="min-w-0 truncate">{{ '@' . $post->user->public_username }}</span>
                     @endif
+                    <x-ui.persona-badge :user="$post->user" class="shrink-0" />
                     @if($post->published_at)
-                        {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                        <span class="shrink-0 whitespace-nowrap">{{ $post->user?->public_username ? '· ' : '' }}{{ $post->published_at->diffForHumans() }}</span>
                     @endif
                 </span>
             </div>

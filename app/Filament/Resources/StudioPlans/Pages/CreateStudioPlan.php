@@ -40,8 +40,9 @@ final class CreateStudioPlan extends Page
 
     /**
      * Flashed for the editor a save here opens: the plan, the step and tab
-     * the page was on, and whether Generate tree asked for the save — read
-     * once, so a reload neither moves the page nor generates again.
+     * the page was on, and whether Generate tree or Generate suggestions
+     * asked for the save — read once, so a reload neither moves the page nor
+     * generates again.
      */
     public const RESUME = 'rg-admin-studio-resume';
 
@@ -87,7 +88,8 @@ final class CreateStudioPlan extends Page
      * Makes the plan with what the editor holds — or, once a photo has made
      * one, writes what the editor holds to it — and opens its editor on the
      * step this page was on (RESUME), generating there when Generate tree
-     * asked for the save (`then` `generate`). Sent twice, it makes one plan.
+     * asked for the save (`then` `generate`), or Generate suggestions did
+     * (`then` `suggest`). Sent twice, it makes one plan.
      */
     #[On('save-studio-plan')]
     public function save(mixed $then = null): void
@@ -124,7 +126,7 @@ final class CreateStudioPlan extends Page
         $this->fillDraft(StudioPlanData::of($plan));
 
         session()->flash('rg-admin-toast', ['message' => StudioPlanFormat::title($plan).($created ? ' created' : ' saved'), 'tone' => 'success']);
-        session()->flash(self::RESUME, ['plan' => $plan->id, 'step' => $this->step, 'postTab' => $this->postTab, 'generate' => $then === 'generate']);
+        session()->flash(self::RESUME, ['plan' => $plan->id, 'step' => $this->step, 'postTab' => $this->postTab, 'generate' => $then === 'generate', 'suggest' => $then === 'suggest']);
 
         $this->redirect(EditStudioPlan::getUrl(['record' => $plan->id]));
     }

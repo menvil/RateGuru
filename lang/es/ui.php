@@ -303,6 +303,8 @@ return [
         'report_title' => 'Denunciar usuario',
         'unknown' => 'Usuario desconocido',
         'deleted' => 'Usuario eliminado',
+        'persona' => 'Persona IA',
+        'persona_hint' => 'Una cuenta de personaje gestionada por este sitio. Sus publicaciones y comentarios están escritos con IA.',
     ],
     'theme_options' => [
         'system' => 'Sistema',

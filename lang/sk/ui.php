@@ -303,6 +303,8 @@ return [
         'report_title' => 'Nahlásiť používateľa',
         'unknown' => 'Neznámy používateľ',
         'deleted' => 'Odstránený používateľ',
+        'persona' => 'AI persona',
+        'persona_hint' => 'Účet postavy, ktorý prevádzkuje táto stránka. Jeho príspevky a komentáre sú písané pomocou AI.',
     ],
     'theme_options' => [
         'system' => 'Systémový',

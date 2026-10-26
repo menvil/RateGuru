@@ -45,9 +45,10 @@ use Livewire\Component;
 /**
  * The editor's Discussion step (docs/architecture/studio-plans.md, "The
  * editor"), working as the prototype's does: Discussion settings — how many
- * comments, how many of them on the post, and the Personas, active ones,
- * picked at random when the tree is generated or checked one by one —
- * Generate tree under them, and the discussion tree: each comment with
+ * comments, how many of them on the post, the Personas, active ones,
+ * picked at random when the tree is generated or checked one by one, and the
+ * tone every generation is asked in — Generate tree under them, and the
+ * discussion tree: each comment with
  * Reply, Edit, Regenerate and Delete. The votes on the comments are
  * StudioPlanDiscussionVotesEditor's: this editor keeps the places it draws
  * in — its cards beside the settings, a comment's breakdown beside the tree,
@@ -163,6 +164,9 @@ final class StudioPlanDiscussionEditor extends Component
     /** How many Personas a random team has. */
     public int $randomCount = 6;
 
+    /** The tone the next generation is asked in: a whole tree, or a part written again. */
+    public string $tone = StudioPostTextTone::DEFAULT->value;
+
     /**
      * The Personas checked to take part.
      *
@@ -259,6 +263,7 @@ final class StudioPlanDiscussionEditor extends Component
             $this->rootCount = max(1, $roots);
             $this->totalCount = max(1, $roots + (int) ($last->parameters['reply_count'] ?? 0));
             $this->randomCount = max(1, count($last->persona_user_ids));
+            $this->tone = (StudioPostTextTone::tryFrom((string) ($last->parameters['tone'] ?? '')) ?? StudioPostTextTone::DEFAULT)->value;
         }
 
         // Unless they were set here since, as the session keeps them.
@@ -296,6 +301,12 @@ final class StudioPlanDiscussionEditor extends Component
     {
         $this->participantMode = $this->participantMode === 'manual' ? 'manual' : 'random';
         $this->resetErrorBag('participants');
+        $this->rememberSettings();
+    }
+
+    public function updatedTone(): void
+    {
+        $this->tone = $this->chosenTone()->value;
         $this->rememberSettings();
     }
 
@@ -443,7 +454,7 @@ final class StudioPlanDiscussionEditor extends Component
             mode: $node->parentId === null ? StudioDiscussionGenerationMode::RegenerateComment : StudioDiscussionGenerationMode::RegenerateReply,
             expectedLockVersion: $this->lockVersion,
             targetNodeId: (int) $node->id,
-            tone: StudioPostTextTone::DEFAULT,
+            tone: $this->chosenTone(),
         );
         $generation = $this->request($asked);
 
@@ -849,6 +860,8 @@ final class StudioPlanDiscussionEditor extends Component
             'analysed' => $context !== null && $context->complete,
             'mostNodes' => $this->mostNodes(),
             'mostRandom' => $this->mostRandom(),
+            'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),
+            'chosenTone' => $this->chosenTone(),
             'mostPersonas' => $most,
             'available' => app(PersonasQuery::class)->activeCount(),
             'personaCount' => $this->participantMode === 'random' ? $this->randomCount : count($checked),
@@ -1038,7 +1051,7 @@ final class StudioPlanDiscussionEditor extends Component
             personaUserIds: $team,
             rootCount: $this->rootCount,
             replyCount: $this->totalCount - $this->rootCount,
-            tone: StudioPostTextTone::DEFAULT,
+            tone: $this->chosenTone(),
         );
         $generation = $this->request($asked);
 
@@ -1538,6 +1551,10 @@ final class StudioPlanDiscussionEditor extends Component
             $this->participantMode = $kept['mode'];
         }
 
+        if (is_string($kept['tone'] ?? null) && StudioPostTextTone::tryFrom($kept['tone']) !== null) {
+            $this->tone = $kept['tone'];
+        }
+
         // Checked once; whether each still takes part is asked as the tree is generated (activeManual()).
         $this->manual = array_values(array_unique(array_filter(array_map(intval(...), (array) ($kept['manual'] ?? [])), fn (int $id): bool => $id > 0)));
     }
@@ -1555,7 +1572,14 @@ final class StudioPlanDiscussionEditor extends Component
             'mode' => $this->participantMode,
             'random' => $this->randomCount,
             'manual' => $this->manual,
+            'tone' => $this->tone,
         ]);
+    }
+
+    /** The tone chosen, or the default for anything that is no tone. */
+    private function chosenTone(): StudioPostTextTone
+    {
+        return StudioPostTextTone::tryFrom($this->tone) ?? StudioPostTextTone::DEFAULT;
     }
 
     /** @param Collection<int, User> $people */

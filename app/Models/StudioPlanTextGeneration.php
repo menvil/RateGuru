@@ -14,13 +14,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One batch of post text suggestions a publication plan asked for: its
- * tone, what it was written from — the photo (`source_image_asset_id`) and
- * its analysis (`source_analysis_hash`) — its state, and, once completed,
- * its titles and descriptions with the call that wrote them.
+ * tone, what it was written from — the photo (`source_image_asset_id`), and
+ * its analysis with the voice of the post's author in one hash
+ * (`source_analysis_hash`, StudioPostTextContext::sourceHash(): the
+ * analysis's own hash when the post had no author's voice) — its state, and,
+ * once completed, its titles and descriptions with the call that wrote them.
  *
- * A batch written from a photo or an analysis the plan no longer has is
- * kept, as history, and suggests nothing for the plan as it is now
- * (isFor()). Written only by the post text actions (app/Actions/Studio);
+ * A batch written from a photo, an analysis or an author's voice the plan no
+ * longer has is kept, as history, and suggests nothing for the plan as it is
+ * now (isFor()). Written only by the post text actions (app/Actions/Studio);
  * nothing is fillable.
  *
  * @property int $id
@@ -77,12 +79,12 @@ class StudioPlanTextGeneration extends Model
         return $this->belongsTo(StudioPlan::class, 'studio_plan_id');
     }
 
-    /** Whether this batch was written from that photo and that analysis of it. */
-    public function isFor(?int $imageAssetId, ?string $analysisHash): bool
+    /** Whether this batch was written from that photo, and from what that hash says (StudioPostTextContext::sourceHash()). */
+    public function isFor(?int $imageAssetId, ?string $sourceHash): bool
     {
-        return $imageAssetId !== null && $analysisHash !== null
+        return $imageAssetId !== null && $sourceHash !== null
             && $this->source_image_asset_id === $imageAssetId
-            && hash_equals($this->source_analysis_hash, $analysisHash);
+            && hash_equals($this->source_analysis_hash, $sourceHash);
     }
 
     /**

@@ -1,7 +1,8 @@
 {{--
     The Discussion step (StudioPlanDiscussionEditor), laid out and working as
-    the prototype's: Discussion settings, with the Comment voters and the
-    Comment votes beside them (drawn by StudioPlanDiscussionVotesEditor);
+    the prototype's: Discussion settings — the counts, the Personas and the
+    tone — with the Comment voters and the Comment votes beside them (drawn by
+    StudioPlanDiscussionVotesEditor);
     Generate tree in a strip of its own under them, saying the comment votes
     too; then the discussion tree — Comments, each with its moment, its up and
     down votes as set on the step, Reply, Edit, Regenerate, Delete and See
@@ -30,7 +31,7 @@
     $rewriteBlocked = ! $editable || $underway || $notReady !== null;
     $summary = $totalCount === 0
         ? 'No discussion · the post publishes without automated comments'
-        : $totalCount.' '.($totalCount === 1 ? 'comment' : 'comments').' · '.$rootCount.' top-level · '.$personaCount.' '.($personaCount === 1 ? 'persona' : 'personas');
+        : $totalCount.' '.($totalCount === 1 ? 'comment' : 'comments').' · '.$rootCount.' top-level · '.$personaCount.' '.($personaCount === 1 ? 'persona' : 'personas').' · '.$chosenTone->label();
     // The comment votes as saved, until the votes editor says them as set on the step.
     $votesSaved = \App\Livewire\Admin\StudioPlanDiscussionVotesEditor::tallied(array_sum(array_column($rows, 'up')), array_sum(array_column($rows, 'down')));
     [$hint, $hintTone] = match (true) {
@@ -162,6 +163,24 @@
                     @error('participants')
                         <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
                     @enderror
+                </div>
+
+                <div class="rg-admin-field rg-admin-studio__discussion-team">
+                    <span class="rg-admin-label" id="rg-admin-discussion-tone-label">Tone</span>
+                    <div class="rg-admin-studio__tones" role="group" aria-labelledby="rg-admin-discussion-tone-label">
+                        @foreach ($tones as $option)
+                            <button
+                                type="button"
+                                class="rg-admin-studio__tone"
+                                aria-pressed="{{ $chosenTone->value === $option['value'] ? 'true' : 'false' }}"
+                                x-bind:aria-pressed="$wire.tone === @js($option['value']) ? 'true' : 'false'"
+                                x-on:click="$wire.set('tone', @js($option['value']))"
+                                title="{{ $option['hint'] }}"
+                                @disabled(! $editable)
+                            >{{ $option['label'] }}</button>
+                        @endforeach
+                    </div>
+                    <p class="rg-admin-hint">{{ $chosenTone->hint() }} The mood of the whole conversation; each persona still writes in its own voice.</p>
                 </div>
             </div>
         </x-admin.ui.card>

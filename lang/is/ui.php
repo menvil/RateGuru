@@ -303,6 +303,8 @@ return [
         'report_title' => 'Tilkynna notanda',
         'unknown' => 'Óþekktur notandi',
         'deleted' => 'Eyddur notandi',
+        'persona' => 'Gervigreindarpersóna',
+        'persona_hint' => 'Persónuaðgangur sem þessi vefur rekur. Færslur hans og athugasemdir eru skrifaðar með gervigreind.',
     ],
     'theme_options' => [
         'system' => 'Kerfi',

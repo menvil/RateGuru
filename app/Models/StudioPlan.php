@@ -147,8 +147,8 @@ class StudioPlan extends Model
 
     /**
      * Every batch of post text suggestions it asked for — those written from
-     * its photo and analysis as they are now, and those from earlier ones,
-     * kept as history (StudioPlanTextGeneration::isFor()).
+     * its photo, analysis and author's voice as they are now, and those from
+     * earlier ones, kept as history (StudioPlanTextGeneration::isFor()).
      *
      * @return HasMany<StudioPlanTextGeneration, $this>
      */
