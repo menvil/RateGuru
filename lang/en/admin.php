@@ -44,6 +44,7 @@ return [
         'show_saved_posts' => 'Show saved posts',
         'allow_user_uploads' => 'Allow user uploads',
         'allow_guest_viewing' => 'Allow guest viewing',
+        'content_studio_verified_adults' => 'Content Studio photos show verified adults',
         'label' => 'Label',
         'title' => 'Title',
         'content' => 'Content',

@@ -223,16 +223,19 @@ gets exactly what staging was checked with: the file is the release's.
 - **Post titles and descriptions** are written in the voice of the post's
   author: its display name, short description, character, speech style, topics
   and jokes, what it never writes about and its emoji habit (in descriptions
-  only — titles have none). A sarcastic author's texts are ironic, a flirt's
-  play with light double meanings, an aesthete's notice light, composition and
-  mood, a meme lover's reach for absurd comparisons, a blunt one's are short
-  and bold. The tone an administrator chooses comes first: the author's habits
-  that clash with it are dropped.
+  only — titles have none), typed the way it types on a forum — lowercase and
+  all, if that is how it writes — never polished into an editor's prose. A
+  sarcastic author's texts are dry, a flirt's flirt, a hype man's hype, a meme
+  lover's reach for absurd comparisons, a blunt one's are short and loud, and
+  a nerd's joke in his own field. The tone an administrator chooses comes
+  first: the author's habits that clash with it are dropped.
 - **Discussions** give every Persona taking part its own voice — length,
   vocabulary, punctuation, kind of humour, topics, limits, emoji — and its own
-  part in the conversation, as its character suggests. Quirks of grammar are
-  only the Personas' whose speech style has them, and innuendo only theirs whose
-  character has it.
+  part in the conversation, as its character suggests, typed like a forum
+  thread rather than written: mostly a few words to a line, slang and swearing
+  where a Persona and the tone have them, nothing literary. Quirks of grammar
+  are only the Personas' whose speech style has them, and innuendo only theirs
+  whose character has it.
 
 The model is told nothing else of a Persona: never its email, username, id,
 password, sign-in or security setting, and not its engagement or daily reply
@@ -244,30 +247,57 @@ used (`docs/architecture/studio-plans.md`).
 ## Spicy
 
 Spicy / Adult humour is the sixth tone, beside Playful, Humour, Cheeky, Irony
-and Neutral, in the Post step's suggestions and in Discussion settings: grown-up,
-playful and flirtatious — saucy innuendo, clever double meanings, teasing,
-sarcasm and self-irony in a relaxed, conversational voice, the jokes on the
-situation, the post and the commenters' own banter. It is never the default
-(Cheeky is), and is only ever chosen, by an administrator.
+and Neutral, in the Post step's suggestions and in Discussion settings: the
+boldest — horny, crude and funny, the way regulars talk on an adult forum:
+open flirting, dirty jokes and innuendo that is not subtle, swearing and crude
+words, teasing and roasting each other, and self-irony about being horny. It
+is never the default (Cheeky is), and is only ever chosen, by an
+administrator.
 
-Spicy is a mood for the text, never a statement about anyone's age. Choosing it
-confirms nothing about the people in a photo, and every rule about them holds
-in it exactly as in the other tones.
+Spicy is a mood for the text, never a statement about anyone's age. Choosing
+it confirms nothing about the people in a photo: what may be said about them
+is the rules' to say, exactly as in the other tones.
+
+## Verified adults
+
+Project settings › Feature flags › **Content Studio photos show verified
+adults** (`content_studio_verified_adults`, read by `StudioVerifiedAdults`) is
+an administrator's confirmation that everyone shown in the photos Content
+Studio uses is a verified adult, 18 or over, who agreed to their publication.
+It is the only confirmation of anyone's age the texts and discussions Content
+Studio writes ever rely on — never the photo analysis, the post, a Persona's
+profile, the comments or a tone.
+
+It is off on every installation until an administrator saves it on, and
+applying a project preset switches it off again. On, post titles, descriptions
+and discussions may flirt with, compliment and react to the people shown —
+their looks and bodies included — the way regulars on an adult forum do, with
+crude words where the tone and the Personas have them. Off, they keep to the
+situation. It is read afresh for every request: switching it changes what is
+written next, and what was written before stays for the administrator to
+review, as everything does.
 
 ## What stays ruled out
 
 Whatever the tone and whatever a Persona's profile says:
 
-- nothing describes sexual acts; humour stays suggestive, never graphic;
+- nothing describes sexual acts: flirting, innuendo, dirty jokes and crude
+  words where they fit, never graphic;
 - nobody who is, or may be, a minor, or whose age is unclear, is sexualised,
   and age is never judged from looks;
-- no sexualised remark is made about a specific person shown. It would need
-  separate, reliable confirmation that the person is an adult, and the
-  application has none to give: photo analysis never judges age, the post's
-  texts and a Persona's profile are not checked facts, and a tone — Spicy
-  included — is a mood, never a fact about anyone's age. Nothing stands in for
-  that confirmation. The innuendo, flirting and double meanings play on the
-  situation, the post, wordplay and the commenters' own banter;
+- no sexualised remark is made about a specific person shown unless an
+  administrator has confirmed that everyone in Content Studio's photos is a
+  verified adult (“Verified adults” above). Nothing else stands in for that
+  confirmation: photo analysis never judges age, the post's texts and a
+  Persona's profile are not checked facts, and a tone — Spicy included — is a
+  mood, never a fact about anyone's age. Without it the innuendo, flirting and
+  double meanings play on the situation, the post, wordplay and the
+  commenters' own banter;
+- with it, still never anything that plays on youth (teen, young, girl,
+  schoolgirl, barely legal and the like), nothing about force or lack of
+  consent, nothing that degrades or body-shames anyone, and nothing sexual
+  about anyone the data suggests may be under 18 — the confirmation does not
+  cover them;
 - nothing humiliates a person shown or demeans anyone's body, and nothing
   threatens or discriminates; Personas tease each other, never cruelly;
 - nothing is invented about the people in a photo — names, identities,
