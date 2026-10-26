@@ -193,12 +193,22 @@ trait EditsStudioPlan
         return StudioPlanResource::canAccess();
     }
 
-    /** Shows a step; nothing is saved and nothing typed is lost. */
+    /**
+     * Shows a step; nothing is saved and nothing typed is lost. The
+     * discussion's editor, drawn once and kept hidden, is told it is on
+     * screen again, so it can look whether what it waited for is there now.
+     */
     public function goToStep(mixed $step): void
     {
-        if (is_string($step) && array_key_exists($step, self::STEPS)) {
-            $this->step = $step;
+        if (! is_string($step) || ! array_key_exists($step, self::STEPS)) {
+            return;
         }
+
+        if ($step === 'discussion' && $this->step !== 'discussion' && $this->planId !== 0) {
+            $this->dispatch(StudioPlanDiscussionEditor::SHOWN_EVENT, planId: $this->planId)->to(StudioPlanDiscussionEditor::class);
+        }
+
+        $this->step = $step;
     }
 
     /**
@@ -741,12 +751,14 @@ trait EditsStudioPlan
     {
         if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($previous) || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            $this->skipRender();
+
             return;
         }
 
         if ((int) $previous === $this->lockVersion && (int) $current === $this->lockVersion + 1 && $this->holdsSavedAt((int) $current)) {
             $this->lockVersion = (int) $current;
-            $this->versionTaken();
+            $this->drawnAgainIf($this->versionTaken());
 
             return;
         }
@@ -766,12 +778,14 @@ trait EditsStudioPlan
     {
         if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
             || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            $this->skipRender();
+
             return;
         }
 
         if ($this->holdsSavedAt((int) $current)) {
             $this->lockVersion = (int) $current;
-            $this->versionTaken();
+            $this->drawnAgainIf($this->versionTaken());
 
             return;
         }
@@ -782,8 +796,26 @@ trait EditsStudioPlan
     /** The plan moved to a version neither editor on this page wrote. */
     protected function versionMovedElsewhere(): void {}
 
-    /** The plan moved to a version taken here: the other editor's, with the post as this one drew it. */
-    protected function versionTaken(): void {}
+    /**
+     * The plan moved to a version taken here: the other editor's, with the
+     * post as this one drew it. Whether that changes what the page says.
+     */
+    protected function versionTaken(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Another editor's write, taken, is drawn again only where the page shows
+     * it — the Publication step's plan as saved, or a notice it takes back:
+     * the other editors draw their own, and the post as typed is unchanged.
+     */
+    private function drawnAgainIf(bool $changed): void
+    {
+        if (! $changed && $this->step !== 'publication') {
+            $this->skipRender();
+        }
+    }
 
     /** Whether the plan's texts and settings are still the ones this editor last drew or saved. */
     abstract protected function holdsSaved(StudioPlan $plan): bool;

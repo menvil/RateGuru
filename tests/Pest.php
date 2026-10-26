@@ -13812,6 +13812,16 @@ function postVotesEditor(StudioPlan $plan): Testable
 }
 
 /**
+ * Whether a component's last request drew it again — sent its HTML to the
+ * browser — rather than only its state: what another editor's write on the
+ * Content Studio page costs every editor it changes nothing of.
+ */
+function drawnAgain(Testable $component): bool
+{
+    return array_key_exists('html', $component->effects);
+}
+
+/**
  * Writes a comment from the Discussion editor's dialog — a new one on the
  * post, or a reply to the saved comment given — as an administrator would.
  */

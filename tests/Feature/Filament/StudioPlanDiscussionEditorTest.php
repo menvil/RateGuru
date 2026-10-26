@@ -90,7 +90,7 @@ it('draws the tree as saved: each comment on the post by its time, its replies u
         ->assertSet('lockVersion', 2);
 });
 
-it('shows on each comment, beside its moment, the up and down votes saved on it, drawn again when the comment votes editor saves', function () {
+it('shows on each comment, beside its moment, the up and down votes saved on it, and takes the comment votes editor\'s saves without drawing the tree again — it reads their counts from that editor\'s store', function () {
     savedFour($this);
     [$carl, $dana] = User::factory()->persona()->count(2)->create()->all();
     $nodes = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->pluck('id', 'body');
@@ -105,12 +105,15 @@ it('shows on each comment, beside its moment, the up and down votes saved on it,
         studioVote(['type' => 'vote_comment', 'personaUserId' => $carl->id, 'voteType' => 'down', 'discussionNodeId' => $nodes['Where is this?'], 'offsetSeconds' => 600]),
     ]);
     $editor->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->plan->id, previous: 2, current: 3, source: StudioPlanDiscussionVotesEditor::SOURCE)
-        ->assertSet('lockVersion', 3)->assertSet('conflict', false);
+        ->assertSet('lockVersion', 3)->assertSet('conflict', false)
+        ->assertSeeHtml('x-text="$store.rgCommentVotes?.nodes?.['.$nodes['Lovely light.'].']?.up ?? 0"');
 
-    expect($votes($editor->html(), 'C1'))->toBe([2, 0])
-        ->and($votes($editor->html(), 'C2'))->toBe([0, 0])
-        ->and($votes($editor->html(), 'C4'))->toBe([0, 1]);
-    $editor->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.'])
+    $opened = discussionEditor($this->plan);
+
+    expect($votes($opened->html(), 'C1'))->toBe([2, 0])
+        ->and($votes($opened->html(), 'C2'))->toBe([0, 0])
+        ->and($votes($opened->html(), 'C4'))->toBe([0, 1]);
+    $opened->assertSeeHtmlInOrder(['data-node="C1"', '+1 min', 'aria-label="Up votes"', 'aria-label="Down votes"', 'Lovely light.'])
         ->assertSeeHtmlInOrder(['Generate from the settings above', '>3 comment votes (+2 / −1)</span>']);
 });
 

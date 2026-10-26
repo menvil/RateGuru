@@ -238,10 +238,13 @@ final class EditStudioPlan extends Page
         $this->stale = true;
     }
 
-    /** The plan's version was taken with the post as drawn: nothing here is out of date. */
-    protected function versionTaken(): void
+    /** The plan's version was taken with the post as drawn: nothing here is out of date — said, if it was said to be. */
+    protected function versionTaken(): bool
     {
+        $wasStale = $this->stale;
         $this->stale = false;
+
+        return $wasStale;
     }
 
     /** Whether the plan's texts and settings are the ones the draft was drawn from: its fingerprint. */

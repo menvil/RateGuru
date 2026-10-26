@@ -11,6 +11,8 @@
     in a dialog, and everything is written to the plan at once. While a
     generation is on its way the step is read again every few seconds: a
     whole tree is drawn as placeholders, a comment written again is faded.
+    While the photo's analysis is, the Generate strip is read again too, so
+    Generate tree comes on by itself once the analysis is complete.
     The places the votes editor draws in are kept empty here (wire:ignore),
     and the votes as set there are read from the `rgCommentVotes` store.
     Every text is drawn escaped.
@@ -189,7 +191,7 @@
         <div id="rg-admin-studio-comment-vote-settings" class="rg-admin-studio__comment-voters-slot" wire:ignore></div>
     </div>
 
-    <div class="rg-admin-studio__generate" x-data>
+    <div class="rg-admin-studio__generate" x-data @if (! $analysed && $analysing && ! $underway) wire:poll.{{ $pollSeconds }}s.visible @endif>
         <span class="rg-admin-studio__generate-icon" aria-hidden="true"><x-admin.ui.icon name="git-branch" :size="16" /></span>
         <div class="rg-admin-studio__generate-text">
             <div class="rg-admin-studio__generate-label">Generate from the settings above</div>

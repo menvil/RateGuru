@@ -12,12 +12,12 @@ use function Pest\Laravel\actingAs;
  * The Discussion step's comment votes in a real browser: the Comment voters
  * and the Comment votes beside the Discussion settings, drawn whole at every
  * width, the discussion's own tabs and dialog working as before, voters
- * chosen, a total shared out over the comments and counted on them and in
- * the Generate strip at once as not saved, a comment's breakdown opened
- * beside the tree, the votes saved there exactly as shown, drawn again after
- * a reload and in one list with the comments on the Timing tab — a comment
- * moved there taking its vote along, a vote given a moment of its own — and
- * the step not left with them unsaved without asking, what changed listed.
+ * chosen, a total shared out over the comments — each change saved at once
+ * and counted on them and in the Generate strip — a comment's breakdown
+ * opened beside the tree, the votes drawn again after a reload and in one
+ * list with the comments on the Timing tab — a comment moved there taking its
+ * vote along, a vote given a moment of its own — and the step left at once
+ * with every change saved, but asked about with one that can't be.
  */
 beforeEach(function () {
     $admin = User::factory()->admin()->create(['username' => 'daria_k']);
@@ -127,7 +127,7 @@ it('keeps the discussion\'s own tabs and comment dialog working beside the votes
     waitForScript($page, "!! document.querySelector('.rg-admin-studio__dialog, [role=\"dialog\"]')");
 });
 
-it('chooses voters, shares a total out over the comments — counted on them and in the Generate strip at once as not saved — opens a breakdown, saves there exactly what is shown, and draws it again after a reload, in time on the Timing tab', function () {
+it('chooses voters and shares a total out over the comments, each change saved at once — counted on them and in the Generate strip — and draws them again after a reload, in time on the Timing tab', function () {
     $page = visitDiscussionVotes($this->plan);
 
     $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-voters [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Choose').click()");
@@ -143,20 +143,13 @@ it('chooses voters, shares a total out over the comments — counted on them and
         waitForScript($page, "document.getElementById('rg-admin-comment-votes-total-up').value", $count);
     }
 
-    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0) · Not saved');
+    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
     waitForScript($page, treeUpVotes(), 3);
-    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-unsaved')].filter((note) => getComputedStyle(note).display !== 'none').length", 3);
-
-    expect(StudioPlanVote::query()->exists())->toBeFalse();
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-unsaved')].filter((note) => getComputedStyle(note).display !== 'none').length", 0);
 
     $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
     waitForScript($page, "document.querySelectorAll('.rg-admin-studio__breakdown .rg-admin-studio__breakdown-vote').length", 1);
-
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__breakdown-footer button')].find((button) => button.textContent.trim() === 'Save votes').click()");
-    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Comment votes saved');
-    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
-    waitForScript($page, "[...document.querySelectorAll('.rg-admin-studio__tree .rg-admin-studio__node-unsaved')].filter((note) => getComputedStyle(note).display !== 'none').length", 0);
-    waitForScript($page, treeUpVotes(), 3);
+    waitForScript($page, "document.querySelector('.rg-admin-studio__breakdown-footer').textContent.trim()", 'Every change is saved at once.');
 
     $saved = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->with('discussionNode')->get();
 
@@ -177,6 +170,7 @@ it('chooses voters, shares a total out over the comments — counted on them and
     // C3 moved to 30 min is saved at once, and its vote, 5 min after it, moves with it.
     $c3 = StudioDiscussionNode::query()->where('studio_plan_id', $this->plan->id)->where('body', 'Where is this?')->value('id');
     $offset = fn (string $row): string => "document.querySelector('.rg-admin-studio__tree-timing [data-timing^=\"{$row}\"] .rg-admin-studio__offset-input')?.value ?? ''";
+    $after = fn (string $row): string => "document.querySelector('.rg-admin-studio__tree-timing [data-timing^=\"{$row}\"]')?.cells[5].textContent.trim() ?? ''";
     $type = fn (string $row, string $value): string => "(() => { const input = document.querySelector('.rg-admin-studio__tree-timing [data-timing^=\"{$row}\"] .rg-admin-studio__offset-input'); input.value = '{$value}'; input.dispatchEvent(new Event('change', { bubbles: true })) })()";
 
     $again->script($type("node-{$c3}", '30'));
@@ -185,14 +179,9 @@ it('chooses voters, shares a total out over the comments — counted on them and
     expect(StudioDiscussionNode::query()->findOrFail($c3)->offset_seconds)->toBe(1800)
         ->and(StudioPlanVote::query()->where('discussion_node_id', $c3)->value('offset_seconds'))->toBe(2100);
 
-    // Its vote given a moment of its own: not saved until Save votes.
+    // Its vote given a moment of its own: saved at once, nothing left to save.
     $again->script($type("vote-{$c3}-", '50'));
-    waitForScript($again, "document.querySelector('.rg-admin-studio__tree-timing [data-timing^=\"vote-{$c3}-\"] .rg-admin-studio__node-unsaved')?.textContent.trim() ?? ''", 'Not saved');
-
-    expect(StudioPlanVote::query()->where('discussion_node_id', $c3)->value('offset_seconds'))->toBe(2100);
-
-    $again->script("[...document.querySelectorAll('.rg-admin-studio__timing-footer button')].find((button) => button.textContent.trim() === 'Save votes').click()");
-    waitForScript($again, "[...document.querySelectorAll('.rg-admin-toast .rg-admin-toast__text')].at(-1)?.textContent.trim() ?? ''", 'Comment votes saved');
+    waitForScript($again, $after("vote-{$c3}-"), '+20 min');
     waitForScript($again, "!! document.querySelector('.rg-admin-studio__timing-footer')", false);
 
     expect(StudioPlanVote::query()->where('discussion_node_id', $c3)->value('offset_seconds'))->toBe(3000);
@@ -202,29 +191,40 @@ it('chooses voters, shares a total out over the comments — counted on them and
     waitForScript($again, "document.querySelectorAll('.rg-admin-studio__tree-voters tbody tr:not(.rg-admin-studio__votes-idle)').length", $saved->pluck('persona_user_id')->unique()->count());
 });
 
-it('asks before the step is left with its comment votes not saved, and goes on once they are saved', function () {
+it('goes on from the step at once with every comment vote saved, and asks first with a change that can\'t be saved', function () {
     $page = visitDiscussionVotes($this->plan);
-
-    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
-    $page->click('button[aria-label="More up votes on C1"]');
-    waitForScript($page, commentVotesSummary(), '· 1 comment vote (+1 / −0) · Not saved');
-
+    $more = 'button[aria-label="More up votes on C1"]';
+    $count = "document.querySelector('.rg-admin-studio__breakdown input[aria-label=\"Up votes on C1\"]')?.value ?? ''";
     $continue = "[...document.querySelectorAll('.rg-admin-studio__footer button')].find((button) => button.textContent.trim() === 'Continue').click()";
     $leave = fn (string $label): string => "[...document.querySelectorAll('#rg-admin-comment-votes-leave button')].find((button) => button.textContent.trim() === '{$label}').click()";
 
+    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
+
+    foreach (['1', '2', '3'] as $up) {
+        $page->click($more);
+        waitForScript($page, $count, $up);
+    }
+
+    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
+
+    // A fourth on C1: three Personas but its own can vote on it.
+    $page->click($more);
+    waitForScript($page, commentVotesSummary(), '· comment votes: fix what is marked on C1 · Not saved');
+
     $page->script($continue);
-    waitForScript($page, "document.querySelector('#rg-admin-comment-votes-leave .rg-admin-dialog-facts')?.textContent.trim().replace(/\\s+/g, ' ') ?? ''", 'C1 · +1 / −0 · saved +0 / −0');
+    waitForScript($page, "document.querySelector('#rg-admin-comment-votes-leave .rg-admin-dialog-facts')?.textContent.trim().replace(/\\s+/g, ' ') ?? ''", 'C1 · Its 4 votes need 4 personas who can vote on it; 3 can — 1 short. Choose more personas, or ask for fewer.');
     $page->script($leave('Keep editing'));
     waitForScript($page, "! document.querySelector('#rg-admin-comment-votes-leave')");
 
     expect($page->script("document.querySelector('.rg-admin-studio__position').textContent.trim()"))->toBe('Step 3 of 4 · Discussion');
 
+    // Back to three: saved at once, and Continue goes on.
+    $page->click('button[aria-label="Fewer up votes on C1"]');
+    waitForScript($page, commentVotesSummary(), '· 3 comment votes (+3 / −0)');
     $page->script($continue);
-    waitForScript($page, "!! document.querySelector('#rg-admin-comment-votes-leave')");
-    $page->script($leave('Save and continue'));
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 4 of 4 · Publication');
 
-    expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VoteComment)->count())->toBe(1);
+    expect(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VoteComment)->count())->toBe(3);
 });
 
 it('picks the discussion’s tone among its settings, saying it in the Generate strip, whole at every width', function (int $width) {

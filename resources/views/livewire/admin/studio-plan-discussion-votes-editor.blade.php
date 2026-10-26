@@ -5,16 +5,16 @@
     - beside the Discussion settings, the Comment voters, and the Comment votes'
       totals and timing for every comment;
     - beside the discussion tree, the breakdown of the comment opened from it:
-      its votes, its priority, when they come and who casts each, with Save
-      votes and Discard;
+      its votes, its priority, when they come and who casts each;
     - on the tree's Voters tab, every voter with the comments it votes on, and
       on its Timing tab every comment, reply and vote in the order they come,
       each moment to change: a vote's here, a comment's said to the discussion
       editor, which saves it at once and moves its votes with it.
-    The tree and the Generate strip read the votes as set here from the
-    `rgCommentVotes` store, and the step's Back, Continue and steps ask before
-    leaving votes unsaved, listing what changed. Here, under the tree, only
-    what keeps the votes from being saved is said. Every text is drawn escaped.
+    Every change is saved at once. The tree and the Generate strip read the
+    votes as set here from the `rgCommentVotes` store, and the step's Back,
+    Continue and steps ask before leaving a change that can't be saved,
+    listing what changed. Here, under the tree, only what keeps the votes from
+    being saved is said, with Discard. Every text is drawn escaped.
 --}}
 @php
     $priorities = ['low' => 'Low', 'normal' => 'Normal', 'high' => 'High'];
@@ -44,7 +44,7 @@
                                 :max="$cap"
                                 :unit="'of '.$cap"
                                 :error="$errors->first('voterCount') ?: null"
-                                wire:model.live.debounce.400ms="voterCount"
+                                wire:model.live.debounce.250ms="voterCount"
                             />
                             <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Pick others</x-admin.ui.button>
                         </div>
@@ -111,11 +111,11 @@
                 {{-- With no comments yet, the totals and the timing are what the comments to come get: shared out over them once the tree is written. --}}
                 <div class="rg-admin-studio__discussion-fields">
                     <div class="rg-admin-studio__comment-votes-distribute">
-                        <x-admin.ui.number-stepper label="Total up" id="rg-admin-comment-votes-total-up" :value="$totalUp" :min="0" wire:model.live.debounce.400ms="totalUp" />
-                        <x-admin.ui.number-stepper label="Total down" id="rg-admin-comment-votes-total-down" :value="$totalDown" :min="0" wire:model.live.debounce.400ms="totalDown" />
+                        <x-admin.ui.number-stepper label="Total up" id="rg-admin-comment-votes-total-up" :value="$totalUp" :min="0" wire:model.live.debounce.250ms="totalUp" />
+                        <x-admin.ui.number-stepper label="Total down" id="rg-admin-comment-votes-total-down" :value="$totalDown" :min="0" wire:model.live.debounce.250ms="totalDown" />
                         <x-admin.ui.button size="sm" icon="shuffle" wire:click="distribute" :disabled="! $editable || $commentCount === 0">Distribute automatically</x-admin.ui.button>
                         @if ($commentCount === 0)
-                            <p class="rg-admin-hint">No comments yet: once the tree is generated or written, these totals are shared out over its comments by priority, and their votes come as set below — not saved until Save votes.</p>
+                            <p class="rg-admin-hint">No comments yet: once the tree is generated or written, these totals are shared out over its comments by priority, and their votes come as set below — saved as soon as the tree is written.</p>
                         @else
                             <p class="rg-admin-hint">On {{ $voted }} of {{ $commentCount }} {{ $commentCount === 1 ? 'comment' : 'comments' }}. A total changed gives or takes the difference by each comment’s priority — Low 1, Normal 2, High 3 — keeping the rest, and a comment’s own votes add up to it. Distribute shares both totals out anew.</p>
                         @endif
@@ -234,11 +234,10 @@
                     </ul>
 
                     <div class="rg-admin-studio__breakdown-footer">
-                        <span class="rg-admin-studio__muted">{{ $unsaved ? 'Not saved yet · Save votes keeps every comment’s votes.' : 'As saved.' }}</span>
+                        <span class="rg-admin-studio__muted">{{ $unsaved ? 'Not saved · fix what is marked, or Discard to go back to the votes saved.' : 'Every change is saved at once.' }}</span>
                         @if ($unsaved)
                             <x-admin.ui.button size="sm" wire:click="discard" :disabled="! $editable">Discard</x-admin.ui.button>
                         @endif
-                        <x-admin.ui.button size="sm" variant="primary" icon="check" wire:click="save" :disabled="! $editable || ! $unsaved || $marked !== []">Save votes</x-admin.ui.button>
                     </div>
                 </x-admin.ui.card>
             @endif
@@ -254,7 +253,7 @@
                 <span class="rg-admin-studio__muted rg-admin-studio__votes-toolbar-count">{{ $voterTable['pool'] }} comment voters · {{ $voterTable['voting'] }} vote</span>
                 <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Reshuffle</x-admin.ui.button>
             </div>
-            <p class="rg-admin-hint rg-admin-studio__votes-pad">{{ $unsaved ? 'The votes as set here, not saved yet.' : 'The votes as saved.' }} Each persona votes at most once per comment and never on a comment it writes. Reshuffle draws other voters and assignments with the same numbers.</p>
+            <p class="rg-admin-hint rg-admin-studio__votes-pad">{{ $unsaved ? 'The votes as set here, not saved: fix what is marked.' : 'The votes as saved.' }} Each persona votes at most once per comment and never on a comment it writes. Reshuffle draws other voters and assignments with the same numbers.</p>
             <div class="rg-admin-studio__timing-scroll">
                 <table class="rg-admin-studio__timing rg-admin-studio__votes-table">
                     <thead>
@@ -317,7 +316,7 @@
                                 </td>
                                 <td class="rg-admin-studio__mono">{{ $row['parent'] }}</td>
                                 <td>
-                                    {{-- A comment's moment is the discussion editor's to save: the field keeps the moment it has, and a move accepted draws the row again with the new one. A vote's is set here, saved with Save votes. No comment moves while the discussion editor says a generation is on its way. --}}
+                                    {{-- A comment's moment is the discussion editor's to save: the field keeps the moment it has, and a move accepted draws the row again with the new one. A vote's is set here, saved at once. No comment moves while the discussion editor says a generation is on its way. --}}
                                     @if ($row['kind'] === 'vote')
                                         @include('livewire.admin.studio-plan-offset-field', [
                                             'seconds' => $row['seconds'],
@@ -352,9 +351,8 @@
             </div>
             @if ($unsaved)
                 <div class="rg-admin-studio__breakdown-footer rg-admin-studio__timing-footer">
-                    <span class="rg-admin-studio__muted">The votes changed here are not saved yet · Save votes keeps every comment’s votes.</span>
+                    <span class="rg-admin-studio__muted">Not saved · fix what is marked, or Discard to go back to the votes saved.</span>
                     <x-admin.ui.button size="sm" wire:click="discard" :disabled="! $editable">Discard</x-admin.ui.button>
-                    <x-admin.ui.button size="sm" variant="primary" icon="check" wire:click="save" :disabled="! $editable || $marked !== []">Save votes</x-admin.ui.button>
                 </div>
             @endif
         </div>
@@ -374,8 +372,8 @@
     @endif
 
     @if ($leaving !== null)
-        <x-admin.ui.confirm-dialog title="Save the comment votes?" tone="warning" icon="thumbs-up" id="rg-admin-comment-votes-leave" x-on:dismiss="$wire.stay()">
-            {{ $marked !== [] ? 'The comment votes changed here are not saved yet, and can’t be until what is marked is fixed. Keep editing to fix it, or discard the changes.' : 'The comment votes changed here are not saved yet. Save them before you go on, or discard the changes.' }}
+        <x-admin.ui.confirm-dialog title="Leave the comment votes as saved?" tone="warning" icon="thumbs-up" id="rg-admin-comment-votes-leave" x-on:dismiss="$wire.stay()">
+            {{ $marked !== [] ? 'The last change to the comment votes is not saved: it can’t be made until what is marked is fixed. Keep editing to fix it, or discard the change and go on with the votes saved.' : 'The last change to the comment votes is not saved. Keep editing, or discard the change and go on with the votes saved.' }}
             <x-slot:details>
                 <ul class="rg-admin-dialog-facts" aria-label="Not saved">
                     @forelse ($shownChanges as $change)
@@ -390,8 +388,7 @@
             </x-slot:details>
             <x-slot:actions>
                 <x-admin.ui.button x-on:click="dismiss()">Keep editing</x-admin.ui.button>
-                <x-admin.ui.button x-on:click="hide(); $wire.discardAndLeave()">Discard changes</x-admin.ui.button>
-                <x-admin.ui.button variant="primary" icon="check" :disabled="$marked !== []" x-on:click="hide(); $wire.saveAndLeave()">Save and continue</x-admin.ui.button>
+                <x-admin.ui.button variant="primary" x-on:click="hide(); $wire.discardAndLeave()">Discard change</x-admin.ui.button>
             </x-slot:actions>
         </x-admin.ui.confirm-dialog>
     @endif

@@ -139,11 +139,17 @@ final class StudioPlanTextSuggestionsCard extends Component
 
     /**
      * The plan was saved or drawn again on the page: drawn again here too,
-     * so a batch written for an author it no longer has is shown no more.
+     * so a batch written for an author it no longer has is shown no more —
+     * unless it was the discussion or the votes, which change nothing here.
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
     #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
-    public function planMoved(): void {}
+    public function planMoved(mixed $source = null): void
+    {
+        if (in_array($source, ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
+            $this->skipRender();
+        }
+    }
 
     public function useTitle(mixed $generationId, mixed $index): void
     {

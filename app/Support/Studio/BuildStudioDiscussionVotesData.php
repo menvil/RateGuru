@@ -79,7 +79,7 @@ final class BuildStudioDiscussionVotesData
             ->get();
         $errors = [];
 
-        [$voters, $keepers] = $this->voters($settings, $errors);
+        [$voters, $keepers] = $this->voters($settings, $saved->pluck('persona_user_id')->map(intval(...))->unique()->values()->all(), $errors);
         $targets = $settings->targets;
         uasort($targets, fn (StudioDiscussionVoteTargetSettings $a, StudioDiscussionVoteTargetSettings $b): int => [$nodes->get($a->nodeId)->offset_seconds ?? PHP_INT_MAX, $a->nodeId] <=> [$nodes->get($b->nodeId)->offset_seconds ?? PHP_INT_MAX, $b->nodeId]);
         $blocks = [];
@@ -187,13 +187,14 @@ final class BuildStudioDiscussionVotesData
 
     /**
      * Who may take a new vote, in the order the seed draws them — active
-     * Personas able to vote — and who chosen by hand may only keep the votes
-     * it has.
+     * Personas able to vote, those voting already first while their votes
+     * are preferred — and who chosen by hand may only keep the votes it has.
      *
+     * @param  list<int>  $saved  the Personas with a saved vote on a comment
      * @param  array<string, string>  $errors
      * @return array{0: list<int>, 1: list<int>}
      */
-    private function voters(StudioDiscussionVotesSettings $settings, array &$errors): array
+    private function voters(StudioDiscussionVotesSettings $settings, array $saved, array &$errors): array
     {
         if ($settings->isManual()) {
             return self::chosenVoters($settings->voterIds, null, $settings->seed);
@@ -205,7 +206,7 @@ final class BuildStudioDiscussionVotesData
             $errors['voterCount'] = 'Choose from 0 to '.count($pool).' personas: that many can vote.';
         }
 
-        return [array_slice(self::drawn($pool, $settings->seed, 'voters'), 0, max(0, min($settings->voterCount, count($pool)))), []];
+        return [self::randomVoters($pool, $saved, $settings->voterCount, $settings->seed, $settings->keepSaved), []];
     }
 
     /**

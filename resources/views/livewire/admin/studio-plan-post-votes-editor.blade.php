@@ -93,7 +93,7 @@
                                 :max="$cap"
                                 :unit="'of '.$cap"
                                 :error="$errors->first('voterCount') ?: null"
-                                wire:model.live.debounce.400ms="voterCount"
+                                wire:model.live.debounce.250ms="voterCount"
                             />
                             <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Pick others</x-admin.ui.button>
                         </div>
@@ -286,8 +286,8 @@
                             </div>
                             @if ($postOn)
                                 <div class="rg-admin-studio__votes-steppers">
-                                    <x-admin.ui.number-stepper label="Up votes" id="rg-admin-votes-up" :value="$up" :min="0" :max="$cap" :error="$errors->first('up') ?: null" wire:model.live.debounce.400ms="up" />
-                                    <x-admin.ui.number-stepper label="Down votes" id="rg-admin-votes-down" :value="$down" :min="0" :max="$cap" :error="$errors->first('down') ?: null" wire:model.live.debounce.400ms="down" />
+                                    <x-admin.ui.number-stepper label="Up votes" id="rg-admin-votes-up" :value="$up" :min="0" :max="$cap" :error="$errors->first('up') ?: null" wire:model.live.debounce.250ms="up" />
+                                    <x-admin.ui.number-stepper label="Down votes" id="rg-admin-votes-down" :value="$down" :min="0" :max="$cap" :error="$errors->first('down') ?: null" wire:model.live.debounce.250ms="down" />
                                     <div class="rg-admin-studio__votes-score">
                                         <span class="rg-admin-studio__persona-name">Score {{ $score >= 0 ? '+' : '' }}{{ $score }} · {{ $postTotal > 0 ? (int) round($up / $postTotal * 100) : 0 }}% up</span>
                                         <span class="rg-admin-studio__muted">{{ $postTotal }} of {{ $voters }} post voters · {{ $postTotal }} different personas</span>

@@ -84,7 +84,7 @@ final class BuildStudioPostVotesData
             ->get();
         $errors = [];
 
-        [$voters, $keepers] = $this->voters($settings, $authorId, $errors);
+        [$voters, $keepers] = $this->voters($settings, $authorId, $saved->pluck('persona_user_id')->map(intval(...))->unique()->values()->all(), $errors);
         $blocks = [$this->postBlock($settings, $saved, $errors), ...$this->ratingBlocks($settings, $saved, $errors)];
 
         foreach ($blocks as $index => $block) {
@@ -122,13 +122,15 @@ final class BuildStudioPostVotesData
 
     /**
      * Who may take a new vote — active Personas able to vote, never the
-     * post's author — in the order the seed draws them, and who chosen by
-     * hand may only keep the votes it has.
+     * post's author — in the order the seed draws them, those voting already
+     * first while their votes are preferred, and who chosen by hand may only
+     * keep the votes it has.
      *
+     * @param  list<int>  $saved  the Personas with a saved vote on the post or a question
      * @param  array<string, string>  $errors
      * @return array{0: list<int>, 1: list<int>}
      */
-    private function voters(StudioPostVotesSettings $settings, ?int $authorId, array &$errors): array
+    private function voters(StudioPostVotesSettings $settings, ?int $authorId, array $saved, array &$errors): array
     {
         if (! $settings->isManual()) {
             $pool = array_values(array_filter($this->personas->activeIds(), fn (int $id): bool => $id !== $authorId && $id !== $settings->authorToBe));
@@ -137,7 +139,7 @@ final class BuildStudioPostVotesData
                 $errors['voterCount'] = 'Choose from 0 to '.count($pool).' personas: that many can vote on this post.';
             }
 
-            return [array_slice(self::drawn($pool, $settings->seed, 'voters'), 0, max(0, min($settings->voterCount, count($pool)))), []];
+            return [self::randomVoters($pool, $saved, $settings->voterCount, $settings->seed, $settings->keepSaved), []];
         }
 
         return self::chosenVoters(array_values(array_filter($settings->voterIds, fn (int $id): bool => $id !== $settings->authorToBe)), $authorId, $settings->seed);

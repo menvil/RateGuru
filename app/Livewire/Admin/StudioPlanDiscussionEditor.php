@@ -109,6 +109,9 @@ final class StudioPlanDiscussionEditor extends Component
      */
     public const GENERATE_EVENT = 'studio-discussion-generate';
 
+    /** Said by the plan's editor when the Discussion step comes on screen again. */
+    public const SHOWN_EVENT = 'studio-discussion-shown';
+
     /** Seconds between reads while a generation is on its way. */
     public const POLL_SECONDS = 3;
 
@@ -235,6 +238,14 @@ final class StudioPlanDiscussionEditor extends Component
      */
     #[Locked]
     public ?array $undo = null;
+
+    /**
+     * Whether the step was last drawn before the photo's analysis was
+     * complete, so Generate tree waited for it: looked at again when the step
+     * comes on screen, and every few seconds on it while the analysis runs.
+     */
+    #[Locked]
+    public bool $waitsForAnalysis = false;
 
     public function boot(): void
     {
@@ -806,28 +817,48 @@ final class StudioPlanDiscussionEditor extends Component
      * moved its version with a write of its own: taken, when it was written
      * from the version this page holds, the plan is at the version it says
      * now, and its discussion is still the one this page last read or wrote.
-     * Any other move is somebody else's — or not one at all.
+     * Any other move is somebody else's — or not one at all. Only the post's
+     * own save is drawn again here — its title and photo are what Generate
+     * waits for; the votes' saves change nothing this editor draws, the tree
+     * reading each comment's votes from the `rgCommentVotes` store.
      */
     #[On(self::VERSION_EVENT)]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
         if ($source === 'discussion' || ! is_numeric($planId) || (int) $planId !== $this->planId || ! is_numeric($previous) || ! is_numeric($current)) {
+            $this->skipRender();
+
             return;
         }
 
         [$previous, $current] = [(int) $previous, (int) $current];
 
         if ($current === $this->lockVersion) {
+            $this->skipRender();
+
             return;
         }
 
         if ($previous === $this->lockVersion && $current === $previous + 1 && $this->holdsSavedAt($current)) {
             $this->lockVersion = $current;
 
+            if (in_array($source, [StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
+                $this->skipRender();
+            }
+
             return;
         }
 
         $this->conflict = true;
+    }
+
+    /** The step on screen again: drawn again if it was waiting for the photo's analysis, which may be complete now. */
+    #[On(self::SHOWN_EVENT)]
+    public function shown(mixed $planId = null): void
+    {
+        if (! $this->waitsForAnalysis || ! is_numeric($planId) || (int) $planId !== $this->planId) {
+            $this->skipRender();
+        }
     }
 
     public function render(): View
@@ -849,6 +880,7 @@ final class StudioPlanDiscussionEditor extends Component
         $listed = $this->participantMode === 'manual' ? $this->personaList() : new EloquentCollection;
         $checked = $this->activeManual();
         $most = $this->mostPersonas();
+        $this->waitsForAnalysis = $plan !== null && ($context === null || ! $context->complete);
 
         return view('livewire.admin.studio-plan-discussion-editor', [
             'editable' => $this->writable(),
@@ -858,6 +890,8 @@ final class StudioPlanDiscussionEditor extends Component
             'configured' => app(StudioDiscussionGenerator::class)->isConfigured(),
             'hasTitle' => $plan !== null && trim((string) $plan->title) !== '',
             'analysed' => $context !== null && $context->complete,
+            // The photo's analysis on its way: read again until it is there.
+            'analysing' => $plan?->imageAnalysis !== null && $plan->imageAnalysis->isFor($plan->image_asset_id) && $plan->imageAnalysis->status->isInProgress(),
             'mostNodes' => $this->mostNodes(),
             'mostRandom' => $this->mostRandom(),
             'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),

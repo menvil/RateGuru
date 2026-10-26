@@ -148,12 +148,13 @@ it('writes in the voice of the author on screen: another author chosen is saved 
     $page->script(suggestionsGenerateButton().'.click()');
     waitForScript($page, "document.querySelector('[data-suggestions]')?.dataset.suggestions", 'queued');
     waitForScript($page, $voice, 'Boris Swoon — Flirts with the furniture.');
+    // Alpine hides the warning on its next tick after the card is drawn with the author saved.
+    waitForScript($page, $warning, 'none');
 
     $plan->refresh();
 
     expect($plan->author_user_id)->toBe($boris->id)
         ->and(StudioPlanTextGeneration::query()->sole()->source_analysis_hash)->toBe(StudioPostTextContext::ofPlan($plan, $plan->imageAnalysis)->sourceHash())
-        ->and($page->script($warning))->toBe('none')
         ->and(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
     Queue::assertPushed(GenerateStudioPostTextsJob::class, 1);
 });
