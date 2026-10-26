@@ -115,15 +115,18 @@ final class ImportPersonasAction
 
                 $this->takenMeanwhile($persona, $unchanged, $failed);
             } catch (ValidationException $exception) {
-                // Its values were checked against the same rules; only whether
-                // another account has its username can have changed since.
+                $refusal = (string) collect($exception->errors())->flatten()->first();
+
+                // Read from a file, its values passed the same rules; then only
+                // whether another account has its username can have changed
+                // since. Anything else is said as the rules say it.
                 if ($exception->validator->errors()->has('username')) {
-                    $this->takenMeanwhile($persona, $unchanged, $failed);
+                    $this->takenMeanwhile($persona, $unchanged, $failed, $refusal);
 
                     continue;
                 }
 
-                $failed[$username] = (string) collect($exception->errors())->flatten()->first();
+                $failed[$username] = $refusal;
             }
         }
 
@@ -142,13 +145,14 @@ final class ImportPersonasAction
     }
 
     /**
-     * Its username was taken after the plan was made: by this very Persona —
-     * another run of the same file — or by somebody else.
+     * Its username was refused: taken after the plan was made — by this very
+     * Persona, another run of the same file, or by somebody else — or, when no
+     * account has it, refused by the rules themselves, as `$refusal` says.
      *
      * @param  list<string>  $unchanged
      * @param  array<string, string>  $failed
      */
-    private function takenMeanwhile(PersonaData $persona, array &$unchanged, array &$failed): void
+    private function takenMeanwhile(PersonaData $persona, array &$unchanged, array &$failed, ?string $refusal = null): void
     {
         $username = (string) $persona->username;
         $account = User::query()->where('username', $username)->with('personaProfile')->first();
@@ -159,7 +163,9 @@ final class ImportPersonasAction
             return;
         }
 
-        $failed[$username] = 'Another account took this username during the import.';
+        $failed[$username] = $account === null && $refusal !== null
+            ? $refusal
+            : 'Another account took this username during the import.';
     }
 
     /** Why the account with a Persona's username is not that Persona as the file has it; none when it is. */
