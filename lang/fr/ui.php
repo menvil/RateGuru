@@ -303,8 +303,6 @@ return [
         'report_title' => 'Signaler l\'utilisateur',
         'unknown' => 'Utilisateur inconnu',
         'deleted' => 'Utilisateur supprimé',
-        'persona' => 'Persona IA',
-        'persona_hint' => 'Un compte de personnage géré par ce site. Ses publications et commentaires sont rédigés avec l’IA.',
     ],
     'theme_options' => [
         'system' => 'Système',

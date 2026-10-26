@@ -1118,7 +1118,8 @@ each only what its `PersonaProfile` says of how it writes: display name, short
 description, character, speech style, topics and jokes, what it never writes
 about, and how often it uses emoji — never an email, username, id, password,
 sign-in or security setting (`StudioDiscussionPersona`). How a project's
-Personas are made, imported and marked is `docs/architecture/studio-personas.md`.
+Personas are made and imported, and what the public sees of them, is
+`docs/architecture/studio-personas.md`.
 
 ### What it is written from
 

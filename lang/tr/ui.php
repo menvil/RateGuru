@@ -303,8 +303,6 @@ return [
         'report_title' => 'Kullanıcıyı şikâyet et',
         'unknown' => 'Bilinmeyen kullanıcı',
         'deleted' => 'Silinmiş kullanıcı',
-        'persona' => 'Yapay zekâ personası',
-        'persona_hint' => 'Bu sitenin yönettiği bir karakter hesabı. Gönderileri ve yorumları yapay zekâ ile yazılır.',
     ],
     'theme_options' => [
         'system' => 'Sistem',

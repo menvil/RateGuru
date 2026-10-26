@@ -337,18 +337,3 @@ it('shows a persona without an avatar by its initials, as anyone', function () {
         ->toContain('data-testid="profile-avatar"')
         ->not->toContain('<img');
 });
-
-it('marks a persona’s profile as an AI persona, saying what that means and nothing of how it is set up, and nobody else’s', function () {
-    $persona = User::factory()->persona()->create(['username' => 'night_owl', 'name' => 'Night Owl', 'display_name' => 'Night Owl']);
-    PersonaProfile::factory()->create(['user_id' => $persona->id, 'character' => 'INTERNAL-CHARACTER']);
-    User::factory()->create(['username' => 'chef_ivan']);
-
-    expect($this->get('/u/night_owl')->assertOk()->getContent())
-        ->toContain('data-testid="persona-badge"')
-        ->toContain('AI persona')
-        ->toContain('A character account run by this site. Its posts and comments are written with AI.')
-        ->not->toContain('INTERNAL-CHARACTER')
-        ->and($this->get('/u/chef_ivan')->assertOk()->getContent())
-        ->not->toContain('data-testid="persona-badge"')
-        ->not->toContain('AI persona');
-});

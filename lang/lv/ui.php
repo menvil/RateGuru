@@ -306,8 +306,6 @@ return [
         'report_title' => 'Ziņot par lietotāju',
         'unknown' => 'Nezināms lietotājs',
         'deleted' => 'Dzēsts lietotājs',
-        'persona' => 'MI persona',
-        'persona_hint' => 'Šīs vietnes uzturēts tēla konts. Tā ieraksti un komentāri ir rakstīti ar MI palīdzību.',
     ],
     'theme_options' => [
         'system' => 'Sistēmas',

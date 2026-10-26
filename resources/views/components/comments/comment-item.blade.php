@@ -40,8 +40,6 @@
                     <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? __('ui.user.unknown') }}</span>
                 @endif
 
-                <x-ui.persona-badge :user="$comment->user" class="mx-0.5 align-middle" />
-
                 @if ($comment->created_at)
                     <time datetime="{{ $comment->created_at->toIso8601String() }}" class="text-xs text-rg-muted">
                         {{ $comment->created_at->diffForHumans() }}

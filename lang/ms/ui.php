@@ -303,8 +303,6 @@ return [
         'report_title' => 'Laporkan pengguna',
         'unknown' => 'Pengguna tidak dikenali',
         'deleted' => 'Pengguna dipadam',
-        'persona' => 'Persona AI',
-        'persona_hint' => 'Akaun watak yang dikendalikan oleh laman ini. Hantaran dan komennya ditulis dengan AI.',
     ],
     'theme_options' => [
         'system' => 'Sistem',

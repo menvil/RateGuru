@@ -35,10 +35,6 @@ it('renders the dev ui kit in local and testing environments', function () {
         ->assertSee('data-ui="search-form"', false)
         ->assertSee('Validation error example')
         ->assertSee('Disabled input')
-        // A Persona's comment, marked as an AI persona's, and the badge alone.
-        ->assertSee('Comment Item by a Persona')
-        ->assertSee('Persona Badge')
-        ->assertSee('data-testid="persona-badge"', false)
         // The PlateRate reference composition and its regions.
         ->assertSee('Home')
         ->assertSee('CATEGORIES')
