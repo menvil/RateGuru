@@ -26,6 +26,7 @@ use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
@@ -259,22 +260,253 @@ it('refuses a plan not ready to publish with every problem the preflight finds, 
         $plan->forceFill(['author_answer_option_ids' => [$answer->id]])->save();
     }, StudioPlanApprovalRejection::InvalidTaxonomy, [StudioPlanApprovalProblem::AnswerInactive]],
     'no date to publish on' => [fn (StudioPlan $plan) => $plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => null])->save(), StudioPlanApprovalRejection::InvalidPublicationDate, [StudioPlanApprovalProblem::PublishAtMissing]],
-    // Nothing publishes a discussion yet: approving the post alone would drop it.
-    'a prepared discussion' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(), StudioPlanApprovalRejection::UnsupportedDiscussion, [StudioPlanApprovalProblem::DiscussionNotPublishable]],
+    // Every Persona of the discussion must be able to comment, as the post's author must be able to post.
+    'a discussion by a limited Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]), StudioPlanApprovalRejection::InvalidDiscussion, [StudioPlanApprovalProblem::DiscussionPersonaRestricted]],
 ]);
 
-it('approves a plan whose discussion was emptied as it approves any other', function () {
-    $plan = approvableStudioPlan();
-    saveStudioDiscussion($this->admin, $plan, [discussionNode(['personaUserId' => User::factory()->persona()->create()->id, 'body' => 'Lovely.'])]);
+it('writes an action for every comment and reply of the discussion, under the post\'s, by its own Persona, with its text and comment kept', function () {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-20 10:15:30', 'UTC'));
+    $commenter = User::factory()->persona()->create();
+    $replier = User::factory()->persona()->create();
+    [$plan, $saved] = approvableStudioPlanWithDiscussion([], $commenter, $replier);
 
-    expect(approvalRefusal(fn () => approveStudioPlan($this->admin, $plan))->problems)->toBe([StudioPlanApprovalProblem::DiscussionNotPublishable]);
+    approveStudioPlan($this->admin, $plan);
+    $actions = studioActionsByNode($plan, $saved);
 
-    saveStudioDiscussion($this->admin, $plan, []);
+    expect(array_keys($actions))->toEqualCanonicalizing(['post', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6'])
+        ->and(StudioAction::query()->count())->toBe(7)
+        ->and($actions['post'])->type->toBe(StudioActionType::CreatePost)->parent_action_id->toBeNull()->actor_user_id->toBe($plan->author_user_id);
+
+    foreach (['c1' => 'post', 'c4' => 'post', 'c6' => 'post', 'c2' => 'c1', 'c3' => 'c1', 'c5' => 'c4'] as $key => $parent) {
+        $node = StudioDiscussionNode::query()->findOrFail($saved->ids[$key]);
+
+        expect($actions[$key])
+            ->type->toBe($parent === 'post' ? StudioActionType::CreateComment : StudioActionType::CreateReply)
+            ->parent_action_id->toBe($actions[$parent]->id)
+            ->actor_user_id->toBe($parent === 'post' ? $commenter->id : $replier->id)
+            ->payload->toBe(['discussion_node_id' => $node->id, 'body' => $node->body])
+            ->status->toBe(StudioActionStatus::Pending)
+            ->attempts->toBe(0)
+            ->and($actions[$key]->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse('2026-10-20 10:15:30')->addSeconds($node->offset_seconds)->toDateTimeString())
+            // A post published now: each comment may run at its own moment, after the approval.
+            ->and($actions[$key]->run_after->equalTo($actions[$key]->occurs_at))->toBeTrue();
+    }
+});
+
+it('dates each comment after its post, letting the past ones run from the approval and the future ones from their own moment', function (string $publishAt, array $runAfter) {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-20 10:15:30', 'UTC'));
+    [$plan, $saved] = approvableStudioPlanWithDiscussion(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse($publishAt, 'UTC')]);
+
+    approveStudioPlan($this->admin, $plan);
+    $actions = studioActionsByNode($plan, $saved);
+
+    expect($actions['c1']->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse($publishAt)->addMinutes(5)->toDateTimeString())
+        ->and($actions['c2']->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse($publishAt)->addMinutes(12)->toDateTimeString())
+        ->and($actions['c1']->run_after->toDateTimeString())->toBe($runAfter[0])
+        ->and($actions['c2']->run_after->toDateTimeString())->toBe($runAfter[1]);
+})->with([
+    'a past post: everything may run at once, dated in the past' => ['2025-06-10 10:00:00', ['2026-10-20 10:15:30', '2026-10-20 10:15:30']],
+    'a future post: each comment waits for its own moment' => ['2026-11-01 08:30:00', ['2026-11-01 08:35:00', '2026-11-01 08:42:00']],
+    'a post ten minutes ago: what is past runs now, what is not waits' => ['2026-10-20 10:05:30', ['2026-10-20 10:15:30', '2026-10-20 10:17:30']],
+]);
+
+it('approves a discussion once: a second approval writes no action again', function () {
+    [$plan] = approvableStudioPlanWithDiscussion();
     approveStudioPlan($this->admin, $plan);
 
-    expect($plan->fresh()->status)->toBe(StudioPlanStatus::Approved)
-        ->and(StudioAction::query()->sole()->type)->toBe(StudioActionType::CreatePost);
+    expect(approvalRefusal(fn () => approveStudioPlan(User::factory()->admin()->create(), $plan))->rejection)->toBe(StudioPlanApprovalRejection::NotDraft)
+        ->and(StudioAction::query()->count())->toBe(7);
 });
+
+it('takes the whole approval back when any action of the discussion cannot be written', function () {
+    [$plan] = approvableStudioPlanWithDiscussion();
+    // The last reply's alone, as a model event cancels one: false, no exception.
+    StudioAction::creating(fn (StudioAction $action): ?bool => $action->type === StudioActionType::CreateReply && $action->payload['body'] === 'Brittany, I think.' ? false : null);
+    Log::spy();
+
+    expect(fn () => approveStudioPlan($this->admin, $plan))->toThrow(RuntimeException::class, 'An action of the approved plan was not saved.');
+
+    expect($plan->fresh())->status->toBe(StudioPlanStatus::Draft)->approved_at->toBeNull()->lock_version->toBe(2)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+    Log::shouldNotHaveReceived('info', fn (string $message): bool => in_array($message, ['studio_plan.approved', 'studio.action.created'], true));
+});
+
+it('refuses a discussion whose Persona was sanctioned after the plan was seen, approving nothing', function () {
+    $replier = User::factory()->persona()->create();
+    [$plan] = approvableStudioPlanWithDiscussion([], null, $replier);
+    $seen = $plan->lock_version;
+    app(LimitUserAction::class)->handle(User::factory()->admin()->create(), $replier, 'Spam');
+
+    $refusal = approvalRefusal(fn () => app(ApproveStudioPlanAction::class)->handle($this->admin, $plan, $seen));
+
+    expect($refusal->rejection)->toBe(StudioPlanApprovalRejection::InvalidDiscussion)
+        ->and($refusal->problems)->toBe([StudioPlanApprovalProblem::DiscussionPersonaRestricted])
+        ->and($plan->fresh()->status)->toBe(StudioPlanStatus::Draft)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+});
+
+it('refuses a discussion naming another Persona once the plan is locked than when it was read, never locking a user after the plan', function () {
+    [$plan, $saved] = approvableStudioPlanWithDiscussion();
+    $other = User::factory()->persona()->create();
+    $changed = false;
+
+    // Between the read of the Personas and the locks: a comment now names another, at the same version.
+    DB::beforeExecuting(function (string $sql) use ($saved, $other, &$changed): void {
+        if (! $changed && approvalReadsUsers($sql)) {
+            $changed = true;
+            DB::table('studio_plan_discussion_nodes')->where('id', $saved->ids['c6'])->update(['persona_user_id' => $other->id]);
+        }
+    });
+
+    $refusal = approvalRefusal(fn () => approveStudioPlan($this->admin, $plan));
+
+    expect($refusal->rejection)->toBe(StudioPlanApprovalRejection::StaleVersion)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+});
+
+it('writes an action for every prepared vote, by its Persona, under the action it depends on, keeping only what was approved', function () {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-20 10:15:30', 'UTC'));
+    ['plan' => $plan, 'saved' => $saved, 'votes' => $votes, 'voters' => $voters, 'group' => $group, 'options' => $options] = approvableStudioPlanWithVotes();
+
+    approveStudioPlan($this->admin, $plan);
+    $comments = studioActionsByNode($plan, $saved);
+    $actions = studioVoteActions($plan, $votes);
+
+    expect(StudioAction::query()->where('studio_plan_id', $plan->id)->count())->toBe(13)
+        // Written after the discussion, by their moment, then their place, then the prepared vote's id.
+        ->and(array_keys($actions))->toBe(['postUp', 'ratingUp', 'postDown', 'ratingDown', 'c1Up', 'c2Down'])
+        ->and(min(array_map(fn (StudioAction $action): int => $action->id, $actions)))->toBeGreaterThan(max(array_map(fn (StudioAction $action): int => $action->id, $comments)));
+
+    foreach ([
+        'postUp' => [StudioActionType::VotePost, 'post', 'up', ['vote_type' => 'up'], 60],
+        'postDown' => [StudioActionType::VotePost, 'post', 'down', ['vote_type' => 'down'], 120],
+        'ratingUp' => [StudioActionType::VoteRating, 'post', 'up', ['rating_group_id' => $group->id, 'rating_option_id' => $options[0]->id], 60],
+        'ratingDown' => [StudioActionType::VoteRating, 'post', 'down', ['rating_group_id' => $group->id, 'rating_option_id' => $options[1]->id], 180],
+        'c1Up' => [StudioActionType::VoteComment, 'c1', 'up', ['vote_type' => 'up', 'discussion_node_id' => $saved->ids['c1']], 600],
+        'c2Down' => [StudioActionType::VoteComment, 'c2', 'down', ['vote_type' => 'down', 'discussion_node_id' => $saved->ids['c2']], 900],
+    ] as $key => [$type, $parent, $voter, $payload, $offset]) {
+        expect($actions[$key])
+            ->type->toBe($type)
+            ->parent_action_id->toBe($comments[$parent]->id)
+            ->actor_user_id->toBe($voters[$voter]->id)
+            // No post, comment or user to act on: what the run votes on comes from the action it depends on.
+            ->payload->toEqual([...$payload, 'studio_plan_vote_id' => $votes[$key]])
+            ->status->toBe(StudioActionStatus::Pending)
+            ->attempts->toBe(0)
+            ->result_id->toBeNull()
+            ->and($actions[$key]->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse('2026-10-20 10:15:30')->addSeconds($offset)->toDateTimeString())
+            // A post published now: each vote may run at its own moment, after the approval.
+            ->and($actions[$key]->run_after->equalTo($actions[$key]->occurs_at))->toBeTrue();
+    }
+});
+
+it('dates each vote after its post, letting the past ones run from the approval and the future ones from their own moment', function (string $publishAt, array $runAfter) {
+    Carbon::setTestNow(CarbonImmutable::parse('2026-10-20 10:15:30', 'UTC'));
+    ['plan' => $plan, 'votes' => $votes] = approvableStudioPlanWithVotes(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse($publishAt, 'UTC')]);
+
+    approveStudioPlan($this->admin, $plan);
+    $actions = studioVoteActions($plan, $votes);
+
+    expect($actions['postUp']->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse($publishAt)->addMinute()->toDateTimeString())
+        ->and($actions['c2Down']->occurs_at->toDateTimeString())->toBe(CarbonImmutable::parse($publishAt)->addMinutes(15)->toDateTimeString())
+        ->and($actions['postUp']->run_after->toDateTimeString())->toBe($runAfter[0])
+        ->and($actions['c2Down']->run_after->toDateTimeString())->toBe($runAfter[1]);
+})->with([
+    'a past post: every vote may run at once, dated in the past' => ['2025-06-10 10:00:00', ['2026-10-20 10:15:30', '2026-10-20 10:15:30']],
+    'a future post: each vote waits for its own moment' => ['2026-11-01 08:30:00', ['2026-11-01 08:31:00', '2026-11-01 08:45:00']],
+    'a post ten minutes ago: what is past runs now, what is not waits' => ['2026-10-20 10:05:30', ['2026-10-20 10:15:30', '2026-10-20 10:20:30']],
+]);
+
+it('approves votes once: a second approval writes no action again', function () {
+    ['plan' => $plan] = approvableStudioPlanWithVotes();
+    approveStudioPlan($this->admin, $plan);
+
+    expect(approvalRefusal(fn () => approveStudioPlan(User::factory()->admin()->create(), $plan))->rejection)->toBe(StudioPlanApprovalRejection::NotDraft)
+        ->and(StudioAction::query()->count())->toBe(13);
+});
+
+it('refuses a plan whose votes cannot be cast as they are, with each problem as its own code, writing nothing', function (Closure $arrange, StudioPlanApprovalProblem $problem) {
+    $prepared = approvableStudioPlanWithVotes();
+    $arrange($prepared, $this->admin);
+    $before = DB::table('studio_plans')->where('id', $prepared['plan']->id)->first();
+
+    $refusal = approvalRefusal(fn () => approveStudioPlan($this->admin, $prepared['plan']));
+
+    expect($refusal->rejection)->toBe(StudioPlanApprovalRejection::InvalidVotes)
+        ->and($refusal->problems)->toBe([$problem])
+        ->and(DB::table('studio_plans')->where('id', $prepared['plan']->id)->first())->toEqual($before)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+})->with([
+    'a voter limited since' => [fn (array $prepared, User $admin) => app(LimitUserAction::class)->handle($admin, $prepared['voters']['up'], 'Spam'), StudioPlanApprovalProblem::VotePersonaRestricted],
+    'a voter deleted since' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['status' => UserStatus::Deleted])->save(), StudioPlanApprovalProblem::VotePersonaDeleted],
+    'a voter no longer a persona' => [fn (array $prepared) => $prepared['voters']['up']->forceFill(['role' => 'user'])->save(), StudioPlanApprovalProblem::VotePersonaNotPersona],
+    'the post given to a voter as its author' => [fn (array $prepared, User $admin) => app(UpdateStudioPlanAction::class)->handle(
+        $admin, $prepared['plan'], new StudioPlanData(authorUserId: $prepared['voters']['up']->id, title: $prepared['plan']->title), $prepared['plan']->fresh()->lock_version,
+    ), StudioPlanApprovalProblem::VoteOwnContent],
+    'a comment written by its voter' => [fn (array $prepared) => DB::table('studio_plan_discussion_nodes')->where('id', $prepared['saved']->ids['c1'])->update(['persona_user_id' => $prepared['voters']['up']->id]), StudioPlanApprovalProblem::VoteOwnContent],
+    'a vote before the comment it is on' => [fn (array $prepared) => DB::table('studio_plan_votes')->where('id', $prepared['votes']['c2Down'])->update(['offset_seconds' => 600]), StudioPlanApprovalProblem::VoteTimingInvalid],
+    'an option archived since' => [fn (array $prepared) => $prepared['options'][0]->forceFill(['is_active' => false, 'archived_at' => now()])->save(), StudioPlanApprovalProblem::VoteOptionUnavailable],
+    'its question no longer active' => [fn (array $prepared) => $prepared['group']->forceFill(['is_active' => false])->save(), StudioPlanApprovalProblem::VoteOptionUnavailable],
+    'a vote past the dates a post may carry' => [function (array $prepared) {
+        DB::table('studio_plans')->where('id', $prepared['plan']->id)->update(['publication_mode' => StudioPlanPublicationMode::AtDate->value, 'publish_at' => '2038-01-18 23:29:00']);
+        DB::table('studio_plan_votes')->where('id', $prepared['votes']['postDown'])->update(['offset_seconds' => 3600]);
+    }, StudioPlanApprovalProblem::VoteDateOutOfRange],
+]);
+
+it('takes the whole approval back when any action of the votes cannot be written', function () {
+    ['plan' => $plan] = approvableStudioPlanWithVotes();
+    // The last vote's alone, as a model event cancels one: false, no exception.
+    StudioAction::creating(fn (StudioAction $action): ?bool => $action->type === StudioActionType::VoteComment && $action->payload['vote_type'] === 'down' ? false : null);
+    Log::spy();
+
+    expect(fn () => approveStudioPlan($this->admin, $plan))->toThrow(RuntimeException::class, 'An action of the approved plan was not saved.');
+
+    expect($plan->fresh())->status->toBe(StudioPlanStatus::Draft)->approved_at->toBeNull()
+        ->and(StudioAction::query()->exists())->toBeFalse();
+    Log::shouldNotHaveReceived('info', fn (string $message): bool => in_array($message, ['studio_plan.approved', 'studio.action.created'], true));
+});
+
+it('refuses votes naming another Persona once the plan is locked than when they were read, never locking a user after the plan', function () {
+    ['plan' => $plan, 'votes' => $votes] = approvableStudioPlanWithVotes();
+    $other = User::factory()->persona()->create();
+    $changed = false;
+
+    // Between the read of the Personas and the locks: a vote now names another, at the same version.
+    DB::beforeExecuting(function (string $sql) use ($votes, $other, &$changed): void {
+        if (! $changed && approvalReadsUsers($sql)) {
+            $changed = true;
+            DB::table('studio_plan_votes')->where('id', $votes['postDown'])->update(['persona_user_id' => $other->id]);
+        }
+    });
+
+    $refusal = approvalRefusal(fn () => approveStudioPlan($this->admin, $plan));
+
+    expect($refusal->rejection)->toBe(StudioPlanApprovalRejection::StaleVersion)
+        ->and(StudioAction::query()->exists())->toBeFalse();
+});
+
+it('locks the administrator, the author, every Persona of the discussion and every voter in ascending id order, then the plan', function () {
+    ['plan' => $plan, 'voters' => $voters] = approvableStudioPlanWithVotes();
+    $locked = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$locked): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (str_contains($sql, 'for update') && preg_match('/\\bfrom (users|studio_plans)\\b/', $sql, $table) === 1) {
+            $locked[] = $table[1].'#'.$query->bindings[0];
+        }
+    });
+
+    approveStudioPlan($this->admin, $plan);
+
+    $users = collect([$this->admin->id, $plan->author_user_id, ...StudioDiscussionNode::query()->where('studio_plan_id', $plan->id)->pluck('persona_user_id'), $voters['up']->id, $voters['down']->id])
+        ->unique()->sort()->values()->map(fn (int $id): string => "users#{$id}")->all();
+
+    expect(array_values(array_unique($locked)))->toBe([...$users, "studio_plans#{$plan->id}"]);
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no order to observe.',
+);
 
 it('refuses an author sanctioned after the plan was seen', function () {
     $plan = approvableStudioPlan();
@@ -329,7 +561,7 @@ it('takes the approval back when a model event cancels the action\'s creation, l
     Log::spy();
 
     expect(fn () => approveStudioPlan($this->admin, $plan))
-        ->toThrow(RuntimeException::class, 'The action that publishes the approved plan was not saved.');
+        ->toThrow(RuntimeException::class, 'An action of the approved plan was not saved.');
 
     expect($plan->fresh())
         ->status->toBe(StudioPlanStatus::Draft)

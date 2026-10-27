@@ -14,6 +14,7 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\Tag;
 use App\Models\User;
 use App\Support\Studio\StudioPlanApprovalPreflight;
@@ -130,15 +131,108 @@ it('wants its photo: a post image, Ready, not deleted and no post\'s already —
     'another administrator\'s upload' => [fn (StudioPlan $plan, MediaAsset $photo) => $photo->forceFill(['owner_user_id' => User::factory()->admin()->create()->id])->save(), []],
 ]);
 
-it('wants no prepared discussion while nothing publishes one, refusing it as unsupported rather than dropping it', function () {
+it('finds nothing to stop a discussion the executor can publish as it is, nor one written for an earlier title', function () {
+    [$plan] = approvableStudioPlanWithDiscussion();
+    $plan->forceFill(['title' => 'Retitled after the discussion was written'])->save();
+
+    expect(approvalProblemsOf($plan))->toBe([]);
+});
+
+it('wants a discussion the executor can publish: the discussion\'s own rules, and every Persona of it able to comment now', function (Closure $arrange, array $problems) {
     $plan = approvableStudioPlan();
-    $node = StudioDiscussionNode::factory()->for($plan, 'plan')->create();
+    $arrange($plan);
 
-    expect(approvalProblemsOf($plan))->toBe(['discussion_not_publishable'])
-        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->rejection())->toBe(StudioPlanApprovalRejection::UnsupportedDiscussion)
-        ->and(StudioPlanApprovalProblem::DiscussionNotPublishable->field())->toBe('discussion');
+    expect(approvalProblemsOf($plan))->toBe($problems);
 
-    $node->delete();
+    foreach ($problems as $problem) {
+        expect(StudioPlanApprovalProblem::from($problem))
+            ->rejection()->toBe(StudioPlanApprovalRejection::InvalidDiscussion)
+            ->field()->toBe('discussion');
+    }
+})->with([
+    'more than forty comments' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->count(41)->for($plan, 'plan')->create(), ['discussion_too_large']],
+    'an empty comment' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '  ']), ['discussion_text_invalid']],
+    'a comment longer than a comment may be' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => str_repeat('a', 1001)]), ['discussion_text_invalid']],
+    'a reply to a reply' => [function (StudioPlan $plan) {
+        $comment = StudioDiscussionNode::factory()->for($plan, 'plan')->create();
+        $reply = StudioDiscussionNode::factory()->replyTo($comment)->create(['offset_seconds' => 120]);
+        StudioDiscussionNode::factory()->replyTo($reply)->create(['offset_seconds' => 180]);
+    }, ['discussion_shape_invalid']],
+    'a reply to another plan\'s comment' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create([
+        'parent_id' => StudioDiscussionNode::factory()->for(approvableStudioPlan(), 'plan')->create()->id,
+        'offset_seconds' => 120,
+    ]), ['discussion_shape_invalid']],
+    'a reply before the comment it answers' => [function (StudioPlan $plan) {
+        $comment = StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 600]);
+        StudioDiscussionNode::factory()->replyTo($comment)->create(['offset_seconds' => 300]);
+    }, ['discussion_timing_invalid']],
+    'a comment more than thirty days after the post' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 2_592_001]), ['discussion_timing_invalid']],
+    'a deleted Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->tombstoned()->create()->id]), ['discussion_persona_deleted']],
+    'a member, not a Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->create()->id]), ['discussion_persona_not_persona']],
+    'a limited Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]), ['discussion_persona_restricted']],
+    'a shadowbanned Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Shadowbanned])->id]), ['discussion_persona_restricted']],
+    'a banned Persona' => [fn (StudioPlan $plan) => StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Banned])->id]), ['discussion_persona_restricted']],
+    'a comment past the latest date a post may carry' => [function (StudioPlan $plan) {
+        $plan->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse('2038-01-18 00:00:00')])->save();
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['offset_seconds' => 2 * 86_400]);
+    }, ['discussion_date_out_of_range']],
+    'several at once, each once' => [function (StudioPlan $plan) {
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '', 'persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
+        StudioDiscussionNode::factory()->for($plan, 'plan')->create(['body' => '']);
+    }, ['discussion_text_invalid', 'discussion_persona_restricted']],
+]);
+
+it('finds nothing to stop votes of every kind the executor can cast as they are', function () {
+    ['plan' => $plan] = approvableStudioPlanWithVotes();
+
+    expect(approvalProblemsOf($plan))->toBe([]);
+});
+
+it('stops a plan whose votes cannot be cast as they are, each problem once as its own code, on the votes, adding up to invalid_votes', function (Closure $arrange, array $problems) {
+    $prepared = approvableStudioPlanWithVotes();
+    $arrange($prepared);
+
+    expect(approvalProblemsOf($prepared['plan']))->toBe($problems);
+
+    foreach ($problems as $code) {
+        expect(StudioPlanApprovalProblem::from($code))
+            ->field()->toBe('votes')
+            ->rejection()->toBe(StudioPlanApprovalRejection::InvalidVotes);
+    }
+})->with([
+    'a voter deleted' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['status' => UserStatus::Deleted])->save(), ['vote_persona_deleted']],
+    'a voter no longer a Persona' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['role' => 'user'])->save(), ['vote_persona_not_persona']],
+    'a limited voter' => [fn (array $prepared) => $prepared['voters']['up']->forceFill(['status' => UserStatus::Limited])->save(), ['vote_persona_restricted']],
+    'a shadowbanned voter' => [fn (array $prepared) => $prepared['voters']['up']->forceFill(['status' => UserStatus::Shadowbanned])->save(), ['vote_persona_restricted']],
+    'a banned voter' => [fn (array $prepared) => $prepared['voters']['down']->forceFill(['status' => UserStatus::Banned])->save(), ['vote_persona_restricted']],
+    'the post\'s own author voting on it' => [fn (array $prepared) => $prepared['plan']->forceFill(['author_user_id' => $prepared['voters']['up']->id])->save(), ['vote_own_content']],
+    'a comment\'s own author voting on it' => [fn (array $prepared) => StudioDiscussionNode::query()->whereKey($prepared['saved']->ids['c2'])->update(['persona_user_id' => $prepared['voters']['down']->id]), ['vote_own_content']],
+    'a vote before the comment it is on' => [fn (array $prepared) => StudioPlanVote::query()->whereKey($prepared['votes']['c1Up'])->update(['offset_seconds' => 120]), ['vote_timing_invalid']],
+    'a vote past the latest date a post may carry' => [function (array $prepared) {
+        $prepared['plan']->forceFill(['publication_mode' => StudioPlanPublicationMode::AtDate, 'publish_at' => CarbonImmutable::parse('2038-01-18 23:29:00')])->save();
+        StudioPlanVote::query()->whereKey($prepared['votes']['postDown'])->update(['offset_seconds' => 3_600]);
+    }, ['vote_date_out_of_range']],
+    'an option archived' => [fn (array $prepared) => $prepared['options'][1]->forceFill(['is_active' => false, 'archived_at' => now()])->save(), ['vote_option_unavailable']],
+    'an option deleted' => [fn (array $prepared) => DB::table('rating_options')->where('id', $prepared['options'][1]->id)->delete(), ['vote_option_unavailable']],
+    'a rating question no longer active' => [fn (array $prepared) => $prepared['group']->forceFill(['is_active' => false])->save(), ['vote_option_unavailable']],
+    'an option now another question\'s' => [fn (array $prepared) => $prepared['options'][0]->forceFill(['rating_group_id' => activeRatingQuestion()->id])->save(), ['vote_option_unavailable']],
+    'several at once, each once, in the editor\'s order' => [function (array $prepared) {
+        $prepared['voters']['up']->forceFill(['status' => UserStatus::Limited])->save();
+        $prepared['options'][0]->forceFill(['is_active' => false, 'archived_at' => now()])->save();
+        StudioPlanVote::query()->whereKey($prepared['votes']['c1Up'])->update(['offset_seconds' => 120]);
+    }, ['vote_persona_restricted', 'vote_timing_invalid', 'vote_option_unavailable']],
+]);
+
+it('stops a plan only for the votes it has: none stops it once they are taken away', function () {
+    $plan = approvableStudioPlan();
+    $admin = User::factory()->admin()->create();
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+    $voter->forceFill(['status' => UserStatus::Limited])->save();
+
+    expect(approvalProblemsOf($plan))->toBe(['vote_persona_restricted']);
+
+    saveStudioVotes($admin, $plan, []);
 
     expect(approvalProblemsOf($plan))->toBe([]);
 });
@@ -245,6 +339,8 @@ it('only reads: nothing is written, queued, sent or called', function () {
     Bus::fake();
     Http::preventStrayRequests();
     $plan = approvableStudioPlan(['title' => null, 'tag_ids' => [2_000_000_000]]);
+    StudioDiscussionNode::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
+    StudioPlanVote::factory()->for($plan, 'plan')->create(['persona_user_id' => User::factory()->persona()->create(['status' => UserStatus::Limited])->id]);
     $writes = [];
 
     DB::listen(function (QueryExecuted $query) use (&$writes): void {
@@ -253,9 +349,8 @@ it('only reads: nothing is written, queued, sent or called', function () {
         }
     });
 
-    app(StudioPlanApprovalPreflight::class)->problems($plan);
-
-    expect($writes)->toBe([]);
+    expect(array_map(fn (StudioPlanApprovalProblem $problem): string => $problem->value, app(StudioPlanApprovalPreflight::class)->problems($plan)))->toContain('vote_persona_restricted')
+        ->and($writes)->toBe([]);
     Queue::assertNothingPushed();
     Bus::assertNothingDispatched();
     Http::assertNothingSent();

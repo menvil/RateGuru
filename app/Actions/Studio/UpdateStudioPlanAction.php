@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Studio\StudioDiscussionValidationRules;
 use App\Support\Studio\StudioPlanValidationRules;
+use App\Support\Studio\StudioVoteValidationRules;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -29,10 +30,13 @@ use Illuminate\Validation\ValidationException;
  * may be, whether it can publish is asked on approval — and the plan is still
  * a Draft at the version the editor was drawn from (`$expectedLockVersion`),
  * so a save made before somebody else's is refused rather than written over
- * it. A date that would carry the discussion the plan has saved past the
- * latest date a post may carry is refused too, the discussion left as it is
- * (StudioDiscussionValidationRules::validatePlanDate()). The save raises the
- * version.
+ * it. A date that would carry the discussion or the votes the plan has saved
+ * past the latest date a post may carry is refused too, the discussion and
+ * the votes left as they are (StudioDiscussionValidationRules and
+ * StudioVoteValidationRules, validatePlanDate()). A new author leaves the
+ * votes as they are too: one the author would now cast on its own post is
+ * found by the checks the votes are held to next, never taken away or given
+ * to another Persona here. The save raises the version.
  */
 final class UpdateStudioPlanAction
 {
@@ -41,6 +45,7 @@ final class UpdateStudioPlanAction
     public function __construct(
         private readonly StudioPlanValidationRules $rules,
         private readonly StudioDiscussionValidationRules $discussionRules,
+        private readonly StudioVoteValidationRules $voteRules,
         private readonly DomainLogger $logger,
     ) {}
 
@@ -48,7 +53,7 @@ final class UpdateStudioPlanAction
      * @param  int  $expectedLockVersion  the plan's lock_version as the editor was drawn from it
      *
      * @throws CannotManageStudioPlanException when the administrator may not, the author is no Persona to choose, or the plan is gone, past its Draft or changed meanwhile
-     * @throws ValidationException keyed as the editor's fields, `publishAt` among them for a date the discussion does not fit
+     * @throws ValidationException keyed as the editor's fields, `publishAt` among them for a date the discussion or the votes do not fit
      */
     public function handle(User $admin, StudioPlan $plan, StudioPlanData $changes, int $expectedLockVersion): void
     {
@@ -62,8 +67,9 @@ final class UpdateStudioPlanAction
             $this->lockAdministratorAndAuthor($admin, $changes->authorUserId);
             $locked = $this->currentDraft((int) $plan->getKey(), $expectedLockVersion);
 
-            // On the locked plan, so the discussion it reads cannot change meanwhile.
+            // On the locked plan, so the discussion and the votes it reads cannot change meanwhile.
             $this->discussionRules->validatePlanDate($locked, $changes->publicationMode, $changes->publishAt);
+            $this->voteRules->validatePlanDate($locked, $changes->publicationMode, $changes->publishAt);
 
             $locked->fill($changes->attributes());
             $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();

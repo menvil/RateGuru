@@ -5,6 +5,7 @@ use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Support\TranslationSourceEditor;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
@@ -88,6 +89,24 @@ it('saves only the flags and providers the project has, leaving out whatever a r
         ->and($page->get('saved.feature_flags'))->not->toHaveKey('forged_flag')
         ->and($page->get('data'))->not->toHaveKey('forged_setting')
         ->and($page->get('data.sign_in_providers'))->not->toHaveKey('forged_provider');
+});
+
+it('offers the confirmation that Content Studio’s photos show verified adults, off until an administrator saves it on', function () {
+    ProjectSettings::factory()->create();
+    $confirmed = app(StudioVerifiedAdults::class);
+
+    expect($confirmed->confirmed())->toBeFalse();
+
+    Livewire::withQueryParams(['tab' => 'features'])->test(ProjectSettingsPage::class)
+        ->assertSee('Content Studio photos show verified adults')
+        ->assertSee('Everyone shown in the photos Content Studio uses is a verified adult (18+) who agreed to their publication.')
+        ->assertSet('data.feature_flags.content_studio_verified_adults', false)
+        ->set('data.feature_flags.content_studio_verified_adults', true)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($confirmed->confirmed())->toBeTrue()
+        ->and(ProjectSettings::query()->sole()->feature_flags)->toMatchArray(['content_studio_verified_adults' => true, 'show_comments' => true]);
 });
 
 it('puts the saved settings back on Discard', function () {

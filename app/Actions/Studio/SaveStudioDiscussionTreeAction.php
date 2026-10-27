@@ -9,9 +9,11 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use App\Support\Observability\DomainLogger;
 use App\Support\Studio\StudioDiscussionValidationRules;
+use App\Support\Studio\StudioVoteValidationRules;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,8 +25,7 @@ use RuntimeException;
  * (docs/architecture/studio-plans.md, "The discussion"): every comment and
  * reply it is to have, written at once — added, changed and deleted together,
  * or not at all. Nothing is published: no comment, post, action or job comes
- * of it, and a plan with a discussion is not approved until discussions can
- * be published.
+ * of it — approving the plan is what has its comments written.
  *
  * A comment saved before keeps its id; a new one is given one, which the
  * result names against the key it came with, so a new reply may answer a new
@@ -41,7 +42,11 @@ use RuntimeException;
  * plans, the plan is still a Draft at the version the editor was drawn from,
  * so a save made before somebody else's is refused rather than written over
  * it, and the discussion still holds against the plan and the Personas as
- * they are now (validateAgainst()). The save raises the plan's version.
+ * they are now (validateAgainst()) and against the votes prepared on its
+ * comments (StudioVoteValidationRules::validateDiscussion()): a comment kept
+ * keeps its votes — moved, it takes them with it, each at its time after the
+ * comment — and is not given to a Persona voting on it, and a comment deleted
+ * takes its votes with it. The save raises the plan's version.
  */
 final class SaveStudioDiscussionTreeAction
 {
@@ -49,6 +54,7 @@ final class SaveStudioDiscussionTreeAction
 
     public function __construct(
         private readonly StudioDiscussionValidationRules $rules,
+        private readonly StudioVoteValidationRules $voteRules,
         private readonly DomainLogger $logger,
     ) {}
 
@@ -79,6 +85,7 @@ final class SaveStudioDiscussionTreeAction
 
                 $locked = $this->currentDraft((int) $plan->getKey(), $expectedLockVersion);
                 $this->rules->validateAgainst($discussion, $locked, $users);
+                $this->voteRules->validateDiscussion($discussion, $locked);
 
                 [$ids, $removed] = $this->write($locked, $discussion);
 
@@ -112,10 +119,11 @@ final class SaveStudioDiscussionTreeAction
     }
 
     /**
-     * Every comment written as the discussion has it, and every comment it
-     * left out deleted: the comments on the post first, so a new reply has the
-     * id of a new comment to answer, then the replies, then the deletions —
-     * once nothing kept answers a comment any more.
+     * Every comment written as the discussion has it, a comment moved taking
+     * its votes with it, and every comment it left out deleted: the comments
+     * on the post first, so a new reply has the id of a new comment to
+     * answer, then the replies, then the deletions — once nothing kept
+     * answers a comment any more.
      *
      * @return array{0: array<string, int>, 1: Collection<int, StudioDiscussionNode>} the id each key was given, and the comments deleted
      */
@@ -133,7 +141,14 @@ final class SaveStudioDiscussionTreeAction
                 }
 
                 $parentId = $parents[$index] !== null ? $written[$parents[$index]] : null;
+                $before = $saved->get($node->id ?? 0)?->offset_seconds;
                 $written[$index] = $this->writeNode($plan, $node, $parentId, $saved->get($node->id ?? 0));
+
+                if ($before !== null && $before !== $node->offsetSeconds) {
+                    // Each of its votes keeps its time after the comment.
+                    StudioPlanVote::query()->where('studio_plan_id', $plan->id)->where('discussion_node_id', $written[$index])
+                        ->increment('offset_seconds', $node->offsetSeconds - $before);
+                }
 
                 if ($node->key !== null) {
                     $ids[$node->key] = $written[$index];

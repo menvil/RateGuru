@@ -2,6 +2,7 @@
 
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioPlanData;
+use App\Data\Studio\StudioVotesData;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserRole;
@@ -11,6 +12,7 @@ use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Studio\StudioVoteValidationRules;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -214,3 +216,46 @@ it('lets nobody but an active administrator save a plan', function (Closure $use
     'a member' => [fn () => User::factory()->create()],
     'a persona' => [fn () => User::factory()->persona()->create()],
 ]);
+
+it('refuses a date that would carry a prepared vote past the dates a post may carry, changing nothing', function () {
+    $admin = User::factory()->admin()->create();
+    $plan = StudioPlan::factory()->create(['created_by_user_id' => $admin->id]);
+    $persona = User::factory()->persona()->create();
+    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $persona->id, 'voteType' => 'up', 'offsetSeconds' => 3600])]);
+    $before = DB::table('studio_plans')->where('id', $plan->id)->first();
+    $votes = DB::table('studio_plan_votes')->orderBy('id')->get();
+
+    try {
+        moveStudioPost($admin, $plan, StudioPlanPublicationMode::AtDate, '2038-01-18 23:00:00');
+        $refusal = null;
+    } catch (ValidationException $invalid) {
+        $refusal = $invalid;
+    }
+
+    expect($refusal?->errors())->toBe(['publishAt' => ['Its votes would run past 2038, the latest date a post may carry. Choose an earlier date, or bring the votes closer to the post.']])
+        ->and(DB::table('studio_plans')->where('id', $plan->id)->first())->toEqual($before)
+        ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes);
+
+    // An hour before the last date a post may carry, the vote lands on its last second.
+    moveStudioPost($admin, $plan, StudioPlanPublicationMode::AtDate, '2038-01-18 22:59:59');
+
+    expect($plan->fresh()->publish_at)->toEqual(CarbonImmutable::parse('2038-01-18 22:59:59'))
+        ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes);
+});
+
+it('changes the author without touching the votes, leaving a vote on its own post to be found, never given to another Persona', function () {
+    $admin = User::factory()->admin()->create();
+    [$first, $second] = User::factory()->persona()->count(2)->create();
+    $plan = StudioPlan::factory()->authoredBy($first)->create(['created_by_user_id' => $admin->id]);
+    saveStudioVotes($admin, $plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $second->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+    $votes = DB::table('studio_plan_votes')->orderBy('id')->get();
+
+    updateStudioPlan($admin, $plan, new StudioPlanData(authorUserId: $second->id, title: $plan->title));
+
+    expect($plan->fresh()->author_user_id)->toBe($second->id)
+        ->and(DB::table('studio_plan_votes')->orderBy('id')->get())->toEqual($votes)
+        ->and(app(StudioVoteValidationRules::class)->readinessErrors($plan->fresh()))
+        ->toBe(['votes.0.personaUserId' => 'The post’s own author cannot vote on it. Choose another persona.'])
+        ->and(fn () => saveStudioVotes($admin, $plan, StudioVotesData::of($plan->fresh())->votes))
+        ->toThrow(ValidationException::class, 'The post’s own author cannot vote on it.');
+});

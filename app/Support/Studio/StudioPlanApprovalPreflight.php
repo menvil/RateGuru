@@ -2,6 +2,8 @@
 
 namespace App\Support\Studio;
 
+use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\MediaKind;
 use App\Enums\MediaStatus;
@@ -16,6 +18,7 @@ use App\Models\StudioPlan;
 use App\Models\User;
 use App\Support\Rating\RatingConfigurationManager;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Whether a plan is ready to publish — every reason it is not, each as a
@@ -38,12 +41,31 @@ use Illuminate\Support\Facades\Validator;
  *   author's answers part of the rating questions as they are configured now
  *   (RatingConfigurationManager), one per question;
  * - a date for a plan published on one, past or future alike;
- * - no prepared discussion, for now: nothing publishes one yet.
+ * - a prepared discussion, when there is one, the executor can publish as it
+ *   is: the discussion's own rules (StudioDiscussionValidationRules) — at most
+ *   forty comments, two levels, each reply under a comment of this plan and
+ *   no earlier than it, texts of a comment's length, moments from the post to
+ *   thirty days after it and within the dates a post may carry — and every
+ *   Persona of it still one, not deleted, Active and able to comment, as each
+ *   must be when its comment is written. A discussion written for an earlier
+ *   title is an editor's warning, not a reason to refuse;
+ * - prepared votes, when there are any, the executor can cast as they are
+ *   (StudioVoteValidationRules::readinessProblems()): at most a thousand,
+ *   each of its kind's own shape — up or down on the post or a comment, an
+ *   option for a rating question — by a Persona still one, not deleted,
+ *   Active and able to vote, never on its own post or comment, once per
+ *   target; a comment voted on is one of this plan's discussion, whose action
+ *   the approval writes, and comes no later than the vote; no vote before the
+ *   post, more than thirty days after it or past the dates a post may carry;
+ *   an option still an active one of an active rating question, its own.
+ *   Each problem is said once, as its own code (`invalid_votes`).
  */
 final class StudioPlanApprovalPreflight
 {
     public function __construct(
         private readonly StudioPlanValidationRules $rules,
+        private readonly StudioDiscussionValidationRules $discussionRules,
+        private readonly StudioVoteValidationRules $voteRules,
         private readonly RatingConfigurationManager $ratingConfiguration,
     ) {}
 
@@ -61,6 +83,7 @@ final class StudioPlanApprovalPreflight
             ...$this->taxonomyProblems($plan, $failed),
             ...$this->dateProblems($plan, $failed),
             ...$this->discussionProblems($plan),
+            ...$this->voteProblems($plan),
         ];
     }
 
@@ -216,18 +239,79 @@ final class StudioPlanApprovalPreflight
     }
 
     /**
-     * Nothing publishes a discussion yet: the executor runs a plan's post
-     * alone. A plan that prepares one is not approved, rather than published
-     * without it — until the stage that publishes comments replaces this
-     * with the discussion's own checks.
+     * What stands in the way of publishing the plan's discussion as it is,
+     * each problem once, in the order of StudioPlanApprovalProblem: the
+     * discussion's own rules first, then its Personas as they are now, then
+     * its comments' dates against the post's.
      *
      * @return list<StudioPlanApprovalProblem>
      */
     private function discussionProblems(StudioPlan $plan): array
     {
-        return StudioDiscussionNode::query()->where('studio_plan_id', $plan->getKey())->exists()
-            ? [StudioPlanApprovalProblem::DiscussionNotPublishable]
-            : [];
+        $nodes = StudioDiscussionNode::query()->where('studio_plan_id', $plan->getKey())->orderBy('id')->get();
+
+        if ($nodes->isEmpty()) {
+            return [];
+        }
+
+        $problems = [];
+
+        try {
+            $this->discussionRules->validated(new StudioDiscussionData($nodes->map(fn (StudioDiscussionNode $node): StudioDiscussionNodeData => StudioDiscussionNodeData::of($node))->values()->all()));
+        } catch (ValidationException $invalid) {
+            foreach (array_keys($invalid->errors()) as $field) {
+                $problems[] = match (true) {
+                    $field === 'nodes' => StudioPlanApprovalProblem::DiscussionTooLarge,
+                    str_ends_with($field, '.body') => StudioPlanApprovalProblem::DiscussionTextInvalid,
+                    str_ends_with($field, '.offsetSeconds') => StudioPlanApprovalProblem::DiscussionTimingInvalid,
+                    // Asked of the Personas as they are now, below.
+                    str_ends_with($field, '.personaUserId') => null,
+                    default => StudioPlanApprovalProblem::DiscussionShapeInvalid,
+                };
+            }
+        }
+
+        $personas = User::query()->whereKey($nodes->pluck('persona_user_id')->unique()->values()->all())->get()->keyBy('id');
+
+        foreach ($nodes->pluck('persona_user_id')->unique() as $id) {
+            $persona = $personas->get($id);
+
+            $problems[] = match (true) {
+                $persona === null, $persona->isTombstoned() => StudioPlanApprovalProblem::DiscussionPersonaDeleted,
+                ! $persona->isPersona() => StudioPlanApprovalProblem::DiscussionPersonaNotPersona,
+                $persona->status !== UserStatus::Active, ! $persona->canComment() => StudioPlanApprovalProblem::DiscussionPersonaRestricted,
+                default => null,
+            };
+        }
+
+        foreach ($nodes as $node) {
+            if (! StudioDiscussionValidationRules::fitsPostDates($plan->publication_mode, $plan->publish_at, $node->offset_seconds)) {
+                $problems[] = StudioPlanApprovalProblem::DiscussionDateOutOfRange;
+            }
+        }
+
+        return array_values(array_filter(
+            StudioPlanApprovalProblem::cases(),
+            fn (StudioPlanApprovalProblem $problem): bool => in_array($problem, $problems, true),
+        ));
+    }
+
+    /**
+     * What stands in the way of casting the plan's prepared votes as they
+     * are, each problem once, in the order of StudioPlanApprovalProblem — the
+     * same checks the votes are held to before they may be cast
+     * (StudioVoteValidationRules::readinessProblems()).
+     *
+     * @return list<StudioPlanApprovalProblem>
+     */
+    private function voteProblems(StudioPlan $plan): array
+    {
+        $problems = array_values($this->voteRules->readinessProblems($plan));
+
+        return array_values(array_filter(
+            StudioPlanApprovalProblem::cases(),
+            fn (StudioPlanApprovalProblem $problem): bool => in_array($problem, $problems, true),
+        ));
     }
 
     /** @param  array<string, array<string, mixed>>  $failed */

@@ -35,11 +35,12 @@ it('lists each status on its own tab, and the trusted among the active, newest f
 });
 
 it('narrows to a role, to the suspicious, and by username, name or email', function () {
-    $moderator = User::factory()->moderator()->create(['username' => 'georgi_d']);
-    $shadowbanned = User::factory()->shadowbanned()->create(['name' => 'Elena Popova']);
-    $reported = User::factory()->create(['email' => 'sales@pet-deals24.top']);
+    // Every field searched set, so no generated name, username or email matches by chance.
+    $moderator = User::factory()->moderator()->create(['username' => 'georgi_d', 'name' => 'Desk Moderator', 'email' => 'desk@example.com']);
+    $shadowbanned = User::factory()->shadowbanned()->create(['name' => 'Elena Popova', 'username' => 'elena_p', 'email' => 'elena@example.com']);
+    $reported = User::factory()->create(['email' => 'sales@pet-deals24.top', 'name' => 'Pet Seller', 'username' => 'pet_seller']);
     Post::factory()->published()->for($reported)->create(['reports_count' => 2]);
-    $clean = User::factory()->create();
+    $clean = User::factory()->create(['name' => 'Plain Member', 'username' => 'plain_member', 'email' => 'member@example.com']);
 
     expect(moderationUsersPage(role: UserRole::Moderator))->toBe([$moderator->id])
         ->and(moderationUsersPage(suspicious: true))->toEqualCanonicalizing([$shadowbanned->id, $reported->id])

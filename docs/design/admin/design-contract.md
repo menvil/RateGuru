@@ -187,7 +187,7 @@ This section is the target design from the prototype. Production builds it as de
   | Overview | Dashboard |
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
-  | Content Studio | Publications & plans · Personas |
+  | Content Studio | Publications & plans · Action queue · Personas |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -387,7 +387,8 @@ Grid templates used in the prototype, for reference:
 - **Locked identifiers (FRM-04):** slugs and keys are generated on create and locked afterwards: sunken field,
   mono value, `lock` 12 with “Locked”, a “Change slug” text link that unlocks and shows a warning notice (“Links to
   /c/old will stop working after you save”). Never change a slug or key silently.
-- **Number stepper (FRM-05):** 40 high, 132 wide, 36-wide minus and plus buttons with labels.
+- **Number stepper (FRM-05):** 40 high, 132 wide, 36-wide minus and plus buttons with labels on a grey ground,
+  the number between them on white, a field to type in.
 - **Switch (FRM-06):** 36×20 track, 16 knob; ink on, gray-300 off; `role="switch"` and `aria-checked`; disabled at
   50% with the reason. Switches that remove access ask for confirmation when turned off.
 - **Checkbox (FRM-07):** 18×18, radius 5; ink fill with a 12px white check (stroke 3); a minus for mixed.
@@ -407,8 +408,10 @@ In production the locked identifier, the number stepper and the switch are Blade
   `unlock` slot (“Change slug”) once saved; the value in mono, read-only but focusable while locked; the hint or
   the error, and the warning notice once unlocked, all tied to the input. Attributes go to the input.
 - **`x-admin.ui.number-stepper` (FRM-05):** minus and plus named after the field (“Decrease sort order”) that step
-  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing; what is
-  typed is the server's to validate.
+  within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing. The number
+  is typed straight in: focusing it selects it, so typing replaces it, and ↑ and ↓ step it as the buttons do; a
+  whole number typed is the server's to validate. Anything else — the field emptied to type another number, a sign
+  alone — is never told to `wire:model`, and a field left without a number gets back the last one it held.
 - **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
   state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
   `wire:model` and `x-model` (`x-modelable`).
@@ -923,11 +926,11 @@ navigation item, the policy and global search, whose results open a group's edit
   own. Save also waits while the draft's range cannot hold the group's active options and the group would be active.
 - **Group card (LAY-02):** “English reference text.”; Key (FRM-04) — made from the label on create until typed,
   then “Fixed after creation”, with nothing to unlock it; Label (“English · reference”); Description (FRM-03,
-  counted to its translation limit); Minimum and Maximum active options (FRM-05, 2 to 10) and Sort order; Active
+  counted to its translation limit); Minimum and Maximum active options (FRM-05, 2 to 15) and Sort order; Active
   (FRM-06), unavailable on a new group, which has no options yet. Minimum, Maximum and Active are sent as they
   change, so their errors — “3 options are active, fewer than this minimum.”, “3 options are active. Deactivate or
   archive 1 first.”, “Minimum can’t be higher than the maximum.” — show before Save.
-- **Active options check:** the slots at editor size (STS-04, up to 10) for the draft's range, “3 active · 2–4
+- **Active options check:** the slots at editor size (STS-04, up to 15) for the draft's range, “3 active · 2–4
   allowed”, and a notice: valid with room for n more (success), at the maximum (info), or outside the range
   (warning — saving blocked while the group would be active, otherwise what to do before activating it).
 - **Translations of this group:** each offered language besides English with “Label and description”, “Description
@@ -1004,25 +1007,27 @@ through `SaveProjectSettingsAction`. Static pages are its last tab; they have no
 ```text
 Content Studio
 ├── Publications & plans
+├── Action queue
 └── Personas
 ```
 
 Content Studio is where administrators run the accounts the site's editorial content comes from and prepare what
-they publish. Its section holds only screens that work: the prototype's Reply rules, Reply log and Action queue
-arrive with their own screens, never as items before them.
+they publish. Its section holds only screens that work: the prototype's Reply rules and Reply log arrive with their
+own screens, never as items before them.
 
 ### Publications & plans
 
 The list (`ListStudioPlans`), a new publication (`CreateStudioPlan`) and a publication's editor
 (`EditStudioPlan`) are drawn in Admin v2 over `StudioPlan` (`StudioPlanResource`). A plan is a draft of a post, never
-a post: nothing on these pages publishes, schedules or queues anything, and every write goes through the plan's
-actions (`docs/architecture/studio-plans.md`).
+a post, until Review and confirm on its Publication step approves it; its actions then run, and are managed, in the
+Action queue. Every write goes through the plan's actions (`docs/architecture/studio-plans.md`).
 
 - **List header band:** “Prepare publication drafts before reviewing and publishing them.” Stats: Total plans,
   Drafts, With image and With author — figures that can be counted now; nothing about scheduled or published posts,
   comments or votes, which no plan has yet.
 - **Toolbar (TBL-02):** the search over the title, the id (`#123` or `123`) and the author's username and names —
-  never a deleted author's; State (All, Draft) and Image (With image, Without image) as filter dropdowns with their
+  never a deleted author's; State (All, Draft, Approved, Running, Completed, Cancelled) and Image (With image, Without
+  image) as filter dropdowns with their
   chips, in the URL, a value the list does not offer dropped; 25 a page, the most recently saved first
   (`StudioPlansQuery`, a registered stable pagination boundary); a page past the end shows the last one.
 - **Table (TBL-01):** the title — a link to the editor — or “Untitled draft #ID”, with the id; the author with
@@ -1037,9 +1042,9 @@ actions (`docs/architecture/studio-plans.md`).
   with the count of unsaved changes, Discard and Create draft or Save draft, and the browser's question before a
   page with unsaved changes is left. Four steps under the title — Image (Upload & analysis), Post (Texts, author &
   votes), Discussion (Comments & their votes), Publication (Plan & timeline) — with Back (disabled on the first),
-  “Step n of 4” and Continue in a footer kept at the foot of the window; moving between them saves nothing and
-  loses nothing, and none is locked by an incomplete draft. Continue waits only while a photo is on its way,
-  saying “Wait for the photo to finish uploading.”
+  “Step n of 4” and Continue — on the last step Review and confirm — in a footer kept at the foot of the window;
+  moving between them saves nothing and loses nothing, and none is locked by an incomplete draft. Continue waits
+  only while a photo is on its way, saying “Wait for the photo to finish uploading.”
   - **Image:** nothing waits for Save. While there is no photo, its sources (FRM-08): Upload — Upload image, or a
     file dropped on the drop zone, the limit read from `uploads.images.max_kilobytes` —, From link — a direct link
     to an image — and From social post — a public post's link, with the sites read directly (Instagram, X,
@@ -1048,7 +1053,9 @@ actions (`docs/architecture/studio-plans.md`).
     stored (“Processing photo…”) and analysed, its preview kept until the saved photo has loaded in its place so
     the photo never blinks out; a link is imported (“Importing
     photo…”) once it is a whole address and typing has paused, never twice running. On a new publication the
-    first photo makes its Draft, and the top bar's Create draft becomes Save draft. Once there is a photo, the
+    first photo makes its Draft, with the author the page started with — an active Persona drawn at random, to
+    change, clear or Pick at random again — and the top bar's Create draft becomes Save draft, which then opens the
+    publication's editor on the same step. Once there is a photo, the
     sources give way to it: the photo, its file name, dimensions, size and type, a Saved or Replaced badge, Replace
     — the sources again, with Cancel — a file dropped on the photo to replace it, and Remove from draft, taken off
     at once. A failed upload or import is said by its source (FBK-02 warning, “Upload failed.”) with Try again,
@@ -1066,11 +1073,14 @@ actions (`docs/architecture/studio-plans.md`).
     Save draft.
   - **Post:** laid out as the prototype's Titles & texts. First, AI text suggestions, a component of its own about
     the saved photo, in three cards side by side until they no longer fit. Context: the photo, the analysis's
-    summary under Photo analysis, Tone of new variants (Playful, Humour, Cheeky — chosen at first —, Irony,
-    Neutral; toggle buttons whose choice changes nothing until the next batch, a choice other than the tone the
-    lists were written in said in the hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10
-    descriptions — a paid call.”; then Generate 10 more — Generate 10 in the tone chosen, when it is another —, or
-    Try again after a failure. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
+    summary under Photo analysis, Author’s voice — the saved author's name and short description, or “No author:
+    the texts are written as the site’s own.”, and, while another author is chosen and not saved, “Another author is
+    chosen: generating saves the draft first, so the texts are written in the new author’s voice.” —, Tone of new
+    variants (Playful, Humour, Cheeky — chosen at first —, Spicy / Adult humour, Irony, Neutral; toggle buttons whose
+    choice changes nothing until the next batch, a choice other than the tone the lists were written in said in the
+    hint) and Generate suggestions, “One request to OpenAI for 10 titles and 10 descriptions — a paid call.”; then
+    Generate 10 more — Generate 10 in the tone chosen, when it is another —, or Try again after a failure. With
+    another author chosen, Generate saves the draft first and asks once it is saved. Then 10 titles and 10 descriptions, each card the newest batch for the photo and its
     analysis as they are now under “Set n · written in tone”, numbered; choosing one puts it in Final title or
     Final description as typing would — unsaved, counted in the top bar, editable, saved only by Save draft — and
     marks it in use. A new batch takes the place of the one before: while it is on its way both cards wait for it
@@ -1080,28 +1090,128 @@ actions (`docs/architecture/studio-plans.md`).
     Until the photo's analysis is complete, “Text suggestions will be available when photo analysis is
     complete.”; with no photo, “Add a photo on the Image step first: suggestions are written from its analysis.”;
     unconfigured, “Text suggestions are not configured.”, the step working as before. Batches written for an
-    earlier photo or analysis are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
+    earlier photo, analysis or author's voice are neither shown nor used. Under them, Final texts: Final title (3 to 120, with its
     counter), Final description (up to 2,000) and Post author side by side — the persona chosen on a trigger, the
     living personas found on the server in a panel under it (a restricted one with “This persona cannot publish
     while restricted.”) —, then Source URL, never the link a photo is imported from. Last, Category and tags — the
     category (an inactive one kept and marked) and up to ten tags — beside the author's answer in each active
     rating group. The steps take the whole width, as the prototype's do.
-  - **Discussion:** says what will come in a later phase; nothing else.
+  - **Discussion:** laid out and working as the prototype's Discussion step, in a component of its own drawn once with
+    the page and hidden on the other steps; a new publication says “Save the draft first to prepare its discussion.”
+    until its Draft exists. First, Discussion settings, in the first of three columns: Total comments (0–40, with
+    “No discussion: the post publishes without automated comments.” at none), Top-level comments (“of n”, “First-level
+    comments. The rest are replies.”), Number of personas (“of n active”) while Random is chosen, and Personas —
+    Random, picked among the active personas only when the tree is generated and then shown as chips, “Picked for the
+    current tree. Generate again to reshuffle.”, or Manual, every active persona matching “Search by login or name”
+    checked one by one, with “n of n active personas selected · up to 8 take part”, Select all (Select n shown while
+    searching, Select first 8 when more are shown than take part), Clear and the chosen ones as removable chips; a
+    persona restricted after it was checked stays checked but takes no part; and Tone — the six tones of the Post
+    step's suggestions as toggle buttons, Cheeky chosen at first, then the one last set for the plan, or else the one
+    the last whole tree was asked in, the
+    tone's hint under them — asked of every generation, a whole tree or a part written again. Then a strip of its own, “Generate from the settings above”, with what they ask for (“14 comments · 5
+    top-level · 6 personas · Cheeky”, or “No discussion · the post publishes without automated comments”), a hint — “Select at
+    least one persona.”, why generation waits, “The tree has comments. You’ll be asked before it’s replaced.”, or “One
+    request to OpenAI — a paid call.” — and Generate tree, or Regenerate tree once there is one. It waits while the
+    post has unsaved changes or a generation is on its way; a tree that would replace comments asks “Replace the
+    discussion?” (OVL-01) first. One asked for earlier, in another tab or by another administrator, is waited for as
+    what it is, a whole tree or a comment written again, with an info toast saying nothing new was asked for; one
+    finished while the editor was closed is taken in when it opens. While the tree is generated, six placeholder rows stand in for it; it is taken in the
+    moment it is ready, and a failure is said over the tree with Try again. A tree taken in that was written for an
+    earlier title or description says so over the tree (info): “The discussion was generated for an earlier title or
+    description. It isn’t regenerated automatically.”, with Regenerate and Keep as is. Then Discussion tree, “n comments · n
+    top-level” and + Comment, in two tabs. Comments: each comment on the post by its time, its replies indented under
+    it on a guide, each a box with the persona's avatar, name, an Automated tag, its label (C1, C2, … in the order
+    shown), “↳ C1 · name” for a reply, a deleted, non-persona or restricted persona marked, the time after the post
+    (“+8 min”), its text, and Reply (comments on the post only), Edit, Regenerate — “Rewriting…” with the text faded,
+    then the new text and a toast “New text for C3 · same author and time” with Undo, which gives that comment its
+    text back — and Delete, which asks first
+    (OVL-01, danger): “Delete C3?” or “Delete C1 and its 2 replies?”, “Replies can’t stay without their parent, so
+    the whole branch leaves the plan.”, the comment, and “3 comments removed: C1, C2, C3”, then a toast with Undo,
+    which brings them back; the next change, or a Reload, leaves nothing to undo.
+    Timing, drawn by the comment votes editor: every comment, reply and vote on them in one list by its time — #,
+    Action (“Comment C1”, “Reply C2”, “Vote up”), Executor, Parent, Offset from post (a number with min, h or d,
+    changed in place: a comment's saved at once with its votes moving along, a vote's saved at once too), After
+    its parent, Dependency (“After the post”, “After C1 at +8 min”) and a comment's votes. A comment is written in a dialog, 560
+    wide — “New top-level comment”, “Reply to C1” or “Edit C3” — with the persona as chips found by search (active
+    ones, and the comment's own author whatever its status), Replies
+    to, Text (1 to 1,000, with its counter) and “Appears after the post” in min, h or d with “+X after the post · Y
+    after C1”, or a warning when a reply would come before its comment; Save writes it at once, “Saved to this draft
+    at once. Nothing is published.”, each refusal kept by its field.
   - **Publication:** Publish now or On a chosen date (FRM-09) with the date and time in the application's time
-    zone, “Publication date not selected” while there is none, and the publication card as the draft stands,
-    saved or not, with “This is a draft. Saving it does not publish or schedule anything.”
+    zone, “Publication date not selected” while there is none; Overdue actions, once any action's moment has
+    passed — how many, and that they run as soon as the plan is approved, in plan order, keeping their planned
+    dates, with no choice offered; Ready to approve? — every problem the approval preflight finds on the saved
+    plan, each with a button to the step that holds it, or that everything is in order, and a warning while
+    anything on the page is unsaved; the Final publication card — the photo, title and description, author,
+    category, date and how many actions, then the post's votes and answers and the discussion's comments,
+    replies and votes, each part with Edit — with “Saving the draft publishes and schedules nothing. Review and
+    confirm approves it.”; and beside them the Action plan (`StudioPlanActionPlan`): Total actions, Overdue and
+    In the future, a legend, the post's and the discussion's lanes on a timeline with a line for now, All · Post
+    · Discussion (FRM-08), and a table of every action laid out as the prototype's — its columns, a 36 high
+    head and 50 high rows, 13/18 type and 12/16 under it, moments as Today, Yesterday, Tomorrow or 20 Oct 12:00
+    — Planned, Part, Action (in two lines: Publish post, Comment · C1, Reply to C1 · C2, Upvote C1 or Answer · the
+    question · the option, a comment's text when it is pointed at; and after what: the post, C1), Executor,
+    Runs at (On approval, or its moment) and State (Ready to run or Scheduled, Overdue under it) — 25 a page
+    (NAV-04), with Recalculate; a preview of exactly what approval writes, nothing written. Review and confirm (OVL-01) asks “Confirm this publication?” with the post, its author and
+    date, the comments and replies, the votes and answers, how many actions, how many overdue and how many wait
+    for later, and whether the executor is on; Approve and publish approves the plan as saved. It is disabled
+    while the preflight finds anything, held back with anything unsaved — “Save your changes before approving.”
+    — and refused with Reload for a version somebody else saved since. An approved plan opens here, closed: its
+    Publication status — the state, who approved it and when, its post with Open post, a warning while the
+    executor is off — with Open in Action queue and Stop remaining actions (OVL-01, warning), over its own actions
+    as they stand, each with when it ran or why it stopped and Open post or Open comment; it reads itself again
+    while the executor is on and anything waits or runs. The date is chosen in
+    the prototype's date and time field (`x-admin.ui.date-time-field`), never the browser's own: a 48-high trigger
+    with the moment and how far it is from now — the past in the due colour — over a dialog of quick picks (Now,
+    Today 18:00, Tomorrow 09:00, In 2 days, A week ago, A month ago), the month as a grid of days from Monday, the
+    time in hours and five-minute steps with 09:00, 12:00, 14:00, 18:00 and 21:00, and the moment as it stands;
+    Apply takes it, Cancel, Escape or a click outside leave the date as it was. The days are an ARIA `grid` with
+    one tab stop: the arrows move a day or a week, Home and End to the week's ends, Page Up and Page Down a month
+    (with Shift a year). The dialog opens under the trigger, over it when only there is room for all of it, and
+    otherwise wherever it is whole between the top bar and the footer.
 - **Saving:** the texts through `CreateStudioPlanAction` or `UpdateStudioPlanAction`; the photo the moment it is
   chosen through `SetStudioPlanImageAction` or `RemoveStudioPlanImageAction` — each handed the version the editor
   last read or wrote, so neither is in conflict with the other, and the texts typed stay unsaved until Save. Each
   error stays by its field, and Save shows the step it is on. A save or a photo drawn before somebody else's save
   is refused with a toast and a warning notice whose Reload draws the plan as it is, keeping what was typed until
   then; a draft deleted meanwhile can no longer be saved; a plan past its draft opens closed. A new publication's
-  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan.
+  editor opens once it is saved, and Save sent twice, or a photo sent twice, makes one plan. The discussion is
+  written the moment it changes, as the photo is, through `SaveStudioDiscussionTreeAction`, and what AI wrote taken in
+  through `ApplyStudioDiscussionGenerationAction`; the plan has one version, and each of the page's writes takes the
+  version the other's left — once the plan is at it and still holds what that editor drew — so none is in conflict
+  with another, while one drawn before somebody else's save is refused, the discussion's with Reload discussion. A
+  Reload of either editor is said to the other, so one Reload brings the page up to date.
 - **Delete draft (OVL-01):** from the row menu and the editor's header, “Delete this draft?” — “The draft will be
   removed. Its image will be released if nothing else uses it.” — Cancel and Delete draft, through
   `DeleteStudioPlanDraftAction`, refused for a draft changed since and harmless for one already gone.
 - **Access:** an active administrator's (`manage-studio-plans`): the navigation item, every page and every
   Livewire request ask, and so do the actions.
+
+
+### Action queue
+
+The Action queue (`StudioActionQueue`, `/admin/studio-actions`) is drawn in Admin v2 over Content Studio's business
+queue itself (`studio_plan_actions`), never Laravel's jobs: every action approved plans wrote.
+
+- **Header band:** “Every action approved publications run: posts, comments, replies, votes and rating answers.
+  Planned and actual times are kept apart.” Stats: Pending, Running (sent or running), Held and Errors.
+- **Executor:** a band under it says whether the executor is on — each action sent the moment it is due, the
+  minute's run sending whatever was missed — or off, nothing sent or run; Switch on or Switch off asks first
+  (OVL-01, warning), with how many actions are pending (`SwitchStudioExecutionAction`).
+- **Toolbar (TBL-02):** the search over the publication's title, the action's id (`#123` or `123`) and its persona's
+  username and names — never a deleted account's; State, Kind and Publication as filter dropdowns with their chips,
+  in the URL, a value the list does not offer dropped; Planned: latest first or earliest first; 25 a page
+  (`StudioActionsQuery`, a registered stable pagination boundary).
+- **Table (TBL-01):** Publication — a link to the plan — with its id and the action's; Action — what it does and its
+  kind, after what; Executor — avatar, username and name; Planned, the due colour while it waits past its moment;
+  Runs — Due now, its moment, Sent, Since, Ran or Failed, with its attempt; State (STS-01) with its failure code;
+  Retry for a failed action, Resume for a held one, Cancel for one not yet run, and Details, which opens in place:
+  why it stopped, its planned and earliest moments, when it finished, its attempts, the action it depends on, Open
+  plan and Open post or Open comment.
+- **Cancel (OVL-01, warning):** “Cancel this action?” — cancelled for good with every action of its branch still
+  waiting; nothing already published is taken back — Keep it and Cancel action (`CancelStudioActionAction`).
+- **Reading itself again:** every five seconds while the executor is on and anything waits or runs.
+- **Access:** an active administrator's (`manage-studio-plans`); the switch also asks `manage-project-settings`.
 
 ### Personas
 
@@ -1392,8 +1502,8 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Categories and Tags delete footnote | “Recorded in the audit log as …” | none | no log records a category or tag deletion |
 | Delete from the drawer | the dialog opens over the drawer | the dialog replaces the drawer | Categories and Tags: the drawer's one destructive action replaces it; an editor's drawer keeps its confirmations over it |
 | Translate on Categories and Tags | opens Translation Center on the section | opens it on the record, in the first offered language it is missing from | the record is what was asked about |
-| Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 10 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
-| Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 10 | the limits the content had before the redesign, which its translations are held to |
+| Rating group slots | 6 slots in the list, 8 in the editor | one past the widest range in the list, alike for every row; 15 in the editor | a group's range goes up to 10 active options, and every row's slots line up |
+| Rating group and option limits | description counted to 120, option label to 20, ranges 1–8 | description to 1,000, label to 120, ranges 2 to 15 | the limits the content had before the redesign, which its translations are held to |
 | Rating group Delete | a group without votes can be deleted | unavailable: “Groups are kept · deactivate instead” | a group is never deleted; deactivating keeps its votes and its place in results |
 | Rating group and option hints | “Shown as the question above the options on post pages”, “Tooltip on the vote button. Also given to AI translation as context.” | “What the group asks voters about.”, “What a vote for this option means.” | descriptions are not shown on post pages; the hint says what they are |
 | Group card translations note | “English reference text. Translations are managed in Translation Center.” | “English reference text.” | as on Categories and Tags: Translation Center is already the one editor of translations |
@@ -1465,14 +1575,17 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Translation AI systemic issue | a danger-tinted line in Failures and issues | the FBK-02 danger strip, outside a dialog | FBK-02 keeps danger for irreversible dialogs; the Translation AI reference draws an ongoing outage in it, and nothing else on the page is danger-toned |
 | Translation AI chart | bars drawn by the screen | the same, as the screen's own element | the kit reference names no chart, so none is a kit component; it becomes one, with a reference ID, when a second screen needs it |
 | Translation AI background generations and configuration | not in the prototype | a Background generations card and a folded Configuration and guardrails card | the technical monitoring the page is for, from the store and configuration that already exist |
-| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | nothing approves, schedules or publishes a plan yet, and no figure is drawn that cannot be counted |
-| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status; Edit draft and Delete draft | a plan holds no comments, no run and no post yet; no action is drawn that nothing does |
-| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | Back, Step n of 4 and Continue; the last step has none, and Continue waits only for a photo on its way | nothing confirms or publishes a plan yet; the draft saves from the top bar, and no step is locked by an incomplete draft |
+| Publications & plans figures | Total publications, Drafts, Scheduled, Published | Total plans, Drafts, With image, With author | the figures a plan's own row counts; what ran is the Action queue's |
+| Publications & plans columns and states | Date · launch, Comments; Scheduled, Publishing, Published, Plan running, Error; Open plan, Unschedule, View errors, View post | Image, Publication date and Last updated; the plan's own status — Draft, Approved, Running, Completed, Cancelled; Edit draft and Delete draft, or Open | how a plan runs is shown on its Publication step and in the Action queue; Unschedule is Stop remaining actions there, never back to a draft |
+| Publication editor footer | Back, Step n of 4, Continue, and Review and confirm on the last step | the same, Review and confirm disabled while the approval preflight finds anything and held back with anything unsaved on the page, each said in the footer; Continue waits only for a photo on its way | approval publishes the plan as it is saved, and only once nothing stops it; no step is locked by an incomplete draft |
 | Image sources | Upload, From link and From social post, “up to 20 MB”, Re-run analysis | the same three, the limit `uploads.images.max_kilobytes` sets, a link imported once it is complete instead of Load image or Import image, and the sites the importer reads directly marked; Re-run analysis or Try again after the first analysis, which starts by itself | the upload limit is the site's; a social post's image is found by the site's own import (`ImportFromUrlAction`), which reads four sites directly and any other public page by its preview image |
 | Post texts | Tone of new variants, 10 titles, 10 descriptions, Generate 10 more and a Generate of its own on each column, the first set written on entering the step; Final description up to 500 | one Generate for both columns, in the Context card, and nothing written until it is pressed; the newest batch shown, each earlier one kept on the server but no longer in view; Final description up to 2,000 | a batch is one paid request for both columns, asked for only by Generate, and kept on the server so reopening the draft shows it again without another; a post's description takes 2,000 characters |
+| Tones and the author's voice | five tones, on the Post step only; suggestions with no author; Discussion settings without a tone | a sixth tone, Spicy / Adult humour, never chosen at first; the same six in Discussion settings, the tone the last whole tree was asked in chosen on opening; the suggestions written in the saved author's voice, said under Author’s voice, Generate saving the draft first while another author is chosen | adult humour is a mood an administrator chooses, never the default, and never a statement about anyone's age; a post's texts appear under its author's name, so they are written as the author writes |
 | Post author picker | Editorial accounts, Users and Personas, Pick random | living personas, searched on the server | a plan's author is a persona and nothing else |
-| Votes tab and Discussion | post votes, voters, timing; a comment tree with its votes | not drawn; Discussion says what comes later | persona votes and generated discussions come with their own stages |
-| Publication step | overdue actions, an action plan, and a note that real timestamps are never backdated | the mode, the date and the publication card | there is no action plan yet, and the post will take the plan's date as its own timestamps (H1) |
+| Votes tab and Discussion | post votes, voters, timing; Comment votes and Comment voters cards, Comment votes and Voters tabs, priorities Normal, High and Main with a total, a positive share and distribution modes, a reply to a reply | post votes, voters and timing on Post · Votes, saved as each setting moves, every active rating question on, each voter voting and answering in one visit, and every vote listed on its Timing tab with its moment changed in place; the Comment voters and Comment votes cards beside the Discussion settings, each comment of the tree with its up and down votes as set, "Not saved" while a change to them can't be saved, and See breakdown opening the comment's votes, priority, timing and voters beside the tree; the tree's Comments, Voters and Timing tabs, Timing listing every comment, reply and vote in one list by its time, each moment changed in place, a comment moved taking its votes along; the comment votes said in the Generate strip, with "Not saved" while a change can't be; priorities Low, Normal and High, Total up and Total down always what the comments' votes add up to, a total changed giving or taking only the difference by priority, one timing after each comment or one of a comment's own; the votes made and saved at once, as the post's are, and the step left with a change that can't be saved only after asking, what keeps it listed; a reply answers a comment on the post; Generate writes from saved texts only | a vote is one Persona's on one target, so up and down are set as counts of Personas and saved exactly as shown; a discussion has two levels |
+| Publication step | overdue actions with Run overdue now, Spread from now and Skip overdue, an action plan, and a note that real timestamps are never backdated | the mode, the date, what is overdue said as a count with no choice, Ready to approve?, the final card and the action plan — a preview of what approval writes, then the plan's own actions as they run | every action whose moment has passed runs as soon as the plan is approved, keeping its planned date — the post, its comments and votes take the plan's dates as their own (H1); spreading or skipping them would contradict that, and the note would not be true |
+| Action queue | demo states Pending, Running, Done, Error, Cancelled; Cancel and Retry; Open post on site | the business queue's own states — Pending, Dispatched, Running, Done, Held, Failed, Cancelled — with Retry, Resume, Cancel asked first, Details in place, Pending, Running, Held and Errors counted, and the executor's switch, asked first | the states are the queue's own, a held action needs Resume, and the executor stays off until an administrator switches it on |
+| Publication date field | a calendar stepping a month at a time, any date | the same, with its title opening the months of a year, and only the dates a post's timestamps hold, 1970 to 2038 | a past date is as much an editorial choice as a future one, and decades away is too many months to step through |
 | Persona editor fields | City, Country, Active from and until, Generate avatar, Use initials and Try it with Another reply | none of them | geography and an hourly schedule are not part of a persona; generated avatars and sample replies wait for AI, and no button is drawn that does nothing |
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
 | Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |

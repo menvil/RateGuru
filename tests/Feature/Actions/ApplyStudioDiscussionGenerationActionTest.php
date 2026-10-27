@@ -1,0 +1,382 @@
+<?php
+
+use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
+use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionNodeData;
+use App\Enums\StudioDiscussionGenerationError;
+use App\Enums\StudioDiscussionGenerationMode;
+use App\Enums\StudioDiscussionGenerationStatus;
+use App\Enums\StudioPlanStatus;
+use App\Enums\UserStatus;
+use App\Exceptions\Studio\CannotApplyStudioDiscussionGenerationException;
+use App\Exceptions\Studio\CannotManageStudioPlanException;
+use App\Models\Comment;
+use App\Models\Post;
+use App\Models\StudioAction;
+use App\Models\StudioDiscussionNode;
+use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
+use App\Models\StudioPlanVote;
+use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * An administrator takes a proposal into the plan: a whole discussion in
+ * place of the plan's, or new texts for one part of it and nothing else —
+ * through the one door every discussion goes through, together with
+ * `applied_at`, once, and only while the plan still has what it was written
+ * from.
+ */
+beforeEach(function () {
+    Queue::fake();
+    Http::preventStrayRequests();
+    configureStudioDiscussionGeneration();
+    $this->admin = User::factory()->admin()->create();
+    $this->plan = discussionReadyStudioPlan(['created_by_user_id' => $this->admin->id]);
+    [$this->anna, $this->boris] = [studioPersonaWithProfile(), studioPersonaWithProfile()];
+});
+
+/** A whole discussion written and completed for the plan by Anna and Boris. */
+function completedWholeDiscussion($test): StudioPlanDiscussionGeneration
+{
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [
+        answeredComment('node_1', null, 'persona_1', 60, 'Somebody owns this harbour now.'),
+        answeredComment('node_2', 'node_1', 'persona_2', 180, 'The seagulls might disagree.'),
+        answeredComment('node_3', null, 'persona_2', 120, 'That mist does all the work.'),
+    ]]))]);
+    $generation = requestStudioDiscussion($test->admin, $test->plan, ['personaUserIds' => [$test->anna->id, $test->boris->id], 'rootCount' => 2, 'replyCount' => 1]);
+    runStudioDiscussionJob($generation);
+
+    return $generation->fresh();
+}
+
+/**
+ * A discussion saved by hand, and one part of it written again and completed.
+ *
+ * @return array{0: StudioPlanDiscussionGeneration, 1: array<string, int>}
+ */
+function completedPart($test, StudioDiscussionGenerationMode $mode, string $target, array $answer): array
+{
+    $saved = saveStudioDiscussion($test->admin, $test->plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $test->anna->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $test->boris->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $test->anna->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
+        discussionNode(['key' => 'b', 'personaUserId' => $test->boris->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
+        discussionNode(['key' => 'b1', 'parentKey' => 'b', 'personaUserId' => $test->anna->id, 'body' => 'Brittany.', 'offsetSeconds' => 150]),
+    ]);
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody($answer))]);
+    $generation = requestStudioDiscussion($test->admin, $test->plan, ['mode' => $mode, 'targetNodeId' => $saved->ids[$target]]);
+    runStudioDiscussionJob($generation);
+
+    return [$generation->fresh(), $saved->ids];
+}
+
+/** Every comment of the plan's discussion as stored, by id. */
+function discussionRows(StudioPlan $plan): array
+{
+    return DB::table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->orderBy('id')->get()
+        ->mapWithKeys(fn ($row): array => [$row->id => [(int) $row->parent_id, (int) $row->persona_user_id, $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])
+        ->all();
+}
+
+/** The proposal refused, and why. */
+function applyRefusal(Closure $apply): Throwable
+{
+    try {
+        $apply();
+    } catch (CannotManageStudioPlanException|CannotApplyStudioDiscussionGenerationException|ValidationException $refusal) {
+        return $refusal;
+    }
+
+    throw new RuntimeException('The proposal was not refused.');
+}
+
+it('takes a whole discussion into the plan in place of its own, each comment given its id, the version raised, applied_at stamped', function () {
+    saveStudioDiscussion($this->admin, $this->plan, []);
+    $generation = completedWholeDiscussion($this);
+
+    $saved = applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    expect($saved->lockVersion)->toBe(3)
+        ->and($this->plan->fresh()->lock_version)->toBe(3)
+        ->and($saved->roots()->pluck('body')->all())->toBe(['Somebody owns this harbour now.', 'That mist does all the work.'])
+        ->and($saved->repliesTo($saved->roots()->first()->id)->pluck('body')->all())->toBe(['The seagulls might disagree.'])
+        ->and(StudioDiscussionNode::query()->count())->toBe(3)
+        ->and($generation->fresh()->applied_at)->not->toBeNull()
+        ->and($generation->fresh()->status)->toBe(StudioDiscussionGenerationStatus::Completed)
+        ->and(Comment::query()->exists())->toBeFalse()
+        ->and(Post::query()->exists())->toBeFalse()
+        ->and(StudioAction::query()->exists())->toBeFalse();
+});
+
+it('changes only the texts of the part written again: no id, author, parent, place or time, and no other comment', function (StudioDiscussionGenerationMode $mode, string $target, array $answer, array $changed) {
+    [$generation, $ids] = completedPart($this, $mode, $target, $answer);
+    $before = discussionRows($this->plan);
+
+    applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    $after = discussionRows($this->plan);
+
+    expect(array_keys($after))->toBe(array_keys($before));
+
+    foreach ($before as $id => [$parent, $persona, $body, $sort, $offset]) {
+        $key = array_search($id, $ids, true);
+
+        expect($after[$id])->toBe([$parent, $persona, $changed[$key] ?? $body, $sort, $offset]);
+    }
+})->with([
+    'a comment' => [StudioDiscussionGenerationMode::RegenerateComment, 'a', ['text' => 'Such light.'], ['a' => 'Such light.']],
+    'a reply' => [StudioDiscussionGenerationMode::RegenerateReply, 'a2', ['text' => 'Much obliged.'], ['a2' => 'Much obliged.']],
+    'a branch with two replies' => [StudioDiscussionGenerationMode::RegenerateBranch, 'a', ['comment' => 'What a morning.', 'replies' => [
+        ['reply' => 'existing_2', 'text' => 'The mist!'],
+        ['reply' => 'existing_3', 'text' => 'I was there.'],
+    ]], ['a' => 'What a morning.', 'a1' => 'The mist!', 'a2' => 'I was there.']],
+]);
+
+it('takes a proposal in once: a second time changes nothing and raises no version', function () {
+    $generation = completedWholeDiscussion($this);
+    applyStudioDiscussion($this->admin, $this->plan, $generation);
+    $rows = discussionRows($this->plan);
+
+    $refusal = applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    expect($refusal->error)->toBe(StudioDiscussionGenerationError::AlreadyApplied)
+        ->and(discussionRows($this->plan))->toBe($rows)
+        ->and($this->plan->fresh()->lock_version)->toBe(2);
+});
+
+it('refuses a proposal taken in at a version somebody else replaced', function () {
+    $generation = completedWholeDiscussion($this);
+
+    $refusal = applyRefusal(fn () => app(ApplyStudioDiscussionGenerationAction::class)->handle($this->admin, $this->plan, $generation->id, 7));
+
+    expect($refusal->isStale())->toBeTrue()
+        ->and(StudioDiscussionNode::query()->exists())->toBeFalse()
+        ->and($generation->fresh()->applied_at)->toBeNull();
+});
+
+it('never takes in a proposal written from a context the plan no longer has, and never writes over a hand edit', function (Closure $change) {
+    [$generation, $ids] = completedPart($this, StudioDiscussionGenerationMode::RegenerateComment, 'a', ['text' => 'Such light.']);
+    $change($this, $ids);
+    $rows = discussionRows($this->plan);
+    $version = $this->plan->fresh()->lock_version;
+
+    $refusal = applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    expect($refusal->error)->toBe(StudioDiscussionGenerationError::StaleContext)
+        ->and(discussionRows($this->plan))->toBe($rows)
+        ->and($this->plan->fresh()->lock_version)->toBe($version)
+        ->and($generation->fresh()->applied_at)->toBeNull();
+})->with([
+    'a neighbour edited by hand' => [fn ($test, array $ids) => saveStudioDiscussion($test->admin, $test->plan, collect(StudioDiscussionData::of($test->plan)->nodes)
+        ->map(fn ($node) => $node->id === $ids['b'] ? new StudioDiscussionNodeData(id: $node->id, personaUserId: $node->personaUserId, body: 'Edited by hand.', sortOrder: $node->sortOrder, offsetSeconds: $node->offsetSeconds) : $node)->all())],
+    'the target deleted' => [fn ($test, array $ids) => saveStudioDiscussion($test->admin, $test->plan, collect(StudioDiscussionData::of($test->plan)->nodes)
+        ->filter(fn ($node) => ! in_array($node->id, [$ids['a'], $ids['a1'], $ids['a2']], true))->values()->all())],
+    'the target\'s author changed' => [fn ($test, array $ids) => saveStudioDiscussion($test->admin, $test->plan, collect(StudioDiscussionData::of($test->plan)->nodes)
+        ->map(fn ($node) => $node->id === $ids['a'] ? new StudioDiscussionNodeData(id: $node->id, personaUserId: $test->boris->id, body: $node->body, sortOrder: $node->sortOrder, offsetSeconds: $node->offsetSeconds) : $node)->all())],
+    'a reply moved under another comment' => [fn ($test, array $ids) => saveStudioDiscussion($test->admin, $test->plan, collect(StudioDiscussionData::of($test->plan)->nodes)
+        ->map(fn ($node) => $node->id === $ids['a1'] ? new StudioDiscussionNodeData(id: $node->id, parentId: $ids['b'], personaUserId: $node->personaUserId, body: $node->body, sortOrder: 5, offsetSeconds: $node->offsetSeconds) : $node)->all())],
+    'the title' => [fn ($test) => $test->plan->forceFill(['title' => 'Another title'])->save()],
+    'a Persona\'s character' => [fn ($test) => $test->anna->personaProfile->forceFill(['character' => 'Someone else entirely.'])->save()],
+]);
+
+/**
+ * A whole discussion by Anna and Boris, written over a discussion Carl wrote
+ * by hand — and only the first of the two in it: Boris was chosen, but none
+ * of his comments made it in.
+ *
+ * @return array{0: StudioPlanDiscussionGeneration, 1: User, 2: User, 3: User} the generation; the Persona in it; the one not; Carl
+ */
+function completedOverAnotherDiscussion($test): array
+{
+    $carl = studioPersonaWithProfile([], ['display_name' => 'Carl']);
+    saveStudioDiscussion($test->admin, $test->plan, [discussionNode(['personaUserId' => $carl->id, 'body' => 'By Carl, by hand.'])]);
+    [$used, $unused] = $test->anna->id < $test->boris->id ? [$test->anna, $test->boris] : [$test->boris, $test->anna];
+    Http::fake(['api.openai.com/*' => Http::response(studioDiscussionBody(['comments' => [answeredComment('node_1', null, 'persona_1', 60, 'Only the first of us.')]]))]);
+    $generation = requestStudioDiscussion($test->admin, $test->plan, ['personaUserIds' => [$test->anna->id, $test->boris->id], 'rootCount' => 1]);
+    runStudioDiscussionJob($generation);
+
+    return [$generation->fresh(), $used, $unused, $carl];
+}
+
+it('locks every Persona taking it in depends on — those it was written for, even one left out of it, and the earlier discussion\'s authors — before the plan', function () {
+    [$generation, $used, $unused, $carl] = completedOverAnotherDiscussion($this);
+    $locks = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$locks): void {
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (preg_match('/^select \\* from (users|studio_plans) where/', $sql, $match) === 1 && str_contains($sql, 'limit 1')) {
+            $locks[] = $match[1] === 'users' ? (int) $query->bindings[0] : 'plan';
+        }
+    });
+
+    $saved = applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    // Read before the locks, the plan once; then the users, ascending; then the plan, locked.
+    $users = collect([$this->admin->id, $used->id, $unused->id, $carl->id])->sort()->values()->all();
+    $firstPlanLock = array_search('plan', array_slice($locks, 1), true) + 1;
+
+    expect(array_slice($locks, 1, $firstPlanLock - 1))->toBe($users)
+        ->and($saved->nodes->pluck('body')->all())->toBe(['Only the first of us.'])
+        ->and($saved->nodes->pluck('persona_user_id')->all())->toBe([$used->id]);
+});
+
+it('refuses a proposal once a Persona it depends on changed, even one none of whose comments made it in, or an earlier author\'s name', function (Closure $change) {
+    [$generation, $used, $unused, $carl] = completedOverAnotherDiscussion($this);
+    $change($unused, $carl);
+    $rows = discussionRows($this->plan);
+
+    $refusal = applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    expect($refusal->error)->toBe(StudioDiscussionGenerationError::StaleContext)
+        ->and(discussionRows($this->plan))->toBe($rows)
+        ->and($generation->fresh()->applied_at)->toBeNull();
+})->with([
+    'the Persona left out, its character' => [fn (User $unused) => $unused->personaProfile->forceFill(['character' => 'Someone else entirely.'])->save()],
+    'the Persona left out, its name' => [fn (User $unused) => $unused->forceFill(['display_name' => 'A new name'])->save()],
+    'the earlier discussion\'s author, its name' => [fn (User $unused, User $carl) => $carl->forceFill(['display_name' => 'Karl'])->save()],
+]);
+
+it('takes in nothing that is not a completed proposal of this plan', function (Closure $generation, StudioDiscussionGenerationError $error) {
+    $refusal = applyRefusal(fn () => app(ApplyStudioDiscussionGenerationAction::class)->handle($this->admin, $this->plan, $generation($this)->id, 1));
+
+    expect($refusal->error)->toBe($error)
+        ->and(StudioDiscussionNode::query()->exists())->toBeFalse();
+})->with([
+    'one still running' => [fn ($test) => requestStudioDiscussion($test->admin, $test->plan, ['personaUserIds' => [$test->anna->id], 'rootCount' => 1]), StudioDiscussionGenerationError::NotCompleted],
+    'one that failed' => [fn ($test) => StudioPlanDiscussionGeneration::factory()->failed()->create(['studio_plan_id' => $test->plan->id]), StudioDiscussionGenerationError::NotCompleted],
+    'another plan\'s' => [fn ($test) => StudioPlanDiscussionGeneration::factory()->completed()->create(), StudioDiscussionGenerationError::NotCompleted],
+]);
+
+it('refuses a plan past its Draft, and an administrator who may not', function () {
+    $generation = completedWholeDiscussion($this);
+
+    expect(applyRefusal(fn () => applyStudioDiscussion(User::factory()->create(), $this->plan, $generation))->isNotAllowed())->toBeTrue();
+
+    $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
+
+    expect(applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation))->isNotDraft())->toBeTrue()
+        ->and($generation->fresh()->applied_at)->toBeNull();
+});
+
+it('refuses a whole discussion by a Persona deleted since, through the discussion\'s own rules', function () {
+    $generation = completedWholeDiscussion($this);
+    $this->boris->forceFill(['status' => UserStatus::Deleted])->save();
+
+    $refusal = applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    expect($refusal)->toBeInstanceOf(CannotApplyStudioDiscussionGenerationException::class)
+        ->and($generation->fresh()->applied_at)->toBeNull()
+        ->and(StudioDiscussionNode::query()->exists())->toBeFalse();
+});
+
+it('takes back the whole of it when a write is not saved: no discussion, no applied_at', function (Closure $cancel) {
+    $generation = completedWholeDiscussion($this);
+    $cancel();
+
+    expect(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation))->toThrow(RuntimeException::class);
+
+    expect(StudioDiscussionNode::query()->exists())->toBeFalse()
+        ->and($generation->fresh()->applied_at)->toBeNull()
+        ->and($this->plan->fresh()->lock_version)->toBe(1);
+})->with([
+    'a comment of it' => [fn () => StudioDiscussionNode::creating(fn (StudioDiscussionNode $node): ?bool => str_contains($node->body, 'mist') ? false : null)],
+    'its applied_at' => [fn () => StudioPlanDiscussionGeneration::updating(fn (StudioPlanDiscussionGeneration $generation): ?bool => $generation->isDirty('applied_at') ? false : null)],
+]);
+
+it('keeps every earlier generation as history, whichever is taken in', function () {
+    $first = completedWholeDiscussion($this);
+    // The discussion changed by hand meanwhile, so another is written from it.
+    saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'a', 'personaUserId' => $this->anna->id, 'body' => 'By hand.', 'offsetSeconds' => 60])]);
+    $second = completedWholeDiscussion($this);
+
+    applyStudioDiscussion($this->admin, $this->plan, $second);
+
+    expect(StudioPlanDiscussionGeneration::query()->count())->toBe(2)
+        ->and($second->id)->not->toBe($first->id)
+        ->and($first->fresh())->status->toBe(StudioDiscussionGenerationStatus::Completed)->applied_at->toBeNull()
+        // Written from the discussion as it was; the plan's is another now.
+        ->and(applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $first))->error)->toBe(StudioDiscussionGenerationError::StaleContext);
+});
+
+it('says which finished proposal the plan would take in now, with the checks it is taken in by, writing nothing', function (Closure $since, bool $fits) {
+    $generation = completedWholeDiscussion($this);
+    $since($this, $generation);
+    $before = [discussionRows($this->plan), $this->plan->fresh()->lock_version, $generation->fresh()->applied_at?->toIso8601String()];
+
+    expect(app(ApplyStudioDiscussionGenerationAction::class)->fits($this->plan->fresh(), $generation->fresh()))->toBe($fits)
+        ->and([discussionRows($this->plan), $this->plan->fresh()->lock_version, $generation->fresh()->applied_at?->toIso8601String()])->toBe($before);
+})->with([
+    'as it was written' => [fn () => null, true],
+    'the post retitled' => [fn ($test) => $test->plan->forceFill(['title' => 'Mist on the harbour'])->save(), false],
+    'a Persona deleted' => [fn ($test) => $test->boris->forceFill(['status' => UserStatus::Deleted])->save(), false],
+    'past its Draft' => [fn ($test) => $test->plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), false],
+    'another plan\'s' => [fn ($test, $generation) => $generation->forceFill(['studio_plan_id' => discussionReadyStudioPlan()->id])->save(), false],
+    'not completed' => [fn ($test, $generation) => $generation->forceFill(['status' => StudioDiscussionGenerationStatus::Failed])->save(), false],
+    'taken in' => [fn ($test, $generation) => $generation->forceFill(['applied_at' => now()])->save(), false],
+]);
+
+it('keeps the history of a part once the comment it wrote again is deleted', function () {
+    [$generation, $ids] = completedPart($this, StudioDiscussionGenerationMode::RegenerateComment, 'b', ['text' => 'Where on earth?']);
+
+    saveStudioDiscussion($this->admin, $this->plan, collect(StudioDiscussionData::of($this->plan)->nodes)
+        ->filter(fn ($node) => ! in_array($node->id, [$ids['b'], $ids['b1']], true))->values()->all());
+
+    expect($generation->fresh())->target_node_id->toBeNull()
+        ->and($generation->fresh()->targetNodeId())->toBe($ids['b'])
+        ->and($generation->fresh()->status)->toBe(StudioDiscussionGenerationStatus::Completed);
+});
+
+it('logs a proposal taken in, and one refused, with ids and codes only', function () {
+    Log::spy();
+    $generation = completedWholeDiscussion($this);
+
+    applyStudioDiscussion($this->admin, $this->plan, $generation);
+    applyRefusal(fn () => applyStudioDiscussion($this->admin, $this->plan, $generation));
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $message, array $context): bool => $message === 'studio.discussion_generation.applied'
+        && $context['generation_id'] === $generation->id
+        && $context['studio_plan_id'] === $this->plan->id
+        && $context['admin_id'] === $this->admin->id
+        && $context['nodes'] === 3
+        && $context['lock_version'] === 2);
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => $message === 'studio.discussion_generation.rejected'
+        && $context['error_code'] === 'already_applied');
+    Log::shouldNotHaveReceived('info', fn (string $message, array $context): bool => str_contains(json_encode($context), 'seagulls'));
+});
+
+it('keeps the votes on a comment whose text is written again, each with its id', function () {
+    [$generation, $ids] = completedPart($this, StudioDiscussionGenerationMode::RegenerateComment, 'a', ['text' => 'Such light.']);
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $voter->id, 'voteType' => 'up', 'discussionNodeId' => $ids['a'], 'offsetSeconds' => 120]),
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $this->boris->id, 'voteType' => 'down', 'discussionNodeId' => $ids['a'], 'offsetSeconds' => 180]),
+    ]);
+    $votes = StudioPlanVote::query()->orderBy('id')->get(['id', 'persona_user_id', 'discussion_node_id', 'vote_type'])->toArray();
+
+    applyStudioDiscussion($this->admin, $this->plan, $generation);
+
+    expect(StudioDiscussionNode::query()->findOrFail($ids['a'])->body)->toBe('Such light.')
+        ->and(StudioPlanVote::query()->orderBy('id')->get(['id', 'persona_user_id', 'discussion_node_id', 'vote_type'])->toArray())->toBe($votes);
+});
+
+it('takes the votes on a discussion a whole new one replaces away with its comments, the post\'s staying', function () {
+    $carl = User::factory()->persona()->create();
+    $saved = saveStudioDiscussion($this->admin, $this->plan, [discussionNode(['key' => 'c', 'personaUserId' => $carl->id, 'body' => 'By Carl, by hand.', 'offsetSeconds' => 60])]);
+    $voter = User::factory()->persona()->create();
+    saveStudioVotes($this->admin, $this->plan, [
+        studioVote(['type' => 'vote_comment', 'personaUserId' => $voter->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['c'], 'offsetSeconds' => 120]),
+        studioVote(['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
+    ]);
+
+    applyStudioDiscussion($this->admin, $this->plan, completedWholeDiscussion($this));
+
+    expect(StudioDiscussionNode::query()->whereKey($saved->ids['c'])->exists())->toBeFalse()
+        ->and(StudioPlanVote::query()->pluck('type')->map(fn ($type) => $type->value)->all())->toBe(['vote_post']);
+});

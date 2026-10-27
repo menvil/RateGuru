@@ -9,9 +9,11 @@ namespace App\Enums;
  * comment or one of the post's rating questions — each through the existing
  * domain action that does the same for a member.
  *
- * The whole set is the business queue's format. Approving a plan makes the
- * one CreatePost a plan publishes, and the executor runs it; nothing makes
- * or runs the others yet.
+ * The whole set is the business queue's format. Approving a plan makes its
+ * CreatePost, a CreateComment or CreateReply for each comment of its prepared
+ * discussion and an action for each of its prepared votes, and the executor
+ * runs them all. The three votes are also the kinds of vote a Draft prepares
+ * (StudioPlanVote).
  */
 enum StudioActionType: string
 {
@@ -21,4 +23,10 @@ enum StudioActionType: string
     case VotePost = 'vote_post';
     case VoteComment = 'vote_comment';
     case VoteRating = 'vote_rating';
+
+    /** Whether it is one of the three votes rather than a post, comment or reply. */
+    public function isVote(): bool
+    {
+        return in_array($this, [self::VotePost, self::VoteComment, self::VoteRating], true);
+    }
 }

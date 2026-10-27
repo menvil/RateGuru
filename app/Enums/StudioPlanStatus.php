@@ -9,7 +9,8 @@ namespace App\Enums;
  * executor moves it on (docs/architecture/studio-plans.md, "Running a plan"):
  * Running once its first action is claimed, then Completed once its post is
  * published and nothing of it is left, or Cancelled when its post never will
- * be. Nothing on screen cancels a plan yet.
+ * be — whether its last actions ran or an administrator stopped what was left
+ * of it in the Action queue.
  */
 enum StudioPlanStatus: string
 {

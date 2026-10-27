@@ -20,4 +20,14 @@ enum PersonaEmojiFrequency: string
             self::Frequent => 'Frequent',
         };
     }
+
+    /** How often, as a model writing in the Persona's voice is told it. */
+    public function inWords(): string
+    {
+        return match ($this) {
+            self::None => 'never',
+            self::Occasional => 'sometimes',
+            self::Frequent => 'often',
+        };
+    }
 }

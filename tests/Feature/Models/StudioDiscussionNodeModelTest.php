@@ -94,15 +94,25 @@ it('refuses a reply to a comment that is not there', function () {
 
 it('rolls back and runs again: the table goes and comes back, the plans untouched', function () {
     $plan = StudioPlan::factory()->create(['title' => 'Harbour']);
-    $path = 'database/migrations/2026_10_20_110000_create_studio_plan_discussion_nodes_table.php';
+    // The prepared votes and the generations' history point at the comments,
+    // so they go first and come back with them.
+    $paths = [
+        'database/migrations/2026_10_21_100000_create_studio_plan_votes_table.php',
+        'database/migrations/2026_10_20_120000_create_studio_plan_discussion_generations_table.php',
+        'database/migrations/2026_10_20_110000_create_studio_plan_discussion_nodes_table.php',
+    ];
 
-    $this->artisan('migrate:rollback', ['--path' => $path, '--force' => true])->assertSuccessful();
+    $this->artisan('migrate:rollback', ['--path' => $paths, '--force' => true])->assertSuccessful();
 
     expect(Schema::hasTable('studio_plan_discussion_nodes'))->toBeFalse()
+        ->and(Schema::hasTable('studio_plan_discussion_generations'))->toBeFalse()
+        ->and(Schema::hasTable('studio_plan_votes'))->toBeFalse()
         ->and(StudioPlan::query()->findOrFail($plan->id)->title)->toBe('Harbour');
 
     $this->artisan('migrate', ['--force' => true])->assertSuccessful();
 
     expect(Schema::hasTable('studio_plan_discussion_nodes'))->toBeTrue()
+        ->and(Schema::hasTable('studio_plan_discussion_generations'))->toBeTrue()
+        ->and(Schema::hasTable('studio_plan_votes'))->toBeTrue()
         ->and(Schema::getColumnListing('studio_plan_discussion_nodes'))->toContain('offset_seconds');
 });

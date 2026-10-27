@@ -81,23 +81,33 @@ it('sends nothing before its time, and the oldest first, a batch at a time', fun
         ->and($future->fresh()->status)->toBe(StudioActionStatus::Pending);
 });
 
-it('sends no kind of action nothing runs yet, and none waiting for a parent not done', function () {
+it('sends every kind of action approval writes once its parent is done, and none waiting for a parent not done', function () {
     $post = approvedStudioAction();
+    $vote = StudioAction::factory()->childOf($post, StudioActionType::VotePost)->create(['actor_user_id' => $post->actor_user_id]);
+    $rating = StudioAction::factory()->childOf($post, StudioActionType::VoteRating)->create(['actor_user_id' => $post->actor_user_id]);
+    // Kinds that run, still waiting for their parents.
     $comment = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->create(['actor_user_id' => $post->actor_user_id]);
-    // A kind that runs, still waiting for its parent.
-    $child = StudioAction::factory()->childOf($post, StudioActionType::CreatePost)->create(['actor_user_id' => $post->actor_user_id]);
+    $reply = StudioAction::factory()->childOf($comment, StudioActionType::CreateReply)->create(['actor_user_id' => $post->actor_user_id]);
+    $onComment = StudioAction::factory()->childOf($comment, StudioActionType::VoteComment)->create(['actor_user_id' => $post->actor_user_id]);
 
     dispatchDueStudioActions();
 
     expect(queuedStudioActionIds())->toBe([$post->id])
-        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending)
-        ->and($child->fresh()->status)->toBe(StudioActionStatus::Pending);
+        ->and($vote->fresh()->status)->toBe(StudioActionStatus::Pending)
+        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending);
 
     $post->forceFill(['status' => StudioActionStatus::Done])->save();
     dispatchDueStudioActions();
 
-    expect(queuedStudioActionIds())->toBe([$post->id, $child->id])
-        ->and($comment->fresh()->status)->toBe(StudioActionStatus::Pending);
+    // The post's comment and votes, the post done; not the reply or the vote on the comment, whose comment is not.
+    expect(queuedStudioActionIds())->toBe([$post->id, $vote->id, $rating->id, $comment->id])
+        ->and($reply->fresh()->status)->toBe(StudioActionStatus::Pending)
+        ->and($onComment->fresh()->status)->toBe(StudioActionStatus::Pending);
+
+    $comment->forceFill(['status' => StudioActionStatus::Done])->save();
+    dispatchDueStudioActions();
+
+    expect(queuedStudioActionIds())->toBe([$post->id, $vote->id, $rating->id, $comment->id, $reply->id, $onComment->id]);
 });
 
 it('sends a lost job again once it has been unclaimed long enough, counting one more attempt', function () {
@@ -293,24 +303,12 @@ function studioActionKinds(bool $runnable): array
         ->all();
 }
 
-it('takes back no kind the executor does not run: lost or left behind, it is never sent, counted or failed', function (StudioActionType $type, StudioActionStatus $status, int $attempts) {
-    config(['content_studio.actions.max_attempts' => 3]);
-    $action = staleStudioAction($type, $status, $attempts);
-    $before = DB::table('studio_plan_actions')->where('id', $action->id)->first();
+it('runs every kind of action approval writes: none is left behind unsent, uncounted or never failed', function () {
+    expect(ExecuteStudioAction::RUNNABLE)->toEqualCanonicalizing(StudioActionType::cases())
+        ->and(studioActionKinds(false))->toBe([]);
+});
 
-    expect(dispatchDueStudioActions())->toBe(['enabled' => true, 'sent' => 0, 'resent' => 0, 'exhausted' => 0])
-        ->and(DB::table('studio_plan_actions')->where('id', $action->id)->first())->toEqual($before)
-        ->and(queuedStudioActionIds())->toBe([]);
-})->with(fn (): array => studioActionKinds(false))->with([
-    'lost on its way' => [StudioActionStatus::Dispatched],
-    'left by a dead worker' => [StudioActionStatus::Running],
-])->with([
-    'with attempts left' => [1],
-    'with none left' => [3],
-]);
-
-// The kinds it does run are taken back as ever — and a kind added to
-// ExecuteStudioAction::RUNNABLE moves from the test above to this one.
+// Every kind it runs is taken back as ever.
 it('takes back every kind the executor runs: sent again, or failed once it has no attempts left', function (StudioActionType $type, StudioActionStatus $status) {
     config(['content_studio.actions.max_attempts' => 3]);
     $again = staleStudioAction($type, $status, 1);

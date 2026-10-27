@@ -147,8 +147,8 @@ class StudioPlan extends Model
 
     /**
      * Every batch of post text suggestions it asked for — those written from
-     * its photo and analysis as they are now, and those from earlier ones,
-     * kept as history (StudioPlanTextGeneration::isFor()).
+     * its photo, analysis and author's voice as they are now, and those from
+     * earlier ones, kept as history (StudioPlanTextGeneration::isFor()).
      *
      * @return HasMany<StudioPlanTextGeneration, $this>
      */
@@ -178,6 +178,31 @@ class StudioPlan extends Model
     public function discussionNodes(): HasMany
     {
         return $this->hasMany(StudioDiscussionNode::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
+     * The votes it prepares for its post, its comments and its rating
+     * questions, in the order they are cast: by their moment, then their
+     * place, then id. Intentions only, until it is approved; deleted with the
+     * plan.
+     *
+     * @return HasMany<StudioPlanVote, $this>
+     */
+    public function votes(): HasMany
+    {
+        return $this->hasMany(StudioPlanVote::class)->orderBy('offset_seconds')->orderBy('sort_order')->orderBy('id');
+    }
+
+    /**
+     * Every discussion generation it asked for — proposals written from its
+     * post, photo, discussion and Personas as they were then, kept as history
+     * whether or not one was taken into its discussion. Deleted with the plan.
+     *
+     * @return HasMany<StudioPlanDiscussionGeneration, $this>
+     */
+    public function discussionGenerations(): HasMany
+    {
+        return $this->hasMany(StudioPlanDiscussionGeneration::class);
     }
 
     public function isDraft(): bool

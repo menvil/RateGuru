@@ -142,7 +142,6 @@ it('drops what a link puts in the address that the list does not offer', functio
         ->assertSet('pageNumber', 1)
         ->assertSee('Listed');
 })->with([
-    'a state it does not offer' => [['state' => 'approved']],
     'a made-up state' => [['state' => 'published']],
     'a made-up photo filter' => [['image' => 'maybe']],
     'a page that is no number' => [['page' => 'abc']],

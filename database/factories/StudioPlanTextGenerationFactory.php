@@ -7,7 +7,10 @@ use App\Enums\StudioPostTextGenerationStatus;
 use App\Enums\StudioPostTextTone;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanTextGeneration;
+use App\Models\User;
 use App\Support\StudioAi\StudioImageDescription;
+use App\Support\StudioAi\StudioPostTextAuthor;
+use App\Support\StudioAi\StudioPostTextContext;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -38,7 +41,11 @@ class StudioPlanTextGenerationFactory extends Factory
         return $this->state(fn (): array => [
             'studio_plan_id' => $plan->id,
             'source_image_asset_id' => $plan->image_asset_id,
-            'source_analysis_hash' => (string) StudioImageDescription::from($analysis ?? StudioPlanImageAnalysisFactory::description())?->hash(),
+            // Written from that analysis in the voice of the author the plan has now.
+            'source_analysis_hash' => StudioPostTextContext::sourceHashOf(
+                (string) StudioImageDescription::from($analysis ?? StudioPlanImageAnalysisFactory::description())?->hash(),
+                StudioPostTextAuthor::of($plan->author_user_id !== null ? User::query()->with('personaProfile')->find($plan->author_user_id) : null),
+            ),
         ]);
     }
 

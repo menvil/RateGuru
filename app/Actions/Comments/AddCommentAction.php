@@ -15,6 +15,7 @@ use App\Notifications\PostCommentedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -33,7 +34,15 @@ final class AddCommentAction
         private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
 
-    public function handle(?User $user, Post $post, string $body, ?Comment $parent = null): Comment
+    /**
+     * @param  CarbonImmutable|null  $createdAt  the comment's own date, for its `created_at` and `updated_at` —
+     *                                           given by Content Studio's executor alone, for a comment it
+     *                                           publishes at the date its plan set; none for everyone else,
+     *                                           whose comment is dated as it is written
+     *
+     * @throws CannotCommentException with the reason why, the commenting limit's included
+     */
+    public function handle(?User $user, Post $post, string $body, ?Comment $parent = null, ?CarbonImmutable $createdAt = null): Comment
     {
         if ($user === null) {
             throw CannotCommentException::becauseGuest();
@@ -55,7 +64,7 @@ final class AddCommentAction
                 message: __('ui.rate_limit.commenting'),
             );
         } catch (RateLimitExceededException $e) {
-            throw CannotCommentException::becauseRateLimited($e->getMessage());
+            throw CannotCommentException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
         $body = trim($body);
@@ -70,15 +79,15 @@ final class AddCommentAction
 
         if ($parent !== null) {
             if (! $parent->exists) {
-                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
+                throw CannotCommentException::becauseReplyTargetUnavailable();
             }
 
             if ((int) $parent->post_id !== (int) $post->id || $parent->parent_id !== null) {
-                throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
+                throw CannotCommentException::becauseReplyTargetUnavailable();
             }
         }
 
-        $comment = DB::transaction(function () use ($user, $post, $body, $parent) {
+        $comment = DB::transaction(function () use ($user, $post, $body, $parent, $createdAt) {
             // Lock order: Actor User -> Post -> parent Comment -> insert
             // (docs/architecture/user-lifecycle.md). Every pre-check above
             // ran on possibly stale instances: an admin sanction, an author
@@ -115,7 +124,7 @@ final class AddCommentAction
                     ->first();
 
                 if ($lockedParent === null) {
-                    throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.reply_target_unavailable'));
+                    throw CannotCommentException::becauseReplyTargetUnavailable();
                 }
             }
 
@@ -125,6 +134,8 @@ final class AddCommentAction
                 'parent_id' => $parent?->id,
                 'body' => $body,
                 'status' => CommentStatus::Visible,
+                // A date given is the comment's own, kept as given; otherwise Eloquent dates it now.
+                ...($createdAt !== null ? ['created_at' => $createdAt, 'updated_at' => $createdAt] : []),
             ]);
 
             $this->refreshCommentsCount($lockedPost);

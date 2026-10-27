@@ -708,7 +708,7 @@ function bootstrapRuntimeWriteMutationStubs(string $scratch, array $options): vo
  *   phpRepo:         'preexisting' | 'installer-owned' | 'absent'
  *   pgdgRepo:        'preexisting' | 'installer-owned' | 'absent'
  *   tools:           'all' | 'minimal' | list<string>
- *   phpVersion:      reported by the php stubs (default 8.5.8)
+ *   phpVersion:      reported by the php stubs (default: the security floor)
  *   phpModules:      space-separated module list for `php8.5 -m`
  *   pgVersion:       reported by the pg client stubs (default 18.4)
  *   fprPhp/fprPgdg:  fingerprints the gpg stub reports per repository
@@ -767,7 +767,7 @@ function bootstrapRuntimeFixture(string $scratch, array $options = []): array
         'STUB_REAL_PATH' => getenv('PATH') ?: '/usr/bin:/bin',
         'STUB_STAGED_DIR' => $scratch.'/staged',
         'STUB_TOOLS_DIR' => $scratch.'/tools',
-        'STUB_PHP_VERSION' => $options['phpVersion'] ?? '8.5.8',
+        'STUB_PHP_VERSION' => $options['phpVersion'] ?? phpSecurityFloor(),
         'STUB_PHP_MODULES' => $options['phpModules'] ?? implode(' ', bootstrapRuntimeRequiredPhpModules()),
         'STUB_PG_VERSION' => $options['pgVersion'] ?? '18.4',
         'STUB_FPR_PHP' => $options['fprPhp'] ?? bootstrapRuntimePhpPpaFingerprint(),
@@ -898,7 +898,7 @@ it('recognizes the current staging host as satisfied: pre-existing repos, instal
         expect($output)->toContain('PASS     os-release — ID=ubuntu VERSION_ID=22.04');
         expect($output)->toContain('PASS     repo:php — provided by a pre-existing apt source');
         expect($output)->toContain('PASS     repo:pgdg — provided by a pre-existing apt source');
-        expect($output)->toContain('PASS     php-cli — PHP 8.5.8');
+        expect($output)->toContain('PASS     php-cli — PHP '.phpSecurityFloor().' (required series 8.5, security floor '.phpSecurityFloor().')');
         expect($output)->toContain('PASS     psql — PostgreSQL 18.4');
         expect($output)->toContain("MISSING: 0\n");
         expect($output)->toContain("CONFLICT: 0\n");
@@ -1096,6 +1096,74 @@ it('treats a wrong PHP series as CONFLICT for both SAPIs', function () {
         expect($exit)->toBe(1);
         expect($output)->toContain('CONFLICT php-cli — reports PHP 8.4.13, required series is 8.5');
         expect($output)->toContain('CONFLICT php-fpm — reports PHP 8.4.13, required series is 8.5');
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+});
+
+it('treats a PHP 8.5 release below the security floor as CONFLICT for both SAPIs', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => $version]);
+        $floor = phpSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--check'], $env);
+
+        expect($exit)->toBe(1, "PHP {$version} must not satisfy --check:\n{$output}");
+        expect($output)->toContain("CONFLICT php-cli — reports PHP {$version}, below the security floor {$floor}");
+        expect($output)->toContain("CONFLICT php-fpm — reports PHP {$version}, below the security floor {$floor}");
+        expect($output)->toContain("-> apply: apt-get install --only-upgrade the installed php8.5 packages to {$floor} or later, then restart php8.5-fpm and every long-running PHP worker — an operator step, never taken by --apply");
+        expect($output)->toContain("CONFLICT: 2\n");
+        expect($output)->not->toContain('HOST RUNTIME CONTRACT: SATISFIED');
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(1, "PHP {$version} must not satisfy --verify:\n{$output}");
+        expect($output)->toContain("CONFLICT php-fpm — reports PHP {$version}, below the security floor {$floor}");
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the release before the floor' => '8.5.11',
+    'a single-digit patch that sorts after the floor as text' => '8.5.9',
+    'the staging host as first observed' => '8.5.8',
+    'the first 8.5 release' => '8.5.0',
+]);
+
+it('accepts the security floor itself and every later PHP 8.5 release', function (string $version) {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => $version]);
+        $floor = phpSecurityFloor();
+
+        [$exit, $output] = bootstrapRuntimeRun(['--verify'], $env);
+
+        expect($exit)->toBe(0, "PHP {$version} must satisfy --verify:\n{$output}");
+        expect($output)->toContain("PASS     php-cli — PHP {$version} (required series 8.5, security floor {$floor})");
+        expect($output)->toContain("PASS     php-fpm — PHP {$version} (required series 8.5, security floor {$floor})");
+    } finally {
+        bootstrapRuntimeCleanup($scratch);
+    }
+})->with([
+    'the floor' => '8.5.12',
+    'the next patch' => '8.5.13',
+    'a two-digit patch' => '8.5.20',
+    'a three-digit patch' => '8.5.100',
+]);
+
+it('never upgrades a PHP below the security floor during --apply, and fails its closing verification', function () {
+    $scratch = bootstrapRuntimeScratchDir();
+
+    try {
+        $env = bootstrapRuntimeFixture($scratch, ['phpVersion' => '8.5.11']);
+
+        [$exit, $output] = bootstrapRuntimeRun(['--apply'], $env);
+
+        expect($exit)->not->toBe(0, "apply must not report success on a PHP below the floor:\n{$output}");
+        expect($output)->toContain('CONFLICT php-cli — reports PHP 8.5.11, below the security floor '.phpSecurityFloor());
+        expect(bootstrapRuntimeAptLog($scratch))->toBe('', 'apply ran apt-get on a host whose packages are all installed');
     } finally {
         bootstrapRuntimeCleanup($scratch);
     }
@@ -2204,6 +2272,20 @@ it('keeps the PHP series aligned with the committed deployment.conf template', f
 
     expect($template)->toContain('PHP_BIN=/usr/bin/php'.$series[1]);
     expect($template)->toContain('PHP_FPM_SERVICE=php'.$series[1].'-fpm');
+});
+
+it('keeps the PHP security floor inside the series and never below the release that fixes CVE-2026-109618 and CVE-2026-109619', function () {
+    preg_match('/^PHP_SERIES="([^"]+)"$/m', bootstrapRuntimeSource(), $series);
+    $floor = phpSecurityFloor();
+
+    expect($floor)->toMatch('/^\d+\.\d+\.\d+$/');
+    expect($floor)->toStartWith($series[1].'.');
+
+    // 8.5.12 is the first 8.5 release without either remote code execution
+    // flaw (php.net, 2026-10-21). The floor moves up with later security
+    // releases; going back below it would let a host run an exploitable PHP
+    // while every verification passes.
+    expect(version_compare($floor, '8.5.12', '>='))->toBeTrue("the PHP security floor {$floor} is below 8.5.12");
 });
 
 /**

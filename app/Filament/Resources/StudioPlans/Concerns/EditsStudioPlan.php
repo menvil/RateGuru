@@ -9,13 +9,18 @@ use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\SetStudioPlanImageAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\ImageInputSource;
+use App\Enums\StudioPlanApprovalProblem;
 use App\Enums\StudioPlanPublicationMode;
 use App\Exceptions\Import\UnsafeImportUrlException;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Studio\CannotRequestStudioImageAnalysisException;
+use App\Filament\Resources\StudioPlans\StudioActionPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
+use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\RatingGroup;
@@ -30,6 +35,8 @@ use App\Support\Import\ImportProviderDetector;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Studio\StudioExecutionSwitch;
+use App\Support\Studio\StudioPlanApprovalPreflight;
 use App\Support\Studio\StudioPlanValidationRules;
 use App\Support\StudioAi\StudioImageAnalyzer;
 use Carbon\CarbonImmutable;
@@ -43,6 +50,7 @@ use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
 
@@ -50,7 +58,9 @@ use Throwable;
  * A publication plan as its editor holds it (CreateStudioPlan,
  * EditStudioPlan), in four steps — Image, Post, Discussion and Publication —
  * that only change what is on screen: moving between them saves nothing and
- * loses nothing.
+ * loses nothing. The Post step has two tabs, its titles and texts and its
+ * votes (StudioPlanPostVotesEditor), which Continue and Back go through in
+ * turn, as the prototype does.
  *
  * What is typed or chosen is a draft until Save in the top bar (NAV-02): the
  * browser compares it to `saved` to count what is unsaved, and Discard puts
@@ -79,6 +89,9 @@ trait EditsStudioPlan
     /** The most Personas, and tags, offered at once to choose from. */
     private const CHOICES = 8;
 
+    /** The other editors on the page whose writes and Reloads this one follows: the discussion's, the post votes' and the comment votes'. */
+    private const OTHER_EDITORS = ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE];
+
     /** The social sites the importer knows a post of (ImportProviderDetector), by name. */
     private const PLATFORMS = ['instagram' => 'Instagram', 'x' => 'X', 'facebook' => 'Facebook', 'pinterest' => 'Pinterest'];
 
@@ -89,6 +102,14 @@ trait EditsStudioPlan
      */
     #[Locked]
     public string $step = 'image';
+
+    /**
+     * The Post step's tab on screen: its titles and texts, or its votes
+     * (StudioPlanPostVotesEditor). Changed only through showPostTab() and the
+     * steps' Back and Continue, never set from the browser.
+     */
+    #[Locked]
+    public string $postTab = 'texts';
 
     /** The post's title. Not `$title`, which is the page's own. */
     public string $postTitle = '';
@@ -173,21 +194,96 @@ trait EditsStudioPlan
         return StudioPlanResource::canAccess();
     }
 
-    /** Shows a step; nothing is saved and nothing typed is lost. */
+    /**
+     * Shows a step; nothing is saved and nothing typed is lost. The
+     * discussion's editor, drawn once and kept hidden, is told it is on
+     * screen again, so it can look whether what it waited for is there now.
+     */
     public function goToStep(mixed $step): void
     {
-        if (is_string($step) && array_key_exists($step, self::STEPS)) {
-            $this->step = $step;
+        if (! is_string($step) || ! array_key_exists($step, self::STEPS)) {
+            return;
+        }
+
+        if ($step === 'discussion' && $this->step !== 'discussion' && $this->planId !== 0) {
+            $this->dispatch(StudioPlanDiscussionEditor::SHOWN_EVENT, planId: $this->planId)->to(StudioPlanDiscussionEditor::class);
+        }
+
+        $this->step = $step;
+    }
+
+    /**
+     * Edit on the final publication card, or a problem the approval preflight
+     * found: the step — and the Post step's tab — that holds it.
+     */
+    public function editPart(mixed $part): void
+    {
+        [$step, $tab] = match ($part) {
+            'image' => ['image', null],
+            'texts' => ['post', 'texts'],
+            'votes' => ['post', 'votes'],
+            'discussion' => ['discussion', null],
+            'publication' => ['publication', null],
+            default => [null, null],
+        };
+
+        if ($step !== null) {
+            $this->goToStep($step);
+            $this->showPostTab($tab);
         }
     }
 
+    /** Shows one of the Post step's tabs; nothing is saved and nothing typed is lost. */
+    public function showPostTab(mixed $tab): void
+    {
+        if ($tab === 'texts' || $tab === 'votes') {
+            $this->postTab = $tab;
+        }
+    }
+
+    /** Continue: from the Post step's texts to its votes, as the prototype goes, and on to the next step from there. */
     public function nextStep(): void
     {
+        if ($this->step === 'post' && $this->postTab === 'texts') {
+            $this->postTab = 'votes';
+
+            return;
+        }
+
+        if ($this->step === 'image') {
+            $this->postTab = 'texts';
+        }
+
         $this->goToStep($this->stepAt(1));
     }
 
+    /**
+     * Goes on where the step was asked to — a step, `next` or `previous` — once
+     * the Discussion step's comment votes are saved or discarded.
+     */
+    #[On(StudioPlanDiscussionVotesEditor::STEP_EVENT)]
+    public function stepTo(mixed $step): void
+    {
+        match ($step) {
+            'next' => $this->nextStep(),
+            'previous' => $this->previousStep(),
+            default => $this->goToStep($step),
+        };
+    }
+
+    /** Back: from the Post step's votes to its texts, and from the Discussion step to the post's votes. */
     public function previousStep(): void
     {
+        if ($this->step === 'post' && $this->postTab === 'votes') {
+            $this->postTab = 'texts';
+
+            return;
+        }
+
+        if ($this->step === 'discussion') {
+            $this->postTab = 'votes';
+        }
+
         $this->goToStep($this->stepAt(-1));
     }
 
@@ -311,7 +407,7 @@ trait EditsStudioPlan
             return;
         }
 
-        $this->lockVersion = $plan->lock_version;
+        $this->movedVersion($plan->lock_version);
         $this->forgetPhotoInputs();
         $this->importedFrom = '';
         $this->replacedPhoto = null;
@@ -352,6 +448,20 @@ trait EditsStudioPlan
         $this->authorUserId = (string) $author->id;
         $this->authorSearch = '';
         $this->resetErrorBag('authorUserId');
+    }
+
+    /** Pick at random: an active Persona as the author, never the one chosen now. */
+    public function pickRandomAuthor(): void
+    {
+        $ids = array_values(array_diff(app(PersonasQuery::class)->activeIds(), $this->authorUserId !== '' ? [(int) $this->authorUserId] : []));
+
+        if ($ids === []) {
+            $this->addError('authorUserId', 'There is no other active persona to pick.');
+
+            return;
+        }
+
+        $this->chooseAuthor($ids[array_rand($ids)]);
     }
 
     public function clearAuthor(): void
@@ -474,6 +584,7 @@ trait EditsStudioPlan
             return app(StudioPlanValidationRules::class)->validated($this->draftData());
         } catch (ValidationException $exception) {
             $this->step = self::stepOf(array_key_first($exception->errors()) ?? '') ?? $this->step;
+            $this->postTab = $this->step === 'post' ? 'texts' : $this->postTab;
 
             throw $exception;
         }
@@ -547,7 +658,7 @@ trait EditsStudioPlan
 
         // The action keeps the copy it was handed in step with the row it
         // wrote: only the photo and the version moved.
-        $this->lockVersion = $plan->lock_version;
+        $this->movedVersion($plan->lock_version);
 
         // A file replaced whatever a link brought, so that link may bring it back.
         if ($source === ImageInputSource::Upload) {
@@ -624,6 +735,133 @@ trait EditsStudioPlan
     }
 
     /**
+     * Another editor on this page — the discussion's
+     * (StudioPlanDiscussionEditor), the post votes'
+     * (StudioPlanPostVotesEditor) or the comment votes'
+     * (StudioPlanDiscussionVotesEditor) — moved the plan's version with a save
+     * of its own: taken, when it was written
+     * from the version this editor holds, the plan is at the version it says
+     * now, and the post's texts and settings are still the ones this editor
+     * drew (holdsSaved()) — what the browser says is never enough. The
+     * post's fields are never read again: they may hold what is typed and
+     * unsaved. Any other move is somebody else's, said by
+     * versionMovedElsewhere().
+     */
+    #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
+    #[Renderless]
+    public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
+    {
+        if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+            || ! is_numeric($previous) || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            return;
+        }
+
+        if ((int) $previous === $this->lockVersion && (int) $current === $this->lockVersion + 1 && $this->holdsSavedAt((int) $current)) {
+            $this->lockVersion = (int) $current;
+            $this->drawnAgainIf($this->versionTaken());
+
+            return;
+        }
+
+        $this->versionMovedElsewhere();
+        $this->forceRender();
+    }
+
+    /**
+     * Another editor on this page — the discussion's, the post votes' or the
+     * comment votes' — drew the plan again — its Reload — at the version it says: taken here too when the plan is at it with
+     * the post as this editor drew it, what is typed staying as typed.
+     * Otherwise the post changed as well, and this editor asks for its own
+     * Reload.
+     */
+    #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
+    #[Renderless]
+    public function followReload(mixed $planId, mixed $current, mixed $source = null): void
+    {
+        if (! in_array($source, self::OTHER_EDITORS, true) || ! is_numeric($planId) || (int) $planId !== $this->planId || $this->planId === 0
+            || ! is_numeric($current) || (int) $current === $this->lockVersion) {
+            return;
+        }
+
+        if ($this->holdsSavedAt((int) $current)) {
+            $this->lockVersion = (int) $current;
+            $this->drawnAgainIf($this->versionTaken());
+
+            return;
+        }
+
+        $this->versionMovedElsewhere();
+        $this->forceRender();
+    }
+
+    /** The plan moved to a version neither editor on this page wrote. */
+    protected function versionMovedElsewhere(): void {}
+
+    /**
+     * The plan moved to a version taken here: the other editor's, with the
+     * post as this one drew it. Whether that changes what the page says.
+     */
+    protected function versionTaken(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Another editor's write, taken, is drawn again only where the page shows
+     * it — the Publication step's plan as saved, or a notice it takes back:
+     * the other editors draw their own, and the post as typed is unchanged.
+     * The listeners are renderless (#[Renderless]), which Livewire honours only
+     * when a request carries nothing else for the page: a step clicked on the
+     * same request is drawn as ever.
+     */
+    private function drawnAgainIf(bool $changed): void
+    {
+        if ($changed || $this->step === 'publication') {
+            $this->forceRender();
+        }
+    }
+
+    /** A field set on a request that also carries another editor's write is drawn too. */
+    public function updated(): void
+    {
+        $this->forceRender();
+    }
+
+    /** Whether the plan's texts and settings are still the ones this editor last drew or saved. */
+    abstract protected function holdsSaved(StudioPlan $plan): bool;
+
+    /** Says to the other editors on the page that this one drew the plan again, at the version it holds now. */
+    protected function saidReloaded(): void
+    {
+        if ($this->planId !== 0) {
+            $this->dispatch(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->planId, current: $this->lockVersion, source: 'editor');
+        }
+    }
+
+    /** Whether the plan is at this version now, its post as this editor holds it saved. */
+    private function holdsSavedAt(int $version): bool
+    {
+        $plan = StudioPlan::query()->find($this->planId);
+
+        return $plan !== null && $plan->lock_version === $version && $this->holdsSaved($plan);
+    }
+
+    /**
+     * Takes the version a write of this editor's left, and says so to the
+     * other editors on the page, so none takes another's write for somebody
+     * else's.
+     */
+    protected function movedVersion(int $current): void
+    {
+        $previous = $this->lockVersion;
+        $this->lockVersion = $current;
+
+        if ($this->planId !== 0 && $current !== $previous) {
+            $this->dispatch(StudioPlanDiscussionEditor::VERSION_EVENT, planId: $this->planId, previous: $previous, current: $current, source: 'editor');
+        }
+    }
+
+    /**
      * What the editor shows besides the draft: the steps, the plan's photo
      * and where a new one comes from, the Personas, categories, tags and
      * rating groups to choose from, the limits, and the publication card as
@@ -642,7 +880,7 @@ trait EditsStudioPlan
         return [
             'steps' => collect(self::STEPS)->map(fn (array $step, string $key): array => ['key' => $key, 'label' => $step[0], 'caption' => $step[1]])->values()->all(),
             'stepNumber' => array_search($this->step, array_keys(self::STEPS), true) + 1,
-            'stepLabel' => self::STEPS[$this->step][0] ?? '',
+            'stepLabel' => ($this->step === 'post' ? 'Post · '.($this->postTab === 'votes' ? 'Votes' : 'Titles & texts') : self::STEPS[$this->step][0] ?? ''),
             'shownPhoto' => $photo,
             // The card is about the plan the photo is kept on, and drawn afresh for each photo.
             'analysisPlanId' => $this->planId,
@@ -671,6 +909,7 @@ trait EditsStudioPlan
                 StudioPlanPublicationMode::AtDate->value => ['label' => 'On a chosen date', 'help' => 'A future or past date the post will carry as its own.'],
             ],
             'timezone' => (string) config('app.timezone'),
+            'publication' => $this->publicationViewData($plan),
             'card' => [
                 'image' => $photo['url'] ?? null,
                 'title' => trim($this->postTitle),
@@ -723,6 +962,70 @@ trait EditsStudioPlan
         }
 
         return null;
+    }
+
+    /**
+     * How many of the draft's values differ from what is saved, compared as
+     * the browser compares them (filament.pages.editor.script): each as text,
+     * each list of ids in ascending order.
+     */
+    protected function unsavedValues(): int
+    {
+        $ids = function (array $ids): string {
+            $ids = array_map(intval(...), array_values($ids));
+            sort($ids);
+
+            return implode(',', $ids);
+        };
+
+        $draft = [
+            'title' => $this->postTitle,
+            'description' => $this->postDescription,
+            'sourceUrl' => $this->sourceUrl,
+            'authorUserId' => $this->authorUserId,
+            'categoryId' => $this->categoryId,
+            'tagIds' => $ids($this->tagIds),
+            'authorAnswers' => $ids(array_filter($this->authorAnswers, fn (mixed $option): bool => $option !== '' && $option !== null)),
+            'publicationMode' => $this->publicationMode,
+            'publishAt' => $this->publicationMode === StudioPlanPublicationMode::AtDate->value ? $this->publishAt : '',
+        ];
+
+        return count(array_filter($this->saved, fn (string $value, string $key): bool => (string) ($draft[$key] ?? '') !== $value, ARRAY_FILTER_USE_BOTH));
+    }
+
+    /**
+     * What the Publication step shows of the saved plan: what approving it
+     * now would write and how it would run (StudioActionPlan::summary()),
+     * every reason the approval preflight finds it is not ready — each with
+     * the step that holds it — and whether the executor runs. Worked out only
+     * while the step is on screen.
+     *
+     * @return array{summary: ?array<string, mixed>, problems: list<array{code: string, message: string, part: string, where: string}>, approvable: bool, executorOn: bool}
+     */
+    protected function publicationViewData(?StudioPlan $plan): array
+    {
+        if ($this->step !== 'publication' || $plan === null) {
+            return ['summary' => null, 'problems' => [], 'approvable' => false, 'executorOn' => false];
+        }
+
+        $problems = $plan->isDraft() ? app(StudioPlanApprovalPreflight::class)->problems($plan) : [];
+
+        return [
+            'summary' => app(StudioActionPlan::class)->summary($plan),
+            'problems' => array_map(fn (StudioPlanApprovalProblem $problem): array => [
+                'code' => $problem->value,
+                'message' => $problem->message(),
+                ...match ($problem->field()) {
+                    'photo' => ['part' => 'image', 'where' => 'Image'],
+                    'publishAt' => ['part' => 'publication', 'where' => 'Publication'],
+                    'discussion' => ['part' => 'discussion', 'where' => 'Discussion'],
+                    'votes' => ['part' => 'votes', 'where' => 'Post · Votes'],
+                    default => ['part' => 'texts', 'where' => 'Post'],
+                },
+            ], $problems),
+            'approvable' => $plan->isDraft() && $problems === [],
+            'executorOn' => app(StudioExecutionSwitch::class)->isOn(),
+        ];
     }
 
     /** The step that holds a field, by its key in the error bag. */

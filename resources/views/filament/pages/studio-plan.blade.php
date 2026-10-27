@@ -2,15 +2,18 @@
     /*
      * One publication's editor (CreateStudioPlan, EditStudioPlan). The header
      * band with what the plan is, and its four steps — Image, Post,
-     * Discussion, Publication — which only change what is on screen. Under
-     * it the step on screen, and the footer kept at the foot of the window:
+     * Discussion, Publication — which only change what is on screen; the
+     * Post step has two tabs, Titles & texts and Votes. Under it the step on
+     * screen, and the footer kept at the foot of the window:
      * Back, where the editor is, and Continue, held back only while a photo
      * is on its way.
      *
      * The browser counts what is unsaved from the draft against `saved`
      * (filament.pages.editor.script) and asks before a page with unsaved
      * changes is left; moving between steps is never a change, and neither
-     * is the photo, which is saved the moment it is chosen. An editor drawn
+     * is the photo, which is saved the moment it is chosen. Leaving the
+     * Discussion step with its comment votes not saved asks first whether to
+     * save or discard them, and goes on once that is done. An editor drawn
      * before somebody else's save, of a plan deleted meanwhile or of one past
      * its Draft holds Save back and says so. Once a photo has made a new
      * publication's Draft, the top bar's Create draft becomes Save draft.
@@ -33,6 +36,16 @@
     $saveLabel = $creating ? "\$wire.planId ? 'Save draft' : null" : 'null';
     $title = $creating ? 'New publication' : ($plan['title'] ?? 'Publication');
     $stepKeys = array_column($steps, 'key');
+    // Leaving the Discussion step with comment votes not saved asks first (StudioPlanDiscussionVotesEditor).
+    // Leaving the Post step with a post votes change not saved asks first too (StudioPlanPostVotesEditor): Continue from its texts and Back from its votes stay on the step.
+    $leavesPost = fn (string $to): string => match ($to) {
+        'next' => "\$wire.postTab === 'votes'",
+        'previous' => "\$wire.postTab === 'texts'",
+        'post' => 'false',
+        default => 'true',
+    };
+    $leave = fn (string $to, string $go): string => ($to !== 'discussion' ? "\$wire.step === 'discussion' && \$store.rgCommentVotes?.unsaved ? \$dispatch('".\App\Livewire\Admin\StudioPlanDiscussionVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : " : '')
+        ."(\$wire.step === 'post' && \$store.rgPostVotes?.unsaved && ({$leavesPost($to)}) ? \$dispatch('".\App\Livewire\Admin\StudioPlanPostVotesEditor::LEAVE_EVENT."', { step: '{$to}' }) : \$wire.{$go})";
     $first = $step === $stepKeys[0];
     $last = $step === end($stepKeys);
 @endphp
@@ -40,7 +53,7 @@
 <div
     class="rg-admin rg-admin-screen rg-admin-studio"
     x-data
-    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
+    x-effect="$store.adminEditor.changes = rgAdminEditorChanges({{ $draft }}, $wire.saved); $store.adminEditor.authorUserId = String($wire.authorUserId ?? ''); $store.adminEditor.blocked = {{ $blocked }}; $store.adminEditor.saveLabel = {{ $saveLabel }}"
     x-on:beforeunload.window="if (rgAdminEditorChanges({{ $draft }}, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
@@ -77,7 +90,7 @@
                     type="button"
                     @class(['rg-admin-studio__step', 'rg-admin-studio__step--current' => $item['key'] === $step])
                     @if ($item['key'] === $step) aria-current="step" @endif
-                    wire:click="goToStep('{{ $item['key'] }}')"
+                    x-on:click="{{ $leave($item['key'], "goToStep('{$item['key']}')") }}"
                 >
                     <span class="rg-admin-studio__step-number" aria-hidden="true">{{ $index + 1 }}</span>
                     <span class="rg-admin-studio__step-text">
@@ -112,27 +125,78 @@
 
         <fieldset class="rg-admin-studio__step-body" @disabled($readOnly) aria-labelledby="rg-admin-studio-step-title">
             <h2 id="rg-admin-studio-step-title" class="rg-admin-sr-only">Step {{ $stepNumber }} of 4: {{ $stepLabel }}</h2>
-            @include('filament.pages.studio-plan.'.$step)
+            @if ($step === 'post')
+                <x-admin.ui.tabs label="Post" :active="$postTab" class="rg-admin-studio__post-tabs" :items="[
+                    ['id' => 'texts', 'label' => 'Titles & texts', 'attributes' => ['wire:click' => 'showPostTab(\'texts\')']],
+                    ['id' => 'votes', 'label' => 'Votes', 'attributes' => ['wire:click' => 'showPostTab(\'votes\')']],
+                ]" />
+                {{-- Kept while the votes are on screen, so nothing of the texts' own cards is drawn again. --}}
+                <div class="rg-admin-studio__post-texts" @if ($postTab !== 'texts') hidden @endif>
+                    @include('filament.pages.studio-plan.post')
+                </div>
+            @elseif ($step === 'image')
+                @include('filament.pages.studio-plan.image')
+            @endif
+            {{-- Always drawn, hidden but on the Post step's Votes tab: its settings and its draw live as long as the page. --}}
+            <div class="rg-admin-studio__votes-step" @if ($step !== 'post' || $postTab !== 'votes') hidden @endif>
+                @include('filament.pages.studio-plan.votes')
+            </div>
+            {{-- Always drawn, hidden on the other steps: its settings, and a generation it waits for, live as long as the page. --}}
+            <div class="rg-admin-studio__discussion-step" @if ($step !== 'discussion') hidden @endif>
+                @include('filament.pages.studio-plan.discussion')
+            </div>
         </fieldset>
 
+        {{-- Outside the step's fieldset: on a plan past its Draft, its Action plan's own controls still work. --}}
+        @if ($step === 'publication')
+            @include('filament.pages.studio-plan.publication')
+        @endif
     </div>
 
     {{-- Kept at the window's foot, so a popover near it opens upward instead (`data-admin-floor`). --}}
     <div
         class="rg-admin-studio__footer"
         data-admin-floor
-        x-data="{ busy: false }"
+        x-data="{
+            busy: false,
+            get unsaved() { return $store.adminEditor?.changes > 0 || Boolean($store.rgPostVotes?.unsaved) || Boolean($store.rgCommentVotes?.unsaved) },
+        }"
         x-on:rg-studio-photo-phase.window="busy = ($event.detail?.phase ?? '') !== ''"
     >
-        <x-admin.ui.button icon="arrow-left" :disabled="$first" wire:click="previousStep">Back</x-admin.ui.button>
+        <x-admin.ui.button icon="arrow-left" :disabled="$first" x-on:click="{{ $leave('previous', 'previousStep()') }}">Back</x-admin.ui.button>
         <span class="rg-admin-studio__position">Step {{ $stepNumber }} of 4 · {{ $stepLabel }}</span>
-        <span class="rg-admin-studio__reason"><span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span></span>
+        <span class="rg-admin-studio__reason">
+            <span x-show="busy" x-cloak role="status">Wait for the photo to finish uploading.</span>
+            @if ($last && ! $readOnly)
+                @if ($creating || $planId === 0)
+                    <span role="status">Save the draft before approving it.</span>
+                @elseif (! $publication['approvable'])
+                    <span role="status">Fix what stops the plan before approving it.</span>
+                @else
+                    <span x-show="! busy && unsaved" x-cloak role="status">Save your changes before approving.</span>
+                @endif
+            @endif
+        </span>
         @unless ($last)
-            <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" wire:click="nextStep">Continue</x-admin.ui.button>
+            <x-admin.ui.button variant="primary" trailing-icon="arrow-right" x-bind:disabled="busy" x-on:click="{{ $leave('next', 'nextStep()') }}">Continue</x-admin.ui.button>
+        @elseif (! $readOnly)
+            {{-- Review and confirm: the approval, asked first (EditStudioPlan::askToApprove()); never with anything unsaved on the page. --}}
+            <x-admin.ui.button
+                variant="primary"
+                icon="clipboard-check"
+                :disabled="$creating || $planId === 0 || ! $publication['approvable']"
+                x-bind:disabled="{{ $creating || $planId === 0 || ! $publication['approvable'] ? 'true' : 'busy || unsaved' }}"
+                wire:click="askToApprove"
+                wire:loading.attr="disabled"
+            >Review and confirm</x-admin.ui.button>
         @endunless
     </div>
 
     @if (! $creating && $confirmingDelete && $plan !== null)
         @include('filament.pages.studio-plans.confirmation', ['plan' => ['id' => $plan['id'], 'title' => $plan['title']]])
+    @endif
+
+    @if (! $creating && ($confirmingApproval ?? false) && $plan !== null && $publication['summary'] !== null)
+        @include('filament.pages.studio-plan.approval', ['summary' => $publication['summary'], 'executorOn' => $publication['executorOn']])
     @endif
 </div>

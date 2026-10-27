@@ -6,9 +6,10 @@ namespace App\Enums;
  * Why a publication plan was not approved: what the administrator, the plan
  * or its version is (access_denied, plan_gone, not_draft, stale_version), or
  * which part of the plan the approval preflight found not ready to publish —
- * each preflight problem belongs to one of these (StudioPlanApprovalProblem).
- * A plan with a prepared discussion is refused as unsupported_discussion until
- * the executor can publish comments: approving its post alone would drop it.
+ * each preflight problem belongs to one of these (StudioPlanApprovalProblem):
+ * a prepared discussion that cannot be published as it is adds up to
+ * invalid_discussion, and prepared votes that cannot be cast as they are to
+ * invalid_votes.
  */
 enum StudioPlanApprovalRejection: string
 {
@@ -21,5 +22,6 @@ enum StudioPlanApprovalRejection: string
     case InvalidMedia = 'invalid_media';
     case InvalidTaxonomy = 'invalid_taxonomy';
     case InvalidPublicationDate = 'invalid_publication_date';
-    case UnsupportedDiscussion = 'unsupported_discussion';
+    case InvalidDiscussion = 'invalid_discussion';
+    case InvalidVotes = 'invalid_votes';
 }

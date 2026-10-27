@@ -94,6 +94,16 @@ class StudioDiscussionNode extends Model
         return $this->belongsTo(User::class, 'persona_user_id');
     }
 
+    /**
+     * The votes prepared on it, gone with it.
+     *
+     * @return HasMany<StudioPlanVote, $this>
+     */
+    public function votes(): HasMany
+    {
+        return $this->hasMany(StudioPlanVote::class, 'discussion_node_id');
+    }
+
     /** Whether it is a comment on the post rather than a reply. */
     public function isRoot(): bool
     {

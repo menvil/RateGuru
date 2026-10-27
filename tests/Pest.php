@@ -1,28 +1,47 @@
 <?php
 
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
+use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
 use App\Actions\Studio\ApproveStudioPlanAction;
 use App\Actions\Studio\DispatchDueStudioActionsAction;
+use App\Actions\Studio\RequestStudioDiscussionGenerationAction;
 use App\Actions\Studio\RequestStudioImageAnalysisAction;
 use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Actions\Studio\SaveStudioDiscussionTreeAction;
+use App\Actions\Studio\SaveStudioVotesAction;
+use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
 use App\Data\Studio\SavedStudioDiscussion;
+use App\Data\Studio\SavedStudioVotes;
 use App\Data\Studio\StudioDiscussionData;
+use App\Data\Studio\StudioDiscussionGenerationData;
 use App\Data\Studio\StudioDiscussionNodeData;
+use App\Data\Studio\StudioPlanData;
+use App\Data\Studio\StudioVoteData;
+use App\Data\Studio\StudioVotesData;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
+use App\Enums\StudioActionStatus;
+use App\Enums\StudioActionType;
+use App\Enums\StudioDiscussionGenerationMode;
+use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
+use App\Jobs\Studio\GenerateStudioDiscussionJob;
 use App\Jobs\Studio\GenerateStudioPostTextsJob;
 use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
+use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
+use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -30,6 +49,7 @@ use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
+use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
@@ -50,6 +70,7 @@ use App\Support\Locale\LocaleManager;
 use App\Support\Settings\PresetSettingsBuilder;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioExecutionSwitch;
+use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\TranslationEngine\Contracts\TranslationProvider;
 use App\Support\TranslationEngine\Data\TranslationBatchRequest;
 use App\Support\TranslationEngine\Data\TranslationItem;
@@ -83,6 +104,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Livewire\Features\SupportTesting\Testable;
@@ -528,6 +550,25 @@ function executableSourceLines(string $source): string
         preg_split('/\R/', $source),
         static fn (string $line): bool => $line !== '' && ! str_starts_with(ltrim($line), '#'),
     ));
+}
+
+/**
+ * The lowest PHP release the hosts may run — PHP_MIN_VERSION, as
+ * install-bootstrap-runtime declares it. Read from the script so the runtime
+ * installer's fixtures and Composer's PHP requirement follow one number when
+ * it is raised.
+ */
+function phpSecurityFloor(): string
+{
+    preg_match(
+        '/^PHP_MIN_VERSION="([^"]+)"$/m',
+        (string) file_get_contents(base_path('infrastructure/scripts/install-bootstrap-runtime')),
+        $floor,
+    );
+
+    expect($floor[1] ?? null)->not->toBeNull('install-bootstrap-runtime no longer declares PHP_MIN_VERSION');
+
+    return $floor[1];
 }
 
 /**
@@ -10564,6 +10605,18 @@ function deployOpsInstallCoreStubs(string $scratch): void
 }
 
 /**
+ * Write a scripted Supervisor status sequence: one state per call, the last
+ * line sticky. Models the real STARTING -> RUNNING promotion the committed
+ * program's startsecs=3 produces.
+ *
+ * @param  list<string>  $states
+ */
+function deployOpsSupervisorStatusSequence(string $scratch, array $states): void
+{
+    file_put_contents($scratch.'/supervisor-state/status-sequence', implode("\n", $states)."\n");
+}
+
+/**
  * The supervisorctl invocations a run performed (empty when the stub was
  * never reached).
  *
@@ -13209,13 +13262,15 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  *
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
- *   of a photo (`release`), a user's row written (`user`) or a post written
- *   with its transaction still open (`post`), or — for an executor — the
- *   moment between its committed claim and its run, holding nothing (`run`).
+ *   of a photo (`release`), a vote cast (`vote`), a rating option written
+ *   (`option`), a user's row written (`user`), a Persona's
+ *   profile written (`profile`), a discussion generation claimed by its job
+ *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
+ *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
  *
- * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, nodes?: list<array<string, mixed>>, publish_at?: string}  $job
+ * @param  array{action: string, admin: int, disk: string, sync?: string, hold?: string, die?: bool, config?: array<string, mixed>, persona?: int, plan?: int, version?: int, title?: string, asset?: int, studio_action?: int, target?: int, post?: int, comment?: int, option?: int, nodes?: list<array<string, mixed>>, votes?: list<array<string, mixed>>, publish_at?: string, personas?: list<int>, generation?: int, attempt?: string, response?: array<string, mixed>}  $job
  * @return array{process: resource, pipes: array<int, resource>}
  */
 function lockRaceCompetitor(string $barrierDir, string $label, array $job): array
@@ -13248,7 +13303,10 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
         $db = Illuminate\Support\Facades\DB::connection();
         $peer = $label === 'a' ? 'b' : 'a';
         $pid = (int) $db->selectOne('select pg_backend_pid() as pid')->pid;
-        file_put_contents("{$barrierDir}/pid-{$label}", (string) $pid);
+        // Written whole, then put in place: a file being written is there, empty, before its pid is, and a
+        // competitor reading it then would watch backend 0 wait for it, never this one.
+        file_put_contents("{$barrierDir}/pid-{$label}.part", (string) $pid);
+        rename("{$barrierDir}/pid-{$label}.part", "{$barrierDir}/pid-{$label}");
 
         $await = static function (Closure $arrived, string $failure): void {
             $deadline = microtime(true) + 20;
@@ -13313,9 +13371,19 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'release' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?media_assets"?\s/i', $sql) === 1,
                 // A post written, its transaction still open.
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
+                // A comment written, its transaction still open.
+                'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
+                // A vote cast — on a post, on a comment, or for a rating option — its transaction still open.
+                'vote' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?(post|comment|rating)_votes"?\s/i', $sql) === 1,
+                // A rating option written — archived or deleted, say — its transaction still open.
+                'option' => static fn (string $sql): bool => preg_match('/^\s*(update|delete\s+from)\s+"?rating_options"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
                 // A user's row written, its transaction still open.
                 'user' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?users"?\s/i', $sql) === 1,
+                // A discussion generation claimed, committed by its own statement.
+                'claim' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?studio_plan_discussion_generations"?\s/i', $sql) === 1,
+                // A Persona's profile written, its transaction still open.
+                'profile' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?persona_profiles"?\s/i', $sql) === 1,
                 default => static fn (string $sql): bool => $locks('studio_plans', $sql),
             };
             $dies = (bool) ($job['die'] ?? false);
@@ -13401,9 +13469,32 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'discussion-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioDiscussionTreeAction::class)->handle(
                     $admin, $plan, new App\Data\Studio\StudioDiscussionData(array_map(fn (array $node) => new App\Data\Studio\StudioDiscussionNodeData(...$node), $job['nodes'])), $job['version'],
                 )->lockVersion."\n"),
+                // A draft's whole set of votes saved; says the plan's version it left.
+                'votes-save' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\SaveStudioVotesAction::class)->handle(
+                    $admin, $plan, new App\Data\Studio\StudioVotesData(array_map(fn (array $vote) => new App\Data\Studio\StudioVoteData(...$vote), $job['votes'])), $job['version'],
+                )->lockVersion."\n"),
+                // A whole discussion asked for by the Personas named; says which generation it was given.
+                'discussion-request' => fwrite(STDOUT, 'generation '.app(App\Actions\Studio\RequestStudioDiscussionGenerationAction::class)->handle($admin, $plan, new App\Data\Studio\StudioDiscussionGenerationData(
+                    mode: App\Enums\StudioDiscussionGenerationMode::FullDiscussion, expectedLockVersion: $job['version'], personaUserIds: $job['personas'], rootCount: 1,
+                ))->id."\n"),
+                // A discussion generation's job, the provider faked: each request it sends leaves a file behind.
+                'discussion-job' => (function () use ($job, $barrierDir, $label): void {
+                    Illuminate\Support\Facades\Http::fake(function () use ($job, $barrierDir, $label) {
+                        touch("{$barrierDir}/http-{$label}-".bin2hex(random_bytes(4)));
+
+                        return Illuminate\Support\Facades\Http::response($job['response']);
+                    });
+                    app()->call([new App\Jobs\Studio\GenerateStudioDiscussionJob($job['generation'], $job['attempt']), 'handle']);
+                })(),
+                // A proposal taken into the discussion; says the plan's version it left.
+                'discussion-apply' => fwrite(STDOUT, 'version '.app(App\Actions\Studio\ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $job['generation'], $job['version'])->lockVersion."\n"),
                 // Content Studio's executor and dispatcher; the executor says what the action became.
                 'execute' => fwrite(STDOUT, 'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
                 'dispatch' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"),
+                // An administrator's operations in the Action queue; each says what it did, or why it did nothing.
+                'cancel-action' => fwrite(STDOUT, 'cancelled '.json_encode(app(App\Actions\Studio\CancelStudioActionAction::class)->handle($admin, (int) $job['studio_action']))."\n"),
+                'retry-action' => fwrite(STDOUT, 'retried '.app(App\Actions\Studio\RetryStudioActionAction::class)->handle($admin, (int) $job['studio_action'])->id."\n"),
+                'stop-plan' => fwrite(STDOUT, 'stopped '.json_encode(app(App\Actions\Studio\StopStudioPlanAction::class)->handle($admin, (int) $job['studio_plan']))."\n"),
                 // Recovery sends it again, and a worker runs what it sent.
                 'dispatch-execute' => fwrite(STDOUT, 'dispatched '.json_encode(app(App\Actions\Studio\DispatchDueStudioActionsAction::class)->handle())."\n"
                     .'became '.(app(App\Actions\Studio\ExecuteStudioAction::class)->handle((int) $job['studio_action'])?->value ?? 'nothing')."\n"),
@@ -13416,11 +13507,20 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'tombstone' => Illuminate\Support\Facades\DB::transaction(fn () => App\Models\User::query()->whereKey($job['target'])->lockForUpdate()->firstOrFail()
                     ->forceFill(['status' => App\Enums\UserStatus::Deleted])->save()),
                 'hide-post' => app(App\Actions\Moderation\HidePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                // A member's own comment on a post, or a moderator hiding a comment.
+                'comment' => app(App\Actions\Comments\AddCommentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
+                'hide-comment' => app(App\Actions\Comments\HideCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
+                // A member's own vote on a comment.
+                'vote-comment' => app(App\Actions\Votes\VoteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), App\Enums\VoteType::Up),
+                // An administrator archiving a rating option.
+                'archive-option' => app(App\Actions\Rating\ArchiveRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
+                // An administrator deleting a rating option.
+                'delete-option' => app(App\Actions\Rating\DeleteRatingOptionAction::class)->handle($admin, App\Models\RatingOption::query()->findOrFail($job['option'])),
                 // The analysis a stored photo asks for; says which attempt it was given.
                 'plan-analysis' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioImageAnalysisAction::class)->handle($admin, $plan, (int) $plan->image_asset_id)->attempt_id."\n"),
                 // The text suggestions an analysed photo asks for; says which attempt it was given.
-                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
+                'plan-texts' => fwrite(STDOUT, 'attempt '.app(App\Actions\Studio\RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, (int) $plan->image_asset_id, $plan->author_user_id, App\Enums\StudioPostTextTone::DEFAULT)->attempt_id."\n"),
                 // What Release in Media diagnostics runs.
                 'media-release' => app(App\Services\Media\MediaLifecycleService::class)->releaseUnreferenced(collect([(int) $job['asset']])),
             };
@@ -13593,16 +13693,186 @@ function studioPlanWithFinishedAnalysis(array $attributes = [], ?array $descript
     return $plan;
 }
 
-/** Generate suggestions for the photo the editor shows — the plan's own — in a tone. */
+/** Generate suggestions for the photo and the author the editor shows — the plan's own — in a tone. */
 function requestStudioPostTexts(User $admin, StudioPlan $plan, StudioPostTextTone $tone = StudioPostTextTone::Cheeky, ?int $imageAssetId = null): StudioPlanTextGeneration
 {
-    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $tone);
+    return app(RequestStudioPostTextGenerationAction::class)->handle($admin, $plan, $imageAssetId ?? (int) $plan->image_asset_id, $plan->author_user_id, $tone);
 }
 
 /** Runs the job of that batch, as a worker would. */
 function runStudioPostTextsJob(StudioPlanTextGeneration $generation): void
 {
     app()->call([new GenerateStudioPostTextsJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+// =============================================================================
+// Content Studio discussion generation
+// =============================================================================
+
+/**
+ * Turns discussion generation on: photo analysis's key and settings, with
+ * these of its own replaced.
+ *
+ * @param  array<string, mixed>  $overrides  content_studio.discussion_generation settings
+ */
+function configureStudioDiscussionGeneration(array $overrides = []): void
+{
+    configureStudioImageAnalysis();
+
+    foreach ($overrides as $key => $value) {
+        config(["content_studio.discussion_generation.{$key}" => $value]);
+    }
+}
+
+/**
+ * A Persona with a profile of its own: these profile fields, the factory's
+ * for the rest.
+ *
+ * @param  array<string, mixed>  $profile
+ * @param  array<string, mixed>  $account
+ */
+function studioPersonaWithProfile(array $profile = [], array $account = []): User
+{
+    $persona = User::factory()->persona()->create($account);
+    PersonaProfile::factory()->create(['user_id' => $persona->id, ...$profile]);
+
+    return $persona->load('personaProfile');
+}
+
+/**
+ * A Draft a discussion may be written for: a photo whose analysis has
+ * finished, and a final title.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function discussionReadyStudioPlan(array $attributes = []): StudioPlan
+{
+    return studioPlanWithFinishedAnalysis(['title' => 'A quiet harbour at dawn', ...$attributes]);
+}
+
+/**
+ * Asks for a discussion generation as an administrator who saw the plan just
+ * now would: a whole discussion unless the fields say otherwise.
+ *
+ * @param  array<string, mixed>  $fields  StudioDiscussionGenerationData's, by name
+ */
+function requestStudioDiscussion(User $admin, StudioPlan $plan, array $fields = []): StudioPlanDiscussionGeneration
+{
+    return app(RequestStudioDiscussionGenerationAction::class)->handle($admin, $plan, new StudioDiscussionGenerationData(...[
+        'mode' => StudioDiscussionGenerationMode::FullDiscussion,
+        'expectedLockVersion' => StudioPlan::query()->findOrFail($plan->id)->lock_version,
+        ...$fields,
+    ]));
+}
+
+/**
+ * A discussion saved by hand that a part may be written again from:
+ * comment `a` by the first Persona, with replies `a1` by the second and `a2`
+ * by the first, then comment `b` by the second — so the request names them
+ * existing_1 to existing_4, in that order.
+ */
+function savedStudioBranchFixture(User $admin, StudioPlan $plan, User $first, User $second): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, [
+        discussionNode(['key' => 'a', 'personaUserId' => $first->id, 'body' => 'Lovely light.', 'offsetSeconds' => 60]),
+        discussionNode(['key' => 'a1', 'parentKey' => 'a', 'personaUserId' => $second->id, 'body' => 'Agreed.', 'offsetSeconds' => 120]),
+        discussionNode(['key' => 'a2', 'parentKey' => 'a', 'personaUserId' => $first->id, 'body' => 'Thank you.', 'sortOrder' => 1, 'offsetSeconds' => 180]),
+        discussionNode(['key' => 'b', 'personaUserId' => $second->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 90]),
+    ]);
+}
+
+/** Runs the job of that generation, as a worker would. */
+function runStudioDiscussionJob(StudioPlanDiscussionGeneration $generation): void
+{
+    app()->call([new GenerateStudioDiscussionJob($generation->id, $generation->attempt_id), 'handle']);
+}
+
+/** Takes the generation's proposal into the plan as an administrator who saw the plan just now would. */
+function applyStudioDiscussion(User $admin, StudioPlan $plan, StudioPlanDiscussionGeneration $generation): SavedStudioDiscussion
+{
+    return app(ApplyStudioDiscussionGenerationAction::class)->handle($admin, $plan, $generation->id, StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/** The Discussion step's editor of this plan, as the plan's editor page draws it. */
+function discussionEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanDiscussionEditor::class, ['planId' => $plan->id]);
+}
+
+/** The Discussion step's Comment votes editor of this plan, as the plan's editor page draws it. */
+function discussionVotesEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanDiscussionVotesEditor::class, ['planId' => $plan->id]);
+}
+
+/** The Post step's Votes editor of this plan, as the plan's editor page draws it. */
+function postVotesEditor(StudioPlan $plan): Testable
+{
+    return Livewire::test(StudioPlanPostVotesEditor::class, ['planId' => $plan->id]);
+}
+
+/**
+ * Whether a component's last request drew it again — sent its HTML to the
+ * browser — rather than only its state: what another editor's write on the
+ * Content Studio page costs every editor it changes nothing of.
+ */
+function drawnAgain(Testable $component): bool
+{
+    return array_key_exists('html', $component->effects);
+}
+
+/**
+ * Writes a comment from the Discussion editor's dialog — a new one on the
+ * post, or a reply to the saved comment given — as an administrator would.
+ */
+function commentFromDialog(Testable $editor, User $persona, string $body, ?int $replyTo = null, ?int $seconds = null): Testable
+{
+    $replyTo !== null ? $editor->call('openReply', $replyTo) : $editor->call('openNew');
+    $editor->call('choosePersona', $persona->id)->set('dialogBody', $body);
+
+    if ($seconds !== null) {
+        $editor->set('dialogSeconds', $seconds);
+    }
+
+    return $editor->call('saveDialog');
+}
+
+/**
+ * Every comment of the plan's discussion as stored, by id: its parent (null
+ * for a comment on the post), Persona, text, place and time.
+ *
+ * @return array<int, array{0: int|null, 1: int, 2: string, 3: int, 4: int}>
+ */
+function storedStudioDiscussionNodes(StudioPlan $plan): array
+{
+    return DB::table('studio_plan_discussion_nodes')->where('studio_plan_id', $plan->id)->orderBy('id')->get()
+        ->mapWithKeys(fn ($row): array => [(int) $row->id => [$row->parent_id === null ? null : (int) $row->parent_id, (int) $row->persona_user_id, (string) $row->body, (int) $row->sort_order, (int) $row->offset_seconds]])
+        ->all();
+}
+
+/**
+ * A completed Responses API body whose structured output is this answer.
+ *
+ * @param  array<string, mixed>  $answer
+ * @param  array<string, mixed>  $overrides  top-level response keys replaced or added
+ * @return array<string, mixed>
+ */
+function studioDiscussionBody(array $answer, array $overrides = []): array
+{
+    return openAiResponseBody(
+        json_encode($answer, JSON_THROW_ON_ERROR),
+        array_replace(['id' => 'resp_studio_discussion_test', 'model' => 'gpt-4.1-mini-2025-04-14'], $overrides),
+    );
+}
+
+/**
+ * One comment of a whole discussion as the model answers it.
+ *
+ * @return array{key: string, parent: string|null, persona: string, offset_seconds: int, text: string}
+ */
+function answeredComment(string $key, ?string $parent, string $persona, int $offsetSeconds, string $text): array
+{
+    return ['key' => $key, 'parent' => $parent, 'persona' => $persona, 'offset_seconds' => $offsetSeconds, 'text' => $text];
 }
 
 // =============================================================================
@@ -13652,6 +13922,88 @@ function saveStudioDiscussion(User $admin, StudioPlan $plan, array $nodes): Save
     return app(SaveStudioDiscussionTreeAction::class)->handle($admin, $plan, new StudioDiscussionData($nodes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
 }
 
+/** A new date for the plan's post, saved as the editor saves it, the rest of the draft as it is. */
+function moveStudioPost(User $admin, StudioPlan $plan, StudioPlanPublicationMode $mode, ?string $publishAt): void
+{
+    $fresh = StudioPlan::query()->findOrFail($plan->id);
+
+    app(UpdateStudioPlanAction::class)->handle($admin, $plan, new StudioPlanData(
+        authorUserId: $fresh->author_user_id,
+        title: $fresh->title,
+        publicationMode: $mode,
+        publishAt: $publishAt !== null ? CarbonImmutable::parse($publishAt) : null,
+    ), $fresh->lock_version);
+}
+
+/**
+ * Another administrator's save of the plan's discussion, from the version
+ * the plan has now: every comment kept with its id, this one's text changed.
+ */
+function rewordStudioComment(User $admin, StudioPlan $plan, int $nodeId, string $body): SavedStudioDiscussion
+{
+    return saveStudioDiscussion($admin, $plan, array_map(
+        fn (StudioDiscussionNodeData $node): StudioDiscussionNodeData => $node->id !== $nodeId ? $node : new StudioDiscussionNodeData(
+            id: $node->id,
+            parentId: $node->parentId,
+            personaUserId: $node->personaUserId,
+            body: $body,
+            sortOrder: $node->sortOrder,
+            offsetSeconds: $node->offsetSeconds,
+        ),
+        StudioDiscussionData::of(StudioPlan::query()->findOrFail($plan->id))->nodes,
+    ));
+}
+
+/**
+ * A save of a Draft's discussion or votes refused, and why: the plan or the
+ * administrator (CannotManageStudioPlanException) or the fields
+ * (ValidationException). A save that goes through fails the test.
+ */
+function studioRefusal(Closure $save): Throwable
+{
+    try {
+        $save();
+    } catch (CannotManageStudioPlanException|ValidationException $refusal) {
+        return $refusal;
+    }
+
+    throw new RuntimeException('The save was not refused.');
+}
+
+/**
+ * One prepared vote as an editor hands it in, its fields named as
+ * StudioVoteData's.
+ *
+ * @param  array<string, mixed>  $fields
+ */
+function studioVote(array $fields = []): StudioVoteData
+{
+    return new StudioVoteData(...$fields);
+}
+
+/**
+ * Saves every vote a plan prepares as an administrator who saw the plan just
+ * now would.
+ *
+ * @param  list<StudioVoteData>  $votes
+ */
+function saveStudioVotes(User $admin, StudioPlan $plan, array $votes): SavedStudioVotes
+{
+    return app(SaveStudioVotesAction::class)->handle($admin, $plan, new StudioVotesData($votes), StudioPlan::query()->findOrFail($plan->id)->lock_version);
+}
+
+/**
+ * An active rating question with active options of its own, two unless said.
+ *
+ * @return array{0: RatingGroup, 1: list<RatingOption>}
+ */
+function votableRatingQuestion(int $options = 2): array
+{
+    $group = RatingGroup::factory()->create();
+
+    return [$group, RatingOption::factory()->count($options)->create(['rating_group_id' => $group->id])->sortBy('id')->values()->all()];
+}
+
 // =============================================================================
 // Content Studio execution
 // =============================================================================
@@ -13671,6 +14023,21 @@ function switchStudioExecution(bool $on): void
 }
 
 /**
+ * Says, or unsays, that everyone shown in Content Studio's photos is a
+ * verified adult, as the project's flag is stored — the confirmation
+ * StudioVerifiedAdults reads afresh for every request.
+ */
+function confirmStudioVerifiedAdults(bool $confirmed = true): void
+{
+    DB::transaction(function () use ($confirmed): void {
+        $row = app(ProjectSettingsManager::class)->lockedRow();
+        $row->forceFill(['feature_flags' => [...($row->feature_flags ?? []), StudioVerifiedAdults::FLAG => $confirmed]])->save();
+    });
+
+    app(ProjectSettingsManager::class)->flush();
+}
+
+/**
  * The one action approving a complete plan writes — its CreatePost, Pending —
  * approved by an administrator made for it, unless one is given.
  *
@@ -13682,6 +14049,130 @@ function approvedStudioAction(array $planAttributes = [], ?User $admin = null): 
     approveStudioPlan($admin ?? User::factory()->admin()->create(), $plan);
 
     return StudioAction::query()->where('studio_plan_id', $plan->id)->sole();
+}
+
+/**
+ * A complete Draft with a discussion of its own, saved as the editor saves
+ * one: comment `c1` with replies `c2` and `c3`, comment `c4` with reply `c5`,
+ * and comment `c6`, at 5, 12, 15, 20, 25 and 30 minutes after the post — the
+ * comments by the first Persona and the replies by the second, both made for
+ * it unless given.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @return array{0: StudioPlan, 1: SavedStudioDiscussion}
+ */
+function approvableStudioPlanWithDiscussion(array $attributes = [], ?User $commenter = null, ?User $replier = null): array
+{
+    $plan = approvableStudioPlan($attributes);
+    $commenter ??= User::factory()->persona()->create();
+    $replier ??= User::factory()->persona()->create();
+
+    $saved = saveStudioDiscussion(User::factory()->admin()->create(), $plan, [
+        discussionNode(['key' => 'c1', 'personaUserId' => $commenter->id, 'body' => 'Lovely light on the water.', 'offsetSeconds' => 300]),
+        discussionNode(['key' => 'c2', 'parentKey' => 'c1', 'personaUserId' => $replier->id, 'body' => 'Agreed, the mist helps.', 'offsetSeconds' => 720]),
+        discussionNode(['key' => 'c3', 'parentKey' => 'c1', 'personaUserId' => $replier->id, 'body' => 'And the boats.', 'sortOrder' => 1, 'offsetSeconds' => 900]),
+        discussionNode(['key' => 'c4', 'personaUserId' => $commenter->id, 'body' => 'Where is this?', 'sortOrder' => 1, 'offsetSeconds' => 1200]),
+        discussionNode(['key' => 'c5', 'parentKey' => 'c4', 'personaUserId' => $replier->id, 'body' => 'Brittany, I think.', 'offsetSeconds' => 1500]),
+        discussionNode(['key' => 'c6', 'personaUserId' => $commenter->id, 'body' => 'Saving this one.', 'sortOrder' => 2, 'offsetSeconds' => 1800]),
+    ]);
+
+    return [$plan->fresh(), $saved];
+}
+
+/**
+ * A plan's actions by what they publish: `post`, and each comment by its key
+ * in the discussion saved for it.
+ *
+ * @return array<string, StudioAction>
+ */
+function studioActionsByNode(StudioPlan $plan, SavedStudioDiscussion $saved): array
+{
+    $keys = array_flip($saved->ids);
+    $actions = [];
+
+    foreach (StudioAction::query()->where('studio_plan_id', $plan->id)->orderBy('id')->get() as $action) {
+        // The votes are studioVoteActions()'.
+        if (in_array($action->type, [StudioActionType::CreatePost, StudioActionType::CreateComment, StudioActionType::CreateReply], true)) {
+            $actions[$action->type === StudioActionType::CreatePost ? 'post' : $keys[$action->payload['discussion_node_id']]] = $action;
+        }
+    }
+
+    return $actions;
+}
+
+/**
+ * A complete Draft with its discussion (approvableStudioPlanWithDiscussion())
+ * and votes of every kind prepared on it, saved as the editors save them, by
+ * their keys: `postUp` and `postDown` on the post, one and two minutes after
+ * it; `ratingUp` and `ratingDown`, each choosing an option of the rating
+ * question made for it — the first and the second — one and three minutes
+ * after the post; `c1Up` on comment c1 and `c2Down` on reply c2, ten and
+ * fifteen minutes after the post. Persona `up` casts the up votes and chooses
+ * the first option, Persona `down` the rest; both are made for it unless
+ * given, and neither writes a comment.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @return array{plan: StudioPlan, saved: SavedStudioDiscussion, votes: array<string, int>, voters: array{up: User, down: User}, group: RatingGroup, options: list<RatingOption>}
+ */
+function approvableStudioPlanWithVotes(array $attributes = [], ?User $up = null, ?User $down = null): array
+{
+    [$plan, $saved] = approvableStudioPlanWithDiscussion($attributes);
+    $up ??= User::factory()->persona()->create();
+    $down ??= User::factory()->persona()->create();
+    [$group, $options] = votableRatingQuestion();
+
+    $votes = saveStudioVotes(User::factory()->admin()->create(), $plan, [
+        studioVote(['key' => 'postUp', 'type' => 'vote_post', 'personaUserId' => $up->id, 'voteType' => 'up', 'offsetSeconds' => 60]),
+        studioVote(['key' => 'postDown', 'type' => 'vote_post', 'personaUserId' => $down->id, 'voteType' => 'down', 'offsetSeconds' => 120]),
+        studioVote(['key' => 'ratingUp', 'type' => 'vote_rating', 'personaUserId' => $up->id, 'ratingOptionId' => $options[0]->id, 'offsetSeconds' => 60, 'sortOrder' => 1]),
+        studioVote(['key' => 'ratingDown', 'type' => 'vote_rating', 'personaUserId' => $down->id, 'ratingOptionId' => $options[1]->id, 'offsetSeconds' => 180]),
+        studioVote(['key' => 'c1Up', 'type' => 'vote_comment', 'personaUserId' => $up->id, 'voteType' => 'up', 'discussionNodeId' => $saved->ids['c1'], 'offsetSeconds' => 600]),
+        studioVote(['key' => 'c2Down', 'type' => 'vote_comment', 'personaUserId' => $down->id, 'voteType' => 'down', 'discussionNodeId' => $saved->ids['c2'], 'offsetSeconds' => 900]),
+    ]);
+
+    return ['plan' => $plan->fresh(), 'saved' => $saved, 'votes' => $votes->ids, 'voters' => ['up' => $up, 'down' => $down], 'group' => $group, 'options' => $options];
+}
+
+/**
+ * A plan's vote actions by the key their prepared vote was saved under
+ * (approvableStudioPlanWithVotes()), found by the prepared vote's id their
+ * payload keeps.
+ *
+ * @param  array<string, int>  $votes  the prepared votes' ids by key
+ * @return array<string, StudioAction>
+ */
+function studioVoteActions(StudioPlan $plan, array $votes): array
+{
+    $keys = array_flip($votes);
+    $actions = [];
+
+    foreach (StudioAction::query()->where('studio_plan_id', $plan->id)->whereIn('type', [StudioActionType::VotePost, StudioActionType::VoteComment, StudioActionType::VoteRating])->orderBy('id')->get() as $action) {
+        $actions[$keys[$action->payload['studio_plan_vote_id']]] = $action;
+    }
+
+    return $actions;
+}
+
+/**
+ * One round of the dispatcher, and a worker running every job it sent, in
+ * order — none when it sent nothing.
+ *
+ * @return int how many jobs it sent, for the first time or again
+ */
+function runStudioRound(): int
+{
+    $round = dispatchDueStudioActions();
+    $sent = $round['sent'] + $round['resent'];
+
+    if ($sent === 0) {
+        return 0;
+    }
+
+    foreach (StudioAction::query()->where('status', StudioActionStatus::Dispatched)->orderBy('id')->pluck('id') as $id) {
+        runStudioActionJob((int) $id);
+    }
+
+    return $sent;
 }
 
 /**

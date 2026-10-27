@@ -1215,6 +1215,7 @@
         border-color: var(--rg-admin-status-danger-fg);
     }
 
+    /* The buttons on a grey ground, the number on white: a field to type in */
     .rg-admin-stepper__button {
         display: grid;
         place-items: center;
@@ -1222,13 +1223,13 @@
         width: 36px;
         padding: 0;
         border: 0;
-        background: transparent;
+        background: var(--rg-admin-surface-sunken);
         color: var(--rg-admin-text-secondary);
         cursor: pointer;
     }
 
     .rg-admin-stepper__button:hover {
-        background: var(--rg-admin-surface-hover);
+        background: var(--rg-admin-surface-pill);
     }
 
     .rg-admin-stepper__button:focus-visible {
@@ -1247,12 +1248,13 @@
         border-right: 1px solid var(--rg-admin-border-default);
         border-left: 1px solid var(--rg-admin-border-default);
         outline: none;
-        background: transparent;
+        background: var(--rg-admin-surface-card);
         color: var(--rg-admin-text-strong);
         font-family: var(--rg-admin-font-sans);
         font-size: var(--rg-admin-text-body);
         font-variant-numeric: tabular-nums;
         text-align: center;
+        cursor: text;
     }
 
     /* FRM-06 · Switch: 36×20 track, 16 knob; ink on, gray-300 off */
@@ -2337,6 +2339,925 @@
 
     .rg-admin-combobox__empty:empty {
         display: none;
+    }
+
+    /* Date and time field: the prototype's DateTimeField, a trigger over a dialog with a calendar */
+    .rg-admin-date-time {
+        min-width: 0;
+    }
+
+    .rg-admin-date-time__control {
+        position: relative;
+        width: 320px;
+        max-width: 100%;
+    }
+
+    .rg-admin-date-time__trigger {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 48px;
+        padding: 6px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        text-align: left;
+        cursor: pointer;
+        transition: background-color var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-date-time__trigger:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__trigger:focus-visible,
+    .rg-admin-date-time__trigger[aria-expanded='true'] {
+        border-color: var(--rg-admin-focus-ring);
+        box-shadow: var(--rg-admin-focus-halo);
+        outline: none;
+    }
+
+    /* Errors win over every other state and keep their colour while open. */
+    .rg-admin-date-time__trigger--invalid,
+    .rg-admin-date-time__trigger--invalid[aria-expanded='true'] {
+        border-color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-date-time__icon,
+    .rg-admin-date-time__chevron {
+        flex-shrink: 0;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-date-time__text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        line-height: 17px;
+    }
+
+    .rg-admin-date-time__value {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-date-time__value--empty {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-date-time__relative {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-date-time__relative--past {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-date-time__popover {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        z-index: 50;
+        display: flex;
+        width: min(440px, calc(100vw - 32px));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-popover);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-date-time__presets {
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        gap: 2px;
+        width: 150px;
+        padding: var(--rg-admin-space-2);
+        border-right: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-date-time__preset {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-2);
+        height: 34px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        text-align: left;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-date-time__preset:hover:not(:disabled) {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__preset[aria-pressed='true'] {
+        background: var(--rg-admin-surface-sunken);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-date-time__preset[aria-pressed='false'] .rg-admin-date-time__preset-check {
+        visibility: hidden;
+    }
+
+    .rg-admin-date-time__main {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-date-time__nav {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        margin-bottom: 6px;
+    }
+
+    .rg-admin-date-time__title {
+        display: inline-flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        gap: var(--rg-admin-space-1);
+        height: var(--rg-admin-control-sm);
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+    }
+
+    .rg-admin-date-time__title:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__title-chevron {
+        color: var(--rg-admin-text-tertiary);
+        transition: transform var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-date-time__title[aria-expanded='true'] .rg-admin-date-time__title-chevron {
+        transform: rotate(180deg);
+    }
+
+    .rg-admin-date-time__week {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        row-gap: 2px;
+    }
+
+    .rg-admin-date-time__week + .rg-admin-date-time__week {
+        margin-top: 2px;
+    }
+
+    .rg-admin-date-time__weekday {
+        font-size: var(--rg-admin-text-micro);
+        line-height: 24px;
+        text-align: center;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-date-time__day {
+        width: 100%;
+        height: 32px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+    }
+
+    .rg-admin-date-time__day:hover:not(:disabled) {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__day--past {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-date-time__day--today {
+        box-shadow: inset 0 0 0 1px var(--rg-admin-border-strong);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-date-time__day--chosen,
+    .rg-admin-date-time__day--chosen:hover:not(:disabled) {
+        background: var(--rg-admin-surface-inverse);
+        box-shadow: none;
+        color: var(--rg-admin-text-inverse);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-date-time__months {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        padding-top: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-date-time__month {
+        height: 44px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-caption);
+        cursor: pointer;
+    }
+
+    .rg-admin-date-time__month:hover:not(:disabled) {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__month[aria-pressed='true'] {
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-date-time__day:disabled,
+    .rg-admin-date-time__month:disabled,
+    .rg-admin-date-time__preset:disabled {
+        color: var(--rg-admin-text-disabled);
+        cursor: not-allowed;
+    }
+
+    .rg-admin-date-time__day:focus-visible,
+    .rg-admin-date-time__month:focus-visible,
+    .rg-admin-date-time__preset:focus-visible,
+    .rg-admin-date-time__title:focus-visible,
+    .rg-admin-date-time__chip:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 1px;
+    }
+
+    .rg-admin-date-time__time,
+    .rg-admin-date-time__footer {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding-top: 10px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-date-time__clock {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-date-time__time-label {
+        width: 44px;
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-date-time__digits {
+        min-width: 24px;
+        font-size: 15px;
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+    }
+
+    .rg-admin-date-time__times {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-date-time__chip {
+        height: 26px;
+        padding: 0;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+    }
+
+    .rg-admin-date-time__chip:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-date-time__chip[aria-pressed='true'] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-date-time__summary {
+        margin: 0;
+        min-height: 16px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: 16px;
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-date-time__summary--past,
+    .rg-admin-date-time__summary--invalid {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-date-time__actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+    }
+
+    /* On a phone the quick picks run as a row over the calendar. */
+    @media (max-width: 480px) {
+        .rg-admin-date-time__popover {
+            flex-direction: column;
+        }
+
+        .rg-admin-date-time__presets {
+            flex-direction: row;
+            flex-wrap: wrap;
+            width: auto;
+            border-right: 0;
+            border-bottom: 1px solid var(--rg-admin-border-default);
+        }
+
+        .rg-admin-date-time__preset {
+            height: 30px;
+            border: 1px solid var(--rg-admin-border-default);
+            border-radius: var(--rg-admin-radius-full);
+        }
+
+        .rg-admin-date-time__preset[aria-pressed='false'] .rg-admin-date-time__preset-check {
+            display: none;
+        }
+    }
+
+    /* Content Studio · Publication step: its two columns, the plan's readiness and the final card's parts. */
+    .rg-admin-studio__columns--publication {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .rg-admin-studio__columns--publication > :first-child {
+        flex: 1 1 420px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__columns--publication > :last-child {
+        flex: 1.35 1 560px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__fieldset {
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .rg-admin-studio__problems {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-studio__problem {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-2) 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__problem:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-studio__problem-text {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        color: var(--rg-admin-text-strong);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-studio__final-groups {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__final-group {
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-studio__final-group > .rg-admin-detail-list {
+        padding: 0 var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__final-group-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 6px 6px 14px;
+        background: var(--rg-admin-surface-sunken);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__final-group-title {
+        flex: 1;
+        min-width: 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    /* Content Studio · Action plan: how the publication stands, its figures, its timeline and its actions. */
+    .rg-admin-studio__plan {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__plan-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__plan-stats {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__plan-stat {
+        flex: 1 1 110px;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__plan-stat:first-child {
+        border-left: 0;
+    }
+
+    .rg-admin-studio__plan-stat-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-stat-value {
+        margin: 0;
+        font-size: 20px;
+        line-height: 28px;
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__plan-stat-value--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-studio__plan-stat-value--danger {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-studio__plan-timeline {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__plan-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px var(--rg-admin-space-3);
+        margin: 0 0 var(--rg-admin-space-1);
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-studio__plan-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-swatch {
+        display: inline-block;
+        flex-shrink: 0;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--rg-admin-gray-300);
+    }
+
+    .rg-admin-studio__plan-swatch--scheduled { background: var(--rg-admin-gray-300); }
+    .rg-admin-studio__plan-swatch--ready { background: var(--rg-admin-blue-200); }
+    .rg-admin-studio__plan-swatch--overdue { background: var(--rg-admin-orange-500); }
+    .rg-admin-studio__plan-swatch--done { background: var(--rg-admin-green-500); }
+    .rg-admin-studio__plan-swatch--error { background: var(--rg-admin-red-500); }
+    .rg-admin-studio__plan-swatch--cancelled { background: var(--rg-admin-gray-400); }
+    .rg-admin-studio__plan-swatch--part-post { background: var(--rg-admin-surface-inverse); }
+    .rg-admin-studio__plan-swatch--part-discussion { background: var(--rg-admin-gray-500); }
+
+    .rg-admin-studio__plan-lane {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__plan-lane-label {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__plan-track {
+        position: relative;
+        height: 22px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: 6px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__plan-mark {
+        position: absolute;
+        top: 4px;
+        bottom: 4px;
+        width: 4px;
+        height: auto;
+        margin-left: -2px;
+    }
+
+    .rg-admin-studio__plan-now {
+        position: absolute;
+        top: -4px;
+        bottom: -4px;
+        width: 2px;
+        margin-left: -1px;
+        background: var(--rg-admin-orange-500);
+    }
+
+    .rg-admin-studio__plan-axis {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--rg-admin-space-2);
+        margin-left: calc(120px + var(--rg-admin-space-3));
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-filter {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__plan-filter-note {
+        flex: 1;
+        min-width: 180px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    /*
+     * The Action plan's table as the prototype draws it (StudioPublish): a 36 high head, 50 high rows, the first
+     * and last columns 20 in from the card's edges and none between the others but the action's own; times and
+     * actions at 13/18, everything under them at 12/16, the state a 22 high chip with Overdue under it.
+     */
+    .rg-admin-studio__plan-table .rg-admin-table__row {
+        min-height: 50px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__row--head {
+        min-height: 36px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell {
+        padding: 0;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-studio__plan-row--overdue {
+        background: var(--rg-admin-amber-50);
+    }
+
+    .rg-admin-studio__plan-time {
+        white-space: nowrap;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__plan-time--due {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-studio__plan-overdue {
+        font-size: var(--rg-admin-text-overline);
+        line-height: 14px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-studio__plan-part {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-action {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-studio__plan-action {
+        padding: 6px var(--rg-admin-space-3) 6px 0;
+    }
+
+    .rg-admin-studio__plan-action-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-action-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__plan-action-label {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__plan-action-label--strong {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    /* What it wrote, linked, keeps the label's own weight: 400, or 600 for the post. */
+    .rg-admin-studio__plan-action-label .rg-admin-link {
+        font-weight: inherit;
+    }
+
+    .rg-admin-studio__plan-id {
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-sub {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-sub--clip {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__plan-executor {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-runs,
+    .rg-admin-studio__plan-state {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__plan-state {
+        align-items: flex-start;
+        gap: 3px;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-badge {
+        height: 22px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__plan-table .rg-admin-badge--neutral,
+    .rg-admin-studio__plan-table .rg-admin-badge--outline {
+        border-color: transparent;
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__plan-state--cancelled .rg-admin-badge {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__plan-note {
+        margin: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    /* Content Studio · Action queue: the executor's switch, and each row's details opened in place. */
+    .rg-admin-studio-queue__executor {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-studio-queue__executor-dot {
+        width: 8px;
+        height: 8px;
+        flex-shrink: 0;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-studio-queue__executor-dot--on {
+        background: var(--rg-admin-green-500);
+    }
+
+    .rg-admin-studio-queue__executor-text {
+        flex: 1;
+        min-width: 220px;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-studio-queue__executor-text strong {
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio-queue__item {
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio-queue__item:last-child {
+        border-bottom: 0;
+    }
+
+    .rg-admin-studio-queue__item > .rg-admin-table__row {
+        border-bottom: 0;
+    }
+
+    .rg-admin-studio-queue__row--failed {
+        background: var(--rg-admin-status-danger-row);
+    }
+
+    .rg-admin-studio-queue__toggle--open .rg-admin-icon {
+        transform: rotate(180deg);
+    }
+
+    .rg-admin-studio-queue__details-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        margin: 0 var(--rg-admin-space-4) 14px;
+        padding: 14px var(--rg-admin-space-4);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio-queue__reason {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-body);
+        color: var(--rg-admin-text-strong);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-studio-queue__facts {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px var(--rg-admin-space-5);
+        margin: 0;
+    }
+
+    .rg-admin-studio-queue__facts dt {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio-queue__facts dd {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio-queue__links {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
     }
 
     /* TBL-04 · Row menu */
@@ -5318,6 +6239,1466 @@
         color: var(--rg-admin-status-due-fg);
     }
 
+    /* Step 2 · Post: its two tabs, Titles & texts and Votes, on the step's own band. */
+    .rg-admin-studio__post-tabs {
+        margin-bottom: var(--rg-admin-card-gap);
+    }
+
+    /* The Votes tab, laid out as the prototype's StudioPostVotes: the post's voters beside the Post votes card. */
+    .rg-admin-studio__votes {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-studio__votes-layout {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-studio__votes-side {
+        flex: 1 1 330px;
+        min-width: min(100%, 300px);
+    }
+
+    .rg-admin-studio__votes-main {
+        display: flex;
+        flex-direction: column;
+        flex: 2.2 1 620px;
+        gap: var(--rg-admin-card-gap);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-author {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-2) 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+    }
+
+    .rg-admin-studio__votes-author-name {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-author-note {
+        font-size: var(--rg-admin-text-caption);
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-random {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-random > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    /* Too few voters for what is asked: said exactly, nothing cut to fit. */
+    .rg-admin-studio__votes-warning {
+        display: flex;
+        gap: var(--rg-admin-space-2);
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+    }
+
+    .rg-admin-studio__votes-warning > svg {
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .rg-admin-studio__votes-warning-text.rg-admin-hint {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* The post's author, listed but never chosen. */
+    .rg-admin-studio__persona-option--disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    .rg-admin-studio__persona-option--disabled:hover {
+        background: transparent;
+    }
+
+    /* Up · down, Answers and Post voters, side by side on a sunken band. */
+    .rg-admin-studio__votes-stats {
+        display: flex;
+        flex-wrap: wrap;
+        overflow: hidden;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__votes-stat {
+        display: flex;
+        flex: 1 1 150px;
+        flex-direction: column;
+        min-width: 0;
+        margin-left: -1px;
+        padding: 10px 20px;
+        border-left: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__votes-stat-value {
+        font-size: 20px;
+        line-height: 28px;
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-stat-note {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__votes-tabs {
+        padding: 0 20px;
+    }
+
+    .rg-admin-studio__votes-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) 20px;
+    }
+
+    .rg-admin-studio__votes-pad {
+        margin: 0;
+        padding: 0 20px var(--rg-admin-space-3);
+    }
+
+    .rg-admin-studio__votes-body .rg-admin-studio__votes-pad {
+        padding: 0 14px 12px;
+    }
+
+    /* One target: the post's votes, or a rating question, in a bordered block. */
+    .rg-admin-studio__votes-block {
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+    }
+
+    .rg-admin-studio__votes-block--off {
+        opacity: 0.7;
+    }
+
+    .rg-admin-studio__votes-block-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--rg-admin-space-1) var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 10px 14px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    /* A target's name in the middle of its head, beside its badge and switch. */
+    .rg-admin-studio__votes-block-head--switch {
+        flex-wrap: nowrap;
+        align-items: center;
+    }
+
+    .rg-admin-studio__votes-block-head--switch > .rg-admin-switch {
+        flex-shrink: 0;
+    }
+
+    .rg-admin-studio__votes-blocks {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-blocks > .rg-admin-studio__votes-block {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__votes-blocks > .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 0;
+        background: transparent;
+    }
+
+    /* First vote after, Spread over: the moments offered, the one chosen in ink. */
+    .rg-admin-studio__votes-chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__votes-chips-label {
+        flex-shrink: 0;
+        width: 110px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__votes-chip {
+        height: 26px;
+        padding: 0 9px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__votes-chip[aria-pressed="true"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__votes-chip:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .rg-admin-studio__votes-steppers {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-6);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__votes-score {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-bottom: 6px;
+        font-size: var(--rg-admin-text-caption);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-questions {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+        gap: var(--rg-admin-space-3);
+        align-items: start;
+    }
+
+    .rg-admin-studio__votes-answers {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2) 10px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__votes-answers > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    .rg-admin-studio__votes-options {
+        display: flex;
+        flex-direction: column;
+        padding: 4px 14px var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__votes-option {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 40px auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+    }
+
+    .rg-admin-studio__votes-option-label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-option-name {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-body);
+        line-height: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-option-name--lead {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-studio__votes-bar {
+        display: block;
+        height: 4px;
+        overflow: hidden;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+    }
+
+    .rg-admin-studio__votes-bar-fill {
+        display: block;
+        height: 100%;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-400);
+    }
+
+    .rg-admin-studio__votes-bar-fill--lead {
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-studio__votes-pct {
+        font-size: var(--rg-admin-text-caption);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-move {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    /* An option's answers: a small field to type in, between its minus and plus */
+    .rg-admin-studio__votes-count {
+        width: 44px;
+        height: 28px;
+        margin: 0;
+        padding: 0 4px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        cursor: text;
+    }
+
+    .rg-admin-studio__votes-count:focus {
+        outline: none;
+        border-color: var(--rg-admin-focus-ring);
+        box-shadow: var(--rg-admin-focus-halo);
+    }
+
+    .rg-admin-studio__votes-count:disabled {
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+        cursor: default;
+    }
+
+    /* The Voters tab: search, filter, and every voter with its vote and answers. */
+    .rg-admin-studio__votes-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-3) 20px;
+    }
+
+    .rg-admin-studio__votes-search {
+        flex: 0 1 260px;
+        min-width: 180px;
+    }
+
+    .rg-admin-studio__votes-toolbar-count {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-studio__votes-table {
+        min-width: 560px;
+    }
+
+    /* A vote's moment, as narrow as its field: the persona, target and vote share the rest. */
+    .rg-admin-studio__votes-table .rg-admin-studio__votes-at {
+        width: 1%;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-list {
+        max-height: 560px;
+        overflow: auto;
+    }
+
+    .rg-admin-studio__votes-idle {
+        opacity: 0.55;
+    }
+
+    .rg-admin-studio__votes-who {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__votes-when {
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__votes-way {
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__votes-way--up {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-studio__votes-way--down {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-studio__votes-problem {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 2px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    .rg-admin-studio__votes-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+        margin-left: auto;
+    }
+
+    /* Step 3 · Discussion, its comment votes: drawn where the step lays them out, under the tree only what keeps them from being saved. */
+    .rg-admin-studio__comment-votes > .rg-admin-notice {
+        margin-top: var(--rg-admin-card-gap);
+    }
+
+    /* The Comment votes card's totals, shared out by priority. */
+    .rg-admin-studio__comment-votes-distribute {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-button {
+        margin-bottom: 4px;
+    }
+
+    .rg-admin-studio__comment-votes-distribute > .rg-admin-hint {
+        flex: 1 1 100%;
+        margin: 0;
+    }
+
+    .rg-admin-studio__comment-vote-settings .rg-admin-studio__votes-block {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 14px;
+    }
+
+    .rg-admin-studio__comment-vote-settings .rg-admin-studio__votes-block > .rg-admin-studio__votes-block-head {
+        padding: 0;
+        background: transparent;
+    }
+
+    /* A count set in a table row: the stepper, 32 high and narrow. */
+    .rg-admin-studio__votes-mini {
+        width: 104px;
+        height: 32px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__button {
+        width: 28px;
+    }
+
+    .rg-admin-studio__votes-mini > .rg-admin-stepper__control {
+        min-width: 0;
+    }
+
+    /* Step 3 · Discussion: the settings, Generate tree under them, and the discussion tree with its comment dialog */
+    .rg-admin-studio__discussion {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    /* The settings cards in three columns of at least 320, as the prototype lays out its three. */
+    .rg-admin-studio__discussion-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, calc((100% - 2 * var(--rg-admin-card-gap)) / 3))), 1fr));
+        gap: var(--rg-admin-card-gap);
+        align-items: start;
+    }
+
+    /* The Comment voters and Comment votes cards, drawn by the votes editor, take their places in the row as cards of their own. */
+    .rg-admin-studio__comment-voters-slot {
+        display: contents;
+    }
+
+    .rg-admin-studio__discussion-fields {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+    }
+
+    .rg-admin-stepper-field__head {
+        display: flex;
+        align-items: baseline;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-stepper-field__range {
+        margin-left: auto;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-stepper-field__row {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-stepper-field__unit {
+        font-size: var(--rg-admin-text-body);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__discussion-team,
+    .rg-admin-studio__discussion-picked {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__discussion-mode {
+        display: flex;
+        width: 100%;
+    }
+
+    .rg-admin-studio__discussion-mode > * {
+        flex: 1;
+    }
+
+    .rg-admin-studio__discussion-count {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__discussion-count > span {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__text-button {
+        height: 26px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        font: inherit;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__text-button:hover {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-studio__chip {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+        height: 24px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-studio__chip--removable {
+        padding-right: 3px;
+    }
+
+    .rg-admin-studio__chip-remove {
+        display: grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-full);
+        background: transparent;
+        color: var(--rg-admin-text-tertiary);
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__chip-remove:hover {
+        background: var(--rg-admin-gray-200);
+        color: var(--rg-admin-text-strong);
+    }
+
+    /* Manual: every Persona matching the search, checked one by one. */
+    .rg-admin-studio__persona-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        max-height: 300px;
+        margin: 0 -6px;
+        overflow: auto;
+    }
+
+    .rg-admin-studio__persona-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 6px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-control);
+        background: transparent;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__persona-option:hover {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-studio__check {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--rg-admin-border-strong);
+        border-radius: 5px;
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__persona-option[aria-checked="true"] > .rg-admin-studio__check {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-studio__persona-text {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__persona-name,
+    .rg-admin-studio__persona-short {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__persona-name {
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-studio__persona-short {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__persona-none {
+        padding: var(--rg-admin-space-3) 6px;
+    }
+
+    .rg-admin-studio__muted {
+        color: var(--rg-admin-text-tertiary);
+        font-weight: var(--rg-admin-weight-regular);
+    }
+
+    .rg-admin-studio__mono {
+        font-family: var(--rg-admin-font-mono);
+    }
+
+    /* Generate: what the settings ask for, in a strip of its own under them. */
+    .rg-admin-studio__generate {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-3) 20px;
+        padding: 14px var(--rg-admin-space-4) 14px 18px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-xl);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-studio__generate-icon {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: 10px;
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__generate-text {
+        flex: 1 1 360px;
+        min-width: 0;
+    }
+
+    .rg-admin-studio__generate-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__generate-summary {
+        font-size: var(--rg-admin-text-ui);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-studio__generate-hint {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-studio__generate-hint--danger {
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /*
+     * The discussion tree, and beside it the breakdown of the comment opened
+     * from it: side by side where both fit, the breakdown in the tree's place
+     * where they do not, until it is closed.
+     */
+    .rg-admin-studio__tree-area {
+        container-type: inline-size;
+    }
+
+    .rg-admin-studio__tree-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--rg-admin-card-gap);
+        align-items: start;
+    }
+
+    .rg-admin-studio__breakdown-slot,
+    .rg-admin-studio__breakdown-host {
+        display: contents;
+    }
+
+    .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) > .rg-admin-studio__tree-card {
+        display: none;
+    }
+
+    @container (min-width: 860px) {
+        .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) {
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+        }
+
+        .rg-admin-studio__tree-layout:has(.rg-admin-studio__breakdown) > .rg-admin-studio__tree-card {
+            display: block;
+        }
+
+        .rg-admin-studio__breakdown {
+            position: sticky;
+            top: calc(var(--rg-admin-topbar-height) + var(--rg-admin-space-4));
+            max-height: calc(100dvh - var(--rg-admin-topbar-height) - 120px);
+            overflow-y: auto;
+        }
+    }
+
+    .rg-admin-studio__breakdown {
+        scroll-margin-top: calc(var(--rg-admin-topbar-height) + var(--rg-admin-space-4));
+    }
+
+    .rg-admin-studio__breakdown-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) 20px;
+    }
+
+    .rg-admin-studio__breakdown-comment {
+        display: flex;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__breakdown-text {
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-studio__breakdown .rg-admin-studio__votes-chips-label {
+        width: 100%;
+    }
+
+    .rg-admin-studio__breakdown .rg-admin-studio__persona-short {
+        overflow: visible;
+        white-space: normal;
+    }
+
+    .rg-admin-studio__breakdown-counts {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-3) var(--rg-admin-space-4);
+    }
+
+    .rg-admin-studio__breakdown-counts .rg-admin-studio__votes-when {
+        line-height: 32px;
+    }
+
+    .rg-admin-studio__breakdown-body .rg-admin-hint,
+    .rg-admin-studio__breakdown-body .rg-admin-studio__votes-problem {
+        margin: -6px 0 0;
+    }
+
+    .rg-admin-studio__breakdown-head {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: 10px 20px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__breakdown-votes {
+        margin: 0;
+        padding: var(--rg-admin-space-1) 20px;
+        list-style: none;
+    }
+
+    .rg-admin-studio__breakdown-vote,
+    .rg-admin-studio__breakdown-none {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: var(--rg-admin-space-2) 0;
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-studio__breakdown-vote + .rg-admin-studio__breakdown-vote {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__breakdown-vote > .rg-admin-studio__persona-text {
+        flex: 1;
+    }
+
+    .rg-admin-studio__breakdown-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+        padding: var(--rg-admin-space-3) 20px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__breakdown-footer > .rg-admin-studio__muted {
+        flex: 1 1 160px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* The tree's Voters tab, drawn by the votes editor. */
+    .rg-admin-studio__tree-voters {
+        padding-top: var(--rg-admin-space-1);
+    }
+
+    /* The tree's Timing tab, drawn by the votes editor: every comment, reply and vote in the order they come, each vote on a lower, sunken row. */
+    .rg-admin-studio__timing-vote > td {
+        height: 40px;
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__timing-window {
+        display: block;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    /* The comment votes said after the discussion's numbers in the Generate strip. */
+    .rg-admin-studio__generate-summary > .rg-admin-studio__node-unsaved {
+        display: inline-block;
+        margin-left: 2px;
+        vertical-align: 1px;
+    }
+
+    /* The discussion tree: its tabs, then the comments, each reply indented under its comment. */
+    .rg-admin-studio__tree-tabs {
+        padding: 6px 20px 0;
+    }
+
+    .rg-admin-studio__tree,
+    .rg-admin-studio__tree-busy {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: var(--rg-admin-space-4) 20px var(--rg-admin-space-3);
+        list-style: none;
+    }
+
+    .rg-admin-studio__tree-busy {
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__tree-placeholder--reply {
+        margin-left: 28px;
+    }
+
+    .rg-admin-studio__tree-empty {
+        padding: 40px var(--rg-admin-space-6);
+    }
+
+    .rg-admin-studio__node {
+        position: relative;
+        padding-bottom: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__node--reply {
+        padding-left: 28px;
+    }
+
+    .rg-admin-studio__node--reply::before {
+        content: "";
+        position: absolute;
+        top: -8px;
+        bottom: 0;
+        left: 12px;
+        width: 1px;
+        background: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__node-box {
+        position: relative;
+        display: flex;
+        gap: 10px;
+        padding: 10px var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-studio__node-main {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        gap: var(--rg-admin-space-1);
+        min-width: 0;
+    }
+
+    .rg-admin-studio__node-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-studio__node-name {
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-studio__node-automated {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    /* A comment's moment, then the up and down votes saved on it, at the end of its line. */
+    .rg-admin-studio__node-stats {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-left: auto;
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__node-time {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-1);
+    }
+
+    .rg-admin-studio__node-vote {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    /* Votes changed on the step and not saved yet, and votes that need a look, marked beside the counts. */
+    .rg-admin-studio__node-unsaved {
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: var(--rg-admin-status-warning-bg);
+        color: var(--rg-admin-status-warning-fg);
+        font-size: var(--rg-admin-text-micro);
+        font-weight: var(--rg-admin-weight-medium);
+        line-height: 18px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__node-problem {
+        display: inline-flex;
+        color: var(--rg-admin-status-due-fg);
+    }
+
+    /* The comment whose breakdown is open beside the tree. */
+    .rg-admin-studio__node--selected > .rg-admin-studio__node-box {
+        border-color: var(--rg-admin-status-info-border);
+        background: var(--rg-admin-status-info-bg);
+        box-shadow: 0 0 0 1px var(--rg-admin-status-info-border);
+    }
+
+    .rg-admin-studio__node-body {
+        font-size: var(--rg-admin-text-ui);
+        line-height: 20px;
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+        white-space: pre-line;
+        text-wrap: pretty;
+        transition: opacity 140ms ease;
+    }
+
+    .rg-admin-studio__node-body--rewriting {
+        opacity: 0.4;
+    }
+
+    .rg-admin-studio__node-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        margin: 2px 0 -4px -6px;
+    }
+
+    .rg-admin-studio__node-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        padding: 0 6px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__node-action:hover:not(:disabled) {
+        background: var(--rg-admin-surface-hover);
+    }
+
+    .rg-admin-studio__node-action:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    /* See breakdown: at the end of the comment's actions, under its votes. */
+    .rg-admin-studio__node-breakdown {
+        margin-left: auto;
+    }
+
+    .rg-admin-studio__node-breakdown[aria-expanded="true"] {
+        background: var(--rg-admin-surface-hover);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__node-action--danger {
+        color: var(--rg-admin-red-950);
+    }
+
+    /* Timing: every comment by its moment, its offset changed in place. */
+    .rg-admin-studio__timing-note {
+        margin: 0;
+        padding: var(--rg-admin-space-3) 20px;
+    }
+
+    .rg-admin-studio__timing-scroll {
+        overflow-x: auto;
+    }
+
+    .rg-admin-studio__timing {
+        width: 100%;
+        min-width: 820px;
+        border-collapse: collapse;
+    }
+
+    .rg-admin-studio__timing th {
+        height: 36px;
+        padding: 0 var(--rg-admin-space-3) 0 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: 0.04em;
+        text-align: left;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__timing td {
+        height: 48px;
+        padding: 0 var(--rg-admin-space-3) 0 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+    }
+
+    .rg-admin-studio__timing th:first-child,
+    .rg-admin-studio__timing td:first-child {
+        width: 44px;
+        padding-left: 20px;
+    }
+
+    .rg-admin-studio__timing th:last-child,
+    .rg-admin-studio__timing td:last-child {
+        padding-right: 20px;
+    }
+
+    .rg-admin-studio__timing-n {
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-studio__timing-action,
+    .rg-admin-studio__timing-dependency {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-studio__timing-action .rg-admin-icon,
+    .rg-admin-studio__timing-dependency {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__timing-dependency {
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    /* An offset after the post: a number and its unit, min, h or d. */
+    .rg-admin-studio__offset {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__offset-input {
+        width: 64px;
+        height: 30px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        color: var(--rg-admin-text-strong);
+        outline: none;
+    }
+
+    .rg-admin-studio__offset-input:focus {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-studio__offset--large .rg-admin-studio__offset-input {
+        width: 80px;
+        height: 36px;
+        font-size: var(--rg-admin-text-ui);
+    }
+
+    .rg-admin-studio__units {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-studio__unit {
+        height: 24px;
+        padding: 0 var(--rg-admin-space-2);
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__unit[aria-checked="true"] {
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__offset--large .rg-admin-studio__unit {
+        height: 28px;
+        padding: 0 10px;
+        font-size: var(--rg-admin-text-body);
+    }
+
+    /* The comment dialog: 560 wide, its persona, parent, text and moment. */
+    .rg-admin-studio__comment-dialog {
+        width: 560px;
+    }
+
+    .rg-admin-studio__dialog-header {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-4) var(--rg-admin-space-4) 22px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__dialog-header .rg-admin-dialog__title {
+        flex: 1;
+    }
+
+    .rg-admin-studio__dialog-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-4);
+        padding: 18px 22px;
+    }
+
+    .rg-admin-studio__comment-dialog .rg-admin-dialog__footer {
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-studio__persona-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-studio__persona-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px 0 4px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__persona-chip-initials {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: var(--rg-admin-radius-full);
+        background: var(--rg-admin-gray-200);
+        color: var(--rg-admin-gray-600);
+        font-size: 10px;
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-studio__persona-chip[aria-checked="true"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__persona-chip[aria-checked="true"] .rg-admin-studio__persona-chip-initials {
+        background: rgb(255 255 255 / 0.18);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-studio__parent {
+        position: relative;
+    }
+
+    .rg-admin-studio__parent-trigger {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        height: 40px;
+        padding: 0 var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        font: inherit;
+        font-size: var(--rg-admin-text-ui);
+        color: var(--rg-admin-text-strong);
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__parent-trigger:disabled {
+        cursor: not-allowed;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-studio__parent-trigger .rg-admin-icon {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-studio__parent-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-studio__parent-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        left: 0;
+        z-index: 20;
+        max-height: 260px;
+        padding: 6px;
+        overflow: auto;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-studio__parent-option {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        padding: 7px 10px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-control);
+        background: transparent;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .rg-admin-studio__parent-option:hover,
+    .rg-admin-studio__parent-option[aria-selected="true"] {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-studio__parent-option-label {
+        font-size: var(--rg-admin-text-body);
+        line-height: 18px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-studio__parent-option-sub {
+        overflow: hidden;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    @media (max-width: 639.98px) {
+        .rg-admin-studio__generate > .rg-admin-button {
+            width: 100%;
+        }
+
+        .rg-admin-studio__tree,
+        .rg-admin-studio__tree-busy {
+            padding-right: var(--rg-admin-space-3);
+            padding-left: var(--rg-admin-space-3);
+        }
+
+        .rg-admin-studio__node-stats {
+            margin-left: 0;
+        }
+    }
+
     .rg-admin-studio__tones {
         display: flex;
         flex-wrap: wrap;
@@ -5571,9 +7952,15 @@
         bottom: calc(100% + 4px);
     }
 
+    /* The panel scrolls as a whole: a short window never squeezes its search field or its rows. */
+    .rg-admin-studio__author-panel > * {
+        flex-shrink: 0;
+    }
+
     .rg-admin-studio__author-panel-footer {
         display: flex;
         justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
     }
 
     /* Image: the photo the wider of the two, the analysis beside it until they no longer fit. */

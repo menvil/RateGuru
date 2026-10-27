@@ -10,8 +10,10 @@ use App\Filament\Resources\StudioPlans\Concerns\EditsStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Models\StudioPlan;
+use App\Queries\Personas\PersonasQuery;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 
 /**
@@ -20,8 +22,13 @@ use Livewire\Attributes\On;
  * since a Draft may be as incomplete as it is — makes the plan through
  * CreateStudioPlanAction, and its editor opens.
  *
- * A photo needs a plan to be kept on, so the first one chosen here makes an
- * empty Draft first, once, and is stored on it straight away (EditsStudioPlan).
+ * The page starts with an active Persona drawn at random as the author
+ * (`startAuthorId`), to change or clear; it is where the page starts from,
+ * not a change, and Discard comes back to it.
+ *
+ * A photo needs a plan to be kept on, so the first one chosen here makes a
+ * Draft first — empty but for that author — once, and is stored on it
+ * straight away (EditsStudioPlan).
  * The page goes on with that plan (`planId`): later photos replace the one it
  * has, the texts typed stay as typed and unsaved, and Save draft — the top
  * bar's button says so from then on — writes them to that plan through
@@ -30,6 +37,18 @@ use Livewire\Attributes\On;
 final class CreateStudioPlan extends Page
 {
     use EditsStudioPlan;
+
+    /**
+     * Flashed for the editor a save here opens: the plan, the step and tab
+     * the page was on, and whether Generate tree or Generate suggestions
+     * asked for the save — read once, so a reload neither moves the page nor
+     * generates again.
+     */
+    public const RESUME = 'rg-admin-studio-resume';
+
+    /** The author the page started with, drawn at random: what it comes back to and what a photo's Draft is made with. */
+    #[Locked]
+    public ?int $startAuthorId = null;
 
     protected static string $resource = StudioPlanResource::class;
 
@@ -42,16 +61,17 @@ final class CreateStudioPlan extends Page
 
     public function mount(): void
     {
-        $empty = new StudioPlanData;
+        $this->startAuthorId = app(PersonasQuery::class)->randomActive(1)->first()?->id;
+        $start = new StudioPlanData(authorUserId: $this->startAuthorId);
 
-        $this->saved = self::savedValuesOf($empty);
-        $this->fillDraft($empty);
+        $this->saved = self::savedValuesOf($start);
+        $this->fillDraft($start);
     }
 
     #[On('discard-studio-plan')]
     public function discard(): void
     {
-        $this->fillDraft(new StudioPlanData);
+        $this->fillDraft(new StudioPlanData(authorUserId: $this->startAuthorId));
         $this->resetErrorBag();
     }
 
@@ -66,11 +86,13 @@ final class CreateStudioPlan extends Page
 
     /**
      * Makes the plan with what the editor holds — or, once a photo has made
-     * one, writes what the editor holds to it — and opens its editor. Sent
-     * twice, it makes one plan.
+     * one, writes what the editor holds to it — and opens its editor on the
+     * step this page was on (RESUME), generating there when Generate tree
+     * asked for the save (`then` `generate`), or Generate suggestions did
+     * (`then` `suggest`). Sent twice, it makes one plan.
      */
     #[On('save-studio-plan')]
-    public function save(): void
+    public function save(mixed $then = null): void
     {
         $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
 
@@ -104,8 +126,15 @@ final class CreateStudioPlan extends Page
         $this->fillDraft(StudioPlanData::of($plan));
 
         session()->flash('rg-admin-toast', ['message' => StudioPlanFormat::title($plan).($created ? ' created' : ' saved'), 'tone' => 'success']);
+        session()->flash(self::RESUME, ['plan' => $plan->id, 'step' => $this->step, 'postTab' => $this->postTab, 'generate' => $then === 'generate', 'suggest' => $then === 'suggest']);
 
         $this->redirect(EditStudioPlan::getUrl(['record' => $plan->id]));
+    }
+
+    /** A new publication is approved from its own editor, once its draft is saved. */
+    public function askToApprove(): void
+    {
+        $this->toast('Save the draft before approving it.', 'info');
     }
 
     /**
@@ -123,6 +152,12 @@ final class CreateStudioPlan extends Page
         ];
     }
 
+    /** Whether the plan's texts and settings are the ones this page last saw saved: the Draft it started as, until Save draft. */
+    protected function holdsSaved(StudioPlan $plan): bool
+    {
+        return self::savedValuesOf(StudioPlanData::of($plan)) === $this->saved;
+    }
+
     /** The plan a photo made here, or — for the first one — an empty Draft made for it now. */
     protected function photoPlan(): ?StudioPlan
     {
@@ -137,7 +172,7 @@ final class CreateStudioPlan extends Page
         }
 
         try {
-            $plan = app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData);
+            $plan = app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData(authorUserId: $this->startAuthorId));
         } catch (CannotManageStudioPlanException $exception) {
             $this->refusePhoto($exception);
 

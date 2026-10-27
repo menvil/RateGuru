@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
 use App\Support\Cache\PostListCacheManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 final class VotePostAction
@@ -27,7 +28,14 @@ final class VotePostAction
         private readonly PostListCacheManager $postListCache,
     ) {}
 
-    public function handle(?User $user, Post $post, VoteType $type): void
+    /**
+     * A member's vote, toggled: a vote already there is taken back, whichever
+     * way it went, and otherwise one is cast.
+     *
+     * @param  CarbonImmutable|null  $createdAt  the date a new vote takes as its own — Content Studio's executor only,
+     *                                           for a vote it has found not cast yet; never from a screen
+     */
+    public function handle(?User $user, Post $post, VoteType $type, ?CarbonImmutable $createdAt = null): void
     {
         if ($user === null) {
             throw CannotVoteException::becauseGuest();
@@ -53,10 +61,10 @@ final class VotePostAction
                 message: __('ui.rate_limit.voting'),
             );
         } catch (RateLimitExceededException $e) {
-            throw CannotVoteException::becauseRateLimited($e->getMessage());
+            throw CannotVoteException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        DB::transaction(function () use ($user, $post, $type) {
+        DB::transaction(function () use ($user, $post, $type, $createdAt) {
             // Lock order: Actor User -> Post -> child rows
             // (docs/architecture/user-lifecycle.md). The pre-checks above
             // ran on possibly stale instances — an admin sanction, author
@@ -90,6 +98,7 @@ final class VotePostAction
                     'user_id' => $user->id,
                     'post_id' => $post->id,
                     'type' => $type,
+                    ...($createdAt !== null ? ['created_at' => $createdAt, 'updated_at' => $createdAt] : []),
                 ]);
             }
 

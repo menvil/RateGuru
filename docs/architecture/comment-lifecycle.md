@@ -39,6 +39,16 @@ hide/restore on trashed rows).
 Replies are one level deep (unchanged product rule), so replies never need
 their own tombstones: a removed leaf simply disappears.
 
+A Persona's comment from an approved Content Studio plan is written through
+the same `AddCommentAction`, every check and lock as for a member — hidden or
+deleted targets refuse it the same way — with one trusted addition only
+Content Studio's executor passes: the comment's planned date as its
+`created_at` and `updated_at` ([studio-plans.md](studio-plans.md), "Running a
+plan"). `CannotCommentException` names why a comment was refused
+(`isRateLimited()`, `isPostUnavailable()`, `isReplyTargetUnavailable()`, …)
+and, for the commenting limit, when the next is allowed; a member sees the
+same message as before.
+
 ## Queries and counts
 
 `CommentListQuery` distinguishes two numbers:

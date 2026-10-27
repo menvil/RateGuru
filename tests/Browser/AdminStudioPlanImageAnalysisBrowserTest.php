@@ -16,9 +16,10 @@ use function Pest\Laravel\actingAs;
  * imported on its own once typing pauses — no Save — the photo is shown
  * with Replace and Remove from draft in place of the sources, its analysis
  * is asked for at once, and the card alone reads itself again until the
- * worker's result is there and then stops; nothing typed is saved for it. On
- * a new publication the first photo makes the Draft, and the editor goes on
- * with it.
+ * worker's result is there and then stops; nothing typed is saved for it, and
+ * the Discussion step's Generate tree comes on once it is complete. On a new
+ * publication the first photo makes the Draft, and the editor goes on with
+ * it.
  *
  * Files from the computer are left out: the browser test server hands the
  * application no uploaded files (see AdminStudioPlansBrowserTest). The link
@@ -95,12 +96,38 @@ it('imports a pasted link without Save, analyses the photo, and polls until the 
     waitForScript($page, "document.querySelector('.rg-admin-studio__chooser').offsetParent === null");
 });
 
+it('lets the Discussion step generate once the photo\'s analysis is complete, with nothing saved for it', function () {
+    configureStudioDiscussionGeneration();
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    $generate = "(() => { const strip = document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__generate'); return (strip.querySelector('button').disabled ? 'off' : 'on') + ' · ' + strip.querySelector('.rg-admin-studio__generate-hint > span').textContent.trim() })()";
+
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued', 10.0);
+
+    // The Discussion step, drawn with the page, waits for the analysis.
+    expect($page->script($generate))->toBe('off · The discussion can be written once the photo’s analysis is complete.');
+
+    // On the Post step, a worker finishes the analysis.
+    $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
+    Http::fake(['api.openai.com/*' => Http::response(studioImageDescriptionBody(['summary' => 'Boats rest in a quiet harbour at dawn.']))]);
+    runStudioImageAnalysisJob(StudioPlanImageAnalysis::query()->sole());
+
+    // On the Discussion step, Generate tree is there without a save.
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][2].click()");
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 3 of 4 · Discussion');
+    waitForScript($page, $generate, 'on · One request to OpenAI — a paid call.');
+
+    expect(adminEditorTopBar($page))->toBe(['unsaved' => false, 'discard' => false, 'save' => false]);
+});
+
 it('makes the draft for the first photo on a new publication, and goes on with it with what was typed', function () {
     $page = visitAdminEditor('/admin/studio-plans/create');
 
     // A title typed first, on the Post step.
     $page->click('.rg-admin-studio__footer .rg-admin-button--primary');
-    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 2 of 4 · Post · Titles & texts');
     $page->script("(() => { const field = document.getElementById('rg-admin-studio-title'); field.value = 'Harbour at dawn'; field.dispatchEvent(new Event('input', { bubbles: true })) })()");
     $page->click('.rg-admin-studio__footer .rg-admin-button--secondary');
     waitForScript($page, "document.querySelector('.rg-admin-studio__position').textContent.trim()", 'Step 1 of 4 · Image');

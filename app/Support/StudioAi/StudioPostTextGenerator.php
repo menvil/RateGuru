@@ -6,8 +6,9 @@ use App\Enums\StudioPostTextTone;
 
 /**
  * Writes a batch of post text suggestions for Content Studio from a photo's
- * analysis — never the photo itself — in a tone: titles and descriptions,
- * as a validated StudioPostTextSuggestions, and the call that wrote them.
+ * analysis — never the photo itself — in a tone, and in the voice of the
+ * post's author when it has one: titles and descriptions, as a validated
+ * StudioPostTextSuggestions, and the call that wrote them.
  *
  * One implementation, OpenAiStudioPostTextGenerator. The contract is here so
  * the queue job and the editor ask the same question — is it configured? —
@@ -29,5 +30,5 @@ interface StudioPostTextGenerator
      *
      * @throws StudioPostTextGenerationFailedException with the reason, and the call's metadata when one was made
      */
-    public function generate(StudioImageDescription $description, StudioPostTextTone $tone): StudioPostTextGenerationResult;
+    public function generate(StudioImageDescription $description, StudioPostTextTone $tone, ?StudioPostTextAuthor $author = null): StudioPostTextGenerationResult;
 }

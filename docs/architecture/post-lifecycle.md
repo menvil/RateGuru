@@ -36,7 +36,7 @@ and the planned moment as the post's `created_at` and `updated_at`; then
 `ApprovePostAction`, as the administrator who approved the plan, publishes it
 on that moment rather than now. Both still ask their policies, the posting
 limit and the locked rows. Those parameters are the executor's alone: no form
-or screen passes them, and `tests/Unit/Actions/StudioTrustedPostParametersTest.php`
+or screen passes them, and `tests/Unit/Actions/StudioTrustedParametersTest.php`
 checks it.
 
 ## Author deletion vs moderation

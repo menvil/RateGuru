@@ -9,8 +9,10 @@ use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\UserStatus;
 use App\Models\MediaAsset;
+use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
+use App\Models\StudioPlanVote;
 use App\Models\User;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
@@ -430,6 +432,39 @@ it('lets an approval and another write to one draft take turns, never approving 
     'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
 );
 
+it('lets an approval and a save of votes take turns, approving only the votes it saw', function (string $leader) {
+    $db = committedConnection();
+    [$persona, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $plan = committedApprovableStudioPlan($first, $persona);
+    $directory = raceDirectory('studio-plan');
+    $approve = ['action' => 'plan-approve', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'disk' => $directory.'/disk'];
+    $votes = ['action' => 'votes-save', 'admin' => $second->id, 'plan' => $plan->id, 'version' => 1, 'votes' => [['type' => 'vote_post', 'personaUserId' => $voter->id, 'voteType' => 'up', 'offsetSeconds' => 60]], 'disk' => $directory.'/disk'];
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace($leader === 'approve'
+            ? [lockRaceCompetitor($directory, 'a', [...$approve, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$votes, 'sync' => 'follow'])]
+            : [lockRaceCompetitor($directory, 'a', [...$votes, 'sync' => 'lead']), lockRaceCompetitor($directory, 'b', [...$approve, 'sync' => 'follow'])]);
+
+        $after = $db->table('studio_plans')->where('id', $plan->id)->first();
+
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(1, $report)
+            ->and($results[1]['output'])->toContain($leader === 'approve' ? 'Only a draft publication plan' : 'changed by another administrator')
+            ->and($after->status)->toBe($leader === 'approve' ? 'approved' : 'draft')
+            ->and($db->table('studio_plan_actions')->where('studio_plan_id', $plan->id)->count())->toBe($leader === 'approve' ? 1 : 0)
+            ->and($db->table('studio_plan_votes')->where('studio_plan_id', $plan->id)->count())->toBe($leader === 'approve' ? 0 : 1);
+    } finally {
+        forgetStudioPlanRace($db, [$persona->id, $voter->id, $first->id, $second->id], $directory);
+    }
+})->with([
+    'the approval first: the votes refused' => ['approve'],
+    'the votes first: the approval refused' => ['votes'],
+])->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
 it('lets an approval and a ban of its author take turns rather than deadlocking, approving only a Persona still able to publish', function () {
     $db = committedConnection();
 
@@ -462,6 +497,113 @@ it('lets an approval and a ban of its author take turns rather than deadlocking,
         }
     } finally {
         forgetStudioPlanRace($db, [$persona->id, $approver->id, $moderator->id], $directory);
+    }
+})->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
+it('lets an approval and a ban of a Persona of its discussion take turns, never approving a comment the ban has already reached', function () {
+    $db = committedConnection();
+    // The commenter first, so its id is the lowest: both lock it before anyone else.
+    $commenter = User::factory()->persona()->connection('committed_peer')->create();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $plan = committedApprovableStudioPlan($first, $persona);
+    StudioDiscussionNode::factory()->connection('committed_peer')->create(['studio_plan_id' => $plan->id, 'persona_user_id' => $commenter->id, 'body' => 'Lovely light.', 'offset_seconds' => 300]);
+    $directory = raceDirectory('studio-plan');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            lockRaceCompetitor($directory, 'a', ['action' => 'plan-approve', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'disk' => $directory.'/disk']),
+            lockRaceCompetitor($directory, 'b', ['action' => 'ban', 'admin' => $second->id, 'persona' => $commenter->id, 'disk' => $directory.'/disk']),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('users')->where('id', $commenter->id)->value('status'))->toBe('banned');
+
+        $after = $db->table('studio_plans')->where('id', $plan->id)->first();
+        $actions = $db->table('studio_plan_actions')->where('studio_plan_id', $plan->id)->orderBy('id')->pluck('type')->all();
+
+        // Approved before the ban, with its comment — which the executor then
+        // cancels — or refused after it, approving nothing.
+        if ($results[0]['status'] === 0) {
+            expect($after->status)->toBe('approved')->and($actions)->toBe(['create_post', 'create_comment']);
+        } else {
+            expect($results[0]['output'])->toContain('discussion_persona_restricted')
+                ->and($after->status)->toBe('draft')
+                ->and($actions)->toBe([]);
+        }
+    } finally {
+        forgetStudioPlanRace($db, [$commenter->id, $persona->id, $first->id, $second->id], $directory);
+    }
+})->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
+it('approves a draft with votes once when two administrators approve it at once, writing each of its actions once', function () {
+    $db = committedConnection();
+    [$persona, $voter] = User::factory()->persona()->count(2)->connection('committed_peer')->create();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $plan = committedApprovableStudioPlan($first, $persona);
+    StudioPlanVote::factory()->connection('committed_peer')->create(['studio_plan_id' => $plan->id, 'persona_user_id' => $voter->id]);
+    $directory = raceDirectory('studio-plan');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            lockRaceCompetitor($directory, 'a', ['action' => 'plan-approve', 'sync' => 'lead', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'disk' => $directory.'/disk']),
+            lockRaceCompetitor($directory, 'b', ['action' => 'plan-approve', 'sync' => 'follow', 'admin' => $second->id, 'plan' => $plan->id, 'version' => 1, 'disk' => $directory.'/disk']),
+        ]);
+
+        expect($results[0]['status'])->toBe(0, $report)
+            ->and($results[1]['status'])->toBe(1, $report)
+            ->and($results[1]['output'])->toContain('Only a draft publication plan')
+            ->and($db->table('studio_plans')->where('id', $plan->id)->value('status'))->toBe('approved')
+            ->and($db->table('studio_plan_actions')->where('studio_plan_id', $plan->id)->orderBy('id')->pluck('type')->all())->toBe(['create_post', 'vote_post']);
+    } finally {
+        forgetStudioPlanRace($db, [$persona->id, $voter->id, $first->id, $second->id], $directory);
+    }
+})->skip(
+    fn (): bool => config('database.default') !== 'pgsql',
+    'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).',
+);
+
+it('lets an approval and a ban of a voting Persona take turns rather than deadlocking, never approving a vote the ban has already reached', function () {
+    $db = committedConnection();
+    // The voter first, so its id is the lowest: both lock it before anyone else.
+    $voter = User::factory()->persona()->connection('committed_peer')->create();
+    $persona = User::factory()->persona()->connection('committed_peer')->create();
+    [$first, $second] = User::factory()->admin()->count(2)->connection('committed_peer')->create();
+    $plan = committedApprovableStudioPlan($first, $persona);
+    StudioPlanVote::factory()->connection('committed_peer')->create(['studio_plan_id' => $plan->id, 'persona_user_id' => $voter->id]);
+    $directory = raceDirectory('studio-plan');
+
+    try {
+        ['results' => $results, 'report' => $report] = finishedRace([
+            lockRaceCompetitor($directory, 'a', ['action' => 'plan-approve', 'admin' => $first->id, 'plan' => $plan->id, 'version' => 1, 'disk' => $directory.'/disk']),
+            lockRaceCompetitor($directory, 'b', ['action' => 'ban', 'admin' => $second->id, 'persona' => $voter->id, 'disk' => $directory.'/disk']),
+        ]);
+
+        expect($report)->not->toContain('eadlock')
+            ->and($results[1]['status'])->toBe(0, $report)
+            ->and($db->table('users')->where('id', $voter->id)->value('status'))->toBe('banned');
+
+        $after = $db->table('studio_plans')->where('id', $plan->id)->first();
+        $actions = $db->table('studio_plan_actions')->where('studio_plan_id', $plan->id)->orderBy('id')->pluck('type')->all();
+
+        // Approved before the ban, with its vote — which the executor then
+        // cancels — or refused after it, approving nothing.
+        if ($results[0]['status'] === 0) {
+            expect($after->status)->toBe('approved')->and($actions)->toBe(['create_post', 'vote_post']);
+        } else {
+            expect($results[0]['output'])->toContain('vote_persona_restricted')
+                ->and($after->status)->toBe('draft')
+                ->and($actions)->toBe([]);
+        }
+    } finally {
+        forgetStudioPlanRace($db, [$voter->id, $persona->id, $first->id, $second->id], $directory);
     }
 })->skip(
     fn (): bool => config('database.default') !== 'pgsql',

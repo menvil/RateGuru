@@ -5,10 +5,12 @@ use App\Data\Studio\StudioPlanData;
 use App\Enums\MediaKind;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
+use App\Enums\UserStatus;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
+use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Models\Category;
 use App\Models\MediaAsset;
 use App\Models\Post;
@@ -317,4 +319,55 @@ it('puts the empty draft back on Discard, the photo already saved staying', func
         ->assertViewHas('shownPhoto', fn (?array $photo): bool => $photo !== null);
 
     expect(StudioPlan::query()->sole()->image_asset_id)->not->toBeNull();
+});
+
+it('starts with an active persona drawn as the author: no change, Discard back to it, and the first photo\'s draft made with it', function () {
+    Queue::fake();
+    $persona = User::factory()->persona()->create();
+    User::factory()->persona()->create(['status' => UserStatus::Banned]);
+
+    $page = Livewire::test(CreateStudioPlan::class)
+        ->assertSet('startAuthorId', $persona->id)->assertSet('authorUserId', (string) $persona->id)
+        ->assertSet('saved', fn (array $saved): bool => $saved['authorUserId'] === (string) $persona->id)
+        ->call('clearAuthor')->assertSet('authorUserId', '')
+        ->dispatch('discard-studio-plan')->assertSet('authorUserId', (string) $persona->id)
+        ->upload('photo', [UploadedFile::fake()->image('a.jpg', 50, 50)])->assertHasNoErrors();
+
+    expect(StudioPlan::query()->sole()->author_user_id)->toBe($persona->id);
+
+    // With no active persona, no author.
+    $persona->forceFill(['status' => UserStatus::Limited])->save();
+    Livewire::test(CreateStudioPlan::class)->assertSet('startAuthorId', null)->assertSet('authorUserId', '');
+});
+
+it('picks another active persona at random as the author, and says when there is none', function () {
+    [$anna, $boris] = User::factory()->persona()->count(2)->create()->all();
+    $page = Livewire::test(CreateStudioPlan::class)->call('goToStep', 'post')->call('chooseAuthor', $anna->id)
+        ->assertSeeHtml('wire:click="pickRandomAuthor"')
+        ->call('pickRandomAuthor')->assertHasNoErrors()->assertSet('authorUserId', (string) $boris->id);
+
+    $anna->forceFill(['status' => UserStatus::Banned])->save();
+
+    $page->call('pickRandomAuthor')->assertHasErrors(['authorUserId'])->assertSet('authorUserId', (string) $boris->id);
+});
+
+it('opens the editor a save here makes on the step it was on, generating there when Generate tree asked for the save — once', function () {
+    Queue::fake();
+    $page = Livewire::test(CreateStudioPlan::class)
+        ->upload('photo', [UploadedFile::fake()->image('a.jpg', 50, 50)])
+        ->call('goToStep', 'discussion')->set('postTitle', 'A harbour at dawn')
+        ->dispatch('save-studio-plan', then: 'generate');
+    $plan = StudioPlan::query()->sole();
+
+    $page->assertRedirect(EditStudioPlan::getUrl(['record' => $plan->id]));
+    expect($plan->title)->toBe('A harbour at dawn')
+        ->and(session(CreateStudioPlan::RESUME))->toBe(['plan' => $plan->id, 'step' => 'discussion', 'postTab' => 'texts', 'generate' => true, 'suggest' => false]);
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->assertSet('step', 'discussion')
+        ->assertDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT, planId: $plan->id);
+
+    // Read once: the editor opened again stays on its first step and generates nothing.
+    session()->forget(CreateStudioPlan::RESUME);
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])->assertSet('step', 'image')
+        ->assertNotDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT);
 });
