@@ -366,7 +366,7 @@ it('is configured with photo analysis\'s key and settings, and its own beside th
         ->and(config('content_studio.post_text_generation'))->toBe([
             'batch_size' => 10,
             'connect_timeout' => 5,
-            'timeout' => 45,
+            'timeout' => 70,
             'max_output_tokens' => 4000,
             'stale_after_seconds' => 180,
         ]);

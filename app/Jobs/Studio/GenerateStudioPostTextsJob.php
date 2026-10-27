@@ -20,8 +20,8 @@ use Throwable;
  * through StudioPostTextGenerator.
  *
  * It carries only the batch's id and attempt id — no texts, no analysis and
- * no key — and its timings nest as photo analysis's do: the provider's 45 s
- * inside this job's 75 s, inside the Redis queue's 90 s retry_after. Exactly
+ * no key — and its timings nest as photo analysis's do: the provider's 70 s
+ * inside this job's 80 s, inside the Redis queue's 90 s retry_after. Exactly
  * once, at most: the job claims its batch before anything else
  * (StartStudioPostTextGenerationAction), and only a queued batch with that
  * attempt id can be claimed, so a job delivered twice sends nothing. It is
@@ -43,7 +43,7 @@ final class GenerateStudioPostTextsJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 75;
+    public int $timeout = 80;
 
     public bool $failOnTimeout = true;
 
