@@ -102,6 +102,30 @@ it('draws again the editors a save of the post, or of the discussion, changes', 
     expect(drawnFor($editors, $this->plan, $version + 1, 'discussion'))->toBe(['commentVotes']);
 });
 
+it('draws an editor as ever for a click or a field carried on the same request as another editor\'s write', function () {
+    $version = $this->plan->lock_version;
+    $write = fn (string $source): array => ['method' => '__dispatch', 'params' => [StudioPlanDiscussionEditor::VERSION_EVENT, ['planId' => $this->plan->id, 'previous' => $version, 'current' => $version + 1, 'source' => $source]], 'path' => ''];
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id]);
+    $commentVotes = discussionVotesEditor($this->plan)->set('voterMode', 'manual');
+    saveStudioVotes($this->admin, $this->plan, [studioVote(['type' => 'vote_post', 'personaUserId' => $this->carl->id, 'voteType' => 'up', 'offsetSeconds' => 60])]);
+
+    // The Timing tab clicked while the post votes' own write is said to every editor.
+    $postVotes = postVotesEditor($this->plan->fresh())->assertSet('lockVersion', $version + 1)
+        ->update(calls: [$write(StudioPlanPostVotesEditor::SOURCE)], updates: ['tab' => 'timing'])
+        ->assertSet('tab', 'timing')->assertSeeHtml('data-vote="post:'.$this->carl->id.'"');
+
+    expect(drawnAgain($postVotes))->toBeTrue();
+
+    // A step clicked on the page, and a search typed in the comment votes, on the request a vote's save is said on.
+    $page->update(calls: [$write(StudioPlanPostVotesEditor::SOURCE), ['method' => 'goToStep', 'params' => ['discussion'], 'path' => '']])
+        ->assertSet('step', 'discussion')->assertSet('lockVersion', $version + 1);
+    $commentVotes->update(calls: [$write(StudioPlanPostVotesEditor::SOURCE)], updates: ['voterSearch' => 'Anna'])
+        ->assertSet('lockVersion', $version + 1)->assertSee('Anna');
+
+    expect(drawnAgain($page))->toBeTrue()
+        ->and(drawnAgain($commentVotes))->toBeTrue();
+});
+
 it('draws the page again for another editor\'s write on its Publication step, where it shows the plan as saved', function () {
     $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id])->call('goToStep', 'publication');
     $version = $this->plan->lock_version;

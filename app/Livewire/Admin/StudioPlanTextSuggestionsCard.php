@@ -19,6 +19,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -144,11 +145,22 @@ final class StudioPlanTextSuggestionsCard extends Component
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
     #[On(StudioPlanDiscussionEditor::RELOAD_EVENT)]
+    #[Renderless]
     public function planMoved(mixed $source = null): void
     {
-        if (in_array($source, ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
-            $this->skipRender();
+        if (! in_array($source, ['discussion', StudioPlanPostVotesEditor::SOURCE, StudioPlanDiscussionVotesEditor::SOURCE], true)) {
+            $this->forceRender();
         }
+    }
+
+    /**
+     * A field set on a request that also carries another editor's write is
+     * drawn too: the listener above is renderless (#[Renderless]), which
+     * Livewire honours only when a request carries nothing else.
+     */
+    public function updated(): void
+    {
+        $this->forceRender();
     }
 
     public function useTitle(mixed $generationId, mixed $index): void

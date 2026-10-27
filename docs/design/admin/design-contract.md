@@ -409,8 +409,9 @@ In production the locked identifier, the number stepper and the switch are Blade
   the error, and the warning notice once unlocked, all tied to the input. Attributes go to the input.
 - **`x-admin.ui.number-stepper` (FRM-05):** minus and plus named after the field (“Decrease sort order”) that step
   within min and max and tell the input it changed, so `wire:model` and `x-model` see a step as typing. The number
-  is typed straight in: focusing it selects it, so typing replaces it, and ↑ and ↓ step it as the buttons do; what
-  is typed is the server's to validate.
+  is typed straight in: focusing it selects it, so typing replaces it, and ↑ and ↓ step it as the buttons do; a
+  whole number typed is the server's to validate. Anything else — the field emptied to type another number, a sign
+  alone — is never told to `wire:model`, and a field left without a number gets back the last one it held.
 - **`x-admin.ui.switch` (FRM-06):** a real button with `role="switch"` and `aria-checked`, named by its label, the
   state in words beside it and a hint for each state; really disabled when disabled; its value exposed to
   `wire:model` and `x-model` (`x-modelable`).

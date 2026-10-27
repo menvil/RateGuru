@@ -27,6 +27,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -703,19 +704,16 @@ final class StudioPlanPostVotesEditor extends Component
      * conflict: the discussion's writes change nothing drawn here.
      */
     #[On(StudioPlanDiscussionEditor::VERSION_EVENT)]
+    #[Renderless]
     public function followVersion(mixed $planId, mixed $previous, mixed $current, mixed $source = null): void
     {
         if ($source === self::SOURCE || ! is_numeric($planId) || (int) $planId !== $this->planId || ! is_numeric($previous) || ! is_numeric($current)) {
-            $this->drawnAgainIf(false);
-
             return;
         }
 
         [$previous, $current] = [(int) $previous, (int) $current];
 
         if ($current === $this->lockVersion) {
-            $this->drawnAgainIf(false);
-
             return;
         }
 
@@ -728,14 +726,26 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         $this->conflict = true;
+        $this->forceRender();
     }
 
-    /** Draws the editor again only when something it shows changed, or a change of its own on this request is still to be saved. */
+    /**
+     * Draws the editor again only when something it shows changed. The
+     * listener is renderless (#[Renderless]), which Livewire honours only when
+     * a request carries nothing else for this editor: a click, or a setting,
+     * on the same request is drawn — and saved — as ever.
+     */
     private function drawnAgainIf(bool $changed): void
     {
-        if (! $changed && ! $this->changed) {
-            $this->skipRender();
+        if ($changed) {
+            $this->forceRender();
         }
+    }
+
+    /** A field set on a request that also carries another editor's write is drawn too. */
+    public function updated(): void
+    {
+        $this->forceRender();
     }
 
     public function render(): View

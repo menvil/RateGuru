@@ -881,7 +881,11 @@ save (`editor`) draws the discussion, both votes editors and the text
 suggestions again; the discussion's write draws the comment votes; a save of
 either votes editor draws no other editor. The page draws itself again only
 on the Publication step, which shows the plan as saved, or to take back its
-notice. A setting a request carries along with another editor's move is saved
+notice. The listeners are renderless (`#[Renderless]`), and an editor that
+must draw itself asks to (`forceRender()`): Livewire skips the drawing only
+when a request carries nothing else for that editor, so a click or a field the
+browser sends on the same request — a tab, a step, a search — is drawn as
+ever. A setting a request carries along with another editor's move is saved
 once, at the version that move left, and drawn.
 
 A change that can't be saved is not left behind unasked: Back, Continue and

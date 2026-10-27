@@ -152,7 +152,11 @@ trait EditsRatingGroupSettings
             $min > $max => ['draftMin' => 'Minimum can’t be higher than the maximum.'],
             ! $this->draftActive => [],
             $active < $min => ['draftMin' => "{$are} active, fewer than this minimum."],
-            $active > $max => ['draftMax' => "{$are} active. Deactivate or archive ".($active - $max).' first.'],
+            // A maximum that can still go up says so first: a group made when fewer options were allowed
+            // keeps that maximum until it is raised here.
+            $active > $max => ['draftMax' => $active <= RatingGroup::MOST_OPTIONS
+                ? "{$are} active. Raise the maximum to {$active}, or deactivate or archive ".($active - $max).'.'
+                : "{$are} active. Deactivate or archive ".($active - $max).' first.'],
             default => [],
         };
     }

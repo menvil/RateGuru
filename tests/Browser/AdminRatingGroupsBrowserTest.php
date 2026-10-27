@@ -93,7 +93,7 @@ it('keeps Save waiting while the range cannot hold the active options, and says 
     $page->click('button[aria-label="Decrease maximum active options"]');
     waitForScript($page, "document.getElementById('rg-admin-rating-group-max').value", '3');
     $page->click('button[aria-label="Decrease maximum active options"]');
-    waitForScript($page, "document.getElementById('rg-admin-rating-group-max-error')?.textContent.trim() ?? ''", '3 options are active. Deactivate or archive 1 first.');
+    waitForScript($page, "document.getElementById('rg-admin-rating-group-max-error')?.textContent.trim() ?? ''", '3 options are active. Raise the maximum to 3, or deactivate or archive 1.');
     waitForScript($page, "document.querySelector('.rg-admin-topbar__editor .rg-admin-button--primary').disabled && getComputedStyle(document.querySelector('.rg-admin-topbar__unsaved')).display !== 'none'");
 
     expect(adminEditorTopBar($page))->toBe(['unsaved' => true, 'discard' => true, 'save' => false]);

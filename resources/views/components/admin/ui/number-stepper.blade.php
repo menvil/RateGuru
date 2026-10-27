@@ -18,8 +18,11 @@
      * replaces it, and ↑ and ↓ step it as the buttons do. A step starts from
      * what the field holds, stays within min and max, and tells the input it
      * changed, so wire:model or x-model sees a step as it sees typing.
-     * Attributes go to the input (wire:model="sortOrder"); what is typed is
-     * the server's to validate.
+     * Attributes go to the input (wire:model="sortOrder"); a whole number
+     * typed is the server's to validate. Anything else — the field emptied to
+     * type another number, a sign alone — is never told to wire:model, which
+     * would unset an `int` property: the field waits for a number, and left
+     * without one gets back the last number it held.
      *
      * Optional: `range`, the bounds said at the right of the label (“0–40”),
      * and `unit`, what the number counts, after the control (“comments”).
@@ -47,6 +50,14 @@
                 // Focused by a click: the click's mouseup would put the caret
                 // in and lose the selection focusing made, so that one is held.
                 justFocused: false,
+                // The last whole number the field held, as wire:model last saw it.
+                kept: null,
+                whole(text) {
+                    return /^-?\d+$/.test(String(text).trim())
+                },
+                restore(input) {
+                    input.value = this.kept ?? input.defaultValue
+                },
                 step(by) {
                     const input = this.$refs.input
                     const current = Number.parseInt(input.value, 10)
@@ -73,9 +84,12 @@
                 autocomplete="off"
                 title="Type a number, or step it with − and + or the arrow keys"
                 x-ref="input"
-                x-on:focus="$el.select(); justFocused = true"
+                x-on:focus="$el.select(); justFocused = true; if (whole($el.value)) kept = $el.value"
                 x-on:mouseup="if (justFocused) $event.preventDefault(); justFocused = false"
-                x-on:blur="justFocused = false"
+                x-on:blur="justFocused = false; if (! whole($el.value)) restore($el)"
+                {{-- At the input, these run before wire:model's own listeners, so a field that holds no number tells it nothing. --}}
+                x-on:input.capture="if (whole($el.value)) { kept = $el.value } else { $event.stopImmediatePropagation() }"
+                x-on:change.capture="if (! whole($el.value)) { $event.stopImmediatePropagation(); restore($el) }"
                 x-on:keydown.arrow-up.prevent="step(1)"
                 x-on:keydown.arrow-down.prevent="step(-1)"
                 @if ($error !== null) aria-invalid="true" @endif
