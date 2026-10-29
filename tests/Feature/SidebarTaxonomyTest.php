@@ -40,8 +40,36 @@ it('links top tags through the dedicated tag filter', function () {
 
     $this->get('/')
         ->assertOk()
+        ->assertSee(__('ui.nav.top_tags_heading'))
         ->assertSee('?tag=pasta', false)
         ->assertDontSee('?search=pasta', false);
+});
+
+it('leaves the top tags out, with no made-up ones, while no published post has a tag', function () {
+    // Tags exist, but only on posts nobody can see, and the published post has none.
+    $tag = Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta']);
+    Post::factory()->published()->create();
+    Post::factory()->pending()->create()->tags()->attach($tag);
+    Post::factory()->hidden()->create()->tags()->attach($tag);
+
+    $deleted = Post::factory()->published()->create();
+    $deleted->tags()->attach($tag);
+    $deleted->delete();
+
+    $this->get('/')
+        ->assertOk()
+        ->assertDontSee(__('ui.nav.top_tags_heading'))
+        ->assertDontSee('?tag=', false)
+        ->assertDontSee('#sample-a');
+});
+
+it('leaves the top tags out on a site with no posts at all', function () {
+    Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta']);
+
+    $this->get('/')
+        ->assertOk()
+        ->assertDontSee(__('ui.nav.top_tags_heading'))
+        ->assertDontSee('?tag=', false);
 });
 
 it('refreshes cached sidebar categories after admin taxonomy changes', function () {

@@ -10,7 +10,7 @@
 
 - App background uses `--rg-bg` / `--rg-shell-bg`.
 - Topbar height is 60px with logo, search, upload, notification, and avatar.
-- Sidebar width is 240px with nav, categories, top tags, and footer links.
+- Sidebar width is 240px with nav, categories, top tags, and footer links. Top tags are the tags published posts carry; while none does, the section is left out, never filled with placeholders.
 - Desktop uses feed/detail grid: feed column plus persistent right detail column.
 - Dense columns are scrollable with custom dark scrollbars.
 
