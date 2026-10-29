@@ -29,6 +29,13 @@ description: >-
 # continue-on-error, and the summary states plainly what was and was not
 # recorded.
 #
+# Nightwatch is not every target's: only a target in the closed allowlist
+# target_nightwatch_program() keeps in infrastructure/scripts/common has a
+# Nightwatch program and a sudoers grant for the marker wrapper. Any other
+# target records its Sentry marker exactly as before and is never asked for a
+# Nightwatch one — no SSH material written, no connection, no sudo — and the
+# summary says so as a skip, not a failure.
+#
 # Input validation is the one deliberate exception. A malformed release ID or
 # environment can only come from a mistake in this repository's own workflows,
 # never from the network or the host, so it fails closed rather than silently
@@ -168,11 +175,32 @@ runs:
             ;;
         esac
 
+        # Whether this target has a Nightwatch deployment marker at all — the
+        # same closed allowlist as target_nightwatch_program() in
+        # infrastructure/scripts/common, which the server-side wrapper and the
+        # sudoers grant follow. A target outside it could only meet sudo's
+        # refusal on its host, so it is not asked: having no Nightwatch is its
+        # policy, not a failure. Decided by the target rather than the
+        # environment class, so a second staging target is not enabled merely
+        # by being staging.
+        case "${DEPLOYMENT_TARGET}" in
+          staging-main)
+            nightwatch_supported="true"
+            ;;
+          *)
+            nightwatch_supported="false"
+            ;;
+        esac
+
+        echo "nightwatch_supported=${nightwatch_supported}" >> "${GITHUB_OUTPUT}"
+
         # An environment that has not been given the deployment SSH material
         # still deploys normally; it just records no Nightwatch marker. Missing
         # configuration is reported, never fatal — the same rule the Sentry
         # action applies to its own credentials.
-        if [[ -n "${DEPLOY_HOST}" ]] \
+        if [[ "${nightwatch_supported}" != "true" ]]; then
+          echo "Nightwatch deployment marker skipped: not supported for target ${DEPLOYMENT_TARGET}."
+        elif [[ -n "${DEPLOY_HOST}" ]] \
           && [[ -n "${DEPLOY_USER}" ]] \
           && [[ "${SSH_KEY_PRESENT}" == "true" ]] \
           && [[ "${KNOWN_HOSTS_PRESENT}" == "true" ]]
@@ -209,7 +237,7 @@ runs:
     # reports usability through an output instead of its exit status.
     - name: Configure observability SSH
       id: ssh
-      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' }}
+      if: ${{ steps.preflight.outputs.nightwatch_supported == 'true' && steps.preflight.outputs.nightwatch_configured == 'true' }}
       shell: bash
       env:
         SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
@@ -256,7 +284,7 @@ runs:
     # continue-on-error is the whole point: the deployment already succeeded.
     - name: Record Nightwatch deployment marker
       id: nightwatch
-      if: ${{ steps.preflight.outputs.nightwatch_configured == 'true' && steps.ssh.outputs.usable == 'true' }}
+      if: ${{ steps.preflight.outputs.nightwatch_supported == 'true' && steps.preflight.outputs.nightwatch_configured == 'true' && steps.ssh.outputs.usable == 'true' }}
       continue-on-error: true
       shell: bash
       env:
@@ -298,6 +326,7 @@ runs:
         ENVIRONMENT: ${{ inputs.environment }}
         RELEASE_ID: ${{ inputs.release-id }}
         SOURCE_SHA: ${{ inputs.source-sha }}
+        SUPPORTED: ${{ steps.preflight.outputs.nightwatch_supported }}
         CONFIGURED: ${{ steps.preflight.outputs.nightwatch_configured }}
         KEY_USABLE: ${{ steps.ssh.outputs.usable }}
         OUTCOME: ${{ steps.nightwatch.outcome }}
@@ -305,17 +334,30 @@ runs:
       run: |
         set -Eeuo pipefail
 
-        if [[ "${CONFIGURED}" != "true" ]]; then
+        # Three reasons for no marker, kept apart: a target Nightwatch is not
+        # enabled for (policy), a supported target without SSH material
+        # (configuration), and a marker that was attempted and failed (an
+        # observability gap). Only an explicit "false" means unsupported, so a
+        # preflight that never ran is not passed off as policy.
+        if [[ "${SUPPORTED}" == "false" ]]; then
           recorded="false"
+          nightwatch_status="skipped (not enabled for this target)"
+          nightwatch_summary="Nightwatch deployment marker skipped: not supported for target ${DEPLOYMENT_TARGET}."
+        elif [[ "${CONFIGURED}" != "true" ]]; then
+          recorded="false"
+          nightwatch_status="skipped (no deployment SSH material)"
           nightwatch_summary="Nightwatch deployment marker skipped: the ${ENVIRONMENT} environment has no deployment SSH material."
         elif [[ "${KEY_USABLE}" != "true" ]]; then
           recorded="false"
+          nightwatch_status="skipped (deployment SSH key unusable)"
           nightwatch_summary="Nightwatch deployment marker skipped: the ${ENVIRONMENT} deployment SSH key could not be read. The deployment itself succeeded and is unaffected."
         elif [[ "${OUTCOME}" == "success" ]]; then
           recorded="true"
+          nightwatch_status="recorded"
           nightwatch_summary="Nightwatch recorded a deployment of \`${RELEASE_ID}\` on \`${DEPLOYMENT_TARGET}\`."
         else
           recorded="false"
+          nightwatch_status="failed (observability gap only)"
           nightwatch_summary="Nightwatch deployment marker FAILED. The deployment itself succeeded and the target is serving \`${RELEASE_ID}\`; this is an observability gap and must not be rolled back for."
         fi
 
@@ -330,6 +372,7 @@ runs:
           echo "- Source commit: \`${SOURCE_SHA}\`"
           echo "- Sentry recorded: \`${SENTRY_RECORDED:-false}\`"
           echo "- Nightwatch recorded: \`${recorded}\`"
+          echo "- Nightwatch: ${nightwatch_status}"
           echo
           echo "${nightwatch_summary}"
         } >> "${GITHUB_STEP_SUMMARY}"
