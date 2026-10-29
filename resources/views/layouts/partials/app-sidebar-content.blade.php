@@ -35,22 +35,19 @@
     </div>
 </div>
 
-<div class="mt-7">
-    <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.nav.top_tags_heading') }}</p>
-    <div class="mt-3 flex flex-wrap gap-2 px-3">
-        @forelse ($topTags as $tag)
-            <a href="{{ $tag['href'] }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                {{ $tag['label'] }}
-            </a>
-        @empty
-            @foreach ($fallbackTags as $tag)
+{{-- Only tags on published posts; with none, the section is left out rather than filled with made-up ones. --}}
+@if ($topTags !== [])
+    <div class="mt-7">
+        <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.nav.top_tags_heading') }}</p>
+        <div class="mt-3 flex flex-wrap gap-2 px-3">
+            @foreach ($topTags as $tag)
                 <a href="{{ $tag['href'] }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
                     {{ $tag['label'] }}
                 </a>
             @endforeach
-        @endforelse
+        </div>
     </div>
-</div>
+@endif
 
 <div class="mt-auto border-t border-rg-border pt-4 flex flex-wrap gap-x-3 gap-y-2 px-3 text-xs text-rg-muted">
     <a href="{{ route('pages.about') }}" class="transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">{{ __('ui.nav.about') }}</a>
