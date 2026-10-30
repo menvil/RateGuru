@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Połączone konta',
-        'description' => 'Połącz konto Google lub Facebook, aby logować się za jego pomocą. Połączone konto może używać innego adresu e-mail niż Twoje konto RateGuru.',
+        'description' => 'Połącz konto Google lub Facebook, aby logować się za jego pomocą. Połączone konto może używać innego adresu e-mail niż Twoje konto :site.',
         'connect' => 'Połącz',
         'disconnect' => 'Odłącz',
         'not_connected' => 'Niepołączone',

@@ -90,7 +90,12 @@ it('draws its specimens without touching the database', function () {
 
     $this->get(ADMIN_UI_KIT_URL)->assertOk();
 
-    expect(DB::getQueryLog())->toBe([]);
+    // The panel around them is branded with the project's name, its one read
+    // of the project's settings; anything else would be the specimens'.
+    $queries = collect(DB::getQueryLog())->pluck('query')
+        ->reject(fn (string $query): bool => preg_match('/ from [`"]project_settings[`"] /', $query) === 1);
+
+    expect($queries->all())->toBe([]);
 });
 
 it('presents itself as the Admin v2 reference for developers', function () {

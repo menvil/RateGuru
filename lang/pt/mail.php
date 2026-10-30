@@ -37,12 +37,12 @@ return [
         'action' => 'Revisar contas conectadas',
         'connected' => [
             'subject' => 'O :provider foi conectado à sua conta',
-            'line' => 'Uma conta do :provider foi conectada à sua conta do RateGuru. Agora ela pode ser usada para entrar.',
+            'line' => 'Uma conta do :provider foi conectada à sua conta do :site. Agora ela pode ser usada para entrar.',
             'not_you' => 'Se não foi você, abra seu perfil e desconecte-a imediatamente.',
         ],
         'disconnected' => [
             'subject' => 'O :provider foi desconectado da sua conta',
-            'line' => 'Uma conta do :provider foi desconectada da sua conta do RateGuru. Ela não pode mais ser usada para entrar.',
+            'line' => 'Uma conta do :provider foi desconectada da sua conta do :site. Ela não pode mais ser usada para entrar.',
             'not_you' => 'Se não foi você, entre e verifique suas contas conectadas e sua senha.',
         ],
     ],

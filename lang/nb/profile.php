@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Tilkoblede kontoer',
-        'description' => 'Koble til Google eller Facebook for å logge inn med dem. En tilkoblet konto kan bruke en annen e-postadresse enn RateGuru-kontoen din.',
+        'description' => 'Koble til Google eller Facebook for å logge inn med dem. En tilkoblet konto kan bruke en annen e-postadresse enn :site-kontoen din.',
         'connect' => 'Koble til',
         'disconnect' => 'Koble fra',
         'not_connected' => 'Ikke tilkoblet',

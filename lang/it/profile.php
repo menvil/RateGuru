@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Account collegati',
-        'description' => 'Collega Google o Facebook per accedere con questi servizi. Un account collegato può usare un indirizzo e-mail diverso da quello del tuo account RateGuru.',
+        'description' => 'Collega Google o Facebook per accedere con questi servizi. Un account collegato può usare un indirizzo e-mail diverso da quello del tuo account :site.',
         'connect' => 'Collega',
         'disconnect' => 'Scollega',
         'not_connected' => 'Non collegato',

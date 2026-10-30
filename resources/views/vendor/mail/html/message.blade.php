@@ -1,8 +1,12 @@
+@php
+    // The project's name from its settings, as the site shows it — not APP_NAME.
+    $siteName = app(\App\Support\Settings\ProjectSettingsManager::class)->current()->siteName();
+@endphp
 <x-mail::layout>
 {{-- Header --}}
 <x-slot:header>
 <x-mail::header :url="config('app.url')">
-{{ config('app.name') }}
+{{ $siteName }}
 </x-mail::header>
 </x-slot:header>
 
@@ -21,7 +25,7 @@
 {{-- Footer --}}
 <x-slot:footer>
 <x-mail::footer>
-© {{ date('Y') }} {{ config('app.name') }}. {{ __('mail.rights_reserved') }}
+© {{ date('Y') }} {{ $siteName }}. {{ __('mail.rights_reserved') }}
 </x-mail::footer>
 </x-slot:footer>
 </x-mail::layout>

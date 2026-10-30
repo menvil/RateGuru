@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Mga nakakonektang account',
-        'description' => 'Ikonekta ang Google o Facebook para makapag-sign in gamit ang mga ito. Maaaring gumamit ang nakakonektang account ng ibang email address kaysa sa iyong RateGuru account.',
+        'description' => 'Ikonekta ang Google o Facebook para makapag-sign in gamit ang mga ito. Maaaring gumamit ang nakakonektang account ng ibang email address kaysa sa iyong :site account.',
         'connect' => 'Ikonekta',
         'disconnect' => 'Idiskonekta',
         'not_connected' => 'Hindi nakakonekta',

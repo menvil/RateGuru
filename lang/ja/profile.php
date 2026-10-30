@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => '連携済みアカウント',
-        'description' => 'Google または Facebook を連携すると、それらのアカウントでログインできます。連携するアカウントのメールアドレスは、RateGuru アカウントと異なっていてもかまいません。',
+        'description' => 'Google または Facebook を連携すると、それらのアカウントでログインできます。連携するアカウントのメールアドレスは、:site アカウントと異なっていてもかまいません。',
         'connect' => '連携する',
         'disconnect' => '連携を解除',
         'not_connected' => '未連携',

@@ -37,12 +37,12 @@ return [
         'action' => 'Skoða tengda aðganga',
         'connected' => [
             'subject' => ':provider var tengt við aðganginn þinn',
-            'line' => 'Aðgangur hjá :provider var tengdur við aðganginn þinn á RateGuru. Nú er hægt að nota hann til innskráningar.',
+            'line' => 'Aðgangur hjá :provider var tengdur við aðganginn þinn á :site. Nú er hægt að nota hann til innskráningar.',
             'not_you' => 'Ef þetta varst ekki þú skaltu opna prófílinn þinn og aftengja hann strax.',
         ],
         'disconnected' => [
             'subject' => ':provider var aftengt frá aðganginum þínum',
-            'line' => 'Aðgangur hjá :provider var aftengdur frá aðganginum þínum á RateGuru. Ekki er lengur hægt að nota hann til innskráningar.',
+            'line' => 'Aðgangur hjá :provider var aftengdur frá aðganginum þínum á :site. Ekki er lengur hægt að nota hann til innskráningar.',
             'not_you' => 'Ef þetta varst ekki þú skaltu skrá þig inn og athuga tengda aðganga og lykilorðið þitt.',
         ],
     ],

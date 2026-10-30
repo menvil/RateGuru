@@ -65,7 +65,7 @@ return [
         'failed' => 'Sisselogimine teenusega :provider ebaõnnestus. Proovi uuesti.',
         'expired' => 'Sisselogimine teenusega :provider aegus enne lõpetamist. Alusta uuesti.',
         'email_missing' => 'Sinu :provider konto ei jaganud e-posti aadressi, seega ei saa seda sisselogimiseks kasutada.',
-        'email_taken' => 'Selle :provider konto e-posti aadress kuulub teisele RateGuru kontole. Logi sellele kontole sisse ja ühenda :provider seal.',
+        'email_taken' => 'Selle :provider konto e-posti aadress kuulub teisele :site kontole. Logi sellele kontole sisse ja ühenda :provider seal.',
         'link_expired' => 'Konto ühendamise seanss aegus või muutus. Alusta konto ühendamist uuesti.',
         'already_signed_in' => 'Oled juba sisse logitud. Et logida sisse ka teenusega :provider, ühenda see jaotises „Ühendatud kontod“.',
         'already_linked' => 'See :provider konto on juba ühendatud teise kontoga.',

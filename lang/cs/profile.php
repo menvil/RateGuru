@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Propojené účty',
-        'description' => 'Propoj si Google nebo Facebook a přihlašuj se přes ně. Propojený účet může používat jinou e-mailovou adresu než tvůj účet RateGuru.',
+        'description' => 'Propoj si Google nebo Facebook a přihlašuj se přes ně. Propojený účet může používat jinou e-mailovou adresu než tvůj účet :site.',
         'connect' => 'Propojit',
         'disconnect' => 'Odpojit',
         'not_connected' => 'Nepropojeno',

@@ -65,7 +65,7 @@ return [
         'failed' => 'Emme voineet kirjata sinua sisään :provider-tilillä. Yritä uudelleen.',
         'expired' => 'Kirjautuminen :provider-tilillä vanheni ennen kuin se valmistui. Aloita alusta.',
         'email_missing' => ':provider-tilisi ei jakanut sähköpostiosoitetta, joten sillä ei voi kirjautua.',
-        'email_taken' => 'Tämän :provider-tilin sähköpostiosoite kuuluu toiseen RateGuru-tiliin. Kirjaudu siihen tiliin ja yhdistä :provider-tili siellä.',
+        'email_taken' => 'Tämän :provider-tilin sähköpostiosoite kuuluu toiseen :site-tiliin. Kirjaudu siihen tiliin ja yhdistä :provider-tili siellä.',
         'link_expired' => 'Tilin yhdistämisistunto vanheni tai muuttui. Aloita tilin yhdistäminen uudelleen.',
         'already_signed_in' => 'Olet jo kirjautunut sisään. Jos haluat kirjautua myös :provider-tilillä, yhdistä se kohdassa ”Yhdistetyt tilit”.',
         'already_linked' => 'Tämä :provider-tili on jo yhdistetty toiseen tiliin.',

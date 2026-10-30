@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Bağlı hesaplar',
-        'description' => 'Google veya Facebook ile giriş yapmak için bu hesapları bağlayın. Bağlı bir hesap, RateGuru hesabınızdan farklı bir e-posta adresi kullanabilir.',
+        'description' => 'Google veya Facebook ile giriş yapmak için bu hesapları bağlayın. Bağlı bir hesap, :site hesabınızdan farklı bir e-posta adresi kullanabilir.',
         'connect' => 'Bağla',
         'disconnect' => 'Bağlantıyı kes',
         'not_connected' => 'Bağlı değil',

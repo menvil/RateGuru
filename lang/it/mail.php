@@ -37,12 +37,12 @@ return [
         'action' => 'Controlla gli account collegati',
         'connected' => [
             'subject' => ':provider è stato collegato al tuo account',
-            'line' => 'Un account :provider è stato collegato al tuo account RateGuru. Ora può essere usato per accedere.',
+            'line' => 'Un account :provider è stato collegato al tuo account :site. Ora può essere usato per accedere.',
             'not_you' => 'Se non sei stato tu, apri il tuo profilo e scollegalo subito.',
         ],
         'disconnected' => [
             'subject' => ':provider è stato scollegato dal tuo account',
-            'line' => 'Un account :provider è stato scollegato dal tuo account RateGuru. Non può più essere usato per accedere.',
+            'line' => 'Un account :provider è stato scollegato dal tuo account :site. Non può più essere usato per accedere.',
             'not_you' => 'Se non sei stato tu, accedi e controlla i tuoi account collegati e la tua password.',
         ],
     ],

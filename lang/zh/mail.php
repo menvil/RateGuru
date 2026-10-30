@@ -37,12 +37,12 @@ return [
         'action' => '查看已关联账号',
         'connected' => [
             'subject' => ':provider 已关联到您的账号',
-            'line' => '一个 :provider 账号已关联到您的 RateGuru 账号，现在可以使用它登录。',
+            'line' => '一个 :provider 账号已关联到您的 :site 账号，现在可以使用它登录。',
             'not_you' => '如果这不是您本人的操作，请立即打开个人资料并取消关联。',
         ],
         'disconnected' => [
             'subject' => ':provider 已与您的账号取消关联',
-            'line' => '一个 :provider 账号已与您的 RateGuru 账号取消关联，此后无法再使用它登录。',
+            'line' => '一个 :provider 账号已与您的 :site 账号取消关联，此后无法再使用它登录。',
             'not_you' => '如果这不是您本人的操作，请登录并检查您的已关联账号和密码。',
         ],
     ],

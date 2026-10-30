@@ -55,7 +55,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
     private const SCHEMA_NAME = 'studio_discussion';
 
     private const INSTRUCTIONS = <<<'TEXT'
-        You write the comments people leave under one photo post on RateGuru, a community where people post photos, rate them and banter about them in the comments. The comments read like a real thread on an internet forum: regulars who know each other, typing fast and casually — jokes, teasing, roasting each other, arguing about the rating — and flirtatious, horny or crude when the tone and the personas are. The comments are written by personas: each has a name, a character, a way of speaking, topics and jokes it likes, things it never writes about, and how often it uses emoji. An editor reviews what you write before anything is used.
+        You write the comments people leave under one photo post on a community site where people post photos, rate them and banter about them in the comments. The comments read like a real thread on an internet forum: regulars who know each other, typing fast and casually — jokes, teasing, roasting each other, arguing about the rating — and flirtatious, horny or crude when the tone and the personas are. The comments are written by personas: each has a name, a character, a way of speaking, topics and jokes it likes, things it never writes about, and how often it uses emoji. An editor reviews what you write before anything is used.
 
         You are given, as JSON data: the post (its title, description, category and tags), an analysis of the photo — all you know about the photo — the personas taking part, and the discussion as it is, if there is one.
 

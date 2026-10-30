@@ -19,8 +19,10 @@ use Livewire\Component;
  * the admin search (GlobalSearch), which ⌘K / Ctrl+K focuses from anywhere,
  * opening the drawer first when the sidebar is collapsed. What it lists comes from
  * Filament's navigation through AdminShellNavigation, so a destination the
- * user may not open is never drawn. It runs no queries: the account block
- * reads the user already authenticated for this request.
+ * user may not open is never drawn. It runs no queries of its own: the
+ * workspace is the panel's brand — the project's site name, read once per
+ * request with the rest of its settings — and the account block reads the
+ * user already authenticated for this request.
  */
 final class Sidebar extends Component
 {
@@ -30,7 +32,11 @@ final class Sidebar extends Component
 
     public function render(): View
     {
+        $workspace = (string) filament()->getBrandName();
+
         return view('livewire.admin.sidebar', [
+            'workspace' => $workspace,
+            'workspaceMark' => Str::upper(Str::substr($workspace, 0, 1)),
             'sections' => AdminShellNavigation::sections(),
             'account' => $this->account(),
             'logoutUrl' => filament()->getLogoutUrl(),

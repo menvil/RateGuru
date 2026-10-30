@@ -37,12 +37,12 @@ return [
         'action' => 'Pregledaj povezane naloge',
         'connected' => [
             'subject' => ':provider je povezan s tvojim nalogom',
-            'line' => ':provider nalog je povezan s tvojim RateGuru nalogom. Od sada se može koristiti za prijavu.',
+            'line' => ':provider nalog je povezan s tvojim :site nalogom. Od sada se može koristiti za prijavu.',
             'not_you' => 'Ako to nijesi ti, otvori svoj profil i odmah ga isključi.',
         ],
         'disconnected' => [
             'subject' => ':provider je isključen s tvog naloga',
-            'line' => ':provider nalog je isključen s tvog RateGuru naloga. Više se ne može koristiti za prijavu.',
+            'line' => ':provider nalog je isključen s tvog :site naloga. Više se ne može koristiti za prijavu.',
             'not_you' => 'Ako to nijesi ti, prijavi se i provjeri svoje povezane naloge i lozinku.',
         ],
     ],
