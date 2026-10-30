@@ -65,7 +65,7 @@ return [
         'failed' => 'Nepavyko jūsų prijungti per :provider. Bandykite dar kartą.',
         'expired' => 'Prisijungimo per :provider laikas baigėsi anksčiau, nei jis buvo užbaigtas. Pradėkite iš naujo.',
         'email_missing' => 'Jūsų :provider paskyra nepateikė el. pašto adreso, todėl jos negalima naudoti prisijungimui.',
-        'email_taken' => 'Šios :provider paskyros el. pašto adresas priklauso kitai RateGuru paskyrai. Prisijunkite prie tos paskyros ir susiekite :provider joje.',
+        'email_taken' => 'Šios :provider paskyros el. pašto adresas priklauso kitai :site paskyrai. Prisijunkite prie tos paskyros ir susiekite :provider joje.',
         'link_expired' => 'Paskyros susiejimo sesija baigėsi arba pasikeitė. Pradėkite susieti paskyrą iš naujo.',
         'already_signed_in' => 'Jūs jau esate prisijungę. Kad galėtumėte prisijungti ir per :provider, susiekite jį skiltyje „Susietos paskyros“.',
         'already_linked' => 'Ši :provider paskyra jau susieta su kita paskyra.',

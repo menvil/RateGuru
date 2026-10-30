@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Verbundene Konten',
-        'description' => 'Verbinde Google oder Facebook, um dich damit anzumelden. Ein verbundenes Konto kann eine andere E-Mail-Adresse haben als dein RateGuru-Konto.',
+        'description' => 'Verbinde Google oder Facebook, um dich damit anzumelden. Ein verbundenes Konto kann eine andere E-Mail-Adresse haben als dein :site-Konto.',
         'connect' => 'Verbinden',
         'disconnect' => 'Trennen',
         'not_connected' => 'Nicht verbunden',

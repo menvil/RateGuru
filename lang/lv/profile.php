@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Savienotie konti',
-        'description' => 'Savienojiet Google vai Facebook, lai pieteiktos ar tiem. Savienotajam kontam var būt cita e-pasta adrese nekā jūsu RateGuru kontam.',
+        'description' => 'Savienojiet Google vai Facebook, lai pieteiktos ar tiem. Savienotajam kontam var būt cita e-pasta adrese nekā jūsu :site kontam.',
         'connect' => 'Savienot',
         'disconnect' => 'Atvienot',
         'not_connected' => 'Nav savienots',

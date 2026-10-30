@@ -65,7 +65,7 @@ return [
         'failed' => 'Nie udało się zalogować Cię przez :provider. Spróbuj ponownie.',
         'expired' => 'Logowanie przez :provider wygasło, zanim zostało ukończone. Zacznij od nowa.',
         'email_missing' => 'Twoje konto :provider nie udostępniło adresu e-mail, więc nie można go użyć do logowania.',
-        'email_taken' => 'Adres e-mail tego konta :provider należy do innego konta RateGuru. Zaloguj się na tamto konto, aby połączyć z nim :provider.',
+        'email_taken' => 'Adres e-mail tego konta :provider należy do innego konta :site. Zaloguj się na tamto konto, aby połączyć z nim :provider.',
         'link_expired' => 'Sesja łączenia konta wygasła lub uległa zmianie. Rozpocznij łączenie konta od nowa.',
         'already_signed_in' => 'Masz już aktywną sesję. Aby logować się także przez :provider, połącz to konto w sekcji „Połączone konta”.',
         'already_linked' => 'To konto :provider jest już połączone z innym kontem.',

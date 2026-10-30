@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Forbundne konti',
-        'description' => 'Forbind Google eller Facebook for at logge ind med dem. En forbundet konto kan bruge en anden e-mailadresse end din RateGuru-konto.',
+        'description' => 'Forbind Google eller Facebook for at logge ind med dem. En forbundet konto kan bruge en anden e-mailadresse end din :site-konto.',
         'connect' => 'Forbind',
         'disconnect' => 'Afbryd forbindelse',
         'not_connected' => 'Ikke forbundet',

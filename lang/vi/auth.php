@@ -65,7 +65,7 @@ return [
         'failed' => 'Chúng tôi không thể đăng nhập cho bạn bằng :provider. Vui lòng thử lại.',
         'expired' => 'Phiên đăng nhập :provider của bạn đã hết hạn trước khi hoàn tất. Vui lòng bắt đầu lại.',
         'email_missing' => 'Tài khoản :provider của bạn không chia sẻ địa chỉ email nên không thể dùng để đăng nhập.',
-        'email_taken' => 'Địa chỉ email của tài khoản :provider này thuộc về một tài khoản RateGuru khác. Hãy đăng nhập vào tài khoản đó để liên kết :provider tại đó.',
+        'email_taken' => 'Địa chỉ email của tài khoản :provider này thuộc về một tài khoản :site khác. Hãy đăng nhập vào tài khoản đó để liên kết :provider tại đó.',
         'link_expired' => 'Phiên liên kết tài khoản của bạn đã hết hạn hoặc đã thay đổi. Vui lòng bắt đầu liên kết tài khoản lại.',
         'already_signed_in' => 'Bạn đã đăng nhập. Để đăng nhập thêm bằng :provider, hãy liên kết trong mục “Tài khoản đã liên kết”.',
         'already_linked' => 'Tài khoản :provider này đã được liên kết với một tài khoản khác.',

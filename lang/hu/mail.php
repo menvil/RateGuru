@@ -37,12 +37,12 @@ return [
         'action' => 'Kapcsolt fiókok áttekintése',
         'connected' => [
             'subject' => ':provider-fiók kapcsolódott a fiókodhoz',
-            'line' => 'Egy :provider-fiókot kapcsoltak a RateGuru-fiókodhoz. Mostantól bejelentkezésre is használható.',
+            'line' => 'Egy :provider-fiókot kapcsoltak a :site-fiókodhoz. Mostantól bejelentkezésre is használható.',
             'not_you' => 'Ha nem te voltál, nyisd meg a profilodat, és azonnal bontsd a kapcsolatot.',
         ],
         'disconnected' => [
             'subject' => ':provider-fiók leválasztva a fiókodról',
-            'line' => 'Egy :provider-fiókot leválasztottak a RateGuru-fiókodról. Bejelentkezésre már nem használható.',
+            'line' => 'Egy :provider-fiókot leválasztottak a :site-fiókodról. Bejelentkezésre már nem használható.',
             'not_you' => 'Ha nem te voltál, jelentkezz be, és ellenőrizd a kapcsolt fiókjaidat és a jelszavadat.',
         ],
     ],

@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Gekoppelde accounts',
-        'description' => 'Koppel Google of Facebook om daarmee in te loggen. Een gekoppeld account kan een ander e-mailadres gebruiken dan je RateGuru-account.',
+        'description' => 'Koppel Google of Facebook om daarmee in te loggen. Een gekoppeld account kan een ander e-mailadres gebruiken dan je :site-account.',
         'connect' => 'Koppelen',
         'disconnect' => 'Ontkoppelen',
         'not_connected' => 'Niet gekoppeld',

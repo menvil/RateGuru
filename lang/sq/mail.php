@@ -37,12 +37,12 @@ return [
         'action' => 'Shiko llogaritë e lidhura',
         'connected' => [
             'subject' => ':provider u lidh me llogarinë tënde',
-            'line' => 'Një llogari :provider u lidh me llogarinë tënde RateGuru. Tani mund të përdoret për hyrje.',
+            'line' => 'Një llogari :provider u lidh me llogarinë tënde :site. Tani mund të përdoret për hyrje.',
             'not_you' => 'Nëse nuk ishe ti, hap profilin tënd dhe shkëpute menjëherë.',
         ],
         'disconnected' => [
             'subject' => ':provider u shkëput nga llogaria jote',
-            'line' => 'Një llogari :provider u shkëput nga llogaria jote RateGuru. Nuk mund të përdoret më për hyrje.',
+            'line' => 'Një llogari :provider u shkëput nga llogaria jote :site. Nuk mund të përdoret më për hyrje.',
             'not_you' => 'Nëse nuk ishe ti, hyr dhe kontrollo llogaritë e lidhura dhe fjalëkalimin.',
         ],
     ],

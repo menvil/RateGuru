@@ -6,6 +6,7 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use App\Notifications\SocialAccountConnectedNotification;
 use App\Notifications\SocialAccountDisconnectedNotification;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Socialite\Facades\Socialite;
@@ -120,7 +121,7 @@ it('names the provider, the provider account and where to review it', function (
     expect($mail->subject)->toBe(__("{$keys}.subject", ['provider' => 'Facebook']))
         ->and($mail->greeting)->toBe(__('mail.greeting', ['name' => 'Ivan']))
         ->and($mail->introLines)->toBe([
-            __("{$keys}.line", ['provider' => 'Facebook']),
+            __("{$keys}.line", ['provider' => 'Facebook', 'site' => app(ProjectSettingsManager::class)->current()->siteName()]),
             __('mail.social.account', ['provider' => 'Facebook', 'email' => 'ivan.personal@example.com']),
             __("{$keys}.not_you"),
         ])

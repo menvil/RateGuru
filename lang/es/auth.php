@@ -65,7 +65,7 @@ return [
         'failed' => 'No pudimos iniciar tu sesión con :provider. Vuelve a intentarlo.',
         'expired' => 'Tu inicio de sesión con :provider caducó antes de completarse. Vuelve a empezar.',
         'email_missing' => 'Tu cuenta de :provider no compartió ninguna dirección de correo electrónico, así que no se puede usar para iniciar sesión.',
-        'email_taken' => 'La dirección de correo electrónico de esta cuenta de :provider pertenece a otra cuenta de RateGuru. Inicia sesión en esa cuenta para conectar :provider allí.',
+        'email_taken' => 'La dirección de correo electrónico de esta cuenta de :provider pertenece a otra cuenta de :site. Inicia sesión en esa cuenta para conectar :provider allí.',
         'link_expired' => 'La sesión para conectar tu cuenta caducó o cambió. Vuelve a iniciar la conexión de la cuenta.',
         'already_signed_in' => 'Ya has iniciado sesión. Para iniciar sesión también con :provider, conéctalo en «Cuentas conectadas».',
         'already_linked' => 'Esta cuenta de :provider ya está conectada a otra cuenta.',

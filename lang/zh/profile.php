@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => '已关联账号',
-        'description' => '关联 Google 或 Facebook 后即可使用它们登录。已关联账号的电子邮箱地址可以与您的 RateGuru 账号不同。',
+        'description' => '关联 Google 或 Facebook 后即可使用它们登录。已关联账号的电子邮箱地址可以与您的 :site 账号不同。',
         'connect' => '关联',
         'disconnect' => '取消关联',
         'not_connected' => '未关联',

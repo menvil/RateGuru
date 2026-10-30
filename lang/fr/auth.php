@@ -65,7 +65,7 @@ return [
         'failed' => 'Nous n\'avons pas pu vous connecter avec :provider. Veuillez réessayer.',
         'expired' => 'Votre connexion avec :provider a expiré avant d\'aboutir. Veuillez recommencer.',
         'email_missing' => 'Votre compte :provider n\'a pas partagé d\'adresse e-mail ; il ne peut donc pas être utilisé pour vous connecter.',
-        'email_taken' => 'L\'adresse e-mail de ce compte :provider appartient à un autre compte RateGuru. Connectez-vous à ce compte pour y associer :provider.',
+        'email_taken' => 'L\'adresse e-mail de ce compte :provider appartient à un autre compte :site. Connectez-vous à ce compte pour y associer :provider.',
         'link_expired' => 'Votre session d\'association de compte a expiré ou a changé. Veuillez recommencer l\'association du compte.',
         'already_signed_in' => 'Vous êtes déjà connecté. Pour vous connecter également avec :provider, associez-le dans « Comptes associés ».',
         'already_linked' => 'Ce compte :provider est déjà associé à un autre compte.',

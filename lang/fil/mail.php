@@ -37,12 +37,12 @@ return [
         'action' => 'Suriin ang mga nakakonektang account',
         'connected' => [
             'subject' => 'Naikonekta ang :provider sa iyong account',
-            'line' => 'Isang :provider account ang naikonekta sa iyong RateGuru account. Magagamit na ito ngayon para mag-sign in.',
+            'line' => 'Isang :provider account ang naikonekta sa iyong :site account. Magagamit na ito ngayon para mag-sign in.',
             'not_you' => 'Kung hindi ikaw ito, buksan ang iyong profile at idiskonekta ito kaagad.',
         ],
         'disconnected' => [
             'subject' => 'Nadiskonekta ang :provider sa iyong account',
-            'line' => 'Isang :provider account ang nadiskonekta sa iyong RateGuru account. Hindi na ito magagamit para mag-sign in.',
+            'line' => 'Isang :provider account ang nadiskonekta sa iyong :site account. Hindi na ito magagamit para mag-sign in.',
             'not_you' => 'Kung hindi ikaw ito, mag-sign in at suriin ang iyong mga nakakonektang account at ang iyong password.',
         ],
     ],

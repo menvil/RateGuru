@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Conturi conectate',
-        'description' => 'Conectează Google sau Facebook pentru a te autentifica prin ele. Un cont conectat poate folosi o altă adresă de e-mail decât contul tău RateGuru.',
+        'description' => 'Conectează Google sau Facebook pentru a te autentifica prin ele. Un cont conectat poate folosi o altă adresă de e-mail decât contul tău :site.',
         'connect' => 'Conectează',
         'disconnect' => 'Deconectează',
         'not_connected' => 'Neconectat',

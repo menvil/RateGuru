@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Kapcsolt fiókok',
-        'description' => 'Kapcsold össze Google- vagy Facebook-fiókodat, hogy azzal is bejelentkezhess. Egy kapcsolt fiók más e-mail-címet is használhat, mint a RateGuru-fiókod.',
+        'description' => 'Kapcsold össze Google- vagy Facebook-fiókodat, hogy azzal is bejelentkezhess. Egy kapcsolt fiók más e-mail-címet is használhat, mint a :site-fiókod.',
         'connect' => 'Összekapcsolás',
         'disconnect' => 'Leválasztás',
         'not_connected' => 'Nincs összekapcsolva',

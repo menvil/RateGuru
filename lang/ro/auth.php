@@ -65,7 +65,7 @@ return [
         'failed' => 'Nu te-am putut autentifica cu :provider. Încearcă din nou.',
         'expired' => 'Autentificarea cu :provider a expirat înainte de a se finaliza. Începe din nou.',
         'email_missing' => 'Contul tău :provider nu a partajat o adresă de e-mail, așa că nu poate fi folosit pentru autentificare.',
-        'email_taken' => 'Adresa de e-mail a acestui cont :provider aparține altui cont RateGuru. Autentifică-te în acel cont pentru a conecta :provider acolo.',
+        'email_taken' => 'Adresa de e-mail a acestui cont :provider aparține altui cont :site. Autentifică-te în acel cont pentru a conecta :provider acolo.',
         'link_expired' => 'Sesiunea de conectare a contului a expirat sau s-a schimbat. Începe din nou conectarea contului.',
         'already_signed_in' => 'Ești deja autentificat. Pentru a te autentifica și cu :provider, conectează-l din „Conturi conectate”.',
         'already_linked' => 'Acest cont :provider este deja conectat la un alt cont.',

@@ -8465,6 +8465,23 @@ function representativeTranslatedLocales(): array
 }
 
 /**
+ * A notification's email as the recipient reads it: the subject, and the body
+ * rendered through the application's mail templates.
+ *
+ * @return array{subject: string, body: string}
+ */
+function renderedMail(object $notification, User $user): array
+{
+    $mail = $notification->toMail($user);
+    $rendered = $mail->render();
+
+    return [
+        'subject' => (string) $mail->subject,
+        'body' => is_string($rendered) ? $rendered : (string) $rendered->toHtml(),
+    ];
+}
+
+/**
  * The built-in static pages as a project that has translated them stores
  * them: the English the repository ships, and a made-up translation of every
  * field in each of these languages — "[ru] About RateGuru". The repository

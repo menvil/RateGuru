@@ -37,12 +37,12 @@ return [
         'action' => 'Semak akaun yang disambungkan',
         'connected' => [
             'subject' => ':provider telah disambungkan ke akaun anda',
-            'line' => 'Akaun :provider telah disambungkan ke akaun RateGuru anda. Kini ia boleh digunakan untuk log masuk.',
+            'line' => 'Akaun :provider telah disambungkan ke akaun :site anda. Kini ia boleh digunakan untuk log masuk.',
             'not_you' => 'Jika ini bukan anda, buka profil anda dan putuskan sambungannya dengan segera.',
         ],
         'disconnected' => [
             'subject' => ':provider telah diputuskan sambungan daripada akaun anda',
-            'line' => 'Akaun :provider telah diputuskan sambungan daripada akaun RateGuru anda. Ia tidak lagi boleh digunakan untuk log masuk.',
+            'line' => 'Akaun :provider telah diputuskan sambungan daripada akaun :site anda. Ia tidak lagi boleh digunakan untuk log masuk.',
             'not_you' => 'Jika ini bukan anda, log masuk dan semak akaun yang disambungkan serta kata laluan anda.',
         ],
     ],

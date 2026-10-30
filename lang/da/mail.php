@@ -37,12 +37,12 @@ return [
         'action' => 'Gennemgå forbundne konti',
         'connected' => [
             'subject' => ':provider er blevet forbundet med din konto',
-            'line' => 'En :provider-konto er blevet forbundet med din RateGuru-konto. Den kan nu bruges til at logge ind.',
+            'line' => 'En :provider-konto er blevet forbundet med din :site-konto. Den kan nu bruges til at logge ind.',
             'not_you' => 'Hvis det ikke var dig, så åbn din profil, og afbryd forbindelsen med det samme.',
         ],
         'disconnected' => [
             'subject' => 'Forbindelsen mellem :provider og din konto er blevet afbrudt',
-            'line' => 'Forbindelsen mellem en :provider-konto og din RateGuru-konto er blevet afbrudt. Den kan ikke længere bruges til at logge ind.',
+            'line' => 'Forbindelsen mellem en :provider-konto og din :site-konto er blevet afbrudt. Den kan ikke længere bruges til at logge ind.',
             'not_you' => 'Hvis det ikke var dig, så log ind, og tjek dine forbundne konti og din adgangskode.',
         ],
     ],

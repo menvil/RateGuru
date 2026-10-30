@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Support\Notifications\MailAddressee;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -38,7 +39,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
             ->line(__('mail.verify.line'))
             ->action(__('mail.verify.action'), $url)
             ->line(__('mail.verify.ignore'))
-            ->salutation(__('mail.salutation', ['app' => config('app.name')])));
+            ->salutation(__('mail.salutation', ['app' => app(ProjectSettingsManager::class)->current()->siteName()])));
 
         ResetPassword::toMailUsing(fn (object $notifiable, string $token): MailMessage => (new MailMessage)
             ->subject(__('mail.reset.subject'))
@@ -49,7 +50,7 @@ final class MailLocalizationServiceProvider extends ServiceProvider
                 'count' => config('auth.passwords.'.config('auth.defaults.passwords').'.expire'),
             ]))
             ->line(__('mail.reset.ignore'))
-            ->salutation(__('mail.salutation', ['app' => config('app.name')])));
+            ->salutation(__('mail.salutation', ['app' => app(ProjectSettingsManager::class)->current()->siteName()])));
     }
 
     /**

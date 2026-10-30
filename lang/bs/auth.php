@@ -65,7 +65,7 @@ return [
         'failed' => 'Nismo te uspjeli prijaviti putem :provider. Pokušaj ponovo.',
         'expired' => 'Tvoja prijava putem :provider je istekla prije završetka. Počni ispočetka.',
         'email_missing' => 'Tvoj :provider račun nije podijelio e-mail adresu, pa se ne može koristiti za prijavu.',
-        'email_taken' => 'E-mail adresa ovog :provider računa pripada drugom RateGuru računu. Prijavi se na taj račun i tamo poveži :provider.',
+        'email_taken' => 'E-mail adresa ovog :provider računa pripada drugom :site računu. Prijavi se na taj račun i tamo poveži :provider.',
         'link_expired' => 'Sesija povezivanja računa je istekla ili se promijenila. Ponovo pokreni povezivanje računa.',
         'already_signed_in' => 'Već imaš aktivnu prijavu. Ako se želiš prijavljivati i putem :provider, poveži ga u odjeljku „Povezani računi“.',
         'already_linked' => 'Ovaj :provider račun je već povezan s drugim računom.',

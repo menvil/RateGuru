@@ -65,7 +65,7 @@ return [
         'failed' => '无法使用 :provider 为您登录，请重试。',
         'expired' => '您的 :provider 登录在完成前已过期，请重新开始。',
         'email_missing' => '您的 :provider 账号未提供电子邮箱地址，因此无法用于登录。',
-        'email_taken' => '此 :provider 账号的电子邮箱地址已属于另一个 RateGuru 账号。请登录该账号，并在那里关联 :provider。',
+        'email_taken' => '此 :provider 账号的电子邮箱地址已属于另一个 :site 账号。请登录该账号，并在那里关联 :provider。',
         'link_expired' => '您的账号关联会话已过期或已更改，请重新开始关联账号。',
         'already_signed_in' => '您已登录。如需同时使用 :provider 登录，请在“已关联账号”中进行关联。',
         'already_linked' => '此 :provider 账号已关联到其他账号。',
