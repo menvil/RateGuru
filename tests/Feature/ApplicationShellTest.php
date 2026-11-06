@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Post;
+use App\Models\Tag;
+
 it('renders the RateGuru shell', function () {
     $html = $this->get('/')->assertOk()->getContent();
 
@@ -43,6 +46,9 @@ it('renders the app header like the PlateRate reference topbar', function () {
 });
 
 it('renders the PlateRate reference sidebar shell', function () {
+    // Top tags show only for tags a published post carries.
+    Post::factory()->published()->create()->tags()->attach(Tag::factory()->create());
+
     $html = $this->get('/')->assertOk()->getContent();
 
     expect($html)

@@ -197,13 +197,6 @@ class AppServiceProvider extends ServiceProvider
                     ->all();
             });
 
-            $fallbackTags = collect(['sample-a', 'sample-b', 'sample-c', 'sample-d', 'sample-e'])
-                ->map(fn (string $tag): array => [
-                    'label' => '#'.$tag,
-                    'href' => route('feed', ['tag' => $tag]),
-                ])
-                ->all();
-
             $settings = app(ProjectSettingsManager::class);
             $user = auth()->user();
 
@@ -226,7 +219,6 @@ class AppServiceProvider extends ServiceProvider
                 'navItems' => $navItems,
                 'categories' => $categories,
                 'topTags' => $topTags,
-                'fallbackTags' => $fallbackTags,
             ]);
         });
     }
