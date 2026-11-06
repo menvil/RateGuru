@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Tài khoản đã liên kết',
-        'description' => 'Liên kết Google hoặc Facebook để đăng nhập bằng các tài khoản đó. Tài khoản được liên kết có thể dùng địa chỉ email khác với tài khoản RateGuru của bạn.',
+        'description' => 'Liên kết Google hoặc Facebook để đăng nhập bằng các tài khoản đó. Tài khoản được liên kết có thể dùng địa chỉ email khác với tài khoản :site của bạn.',
         'connect' => 'Liên kết',
         'disconnect' => 'Hủy liên kết',
         'not_connected' => 'Chưa liên kết',

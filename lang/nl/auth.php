@@ -65,7 +65,7 @@ return [
         'failed' => 'We konden je niet inloggen met :provider. Probeer het opnieuw.',
         'expired' => 'Je aanmelding via :provider is verlopen voordat deze was voltooid. Begin opnieuw.',
         'email_missing' => 'Je :provider-account heeft geen e-mailadres gedeeld en kan daarom niet worden gebruikt om in te loggen.',
-        'email_taken' => 'Het e-mailadres van dit :provider-account hoort bij een ander RateGuru-account. Log in op dat account om :provider daar te koppelen.',
+        'email_taken' => 'Het e-mailadres van dit :provider-account hoort bij een ander :site-account. Log in op dat account om :provider daar te koppelen.',
         'link_expired' => 'Je sessie voor het koppelen van het account is verlopen of gewijzigd. Begin opnieuw met het koppelen van het account.',
         'already_signed_in' => 'Je bent al ingelogd. Wil je ook met :provider inloggen, koppel het dan onder ‘Gekoppelde accounts’.',
         'already_linked' => 'Dit :provider-account is al aan een ander account gekoppeld.',

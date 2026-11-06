@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Yhdistetyt tilit',
-        'description' => 'Yhdistä Google- tai Facebook-tili, niin voit kirjautua sillä. Yhdistetyssä tilissä voi olla eri sähköpostiosoite kuin RateGuru-tilissäsi.',
+        'description' => 'Yhdistä Google- tai Facebook-tili, niin voit kirjautua sillä. Yhdistetyssä tilissä voi olla eri sähköpostiosoite kuin :site-tilissäsi.',
         'connect' => 'Yhdistä',
         'disconnect' => 'Poista yhteys',
         'not_connected' => 'Ei yhdistetty',

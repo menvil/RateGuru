@@ -37,12 +37,12 @@ return [
         'action' => 'Verbundene Konten prüfen',
         'connected' => [
             'subject' => ':provider wurde mit deinem Konto verbunden',
-            'line' => 'Ein :provider-Konto wurde mit deinem RateGuru-Konto verbunden. Es kann jetzt zur Anmeldung verwendet werden.',
+            'line' => 'Ein :provider-Konto wurde mit deinem :site-Konto verbunden. Es kann jetzt zur Anmeldung verwendet werden.',
             'not_you' => 'Falls du das nicht warst, öffne dein Profil und trenne die Verbindung sofort.',
         ],
         'disconnected' => [
             'subject' => ':provider wurde von deinem Konto getrennt',
-            'line' => 'Ein :provider-Konto wurde von deinem RateGuru-Konto getrennt. Es kann nicht mehr zur Anmeldung verwendet werden.',
+            'line' => 'Ein :provider-Konto wurde von deinem :site-Konto getrennt. Es kann nicht mehr zur Anmeldung verwendet werden.',
             'not_you' => 'Falls du das nicht warst, melde dich an und überprüfe deine verbundenen Konten und dein Passwort.',
         ],
     ],

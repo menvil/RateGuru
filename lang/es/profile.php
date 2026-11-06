@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Cuentas conectadas',
-        'description' => 'Conecta Google o Facebook para iniciar sesión con ellos. Una cuenta conectada puede usar una dirección de correo electrónico distinta a la de tu cuenta de RateGuru.',
+        'description' => 'Conecta Google o Facebook para iniciar sesión con ellos. Una cuenta conectada puede usar una dirección de correo electrónico distinta a la de tu cuenta de :site.',
         'connect' => 'Conectar',
         'disconnect' => 'Desconectar',
         'not_connected' => 'No conectada',

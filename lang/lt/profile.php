@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Susietos paskyros',
-        'description' => 'Susiekite Google arba Facebook, kad galėtumėte per juos prisijungti. Susietos paskyros el. pašto adresas gali skirtis nuo jūsų RateGuru paskyros adreso.',
+        'description' => 'Susiekite Google arba Facebook, kad galėtumėte per juos prisijungti. Susietos paskyros el. pašto adresas gali skirtis nuo jūsų :site paskyros adreso.',
         'connect' => 'Susieti',
         'disconnect' => 'Atsieti',
         'not_connected' => 'Nesusieta',

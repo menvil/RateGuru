@@ -65,7 +65,7 @@ return [
         'failed' => 'Hyrja me :provider nuk u krye. Provo sërish.',
         'expired' => 'Hyrja jote me :provider skadoi para se të përfundonte. Fillo nga e para.',
         'email_missing' => 'Llogaria jote :provider nuk ndau ndonjë adresë email-i, ndaj nuk mund të përdoret për hyrje.',
-        'email_taken' => 'Adresa e email-it e kësaj llogarie :provider i përket një llogarie tjetër RateGuru. Hyr në atë llogari për të lidhur :provider atje.',
+        'email_taken' => 'Adresa e email-it e kësaj llogarie :provider i përket një llogarie tjetër :site. Hyr në atë llogari për të lidhur :provider atje.',
         'link_expired' => 'Sesioni i lidhjes së llogarisë skadoi ose ndryshoi. Fillo sërish lidhjen e llogarisë.',
         'already_signed_in' => 'Ke hyrë tashmë. Për të hyrë edhe me :provider, lidhe te „Llogaritë e lidhura“.',
         'already_linked' => 'Kjo llogari :provider është lidhur tashmë me një llogari tjetër.',

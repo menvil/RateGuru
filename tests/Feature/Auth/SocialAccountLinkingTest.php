@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Exceptions\Auth\SocialAuthenticationException;
 use App\Models\SocialAccount;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use Laravel\Socialite\Facades\Socialite;
 
 /*
@@ -227,7 +228,7 @@ it('refuses to connect a provider account whose email belongs to another account
     $response = startConnectingProvider($user, 'google')->get(socialCallbackUrl('google'));
 
     $response->assertRedirect(connectedAccountsUrl());
-    $response->assertSessionHasErrors(['social' => trans('auth.social.email_taken', ['provider' => 'Google'])], null, 'connectedAccounts');
+    $response->assertSessionHasErrors(['social' => trans('auth.social.email_taken', ['provider' => 'Google', 'site' => app(ProjectSettingsManager::class)->current()->siteName()])], null, 'connectedAccounts');
     $this->assertAuthenticatedAs($user);
     expect(SocialAccount::count())->toBe(0)
         ->and($other->fresh()->socialAccounts()->count())->toBe(0);

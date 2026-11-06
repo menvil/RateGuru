@@ -37,12 +37,12 @@ return [
         'action' => 'Granska kopplade konton',
         'connected' => [
             'subject' => ':provider har kopplats till ditt konto',
-            'line' => 'Ett :provider-konto har kopplats till ditt RateGuru-konto. Det kan nu användas för att logga in.',
+            'line' => 'Ett :provider-konto har kopplats till ditt :site-konto. Det kan nu användas för att logga in.',
             'not_you' => 'Om det inte var du, öppna din profil och koppla bort det direkt.',
         ],
         'disconnected' => [
             'subject' => ':provider har kopplats bort från ditt konto',
-            'line' => 'Ett :provider-konto har kopplats bort från ditt RateGuru-konto. Det kan inte längre användas för att logga in.',
+            'line' => 'Ett :provider-konto har kopplats bort från ditt :site-konto. Det kan inte längre användas för att logga in.',
             'not_you' => 'Om det inte var du, logga in och kontrollera dina kopplade konton och ditt lösenord.',
         ],
     ],

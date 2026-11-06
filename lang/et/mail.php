@@ -37,12 +37,12 @@ return [
         'action' => 'Vaata ühendatud kontosid',
         'connected' => [
             'subject' => ':provider ühendati sinu kontoga',
-            'line' => 'Sinu RateGuru kontoga ühendati :provider konto. Nüüd saab sellega sisse logida.',
+            'line' => 'Sinu :site kontoga ühendati :provider konto. Nüüd saab sellega sisse logida.',
             'not_you' => 'Kui see polnud sina, ava kohe oma profiil ja katkesta ühendus.',
         ],
         'disconnected' => [
             'subject' => ':provider ühendus sinu kontoga katkestati',
-            'line' => 'Sinu RateGuru konto ja :provider konto ühendus katkestati. Sellega ei saa enam sisse logida.',
+            'line' => 'Sinu :site konto ja :provider konto ühendus katkestati. Sellega ei saa enam sisse logida.',
             'not_you' => 'Kui see polnud sina, logi sisse ning kontrolli oma ühendatud kontosid ja parooli.',
         ],
     ],

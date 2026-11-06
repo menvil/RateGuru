@@ -37,12 +37,12 @@ return [
         'action' => 'Verifică conturile conectate',
         'connected' => [
             'subject' => ':provider a fost conectat la contul tău',
-            'line' => 'Un cont :provider a fost conectat la contul tău RateGuru. Acum poate fi folosit pentru autentificare.',
+            'line' => 'Un cont :provider a fost conectat la contul tău :site. Acum poate fi folosit pentru autentificare.',
             'not_you' => 'Dacă nu ai fost tu, deschide-ți profilul și deconectează-l imediat.',
         ],
         'disconnected' => [
             'subject' => ':provider a fost deconectat de la contul tău',
-            'line' => 'Un cont :provider a fost deconectat de la contul tău RateGuru. Nu mai poate fi folosit pentru autentificare.',
+            'line' => 'Un cont :provider a fost deconectat de la contul tău :site. Nu mai poate fi folosit pentru autentificare.',
             'not_you' => 'Dacă nu ai fost tu, autentifică-te și verifică-ți conturile conectate și parola.',
         ],
     ],

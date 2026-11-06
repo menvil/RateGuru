@@ -25,6 +25,7 @@ use App\Filament\Support\AdminNavigationGroup;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
+use App\Support\Settings\ProjectSettingsManager;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -51,7 +52,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            ->brandName('RateGuru')
+            // The project's own name from its settings, as the public site shows
+            // it — the browser tab, the sign-in page and the sidebar all read it
+            // from here.
+            ->brandName(fn (): string => app(ProjectSettingsManager::class)->current()->siteName())
             // The site's own icon. Without one the browser falls back to
             // /favicon.ico, which is empty, and asks for it again on every
             // address change — each keystroke in a search that keeps its

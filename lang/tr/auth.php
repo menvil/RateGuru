@@ -65,7 +65,7 @@ return [
         'failed' => ':provider ile giriş yapmanızı sağlayamadık. Lütfen tekrar deneyin.',
         'expired' => ':provider ile giriş işleminin süresi, işlem tamamlanmadan doldu. Lütfen baştan başlayın.',
         'email_missing' => ':provider hesabınız bir e-posta adresi paylaşmadı, bu nedenle giriş için kullanılamaz.',
-        'email_taken' => 'Bu :provider hesabının e-posta adresi başka bir RateGuru hesabına ait. :provider bağlantısını orada kurmak için o hesaba giriş yapın.',
+        'email_taken' => 'Bu :provider hesabının e-posta adresi başka bir :site hesabına ait. :provider bağlantısını orada kurmak için o hesaba giriş yapın.',
         'link_expired' => 'Hesap bağlama oturumunuzun süresi doldu veya oturum değişti. Lütfen hesabı bağlamaya yeniden başlayın.',
         'already_signed_in' => 'Zaten giriş yaptınız. :provider ile de giriş yapabilmek için “Bağlı hesaplar” bölümünden bağlantı kurun.',
         'already_linked' => 'Bu :provider hesabı zaten başka bir hesaba bağlı.',

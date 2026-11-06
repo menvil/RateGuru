@@ -5,7 +5,7 @@ use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Support\Facades\URL;
 
-/**
+/*
  * What the recipient actually reads.
  *
  * RecipientLocaleTest proves the right locale is selected; this proves there is
@@ -17,20 +17,9 @@ use Illuminate\Support\Facades\URL;
  * Rendering rather than string-matching is the point. A missing key does not
  * throw in Laravel — __() returns the key itself — so an untranslated email
  * ships silently. Asserting that no raw "mail." key survives the render is what
- * turns that into a failure.
+ * turns that into a failure. renderedMail() in tests/Pest.php does the
+ * rendering.
  */
-
-/** @return array{subject: string, body: string} */
-function renderedMail(object $notification, User $user): array
-{
-    $mail = $notification->toMail($user);
-    $rendered = $mail->render();
-
-    return [
-        'subject' => (string) $mail->subject,
-        'body' => is_string($rendered) ? $rendered : (string) $rendered->toHtml(),
-    ];
-}
 
 it('renders the verification email with no untranslated keys', function (string $locale) {
     app()->setLocale($locale);

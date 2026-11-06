@@ -65,7 +65,7 @@ return [
         'failed' => 'Ekki tókst að skrá þig inn með :provider. Reyndu aftur.',
         'expired' => 'Innskráningin með :provider rann út áður en henni lauk. Byrjaðu aftur.',
         'email_missing' => 'Aðgangurinn þinn hjá :provider deildi ekki netfangi og því er ekki hægt að nota hann til innskráningar.',
-        'email_taken' => 'Netfang þessa aðgangs hjá :provider tilheyrir öðrum aðgangi á RateGuru. Skráðu þig inn á þann aðgang til að tengja :provider þar.',
+        'email_taken' => 'Netfang þessa aðgangs hjá :provider tilheyrir öðrum aðgangi á :site. Skráðu þig inn á þann aðgang til að tengja :provider þar.',
         'link_expired' => 'Lotan til að tengja aðganginn rann út eða breyttist. Byrjaðu aftur að tengja aðganginn.',
         'already_signed_in' => 'Þú ert þegar með virka innskráningu. Til að geta líka skráð þig inn með :provider skaltu tengja það undir „Tengdir aðgangar“.',
         'already_linked' => 'Þessi aðgangur hjá :provider er nú þegar tengdur öðrum aðgangi.',

@@ -37,12 +37,12 @@ return [
         'action' => 'Tarkista yhdistetyt tilit',
         'connected' => [
             'subject' => ':provider-tili yhdistettiin tiliisi',
-            'line' => ':provider-tili yhdistettiin RateGuru-tiliisi. Sillä voi nyt kirjautua sisään.',
+            'line' => ':provider-tili yhdistettiin :site-tiliisi. Sillä voi nyt kirjautua sisään.',
             'not_you' => 'Jos et tehnyt tätä itse, avaa profiilisi ja poista yhteys heti.',
         ],
         'disconnected' => [
             'subject' => ':provider-tilin yhteys tiliisi poistettiin',
-            'line' => ':provider-tilin yhteys RateGuru-tiliisi poistettiin. Sillä ei voi enää kirjautua sisään.',
+            'line' => ':provider-tilin yhteys :site-tiliisi poistettiin. Sillä ei voi enää kirjautua sisään.',
             'not_you' => 'Jos et tehnyt tätä itse, kirjaudu sisään ja tarkista yhdistetyt tilisi ja salasanasi.',
         ],
     ],

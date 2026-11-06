@@ -65,7 +65,7 @@ return [
         'failed' => 'Nem sikerült bejelentkeztetnünk :provider-fiókkal. Próbáld újra.',
         'expired' => 'A bejelentkezés :provider-fiókkal lejárt, mielőtt befejeződött volna. Kezdd újra.',
         'email_missing' => 'A :provider-fiókod nem osztott meg e-mail-címet, ezért nem használható bejelentkezéshez.',
-        'email_taken' => 'Ennek a :provider-fióknak az e-mail-címe egy másik RateGuru-fiókhoz tartozik. Jelentkezz be abba a fiókba, és ott kapcsold össze a :provider-fiókot.',
+        'email_taken' => 'Ennek a :provider-fióknak az e-mail-címe egy másik :site-fiókhoz tartozik. Jelentkezz be abba a fiókba, és ott kapcsold össze a :provider-fiókot.',
         'link_expired' => 'A fiók-összekapcsolási munkamenet lejárt vagy megváltozott. Kezdd újra a fiók összekapcsolását.',
         'already_signed_in' => 'Már be vagy jelentkezve. Ha :provider-fiókkal is be szeretnél jelentkezni, kapcsold össze a „Kapcsolt fiókok” részben.',
         'already_linked' => 'Ez a :provider-fiók már egy másik fiókhoz van kapcsolva.',

@@ -4,6 +4,7 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use App\Notifications\SocialAccountDisconnectedNotification;
 use App\Support\Auth\SocialLinkContext;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -118,7 +119,7 @@ it('shows a refused connection on the card', function () {
     $this->followRedirects($response)
         ->assertOk()
         ->assertSee('data-testid="connected-accounts-error"', false)
-        ->assertSee(e(__('auth.social.email_taken', ['provider' => 'Facebook'])), false);
+        ->assertSee(e(__('auth.social.email_taken', ['provider' => 'Facebook', 'site' => app(ProjectSettingsManager::class)->current()->siteName()])), false);
 });
 
 it('shows a cancelled connection on the card', function () {

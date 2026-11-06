@@ -37,12 +37,12 @@ return [
         'action' => 'Pārskatīt savienotos kontus',
         'connected' => [
             'subject' => ':provider konts ir savienots ar jūsu kontu',
-            'line' => 'Ar jūsu RateGuru kontu tika savienots :provider konts. Tagad to var izmantot, lai pieteiktos.',
+            'line' => 'Ar jūsu :site kontu tika savienots :provider konts. Tagad to var izmantot, lai pieteiktos.',
             'not_you' => 'Ja tas nebijāt jūs, nekavējoties atveriet savu profilu un atvienojiet to.',
         ],
         'disconnected' => [
             'subject' => ':provider konts ir atvienots no jūsu konta',
-            'line' => 'No jūsu RateGuru konta tika atvienots :provider konts. To vairs nevar izmantot, lai pieteiktos.',
+            'line' => 'No jūsu :site konta tika atvienots :provider konts. To vairs nevar izmantot, lai pieteiktos.',
             'not_you' => 'Ja tas nebijāt jūs, piesakieties un pārbaudiet savus savienotos kontus un paroli.',
         ],
     ],

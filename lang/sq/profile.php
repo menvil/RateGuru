@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Llogaritë e lidhura',
-        'description' => 'Lidh Google ose Facebook për të hyrë përmes tyre. Një llogari e lidhur mund të përdorë adresë email-i të ndryshme nga llogaria jote RateGuru.',
+        'description' => 'Lidh Google ose Facebook për të hyrë përmes tyre. Një llogari e lidhur mund të përdorë adresë email-i të ndryshme nga llogaria jote :site.',
         'connect' => 'Lidh',
         'disconnect' => 'Shkëput',
         'not_connected' => 'E palidhur',

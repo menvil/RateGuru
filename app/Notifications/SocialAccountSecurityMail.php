@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Enums\SocialProvider;
 use App\Support\Notifications\MailAddressee;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Notifications\Messages\MailMessage;
 
 /**
@@ -16,7 +17,8 @@ final class SocialAccountSecurityMail
     /** @param  string  $keys  the mail.php section holding subject, line and not_you */
     public static function build(string $keys, object $notifiable, SocialProvider $provider, ?string $providerEmail): MailMessage
     {
-        $replace = ['provider' => $provider->label()];
+        $siteName = app(ProjectSettingsManager::class)->current()->siteName();
+        $replace = ['provider' => $provider->label(), 'site' => $siteName];
 
         $message = (new MailMessage)
             ->subject(__("{$keys}.subject", $replace))
@@ -30,6 +32,6 @@ final class SocialAccountSecurityMail
         return $message
             ->line(__("{$keys}.not_you"))
             ->action(__('mail.social.action'), route('profile.edit').'#connected-accounts')
-            ->salutation(__('mail.salutation', ['app' => config('app.name')]));
+            ->salutation(__('mail.salutation', ['app' => $siteName]));
     }
 }

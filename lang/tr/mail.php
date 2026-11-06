@@ -37,12 +37,12 @@ return [
         'action' => 'Bağlı hesapları gözden geçir',
         'connected' => [
             'subject' => ':provider hesabınıza bağlandı',
-            'line' => 'RateGuru hesabınıza bir :provider hesabı bağlandı. Artık giriş yapmak için kullanılabilir.',
+            'line' => ':site hesabınıza bir :provider hesabı bağlandı. Artık giriş yapmak için kullanılabilir.',
             'not_you' => 'Bunu siz yapmadıysanız profilinizi açın ve bağlantıyı hemen kesin.',
         ],
         'disconnected' => [
             'subject' => ':provider bağlantısı hesabınızdan kaldırıldı',
-            'line' => 'Bir :provider hesabının RateGuru hesabınızla bağlantısı kesildi. Artık giriş yapmak için kullanılamaz.',
+            'line' => 'Bir :provider hesabının :site hesabınızla bağlantısı kesildi. Artık giriş yapmak için kullanılamaz.',
             'not_you' => 'Bunu siz yapmadıysanız giriş yapın, bağlı hesaplarınızı ve şifrenizi kontrol edin.',
         ],
     ],
