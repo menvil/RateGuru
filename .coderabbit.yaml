@@ -50,9 +50,10 @@ reviews:
         and must never be suppressible through a PHPStan baseline.
     - path: "database/migrations/**/*.php"
       instructions: |
-        SQLite is the only supported runtime database. MariaDB and PostgreSQL CI
-        jobs are migration smoke checks only. Review against
-        docs/architecture/database-support.md and preserve SQLite correctness.
+        PostgreSQL is the primary runtime database; SQLite and MariaDB are
+        supported compatibility targets whose Unit and Feature suites run in CI.
+        Review against docs/architecture/database-support.md: migrations must
+        stay portable and correct on all three engines.
     - path: "tests/**/*.php"
       instructions: |
         Require behavior-focused regression coverage for architecture changes.
