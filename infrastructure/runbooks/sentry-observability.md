@@ -133,6 +133,12 @@ Local logging is unchanged and remains authoritative: `storage/logs`, the
 operational logs, the deployment history and the backup logs all stay exactly
 where they were. Sentry complements them; it does not replace them.
 
+The security log, `storage/logs/security-YYYY-MM-DD.log` (a file a day, kept 30
+days), records each guest's attempt to vote with the visitor's IP address,
+browser and page, for tracing spam and abuse. It is written past Laravel's log
+event, so none of it becomes a Sentry breadcrumb: an IP address stays on the
+server.
+
 ---
 
 ## Privacy posture

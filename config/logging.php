@@ -73,6 +73,19 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // What a visitor tried that only a signed-in account may do, such as
+        // a guest's vote, with their IP address and browser, for tracing spam
+        // and abuse. A file a day, kept 30 days, on the server only:
+        // GuestVoteAttemptLog writes past Laravel's log event, so none of it
+        // reaches Sentry as a breadcrumb.
+        'security' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/security.log'),
+            'level' => 'info',
+            'days' => 30,
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

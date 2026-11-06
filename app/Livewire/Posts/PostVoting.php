@@ -6,6 +6,7 @@ use App\Actions\Votes\VotePostAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
+use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -26,7 +27,7 @@ final class PostVoting extends Component
             ->find($this->postId);
     }
 
-    public function vote(string $type, VotePostAction $votePostAction): void
+    public function vote(string $type, VotePostAction $votePostAction, GuestVoteAttemptLog $guestVoteAttempts): void
     {
         $this->error = '';
 
@@ -39,6 +40,7 @@ final class PostVoting extends Component
         $user = auth()->user();
 
         if ($user === null) {
+            $guestVoteAttempts->record('post', ['post_id' => $this->postId, 'vote' => $voteType->value]);
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
 
