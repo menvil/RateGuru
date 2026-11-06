@@ -1,0 +1,67 @@
+tests/Feature/Console/StudioDispatchDueCommandTest.php
+  s_0f80700cf0b8c6::t_e4ca71f67338b0 1-3,5-14,16-21,25-39,41-51
+  s_0f80700cf0b8c6::t_49a4885b104350 4,40
+  s_0f80700cf0b8c6::t_f92bc88104ce62 15,22-24
+tests/Feature/Actions/DispatchDueStudioActionsActionTest.php
+  s_0f80700cf0b8c6::t_79ca14c6b8701e 1-2,4-13,16-138,157-164,168-194,201-207,209-246
+  s_0f80700cf0b8c6::t_1070cc25eab567 14,141,143,145-153
+  s_0f80700cf0b8c6::t_aa1854edc72c92 15,139-140,142,144,154-156
+  s_0f80700cf0b8c6::t_2b3b7303bc8e1f 165-167,195-200,208
+  s_0f80700cf0b8c6::t_48fe42a5042ed7 3,247-313
+tests/Unit/Actions/StudioTrustedPostParametersTest.php
+  s_0f80700cf0b8c6::t_621b74bb2f7136 1-114,162-184,186-214,225-262,277,120,123,128,140,146-147,160,217-218
+  s_0f80700cf0b8c6::t_13915ac5a94620 115-119,121-122,124-127,129-139,141-145,148-159,161,185,215-216,219-224,263-264,268-276
+  s_0f80700cf0b8c6::t_54a65159afdc09 265-267
+tests/Pest.php
+  s_0f80700cf0b8c6::t_fcd5c753df0c1e 5,13453-13499
+  s_0f80700cf0b8c6::t_1f8d487d5e7cf5 16,27,48
+  s_0f80700cf0b8c6::t_3b9fabc9acdd57 13046,13149,13182-13197,13231-13233
+  s_0f80700cf0b8c6::t_80771513b6879d 13050,13055-13057,13083,13151-13154,13156-13158,13160,13167-13172,13228-13230,13234,13239-13240
+  s_0f80700cf0b8c6::t_b186d3fe49ef4b 13051-13054,13155
+  s_0f80700cf0b8c6::t_06a481ae40ae36 13079-13082,13084-13085
+  s_0f80700cf0b8c6::t_4766069ce13415 13235-13238
+  s_0f80700cf0b8c6::t_183fa7f5a3611f 13501-13518
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 13519,13520-13532,13534-13538
+  s_0f80700cf0b8c6::t_13915ac5a94620 71,13533
+app/Actions/Ranking/RecalculatePostScoreAction.php
+  s_0f80700cf0b8c6::t_c868748a2d0b3e 7,27-32
+tests/Feature/Actions/ApprovePostActionTrustedDateTest.php
+  s_0f80700cf0b8c6::t_87f1236029b1ae 1-23,25-79,81-82,85-89,91-98,100
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 24,80,83-84,90,99
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_ec81ee49f5bf3a 30-32,38-42,78-79,180,182-185,197-215,217-225,227,232-243,246,249-300,303-332,335-358,360-378
+  s_0f80700cf0b8c6::t_e155a403ac0cf9 162-164
+  s_0f80700cf0b8c6::t_0fa4fa3fa49b89 226,228-231
+  s_0f80700cf0b8c6::t_eeaeb99282c264 247-248,301-302
+tests/Feature/Actions/RecalculatePostScoreActionTest.php
+  s_0f80700cf0b8c6::t_f821ea3bcedbb7 52-60
+routes/console.php
+  s_0f80700cf0b8c6::t_1eb1dd48587895 39-43
+  s_0f80700cf0b8c6::t_f92bc88104ce62 44-49
+app/Actions/Studio/DispatchDueStudioActionsAction.php
+  s_0f80700cf0b8c6::t_241805778384fd 1-35,45-68,72,74-76,78-81,83-97,99-107,114-119,121-150,152-203,110,112-113
+  s_0f80700cf0b8c6::t_16b1daee9a2765 69-71,73,77,82,98,108-109,111,120
+tests/Feature/Actions/ExecuteStudioActionTest.php
+  s_0f80700cf0b8c6::t_b2d28c5d321aa9 1-35,39-143,147-160,163-174,177-207,209-215,245-255,257-268,271-306,309-355,357,360,219-220,222,226,228
+  s_0f80700cf0b8c6::t_183fa7f5a3611f 36-38,144-146,161-162,175-176,216,356,358-359
+  s_0f80700cf0b8c6::t_0dc3df43e7632d 217
+  s_0f80700cf0b8c6::t_75db859c1567cc 307-308
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 208,218,225,239-240
+  s_0f80700cf0b8c6::t_f821ea3bcedbb7 221,223-224,227,229-238,241-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ba5f8d644f954dcce4e4cd4a9c5ce091257f627",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

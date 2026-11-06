@@ -1,0 +1,49 @@
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_eb07dee9070bff 1514
+resources/views/livewire/admin/studio-plan-discussion-editor.blade.php
+  s_0f80700cf0b8c6::t_5bb858e8678e19 5-9,32-33,172-175,349,353-354
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_eb07dee9070bff 1440-1444
+  s_0f80700cf0b8c6::t_6c9448e01a6680 1434-1435,1445-1446,1453-1456,1466-1467,1471-1475,1487,1489-1491
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_d9243192d8b123 5748-5749,6223-6236
+resources/views/filament/pages/studio-plan/discussion.blade.php
+  s_0f80700cf0b8c6::t_5bb858e8678e19 6-7,15-17,24
+tests/Feature/Filament/StudioPlanDiscussionVotesEditorTest.php
+  s_0f80700cf0b8c6::t_4bae19f7499733 30-36,107-108,118,121,126-129,132-136,166,174,204,235,285,290,293-295,311,440,449,457-458,492-504,531-536,550,552-555
+  s_0f80700cf0b8c6::t_4522cc929334e5 142-155
+  s_0f80700cf0b8c6::t_2b7a54f1d5f37e 130
+tests/Feature/Filament/StudioPlanDiscussionEditorTest.php
+  s_0f80700cf0b8c6::t_609ae5966e3520 112-113,132-137,139
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_b9b47a1983fc05 943-946
+  s_0f80700cf0b8c6::t_eb07dee9070bff 821-830,939-941
+  s_0f80700cf0b8c6::t_2fdacd4cfcd104 799-801,803-805,820,831-833,837-846,858-860,864-865,873-877
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_7c32a09c203448 408-411
+tests/Browser/AdminStudioPlanDiscussionVotesBrowserTest.php
+  s_0f80700cf0b8c6::t_49c537625494ea 14-18,48,51-58,78,87-88,120,128,144,153,155,168,170-173,184,190
+  s_0f80700cf0b8c6::t_20a8a4049185fe 77
+app/Livewire/Admin/StudioPlanDiscussionVotesEditor.php
+  s_0f80700cf0b8c6::t_588634e965e83c 42-44,47-51,194-196,248,255,270-271,275-276,554-559,567,581-583,587-597,647,692-701,756-764,766-772,1255-1339
+  s_0f80700cf0b8c6::t_4522cc929334e5 45-46,131,235,239,245,702-755,765
+resources/views/livewire/admin/studio-plan-discussion-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_0ceeaaf383ea3f 8-15,19,25,108,120-122,287-335,351,353-361
+  s_0f80700cf0b8c6::t_4522cc929334e5 119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "80fcc2cc39388fb5766cde95e5c0d82f6026fc99",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

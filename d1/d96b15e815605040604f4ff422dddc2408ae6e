@@ -1,0 +1,87 @@
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_f30c2fcf0184fd 331-351,356-379
+app/Models/StudioPlanDiscussionGeneration.php
+  s_0f80700cf0b8c6::t_4888c5453da082 120-150
+tests/Feature/Filament/StudioPlanDiscussionGenerationUiTest.php
+  s_0f80700cf0b8c6::t_a209477fdbbacc 7,112,114-115,122-126,131-164,171
+  s_0f80700cf0b8c6::t_20d4a16cee490c 16-17,336-404
+tests/Pest.php
+  s_0f80700cf0b8c6::t_f7aa4fa730b460 13843-13861
+resources/views/livewire/admin/studio-plan-discussion-editor.blade.php
+  s_0f80700cf0b8c6::t_a82d5bc43e7ce8 111-112,144,187,189-193
+  s_0f80700cf0b8c6::t_3c84303d25223c 188
+app/Filament/Resources/StudioPlans/Pages/CreateStudioPlan.php
+  s_0f80700cf0b8c6::t_31afd848a42f89 126-131
+app/Actions/Studio/KeepStudioDiscussionAction.php
+  s_0f80700cf0b8c6::t_4aa59c8aafc476 1-42,44-59
+  s_0f80700cf0b8c6::t_4888c5453da082 43
+tests/Feature/Queries/PersonasQueryTest.php
+  s_0f80700cf0b8c6::t_b525cf4e4a2624 123-143
+tests/Feature/Actions/KeepStudioDiscussionActionTest.php
+  s_0f80700cf0b8c6::t_253e21b0bdedfe 1-83
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_722466e45c551b 1288-1295,1299-1306
+app/Actions/Studio/RequestStudioDiscussionGenerationAction.php
+  s_0f80700cf0b8c6::t_efc609ef21e830 52-54,237-239
+app/Livewire/Admin/StudioPlanDiscussionEditor.php
+  s_0f80700cf0b8c6::t_2503cd6f47b0ed 1078-1079,1081
+  s_0f80700cf0b8c6::t_5d691e601b7033 294,300,305
+  s_0f80700cf0b8c6::t_729699f4315e0c 70-76,83-84
+  s_0f80700cf0b8c6::t_6a8807f6550ee0 104-107
+  s_0f80700cf0b8c6::t_bdc362bb8b46df 650,652,655-657
+  s_0f80700cf0b8c6::t_b5a200e2c5a811 550,557-558,560-561,566
+  s_0f80700cf0b8c6::t_6aecf413bf0afe 833,838-841,847
+  s_0f80700cf0b8c6::t_ff9e3434de919e 862,870
+  s_0f80700cf0b8c6::t_a2756ec954ab35 309,317,327
+  s_0f80700cf0b8c6::t_3810f166a3a8c9 676-681,692,695-699,704-726,732-734,749
+  s_0f80700cf0b8c6::t_9713d5038a7db2 408-425
+  s_0f80700cf0b8c6::t_2c3cefd315fa68 278
+  s_0f80700cf0b8c6::t_1386fb131e5843 45-48,56-60
+  s_0f80700cf0b8c6::t_7d2da1a05e5dd9 192-194,196
+  s_0f80700cf0b8c6::t_984c94768e5c3f 787-789,791-798
+  s_0f80700cf0b8c6::t_2db1bd2f21bed8 987-989,998,1010
+  s_0f80700cf0b8c6::t_a1f0139b566d77 775
+  s_0f80700cf0b8c6::t_bad51e884894bb 310,318-321,328
+  s_0f80700cf0b8c6::t_9d2c6e5b9f6e29 1014-1015
+  s_0f80700cf0b8c6::t_4c68070b9f47f7 492-493
+  s_0f80700cf0b8c6::t_fa39928171c78c 1097-1098,1106,1109,1112-1122,1148,1151,1286-1287,1373,1376
+  s_0f80700cf0b8c6::t_53bba02cffb549 774,1123
+  s_0f80700cf0b8c6::t_64f2fc622c34bc 1021
+  s_0f80700cf0b8c6::t_9ea0b6b884abe3 6,21,27,1184-1197,1442-1445,1447,1451,1453,1455,1457-1460,1462-1463,1465-1468,1470-1492
+app/Filament/Resources/StudioPlans/Pages/EditStudioPlan.php
+  s_0f80700cf0b8c6::t_31afd848a42f89 106,109-113,127,176-185
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_49ddc96a0ae825 385-387
+tests/Feature/Filament/StudioPlanDiscussionEditorTest.php
+  s_0f80700cf0b8c6::t_8f5cd73b4c183a 71-72,208-210,212-215,217-235,264,269-273,276-298,300-301,409-410,423-455
+app/Queries/Personas/PersonasQuery.php
+  s_0f80700cf0b8c6::t_8683bb1f24925f 63-81,87,90,97-104,106
+app/Support/StudioAi/StudioDiscussionContext.php
+  s_0f80700cf0b8c6::t_efc609ef21e830 128-137
+tests/Feature/Filament/StudioPlanDiscussionStepTest.php
+  s_0f80700cf0b8c6::t_4c5cf041966b44 3-4,150-158,169-194
+  s_0f80700cf0b8c6::t_3850dd6abd0383 149,159-168
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_31afd848a42f89 630-635,645,647-672,683-703
+tests/Feature/Actions/RequestStudioDiscussionGenerationActionTest.php
+  s_0f80700cf0b8c6::t_f726d25c07cdd1 154-156
+  s_0f80700cf0b8c6::t_b525cf4e4a2624 25,89-90
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_bec4f8cf975aeb 1094-1098,1104-1106,1111-1112,1114-1115,1118-1119,1135-1137,1512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d1d96b15e815605040604f4ff422dddc2408ae6e",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

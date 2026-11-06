@@ -1,0 +1,72 @@
+.github/actions/prepare-rateguru-public-https/action.yml
+  s_3481294084957b::t_7d3756870e5e87 1-484
+.github/workflows/prepare-tits-guru-https.yml
+  s_3481294084957b::t_ad39965a016ae2 1-162
+infrastructure/scripts/prepare-public-http
+  s_3481294084957b::t_024b3d337cd00c 130-131,133,383-384,387,777-778
+  s_3481294084957b::t_bf253191061051 775-776
+  s_3481294084957b::t_93ee4820514bbe 914-915,920-923
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_9e542ac1a22760 547-549,553-554,566,578,591
+tests/Support/real-nginx/scenario.sh
+  s_3481294084957b::t_7750111ad35e62 45-52,59-60,184-187,205-218,536-547,550,552-555,559-668,682,684-713,778-788
+  s_3481294084957b::t_a11adf28e436e6 677-681
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_3481294084957b::t_9e542ac1a22760 86-89,144-150,595-601
+.github/workflows/verify-tits-guru-https.yml
+  s_3481294084957b::t_ad39965a016ae2 1-122
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  s_3481294084957b::t_9e542ac1a22760 858-859
+.github/workflows/close-tits-guru-public-site.yml
+  s_3481294084957b::t_ad39965a016ae2 1-9,13-153
+tests/Pest.php
+  s_3481294084957b::t_9e542ac1a22760 554-557,576,8329-8335
+  s_3481294084957b::t_107a30e154cac6 11728-11731,11842
+  s_3481294084957b::t_b28fbf4c4bcac3 11781,11787-11789,11794-11804,11809-11812,11814-11815,11819,11824,11829-11835,11837-11838,11843-11869,11876-11877
+  s_3481294084957b::t_2e60f581d52a49 11932-11935,11970-11972,12103-12274
+  s_3481294084957b::t_28f87101cd3fb9 12275-12302
+.github/workflows/go-live-tits-guru.yml
+  s_3481294084957b::t_ad39965a016ae2 1-181
+infrastructure/runbooks/public-site.md
+  s_3481294084957b::t_8e8a29a5722825 4-31,39-40,43-44,51-52,61,99-102,108-117
+  s_3481294084957b::t_e385bd4d3103cc 230,312-348,350-376,378-461,463-475,477-547,549-572,576-579
+  s_3481294084957b::t_7fc4d80b9d436b 620-635,638-645,648-662
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_3481294084957b::t_9e542ac1a22760 247-251,520-524
+tests/Feature/Architecture/PublicHttpsTest.php
+  s_3481294084957b::t_18192096ba673f 1-45,48-49,51-226,228-291,293-294,296-462,464-479,481-499,501-507
+  s_3481294084957b::t_107a30e154cac6 46-47,292,295,500
+  s_3481294084957b::t_28f87101cd3fb9 50
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_3481294084957b::t_9e542ac1a22760 30-32,36-37,49,64,77,99-100
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_12c15ffdabe2ee 20-26,1661-1667,2426-2433,2435,2489-2571,2574
+  s_3481294084957b::t_ff5b563e0a4577 2633-2636
+infrastructure/scripts/prepare-public-https
+  s_3481294084957b::t_94453a2efcad8d 1-60,73-283,286-324,331-527,529,533-714,716-755,758,760-784,786-819,821,823-825,827-829,831-840,842-861,863-864,866-906,919-1200,1209-1224,1228-1231,1233,1235-1280,1282,1285-1317,1319,1325-1369,1371-1372,1375-1386,1388-1389,1392-1403,1405-1406,1409-1429,1431-1432,1437-1494,1501-1506
+  s_3481294084957b::t_b3feef9048fb6c 325-330,528,530-532,715,910-918,1203-1204,1206-1208,1225-1227,1232,1234,1281,1283-1284,1318,1320-1324,1370,1373-1374,1387,1390-1391,1404,1407-1408,1430,1433,1435-1436,1495-1500
+  s_3481294084957b::t_93ee4820514bbe 756-757,759
+  s_3481294084957b::t_1a4bff89c003db 907-909
+tests/Feature/Architecture/PublicHttpWorkflowTest.php
+  ai_agent 135
+.github/workflows/rollback-tits-guru-https.yml
+  s_3481294084957b::t_ad39965a016ae2 1-155
+tests/Feature/Architecture/PublicHttpsWorkflowTest.php
+  s_3481294084957b::t_b3ffbe55cb89e9 1-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "15fae559303eca51393dfdc0356130ec0b11dc13",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

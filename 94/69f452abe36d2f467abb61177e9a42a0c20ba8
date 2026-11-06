@@ -1,0 +1,31 @@
+docs/architecture/http-and-database-boundaries.md
+  s_0f80700cf0b8c6::t_4235b1455096a9 72-73
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_bbd5952d015b4b 1315-1316,1347-1375,1611-1615,1618-1620,1624-1625,1646-1649,1669-1773
+  s_0f80700cf0b8c6::t_a7aeab5a6a5b6f 2165-2171
+  s_0f80700cf0b8c6::t_18dd6990506bac 43-45,107-109,175-179,273-276,532,534-537,1076,1078-1081
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_2e4ad98972e05e 319,338,351-375,397-398,400,423-426
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_c678a7b0d9fb25 190,1007,1012-1013,1019-1020,1026-1027,1042-1044,1132-1152,1179-1204,1567-1569,1574-1575
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_0f80700cf0b8c6::t_093c03f0bd5e2b 344,349,362-367,378-379
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_8894b32375c6d5 2141-2160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9469f452abe36d2f467abb61177e9a42a0c20ba8",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

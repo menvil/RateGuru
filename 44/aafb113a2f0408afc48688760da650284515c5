@@ -3,12 +3,12 @@ docs/design/admin/migration-plan.md
   s_1aabafa6face67::t_e2b762ca63b5dc 131-132
 tests/Feature/Docs/AdminDesignDocsTest.php
   s_1aabafa6face67::t_4af31e49839a4c 47-48,78,86,92,102-103,106-125,127-137
-docs/design/admin/ui-review-checklist.md
-  s_1aabafa6face67::t_e2b762ca63b5dc 51-54,91-94,100
 docs/design/admin/design-contract.md
   s_1aabafa6face67::t_c4631971db310a 203,264-267,270-273,368-383,510-516
   s_1aabafa6face67::t_30f08c20370d58 305-306,614-615
   s_1aabafa6face67::t_ba5a1dd30e6fe5 534-556,558-559,562-567,570-578,580-586,588-595,643,647-651,683
+docs/design/admin/ui-review-checklist.md
+  s_1aabafa6face67::t_e2b762ca63b5dc 51-54,91-94,100
 ---
 {
   "schema_version": "authorship/3.0.0",

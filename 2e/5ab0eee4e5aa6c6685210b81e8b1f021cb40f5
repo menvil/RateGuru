@@ -1,0 +1,46 @@
+app/Support/Studio/BuildStudioPostVotesData.php
+  s_0f80700cf0b8c6::t_b5600848740c30 50-51,53-54,56,58-62,74,97,99-100,103-104,250,254-261,263-272,274-275,277,279-297,299,302-307,314-315,317,320,322,331-333
+  s_0f80700cf0b8c6::t_fadde8846e0536 52,251-253,262
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_6535eb135986d0 1516
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_6535eb135986d0 1520-1524
+resources/views/livewire/admin/studio-plan-post-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_359f5eb35e90db 238-243,246-258,262,287
+tests/Feature/Filament/StudioPlanDiscussionVotesEditorTest.php
+  s_0f80700cf0b8c6::t_3943e2f175bbec 442
+app/Data/Studio/StudioRatingVotesSettings.php
+  s_0f80700cf0b8c6::t_9ae4e79ba9a882 7-9
+tests/Feature/Filament/StudioPlanPostVotesEditorTest.php
+  s_0f80700cf0b8c6::t_7c87b96c5e9c6c 17,247-265
+  s_0f80700cf0b8c6::t_3943e2f175bbec 142,149,206,242,322
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_6535eb135986d0 698-700,721-724,729,756-765,798-800
+tests/Feature/Support/Studio/BuildStudioPostVotesDataTest.php
+  s_0f80700cf0b8c6::t_341d3631fc668f 116-118,158-160
+  s_0f80700cf0b8c6::t_3c6dec6a3f3a5e 144-145,156-157,161-177,180-183,185,195,200-201,205,215-218,222-223,253
+  s_0f80700cf0b8c6::t_fadde8846e0536 178-179
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_6535eb135986d0 403
+app/Livewire/Admin/StudioPlanPostVotesEditor.php
+  s_0f80700cf0b8c6::t_18a5134036c702 72-73,116-119,121,124,136,140,351-352,354,361,363,367-369,374-376,387,390,400-406,472,622,661-663,666,674,823,832-833,846-847,1053-1054,1057,1059,1067-1068,1070-1075,1118-1121,1123-1125,1127,1129-1139,1142-1146,1149-1154,1156-1158,1162-1172
+  s_0f80700cf0b8c6::t_3943e2f175bbec 407-412
+app/Data/Studio/StudioPostVotesSettings.php
+  s_0f80700cf0b8c6::t_4b2720782888be 10-13,36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2e5ab0eee4e5aa6c6685210b81e8b1f021cb40f5",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

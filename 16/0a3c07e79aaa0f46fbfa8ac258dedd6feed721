@@ -1,0 +1,25 @@
+tests/Feature/ApplicationShellTest.php
+  s_0f80700cf0b8c6::t_1c14dcf0e8205a 3-5,49-51
+resources/views/layouts/partials/app-sidebar-content.blade.php
+  s_0f80700cf0b8c6::t_21814434aed1b8 38-43,48,50
+tests/Feature/SidebarTaxonomyTest.php
+  s_0f80700cf0b8c6::t_21814434aed1b8 43,48-72
+docs/design/design-contract.md
+  s_0f80700cf0b8c6::t_82bd523b34077d 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "160a3c07e79aaa0f46fbfa8ac258dedd6feed721",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+app/Exceptions/Rating/CannotVoteForRatingOptionException.php
+  s_0f80700cf0b8c6::t_2e2961de3ab9cd 7-13,16-35,38,43-48,53-58,63,68,73-89,92-93,95
+tests/Unit/Actions/StudioTrustedParametersTest.php
+  s_0f80700cf0b8c6::t_709dca48206320 11-14,279-316
+app/Exceptions/Votes/CannotVoteException.php
+  s_0f80700cf0b8c6::t_6dfebce6673fc6 7-13,16-33,36,41-46,51-56,61-71,74-75,77
+tests/Feature/Actions/VoteActionsForStudioTest.php
+  s_0f80700cf0b8c6::t_378ad47036d089 1-98,100-126
+  s_0f80700cf0b8c6::t_1375e4ed750b0a 99
+app/Actions/Votes/VoteCommentAction.php
+  s_0f80700cf0b8c6::t_634bce1a96983a 16,28-35,61,64,114-122
+app/Actions/Votes/VotePostAction.php
+  s_0f80700cf0b8c6::t_634bce1a96983a 17,31-38,64,67,101
+app/Exceptions/Votes/CannotVoteCommentException.php
+  s_0f80700cf0b8c6::t_04128e7b0402d6 7-13,16-33,36,41-46,49,52-57,62-72,75-76,78
+app/Actions/Rating/VoteRatingOptionAction.php
+  s_0f80700cf0b8c6::t_634bce1a96983a 16,28-36,62,65,111-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cb792329d32b9e53a3bca55ebfc3479afdaa22ee",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

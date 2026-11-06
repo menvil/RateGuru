@@ -1,0 +1,86 @@
+app/Support/Studio/StudioPlanApprovalPreflight.php
+  s_0f80700cf0b8c6::t_2f1537096d36bf 5-6,21,44-51,57,230-233,239-284
+app/Enums/StudioActionFailure.php
+  s_0f80700cf0b8c6::t_9b7a6f11749e53 13-15,19-22,34-37,49-50,52
+tests/Feature/Support/Studio/StudioPlanApprovalPreflightTest.php
+  s_0f80700cf0b8c6::t_0bf77d46d2cda4 133-135,140-183,286
+tests/Feature/Actions/DispatchDueStudioActionsActionTest.php
+  s_0f80700cf0b8c6::t_f2330d00db7c2c 86,88-89,94-95,100-103
+app/Actions/Studio/ApproveStudioPlanAction.php
+  s_0f80700cf0b8c6::t_f656fa2fcce669 129,175,199
+  s_0f80700cf0b8c6::t_58c7c3196175c5 14,25,27-32,34-35,38-48,53-55,82,85,87-88,97-100,127-128,137,148-174,176-198,200-246,263-264,269-270,273-284
+tests/Feature/Actions/ApproveStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_32b730cd45a9c9 29,263-264,267-271,273-298,301,303-318,321-389,443
+tests/Feature/Actions/AddCommentActionTest.php
+  s_0f80700cf0b8c6::t_c8af89b4c96110 8-9,185-264
+app/Exceptions/Comments/CannotCommentException.php
+  s_0f80700cf0b8c6::t_9262b8c9d8308c 7-13,18-32,48-53,58-74,79-89,92-93,95
+app/Actions/Studio/Concerns/CancelsDependentStudioActions.php
+  s_0f80700cf0b8c6::t_a2c440a9a8a906 1-68
+app/Enums/StudioPlanApprovalProblem.php
+  s_0f80700cf0b8c6::t_97a546e7d877ef 6
+  s_0f80700cf0b8c6::t_03ca852c36b762 38-45,57-59,76-78,108-115
+docs/architecture/post-lifecycle.md
+  s_0f80700cf0b8c6::t_9faa16887562b0 39
+tests/Feature/Concurrency/StudioExecutorRaceTest.php
+  s_0f80700cf0b8c6::t_5aba29a75567b3 4,6,63-105,111-112,356-369,373-450,452-461,463-464,466,469,472-475
+  s_0f80700cf0b8c6::t_66638394948535 451,462,465,470-471,476
+  s_0f80700cf0b8c6::t_6678d4cfb90f5c 370-372,467-468
+tests/Feature/Concurrency/StudioPlanRaceTest.php
+  s_0f80700cf0b8c6::t_706816fe1d4d9e 12,471-499,501-505
+  s_0f80700cf0b8c6::t_dada427c3ea7e3 500
+app/Services/Comments/CommentReplyService.php
+  s_0f80700cf0b8c6::t_ff458d1971fd81 36
+app/Actions/Studio/ExecuteStudioAction.php
+  s_0f80700cf0b8c6::t_33580f8935b1a3 176-178,188-197,208-213,216-220,228-254,274,302-303,305-327,329-374,380,423-455,458-471,482
+  s_0f80700cf0b8c6::t_29fdf81b7147ee 375-379
+  s_0f80700cf0b8c6::t_d69db3545912fc 33,328,381-405,407-410,412-418,420
+  s_0f80700cf0b8c6::t_0c521d6d4181e4 457
+  s_0f80700cf0b8c6::t_589e9d99004bcf 495-498,523,527,530-566,574-576,578-580,582-583,586-598,601,603-613,617-620,718-720
+  s_0f80700cf0b8c6::t_8981c441d07e71 5,9,11,18,22,40-43,51-54,57-75,79-87,93,98-99,105,130,135-140,160
+  s_0f80700cf0b8c6::t_312c91cccb9996 406,411
+tests/Unit/Actions/StudioTrustedParametersTest.php
+  s_0f80700cf0b8c6::t_445cd2f574583f 1-313,321
+  s_0f80700cf0b8c6::t_2a4a65ca048abd 314-320
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_6af3cfa0553209 368-369,371,376,387-392
+app/Actions/Comments/AddCommentAction.php
+  s_0f80700cf0b8c6::t_ff458d1971fd81 18,37-45,67,82,86,90,127,137-138
+app/Enums/StudioPlanApprovalRejection.php
+  s_0f80700cf0b8c6::t_03ca852c36b762 9-11,24
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_1c3511637403bf 1312-1344
+  s_0f80700cf0b8c6::t_54043080850b2a 1265-1266
+tests/Feature/Actions/ExecuteStudioDiscussionActionTest.php
+  s_0f80700cf0b8c6::t_66638394948535 511
+  s_0f80700cf0b8c6::t_29fdf81b7147ee 334-346
+  s_0f80700cf0b8c6::t_34a57b3e40d14a 178,368-369,377,381-384,387-390,392-396,398,400-402,406-410,460,478
+  s_0f80700cf0b8c6::t_851e7d0f4cb5e6 1-177,179-333,347-367,370-376,378-380,385-386,391,397,399,403-405,411-459,461-477,479-510,512-549
+tests/Pest.php
+  s_0f80700cf0b8c6::t_01367346cf555f 20
+  s_0f80700cf0b8c6::t_a726d2da8ae682 13901-13945
+  s_0f80700cf0b8c6::t_efdf89ddd68407 13338-13339,13462-13464
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_a77d3cf462d40a 658-662,670,673,675,679-694,714-716,760-782,784-785,789-799
+  s_0f80700cf0b8c6::t_96b66c89021645 128,133-145,151,169-187,205-217,239-242,294,444,446-449,464-465
+  s_0f80700cf0b8c6::t_12c4c7cd0555c8 832-840,850-856,859-868
+  s_0f80700cf0b8c6::t_da670f8357de85 918-924
+docs/architecture/comment-lifecycle.md
+  s_0f80700cf0b8c6::t_f908d18e30fafa 42-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b32b7d05e084cc6f43c4f5020e7b9a2ac056ff68",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

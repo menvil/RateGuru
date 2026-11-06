@@ -1,0 +1,28 @@
+app/Livewire/Admin/StudioPlanDiscussionEditor.php
+  s_0f80700cf0b8c6::t_56c088536bb471 319,332,354,361-362,369,384,1145
+  s_0f80700cf0b8c6::t_0bba1f045bdbe4 264-267
+  s_0f80700cf0b8c6::t_ad0808925c59f5 1510-1560
+  s_0f80700cf0b8c6::t_57fec91c861f6f 279-280,285-286,291-292,299
+  s_0f80700cf0b8c6::t_b7f93c45ff10a2 57-59
+  s_0f80700cf0b8c6::t_0e738da653ca46 117-125
+tests/Feature/Filament/StudioPlanDiscussionGenerationUiTest.php
+  s_0f80700cf0b8c6::t_1e86ce0d9d1950 101-135
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_ad5e5e34ab621c 486-490
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c8ba5c6a12b18a9e189f5b4b320804e38abeac28",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

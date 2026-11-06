@@ -1,0 +1,65 @@
+docs/design/admin/design-contract.md
+  s_0f80700cf0b8c6::t_5683a00add82af 1514
+docs/design/admin/migration-plan.md
+  s_0f80700cf0b8c6::t_f9727a2e889de3 405,408-410
+resources/views/filament/pages/studio-plan.blade.php
+  s_0f80700cf0b8c6::t_a59d9882fade47 14-16,39,85,151,155
+  s_0f80700cf0b8c6::t_116f5690d8537f 40
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_dcecc65fc5eb61 6144-6152
+  s_0f80700cf0b8c6::t_423ef663e4194c 6118-6121
+  s_0f80700cf0b8c6::t_d2a60e17a0cb80 5748,5753,5770-5774,5777-5779,5811,6076-6117,6122-6143,6153-6222,6335-6359,6405-6413
+resources/views/livewire/admin/studio-plan-discussion-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_423ef663e4194c 149-150
+  s_0f80700cf0b8c6::t_52906912a16ce6 2-13,17-19,26-32,109-124,127-128,140-148,151-196,198-200,202-221,223-243,245-246,248-255,257-283,286,288-298,301-322,337-349
+tests/Feature/Filament/StudioPlanDiscussionEditorTest.php
+  s_0f80700cf0b8c6::t_6150e6ded03069 96,138
+  s_0f80700cf0b8c6::t_066d68989075b0 115-137
+tests/Browser/AdminStudioPlanDiscussionVotesBrowserTest.php
+  s_0f80700cf0b8c6::t_4df747b6a0c585 93
+  s_0f80700cf0b8c6::t_e9605dcba25602 12-17,42,47,53-59,66-69,73,75-78,81-92,94-101,106-107,109,117,133-136,140-142,146-147,159-186
+resources/views/filament/pages/studio-plan/discussion.blade.php
+  s_0f80700cf0b8c6::t_a59d9882fade47 5-17,19-29,38
+app/Livewire/Admin/StudioPlanDiscussionVotesEditor.php
+  s_0f80700cf0b8c6::t_1a185aa3a9e99a 674,686
+  s_0f80700cf0b8c6::t_7bc060aab1ca13 607,778-783,785-792,797-824,826-833,835,839-842,1082-1211
+  s_0f80700cf0b8c6::t_9eebea94bf7afc 13,549,555-557,564,572,579-583,588-593,602
+  s_0f80700cf0b8c6::t_116f5690d8537f 428,430,435,440
+  s_0f80700cf0b8c6::t_7944b6c5213bcd 460-461
+  s_0f80700cf0b8c6::t_423ef663e4194c 1051-1056
+  s_0f80700cf0b8c6::t_105c09def9147f 462,474
+  s_0f80700cf0b8c6::t_1228617db644b8 594
+  s_0f80700cf0b8c6::t_d304d9f442bea5 39-49,57-58,75-83,151-152,178-198,288-289,291,300-301,306-317,367,369,377,380,387-392,416,422-427,429,431-434,436-439,441-459,463-473,475
+app/Livewire/Admin/StudioPlanDiscussionEditor.php
+  s_0f80700cf0b8c6::t_50e45baf7848f5 51-55
+  s_0f80700cf0b8c6::t_4ca1c636c9ce43 154,276,826,1361-1362,1367,1370,1375,1387-1388
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_f9727a2e889de3 1432-1435,1438-1449,1457-1460,1463-1467,1471
+  s_0f80700cf0b8c6::t_dc2145a377964d 1480-1483
+resources/views/livewire/admin/studio-plan-discussion-editor.blade.php
+  s_0f80700cf0b8c6::t_4ca1c636c9ce43 290
+  s_0f80700cf0b8c6::t_6493eb970b38fc 3-14,160,162,207-209,221,243,280-281,287,310-313,317-318,327-336,343-346,348-350
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_f50513890f4c32 224-228,230,232-233,235-237
+  s_0f80700cf0b8c6::t_105c09def9147f 229,231,234
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_709b3a4e8971dc 477-478,491,787-936,1037-1038,1047-1049,1051-1054
+tests/Feature/Filament/StudioPlanDiscussionVotesEditorTest.php
+  s_0f80700cf0b8c6::t_eb93fdf35271f2 251,253,255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "22769a06fe398ab1c041880e1b9c1e2c42fdabc0",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

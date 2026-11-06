@@ -1,0 +1,299 @@
+lang/fr/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/sr/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/sv/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+config/static-pages.php
+  s_0f80700cf0b8c6::t_4928082abcf278 3-5,10-11,17,23,29
+lang/et/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/hr/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/nl/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/tr/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+tests/Feature/Admin/AdminUiKitPageTest.php
+  s_0f80700cf0b8c6::t_9e390afa614fc1 93-98
+lang/ro/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+tests/Feature/Profile/ConnectedAccountsTest.php
+  s_0f80700cf0b8c6::t_29f6998455b562 7
+  s_0f80700cf0b8c6::t_9e390afa614fc1 122
+lang/sl/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/fi/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/es/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ms/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/is/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/en/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/zh/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/hr/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/tr/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/vi/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/lv/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/cnr/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/ro/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ru/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/sl/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ro/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/pt/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/pt/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/lt/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+app/Exceptions/Auth/SocialAuthenticationException.php
+  s_0f80700cf0b8c6::t_7c73e4451149b8 6
+  s_0f80700cf0b8c6::t_9cf5469537daa1 96-99
+lang/uk/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/it/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/hu/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/nb/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+tests/Pest.php
+  s_0f80700cf0b8c6::t_db2d96f4582fc0 8468-8483
+tests/Feature/Auth/SocialAccountLinkingTest.php
+  s_0f80700cf0b8c6::t_29f6998455b562 11
+  s_0f80700cf0b8c6::t_9e390afa614fc1 231
+lang/vi/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/ka/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/nb/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/tr/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+resources/views/vendor/mail/html/message.blade.php
+  ai_agent 1-4,9,28
+lang/bg/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/fil/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/fi/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/uk/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/sr/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/fi/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ru/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/fil/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+app/Support/Notifications/MailAddressee.php
+  s_0f80700cf0b8c6::t_9cf5469537daa1 6,13-14,19,28
+app/Providers/MailLocalizationServiceProvider.php
+  s_0f80700cf0b8c6::t_9cf5469537daa1 6,42,53
+lang/es/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/ms/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/bs/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/et/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/en/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/ja/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/et/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/ms/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/pl/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+resources/views/vendor/mail/html/layout.blade.php
+  ai_agent 1-62
+lang/cs/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+resources/views/profile/partials/connected-accounts.blade.php
+  s_0f80700cf0b8c6::t_85c76179bc2a36 9,18
+lang/pt/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/it/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/is/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/sr/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/de/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/it/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/el/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/vi/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+app/Support/StudioAi/OpenAiStudioPostTextGenerator.php
+  s_0f80700cf0b8c6::t_45993b66d7bfde 58
+lang/lv/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/nl/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/mk/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/zh/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/mk/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/hu/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/th/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/uk/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/hr/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/ka/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/th/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/da/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sq/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sq/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/pl/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/is/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/de/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/hu/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/lt/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/es/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/bg/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+tests/Feature/Auth/SocialAccountSecurityEmailTest.php
+  s_0f80700cf0b8c6::t_9e390afa614fc1 9,124
+lang/sk/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/sv/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/ja/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/nl/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/lt/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sk/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/ru/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+app/Support/StudioAi/OpenAiStudioDiscussionGenerator.php
+  s_0f80700cf0b8c6::t_45993b66d7bfde 58
+tests/Feature/Localization/MailContentLocaleTest.php
+  s_0f80700cf0b8c6::t_4067a5575ad916 8,20-21
+app/Livewire/Admin/Sidebar.php
+  s_0f80700cf0b8c6::t_57af96d84dbeb3 22-25,35-36,38-39
+lang/nb/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/da/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ja/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/lv/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sv/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+app/Providers/Filament/AdminPanelProvider.php
+  s_0f80700cf0b8c6::t_eb99571c0c6447 28,55-58
+lang/cs/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+app/Notifications/SocialAccountSecurityMail.php
+  s_0f80700cf0b8c6::t_9cf5469537daa1 7,20-21,35
+resources/views/livewire/admin/sidebar.blade.php
+  s_0f80700cf0b8c6::t_57af96d84dbeb3 98,100
+lang/el/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/en/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/fil/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/fr/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sl/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/de/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/cnr/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+resources/views/vendor/mail/text/message.blade.php
+  ai_agent 1-4,9,28
+lang/bs/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/zh/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/bg/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/sq/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/bs/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/mk/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/sk/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+lang/pl/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/th/auth.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 68
+tests/Feature/Settings/ProjectSiteNameTest.php
+  s_0f80700cf0b8c6::t_1979028789e7dc 1-18,20-122
+  s_0f80700cf0b8c6::t_a9b8489712688f 19
+lang/cs/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+resources/views/vendor/notifications/email.blade.php
+  ai_agent 48
+lang/fr/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/cnr/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/ka/mail.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 40,45
+lang/da/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+lang/el/profile.php
+  s_0f80700cf0b8c6::t_98c679caa87e7f 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "df49a09737afdcd0fa96ac846dd178e1af2fd2bf",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

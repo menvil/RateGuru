@@ -1,0 +1,127 @@
+tests/Pest.php
+  s_3481294084957b::t_13e7d20c0ce4ea 8890-8892
+  s_3481294084957b::t_8ff7d16946862d 592,7339-7348
+  s_3481294084957b::t_58459e9052c371 3508-3532
+  s_3481294084957b::t_77c8985c764c7b 533
+  s_3481294084957b::t_a95d6149c75fa7 3535-3631
+.github/workflows/ci.yml
+  s_3481294084957b::t_45878e6264a3a4 912-916
+  s_3481294084957b::t_b9178cdaa2a839 949-956
+infrastructure/scripts/verify-infrastructure
+  s_3481294084957b::t_73a8ec04f8fa7b 130-137,583-596,601-602
+infrastructure/scripts/release-recovered-outbound
+  s_3481294084957b::t_73a22c918fac52 1-59,67-501,504-506,511-602,613,617-639,646-652,654-675,683-731,735-825
+  s_3481294084957b::t_ee3b1dfa45d7be 60-66,502-503,507-510,603-612,614-616,640-645,653,676-682,732-734
+infrastructure/scripts/install-mail-gateway
+  s_3481294084957b::t_33c777583ec95d 2976-2980
+  s_3481294084957b::t_7d00f5915b7d46 154-172,315-321,1043-1107,1138-1142,1147-1148,1152,1383,2592
+tests/Feature/Architecture/VerifyInfrastructureTest.php
+  s_3481294084957b::t_13651339ca34d6 574-609
+  s_3481294084957b::t_1361d65bef212e 833-834,840,842-843
+tests/Feature/Architecture/RecoverRateGuruHostActionTest.php
+  s_3481294084957b::t_ae78e7e5670e02 265
+tests/Feature/Architecture/MailRecoveryHoldRealPostfixTest.php
+  s_3481294084957b::t_44e2a8271af71a 1-87
+tests/Feature/Architecture/SharedOperationActionsScopeTest.php
+  s_3481294084957b::t_a6c6117bdbfa2e 103-106,169-171,579-581
+.github/workflows/recover-production.yml
+  s_3481294084957b::t_ae78e7e5670e02 1389,1430,1453-1462,1595,1640,1730
+infrastructure/runbooks/clean-host-recovery.md
+  s_3481294084957b::t_d336dbbea7df86 70-71,241-250,322-325,331-332,365-366,418-419,516-521,601-602
+  s_3481294084957b::t_78533f6fa29a8e 556
+tests/Feature/Architecture/RecoveryOutboundHoldTest.php
+  s_3481294084957b::t_5696f99d71a022 1-86,88-216
+  s_3481294084957b::t_a9f8d1d1bc1711 87
+infrastructure/scripts/recover-host
+  s_3481294084957b::t_41d79b71dae2fd 88-99,128-138,162-170,372,608-742,1873,1891,1903-1905,1999,2172-2176,2611-2613,2644,2678-2683,2802,2883-2886,2899
+  s_3481294084957b::t_b523f2061c8ee5 2375
+tests/Feature/Architecture/ProductionControlPlaneTest.php
+  s_3481294084957b::t_9e3637e0a825d7 238,550
+infrastructure/scripts/prepare-host
+  s_3481294084957b::t_946ac1ccde4702 135-137,171-186,249-259,329-335,337,866,872,918-944,947,949-1011,1111-1112,1115,1143-1146,1148,1246-1251,1260-1261,1264
+  s_3481294084957b::t_e9966a74329a33 260-261,945-946,948
+infrastructure/scripts/recovery-outbound-hold
+  s_3481294084957b::t_4caae1b919d21d 1-222,227-250,254-351,375-432
+  s_3481294084957b::t_cbd734e6857624 223-226,251-253
+  s_3481294084957b::t_d04d0a2103939a 352-374
+tests/Feature/Architecture/RestoreOperatorSurfaceScopeTest.php
+  s_3481294084957b::t_2fe8feea1ad406 110-112
+  s_3481294084957b::t_9e3637e0a825d7 58-60
+tests/Feature/Architecture/ReleaseRecoveredOutboundWorkflowTest.php
+  s_3481294084957b::t_c58a36456532b6 1-148,151-152,154-155,160-170
+  s_3481294084957b::t_c33b9d46ba5be6 149-150,153,156-159
+tests/Support/real-postfix/recovery-outbound-hold.sh
+  s_3481294084957b::t_37228cb70039e9 241-243,285,317,326,328-329
+  s_3481294084957b::t_1473eea622a59b 1-240,244-284,286-316,318-325,327,330-360
+infrastructure/README.md
+  s_3481294084957b::t_7f51a5e0419700 135-138
+infrastructure/runbooks/github-recover.md
+  s_3481294084957b::t_78533f6fa29a8e 742-749
+infrastructure/scripts/install-target-operations
+  s_3481294084957b::t_2a00fe1eaad478 292,1667-1668
+  s_3481294084957b::t_5d92d6cae9b450 9-11,30-32,96-100,109-110,150,220,459,465,523-524,526,530,535,538,614,647,968,1136,1162,1164-1165,1171,1175,1178,1181,1649,1996,2052,2097
+.github/workflows/recover-staging.yml
+  s_3481294084957b::t_ae78e7e5670e02 1372,1567,1612,1702
+.github/actions/recover-rateguru-host/action.yml
+  s_3481294084957b::t_ae78e7e5670e02 185-193,755,775
+tests/Feature/Architecture/PrepareHostOrchestratorTest.php
+  s_3481294084957b::t_639f29a93ab606 1761,1763-1766
+  s_3481294084957b::t_ea4ba8ae72774d 1758-1760,1762,1767-1907
+  s_3481294084957b::t_e9966a74329a33 1577-1581
+  s_3481294084957b::t_cf3dac817e6a06 254-258,285-291,368-373
+tests/Feature/Architecture/ReleaseRecoveredOutboundTest.php
+  s_3481294084957b::t_fe69ed44e3ceec 1-142,148-325,328,330-443,445-446,448-451
+  s_3481294084957b::t_8ff7d16946862d 143-147
+  s_3481294084957b::t_a5c0b70db24bf3 326-327,329,444,447
+.github/workflows/release-tits-guru-recovered-outbound.yml
+  s_3481294084957b::t_737f034ffae390 1-246
+infrastructure/runbooks/mail-outbound-activation.md
+  s_3481294084957b::t_78533f6fa29a8e 385-389
+tests/Feature/Architecture/RecoverHostScopeTest.php
+  s_3481294084957b::t_77c8985c764c7b 79-81
+  s_3481294084957b::t_a6c6117bdbfa2e 572
+infrastructure/runbooks/prepare-host.md
+  s_3481294084957b::t_85a2d2fb93244e 128,172-186
+tests/Feature/Architecture/MailGatewayRecoveryHoldTest.php
+  s_3481294084957b::t_345267b8b886ce 185,188-189
+  s_3481294084957b::t_33c777583ec95d 63,67
+  s_3481294084957b::t_9d58532ecac216 40
+  s_3481294084957b::t_3cc818258cb052 1-39,41-62,64-66,68-184,186-187,190-275
+tests/Feature/Architecture/RecoverHostOutboundHoldTest.php
+  s_3481294084957b::t_a2511c2807a802 1-236
+tests/.pest/shards.json
+  s_3481294084957b::t_7ff896aa5fd462 62,92,120,129,131-132,171-172
+infrastructure/scripts/verify-required-clis
+  s_3481294084957b::t_77c8985c764c7b 103
+tests/Feature/Architecture/RecoverWorkflowsTest.php
+  s_3481294084957b::t_cea89dd5525610 1246-1282
+.github/actions/release-rateguru-recovered-outbound/action.yml
+  s_3481294084957b::t_e33a1491af09aa 430
+infrastructure/ROADMAP.md
+  s_3481294084957b::t_f7a74463776d66 2832-2835
+  s_3481294084957b::t_994080aea5aacb 30-37,1682-1686,2411,2413,2721-2724,2772-2828,2836-2837
+infrastructure/runbooks/release-recovered-outbound.md
+  s_3481294084957b::t_d18820a7870a70 1-196
+infrastructure/runbooks/mail-gateway.md
+  s_3481294084957b::t_85a2d2fb93244e 308-327
+infrastructure/runbooks/recover-host.md
+  s_3481294084957b::t_85a2d2fb93244e 467-500
+infrastructure/scripts/recovery-host-preflight
+  s_3481294084957b::t_7da077c21be51d 878-879,935-937,943
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "09feda159b779ea3a34aa119676460729728747b",
+  "prompts": {},
+  "sessions": {
+    "s_3481294084957b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5b0272a-8694-407e-8478-c552498fbe4f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

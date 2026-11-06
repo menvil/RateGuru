@@ -1,0 +1,44 @@
+routes/console.php
+  s_0f80700cf0b8c6::t_f92bc88104ce62 44-49
+app/Actions/Studio/DispatchDueStudioActionsAction.php
+  s_0f80700cf0b8c6::t_c868748a2d0b3e 41-44
+  s_0f80700cf0b8c6::t_16b1daee9a2765 69-71,73,77,82,98,108-113,120
+tests/Feature/Actions/ApprovePostActionTrustedDateTest.php
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 24,80,83-84,90,99
+tests/Feature/Actions/RecalculatePostScoreActionTest.php
+  s_0f80700cf0b8c6::t_f821ea3bcedbb7 52-60
+tests/Unit/Actions/StudioTrustedPostParametersTest.php
+  s_0f80700cf0b8c6::t_13915ac5a94620 115-161,185,215-224,263-264,268-276
+  s_0f80700cf0b8c6::t_54a65159afdc09 265-267
+tests/Feature/Console/StudioDispatchDueCommandTest.php
+  s_0f80700cf0b8c6::t_f92bc88104ce62 15,22-24
+app/Actions/Ranking/RecalculatePostScoreAction.php
+  s_0f80700cf0b8c6::t_c868748a2d0b3e 7,27-32
+tests/Feature/Actions/ExecuteStudioActionTest.php
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 208,218,225,239-240
+  s_0f80700cf0b8c6::t_f821ea3bcedbb7 221-224,226-238,241-242
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_eeaeb99282c264 247-248,301-302
+  s_0f80700cf0b8c6::t_0fa4fa3fa49b89 226,228-231
+tests/Pest.php
+  s_0f80700cf0b8c6::t_e8c02a045c2c5d 13515-13527,13529-13533
+  s_0f80700cf0b8c6::t_13915ac5a94620 71,13528
+tests/Feature/Actions/DispatchDueStudioActionsActionTest.php
+  s_0f80700cf0b8c6::t_48fe42a5042ed7 3,247-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b54b3cc330ad24da783c815a99762dc207bd625a",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

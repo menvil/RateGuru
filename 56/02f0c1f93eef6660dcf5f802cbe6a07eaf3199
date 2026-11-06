@@ -1,0 +1,29 @@
+app/Actions/Rating/VoteRatingOptionAction.php
+  s_0f80700cf0b8c6::t_bde60e36e47220 84-86,89-94,97-101
+tests/Feature/Actions/ExecuteStudioVoteActionTest.php
+  s_0f80700cf0b8c6::t_bdfcac962a75ad 404-429
+tests/Feature/Actions/VoteRatingOptionActionTest.php
+  s_0f80700cf0b8c6::t_bdfcac962a75ad 105-122
+app/Exceptions/Rating/CannotVoteForRatingOptionException.php
+  s_0f80700cf0b8c6::t_01ed7d4c5408fe 76-81
+tests/Pest.php
+  s_0f80700cf0b8c6::t_96798fd1cdf0eb 13377-13378,13513-13514
+tests/Feature/Concurrency/StudioExecutorRaceTest.php
+  s_0f80700cf0b8c6::t_96798fd1cdf0eb 720-769
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5602f0c1f93eef6660dcf5f802cbe6a07eaf3199",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

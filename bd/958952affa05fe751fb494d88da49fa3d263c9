@@ -1,0 +1,46 @@
+app/Models/StudioPlanVote.php
+  s_0f80700cf0b8c6::t_71042a0167744a 20-23
+app/Enums/StudioPlanApprovalRejection.php
+  s_0f80700cf0b8c6::t_515a9cc577eaca 11-12,26
+app/Support/Studio/StudioVoteValidationRules.php
+  ai_agent 9,57-59,188,190-191,208-230,240-246,249-267,338-341,344,346,359,363-367,374,380-383,385,390,398,401,405,414,419,432,436,445
+tests/Pest.php
+  s_0f80700cf0b8c6::t_6ea0eb8894eae8 14059-14062,14068-14128
+  s_0f80700cf0b8c6::t_dc6c34c7ee9f5f 26
+  s_0f80700cf0b8c6::t_84e17eaffbcf0b 13272,13372-13373,13506-13509
+  s_0f80700cf0b8c6::t_d31bf9d54bbede 13264-13265,13374-13375
+tests/Feature/Actions/ApproveStudioPlanActionTest.php
+  s_0f80700cf0b8c6::t_ad71388dd5c7e1 451
+  s_0f80700cf0b8c6::t_17a0703fdec457 367-369,371-399,401-418,420-421,424-425,428-450,452-489,502
+app/Enums/StudioPlanApprovalProblem.php
+  s_0f80700cf0b8c6::t_ba83a604449e5e 7
+  s_0f80700cf0b8c6::t_515a9cc577eaca 47-58,73-76,96-98,136-147
+tests/Feature/Support/Studio/StudioPlanApprovalPreflightTest.php
+  s_0f80700cf0b8c6::t_bc57989873b992 185-186,188-201,203-223,226,229-231,233,343,352
+app/Actions/Studio/ApproveStudioPlanAction.php
+  s_0f80700cf0b8c6::t_c18e1b1817ddc7 197
+  s_0f80700cf0b8c6::t_e43b5f79c237f6 16,32-39,45-47,49-50,64-65,109-110,140-142,162-163,169-176,187,228-276
+  s_0f80700cf0b8c6::t_dc9cd98e212c95 51-57,92-93
+tests/Feature/Filament/StudioPlanPostVotesStepTest.php
+  s_0f80700cf0b8c6::t_5bcae054e51828 10,172,175,177,179-181,183-186,188
+tests/Feature/Concurrency/StudioPlanRaceTest.php
+  s_0f80700cf0b8c6::t_2b32e49ed56e44 15,435,545-606
+app/Support/Studio/StudioPlanApprovalPreflight.php
+  s_0f80700cf0b8c6::t_a75619a095d8ec 52-61,68,300-303,309-314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd958952affa05fe751fb494d88da49fa3d263c9",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
