@@ -209,17 +209,19 @@ it('can render post voting component', function () {
         ->assertSee('Down');
 });
 
-it('asks a guest to sign in only after a vote attempt', function () {
+it('asks a guest to sign in, in the authentication modal too, only after a vote attempt', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostVoting::class, ['postId' => $post->id])
         ->assertDontSee('Sign in to vote.')
+        ->assertNotDispatched('open-auth-modal')
         ->assertSee('wire:click.stop="vote(\'up\')"', false)
         ->assertSee('wire:click.stop="vote(\'down\')"', false)
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.')
-        ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.');
+        ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.')
+        ->assertDispatched('open-auth-modal', mode: 'login');
 
     $this->assertDatabaseCount('post_votes', 0);
 });
@@ -257,7 +259,9 @@ it('shows vote rate limit error without mutating counters', function () {
         ->test(PostVoting::class, ['postId' => $second->id])
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', 'You are voting too quickly. Please try again later.')
-        ->assertNotDispatched('post-voted');
+        ->assertNotDispatched('post-voted')
+        // Signed in already: the refusal is the member's, not a reason to sign in.
+        ->assertNotDispatched('open-auth-modal');
 
     expect($first->fresh()->upvotes_count)->toBe(1);
     expect($second->fresh()->upvotes_count)->toBe(0);

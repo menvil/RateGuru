@@ -24,7 +24,14 @@ Anything that wants a guest to authenticate only names a mode:
 and buttons that must keep working where the dialog is absent: a modified
 click is left to the browser, and a page without a dialog navigates to the
 standalone page instead. The header links and the guest upload button use
-it; later guest actions (votes, comments, follows) can do the same.
+it; later guest actions (comments, follows) can do the same.
+
+A Livewire component whose server refuses a guest opens it from that
+answer instead, with `App\Livewire\Concerns\OpensAuthModal`:
+`$this->openAuthModal()` sends the same event, in login mode unless it
+names another. Post, comment and rating votes do: the refusal is still
+shown next to the buttons, and the dialog opens over the page, so the
+attempt reaches the server and is still recorded in the security log.
 
 ## Three states, no tabs
 
