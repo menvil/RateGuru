@@ -57,10 +57,10 @@ it('asks a guest to sign in to vote, and counts the vote once they have, on the 
     $post = Post::factory()->published()->create(['title' => 'Best ramen in town', 'upvotes_count' => 0]);
     User::factory()->create(['email' => 'guest-voter@rateguru.test']);
 
+    // The refused vote opens the login dialog by itself, over the header.
     $page = visit(route('feed'))
         ->click("@post-upvote-button-{$post->id}")
         ->assertSeeIn('@post-card-vote-error', 'Sign in to vote.')
-        ->click('@header-login-link')
         ->type('@auth-modal-login-email', 'guest-voter@rateguru.test')
         ->type('@auth-modal-login-password', 'password');
 

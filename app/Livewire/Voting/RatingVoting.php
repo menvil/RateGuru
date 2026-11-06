@@ -4,6 +4,7 @@ namespace App\Livewire\Voting;
 
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
+use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
 use App\Models\RatingVote;
 use App\Support\Observability\GuestVoteAttemptLog;
@@ -15,6 +16,8 @@ use Livewire\Component;
 
 class RatingVoting extends Component
 {
+    use OpensAuthModal;
+
     protected string $viewName = 'livewire.voting.rating-voting';
 
     protected string $votedEventName = 'rating-voted';
@@ -66,6 +69,7 @@ class RatingVoting extends Component
                 'rating_option_id' => $optionId,
             ]);
             $this->error = __('ui.voting.sign_in_to_vote');
+            $this->openAuthModal();
 
             return;
         }

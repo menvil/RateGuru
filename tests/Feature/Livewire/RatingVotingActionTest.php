@@ -57,7 +57,7 @@ it('replaces a rating vote through the component without creating duplicates', f
     ]);
 });
 
-it('does not allow guests to vote through rating voting', function () {
+it('does not allow guests to vote through rating voting, and asks them to sign in in the authentication modal', function () {
     $post = Post::factory()->published()->create();
     $group = RatingGroup::factory()->create(['key' => 'type']);
     $option = RatingOption::factory()->for($group, 'group')->create();
@@ -65,7 +65,8 @@ it('does not allow guests to vote through rating voting', function () {
     Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $option->id)
         ->assertSet('error', 'Sign in to vote.')
-        ->assertSee('Sign in to vote.');
+        ->assertSee('Sign in to vote.')
+        ->assertDispatched('open-auth-modal', mode: 'login');
 
     expect(RatingVote::query()->count())->toBe(0);
 });
@@ -80,7 +81,8 @@ it('does not allow an option from a different rating group', function () {
     Livewire::actingAs($user)
         ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
         ->call('vote', $otherOption->id)
-        ->assertSee('Rating option is not available for this group.');
+        ->assertSee('Rating option is not available for this group.')
+        ->assertNotDispatched('open-auth-modal');
 
     expect(RatingVote::query()->count())->toBe(0);
 });
