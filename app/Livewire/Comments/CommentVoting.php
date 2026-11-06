@@ -5,6 +5,7 @@ namespace App\Livewire\Comments;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Services\Comments\CommentVotingService;
+use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -15,7 +16,7 @@ final class CommentVoting extends Component
 
     public string $error = '';
 
-    public function vote(string $type, CommentVotingService $commentVotingService): void
+    public function vote(string $type, CommentVotingService $commentVotingService, GuestVoteAttemptLog $guestVoteAttempts): void
     {
         $this->error = '';
 
@@ -23,6 +24,11 @@ final class CommentVoting extends Component
 
         if ($voteType === null) {
             return;
+        }
+
+        // Refused below, by VoteCommentAction, as before; only recorded here.
+        if (auth()->guest()) {
+            $guestVoteAttempts->record('comment', ['comment_id' => $this->commentId, 'vote' => $voteType->value]);
         }
 
         $comment = $commentVotingService->comment($this->commentId);

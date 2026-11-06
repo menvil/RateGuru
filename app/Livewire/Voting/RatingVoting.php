@@ -6,6 +6,7 @@ use App\Actions\Rating\VoteRatingOptionAction;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Models\Post;
 use App\Models\RatingVote;
+use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVoteDistribution;
 use Illuminate\Contracts\View\View;
@@ -52,12 +53,18 @@ class RatingVoting extends Component
         int $optionId,
         RatingConfigurationManager $configuration,
         VoteRatingOptionAction $voteRatingOption,
+        GuestVoteAttemptLog $guestVoteAttempts,
     ): void {
         $this->error = '';
 
         $user = auth()->user();
 
         if ($user === null) {
+            $guestVoteAttempts->record('rating', [
+                'post_id' => $this->post?->id,
+                'rating_group' => $this->groupKey,
+                'rating_option_id' => $optionId,
+            ]);
             $this->error = __('ui.voting.sign_in_to_vote');
 
             return;
