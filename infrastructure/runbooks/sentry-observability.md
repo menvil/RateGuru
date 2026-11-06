@@ -228,7 +228,9 @@ succeeded.
 
 The Nightwatch half of the same transition is documented in
 [`nightwatch-evaluation.md`](nightwatch-evaluation.md); the two markers describe
-one event and carry the same release identity.
+one event and carry the same release identity. A target Nightwatch is not
+enabled for — `tits-guru` today — records the Sentry marker alone, and its
+summary reports the Nightwatch half as skipped rather than failed.
 
 ### Sentry outages never roll anything back
 

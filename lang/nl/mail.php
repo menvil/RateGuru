@@ -37,12 +37,12 @@ return [
         'action' => 'Gekoppelde accounts bekijken',
         'connected' => [
             'subject' => ':provider is gekoppeld aan je account',
-            'line' => 'Er is een :provider-account gekoppeld aan je RateGuru-account. Je kunt het nu gebruiken om in te loggen.',
+            'line' => 'Er is een :provider-account gekoppeld aan je :site-account. Je kunt het nu gebruiken om in te loggen.',
             'not_you' => 'Was jij dit niet? Open dan je profiel en ontkoppel het meteen.',
         ],
         'disconnected' => [
             'subject' => ':provider is ontkoppeld van je account',
-            'line' => 'Er is een :provider-account ontkoppeld van je RateGuru-account. Je kunt het niet meer gebruiken om in te loggen.',
+            'line' => 'Er is een :provider-account ontkoppeld van je :site-account. Je kunt het niet meer gebruiken om in te loggen.',
             'not_you' => 'Was jij dit niet? Log dan in en controleer je gekoppelde accounts en je wachtwoord.',
         ],
     ],

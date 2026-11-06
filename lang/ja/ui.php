@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'すべて',
         'latest' => '最新',

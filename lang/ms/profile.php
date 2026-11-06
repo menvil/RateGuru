@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Akaun yang disambungkan',
-        'description' => 'Sambungkan Google atau Facebook untuk log masuk dengannya. Akaun yang disambungkan mungkin menggunakan alamat e-mel yang berbeza daripada akaun RateGuru anda.',
+        'description' => 'Sambungkan Google atau Facebook untuk log masuk dengannya. Akaun yang disambungkan mungkin menggunakan alamat e-mel yang berbeza daripada akaun :site anda.',
         'connect' => 'Sambung',
         'disconnect' => 'Putuskan sambungan',
         'not_connected' => 'Tidak disambungkan',

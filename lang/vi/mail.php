@@ -37,12 +37,12 @@ return [
         'action' => 'Xem lại tài khoản đã liên kết',
         'connected' => [
             'subject' => ':provider đã được liên kết với tài khoản của bạn',
-            'line' => 'Một tài khoản :provider đã được liên kết với tài khoản RateGuru của bạn. Giờ đây bạn có thể dùng tài khoản này để đăng nhập.',
+            'line' => 'Một tài khoản :provider đã được liên kết với tài khoản :site của bạn. Giờ đây bạn có thể dùng tài khoản này để đăng nhập.',
             'not_you' => 'Nếu đây không phải là bạn, hãy mở hồ sơ và hủy liên kết ngay lập tức.',
         ],
         'disconnected' => [
             'subject' => ':provider đã bị hủy liên kết khỏi tài khoản của bạn',
-            'line' => 'Một tài khoản :provider đã bị hủy liên kết khỏi tài khoản RateGuru của bạn. Tài khoản này không còn dùng để đăng nhập được nữa.',
+            'line' => 'Một tài khoản :provider đã bị hủy liên kết khỏi tài khoản :site của bạn. Tài khoản này không còn dùng để đăng nhập được nữa.',
             'not_you' => 'Nếu đây không phải là bạn, hãy đăng nhập và kiểm tra các tài khoản đã liên kết cũng như mật khẩu của bạn.',
         ],
     ],

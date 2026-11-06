@@ -37,12 +37,12 @@ return [
         'action' => 'Se gjennom tilkoblede kontoer',
         'connected' => [
             'subject' => ':provider ble koblet til kontoen din',
-            'line' => 'En :provider-konto ble koblet til RateGuru-kontoen din. Den kan nå brukes til å logge inn.',
+            'line' => 'En :provider-konto ble koblet til :site-kontoen din. Den kan nå brukes til å logge inn.',
             'not_you' => 'Hvis dette ikke var deg, åpner du profilen din og kobler den fra med en gang.',
         ],
         'disconnected' => [
             'subject' => ':provider ble koblet fra kontoen din',
-            'line' => 'En :provider-konto ble koblet fra RateGuru-kontoen din. Den kan ikke lenger brukes til å logge inn.',
+            'line' => 'En :provider-konto ble koblet fra :site-kontoen din. Den kan ikke lenger brukes til å logge inn.',
             'not_you' => 'Hvis dette ikke var deg, logger du inn og kontrollerer de tilkoblede kontoene og passordet ditt.',
         ],
     ],

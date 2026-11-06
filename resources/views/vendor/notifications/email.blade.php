@@ -45,7 +45,7 @@
 @if (! empty($salutation))
 {{ $salutation }}
 @else
-{{ __('mail.salutation', ['app' => config('app.name')]) }}
+{{ __('mail.salutation', ['app' => app(\App\Support\Settings\ProjectSettingsManager::class)->current()->siteName()]) }}
 @endif
 
 {{-- Subcopy --}}

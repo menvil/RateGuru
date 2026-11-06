@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Comptes associés',
-        'description' => 'Associez Google ou Facebook pour pouvoir les utiliser lors de la connexion. Un compte associé peut utiliser une adresse e-mail différente de celle de votre compte RateGuru.',
+        'description' => 'Associez Google ou Facebook pour pouvoir les utiliser lors de la connexion. Un compte associé peut utiliser une adresse e-mail différente de celle de votre compte :site.',
         'connect' => 'Associer',
         'disconnect' => 'Dissocier',
         'not_connected' => 'Non associé',

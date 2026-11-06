@@ -37,12 +37,12 @@ return [
         'action' => 'Vérifier les comptes associés',
         'connected' => [
             'subject' => ':provider a été associé à votre compte',
-            'line' => 'Un compte :provider a été associé à votre compte RateGuru. Il peut désormais être utilisé pour vous connecter.',
+            'line' => 'Un compte :provider a été associé à votre compte :site. Il peut désormais être utilisé pour vous connecter.',
             'not_you' => 'Si ce n\'était pas vous, ouvrez votre profil et dissociez-le immédiatement.',
         ],
         'disconnected' => [
             'subject' => ':provider a été dissocié de votre compte',
-            'line' => 'Un compte :provider a été dissocié de votre compte RateGuru. Il ne peut plus être utilisé pour vous connecter.',
+            'line' => 'Un compte :provider a été dissocié de votre compte :site. Il ne peut plus être utilisé pour vous connecter.',
             'not_you' => 'Si ce n\'était pas vous, connectez-vous et vérifiez vos comptes associés ainsi que votre mot de passe.',
         ],
     ],

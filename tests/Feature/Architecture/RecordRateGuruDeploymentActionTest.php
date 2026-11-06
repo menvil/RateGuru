@@ -38,6 +38,204 @@ function rrdSteps(array $node): array
     return $node['steps'] ?? [];
 }
 
+/**
+ * The inputs one caller passes: every credential present, so whatever the
+ * action leaves out it leaves out by its own decision. The deploy key is a
+ * real one, so the action's own key check passes.
+ *
+ * @param  array<string, string>  $overrides
+ * @return array<string, string>
+ */
+function rrdInputs(string $scratch, array $overrides = []): array
+{
+    exec('ssh-keygen -t ed25519 -N "" -q -C deploy@test -f '.escapeshellarg($scratch.'/fixture-key').' 2>&1', $ignored, $generated);
+    expect($generated)->toBe(0);
+
+    return array_merge([
+        'deployment-target' => 'staging-main',
+        'environment' => 'staging',
+        'release-id' => 'v1.4.0-20261029-120000-abcdef1',
+        'source-sha' => 'abcdef1',
+        'sentry-auth-token' => 'sentry-token-for-tests',
+        'sentry-org' => 'rateguru',
+        'sentry-project' => 'rateguru',
+        'deploy-host' => '203.0.113.10',
+        'deploy-port' => '22',
+        'deploy-user' => 'deploy-rateguru-staging',
+        'ssh-private-key' => (string) file_get_contents($scratch.'/fixture-key'),
+        'known-hosts' => '203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKnownHostEntryForTestsOnly',
+    ], $overrides);
+}
+
+/** @return array<string, string> */
+function rrdProductionInputs(string $scratch): array
+{
+    return rrdInputs($scratch, [
+        'deployment-target' => 'tits-guru',
+        'environment' => 'production',
+        'deploy-user' => 'deploy-rateguru-tits-guru',
+    ]);
+}
+
+/**
+ * The value of one expression in the action, the way the runner reads it —
+ * for the handful of forms the action uses. Anything else fails the test
+ * rather than being guessed at.
+ *
+ * @param  array<string, string>  $inputs
+ * @param  array{outputs: array<string, array<string, string>>, outcomes: array<string, string>, failed: bool}  $state
+ */
+function rrdEvaluate(string $expression, array $inputs, array $state): string|bool
+{
+    $expression = trim($expression);
+
+    if (str_contains($expression, '&&')) {
+        return collect(explode('&&', $expression))
+            ->every(static fn (string $part): bool => rrdTruthy(rrdEvaluate($part, $inputs, $state)));
+    }
+
+    foreach (['==', '!='] as $operator) {
+        if (str_contains($expression, $operator)) {
+            [$left, $right] = array_map(
+                static fn (string $side): string => (string) rrdEvaluate($side, $inputs, $state),
+                explode($operator, $expression, 2),
+            );
+
+            return $operator === '==' ? $left === $right : $left !== $right;
+        }
+    }
+
+    return match (true) {
+        $expression === 'always()' => true,
+        $expression === 'success()' => ! $state['failed'],
+        (bool) preg_match("/^'([^']*)'$/", $expression, $literal) => $literal[1],
+        (bool) preg_match('/^inputs\.([a-z0-9-]+)$/', $expression, $input) => $inputs[$input[1]] ?? '',
+        (bool) preg_match('/^steps\.([a-z]+)\.outputs\.([a-z_]+)$/', $expression, $output) => $state['outputs'][$output[1]][$output[2]] ?? '',
+        (bool) preg_match('/^steps\.([a-z]+)\.outcome$/', $expression, $outcome) => $state['outcomes'][$outcome[1]] ?? '',
+        $expression === 'github.server_url' => 'https://github.com',
+        $expression === 'github.repository' => 'menvil/RateGuru',
+        $expression === 'github.run_id' => '1001',
+        default => throw new RuntimeException("the action uses an expression these tests cannot read: {$expression}"),
+    };
+}
+
+function rrdTruthy(string|bool $value): bool
+{
+    return is_bool($value) ? $value : $value !== '';
+}
+
+/**
+ * @param  array<string, string>  $inputs
+ * @param  array{outputs: array<string, array<string, string>>, outcomes: array<string, string>, failed: bool}  $state
+ */
+function rrdInterpolate(string $value, array $inputs, array $state): string
+{
+    return (string) preg_replace_callback('/\$\{\{(.*?)\}\}/', static function (array $match) use ($inputs, $state): string {
+        $result = rrdEvaluate($match[1], $inputs, $state);
+
+        return is_bool($result) ? ($result ? 'true' : 'false') : $result;
+    }, $value);
+}
+
+/** @return array<string, string> */
+function rrdKeyValues(string $path): array
+{
+    $values = [];
+
+    foreach (preg_split('/\R/', (string) @file_get_contents($path)) as $line) {
+        if (str_contains($line, '=')) {
+            [$name, $value] = explode('=', $line, 2);
+            $values[$name] = $value;
+        }
+    }
+
+    return $values;
+}
+
+/**
+ * One run of the action as the runner makes it: each step's `if:` decided
+ * from the outputs and outcomes before it — with the runner's implicit
+ * success() where it names no status function — each `run:` executed for real
+ * through runActionStep against the stub `ssh`, and its outputs and GITHUB_ENV
+ * carried to the steps after it. The nested Sentry action is not executed —
+ * sentry-release has tests of its own — only recorded with the inputs it is
+ * given, reporting that it recorded.
+ *
+ * @param  array<string, string>  $inputs
+ * @param  array<string, string>  $stub  RGTEST_SSH_* settings for the stub ssh
+ * @return array{ran: list<string>, outputs: array<string, array<string, string>>, outcomes: array<string, string>, failed: bool, sentry: array<string, string>|null, log: string, summary: string, ssh: string, env: array<string, string>}
+ */
+function rrdRun(string $scratch, array $inputs, array $stub = []): array
+{
+    $action = rrdAction();
+    $inputs = array_merge(array_map(static fn (array $input): string => (string) ($input['default'] ?? ''), $action['inputs']), $inputs);
+
+    $state = ['outputs' => [], 'outcomes' => [], 'failed' => false];
+    $ran = [];
+    $sentry = null;
+    $log = '';
+    $githubEnv = [];
+
+    foreach ($action['runs']['steps'] as $step) {
+        $id = $step['id'] ?? null;
+        $condition = trim((string) preg_replace('/^\$\{\{(.*)\}\}$/s', '$1', (string) ($step['if'] ?? 'success()')));
+        $implicitSuccess = ! preg_match('/\b(always|success|failure|cancelled)\(\)/', $condition);
+
+        if (! rrdTruthy(rrdEvaluate($condition, $inputs, $state)) || ($implicitSuccess && $state['failed'])) {
+            if ($id !== null) {
+                $state['outcomes'][$id] = 'skipped';
+            }
+
+            continue;
+        }
+
+        $ran[] = $step['name'];
+
+        if (isset($step['uses'])) {
+            $sentry = array_map(static fn (mixed $value): string => rrdInterpolate((string) $value, $inputs, $state), $step['with'] ?? []);
+            $outputs = ['recorded' => 'true'];
+            $outcome = 'success';
+        } else {
+            file_put_contents($scratch.'/github-output', '');
+
+            $env = array_merge(
+                $githubEnv,
+                array_map(static fn (mixed $value): string => rrdInterpolate((string) $value, $inputs, $state), $step['env'] ?? []),
+                ['GITHUB_ENV' => $scratch.'/github-env'],
+                $stub,
+            );
+
+            $result = runActionStep('.github/actions/record-rateguru-deployment/action.yml', $step['name'], actionStepEnv($scratch, $env));
+
+            $log .= $result['output'];
+            $outputs = rrdKeyValues($scratch.'/github-output');
+            $githubEnv = rrdKeyValues($scratch.'/github-env');
+            $outcome = $result['exit'] === 0 ? 'success' : 'failure';
+
+            if ($outcome === 'failure' && ($step['continue-on-error'] ?? false) !== true) {
+                $state['failed'] = true;
+            }
+        }
+
+        if ($id !== null) {
+            $state['outputs'][$id] = $outputs;
+            $state['outcomes'][$id] = $outcome;
+        }
+    }
+
+    return [
+        'ran' => $ran,
+        'outputs' => $state['outputs'],
+        'outcomes' => $state['outcomes'],
+        'failed' => $state['failed'],
+        'sentry' => $sentry,
+        'log' => $log,
+        'summary' => (string) @file_get_contents($scratch.'/github-step-summary'),
+        'ssh' => (string) @file_get_contents($scratch.'/ssh.log'),
+        'env' => $githubEnv,
+    ];
+}
+
 // =============================================================================
 // One shared implementation
 // =============================================================================
@@ -268,4 +466,196 @@ it('uses the ordinary deploy credential, in files its callers cannot clobber', f
         ->firstWhere('name', 'Remove temporary observability SSH material');
 
     expect($cleanup['if'])->toBe('${{ always() }}');
+});
+
+// =============================================================================
+// Which targets have a Nightwatch marker at all
+// =============================================================================
+
+it('records the Nightwatch marker on staging-main through the marker wrapper', function () {
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdInputs($scratch));
+
+        expect($run['failed'])->toBeFalse($run['log']);
+        expect($run['outputs']['preflight'])->toMatchArray(['nightwatch_supported' => 'true', 'nightwatch_configured' => 'true']);
+        expect($run['ran'])->toContain('Configure observability SSH', 'Record Nightwatch deployment marker');
+        expect($run['outcomes']['nightwatch'])->toBe('success');
+
+        expect($run['ssh'])->toContain('deploy-rateguru-staging@203.0.113.10');
+        expect($run['ssh'])->toContain("'sudo' '-n' '/usr/local/sbin/rateguru-nightwatch-deployment' '--target' 'staging-main' '--release' 'v1.4.0-20261029-120000-abcdef1' '--source-sha' 'abcdef1'");
+
+        expect($run['outputs']['report']['recorded'])->toBe('true');
+        expect($run['summary'])->toContain('- Nightwatch recorded: `true`', '- Nightwatch: recorded');
+
+        // The material it wrote is gone again.
+        expect(file_exists($scratch.'/rateguru_observability_key'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('never asks a target without Nightwatch for a marker, though its SSH material is all there', function () {
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdProductionInputs($scratch));
+
+        expect($run['failed'])->toBeFalse($run['log']);
+        expect($run['outputs']['preflight'])->toBe(['nightwatch_supported' => 'false']);
+
+        // Neither step that touches the host runs: no key or known_hosts file
+        // is written, nothing connects, and no sudo is asked for.
+        expect($run['ran'])->not->toContain('Configure observability SSH')
+            ->and($run['ran'])->not->toContain('Record Nightwatch deployment marker');
+        expect($run['outcomes'])->toMatchArray(['ssh' => 'skipped', 'nightwatch' => 'skipped']);
+
+        expect($run['ssh'])->toBe('');
+        expect($run['env'])->toBe([]);
+        expect(file_exists($scratch.'/rateguru_observability_key'))->toBeFalse();
+        expect(file_exists($scratch.'/rateguru_observability_known_hosts'))->toBeFalse();
+        expect($run['log'])->not->toContain('sudo');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('records Sentry for a target without Nightwatch exactly as for any other', function () {
+    // Nothing the Nightwatch decision adds conditions the Sentry step.
+    $sentryStep = collect(rrdAction()['runs']['steps'])->firstWhere('id', 'sentry');
+    expect($sentryStep)->not->toHaveKey('if');
+
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdProductionInputs($scratch));
+
+        expect($run['ran'])->toContain('Record Sentry release and deployment marker');
+        expect($run['sentry'])->toBe([
+            'sentry-auth-token' => 'sentry-token-for-tests',
+            'sentry-org' => 'rateguru',
+            'sentry-project' => 'rateguru',
+            'environment' => 'production',
+            'release-id' => 'v1.4.0-20261029-120000-abcdef1',
+        ]);
+        expect($run['summary'])->toContain('- Sentry recorded: `true`');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('reports a target without Nightwatch as a deliberate skip, never as a failure', function () {
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdProductionInputs($scratch));
+
+        expect($run['outputs']['report']['recorded'])->toBe('false');
+        expect($run['log'])->toContain('Nightwatch deployment marker skipped: not supported for target tits-guru.');
+
+        expect($run['summary'])->toContain(
+            '- Target: `tits-guru`',
+            '- Environment: `production`',
+            '- Sentry recorded: `true`',
+            '- Nightwatch recorded: `false`',
+            '- Nightwatch: skipped (not enabled for this target)',
+        );
+
+        // Neither of the other two reasons for no marker.
+        expect($run['summary'].$run['log'])->not->toContain('FAILED')
+            ->and($run['summary'].$run['log'])->not->toContain('SSH material');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('skips staging-main without SSH material as missing configuration, not as policy', function () {
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdInputs($scratch, ['deploy-host' => '']));
+
+        expect($run['failed'])->toBeFalse($run['log']);
+        expect($run['outputs']['preflight'])->toBe(['nightwatch_supported' => 'true', 'nightwatch_configured' => 'false']);
+        expect($run['outcomes'])->toMatchArray(['ssh' => 'skipped', 'nightwatch' => 'skipped']);
+        expect($run['ssh'])->toBe('');
+
+        expect($run['outputs']['report']['recorded'])->toBe('false');
+        expect($run['summary'])->toContain(
+            '- Nightwatch: skipped (no deployment SSH material)',
+            'the staging environment has no deployment SSH material',
+        );
+        expect($run['summary'])->not->toContain('not enabled for this target');
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('fails open on staging-main when the Nightwatch marker itself fails', function () {
+    $scratch = makeScratchDir('record-deployment');
+
+    try {
+        $run = rrdRun($scratch, rrdInputs($scratch), ['RGTEST_SSH_EXIT' => '1', 'RGTEST_SSH_STDERR' => 'sudo: a password is required']);
+
+        // The marker was attempted and failed, and the action still succeeds.
+        expect($run['outcomes']['nightwatch'])->toBe('failure');
+        expect($run['failed'])->toBeFalse();
+        expect($run['ran'])->toContain('Report observability outcome', 'Remove temporary observability SSH material');
+
+        expect($run['outputs']['report']['recorded'])->toBe('false');
+        expect($run['summary'])->toContain(
+            '- Nightwatch: failed (observability gap only)',
+            'Nightwatch deployment marker FAILED',
+            'this is an observability gap and must not be rolled back for',
+        );
+        expect($run['summary'])->not->toContain('not enabled for this target');
+        expect(file_exists($scratch.'/rateguru_observability_key'))->toBeFalse();
+    } finally {
+        removeScratchDir($scratch);
+    }
+});
+
+it('asks for a Nightwatch marker on exactly the targets scripts/common names a Nightwatch program for', function () {
+    // The action keeps its own copy of the allowlist — a GitHub runner cannot
+    // source the server's scripts — so the copy is held to the original: every
+    // registered target, and some that are not, decided the same way by both,
+    // and by the target alone whatever its environment class.
+    $program = shellFunctionBody(File::get(base_path('infrastructure/scripts/common')), 'target_nightwatch_program')."\n}\n";
+    $registered = array_keys(json_decode(File::get(base_path('infrastructure/config/deployment-targets.json')), true)['targets']);
+
+    $scratch = makeScratchDir('record-deployment');
+    $decisions = [];
+
+    try {
+        foreach ([...$registered, 'food-guru', 'animals-guru', 'staging', 'staging-main-2'] as $target) {
+            exec('bash -c '.escapeshellarg($program.'target_nightwatch_program "$1"').' _ '.escapeshellarg($target).' >/dev/null 2>&1', $ignored, $status);
+            $hasProgram = $status === 0;
+            $decisions[] = $hasProgram;
+
+            foreach (['staging', 'production'] as $environment) {
+                file_put_contents($scratch.'/github-output', '');
+
+                $result = runActionStep('.github/actions/record-rateguru-deployment/action.yml', 'Validate deployment identity', actionStepEnv($scratch, [
+                    'DEPLOYMENT_TARGET' => $target,
+                    'ENVIRONMENT' => $environment,
+                    'RELEASE_ID' => 'v1.4.0-20261029-120000-abcdef1',
+                    'SOURCE_SHA' => 'abcdef1',
+                    'DEPLOY_HOST' => '203.0.113.10',
+                    'DEPLOY_USER' => 'deploy-rateguru-'.$target,
+                    'SSH_KEY_PRESENT' => 'true',
+                    'KNOWN_HOSTS_PRESENT' => 'true',
+                ]));
+
+                expect($result['exit'])->toBe(0, $result['output']);
+                expect(rrdKeyValues($scratch.'/github-output')['nightwatch_supported'] ?? null)
+                    ->toBe($hasProgram ? 'true' : 'false', "{$target} ({$environment}) must follow target_nightwatch_program");
+            }
+        }
+
+        // Both answers were exercised, so agreement is not vacuous.
+        expect($decisions)->toContain(true, false);
+    } finally {
+        removeScratchDir($scratch);
+    }
 });

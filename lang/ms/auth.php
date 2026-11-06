@@ -65,7 +65,7 @@ return [
         'failed' => 'Kami tidak dapat melog masukkan anda dengan :provider. Sila cuba lagi.',
         'expired' => 'Log masuk :provider anda tamat tempoh sebelum selesai. Sila mulakan semula.',
         'email_missing' => 'Akaun :provider anda tidak berkongsi alamat e-mel, jadi ia tidak boleh digunakan untuk log masuk.',
-        'email_taken' => 'Alamat e-mel akaun :provider ini milik akaun RateGuru yang lain. Log masuk ke akaun tersebut untuk menyambungkan :provider di sana.',
+        'email_taken' => 'Alamat e-mel akaun :provider ini milik akaun :site yang lain. Log masuk ke akaun tersebut untuk menyambungkan :provider di sana.',
         'link_expired' => 'Sesi penyambungan akaun anda telah tamat tempoh atau berubah. Sila mulakan semula penyambungan akaun.',
         'already_signed_in' => 'Anda sudah log masuk. Untuk turut log masuk dengan :provider, sambungkannya di bahagian Akaun yang disambungkan.',
         'already_linked' => 'Akaun :provider ini sudah disambungkan ke akaun lain.',

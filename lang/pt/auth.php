@@ -65,7 +65,7 @@ return [
         'failed' => 'Não foi possível fazer seu login com :provider. Tente novamente.',
         'expired' => 'Seu login com :provider expirou antes de ser concluído. Comece novamente.',
         'email_missing' => 'Sua conta do :provider não compartilhou um endereço de e-mail, por isso não pode ser usada para entrar.',
-        'email_taken' => 'O endereço de e-mail desta conta do :provider pertence a outra conta do RateGuru. Entre nessa conta para conectar o :provider a ela.',
+        'email_taken' => 'O endereço de e-mail desta conta do :provider pertence a outra conta do :site. Entre nessa conta para conectar o :provider a ela.',
         'link_expired' => 'Sua sessão de conexão de conta expirou ou foi alterada. Comece a conectar a conta novamente.',
         'already_signed_in' => 'Você já está conectado. Para também entrar com :provider, conecte-o em Contas conectadas.',
         'already_linked' => 'Esta conta do :provider já está conectada a outra conta.',

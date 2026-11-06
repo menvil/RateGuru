@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Povezani nalozi',
-        'description' => 'Poveži Google ili Facebook i prijavljuj se preko njih. Povezani nalog može da koristi drugu e-mail adresu od tvog RateGuru naloga.',
+        'description' => 'Poveži Google ili Facebook i prijavljuj se preko njih. Povezani nalog može da koristi drugu e-mail adresu od tvog :site naloga.',
         'connect' => 'Poveži',
         'disconnect' => 'Isključi',
         'not_connected' => 'Nije povezano',

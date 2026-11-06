@@ -37,12 +37,12 @@ return [
         'action' => 'Peržiūrėti susietas paskyras',
         'connected' => [
             'subject' => ':provider paskyra susieta su jūsų paskyra',
-            'line' => 'Prie jūsų RateGuru paskyros susieta :provider paskyra. Dabar ją galima naudoti prisijungimui.',
+            'line' => 'Prie jūsų :site paskyros susieta :provider paskyra. Dabar ją galima naudoti prisijungimui.',
             'not_you' => 'Jei tai buvote ne jūs, atidarykite savo profilį ir nedelsdami ją atsiekite.',
         ],
         'disconnected' => [
             'subject' => ':provider paskyra atsieta nuo jūsų paskyros',
-            'line' => ':provider paskyra atsieta nuo jūsų RateGuru paskyros. Jos nebegalima naudoti prisijungimui.',
+            'line' => ':provider paskyra atsieta nuo jūsų :site paskyros. Jos nebegalima naudoti prisijungimui.',
             'not_you' => 'Jei tai buvote ne jūs, prisijunkite ir patikrinkite savo susietas paskyras bei slaptažodį.',
         ],
     ],

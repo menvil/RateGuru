@@ -65,7 +65,7 @@ return [
         'failed' => 'Non siamo riusciti a farti accedere con :provider. Riprova.',
         'expired' => 'Il tuo accesso con :provider è scaduto prima di essere completato. Ricomincia da capo.',
         'email_missing' => 'Il tuo account :provider non ha condiviso un indirizzo e-mail, quindi non può essere usato per accedere.',
-        'email_taken' => 'L\'indirizzo e-mail di questo account :provider appartiene a un altro account RateGuru. Accedi a quell\'account per collegare :provider lì.',
+        'email_taken' => 'L\'indirizzo e-mail di questo account :provider appartiene a un altro account :site. Accedi a quell\'account per collegare :provider lì.',
         'link_expired' => 'La sessione di collegamento dell\'account è scaduta o è cambiata. Ricomincia a collegare l\'account.',
         'already_signed_in' => 'Hai già effettuato l\'accesso. Per accedere anche con :provider, collegalo in «Account collegati».',
         'already_linked' => 'Questo account :provider è già collegato a un altro account.',

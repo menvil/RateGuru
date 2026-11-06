@@ -65,7 +65,7 @@ return [
         'failed' => 'Hindi ka namin ma-sign in gamit ang :provider. Pakisubukang muli.',
         'expired' => 'Nag-expire ang iyong pag-sign in gamit ang :provider bago ito natapos. Magsimulang muli.',
         'email_missing' => 'Hindi nagbahagi ng email address ang iyong :provider account, kaya hindi ito magagamit para mag-sign in.',
-        'email_taken' => 'Ang email address ng :provider account na ito ay pag-aari ng ibang RateGuru account. Mag-sign in sa account na iyon para doon ikonekta ang :provider.',
+        'email_taken' => 'Ang email address ng :provider account na ito ay pag-aari ng ibang :site account. Mag-sign in sa account na iyon para doon ikonekta ang :provider.',
         'link_expired' => 'Nag-expire o nagbago ang session ng pagkonekta ng iyong account. Simulan muli ang pagkonekta ng account.',
         'already_signed_in' => 'Naka-sign in ka na. Para makapag-sign in din gamit ang :provider, ikonekta ito sa ilalim ng Mga nakakonektang account.',
         'already_linked' => 'Nakakonekta na ang :provider account na ito sa ibang account.',
