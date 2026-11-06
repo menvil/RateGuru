@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\VoteType;
+use App\Exceptions\Observability\SecurityLogUnavailableException;
 use App\Livewire\Comments\CommentVoting;
 use App\Livewire\Posts\PostVoting;
 use App\Livewire\Voting\RatingVoting;
@@ -16,6 +17,7 @@ use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Http\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 use Monolog\Handler\TestHandler;
@@ -117,13 +119,35 @@ it('records nothing when a signed-in account votes', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $option = RatingOption::factory()->for($group, 'group')->create();
 
     Livewire::actingAs($user)->test(PostVoting::class, ['postId' => $post->id])->call('vote', VoteType::Up->value);
     Livewire::actingAs($user)->test(CommentVoting::class, ['commentId' => $comment->id])->call('vote', VoteType::Up->value);
+    Livewire::actingAs($user)->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])->call('vote', $option->id);
 
     expect(PostVote::query()->count())->toBe(1)
         ->and(CommentVote::query()->count())->toBe(1)
+        ->and(RatingVote::query()->count())->toBe(1)
         ->and(guestVoteAttempts($log))->toBe([]);
+});
+
+it('still refuses a guest\'s vote when the security log cannot be written, and reports it without the visitor', function () {
+    Exceptions::fake();
+    // A file under /dev/null: neither its directory nor the file can ever be created.
+    config(['logging.channels.security' => ['driver' => 'single', 'path' => '/dev/null/security.log']]);
+    $post = Post::factory()->published()->create();
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.sign_in_to_vote'));
+
+    // Monolog appends the record it was writing to its own message; none of
+    // that, and so no address, is in what is reported.
+    Exceptions::assertReported(fn (SecurityLogUnavailableException $reported): bool => $reported->getPrevious() === null
+        && str_contains($reported->getMessage(), '/dev/null/security')
+        && ! str_contains($reported->getMessage(), '127.0.0.1')
+        && ! str_contains($reported->getMessage(), GuestVoteAttemptLog::EVENT));
 });
 
 it('takes the visitor\'s address, browser and page from the request, cut to a sane length', function () {
