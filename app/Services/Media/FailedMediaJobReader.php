@@ -1,0 +1,156 @@
+<?php
+
+namespace App\Services\Media;
+
+use App\Jobs\GenerateMediaVariantsJob;
+use App\Jobs\RunMediaAuditJob;
+use App\Models\FailedJob;
+use App\Services\Media\Exceptions\MediaAuditAlreadyRunningException;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+
+/**
+ * Reads `failed_jobs`, restricted to the actual media job classes this app
+ * dispatches — never a generic "every failed job" view. Deliberately never
+ * calls unserialize() on payload.data.command (that's the literal serialized
+ * job object — running it through unserialize() would reconstruct arbitrary
+ * PHP objects from stored data, a real object-injection surface even for
+ * data this app wrote itself, since a corrupted/legacy-format row could
+ * behave unpredictably). Everything read here comes from either
+ * json_decode() (always safe) or a plain-text regex over the still-encoded
+ * serialize() string — GenerateMediaVariantsJob's $mediaAssetId is a public
+ * readonly int, so PHP's serialize() format holds it as literal,
+ * regex-matchable text (`s:12:"mediaAssetId";i:42;`), never requiring the
+ * object to actually be reconstructed.
+ */
+final class FailedMediaJobReader
+{
+    /**
+     * How far back (by most-recent-first) we're willing to scan across ALL
+     * failed jobs, not just media ones, before giving up — a defensive
+     * bound, not the media-specific display cap below. Deliberately not a
+     * SQL-level pre-filter on the class name: `payload` is a JSON blob, and
+     * a LIKE pattern built from a backslash-containing class name (every
+     * PHP namespace) runs straight into PostgreSQL's LIKE operator having
+     * an *implicit* default ESCAPE character of its own (backslash) — a
+     * bound parameter's literal double-backslash bytes (from JSON-escaping
+     * the class name) silently fail to match the identically-escaped bytes
+     * actually stored, because Postgres consumes them as an escape sequence
+     * first. Filtering in PHP via json_decode() after a bounded fetch sidesteps
+     * that (and any equivalent MariaDB/SQLite quirk) entirely, at the cost of
+     * also fetching non-media rows within the scan window.
+     */
+    private const int SCAN_LIMIT = 500;
+
+    private const int RECENT_LIMIT = 50;
+
+    /** @var list<class-string> */
+    private const array KNOWN_MEDIA_JOB_CLASSES = [
+        GenerateMediaVariantsJob::class,
+        RunMediaAuditJob::class,
+    ];
+
+    /**
+     * @return list<FailedMediaJobRecord> the most recent failures across the
+     *                                    known media job classes, newest
+     *                                    first, capped at RECENT_LIMIT — a
+     *                                    diagnostics panel, not a queue
+     *                                    browser, so an unbounded listing
+     *                                    was never the goal.
+     */
+    public function recentMediaJobFailures(): array
+    {
+        return $this->mediaJobFailures()->take(self::RECENT_LIMIT)->values()->all();
+    }
+
+    /**
+     * An exact count across *every* failed_jobs row, not just the ones
+     * within mediaJobFailures()'s SCAN_LIMIT window — the display list is
+     * deliberately capped (a diagnostics panel, not a queue browser), but
+     * MediaAuditSummary.failedMediaJobs and the health status it feeds both
+     * need a genuine total, since an older media failure hidden behind
+     * SCAN_LIMIT worth of newer, unrelated failures would otherwise vanish
+     * from the count entirely. cursor() streams rows one at a time rather
+     * than loading the whole table into memory.
+     */
+    public function countMediaJobFailures(): int
+    {
+        $count = 0;
+
+        foreach (FailedJob::query()->cursor() as $row) {
+            if ($this->parseRow($row) !== null) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /** @return Collection<int, FailedMediaJobRecord> newest failure first */
+    private function mediaJobFailures(): Collection
+    {
+        return FailedJob::query()
+            ->orderByDesc('failed_at')
+            ->limit(self::SCAN_LIMIT)
+            ->get()
+            ->map(fn (FailedJob $row): ?FailedMediaJobRecord => $this->parseRow($row))
+            ->filter()
+            ->values();
+    }
+
+    private function parseRow(FailedJob $row): ?FailedMediaJobRecord
+    {
+        /** @var mixed $payload */
+        $payload = json_decode((string) $row->payload, true);
+
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $displayName = $payload['displayName'] ?? null;
+
+        if (! is_string($displayName) || ! in_array($displayName, self::KNOWN_MEDIA_JOB_CLASSES, true)) {
+            return null;
+        }
+
+        // A MediaAuditAlreadyRunningException failure means RunMediaAuditJob
+        // correctly declined to run concurrently with another audit — an
+        // expected, benign collision (e.g. a double-clicked "Run full
+        // audit"), not a real generation/audit problem. Counting it here
+        // would inflate failed_media_jobs (and the health status it feeds)
+        // over routine, harmless contention. PHP's (string) cast of an
+        // exception starts with "ClassName: message in file:line", so a
+        // simple prefix check identifies it without parsing the rest of the
+        // stack trace text.
+        if (str_starts_with((string) $row->exception, MediaAuditAlreadyRunningException::class.':')) {
+            return null;
+        }
+
+        $commandString = $payload['data']['command'] ?? null;
+
+        return new FailedMediaJobRecord(
+            uuid: (string) $row->uuid,
+            jobClass: $displayName,
+            mediaAssetId: is_string($commandString) ? $this->extractMediaAssetId($commandString) : null,
+            failedAt: Carbon::parse((string) $row->failed_at),
+            exceptionSummary: $this->summarizeException((string) $row->exception),
+        );
+    }
+
+    private function extractMediaAssetId(string $serializedCommand): ?int
+    {
+        if (preg_match('/s:12:"mediaAssetId";i:(\d+);/', $serializedCommand, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    private function summarizeException(string $exception): string
+    {
+        $firstLine = strtok($exception, "\n");
+
+        return $firstLine === false ? 'Unknown exception.' : Str::limit($firstLine, 300);
+    }
+}
