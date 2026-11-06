@@ -4,6 +4,7 @@ namespace App\Livewire\Comments;
 
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
+use App\Livewire\Concerns\OpensAuthModal;
 use App\Services\Comments\CommentVotingService;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Settings\ProjectSettingsManager;
@@ -13,6 +14,8 @@ use Livewire\Component;
 
 final class CommentVoting extends Component
 {
+    use OpensAuthModal;
+
     public int $commentId;
 
     public string $error = '';
@@ -76,6 +79,10 @@ final class CommentVoting extends Component
             $commentVotingService->vote(auth()->user(), $comment->id, $voteToApply);
         } catch (CannotVoteCommentException $e) {
             $this->error = $e->getMessage();
+
+            if ($e->isGuest()) {
+                $this->openAuthModal();
+            }
 
             return;
         }
