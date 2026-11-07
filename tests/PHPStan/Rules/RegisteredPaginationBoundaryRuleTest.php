@@ -45,7 +45,8 @@ final class RegisteredPaginationBoundaryRuleTest extends RuleTestCase
         $this->analyse([
             __DIR__.'/../Fixtures/Services/Pagination.php',
         ], [
-            ['Eloquent pagination must be owned by a registered Query Object.', 14],
+            ['Eloquent pagination must be owned by a registered Query Object.', 15],
+            ['Eloquent pagination must be owned by a registered Query Object.', 20],
         ]);
     }
 }

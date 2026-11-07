@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RateGuru\PHPStan\Rules;
 
+use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Http\Request;
 use PhpParser\Node;
 use PhpParser\Node\Expr\MethodCall;
@@ -12,6 +13,7 @@ use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ObjectType;
+use PHPStan\Type\Type;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 
 use function in_array;
@@ -34,6 +36,20 @@ final class NoInlineControllerValidationRule implements Rule
 
         $method = $node->name->toString();
 
+        if (in_array($method, ['validate', 'validateWith', 'validateWithBag'], true)
+            && $this->usesValidatesRequests($scope->getType($node->var))
+        ) {
+            return [
+                RuleErrorBuilder::message(sprintf(
+                    'HTTP controllers must validate input through a dedicated Form Request; do not call ValidatesRequests::%s().',
+                    $method,
+                ))
+                    ->identifier('rateguru.controller.inlineValidation')
+                    ->nonIgnorable()
+                    ->build(),
+            ];
+        }
+
         if (! in_array($method, ['validate', 'validateWithBag'], true)) {
             return [];
         }
@@ -48,7 +64,20 @@ final class NoInlineControllerValidationRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.controller.inlineValidation')
+                ->nonIgnorable()
                 ->build(),
         ];
+    }
+
+    /** A controller validating through Laravel's ValidatesRequests trait: $this->validate($request, [...]). */
+    private function usesValidatesRequests(Type $type): bool
+    {
+        foreach ($type->getObjectClassReflections() as $class) {
+            if ($class->hasTraitUse(ValidatesRequests::class)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

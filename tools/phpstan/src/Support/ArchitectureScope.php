@@ -10,6 +10,9 @@ use function str_starts_with;
 
 final class ArchitectureScope
 {
+    /** The DB facade's ways to manage a transaction: as a whole, or by hand. */
+    public const TRANSACTION_METHODS = ['transaction', 'beginTransaction', 'commit', 'rollBack'];
+
     public static function isHttpController(Scope $scope): bool
     {
         $namespace = $scope->getNamespace();

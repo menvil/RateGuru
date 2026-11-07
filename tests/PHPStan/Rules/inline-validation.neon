@@ -1,0 +1,5 @@
+# The fixture's controller loaded before the analysis, so `$this` in it can be
+# reflected — and seen to use ValidatesRequests.
+parameters:
+    bootstrapFiles:
+        - ../Fixtures/Controllers/TraitValidation.php

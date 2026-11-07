@@ -42,6 +42,7 @@ final class NoPresentationModelMutationRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.presentation.modelMutation')
+                ->nonIgnorable()
                 ->build(),
         ];
     }

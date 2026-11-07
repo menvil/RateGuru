@@ -27,6 +27,8 @@ final class NoReadOnlyLayerMutationRuleTest extends RuleTestCase
             ['Query Objects are read-only; Eloquent sync() is not allowed.', 24],
             ['Query Objects are read-only; lockForUpdate() belongs in an Action transaction.', 29],
             ['Query Objects are read-only; database transactions are not allowed.', 34],
+            ['Query Objects are read-only; lockForUpdate() belongs in an Action transaction.', 39],
+            ['Query Objects are read-only; database transactions are not allowed.', 44],
             ['Policies are read-only; Eloquent update() is not allowed.', 13],
         ]);
     }

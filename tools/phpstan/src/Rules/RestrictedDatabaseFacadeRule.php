@@ -24,13 +24,17 @@ final class RestrictedDatabaseFacadeRule implements Rule
     private const RESTRICTED_METHODS = [
         'affectingStatement',
         'connection',
+        'cursor',
         'delete',
+        'getPdo',
+        'getReadPdo',
         'insert',
         'query',
         'raw',
         'scalar',
         'select',
         'selectOne',
+        'selectFromWriteConnection',
         'selectResultSets',
         'statement',
         'table',
@@ -60,14 +64,16 @@ final class RestrictedDatabaseFacadeRule implements Rule
 
         $method = $node->name->toString();
 
-        if ($method === 'transaction') {
+        // A transaction opened, committed or rolled back by hand is managed all the same.
+        if (in_array($method, ArchitectureScope::TRANSACTION_METHODS, true)) {
             if (! ArchitectureScope::isPresentationLayer($scope)) {
                 return [];
             }
 
             return [
-                RuleErrorBuilder::message('Presentation classes must not manage transactions; move DB::transaction() to an Action.')
+                RuleErrorBuilder::message(sprintf('Presentation classes must not manage transactions; move DB::%s() to an Action.', $method))
                     ->identifier('rateguru.presentation.transaction')
+                    ->nonIgnorable()
                     ->build(),
             ];
         }
@@ -83,6 +89,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.database.restrictedFacade')
+                ->nonIgnorable()
                 ->build(),
         ];
     }

@@ -92,7 +92,12 @@ function jobSample(string $runId, array $options): array
         $start = seconds($job['started_at'] ?? null);
         $end = seconds($job['completed_at'] ?? null);
 
-        if ($start === null || $end === null) {
+        // A run still going would be measured to whichever job happened to end last.
+        if ($end === null) {
+            throw new RuntimeException("run {$runId} has unfinished jobs");
+        }
+
+        if ($start === null) {
             continue;
         }
 
@@ -108,6 +113,10 @@ function jobSample(string $runId, array $options): array
                 $metrics[$job['name'].' › '.$step['name']] = $stepEnd - $stepStart;
             }
         }
+    }
+
+    if ($finished === -INF) {
+        throw new RuntimeException("no job of run {$runId} ran");
     }
 
     $metrics['run wall time'] = $finished - $queued;

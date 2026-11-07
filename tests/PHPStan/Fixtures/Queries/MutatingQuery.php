@@ -33,4 +33,14 @@ final class MutatingQuery
     {
         DB::transaction(static fn (): null => null);
     }
+
+    public function lockStatically(): void
+    {
+        Post::lockForUpdate()->first();
+    }
+
+    public function transactionByHand(): void
+    {
+        DB::beginTransaction();
+    }
 }

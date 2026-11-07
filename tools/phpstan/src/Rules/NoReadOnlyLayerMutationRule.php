@@ -42,10 +42,11 @@ final class NoReadOnlyLayerMutationRule implements Rule
             return [$this->error("{$layer} are read-only; database transactions are not allowed.")];
         }
 
-        if ($node instanceof MethodCall
-            && $node->name instanceof Node\Identifier
+        if ($node->name instanceof Node\Identifier
             && in_array($node->name->toString(), ['lockForUpdate', 'sharedLock'], true)
-            && EloquentCallInspector::hasQueryReceiver($scope, $node)
+            && ($node instanceof StaticCall
+                ? EloquentCallInspector::hasModelOrQueryReceiver($scope, $node)
+                : EloquentCallInspector::hasQueryReceiver($scope, $node))
         ) {
             return [$this->error(sprintf(
                 '%s are read-only; %s() belongs in an Action transaction.',
@@ -73,13 +74,14 @@ final class NoReadOnlyLayerMutationRule implements Rule
             && $node->class instanceof Name
             && $node->name instanceof Node\Identifier
             && $scope->resolveName($node->class) === DB::class
-            && $node->name->toString() === 'transaction';
+            && in_array($node->name->toString(), ArchitectureScope::TRANSACTION_METHODS, true);
     }
 
     private function error(string $message): IdentifierRuleError
     {
         return RuleErrorBuilder::message($message)
             ->identifier('rateguru.readOnlyLayer.mutation')
+            ->nonIgnorable()
             ->build();
     }
 }
