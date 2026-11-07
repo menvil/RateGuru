@@ -9,6 +9,7 @@ return [
     'login_required' => 'Zaloguj się, aby obserwować autorów.',
     'cannot_follow_self' => 'Nie możesz obserwować siebie.',
     'cannot_follow_author' => 'Tego autora nie można obserwować.',
+    'cannot_follow' => 'Obecnie nie możesz obserwować autorów.',
     'feature_disabled' => 'Funkcja obserwowania jest wyłączona.',
     'notifications' => [
         'followed_author_posted' => 'Nowy post od :author: :title',

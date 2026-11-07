@@ -9,6 +9,7 @@ return [
     'login_required' => 'เข้าสู่ระบบเพื่อติดตามผู้เขียน',
     'cannot_follow_self' => 'คุณไม่สามารถติดตามตัวเองได้',
     'cannot_follow_author' => 'ไม่สามารถติดตามผู้เขียนรายนี้ได้',
+    'cannot_follow' => 'ขณะนี้คุณไม่สามารถติดตามผู้เขียนได้',
     'feature_disabled' => 'ฟีเจอร์การติดตามถูกปิดใช้งาน',
     'notifications' => [
         'followed_author_posted' => ':author เผยแพร่โพสต์ใหม่: :title',

@@ -60,8 +60,12 @@ final class FollowButton extends Component
             $this->dispatch('follow-state-changed', authorId: $this->author->id, isFollowing: $result->isFollowing);
         } catch (FollowFeatureDisabledException) {
             $this->message = __('follows.feature_disabled');
-        } catch (CannotFollowAuthorException) {
-            $this->message = __('follows.cannot_follow_author');
+        } catch (CannotFollowAuthorException $exception) {
+            // Said without a reason when it is the viewer's own account: a
+            // shadowbanned one is never told it is.
+            $this->message = $exception->isAboutFollower()
+                ? __('follows.cannot_follow')
+                : __('follows.cannot_follow_author');
         }
     }
 

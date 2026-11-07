@@ -26,6 +26,7 @@ use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
 use App\Queries\Reports\ModerationReportsQuery;
+use App\Support\Moderation\ModerationReason;
 use Carbon\CarbonInterface;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -214,6 +215,10 @@ final class ListReports extends Page
         $target = $report->target;
         $hidingPost = $this->confirming === 'hide' && $target instanceof Post;
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
+        $this->reason = ModerationReason::normalize($this->reason);
+
         $this->validate(
             ['reason' => [$hidingPost ? 'required' : 'nullable', 'string', 'min:3', 'max:'.self::NOTE_LIMIT]],
             [
@@ -223,7 +228,7 @@ final class ListReports extends Page
             ],
         );
 
-        $reason = trim($this->reason) !== '' ? trim($this->reason) : null;
+        $reason = $this->reason !== '' ? $this->reason : null;
         $action = $this->confirming;
         $this->closeConfirmation();
 

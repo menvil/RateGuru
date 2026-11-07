@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\UserStatus;
 use App\Enums\VoteType;
 use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
@@ -81,6 +82,42 @@ it('allows owner to delete own comment from comments section', function () {
 
     $this->assertSoftDeleted('comments', ['id' => $comment->id]);
 });
+
+it('says so, rather than failing, when a delete or hide is refused for what changed meanwhile', function (string $method, Closure $actor) {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Still here', 'status' => CommentStatus::Visible]);
+    $user = $actor($comment);
+    $page = Livewire::actingAs($user)->test(CommentsSection::class, ['postId' => $post->id]);
+
+    // The account loses the right to act after the thread was drawn.
+    $user->forceFill(['status' => UserStatus::Banned])->save();
+
+    $page->call($method, $comment->id)
+        ->assertOk()
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'))
+        ->assertNotDispatched('comment-deleted')
+        ->assertNotDispatched('comment-hidden');
+
+    expect($comment->fresh())->status->toBe(CommentStatus::Visible)->deleted_at->toBeNull();
+})->with([
+    'its author deleting it' => ['deleteComment', fn (Comment $comment) => $comment->user],
+    'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
+]);
+
+it('says so, rather than answering 404, when the comment was deleted in another tab', function (string $method, Closure $actor) {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Soon gone', 'status' => CommentStatus::Visible]);
+    $page = Livewire::actingAs($actor($comment))->test(CommentsSection::class, ['postId' => $post->id]);
+
+    $comment->delete();
+
+    $page->call($method, $comment->id)
+        ->assertOk()
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'));
+})->with([
+    'its author deleting it' => ['deleteComment', fn (Comment $comment) => $comment->user],
+    'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
+]);
 
 it('does not render delete button for non owner', function () {
     $owner = User::factory()->create();
@@ -459,4 +496,23 @@ it('reads the viewer\'s comment votes for the whole thread at once', function ()
     expect($two['shown'])->toBe(2)
         ->and($two['votes'])->toBeGreaterThan(0)
         ->and($queriesOn(8))->toBe($two);
+});
+
+it('closes the reply form under a comment hidden or deleted meanwhile', function () {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create();
+    $section = Livewire::actingAs(User::factory()->moderator()->create())
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id)
+        ->assertSee('data-testid="reply-form"', false);
+
+    $section->call('hideComment', $comment->id)
+        ->assertSet('replyingTo', null)
+        ->assertDontSee('data-testid="reply-form"', false);
+
+    // Hidden or deleted in another tab or by someone else: told by the event.
+    $other = Comment::factory()->for($post)->create();
+    $section->call('startReply', $other->id)
+        ->dispatch('comment-deleted', postId: $post->id, commentId: $other->id)
+        ->assertSet('replyingTo', null);
 });

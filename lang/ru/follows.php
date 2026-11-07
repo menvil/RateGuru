@@ -9,6 +9,7 @@ return [
     'login_required' => 'Войдите, чтобы подписываться на авторов.',
     'cannot_follow_self' => 'Вы не можете подписаться на себя.',
     'cannot_follow_author' => 'Невозможно подписаться на этого автора.',
+    'cannot_follow' => 'Сейчас вы не можете подписываться на авторов.',
     'feature_disabled' => 'Функция подписок отключена.',
     'notifications' => [
         'followed_author_posted' => ':author опубликовал новый пост: :title',

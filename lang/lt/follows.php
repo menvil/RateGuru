@@ -9,6 +9,7 @@ return [
     'login_required' => 'Prisijunkite, kad galėtumėte sekti autorius.',
     'cannot_follow_self' => 'Negalite sekti savęs.',
     'cannot_follow_author' => 'Šio autoriaus sekti negalima.',
+    'cannot_follow' => 'Šiuo metu negalite sekti autorių.',
     'feature_disabled' => 'Sekimo funkcija išjungta.',
     'notifications' => [
         'followed_author_posted' => ':author paskelbė naują įrašą: :title',

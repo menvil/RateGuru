@@ -248,3 +248,18 @@ it('makes one avatar from one upload, however often the page is saved after', fu
     expect(MediaAsset::withTrashed()->where('owner_user_id', $user->id)->where('kind', MediaKind::Avatar)->count())->toBe(1)
         ->and($user->fresh()->bio)->toBe('Edited after the avatar');
 });
+
+it('refuses an avatar in a format the ingest does not take as a field error, saving nothing', function () {
+    Storage::fake('public');
+    $user = User::factory()->create(['bio' => 'Before']);
+
+    Livewire::actingAs($user)
+        ->test(EditProfileForm::class)
+        ->set('bio', 'After')
+        ->set('avatar', UploadedFile::fake()->image('avatar.gif', 400, 400))
+        ->call('save')
+        ->assertHasErrors(['avatar'])
+        ->assertSet('submitError', null);
+
+    expect($user->fresh())->bio->toBe('Before')->avatar_asset_id->toBeNull();
+});

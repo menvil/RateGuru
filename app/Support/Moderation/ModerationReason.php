@@ -2,6 +2,8 @@
 
 namespace App\Support\Moderation;
 
+use App\Support\Text\InvisibleEdges;
+
 /**
  * The one place a moderation reason is reduced to "is there actually a reason
  * here". It exists because `trim()` is not that test: its default character
@@ -44,7 +46,6 @@ final class ModerationReason
      */
     public static function normalize(string $reason): string
     {
-        return preg_replace('/^[\s\p{Z}\p{Cc}\p{Cf}]+|[\s\p{Z}\p{Cc}\p{Cf}]+$/u', '', $reason)
-            ?? $reason;
+        return InvisibleEdges::strip($reason);
     }
 }
