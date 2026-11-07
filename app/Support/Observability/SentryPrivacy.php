@@ -10,7 +10,9 @@ use Sentry\Event;
  * path. The SDK records the query string and the fragment of every request
  * the application makes, and the application fetches addresses people paste
  * — a presigned image link, a share token — whose credentials live exactly
- * there. NightwatchPrivacy strips the same for Nightwatch.
+ * there. Nor the value a unique-constraint violation names: masking the
+ * query's bindings leaves the driver's own text, which repeats it.
+ * NightwatchPrivacy strips the same for Nightwatch.
  *
  * Registered in config/sentry.php as callables, so `config:cache` keeps them.
  */
@@ -30,6 +32,15 @@ final class SentryPrivacy
         }
 
         return $breadcrumb;
+    }
+
+    public static function beforeSend(Event $event): Event
+    {
+        foreach ($event->getExceptions() as $exception) {
+            $exception->setValue(UniqueViolationValue::redact($exception->getValue(), self::FILTERED));
+        }
+
+        return $event;
     }
 
     public static function beforeSendTransaction(Event $event): Event

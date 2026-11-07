@@ -3,12 +3,14 @@
 use App\Support\Observability\SentryPrivacy;
 use Sentry\Breadcrumb;
 use Sentry\Event;
+use Sentry\ExceptionDataBag;
 use Sentry\Tracing\Span;
 
 /*
  * An outgoing request reaches Sentry without its query string or fragment:
  * the application fetches links people paste, and a presigned link's
- * signature, or a share token, lives there.
+ * signature, or a share token, lives there. An exception reaches it without
+ * the value a unique violation names.
  */
 
 it('records an outgoing request\'s breadcrumb without its query string or fragment', function () {
@@ -47,7 +49,21 @@ it('sends a transaction\'s request spans without the address beyond the path', f
     ]);
 });
 
+it('sends an exception without the value a unique violation names, keeping its column', function (string $message, string $value) {
+    $event = Event::createEvent();
+    $event->setExceptions([new ExceptionDataBag(new RuntimeException($message))]);
+
+    $sent = SentryPrivacy::beforeSend($event)->getExceptions()[0]->getValue();
+
+    expect($sent)->not->toContain($value)
+        ->and($sent)->toContain('[Filtered]');
+})->with([
+    'postgres' => ['SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint "users_email_unique" DETAIL: Key (email)=(ada@example.invalid) already exists.', 'ada@example.invalid'],
+    'mysql' => ["SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'ada@example.invalid' for key 'users.users_email_unique'", 'ada@example.invalid'],
+]);
+
 it('is the callback the Sentry client is built with', function () {
-    expect(config('sentry.before_breadcrumb'))->toBe([SentryPrivacy::class, 'beforeBreadcrumb'])
+    expect(config('sentry.before_send'))->toBe([SentryPrivacy::class, 'beforeSend'])
+        ->and(config('sentry.before_breadcrumb'))->toBe([SentryPrivacy::class, 'beforeBreadcrumb'])
         ->and(config('sentry.before_send_transaction'))->toBe([SentryPrivacy::class, 'beforeSendTransaction']);
 });

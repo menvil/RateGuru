@@ -42,8 +42,9 @@ final class PublicIpClassifier
         ['ff00::', 8],      // multicast
         ['2001:db8::', 32], // documentation (RFC3849)
         // Tunnels that carry, or reach, IPv4 space this host never checks
-        // as an IPv4 address: 6to4 and Teredo, local-use NAT64, and the
-        // deprecated site-local range some networks still route.
+        // as an IPv4 address — 6to4, Teredo and local-use NAT64 — and two
+        // reserved ranges no public host is in: the deprecated site-local
+        // range some networks still route, and discard-only.
         ['2002::', 16],     // 6to4 (RFC3056)
         ['2001::', 32],     // Teredo (RFC4380)
         ['64:ff9b:1::', 48], // local-use NAT64 (RFC8215)

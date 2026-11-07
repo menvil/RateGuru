@@ -5,6 +5,7 @@ use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use App\Queries\Comments\CommentListQuery;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
@@ -348,6 +349,14 @@ it('shows view more comments for longer threads', function () {
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
         ->assertSee('data-testid="view-more-comments"', false)
         ->call('loadMore')
+        ->assertDontSee('data-testid="view-more-comments"', false);
+});
+
+it('stops offering more comments once it shows as many as it ever lists', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->count(CommentListQuery::MOST_ROOTS + 1)->for($post)->create(['status' => CommentStatus::Visible]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id, 'visibleCount' => CommentListQuery::MOST_ROOTS])
         ->assertDontSee('data-testid="view-more-comments"', false);
 });
 

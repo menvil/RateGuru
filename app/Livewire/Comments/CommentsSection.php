@@ -53,7 +53,8 @@ final class CommentsSection extends Component
     #[Computed]
     public function totalRenderableTopLevel(): int
     {
-        return app(CommentListQuery::class)->countRenderableTopLevel($this->postId);
+        // As many as the list can show: past the cap, "View more" would load nothing more.
+        return min(app(CommentListQuery::class)->countRenderableTopLevel($this->postId), CommentListQuery::MOST_ROOTS);
     }
 
     public function loadMore(): void

@@ -131,7 +131,9 @@ return [
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),
 
     // RateGuru: an outgoing request is recorded without its query string or
-    // fragment, where a pasted link's credentials live (SentryPrivacy).
+    // fragment, where a pasted link's credentials live, and an exception
+    // without the value a unique violation names (SentryPrivacy).
+    'before_send' => [SentryPrivacy::class, 'beforeSend'],
     'before_breadcrumb' => [SentryPrivacy::class, 'beforeBreadcrumb'],
     'before_send_transaction' => [SentryPrivacy::class, 'beforeSendTransaction'],
 

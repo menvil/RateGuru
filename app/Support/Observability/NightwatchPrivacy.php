@@ -220,32 +220,10 @@ final class NightwatchPrivacy
         );
     }
 
-    /**
-     * Removes the offending value from a unique-constraint violation message.
-     *
-     * Almost every exception message RateGuru produces is static text, but a
-     * driver-level unique-violation is not: PostgreSQL appends
-     * `DETAIL: Key (email)=(someone@example.com) already exists.` and MySQL
-     * `Duplicate entry 'someone@example.com' for key '...'`. Registration and
-     * profile updates can both raise one, so the column name is kept — that is
-     * the diagnosis — and the value is not.
-     */
+    /** The offending value of a unique-constraint violation, out of the message (UniqueViolationValue). */
     public function redactException(Exception $record): void
     {
-        // Anchored to the text after the value, not to its first ')' or
-        // apostrophe: an address may hold either (o'brien@…, a)b@…), and
-        // the part after one would still be sent.
-        $message = (string) preg_replace(
-            '/(Key \((?:[^)]*)\)=\().*?(\) already exists)/s',
-            '$1'.self::REDACTED.'$2',
-            $record->message,
-        );
-
-        $record->message = (string) preg_replace(
-            "/(Duplicate entry ')(?:.*?)(' for key ')/s",
-            '$1'.self::REDACTED.'$2',
-            $message,
-        );
+        $record->message = UniqueViolationValue::redact($record->message, self::REDACTED);
     }
 
     /**
