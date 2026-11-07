@@ -118,7 +118,8 @@ final class PostOpenGraph
         );
     }
 
-    private function absoluteUrl(string $url): string
+    /** A media URL as a post's Open Graph image carries it: absolute, on APP_URL when it named no host. */
+    public function absoluteUrl(string $url): string
     {
         // Case-insensitively, because a scheme is case-insensitive (RFC 3986
         // §3.1) and nothing normalises what a disk or APP_URL was configured

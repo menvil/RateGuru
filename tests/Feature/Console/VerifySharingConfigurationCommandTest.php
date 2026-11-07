@@ -1,5 +1,10 @@
 <?php
 
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
+
 it('accepts an https app url matching the deployment hostname', function () {
     config([
         'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
@@ -132,4 +137,30 @@ it('leaves a disk media is not stored on unchecked', function () {
     $this->artisan('rateguru:sharing:verify', [
         '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
     ])->assertSuccessful();
+});
+
+it('checks the host a disk builds its own urls on, as a bucket does with no url configured', function () {
+    // A driver that names its own host for every file, as a bucket's does.
+    Storage::extend('bucket', function ($app, array $config): FilesystemAdapter {
+        $adapter = new class(storage_path('framework/testing/bucket')) extends LocalFilesystemAdapter
+        {
+            public function getUrl(string $path): string
+            {
+                return 'https://rg-media.s3.eu-central-1.amazonaws.com/'.$path;
+            }
+        };
+
+        return new FilesystemAdapter(new Filesystem($adapter, $config), $adapter, $config);
+    });
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'bucket'],
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URL host must match')
+        ->assertFailed();
 });
