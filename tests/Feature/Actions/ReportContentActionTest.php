@@ -431,3 +431,12 @@ it('does not flag post before report threshold is reached', function () {
 
     expect($post->fresh()->needs_review)->toBeFalse();
 });
+
+it('does not let an account report itself, whatever the modal was set to', function () {
+    $member = User::factory()->create();
+
+    expect(fn () => app(ReportContentAction::class)->handle($member, $member, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.');
+
+    expect(Report::query()->count())->toBe(0);
+});
