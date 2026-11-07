@@ -123,3 +123,34 @@ it('still reaches an administrator when one exists, whatever the contact mailbox
         fn (ContactMessageMail $mail): bool => $mail->hasTo($admin->email),
     );
 });
+
+it('takes an address typed with capitals as it was typed', function () {
+    Mail::fake();
+    User::factory()->admin()->create();
+
+    $this->post(route('pages.contact.submit'), [
+        'name' => 'Jane Visitor',
+        'email' => 'Jane.Visitor@Example.test',
+        'subject' => 'Hello',
+        'message' => 'A question.',
+    ])->assertSessionHasNoErrors();
+
+    Mail::assertQueued(ContactMessageMail::class, fn (ContactMessageMail $mail): bool => $mail->hasReplyTo('Jane.Visitor@Example.test', 'Jane Visitor'));
+});
+
+it('refuses an address the mailer could not reply to, rather than failing in the queue', function (string $email) {
+    Mail::fake();
+    User::factory()->admin()->create();
+
+    $this->post(route('pages.contact.submit'), [
+        'name' => 'Jane Visitor',
+        'email' => $email,
+        'subject' => 'Hello',
+        'message' => 'A question.',
+    ])->assertSessionHasErrors('email');
+
+    Mail::assertNothingQueued();
+})->with([
+    'a comment in the address' => 'jane(work)@example.test',
+    'a comment before the address' => '(work)jane@example.test',
+]);

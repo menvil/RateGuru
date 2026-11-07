@@ -232,6 +232,9 @@ final class ListPosts extends Page
 
         ['action' => $action, 'ids' => $ids] = $this->confirming;
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        $this->reason = trim($this->reason);
+
         $this->validate(
             [
                 'reason' => [$action === 'reject' ? 'nullable' : 'required', 'string', 'min:3', 'max:'.self::REASON_LIMIT],

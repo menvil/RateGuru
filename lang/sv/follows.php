@@ -9,6 +9,7 @@ return [
     'login_required' => 'Logga in för att följa skribenter.',
     'cannot_follow_self' => 'Du kan inte följa dig själv.',
     'cannot_follow_author' => 'Den här skribenten går inte att följa.',
+    'cannot_follow' => 'Du kan inte följa skribenter just nu.',
     'feature_disabled' => 'Funktionen för att följa är avstängd.',
     'notifications' => [
         'followed_author_posted' => ':author publicerade ett nytt inlägg: :title',

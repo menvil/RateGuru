@@ -9,6 +9,7 @@ return [
     'login_required' => 'Увійдіть, щоб підписуватися на авторів.',
     'cannot_follow_self' => 'Ви не можете підписатися на себе.',
     'cannot_follow_author' => 'На цього автора не можна підписатися.',
+    'cannot_follow' => 'Зараз ви не можете підписуватися на авторів.',
     'feature_disabled' => 'Функцію підписок вимкнено.',
     'notifications' => [
         'followed_author_posted' => 'Новий допис від :author: :title',

@@ -5,6 +5,8 @@ namespace App\Livewire\Comments;
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
 use App\Exceptions\Comments\CannotCommentException;
+use App\Exceptions\Comments\CannotDeleteCommentException;
+use App\Exceptions\Comments\CannotHideCommentException;
 use App\Models\Comment;
 use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
@@ -145,10 +147,14 @@ final class CommentsSection extends Component
 
     #[On('comment-deleted')]
     #[On('comment-hidden')]
-    public function refreshComments(int $postId): void
+    public function refreshComments(int $postId, ?int $commentId = null): void
     {
         if ($postId !== $this->postId) {
             return;
+        }
+
+        if ($commentId !== null) {
+            $this->forgetReplyTo($commentId);
         }
 
         unset($this->comments);
@@ -170,11 +176,18 @@ final class CommentsSection extends Component
             ->where('post_id', $this->postId)
             ->findOrFail($commentId);
 
-        $deleteCommentAction->handle(auth()->user(), $comment);
+        try {
+            $deleteCommentAction->handle(auth()->user(), $comment);
+        } catch (CannotDeleteCommentException) {
+            $this->refusedMeanwhile();
+
+            return;
+        }
 
         unset($this->comments);
         unset($this->totalComments);
         unset($this->totalRenderableTopLevel);
+        $this->forgetReplyTo($commentId);
 
         $this->dispatch('comment-deleted', postId: $this->postId, commentId: $commentId);
     }
@@ -192,13 +205,43 @@ final class CommentsSection extends Component
             ->where('post_id', $this->postId)
             ->findOrFail($commentId);
 
-        $hideCommentAction->handle(auth()->user(), $comment);
+        try {
+            $hideCommentAction->handle(auth()->user(), $comment);
+        } catch (CannotHideCommentException) {
+            $this->refusedMeanwhile();
+
+            return;
+        }
 
         unset($this->comments);
         unset($this->totalComments);
         unset($this->totalRenderableTopLevel);
+        $this->forgetReplyTo($commentId);
 
         $this->dispatch('comment-hidden', postId: $this->postId, commentId: $commentId);
+    }
+
+    /** A reply under a comment that is gone now has nothing to answer: its form closes. */
+    private function forgetReplyTo(int $commentId): void
+    {
+        if ($this->replyingTo === $commentId) {
+            $this->cancelReply();
+        }
+    }
+
+    /**
+     * The action re-reads the comment and the account under lock, so it can
+     * refuse what the page still offered: the comment was hidden or deleted
+     * meanwhile, or the account lost the right. The thread is drawn again as
+     * it is now, with a word about it rather than an error page.
+     */
+    private function refusedMeanwhile(): void
+    {
+        unset($this->comments);
+        unset($this->totalComments);
+        unset($this->totalRenderableTopLevel);
+
+        $this->dispatch('toast', message: __('ui.comments.unavailable'));
     }
 
     public function canDeleteComment(Comment $comment): bool

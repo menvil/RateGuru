@@ -9,6 +9,7 @@ return [
     'login_required' => 'Logg inn for å følge forfattere.',
     'cannot_follow_self' => 'Du kan ikke følge deg selv.',
     'cannot_follow_author' => 'Denne forfatteren kan ikke følges.',
+    'cannot_follow' => 'Du kan ikke følge forfattere akkurat nå.',
     'feature_disabled' => 'Funksjonen for å følge er deaktivert.',
     'notifications' => [
         'followed_author_posted' => ':author har publisert et nytt innlegg: :title',

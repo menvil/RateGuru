@@ -9,6 +9,7 @@ return [
     'login_required' => 'Autentifică-te pentru a urmări autori.',
     'cannot_follow_self' => 'Nu îți poți urmări propriul cont.',
     'cannot_follow_author' => 'Acest autor nu poate fi urmărit.',
+    'cannot_follow' => 'Momentan nu poți urmări autori.',
     'feature_disabled' => 'Funcția de urmărire este dezactivată.',
     'notifications' => [
         'followed_author_posted' => ':author a publicat o postare nouă: :title',

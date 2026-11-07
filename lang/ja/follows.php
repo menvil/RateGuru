@@ -9,6 +9,7 @@ return [
     'login_required' => '投稿者をフォローするにはログインしてください。',
     'cannot_follow_self' => '自分自身をフォローすることはできません。',
     'cannot_follow_author' => 'この投稿者はフォローできません。',
+    'cannot_follow' => '現在、投稿者をフォローすることはできません。',
     'feature_disabled' => 'フォロー機能は無効になっています。',
     'notifications' => [
         'followed_author_posted' => ':author さんが新しい投稿「:title」を公開しました',

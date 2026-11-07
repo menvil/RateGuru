@@ -42,6 +42,8 @@ final class CommentForm extends Component
         }
 
         $this->reset('body');
+        // The error an earlier attempt left belongs to that attempt.
+        $this->resetErrorBag('body');
 
         $this->dispatch('comment-created', postId: $this->postId, commentId: $comment->id);
     }

@@ -9,6 +9,7 @@ return [
     'login_required' => 'Prijavi se da pratiš autore.',
     'cannot_follow_self' => 'Ne možeš pratiti samog/samu sebe.',
     'cannot_follow_author' => 'Ovaj autor se ne može pratiti.',
+    'cannot_follow' => 'Trenutno ne možeš pratiti autore.',
     'feature_disabled' => 'Funkcija praćenja je isključena.',
     'notifications' => [
         'followed_author_posted' => ':author ima novu objavu: :title',

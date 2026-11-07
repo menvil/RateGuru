@@ -263,3 +263,27 @@ it('says how soon the commenting limit allows the next comment', function () {
             ->and(Comment::query()->count())->toBe(1);
     }
 });
+
+it('refuses a comment of nothing but characters that show as nothing', function (string $body) {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    expect(fn () => app(AddCommentAction::class)->handle(user: $user, post: $post, body: $body))
+        ->toThrow(CannotCommentException::class, __('ui.comments.errors.body_required'));
+
+    expect(Comment::query()->count())->toBe(0);
+})->with([
+    'a no-break space' => "\u{00A0}",
+    'a zero-width space' => "\u{200B}",
+    'a byte-order mark between spaces' => " \u{FEFF} ",
+]);
+
+it('strips what shows as nothing from the ends of a comment, and keeps the rest as typed', function () {
+    $comment = app(AddCommentAction::class)->handle(
+        user: User::factory()->create(),
+        post: Post::factory()->published()->create(),
+        body: "\u{200B}\u{00A0}Looks  delicious.\u{00A0}",
+    );
+
+    expect($comment->body)->toBe('Looks  delicious.');
+});

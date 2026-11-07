@@ -214,6 +214,9 @@ final class ListReports extends Page
         $target = $report->target;
         $hidingPost = $this->confirming === 'hide' && $target instanceof Post;
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        $this->reason = trim($this->reason);
+
         $this->validate(
             ['reason' => [$hidingPost ? 'required' : 'nullable', 'string', 'min:3', 'max:'.self::NOTE_LIMIT]],
             [

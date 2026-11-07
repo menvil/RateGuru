@@ -71,6 +71,9 @@ trait ModeratesUsers
 
         ['kind' => $kind, 'id' => $id] = $this->sanction;
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        $this->reason = trim($this->reason);
+
         $this->validate(
             ['reason' => ['nullable', 'string', 'min:3', 'max:'.self::REASON_LIMIT]],
             [

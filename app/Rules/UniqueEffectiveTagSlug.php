@@ -19,7 +19,12 @@ use Illuminate\Support\Str;
  */
 final class UniqueEffectiveTagSlug implements ImplicitRule
 {
+    /** The longest slug a tag may have, typed or made from its name. */
+    public const MOST_CHARACTERS = 100;
+
     private bool $slugifiedToEmpty = false;
+
+    private bool $tooLong = false;
 
     public function __construct(
         private readonly ?string $name,
@@ -41,6 +46,16 @@ final class UniqueEffectiveTagSlug implements ImplicitRule
             return ! $hasInput;
         }
 
+        // A typed slug is held to the limit by the field's own rule; one made
+        // from the name is not, and transliteration can make it longer than
+        // the name — up to three letters for one. Held here, so a tag never
+        // gets a slug its own editor would refuse.
+        if (strlen($effective) > self::MOST_CHARACTERS) {
+            $this->tooLong = true;
+
+            return false;
+        }
+
         $query = Tag::query()->where('slug', $effective);
 
         if ($this->ignoreId !== null) {
@@ -52,8 +67,10 @@ final class UniqueEffectiveTagSlug implements ImplicitRule
 
     public function message(): string
     {
-        return $this->slugifiedToEmpty
-            ? 'The slug must contain at least one letter or number.'
-            : 'The slug has already been taken.';
+        return match (true) {
+            $this->slugifiedToEmpty => 'The slug must contain at least one letter or number.',
+            $this->tooLong => 'The slug made from this name would be longer than '.self::MOST_CHARACTERS.' characters. Type a shorter slug.',
+            default => 'The slug has already been taken.',
+        };
     }
 }

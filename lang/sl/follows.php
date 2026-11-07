@@ -9,6 +9,7 @@ return [
     'login_required' => 'Za sledenje avtorjem se prijavi.',
     'cannot_follow_self' => 'Ne moreš slediti sebi.',
     'cannot_follow_author' => 'Temu avtorju ni mogoče slediti.',
+    'cannot_follow' => 'Trenutno ne moreš slediti avtorjem.',
     'feature_disabled' => 'Funkcija sledenja je izklopljena.',
     'notifications' => [
         'followed_author_posted' => 'Nova objava avtorja :author: „:title“',

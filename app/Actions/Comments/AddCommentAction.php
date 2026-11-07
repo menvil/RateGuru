@@ -15,6 +15,7 @@ use App\Notifications\PostCommentedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Text\InvisibleEdges;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -67,7 +68,9 @@ final class AddCommentAction
             throw CannotCommentException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        $body = trim($body);
+        // Not trim(): a comment of only a no-break or zero-width space would
+        // pass the empty check below and show as a blank comment.
+        $body = InvisibleEdges::strip($body);
 
         if ($body === '') {
             throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_required'));
