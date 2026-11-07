@@ -1,0 +1,245 @@
+@inject('postCardSettings', \App\Support\Settings\ProjectSettingsManager::class)
+@inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
+<x-ui.card
+    variant="{{ $selected ? 'selected-post' : 'post' }}"
+    data-testid="post-card"
+    data-post-id="{{ $post->id }}"
+    role="button"
+    tabindex="0"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '', menuId: $id('post-actions-menu') }"
+    x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
+    x-on:keydown.escape.window="postMenuOpen = false"
+    x-on:dropdown-opened.window="if ($event.detail !== menuId) postMenuOpen = false"
+    wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
+    wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
+    wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
+    class="grid cursor-pointer grid-cols-[32px_minmax(0,1fr)] gap-3 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
+>
+    <div data-testid="post-card-voting" class="w-8 pt-1.5" wire:click.stop wire:keydown.stop>
+        @if($post->exists)
+            <livewire:posts.post-voting
+                :post-id="$post->id"
+                variant="rail"
+                :key="'post-card-vote-rail-'.$post->id"
+            />
+        @else
+            <x-ui.vote-rail :score="$post->score" active="none" />
+        @endif
+    </div>
+
+    <div class="min-w-0">
+        <div class="flex min-w-0 items-start gap-2">
+            @if($post->user?->public_username)
+                <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="md" />
+                </a>
+            @else
+                <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="md" />
+            @endif
+            <div class="min-w-0 flex-1">
+                @if($post->user?->public_username)
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                @else
+                    <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
+                @endif
+                <span class="block truncate text-xs text-rg-muted">
+                    @if($post->user?->public_username)
+                        {{ '@' . $post->user->public_username }}
+                    @endif
+                    @if($post->published_at)
+                        {{ $post->user?->public_username ? ' · ' : '' }}{{ $post->published_at->diffForHumans() }}
+                    @endif
+                </span>
+            </div>
+        </div>
+
+        <h3 data-testid="post-card-title" class="mt-3 break-words text-base font-bold leading-snug text-rg-text">{{ $post->title }}</h3>
+
+        @if($post->truncated_description)
+            <p class="mt-2 break-words text-[13px] leading-snug text-rg-muted">{{ $post->truncated_description }}</p>
+        @endif
+
+        @if($post->category)
+            <div class="mt-2">
+                <x-posts.category-link :category="$post->category" test-id="post-card-category" />
+            </div>
+        @endif
+
+        @if($post->public_image_url)
+            @php
+                $feedImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Feed);
+            @endphp
+            <div class="mt-3">
+                <x-media.post-image
+                    :post="$post"
+                    :src="$feedImage?->src"
+                    :srcset="$feedImage?->srcset"
+                    :sizes="$feedImage?->sizes"
+                    :width="$feedImage?->width"
+                    :height="$feedImage?->height"
+                    context="feed"
+                    open-fullscreen="imageOpen = true"
+                    testid="post-card-image-open"
+                    :loading="$eagerImage ? null : 'lazy'"
+                />
+            </div>
+        @else
+            <div class="mt-3">
+                <x-ui.image-placeholder :label="__('ui.post.image_alt_fallback')" ratio="feed" />
+            </div>
+        @endif
+
+        <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
+            @if($post->exists)
+                @foreach($ratingGroups as $ratingGroup)
+                    <div data-testid="post-card-rating-{{ $ratingGroup->key }}">
+                        <livewire:voting.rating-voting
+                            :post="$post"
+                            :group-key="$ratingGroup->key"
+                            variant="{{ $ratingGroup->options->count() > 2 ? 'compact' : 'default' }}"
+                            :has-preloaded-state="isset($ratingVotingState[$ratingGroup->key])"
+                            :preloaded-distribution="$ratingVotingState[$ratingGroup->key]['distribution'] ?? []"
+                            :preloaded-selected-option-id="$ratingVotingState[$ratingGroup->key]['selected_option_id'] ?? null"
+                            :key="'post-card-rating-'.$ratingGroup->key.'-'.$post->id"
+                        />
+                    </div>
+                @endforeach
+            @endif
+        </div>
+
+        <footer class="mt-3.5 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-2.5" wire:click.stop wire:keydown.stop>
+            <div class="flex flex-wrap items-center gap-4">
+                @if($postCardSettings->featureEnabled('show_comments'))
+                <x-ui.action-button
+                    icon="comment"
+                    wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }}, focus: 'comments' })"
+                >
+                    {{ $post->comments_count ?? 0 }}
+                </x-ui.action-button>
+                <span class="sr-only">{{ trans_choice('ui.comments.count', $post->comments_count ?? 0, ['count' => $post->comments_count ?? 0]) }}</span>
+                @endif
+                @if($postCardSettings->featureEnabled('show_share_buttons'))
+                @if($post->exists)
+                    <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
+                @else
+                    <x-ui.action-button icon="share" data-testid="post-card-share">{{ __('sharing.share') }}</x-ui.action-button>
+                @endif
+                @endif
+                @if($postCardSettings->featureEnabled('show_saved_posts'))
+                @auth
+                    @if($post->exists)
+                        <livewire:posts.save-post-button
+                            :post-id="$post->id"
+                            :key="'post-card-save-'.$post->id"
+                        />
+                    @endif
+                @endauth
+                @endif
+            </div>
+
+            @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))
+                <div class="relative ml-auto">
+                    <button
+                        type="button"
+                        x-on:click="postMenuOpen = ! postMenuOpen; if (postMenuOpen) $dispatch('dropdown-opened', menuId)"
+                        aria-label="{{ __('ui.a11y.post_actions') }}"
+                        data-testid="post-actions-menu-{{ $post->id }}"
+                        class="cursor-pointer rounded-rgSm p-1 text-rg-muted transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                    >
+                        <x-ui.icon name="more" class="size-4" />
+                    </button>
+
+                    <div
+                        x-cloak
+                        x-show="postMenuOpen"
+                        x-on:click.outside="postMenuOpen = false"
+                        class="absolute bottom-full right-0 z-20 mb-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
+                    >
+                        @if($canReportPost)
+                            <div data-testid="post-card-report">
+                                <livewire:reports.report-modal
+                                    reportable-type="post"
+                                    :reportable-id="$post->id"
+                                    variant="menu"
+                                    :key="'post-card-report-'.$post->id"
+                                    wire:lazy
+                                />
+                            </div>
+                        @endif
+
+                        @if($canDeletePost)
+                            <button
+                                type="button"
+                                data-testid="post-card-delete"
+                                x-on:click="postMenuOpen = false; deleteOpen = true"
+                                class="flex w-full cursor-pointer items-center rounded-rgSm px-3 py-1.5 text-left text-sm font-semibold text-rg-dangerText transition hover:bg-rg-dangerSoft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-dangerText"
+                            >
+                                {{ __('ui.post.delete') }}
+                            </button>
+                        @endif
+
+                        <livewire:moderation.inline-post-moderation
+                            :post-id="$post->id"
+                            variant="menu"
+                            :key="'post-card-moderation-'.$post->id"
+                            wire:lazy
+                        />
+
+                    </div>
+                </div>
+
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+                    <div class="space-y-4">
+                        <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
+
+                        <div class="flex justify-end gap-2">
+                            <x-ui.button type="button" variant="ghost" x-on:click="deleteOpen = false">{{ __('ui.actions.cancel') }}</x-ui.button>
+                            <x-ui.button
+                                type="button"
+                                variant="danger"
+                                wire:click="$dispatch('delete-post', { postId: {{ $post->id }} })"
+                                x-on:click="deleteOpen = false"
+                            >
+                                {{ __('ui.actions.delete') }}
+                            </x-ui.button>
+                        </div>
+                    </div>
+                </x-ui.modal>
+            @endif
+
+            @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                    <x-sharing.share-buttons :post="$post" />
+                </x-ui.modal>
+            @endif
+
+            @if($post->public_image_url)
+                @php
+                    $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
+                @endphp
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                    <x-media.post-image
+                        :post="$post"
+                        :src="$fullscreenImage?->src"
+                        :srcset="$fullscreenImage?->srcset"
+                        :sizes="$fullscreenImage?->sizes"
+                        :width="$fullscreenImage?->width"
+                        :height="$fullscreenImage?->height"
+                        context="fullscreen"
+                        image-testid="post-card-fullscreen-image"
+                        loading="lazy"
+                    />
+                </x-ui.modal>
+            @endif
+        </footer>
+
+        <p
+            x-cloak
+            x-show="postVoteError"
+            x-text="postVoteError"
+            data-testid="post-card-vote-error"
+            class="mt-2 text-xs font-medium text-rg-danger"
+        ></p>
+
+    </div>
+</x-ui.card>
