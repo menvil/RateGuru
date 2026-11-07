@@ -55,9 +55,11 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // The policy denies reporting what you wrote. It reads the caller's
-        // instance; the rows read under lock below are checked again.
-        if (($content instanceof Post || $content instanceof Comment) && ! $user->can('report', $content)) {
+        // The policy denies reporting what you wrote, or yourself. It reads the
+        // caller's instance; the rows read under lock below are checked again.
+        // An account too: the modal's target is client-set, so its hidden
+        // button alone does not keep one from reporting itself.
+        if (($content instanceof Post || $content instanceof Comment || $content instanceof User) && ! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
