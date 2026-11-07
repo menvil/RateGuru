@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Enums\VoteType;
 use App\Livewire\Comments\CommentVoting;
 use App\Models\Comment;
@@ -92,4 +93,20 @@ it('renders selected comment voting state', function () {
         ->assertSee('aria-pressed="true"', false)
         ->assertSee('data-state="active"', false)
         ->assertSee('text-rg-good', false);
+});
+
+it('draws the comment as it is once a vote on it is refused, not as the page had it', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+
+    $voting = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+    ]);
+
+    // Deleted after the page was drawn.
+    $comment->delete();
+
+    $voting->call('vote', VoteType::Up->value)
+        ->assertSee('data-testid="comment-voting-unavailable"', false);
 });

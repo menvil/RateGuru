@@ -395,8 +395,11 @@ it('reads the viewer\'s comment votes for the whole thread at once', function ()
     $post = Post::factory()->published()->create();
 
     $queriesOn = function (int $comments) use ($viewer, $post): int {
+        Comment::query()->where('post_id', $post->id)->whereNotNull('parent_id')->forceDelete();
         Comment::query()->where('post_id', $post->id)->forceDelete();
-        Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible]);
+        // Each with a reply, so replies are read with the thread too.
+        Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible])
+            ->each(fn (Comment $root) => Comment::factory()->for($post)->create(['status' => CommentStatus::Visible, 'parent_id' => $root->id]));
         $queries = 0;
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
             if (str_contains(str_replace(['"', '`'], '', $query->sql), 'from comment_votes')) {
