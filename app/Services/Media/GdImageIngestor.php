@@ -244,11 +244,19 @@ final class GdImageIngestor implements ImageIngestor
         fwrite($stream, $bytes);
         rewind($stream);
 
+        // Not withNativeErrorsAsExceptions(): exif_read_data() warns about
+        // recoverable quirks — an IFD entry with an illegal format code, a
+        // non-Exif APP1 before the Exif one — and still returns every tag it
+        // could read. Turning such a warning into "no EXIF" stored a phone's
+        // portrait photo on its side; the result decides, not the warning.
+        set_error_handler(static fn (): bool => true);
+
         try {
-            $exif = $this->withNativeErrorsAsExceptions(static fn (): array|false => exif_read_data($stream));
+            $exif = exif_read_data($stream);
         } catch (Throwable) {
             $exif = false;
         } finally {
+            restore_error_handler();
             fclose($stream);
         }
 

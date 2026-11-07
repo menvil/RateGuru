@@ -56,6 +56,9 @@ class EditProfileForm extends Component
 
         try {
             $action->execute($user, $validated, $this->avatar);
+            // Saved once: the next save of this page is a profile edit, not
+            // another new avatar made from the same upload.
+            $this->reset('avatar');
         } catch (ImageIngestException $e) {
             report($e);
             $this->submitError = __('ui.upload.error_invalid_image');
