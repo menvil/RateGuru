@@ -1,8 +1,6 @@
 <?php
 
 return [
-    'enabled' => env('IMPORT_FROM_URL_ENABLED', false),
-
     'allowed_schemes' => ['https'],
 
     // Bare allowlist, not a "default port per scheme" convenience — a

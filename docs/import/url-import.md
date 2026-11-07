@@ -310,12 +310,8 @@ Configured in `config/import.php`:
 
 ## Feature Flag
 
-```php
-// config/import.php
-'enabled' => env('IMPORT_FROM_URL_ENABLED', true),
-```
-
-Also controlled via `ProjectSettings`:
+URL import is switched on and off by the project setting, in the admin's
+Project settings:
 
 ```php
 'allow_url_imports' => true // in feature_flags
