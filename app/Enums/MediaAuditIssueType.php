@@ -8,6 +8,7 @@ enum MediaAuditIssueType: string
     case MissingMasterFile = 'missing_master_file';
     case MissingVariantFile = 'missing_variant_file';
     case PurgeableAsset = 'purgeable_asset';
+    case ReleasedButReferenced = 'released_but_referenced';
     case PhysicalOrphanCandidate = 'physical_orphan_candidate';
     case FailedGenerationJob = 'failed_generation_job';
 
@@ -22,6 +23,7 @@ enum MediaAuditIssueType: string
             self::MissingMasterFile => MediaAuditIssueSeverity::Critical,
             self::MissingVariantFile,
             self::ActiveUnreferencedAsset,
+            self::ReleasedButReferenced,
             self::PhysicalOrphanCandidate,
             self::FailedGenerationJob => MediaAuditIssueSeverity::Warning,
             self::PurgeableAsset => MediaAuditIssueSeverity::Info,

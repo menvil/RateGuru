@@ -9,6 +9,7 @@ use App\Jobs\RunMediaAuditJob;
 use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
@@ -156,20 +157,26 @@ it('does not issue a filesystem existence check while rendering the page', funct
     // docblock) — this test exists to document the expectation and catch a
     // gross regression like a card that eager-loads exists() per row.
     $admin = User::factory()->admin()->create();
+    $queries = 0;
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+    $render = function () use ($admin, &$queries): int {
+        $queries = 0;
+        Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->assertOk();
+
+        return $queries;
+    };
+
+    MediaAsset::factory()->postImage()->create(['path' => 'media/post-images/0.jpg']);
+    $withOne = $render();
+
     foreach (range(1, 20) as $i) {
         MediaAsset::factory()->postImage()->create(['path' => "media/post-images/{$i}.jpg"]);
     }
 
-    $queryCountBefore = 0;
-    DB::listen(function () use (&$queryCountBefore): void {
-        $queryCountBefore++;
-    });
-
-    Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->assertOk();
-
-    // A handful of aggregate/count queries, not one-per-asset (20 assets
-    // would blow well past this if the page scanned per row).
-    expect($queryCountBefore)->toBeLessThan(20);
+    // Aggregate and count queries only: twenty more assets ask nothing more.
+    expect($render())->toBe($withOne);
 });
 
 it('memoizes lastAuditRun() so it and lastAuditIssuesCount() only query once between them and always agree on which run is "last"', function () {
@@ -238,6 +245,35 @@ it('treats a stale running run older than the lock ttl as not blocking a new aud
         ->dispatch('run-media-audit');
 
     Queue::assertPushed(RunMediaAuditJob::class);
+});
+
+it('still sees a run as running while the job holds its lock, however short the configured ttl', function () {
+    Queue::fake();
+    // Shorter than any run may take; the job holds its lock for at least
+    // its own timeout regardless.
+    config(['media.diagnostics.audit_lock.ttl_seconds' => 60]);
+    $admin = User::factory()->admin()->create();
+    MediaAuditRun::factory()->running()->create(['started_at' => now()->subMinutes(10)]);
+
+    Livewire::actingAs($admin)
+        ->test(MediaDiagnosticsPage::class)
+        ->assertSee('A full audit is running')
+        ->dispatch('run-media-audit')
+        ->assertDispatched('rg-admin-toast', message: 'A full audit is already running', tone: 'info');
+
+    Queue::assertNotPushed(RunMediaAuditJob::class);
+});
+
+it('reads the newest of two runs started in the same second by the order they were made', function () {
+    $admin = User::factory()->admin()->create();
+    $at = now()->startOfSecond();
+    MediaAuditRun::factory()->create(['started_at' => $at, 'completed_at' => $at]);
+    $newer = MediaAuditRun::factory()->create(['started_at' => $at, 'completed_at' => $at]);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class);
+
+    expect($page->instance()->lastAuditRun()->id)->toBe($newer->id)
+        ->and($page->instance()->recentRuns()->first()->id)->toBe($newer->id);
 });
 
 it('reads everything again on Refresh, and answers with the time it did', function () {
@@ -407,6 +443,21 @@ it('offers on each issue only what can be done about it', function () {
         ->and(listedRow($page, $issues['missing_master_file'])['critical'])->toBeTrue();
 });
 
+it('holds Regenerate and Retry while their request runs, so a second click queues nothing more', function () {
+    $admin = User::factory()->admin()->create();
+    $asset = MediaAsset::factory()->postImage()->create();
+    $run = MediaAuditRun::factory()->create(['completed_at' => now()]);
+    $issue = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::MissingVariantFile)->create(['media_audit_run_id' => $run->id, 'media_asset_id' => $asset->id]);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)
+        ->assertSeeHtml('wire:click="regenerate('.$asset->id.')" wire:loading.attr="disabled" wire:target="regenerate"');
+
+    Storage::disk('public')->put($asset->path, 'master-bytes');
+
+    $page->call('inspect', $issue->id)
+        ->assertSeeHtml('wire:click="regenerateVariants('.$asset->id.')" wire:loading.attr="disabled" wire:target="regenerateVariants"');
+});
+
 // --- Asset inspector ---------------------------------------------------------
 
 it('opens the asset an issue points to in the inspector, its files checked on disk', function () {
@@ -442,6 +493,40 @@ it('opens the asset an issue points to in the inspector, its files checked on di
         ->call('askToPurge', $asset->id)
         ->assertSet('inspecting', null)
         ->assertSet('confirming', ['action' => 'purge', 'assetId' => $asset->id]);
+});
+
+it('says so in the inspector when what the last audit found no longer holds, rather than state it as fact', function () {
+    $admin = User::factory()->admin()->create();
+    // Its master is on the disk now.
+    $asset = createPurgeableAsset();
+    $run = MediaAuditRun::factory()->create(['completed_at' => now()]);
+    $issue = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::MissingMasterFile)->create([
+        'media_audit_run_id' => $run->id,
+        'media_asset_id' => $asset->id,
+    ]);
+
+    Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)
+        ->call('inspect', $issue->id)
+        ->assertSee('The last audit found the original upload gone from its disk; it is there again now.')
+        ->assertDontSee('The original upload is gone from its disk.');
+});
+
+it('offers in the inspector neither a release for an asset already released nor a purge for one no longer purgeable', function () {
+    $admin = User::factory()->admin()->create();
+    $run = MediaAuditRun::factory()->create(['completed_at' => now()]);
+    // Found active and unreferenced, released since.
+    $released = MediaAsset::factory()->postImage()->create();
+    $released->delete();
+    $unreferenced = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::ActiveUnreferencedAsset)->create(['media_audit_run_id' => $run->id, 'media_asset_id' => $released->id]);
+    // Found purgeable, but still inside its grace period now.
+    $recent = MediaAsset::factory()->postImage()->create();
+    $recent->delete();
+    $purgeable = MediaAuditIssue::factory()->ofType(MediaAuditIssueType::PurgeableAsset)->create(['media_audit_run_id' => $run->id, 'media_asset_id' => $recent->id]);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class);
+
+    expect($page->call('inspect', $unreferenced->id)->viewData('inspector')['canRelease'])->toBeFalse()
+        ->and($page->call('inspect', $purgeable->id)->viewData('inspector')['canPurge'])->toBeFalse();
 });
 
 it('opens nothing for an issue with no asset, like a physical orphan', function () {
@@ -714,3 +799,43 @@ it('retryFailedMediaJob dispatches a fresh GenerateMediaVariantsJob rather than 
 
     Queue::assertPushed(GenerateMediaVariantsJob::class, fn ($job): bool => $job->mediaAssetId === 99 && $job->force === false);
 });
+
+it('says what an issue is now, once the disk or the asset no longer bears the finding out', function (MediaAuditIssueType $type, Closure $asset, string $not, ?string $instead) {
+    $admin = User::factory()->admin()->create();
+    $media = $asset();
+    $run = MediaAuditRun::factory()->create(['completed_at' => now()]);
+    $issue = MediaAuditIssue::factory()->ofType($type)->create(['media_audit_run_id' => $run->id, 'media_asset_id' => $media->id]);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->call('inspect', $issue->id)->assertDontSee($not);
+
+    if ($instead !== null) {
+        $page->assertSee($instead);
+    }
+})->with([
+    'variants missing and the master gone too' => [MediaAuditIssueType::MissingVariantFile, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        MediaVariant::factory()->create(['media_asset_id' => $asset->id]);
+
+        return $asset;
+    }, 'The master is intact', 'and so is the original upload'],
+    'released but still shown, its files on disk' => [MediaAuditIssueType::ReleasedButReferenced, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        Storage::disk('public')->put($asset->path, 'master-bytes');
+        Post::factory()->create(['image_asset_id' => $asset->id]);
+        $asset->delete();
+
+        return $asset;
+    }, 'a new upload or a backup restore is needed', null],
+    'unreferenced once, referenced now' => [MediaAuditIssueType::ActiveUnreferencedAsset, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        Post::factory()->create(['image_asset_id' => $asset->id]);
+
+        return $asset;
+    }, 'nothing references it', 'it is referenced or released now'],
+    'purgeable once, within its grace now' => [MediaAuditIssueType::PurgeableAsset, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        $asset->delete();
+
+        return $asset;
+    }, 'Purging deletes', 'it is not purgeable now'],
+]);

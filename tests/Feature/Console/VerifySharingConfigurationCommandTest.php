@@ -87,3 +87,20 @@ it('accepts an uppercase HTTPS scheme on the public image URL', function () {
         '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
     ])->assertSuccessful();
 });
+
+it('checks the disk media is stored on, not the one named public', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), 'url' => 'http://cdn.example.com/media'],
+        // Correct, but not where the images are.
+        'filesystems.disks.public.url' => 'https://rateguru.staging.myprojects.pp.ua/storage',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URL host must match')
+        ->expectsOutputToContain('Public image URL must use HTTPS')
+        ->assertFailed();
+});

@@ -36,7 +36,10 @@ final class VerifySharingConfigurationCommand extends Command
             }
         }
 
-        $publicImageUrl = trim((string) config('filesystems.disks.public.url'));
+        // The disk media is actually stored on, which need not be the one
+        // named `public`: a deployment may point MEDIA_PUBLIC_DISK elsewhere.
+        $mediaDisk = (string) config('media.disks.public', 'public');
+        $publicImageUrl = trim((string) config("filesystems.disks.{$mediaDisk}.url"));
 
         if ($expectedHost !== '' && strtolower((string) parse_url($publicImageUrl, PHP_URL_HOST)) !== $expectedHost) {
             $errors[] = "Public image URL host must match [{$expectedHost}].";

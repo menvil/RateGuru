@@ -2,7 +2,10 @@
 
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Services\Media\Exceptions\MediaStorageException;
+use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaOrphanScanner;
+use App\Services\Media\MediaStorage;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -108,3 +111,18 @@ it('does not misclassify any known file as an orphan once the known-locations sc
 
     expect($orphans)->toBeEmpty();
 });
+
+it('passes over a file deleted between the listing and its time being read, and lets any other failure through', function (bool $stillThere) {
+    $location = new MediaLocation((string) config('media.disks.public'), 'media/post-images/gone.jpg');
+    $storage = Mockery::mock(MediaStorage::class);
+    $storage->shouldReceive('allFiles')->andReturnUsing(fn (string $disk, string $directory): array => $directory === 'media/post-images' ? [$location->path] : []);
+    $storage->shouldReceive('lastModified')->andThrow(MediaStorageException::notFound($location->disk, $location->path));
+    $storage->shouldReceive('exists')->andReturn($stillThere);
+    $scanner = new MediaOrphanScanner($storage);
+
+    if ($stillThere) {
+        expect(fn () => $scanner->scan())->toThrow(MediaStorageException::class);
+    } else {
+        expect($scanner->scan())->toBe([]);
+    }
+})->with(['gone since the listing' => [false], 'still there' => [true]]);

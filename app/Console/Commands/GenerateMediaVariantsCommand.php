@@ -69,13 +69,14 @@ final class GenerateMediaVariantsCommand extends Command
             foreach ($assets as $asset) {
                 $progress?->advance();
 
-                if (! $force && ! $this->isMissingAnyVariant($asset, $registry, $storage, $variantFilter)) {
-                    continue;
-                }
-
-                $processed++;
-
+                // The check is part of the asset's own attempt: one asset it
+                // fails on is that asset's failure, never the end of the run.
                 try {
+                    if (! $force && ! $this->isMissingAnyVariant($asset, $registry, $storage, $variantFilter)) {
+                        continue;
+                    }
+
+                    $processed++;
                     $generator->generateAll($asset, $variantFilter, force: $force);
                     $generated++;
                 } catch (Throwable $exception) {

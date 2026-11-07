@@ -60,8 +60,23 @@
 
     <x-slot:footer>
         @if ($inspector['path'] !== null)
-            <x-admin.ui.button icon="copy" :data-path="$inspector['path']" x-data="{ copied: false }" x-on:click="navigator.clipboard?.writeText($el.dataset.path); copied = true; setTimeout(() => (copied = false), 1500)">
-                <span x-text="copied ? 'Copied' : 'Copy path'">Copy path</span>
+            {{-- Says Copied only once the clipboard took it: the write can be refused, and there is no clipboard outside a secure page. --}}
+            <x-admin.ui.button
+                icon="copy"
+                :data-path="$inspector['path']"
+                x-data="{ said: '' }"
+                x-on:click="async () => {
+                    try {
+                        await navigator.clipboard.writeText($el.dataset.path)
+                        said = 'Copied'
+                    } catch {
+                        said = 'Copy failed'
+                    }
+
+                    setTimeout(() => (said = ''), 1500)
+                }"
+            >
+                <span x-text="said || 'Copy path'">Copy path</span>
             </x-admin.ui.button>
         @endif
         <span class="rg-admin-reports__spacer"></span>
@@ -70,8 +85,8 @@
         @elseif ($inspector['canPurge'])
             <x-admin.ui.button variant="danger" icon="trash-2" wire:click="askToPurge({{ $inspector['assetId'] }})">Purge asset</x-admin.ui.button>
         @elseif ($inspector['canRegenerate'])
-            <x-admin.ui.button variant="primary" icon="refresh-cw" wire:click="regenerateVariants({{ $inspector['assetId'] }})">Regenerate missing variants</x-admin.ui.button>
-        @elseif ($inspector['exists'])
+            <x-admin.ui.button variant="primary" icon="refresh-cw" wire:click="regenerateVariants({{ $inspector['assetId'] }})" wire:loading.attr="disabled" wire:target="regenerateVariants">Regenerate missing variants</x-admin.ui.button>
+        @elseif ($inspector['needsRestore'])
             <span class="rg-admin-hint">No automatic fix: a new upload or a backup restore is needed.</span>
         @endif
     </x-slot:footer>
