@@ -3,12 +3,15 @@
 namespace App\Actions\Tags;
 
 use App\Exceptions\Tags\CannotDeleteTagException;
+use App\Models\Concerns\LocksActorForWrite;
 use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 final class DeleteTagAction
 {
+    use LocksActorForWrite;
+
     /**
      * Delete an unused tag.
      *
@@ -25,7 +28,18 @@ final class DeleteTagAction
             throw CannotDeleteTagException::becauseUserIsNotAllowed();
         }
 
-        DB::transaction(function () use ($tag) {
+        DB::transaction(function () use ($admin, $tag) {
+            // Lock order: Actor User -> Tag, as every write here takes them. The
+            // actor is read again, as DeleteCategoryAction reads it: a demotion
+            // or a ban landing after the check above would still have passed it.
+            // Checked before the tag is looked for: one demoted meanwhile is
+            // refused even when the tag is already gone, not told it was deleted.
+            $actor = $this->lockActor($admin);
+
+            if ($actor === null || ! $actor->can('delete', $tag)) {
+                throw CannotDeleteTagException::becauseUserIsNotAllowed();
+            }
+
             $locked = $tag->newQuery()->lockForUpdate()->find($tag->getKey());
 
             if ($locked === null) {
