@@ -12,7 +12,8 @@
         'id' => $id,
         'label' => $label,
         'href' => ProjectSettingsPage::getUrl($id === 'identity' ? [] : ['tab' => $id]),
-        'attributes' => ['wire:click.prevent' => "\$set('tab', '{$id}')"],
+        // A real address too: a click with a modifier key opens the tab in a new one.
+        'attributes' => ['x-on:click' => "if (! (\$event.metaKey || \$event.ctrlKey || \$event.shiftKey || \$event.altKey)) { \$event.preventDefault(); \$wire.\$set('tab', '{$id}') }"],
     ])->values()->all();
 
     // Which tabs hold a field Save refused, so a refusal on a tab not on screen is not missed.
@@ -51,6 +52,8 @@
         },
     }"
     x-effect="$store.adminEditor.changes = rgAdminEditorChanges($wire.data, $wire.saved)"
+    {{-- Its Translate links and the other admin pages are plain links: leaving asks first while anything is unsaved, as the other editors do. --}}
+    x-on:beforeunload.window="if (rgAdminEditorChanges($wire.data, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
 

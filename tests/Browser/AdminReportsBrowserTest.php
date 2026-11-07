@@ -68,6 +68,10 @@ it('keeps every column where the window is narrower, and opens the chain over th
 
     expect(reportsLayout($page))->toMatchArray(['docked' => false, 'overflow' => false])
         ->and($page->script("getComputedStyle(document.getElementById('rg-admin-report-panel')).position"))->toBe('fixed');
+
+    // Escape closes it with the focus still on the row it was opened from.
+    $page->keys("#rg-admin-report-{$this->second->id} .rg-admin-reports__target", 'Escape');
+    waitForScript($page, "document.getElementById('rg-admin-report-panel') === null");
 })->with([1024, 768, 390]);
 
 it('steps through reports with J and K', function () {

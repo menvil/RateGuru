@@ -313,6 +313,7 @@ final class StudioActionQueue extends Page
             'deferrals' => $action->deferrals,
             'dispatched' => $action->dispatched_at !== null ? StudioActionPlan::at($action->dispatched_at) : null,
             'links' => StudioActionPlan::links($action),
+            'writes' => StudioActionPlan::writes($action->type),
             'canRetry' => $action->status === StudioActionStatus::Failed,
             'canResume' => $action->status === StudioActionStatus::Held,
             'canCancel' => in_array($action->status, [StudioActionStatus::Pending, StudioActionStatus::Held, StudioActionStatus::Failed, StudioActionStatus::Dispatched], true),

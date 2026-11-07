@@ -181,6 +181,18 @@ it('raises the maximum and activates an option in one step, while one more is al
         ->and($inactive->fresh()->is_active)->toBeTrue();
 });
 
+it('names both the active options and the maximum when the group already has more than it allows', function () {
+    // An inactive group's maximum can be saved below its active options.
+    [$group, $options] = optionsGroup(5, max: 3, inactive: 1);
+    $group->update(['is_active' => false]);
+
+    optionsEditor($group)
+        ->call('activateOption', end($options)->id)
+        ->assertSet('confirming', 'above-max')
+        ->assertSeeHtml('Vibe already has 5 active options, more than its maximum of 3.')
+        ->assertDontSeeHtml('the maximum allowed');
+});
+
 it('offers no higher maximum past the most a group allows', function () {
     [$group, $options] = optionsGroup(RatingGroup::MOST_OPTIONS, max: RatingGroup::MOST_OPTIONS, inactive: 1);
 

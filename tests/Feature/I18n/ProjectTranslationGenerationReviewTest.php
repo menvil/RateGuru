@@ -194,6 +194,19 @@ it('saves through the page exactly the rows it names', function () {
         ->and(translationGenerationOf($this->admin, $this->target)['counts']['ready'])->toBe(3);
 });
 
+it('answers a save in which every row was skipped as a save that went through, with none saved', function () {
+    $this->categories['A']->update(['name' => 'Apple lovers']);
+
+    $answer = Livewire::withQueryParams(['locale' => $this->target])->test(TranslationCenterPage::class)
+        ->call('saveGenerated', $this->target, $this->batch, ($this->unit)('A'))
+        ->effects['returns'][0];
+
+    // `saved` false is the browser's word for a refusal.
+    expect($answer['saved'])->toBeTrue()
+        ->and($answer['count'])->toBe(0)
+        ->and($answer['results'][0]['outcome'])->toBe('source_changed');
+});
+
 it('never saves a suggestion made from English that changed afterwards', function () {
     $this->categories['A']->update(['name' => 'Apple lovers']);
 

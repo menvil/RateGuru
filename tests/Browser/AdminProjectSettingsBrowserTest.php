@@ -71,6 +71,17 @@ it('counts the unsaved changes in the top bar, and puts them back on Discard', f
         ->and($page->script("document.getElementById('rg-admin-settings-site_tagline').value"))->toBe('Rate the pets of the internet');
 });
 
+it('asks before the page is left with anything unsaved — by a Translate link, say — and not otherwise', function () {
+    $page = visitAdminEditor('/admin/project-settings');
+
+    expect(pageAsksBeforeLeaving($page))->toBeFalse();
+
+    $page->type('#rg-admin-settings-site_name', 'Pawrank!');
+    waitForScript($page, "document.querySelector('.rg-admin-topbar__unsaved').textContent.trim()", '1 unsaved change');
+
+    expect(pageAsksBeforeLeaving($page))->toBeTrue();
+});
+
 it('keeps what was typed on one tab while another is open, and saves both from the top bar', function () {
     $page = visitAdminEditor('/admin/project-settings');
 

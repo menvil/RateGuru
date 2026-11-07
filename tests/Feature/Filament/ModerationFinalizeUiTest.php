@@ -79,7 +79,10 @@ it('requires a reason and the acknowledgement to finalize a post or a comment', 
         ->assertHasErrors(['reason' => 'required', 'acknowledged' => 'accepted'])
         ->set('reason', 'Internal decision.')
         ->call('confirm')
-        ->assertHasErrors(['acknowledged' => 'accepted']);
+        ->assertHasErrors(['acknowledged' => 'accepted'])
+        // The box is described by its message, not only marked invalid.
+        ->assertSeeHtml('aria-describedby="rg-admin-moderation-acknowledge-error"')
+        ->assertSeeHtml('<p id="rg-admin-moderation-acknowledge-error" class="rg-admin-error">');
 
     Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
         ->call('askToFinalize', $comment->id)
