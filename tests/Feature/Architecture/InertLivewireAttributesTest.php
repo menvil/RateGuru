@@ -10,7 +10,8 @@ use Symfony\Component\Finder\SplFileInfo;
  */
 it('marks no component wire:lazy, which Livewire renders with the page', function () {
     $marked = collect(File::allFiles(resource_path('views')))
-        ->filter(fn (SplFileInfo $file): bool => preg_match('/^\s*wire:lazy\b/m', $file->getContents()) === 1)
+        // Anywhere in the markup, a Blade comment's prose aside.
+        ->filter(fn (SplFileInfo $file): bool => preg_match('/\swire:lazy\b/', (string) preg_replace('/\{\{--.*?--\}\}/s', '', $file->getContents())) === 1)
         ->map(fn (SplFileInfo $file): string => $file->getRelativePathname())
         ->values()
         ->all();
