@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Tags\DeleteTagAction;
+use App\Enums\UserRole;
 use App\Exceptions\Tags\CannotDeleteTagException;
 use App\Models\Post;
 use App\Models\Tag;
@@ -39,6 +40,23 @@ it('throws a not-allowed reason when a non-admin attempts to delete a tag', func
 
     try {
         app(DeleteTagAction::class)->handle($moderator, $tag);
+        $this->fail('Expected CannotDeleteTagException.');
+    } catch (CannotDeleteTagException $e) {
+        expect($e->reason)->toBe(CannotDeleteTagException::REASON_NOT_ALLOWED);
+    }
+
+    $this->assertDatabaseHas('tags', ['id' => $tag->id]);
+});
+
+it('reads the admin again in its transaction, so one demoted meanwhile cannot delete', function () {
+    $admin = User::factory()->admin()->create();
+    $tag = Tag::factory()->create();
+
+    // Demoted after the instance this call holds was loaded.
+    User::query()->whereKey($admin->id)->update(['role' => UserRole::User]);
+
+    try {
+        app(DeleteTagAction::class)->handle($admin, $tag);
         $this->fail('Expected CannotDeleteTagException.');
     } catch (CannotDeleteTagException $e) {
         expect($e->reason)->toBe(CannotDeleteTagException::REASON_NOT_ALLOWED);
