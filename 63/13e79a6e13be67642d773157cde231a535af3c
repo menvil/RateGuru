@@ -1,0 +1,115 @@
+app/Services/Media/Exceptions/ImageDecodeException.php
+  s_0f80700cf0b8c6::t_569bb1c7c067fa 9-14,16
+app/Services/Media/ImageInput.php
+  s_0f80700cf0b8c6::t_569bb1c7c067fa 44-45
+app/Support/StudioAi/OpenAiStudioPostTextGenerator.php
+  s_0f80700cf0b8c6::t_daa64cf2439319 8,361
+tests/Feature/Observability/SentryCommonContextTest.php
+  ai_agent 216,220-221,233
+docs/import/url-import.md
+  s_0f80700cf0b8c6::t_fb93010ccfaefc 162-167
+tests/Feature/Observability/NightwatchConfigurationTest.php
+  s_0f80700cf0b8c6::t_3eb9c5b57d8cf2 24,47-50,54-57,170-181
+app/Support/Import/UrlImportValidator.php
+  s_0f80700cf0b8c6::t_e07d52e89c768f 141-152
+config/database.php
+  s_0f80700cf0b8c6::t_0341849f3fc81e 57-61,83-87
+  s_0f80700cf0b8c6::t_edd9d77a82da86 31-35,43,56,82,108,124
+app/Support/Urls/ApiBaseUrl.php
+  s_0f80700cf0b8c6::t_daa64cf2439319 1-30
+app/Support/Import/Net/PublicIpClassifier.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 44-51
+tests/Feature/StudioAi/OpenAiStudioPostTextGeneratorTest.php
+  s_0f80700cf0b8c6::t_a2eac7f1a34a1b 359
+app/Support/StudioAi/OpenAiStudioImageAnalyzer.php
+  s_0f80700cf0b8c6::t_daa64cf2439319 6,312
+tests/Feature/Livewire/CommentsSectionTest.php
+  s_0f80700cf0b8c6::t_ec3fa75f6920d4 8,391-398
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 399-403
+tests/Feature/Observability/NightwatchPrivacyTest.php
+  s_0f80700cf0b8c6::t_1e2d7f6a4fb5e4 6,371-375,378,380-386,388-402,404-410
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 361-368
+  s_0f80700cf0b8c6::t_2c69aba843d110 376-377,387,403
+  s_0f80700cf0b8c6::t_a4ec4a363b2320 5,379
+tests/Feature/Queries/CommentListQueryTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 92-98
+  s_0f80700cf0b8c6::t_11e0040569bd31 72,74-82,86-91
+  s_0f80700cf0b8c6::t_ec3fa75f6920d4 73,83-85
+tests/Feature/StudioAi/OpenAiStudioDiscussionGeneratorTest.php
+  s_0f80700cf0b8c6::t_8affe6c08d395e 356
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  ai_agent 467-482
+app/Support/AbuseGuards/ActionRateLimiter.php
+  s_0f80700cf0b8c6::t_8c31465e67f6ac 16-20
+tests/Feature/TranslationEngine/TranslationProviderRouterTest.php
+  s_0f80700cf0b8c6::t_8affe6c08d395e 119
+app/Queries/Comments/CommentListQuery.php
+  s_0f80700cf0b8c6::t_523800bf851bac 8,78,82-94,110
+  s_0f80700cf0b8c6::t_b29e305a8777bd 15-17,46-48
+tests/Feature/Livewire/UploadPostFormImportIntegrationTest.php
+  ai_agent 5,7-8,138-167
+tests/Feature/Import/ImportFetchExceptionTest.php
+  s_0f80700cf0b8c6::t_6428dd4d60c183 4,39-57
+config/sentry.php
+  s_0f80700cf0b8c6::t_7dbef7dd95065e 4,133-136
+config/nightwatch.php
+  s_0f80700cf0b8c6::t_5eb2c6acabe59f 20-22,127-134
+app/Support/TranslationEngine/Providers/OpenAiTranslationProvider.php
+  s_0f80700cf0b8c6::t_daa64cf2439319 14,362
+app/Livewire/Comments/CommentsSection.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 27-28
+  s_0f80700cf0b8c6::t_523800bf851bac 15,21-22
+docs/architecture/database-support.md
+  ai_agent 33-38
+app/Support/Observability/SentryPrivacy.php
+  s_0f80700cf0b8c6::t_7dbef7dd95065e 1-48
+tests/Feature/Observability/SentryOutgoingRequestPrivacyTest.php
+  s_0f80700cf0b8c6::t_28046b6532d221 1-3,5-14,35-53
+  s_0f80700cf0b8c6::t_810c93218ef3cb 4,15-34
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  ai_agent 359-362
+tests/Unit/Support/Urls/ApiBaseUrlTest.php
+  s_0f80700cf0b8c6::t_a2eac7f1a34a1b 1-17
+tests/Feature/Services/Media/ImageInputTest.php
+  s_0f80700cf0b8c6::t_2408bd961000e8 47-60
+app/Exceptions/Import/UnsafeImportUrlException.php
+  s_0f80700cf0b8c6::t_dd5c125f70a812 28-31
+tests/Feature/Support/ActionRateLimiterTest.php
+  s_0f80700cf0b8c6::t_8c31465e67f6ac 36-42,50-56
+  s_0f80700cf0b8c6::t_f0d1f414248b31 43-49
+tests/Feature/Import/UrlImportValidatorTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 224-225
+  s_0f80700cf0b8c6::t_e07d52e89c768f 104-131
+app/Livewire/Feed/UploadPostForm.php
+  ai_agent 11-12,93-100,105-108
+app/Exceptions/Import/ImportFetchException.php
+  s_0f80700cf0b8c6::t_dd5c125f70a812 80-85,90-91,94,96
+app/Actions/Import/StoreImportedImageAction.php
+  ai_agent 6,9,25-28,32-38
+app/Support/StudioAi/OpenAiStudioDiscussionGenerator.php
+  s_0f80700cf0b8c6::t_daa64cf2439319 8,444
+tests/Feature/Database/TransactionIsolationTest.php
+  s_0f80700cf0b8c6::t_0341849f3fc81e 1-11
+tests/Feature/StudioAi/OpenAiStudioImageAnalyzerTest.php
+  s_0f80700cf0b8c6::t_8affe6c08d395e 262
+app/Support/Observability/NightwatchPrivacy.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 235-237,239,245-246
+tests/Feature/Import/ImportFeatureFlagTest.php
+  ai_agent 4,7,64-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6313e79a6e13be67642d773157cde231a535af3c",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
