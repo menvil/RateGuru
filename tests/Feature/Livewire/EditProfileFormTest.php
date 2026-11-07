@@ -132,8 +132,18 @@ it('holds Save while a chosen avatar is still uploading', function () {
 });
 
 it('offers in the picker only the avatar formats the save takes', function () {
-    config(['uploads.images.mimes' => ['jpg', 'jpeg', 'png', 'webp']]);
+    // Not the default list, so only a picker that reads it passes.
+    config(['uploads.images.mimes' => ['png']]);
 
     Livewire::actingAs(User::factory()->create())->test(EditProfileForm::class)
-        ->assertSeeHtml('accept=".jpg,.jpeg,.png,.webp"');
+        ->assertSeeHtml('accept=".png"');
+});
+
+it('hides its Saved while another save is on its way', function () {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)->test(EditProfileForm::class)
+        ->set('bio', 'Night owl.')
+        ->call('save')
+        ->assertSeeHtml('data-testid="edit-profile-saved" x-show="! edited" wire:loading.remove wire:target="save"');
 });

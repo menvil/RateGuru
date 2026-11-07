@@ -39,21 +39,28 @@ final class InvisibleEdges
             return '';
         }
 
-        $text = (string) preg_replace('/^(?:(?!'.self::DIRECTION_MARK.')'.self::INVISIBLE.')+/u', '', $text);
+        // Of the invisible run at the start, only its direction marks stay.
+        $text = (string) preg_replace_callback('/^'.self::INVISIBLE.'+/u', self::marksOf(...), $text);
 
-        // At the end, tag characters are kept only as the tail of an emoji, a
-        // subdivision flag such as Scotland's: the black flag, its tags, the
-        // cancel tag. Any other run of them shows nothing and goes, with
-        // whatever invisible came before it.
+        // So of the one at the end. Tag characters there are kept only as the
+        // tail of an emoji, a subdivision flag such as Scotland's: the black
+        // flag, its tags, the cancel tag. Any other run of them shows nothing
+        // and goes, with whatever invisible was around it.
         do {
             $before = $text;
-            $text = (string) preg_replace('/(?:(?!'.self::TAG.'|'.self::DIRECTION_MARK.')'.self::INVISIBLE.')+$/u', '', $text);
+            $text = (string) preg_replace_callback('/(?:(?!'.self::TAG.')'.self::INVISIBLE.')+$/u', self::marksOf(...), $text);
 
-            if (preg_match('/\x{1F3F4}[\x{E0020}-\x{E007E}]+\x{E007F}$/u', $text) !== 1) {
-                $text = (string) preg_replace('/'.self::TAG.'+$/u', '', $text);
+            if (preg_match('/\x{1F3F4}[\x{E0020}-\x{E007E}]+\x{E007F}(?='.self::DIRECTION_MARK.'*$)/u', $text) !== 1) {
+                $text = (string) preg_replace('/'.self::TAG.'+(?='.self::DIRECTION_MARK.'*$)/u', '', $text);
             }
         } while ($text !== $before);
 
         return $text;
+    }
+
+    /** @param  array<int, string>  $run */
+    private static function marksOf(array $run): string
+    {
+        return (string) preg_replace('/(?!'.self::DIRECTION_MARK.')./su', '', $run[0]);
     }
 }

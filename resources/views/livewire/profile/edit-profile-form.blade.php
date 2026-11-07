@@ -88,7 +88,8 @@
 
             {{-- This form's own save; the identity form above says its own. --}}
             @if($saved)
-                <p class="text-sm text-rg-muted" data-testid="edit-profile-saved" x-show="! edited">{{ __('ui.actions.saved') }}</p>
+                {{-- Not while another save is on its way: only its answer says whether it was. --}}
+                <p class="text-sm text-rg-muted" data-testid="edit-profile-saved" x-show="! edited" wire:loading.remove wire:target="save">{{ __('ui.actions.saved') }}</p>
             @endif
         </div>
     </form>
