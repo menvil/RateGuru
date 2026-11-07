@@ -9,9 +9,10 @@ use Illuminate\Database\Eloquent\Builder;
 
 final class UnapprovedRawQuery
 {
-    public function apply(Builder $query): Builder
+    public function apply(Builder $query, Post $post): Builder
     {
         Post::whereRaw('score > 0')->count();
+        $post->whereRaw('score > 0')->count();
 
         return $query
             ->whereRaw('score > 0')

@@ -127,8 +127,10 @@ final class BaselineInventory
         $baseEntries = $base->indexedEntries();
         $violations = [];
 
-        foreach ($this->entries as $entry) {
-            $key = self::entryKey($entry);
+        // Per suppression, its entries summed: PHPStan spends one entry's
+        // count and goes on to the next that matches, so a duplicate entry
+        // suppresses as much as a raised count does.
+        foreach ($this->indexedEntries() as $key => $entry) {
 
             if (! array_key_exists($key, $baseEntries)) {
                 $violations[] = sprintf(
@@ -161,7 +163,15 @@ final class BaselineInventory
         $entries = [];
 
         foreach ($this->entries as $entry) {
-            $entries[self::entryKey($entry)] = $entry;
+            $key = self::entryKey($entry);
+
+            if (array_key_exists($key, $entries)) {
+                $entries[$key]['count'] += $entry['count'];
+
+                continue;
+            }
+
+            $entries[$key] = $entry;
         }
 
         return $entries;

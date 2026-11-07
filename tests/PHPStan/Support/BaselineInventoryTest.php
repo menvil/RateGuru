@@ -49,6 +49,16 @@ final class BaselineInventoryTest extends TestCase
         ], $replacement->growthComparedTo($base));
     }
 
+    public function test_it_rejects_a_suppression_entered_twice_as_it_rejects_a_raised_count(): void
+    {
+        $base = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/base.neon');
+        $duplicated = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/duplicated.neon');
+
+        self::assertSame([
+            'Baseline suppression count increased: property.notFound in app/Models/Post.php (2 -> 4).',
+        ], $duplicated->growthComparedTo($base));
+    }
+
     public function test_a_missing_baseline_is_an_empty_inventory(): void
     {
         $inventory = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/missing.neon');
