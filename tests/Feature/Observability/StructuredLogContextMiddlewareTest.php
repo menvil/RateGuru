@@ -40,11 +40,15 @@ it('tells the log who is asking and in which language once the session has answe
     // A visitor signed in the way a browser is: a stored session and its
     // cookie. actingAs() and withSession() both hand the user over before the
     // request starts, which is exactly what hides a context read too early.
+    // Written by a copy of the session store, in its configured format and
+    // encryption, into the handler the request reads; the store the request
+    // uses holds nothing of it.
     $user = User::factory()->create(['locale' => 'ru', 'theme_preference' => 'dark']);
     $sessionId = Str::random(40);
-    app('session')->driver()->getHandler()->write($sessionId, json_encode([
-        Auth::guard('web')->getName() => $user->id,
-    ]));
+    $fixture = clone app('session')->driver();
+    $fixture->setId($sessionId);
+    $fixture->put(Auth::guard('web')->getName(), $user->id);
+    $fixture->save();
     Route::middleware('web')->get('/log-context-probe', function () {
         Log::info('log.context.probe');
 

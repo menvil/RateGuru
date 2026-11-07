@@ -221,7 +221,9 @@ it('limits the log under a key that holds no client address', function () {
 
     Livewire::test(PostVoting::class, ['postId' => $post->id])->call('vote', VoteType::Up->value);
 
+    // Keyed with the app key, which nobody trying addresses has.
     expect(collect($keys)->filter(fn (string $key): bool => str_contains($key, 'guest-vote-attempt-log'))->all())->not->toBe([])
+        ->and(implode(' ', $keys))->toContain('guest-vote-attempt-log:'.hash_hmac('sha256', '127.0.0.1', (string) config('app.key')))
         ->and(implode(' ', $keys))->not->toContain('127.0.0.1')
         // Nor the plain hash of it, which trying every IPv4 address would undo.
         ->and(implode(' ', $keys))->not->toContain(hash('sha256', '127.0.0.1'));
