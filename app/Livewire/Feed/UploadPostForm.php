@@ -14,6 +14,7 @@ use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
@@ -59,6 +60,7 @@ final class UploadPostForm extends Component
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+        $this->refuseWhileUploadsArePaused();
 
         $this->loadTags();
     }
@@ -75,6 +77,9 @@ final class UploadPostForm extends Component
     public function submit(): void
     {
         abort_unless(auth()->check(), 403);
+        // Checked again here: a page drawn before uploads were paused still
+        // has this form, and pausing them must stop every new post.
+        $this->refuseWhileUploadsArePaused();
 
         $createPostAction = app(CreatePostAction::class);
 
@@ -155,6 +160,16 @@ final class UploadPostForm extends Component
                 }
             }
         }
+    }
+
+    /**
+     * Pausing uploads in Project settings stops members creating posts, not
+     * only the button that opens this form. Content Studio publishes through
+     * CreatePostAction on its own and is not paused by it.
+     */
+    private function refuseWhileUploadsArePaused(): void
+    {
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('allow_user_uploads'), 403);
     }
 
     protected function rules(): array

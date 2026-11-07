@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
+use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
 use App\Policies\MediaDiagnosticsPolicy;
@@ -45,6 +46,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -87,6 +89,10 @@ class AppServiceProvider extends ServiceProvider
         // Stamps every signed-in session with its account's session
         // generation; EnsureSessionGenerationIsCurrent ends older ones.
         Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
+
+        // A component drawn on the feed, a post or a profile keeps that
+        // page's guest check on every later request it makes.
+        Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class]);
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);

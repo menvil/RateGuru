@@ -3,8 +3,10 @@
 use App\Enums\PostStatus;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -74,6 +76,26 @@ it('renders error message when submitError is set', function () {
         ->test(UploadPostForm::class)
         ->set('submitError', 'Something went wrong while creating your post.')
         ->assertSee('Something went wrong');
+});
+
+it('creates no post once uploads are paused, from a form drawn before the pause too', function () {
+    Storage::fake('public');
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['allow_user_uploads' => true]]);
+    $user = User::factory()->create();
+
+    $form = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Sample Entry')
+        ->set('image', UploadedFile::fake()->image('dish.jpg'));
+
+    $settings->update(['feature_flags' => ['allow_user_uploads' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $form->call('submit')->assertForbidden();
+
+    expect(Post::query()->count())->toBe(0);
+
+    Livewire::actingAs($user)->test(UploadPostForm::class)->assertForbidden();
 });
 
 it('tells a trusted author their post is published', function () {

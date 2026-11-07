@@ -2,7 +2,16 @@
 
 use App\Models\Post;
 use App\Models\PostSave;
+use App\Models\ProjectSettings;
 use App\Models\User;
+
+/*
+ * Saved posts are a feature the project switches on; these are about the
+ * feature, so it is on.
+ */
+beforeEach(function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+});
 
 it('does not expose one users saved posts to another user', function () {
     $owner = User::factory()->create();

@@ -1,6 +1,9 @@
 <?php
 
+use App\Livewire\Comments\CommentForm;
+use App\Livewire\Comments\CommentsSection;
 use App\Livewire\Feed\FeedPage;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -135,4 +138,32 @@ it('does not mount the global sliding overlay when post_detail_overlay_mode is d
         ->assertOk()
         ->assertDontSee('data-testid="post-detail-overlay-backdrop-root"', false)
         ->assertDontSee('data-testid="post-detail-overlay-host"', false);
+});
+
+it('hides the comment thread on a post\'s own page too when show_comments is disabled, and takes no comment', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_comments' => false]]);
+    $post = Post::factory()->published()->create();
+    $member = User::factory()->create();
+
+    $this->actingAs($member)->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertDontSee('data-testid="post-show-comments"', false)
+        ->assertDontSee('data-testid="comment-form"', false);
+
+    // A form drawn before the switch: refused.
+    Livewire::actingAs($member)->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', 'Still here?')
+        ->call('submit')
+        ->assertForbidden();
+
+    // A reply too.
+    $comment = Comment::factory()->for($post)->create();
+
+    Livewire::actingAs($member)->test(CommentsSection::class, ['postId' => $post->id])
+        ->set('replyingTo', $comment->id)
+        ->set('replyBody', 'And a reply?')
+        ->call('submitReply')
+        ->assertForbidden();
+
+    expect($post->comments()->count())->toBe(1);
 });

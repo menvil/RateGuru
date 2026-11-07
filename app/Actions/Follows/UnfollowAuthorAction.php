@@ -18,6 +18,11 @@ final class UnfollowAuthorAction
     public function handle(User $follower, User $author): void
     {
         if (! $this->settings->current()->featureFlag('show_follow_buttons')) {
+            $this->logger->security('security.feature_disabled_action_attempted', [
+                'feature' => 'show_follow_buttons',
+                'action' => 'unfollow',
+                'user_id' => $follower->id,
+            ]);
             throw new FollowFeatureDisabledException;
         }
 

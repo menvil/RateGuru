@@ -8,6 +8,7 @@ use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -90,6 +91,9 @@ final class CommentsSection extends Component
 
     public function submitReply(CommentReplyService $commentReplyService): void
     {
+        // As a new comment: none while comments are switched off.
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
+
         if ($this->replyingTo === null) {
             return;
         }

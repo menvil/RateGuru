@@ -122,7 +122,7 @@
             </button>
             @endif
 
-            @if($this->isOwner)
+            @if($this->offersSavedTab)
                 <button
                     wire:click="setTab('saved')"
                     data-testid="profile-tab-saved"
