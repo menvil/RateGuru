@@ -91,7 +91,11 @@ it('writes only what this page changed, never putting back what another administ
     $page->set('data.site_tagline', 'Rate every dog')
         ->set('data.static_pages.privacy.en.title', 'Privacy, retitled')
         ->dispatch('save-project-settings')
-        ->assertHasNoErrors();
+        ->assertHasNoErrors()
+        // And the page shows what is saved now, the other tab's values included.
+        ->assertSet('data.sign_in_providers.google', false)
+        ->assertSet('saved.feature_flags.allow_user_uploads', false)
+        ->assertSet('data.site_tagline', 'Rate every dog');
 
     $fresh = $settings->fresh();
 

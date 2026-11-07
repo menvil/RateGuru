@@ -134,12 +134,21 @@ final class ProjectSettingsPage extends Page
         $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity';
         $this->page = in_array($this->page, self::pageKeys(), true) ? $this->page : 'about';
 
+        $this->data = $this->saved = self::draftOf(ProjectSettings::query()->find(1));
+    }
+
+    /**
+     * The draft of the row as it is stored.
+     *
+     * @return array<string, mixed>
+     */
+    private static function draftOf(?ProjectSettings $settings): array
+    {
         // What the project stores, as it stores it: a page with no text shows
         // empty, not filled in from config. An installation without a row
         // shows the bootstrap it would be created from. English only: the
         // translations are Translation Center's to edit, so they are never
         // in this draft, and saving it cannot write back a stale copy of them.
-        $settings = ProjectSettings::query()->find(1);
         $stored = $settings ? $settings->toArray() : app(ProjectSettingsManager::class)->defaults();
         $defaults = app(ProjectSettingsManager::class)->defaults();
         $data = [];
@@ -166,8 +175,7 @@ final class ProjectSettingsPage extends Page
             $data['static_pages'][$key][TranslatableField::REFERENCE_LOCALE] = ['title' => $english['title'] ?? null, 'content' => $english['content'] ?? null];
         }
 
-        $this->data = $data;
-        $this->saved = $data;
+        return $data;
     }
 
     /** A tab or a page that does not exist opens the first. */
@@ -285,10 +293,10 @@ final class ProjectSettingsPage extends Page
         // read here — a sign-in provider, a flag, a page — keeps their value.
         app(SaveProjectSettingsAction::class)->handle(self::changedFrom($this->saved, $validated));
 
-        // The draft becomes what was saved, trimmed, so the page shows what is
-        // saved and keeps nothing a request added beside the settings.
-        $this->data = $validated;
-        $this->saved = $validated;
+        // The draft becomes the row as it is stored now — this save, and what
+        // anyone else saved since the page was read — so the page shows what
+        // is saved and keeps nothing a request added beside the settings.
+        $this->data = $this->saved = self::draftOf(ProjectSettings::query()->find(1));
         $this->dispatch('rg-admin-toast', message: 'Project settings saved. Visitors see the changes on their next page load.', tone: 'success');
     }
 

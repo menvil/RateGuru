@@ -187,7 +187,10 @@ it('shows a username or address taken by another account between the check and t
 })->with([
     'username' => ['username', 'claimed_name', 'This username is taken. Choose another one.'],
     'email' => ['email', 'claimed@example.com', 'Another account uses this email address.'],
-]);
+])->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
 
 it('saves the profile, the role, the trust and a new password from the drawer, the role change asked about first', function () {
     $admin = User::factory()->admin()->create();

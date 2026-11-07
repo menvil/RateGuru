@@ -93,7 +93,10 @@ it('says so, offering no Undo, when the comment is hidden by someone else after 
 
     expect($landed())->toBeTrue()
         ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(0);
-});
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
 
 it('offers no way to delete a comment, not even to administrators', function () {
     $this->actingAs(User::factory()->admin()->create());
