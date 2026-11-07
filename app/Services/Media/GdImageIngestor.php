@@ -391,14 +391,14 @@ final class GdImageIngestor implements ImageIngestor
     }
 
     /**
-     * Scoped, not global: converts a warning from a native call (GD or
-     * ext-exif) into a catchable exception only for the duration of
-     * $callback — used in place of `@` everywhere in this class, including
-     * getimagesizefromstring()/exif_read_data() (the same functions Laravel's
-     * own Illuminate\Image\Image::dimensions() calls with a bare `@`;
-     * Laravel has no wrapper for either that avoids it). A bad/corrupt image
-     * can never be trusted just because its call site forgot to check a
-     * return value.
+     * Scoped, not global: converts a warning from a native GD call into a
+     * catchable exception only for the duration of $callback — used in place
+     * of `@` everywhere in this class, getimagesizefromstring() included (the
+     * function Laravel's own Illuminate\Image\Image::dimensions() calls with a
+     * bare `@`; Laravel has no wrapper for it that avoids it). A bad/corrupt
+     * image can never be trusted just because its call site forgot to check a
+     * return value. exif_read_data() is the one exception: its warnings are
+     * recoverable quirks, and the tags it returns decide (readExifOrientation()).
      */
     private function withNativeErrorsAsExceptions(Closure $callback): mixed
     {
