@@ -1,0 +1,27 @@
+tests/Feature/Livewire/NotificationPreferencesFormTest.php
+  s_0f80700cf0b8c6::t_ab85db1882e865 3
+  ai_agent 63-64
+  s_0f80700cf0b8c6::t_e8e4fd7aaf722f 50-62,65-67
+app/Actions/Users/UpdateNotificationPreferencesAction.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 13-14,18,22,30-31
+app/Livewire/Settings/NotificationPreferencesForm.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 14-16,24-28,31-32,39
+resources/views/livewire/settings/notification-preferences-form.blade.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 24-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1fa96de87cddcd911daca0e916dfe9a43051e05a",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
