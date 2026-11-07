@@ -23,7 +23,8 @@ class DemoReportsSeeder extends Seeder
         }
 
         $reporter = User::query()->where('email', 'alice@rateguru.test')->firstOrFail();
-        $resolver = User::query()->where('email', 'trusted@rateguru.test')->firstOrFail();
+        // Reports are processed by moderators: DemoModeratorSeeder's account.
+        $resolver = User::query()->where('email', 'moderator@rateguru.test')->firstOrFail();
         $seedTime = CarbonImmutable::parse(self::SEED_TIME);
 
         $targets = [
@@ -42,8 +43,9 @@ class DemoReportsSeeder extends Seeder
                 'status' => ReportStatus::Open,
             ],
             [
+                // Carla's post, so someone else reports it: an author cannot report their own.
                 'target' => Post::query()->where('title', 'Demo: Sample Post 03')->firstOrFail(),
-                'reporter' => User::query()->where('email', 'carla@rateguru.test')->firstOrFail(),
+                'reporter' => User::query()->where('email', 'bob@rateguru.test')->firstOrFail(),
                 'reason' => ReportReason::Fake,
                 'message' => 'Demo resolved report for report resource checks.',
                 'status' => ReportStatus::Resolved,

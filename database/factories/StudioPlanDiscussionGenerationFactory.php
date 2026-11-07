@@ -11,6 +11,7 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
+use LogicException;
 
 /**
  * @extends Factory<StudioPlanDiscussionGeneration>
@@ -42,7 +43,8 @@ class StudioPlanDiscussionGenerationFactory extends Factory
                 'expected_lock_version' => 1,
             ],
             'source_lock_version' => 1,
-            'source_image_asset_id' => fn (array $attributes): int => (int) StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id'),
+            'source_image_asset_id' => fn (array $attributes): int => (int) (StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id')
+                ?? throw new LogicException('A plan without a photo has nothing to write a discussion from: make it withImage().')),
             'source_analysis_hash' => str_repeat('a', 64),
             'source_discussion_hash' => str_repeat('b', 64),
             'source_personas_hash' => str_repeat('c', 64),

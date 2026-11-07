@@ -5,6 +5,7 @@ use App\Enums\ReportStatus;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use Illuminate\Support\Facades\Gate;
 
 it('can create a report for a post with factory', function () {
     $report = Report::factory()->forPost()->create();
@@ -23,4 +24,6 @@ it('can create a resolved report', function () {
     expect($report->status)->toBe(ReportStatus::Resolved);
     expect($report->resolved_by)->not->toBeNull();
     expect($report->resolved_at)->not->toBeNull();
+    // Reports are processed by moderators, so the factory's is one.
+    expect(Gate::forUser($report->resolver)->allows('moderate-content'))->toBeTrue();
 });

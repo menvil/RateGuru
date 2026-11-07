@@ -39,7 +39,7 @@ class ReportFactory extends Factory
     {
         return $this->state(fn () => [
             'status' => 'resolved',
-            'resolved_by' => User::factory(),
+            'resolved_by' => User::factory()->moderator(),
             'resolved_at' => now(),
         ]);
     }
