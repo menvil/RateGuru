@@ -17,8 +17,8 @@ it('makes each variant as the registry has it made', function (MediaVariantName 
         ->and($variant->path)->toEndWith('.'.$extension)
         ->and([$variant->width, $variant->height])->toBe([$width, $height]);
 })->with([
-    'a feed picture, by default too' => [MediaVariantName::PostFeed640, 'image/webp', 'webp', 640, 480],
-    'the detail picture' => [MediaVariantName::PostDetail1920, 'image/webp', 'webp', 1920, 1440],
+    'a feed picture, by default too' => [MediaVariantName::PostFeed640, 'image/webp', 'webp', 640, 360],
+    'the detail picture' => [MediaVariantName::PostDetail1920, 'image/webp', 'webp', 1920, 1080],
     'the Open Graph card' => [MediaVariantName::OpenGraph, 'image/jpeg', 'jpg', 1200, 630],
     'an avatar' => [MediaVariantName::Avatar128, 'image/webp', 'webp', 128, 128],
 ]);
@@ -29,3 +29,11 @@ it('makes the feed picture when no name is asked for', function () {
     expect($variant->name)->toBe(MediaVariantName::PostFeed640)
         ->and($variant->mime_type)->toBe('image/webp');
 });
+
+it('makes a fitted variant in its asset\'s shape, no wider than the asset', function (MediaVariantName $name) {
+    $variant = MediaVariant::factory()->named($name)->create();
+    $asset = $variant->asset;
+
+    expect(round($variant->width / $variant->height, 2))->toBe(round((float) $asset->aspect_ratio, 2))
+        ->and($variant->width)->toBeLessThanOrEqual($asset->width);
+})->with([MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920]);

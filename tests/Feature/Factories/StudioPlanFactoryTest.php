@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\MediaKind;
 use App\Enums\StudioPlanStatus;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
@@ -17,7 +18,10 @@ it('makes a plan past its Draft as approval leaves it', function (StudioPlanStat
         ->and($plan->author?->isPersona())->toBeTrue()
         ->and($plan->title)->not->toBeNull()
         ->and($plan->approved_at)->not->toBeNull()
-        ->and($plan->approvedBy?->isAdmin())->toBeTrue();
+        ->and($plan->approvedBy?->isAdmin())->toBeTrue()
+        // The photo approval asks for: a post image its creator uploaded.
+        ->and($plan->imageAsset?->kind)->toBe(MediaKind::PostImage)
+        ->and($plan->imageAsset?->owner_user_id)->toBe($plan->created_by_user_id);
 })->with([StudioPlanStatus::Approved, StudioPlanStatus::Running, StudioPlanStatus::Completed, StudioPlanStatus::Cancelled]);
 
 it('leaves a Draft as an administrator has just made it', function () {
