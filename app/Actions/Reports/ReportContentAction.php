@@ -55,15 +55,17 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // Ownership is immutable on posts, so the policy check (which
-        // denies reporting your own post) needs no locked re-read.
+        // The policy denies reporting your own post. It reads the caller's
+        // instance; the row read under lock below is checked again.
         if ($content instanceof Post && ! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
         // Nobody reports their own comment or their own account either. The
         // interface never offers it; a crafted request is refused here, where
-        // it holds for every caller. Authorship and identity are immutable.
+        // it holds for every caller. A comment's authorship is checked again
+        // on the row read under lock: an instance loaded without its user_id
+        // would pass this.
         if (($content instanceof Comment && (int) $content->user_id === (int) $user->id)
             || ($content instanceof User && (int) $content->id === (int) $user->id)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
@@ -133,11 +135,11 @@ final class ReportContentAction
                 }
 
                 if ($content instanceof Comment) {
-                    $this->assertCommentIsReportableUnderLock($content);
+                    $this->assertCommentIsReportableUnderLock($content, $user);
                 }
 
                 if ($content instanceof Post) {
-                    $this->assertPostIsReportableUnderLock($content);
+                    $this->assertPostIsReportableUnderLock($content, $user);
                 }
 
                 $report = Report::create([
@@ -194,7 +196,7 @@ final class ReportContentAction
      * status in storage but are publicly unreachable, so they must not
      * accept new reports.
      */
-    private function assertCommentIsReportableUnderLock(Comment $comment): void
+    private function assertCommentIsReportableUnderLock(Comment $comment, User $reporter): void
     {
         $lockedPost = Post::withTrashed()
             ->whereKey($comment->post_id)
@@ -214,14 +216,19 @@ final class ReportContentAction
         if ($lockedComment === null || ! $lockedComment->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
+
+        if ((int) $lockedComment->user_id === (int) $reporter->id) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
+        }
     }
 
     /**
      * Same stale-instance rule for posts: an author-deleted or
      * moderation-hidden post is no longer publicly reportable — existing
-     * reports remain, new ones are refused.
+     * reports remain, new ones are refused. Its owner is checked on the
+     * locked row too, as a comment's author is.
      */
-    private function assertPostIsReportableUnderLock(Post $post): void
+    private function assertPostIsReportableUnderLock(Post $post, User $reporter): void
     {
         $lockedPost = Post::withTrashed()
             ->whereKey($post->id)
@@ -230,6 +237,10 @@ final class ReportContentAction
 
         if ($lockedPost === null || ! $lockedPost->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
+        if ((int) $lockedPost->user_id === (int) $reporter->id) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
         }
     }
 

@@ -64,3 +64,20 @@ it('reads the admin again in its transaction, so one demoted meanwhile cannot de
 
     $this->assertDatabaseHas('tags', ['id' => $tag->id]);
 });
+
+it('refuses an admin demoted meanwhile even when the tag is already gone', function () {
+    $admin = User::factory()->admin()->create();
+    $tag = Tag::factory()->create();
+
+    // Demoted, and the tag deleted by someone else, after both instances this
+    // call holds were loaded.
+    User::query()->whereKey($admin->id)->update(['role' => UserRole::User]);
+    Tag::query()->whereKey($tag->id)->delete();
+
+    try {
+        app(DeleteTagAction::class)->handle($admin, $tag);
+        $this->fail('Expected CannotDeleteTagException.');
+    } catch (CannotDeleteTagException $e) {
+        expect($e->reason)->toBe(CannotDeleteTagException::REASON_NOT_ALLOWED);
+    }
+});

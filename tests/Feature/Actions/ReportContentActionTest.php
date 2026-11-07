@@ -130,6 +130,23 @@ it('does not let an author report their own comment', function () {
     expect(Report::query()->count())->toBe(0);
 });
 
+it('checks authorship on the rows it locks, not only on the instance it was given', function () {
+    $author = User::factory()->create();
+    $post = Post::factory()->published()->for($author)->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->for($author)->create(['status' => CommentStatus::Visible]);
+
+    // Loaded without their user_id, so the checks on the instances pass.
+    $partialPost = Post::query()->select(['id', 'status', 'published_at', 'deleted_at'])->findOrFail($post->id);
+    $partialComment = Comment::query()->select(['id', 'post_id', 'status', 'deleted_at'])->findOrFail($comment->id);
+
+    expect(fn () => app(ReportContentAction::class)->handle($author, $partialPost, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.')
+        ->and(fn () => app(ReportContentAction::class)->handle($author, $partialComment, ReportReason::Spam))
+        ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.');
+
+    expect(Report::query()->count())->toBe(0);
+});
+
 it('does not let a member report their own account', function () {
     $member = User::factory()->create();
 
