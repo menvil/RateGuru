@@ -59,7 +59,7 @@ audit reviews what changed since that tag.
 
 ## Decided after the review
 
-- **`IMPORT_FROM_URL_ENABLED` is dropped.** Nothing read it, and the project flag `allow_url_imports` is what switches URL import on and off. Enforcing it instead would have switched the import off on every target whose environment ships it `false`.
+- **`IMPORT_FROM_URL_ENABLED` is dropped**, in the config change. It fed `import.enabled`, which no code read; the project flag `allow_url_imports` is what switches URL import on and off. Enforcing it instead would have switched the import off on every target whose environment ships it `false`.
   - A target's environment file may keep the key: the deploy's contract check reports an extra key and lets it pass.
 - **The inert `wire:lazy` is dropped.** Livewire 4.4 reads only `lazy` and `defer`, so the feed drawers and the report and moderation menus rendered with the page anyway. Real lazy loading changes how a selection scrolls, and is left until it is wanted.
 
