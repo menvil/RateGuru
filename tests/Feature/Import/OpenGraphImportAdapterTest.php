@@ -97,3 +97,16 @@ it('takes the https twin of an http og:image the import may not fetch', function
     expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)
         ->toBe('https://example.com/photo.jpg');
 });
+
+it('takes a second og:image, in Open Graph\'s array form, when the first is one the import may not fetch', function () {
+    Http::fake([
+        'example.com/page' => Http::response(
+            '<head><meta property="og:image" content="http://example.com/a.jpg"><meta property="og:image" content="https://example.com/b.jpg"></head>',
+            200,
+            ['Content-Type' => 'text/html']
+        ),
+    ]);
+
+    expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)
+        ->toBe('https://example.com/b.jpg');
+});

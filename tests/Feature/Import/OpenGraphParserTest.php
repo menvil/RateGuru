@@ -107,17 +107,19 @@ it('reads an image url without the whitespace around it', function () {
     expect($metadata->imageUrl)->toBe('https://cdn.example.com/photo.jpg');
 });
 
-it('names every image the page gives, in order, each resolved once', function () {
+it('names every image the page gives, in order of preference, each resolved once', function () {
     $html = <<<'HTML'
 <html><head>
+<meta name="twitter:image" content="/photo.jpg">
 <meta property="og:image" content="http://example.com/photo.jpg">
 <meta property="og:image:secure_url" content="https://example.com/photo.jpg">
-<meta name="twitter:image" content="/photo.jpg">
+<meta property="og:image" content="https://example.com/second.jpg">
 </head></html>
 HTML;
 
     $metadata = app(OpenGraphParser::class)->parse($html, 'https://example.com/page');
 
-    expect($metadata->imageCandidates)->toBe(['http://example.com/photo.jpg', 'https://example.com/photo.jpg'])
+    // Every og:image as the page orders them, then the secure ones, then Twitter's.
+    expect($metadata->imageCandidates)->toBe(['http://example.com/photo.jpg', 'https://example.com/second.jpg', 'https://example.com/photo.jpg'])
         ->and($metadata->imageUrl)->toBe('http://example.com/photo.jpg');
 });
