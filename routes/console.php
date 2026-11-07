@@ -15,6 +15,12 @@ Artisan::command('inspire', function () {
 // operation and is never scheduled.
 Schedule::command('media:purge')->daily()->withoutOverlapping();
 
+// The Hot feed's stored score decays with a post's age, but a vote or a
+// comment is what recalculates it: without this sweep a post nobody touches
+// keeps the score it had at its last activity, and stays on top of Hot. Each
+// post is recalculated under its own lock, the one votes and comments take.
+Schedule::command('posts:recalculate-hot-scores')->hourly()->withoutOverlapping();
+
 // Retention purge for author-deleted posts (docs/architecture/
 // post-lifecycle.md): eligibility is re-verified per post under lock by
 // PostRetentionPurgeService, so the schedule itself carries no policy.

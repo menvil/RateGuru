@@ -3,7 +3,6 @@
 namespace App\Actions\Comments;
 
 use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
-use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
@@ -29,7 +28,6 @@ final class AddCommentAction
     public const MAX_BODY_LENGTH = 1000;
 
     public function __construct(
-        private readonly RecalculatePostScoreAction $recalculatePostScore,
         private readonly ActionRateLimiter $rateLimiter,
         private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
@@ -139,7 +137,6 @@ final class AddCommentAction
             ]);
 
             $this->refreshCommentsCount($lockedPost);
-            $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;
         });
