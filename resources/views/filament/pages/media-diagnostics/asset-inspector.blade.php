@@ -86,7 +86,7 @@
             <x-admin.ui.button variant="danger" icon="trash-2" wire:click="askToPurge({{ $inspector['assetId'] }})">Purge asset</x-admin.ui.button>
         @elseif ($inspector['canRegenerate'])
             <x-admin.ui.button variant="primary" icon="refresh-cw" wire:click="regenerateVariants({{ $inspector['assetId'] }})" wire:loading.attr="disabled" wire:target="regenerateVariants">Regenerate missing variants</x-admin.ui.button>
-        @elseif ($inspector['exists'])
+        @elseif ($inspector['needsRestore'])
             <span class="rg-admin-hint">No automatic fix: a new upload or a backup restore is needed.</span>
         @endif
     </x-slot:footer>

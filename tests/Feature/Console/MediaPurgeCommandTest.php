@@ -197,10 +197,11 @@ it('purges every applicable variant along with the master', function () {
 });
 
 it('refuses an orphan purge narrowed by an asset or a grace it cannot apply, deleting nothing', function (string $narrowing) {
-    Storage::disk('public')->put('posts/orphan.jpg', 'orphan');
+    // In a directory the scan reads, old enough to be an orphan it would purge.
+    Storage::disk('public')->put('media/post-images/orphan.jpg', 'orphan');
     Carbon::setTestNow(now()->addDays(10));
 
     $this->artisan("media:purge --orphans --force {$narrowing}")->assertFailed();
 
-    Storage::disk('public')->assertExists('posts/orphan.jpg');
+    Storage::disk('public')->assertExists('media/post-images/orphan.jpg');
 })->with(['--asset=1', '--older-than=30']);

@@ -255,3 +255,21 @@ it('keeps a completed run completed when tidying away old runs fails afterwards'
     expect(MediaAuditRun::query()->latest('id')->first()->status)->toBe(MediaAuditRunStatus::Completed);
     Exceptions::assertReported(RuntimeException::class);
 });
+
+it('still ends a run as failed when writing its issues is what fails', function () {
+    // An asset whose master is gone: the audit has an issue to write.
+    MediaAsset::factory()->postImage()->create();
+    Exceptions::fake();
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_starts_with(strtolower(ltrim($query->sql)), 'insert') && str_contains($query->sql, 'media_audit_issues')) {
+            throw new RuntimeException('Simulated issue write failure.');
+        }
+    });
+
+    expect(fn () => dispatch_sync(new RunMediaAuditJob))->toThrow(RuntimeException::class);
+
+    $run = MediaAuditRun::query()->latest('id')->first();
+    expect($run->status)->toBe(MediaAuditRunStatus::Failed)
+        ->and($run->completed_at)->not->toBeNull();
+    Exceptions::assertReported(RuntimeException::class);
+});
