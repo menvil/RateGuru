@@ -2,6 +2,8 @@
 
 use App\Models\User;
 use App\Support\Observability\NightwatchPrivacy;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Str;
 use Laravel\Nightwatch\Core;
 use Laravel\Nightwatch\Records\CacheEvent;
 use Laravel\Nightwatch\Records\Command;
@@ -356,7 +358,64 @@ it('removes the offending value from a unique-constraint violation message', fun
         "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'someone@example.invalid' for key 'users.users_email_unique'",
         'someone@example.invalid',
     ],
+    'postgres, a value holding a parenthesis' => [
+        'SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint "users_email_unique" DETAIL: Key (email)=(a)b@example.invalid) already exists.',
+        'b@example.invalid',
+    ],
+    'mysql, a value holding an apostrophe' => [
+        "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'o'brien@example.invalid' for key 'users.users_email_unique'",
+        'brien@example.invalid',
+    ],
+    'postgres, a value holding the text that follows it' => [
+        'SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint "users_email_unique" DETAIL: Key (email)=(a) already exists.then-more@example.invalid) already exists.',
+        'then-more@example.invalid',
+    ],
+    'mysql, a value holding the text that follows it' => [
+        "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'a' for key 'x.then-more@example.invalid' for key 'users.users_email_unique'",
+        'then-more@example.invalid',
+    ],
 ]);
+
+it('keeps the bound values of a failed query out of its message, and so out of Nightwatch', function () {
+    User::factory()->create(['email' => 'taken@example.invalid']);
+
+    try {
+        // A second account with the same address: a real unique violation,
+        // raised by the real connection with the name bound too.
+        User::factory()->create(['name' => 'Ada Sentinel', 'email' => 'taken@example.invalid']);
+        $this->fail('The duplicate email was accepted.');
+    } catch (UniqueConstraintViolationException $exception) {
+        $message = $exception->getMessage();
+    }
+
+    // Laravel writes the SQL into the message; with bindings masked it keeps
+    // the placeholders, never the values.
+    expect(Str::after($message, ' (Connection: '))
+        ->not->toContain('taken@example.invalid')
+        ->not->toContain('Ada Sentinel');
+
+    $record = new NightwatchException(
+        class: $exception::class,
+        message: $message,
+        code: '23505',
+        file: 'x.php',
+        line: 1,
+        handled: false,
+    );
+
+    nightwatchPrivacy()->redactException($record);
+
+    // What is left of the driver's own detail is redacted as before.
+    expect($record->message)
+        ->not->toContain('taken@example.invalid')
+        ->not->toContain('Ada Sentinel');
+});
+
+it('masks query bindings in exception messages on every database connection', function () {
+    foreach (config('database.connections') as $name => $connection) {
+        expect($connection['mask_bindings_in_exception_messages'] ?? false)->toBeTrue("connection {$name} writes bound values into exception messages");
+    }
+});
 
 it('leaves an ordinary exception message alone', function () {
     $record = new NightwatchException('RuntimeException', 'A full media audit is already running.', 0, 'x.php', 1, false);

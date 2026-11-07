@@ -259,6 +259,7 @@ it('sends nothing, and says so, while analysis is off or incomplete', function (
     'no model' => [['model' => '']],
     'a base URL that is not one' => [['base_url' => 'api.openai.com']],
     'a base URL that is not HTTP' => [['base_url' => 'ftp://api.openai.com/v1']],
+    'a plain http base URL off this machine' => [['base_url' => 'http://api.openai.com/v1']],
     'no timeout' => [['timeout' => 0]],
     'no output limit' => [['max_output_tokens' => null]],
 ]);

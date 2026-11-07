@@ -12,15 +12,20 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
 final class CommentsSection extends Component
 {
+    /** Set once by the published post that mounts it, never by the client. */
+    #[Locked]
     public int $postId;
 
     public bool $showHeader = true;
 
+    /** Moves only by loadMore() and a new sort, never as the client sets it. */
+    #[Locked]
     public int $visibleCount = 5;
 
     public string $commentSort = 'top';
@@ -48,7 +53,8 @@ final class CommentsSection extends Component
     #[Computed]
     public function totalRenderableTopLevel(): int
     {
-        return app(CommentListQuery::class)->countRenderableTopLevel($this->postId);
+        // As many as the list can show: past the cap, "View more" would load nothing more.
+        return min(app(CommentListQuery::class)->countRenderableTopLevel($this->postId), CommentListQuery::MOST_ROOTS);
     }
 
     public function loadMore(): void

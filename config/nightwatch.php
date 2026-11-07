@@ -17,7 +17,9 @@ $nightwatchBool = static function (string $key, bool $default): bool {
         return $default;
     }
 
-    return filter_var($value, FILTER_VALIDATE_BOOL);
+    // A value that is no boolean — a typo — keeps the default, as blank does:
+    // several of these are privacy defaults, and false would turn one off.
+    return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $default;
 };
 
 $nightwatchFloat = static function (string $key, float $default): float {
@@ -122,10 +124,14 @@ return [
     // serialises the whole header bag. Referer is included because RateGuru
     // puts the feed search term in the query string, so a referrer is a
     // second, indirect copy of exactly what the URL redaction removes.
-    'redact_headers' => explode(',', (string) env(
-        'NIGHTWATCH_REDACT_HEADERS',
-        'Authorization,Cookie,Proxy-Authorization,X-XSRF-TOKEN,X-CSRF-TOKEN,X-Forwarded-For,X-Real-IP,Forwarded,CF-Connecting-IP,True-Client-IP,Referer',
-    )),
+    // These are always redacted: NIGHTWATCH_REDACT_HEADERS can only add to
+    // them, so a blank or partial value never lets the credentials and the
+    // client address through.
+    'redact_headers' => array_values(array_unique([
+        'Authorization', 'Cookie', 'Proxy-Authorization', 'X-XSRF-TOKEN', 'X-CSRF-TOKEN',
+        'X-Forwarded-For', 'X-Real-IP', 'Forwarded', 'CF-Connecting-IP', 'True-Client-IP', 'Referer',
+        ...array_filter(array_map('trim', explode(',', (string) $nightwatchString('NIGHTWATCH_REDACT_HEADERS', '')))),
+    ])),
 
     'sampling' => [
         // RateGuru: the vendor default is 1.0. Nightwatch counts every observed

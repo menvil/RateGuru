@@ -2,7 +2,10 @@
 
 use App\Actions\Import\StoreImportedImageAction;
 use App\Livewire\Feed\UploadPostForm;
+use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Import\ImportHttpTransport;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -131,4 +134,35 @@ it('cleans up the imported temp file even when post creation fails validation, c
     expect(fn () => $form->submit())->not->toThrow(ValidationException::class);
 
     $mock->shouldHaveReceived('cleanup')->with($secondFakeImage)->once();
+});
+
+it('fetches nothing from the kept link while url imports are switched off', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+    $transport = new ScriptedImportHttpTransport([]);
+    app()->instance(ImportHttpTransport::class, $transport);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A title')
+        ->set('importedImageUrl', 'https://example.com/image.jpg')
+        ->call('submit')
+        ->assertSet('submitError', __('import.errors.feature_disabled'));
+
+    expect($transport->calls)->toBe([]);
+});
+
+it('fetches nothing from the kept link for an account that may not post', function () {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([]);
+    app()->instance(ImportHttpTransport::class, $transport);
+
+    Livewire::actingAs(User::factory()->limited()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A title')
+        ->set('importedImageUrl', 'https://example.com/image.jpg')
+        ->call('submit')
+        ->assertSet('submitError', __('ui.upload.error_generic'));
+
+    expect($transport->calls)->toBe([]);
 });

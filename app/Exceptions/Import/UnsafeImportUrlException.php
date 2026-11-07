@@ -25,7 +25,10 @@ class UnsafeImportUrlException extends RuntimeException
 
     public static function invalidUrl(string $url): self
     {
-        return new self("The provided URL is not valid: '{$url}'.");
+        // Not the address itself: an invalid one is reported, and whatever a
+        // visitor pasted — a signed link, a token in its query — would go
+        // with it. The other factories say what was wrong without it too.
+        return new self('The provided URL is not valid.');
     }
 
     public static function userinfoForbidden(string $url): self
