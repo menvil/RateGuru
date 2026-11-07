@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Models\Post;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -31,7 +32,16 @@ final class RecalculateHotScoresCommand extends Command
             ->chunkById($chunkSize, function ($posts) use (&$count, &$failures, $progress, $recalculatePostScore): void {
                 foreach ($posts as $post) {
                     try {
-                        $recalculatePostScore->handle($post);
+                        // Under the post's lock, as every vote and comment
+                        // recalculates it: a sweep must never write a score
+                        // computed from counters a vote has just changed.
+                        DB::transaction(function () use ($post, $recalculatePostScore): void {
+                            $locked = Post::query()->whereKey($post->id)->lockForUpdate()->first();
+
+                            if ($locked !== null) {
+                                $recalculatePostScore->handle($locked);
+                            }
+                        });
                         $count++;
                     } catch (Throwable $exception) {
                         $failures++;
