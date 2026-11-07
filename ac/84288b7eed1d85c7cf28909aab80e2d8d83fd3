@@ -1,0 +1,39 @@
+tests/Feature/Console/RecalculateHotScoresCommandTest.php
+  s_0f80700cf0b8c6::t_cb7f81ead8e4a9 5,82-107
+app/Services/Feed/FeedPostDeletionService.php
+  s_0f80700cf0b8c6::t_89042a7f85bc1a 22-24
+app/Livewire/Feed/PostDrawer.php
+  s_0f80700cf0b8c6::t_89042a7f85bc1a 59-60,75,86-89,108-109
+app/Actions/Comments/Concerns/RefreshesPostCommentsCount.php
+  s_0f80700cf0b8c6::t_7f38a3153728e6 5,31-35
+app/Console/Commands/RecalculateHotScoresCommand.php
+  s_0f80700cf0b8c6::t_fecf6a9e536e00 8,35-44
+tests/Feature/Livewire/PostDrawerOverlayTest.php
+  s_0f80700cf0b8c6::t_05e8caf697e890 5,102-126
+tests/Feature/Actions/AddCommentActionHotScoreTest.php
+  s_0f80700cf0b8c6::t_973df1f32d6dac 4-6,8,49-80
+tests/Feature/Livewire/FeedPageTest.php
+  s_0f80700cf0b8c6::t_05e8caf697e890 175-187,190-197,201-204,206-207,209-211
+  s_0f80700cf0b8c6::t_49e6a4a5b661b8 3,188-189,198-200,205,208
+app/Livewire/Feed/FeedPage.php
+  s_0f80700cf0b8c6::t_197be1727fa275 266
+  s_0f80700cf0b8c6::t_89042a7f85bc1a 140-141,267
+routes/console.php
+  s_0f80700cf0b8c6::t_fecf6a9e536e00 18-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac84288b7eed1d85c7cf28909aab80e2d8d83fd3",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
