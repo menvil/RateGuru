@@ -255,6 +255,9 @@ it('sends nothing, and ends the batch with the reason, when the plan changed bef
     'past its Draft' => [fn (StudioPlan $plan) => $plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), StudioPostTextGenerationError::PlanClosed],
     'a new photo' => [fn (StudioPlan $plan) => $plan->forceFill(['image_asset_id' => MediaAsset::factory()->postImage()->create()->id])->save(), StudioPostTextGenerationError::StaleAnalysis],
     'an analysis with another result' => [fn (StudioPlan $plan) => StudioPlanImageAnalysis::query()->update(['result' => json_encode(StudioPlanImageAnalysisFactory::description(['summary' => 'Something else entirely.']))]), StudioPostTextGenerationError::StaleAnalysis],
+    // Run again: the old result is still there, and still matches, but it is
+    // being replaced — nothing is paid for from it.
+    'an analysis being run again' => [fn () => StudioPlanImageAnalysis::query()->update(['status' => StudioImageAnalysisStatus::Queued->value]), StudioPostTextGenerationError::StaleAnalysis],
     'not configured any more' => [fn () => configureStudioImageAnalysis(['enabled' => false]), StudioPostTextGenerationError::NotConfigured],
 ]);
 

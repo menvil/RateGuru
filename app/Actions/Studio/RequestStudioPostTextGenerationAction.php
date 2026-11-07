@@ -131,6 +131,8 @@ final class RequestStudioPostTextGenerationAction
                 $generation->forceFill([
                     'status' => StudioPostTextGenerationStatus::Failed,
                     'error_code' => StudioPostTextGenerationError::UnexpectedFailure,
+                    // Ended now, as every other way a batch ends records.
+                    'finished_at' => now(),
                 ])->save();
                 $lost[] = [$generation->studio_plan_id, $generation->attempt_id];
             }

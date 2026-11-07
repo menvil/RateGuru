@@ -171,6 +171,12 @@ final class ExecuteStudioAction
         try {
             $written = DB::transaction(fn (): ?Model => $this->run($actionId, $attempt));
         } catch (StudioActionStoppedException $stop) {
+            // One of the run's own invariant checks: which one fired is in the
+            // stack trace, and the error report is the only place it is kept.
+            if ($stop->failure === StudioActionFailure::UnexpectedFailure) {
+                report($stop);
+            }
+
             return $this->stop($actionId, $attempt, $stop->failure);
         } catch (RateLimitExceededException $limit) {
             return $this->postpone($actionId, $attempt, $limit->retryAfterSeconds());
@@ -198,7 +204,16 @@ final class ExecuteStudioAction
                 throw $exception;
             }
 
-            return $this->stop($actionId, $attempt, self::failureOf($exception), $exception);
+            $failure = self::failureOf($exception);
+
+            // A refusal the run understood is said by its code; anything else
+            // is a fault, and its stack trace reaches the error report — the
+            // stored reason is the class alone, and nothing else would.
+            if ($failure === StudioActionFailure::UnexpectedFailure) {
+                report($exception);
+            }
+
+            return $this->stop($actionId, $attempt, $failure, $exception);
         }
 
         if ($written === null) {
@@ -240,8 +255,9 @@ final class ExecuteStudioAction
     private function claim(int $actionId): ?int
     {
         $released = null;
+        $stopped = null;
 
-        $attempt = DB::transaction(function () use ($actionId, &$released): ?int {
+        $attempt = DB::transaction(function () use ($actionId, &$released, &$stopped): ?int {
             $action = StudioAction::query()->whereKey($actionId)->lockForUpdate()->first();
 
             if ($action === null
@@ -263,6 +279,21 @@ final class ExecuteStudioAction
 
             $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
 
+            // Sent again after its plan was stopped — a run whose worker died
+            // mid-way, recovered: nothing of a stopped plan starts again.
+            if ($plan !== null && $plan->stopped_at !== null) {
+                self::saved($action->forceFill([
+                    'status' => StudioActionStatus::Cancelled,
+                    'failure_code' => StudioActionFailure::CancelledByAdministrator->value,
+                    'failure_reason' => null,
+                    'finished_at' => now(),
+                ]));
+                $this->settlePlan($plan);
+                $stopped = $action;
+
+                return null;
+            }
+
             if ($plan !== null && $plan->status === StudioPlanStatus::Approved) {
                 self::saved($plan->forceFill(['status' => StudioPlanStatus::Running]));
             }
@@ -274,6 +305,14 @@ final class ExecuteStudioAction
 
         if ($released !== null) {
             $this->logReleased($released[0], $released[1]);
+        }
+
+        if ($stopped !== null) {
+            $this->logger->info('studio.action.cancelled', [
+                'studio_action_id' => $actionId,
+                'studio_plan_id' => $stopped->studio_plan_id,
+                'failure_code' => StudioActionFailure::CancelledByAdministrator->value,
+            ]);
         }
 
         return $attempt;
@@ -884,6 +923,26 @@ final class ExecuteStudioAction
                 return null;
             }
 
+            // The plan was stopped while this run was under way: Stop left it
+            // to finish, not to wait and run again. It is cancelled now, as
+            // Stop cancelled the rest. The plan after the action, as always.
+            $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
+
+            if ($plan === null || $plan->stopped_at !== null) {
+                self::saved($action->forceFill([
+                    'status' => StudioActionStatus::Cancelled,
+                    'failure_code' => StudioActionFailure::CancelledByAdministrator->value,
+                    'failure_reason' => null,
+                    'finished_at' => now(),
+                ]));
+
+                if ($plan !== null) {
+                    $this->settlePlan($plan);
+                }
+
+                return $action;
+            }
+
             if ($action->deferrals >= $maxDeferrals) {
                 self::saved($action->forceFill([
                     'status' => StudioActionStatus::Failed,
@@ -922,6 +981,12 @@ final class ExecuteStudioAction
             'status' => $postponed->status->value,
             'failure_code' => StudioActionFailure::RateLimited->value,
         ];
+
+        if ($postponed->status === StudioActionStatus::Cancelled) {
+            $this->logger->info('studio.action.cancelled', [...$context, 'failure_code' => StudioActionFailure::CancelledByAdministrator->value]);
+
+            return StudioActionStatus::Cancelled;
+        }
 
         if ($postponed->status === StudioActionStatus::Failed) {
             $this->logger->warning('studio.action.failed', $context);

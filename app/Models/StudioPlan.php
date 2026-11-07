@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * approval and the lock version are the server's to write.
  *
  * @property int $id
+ * @property CarbonImmutable|null $stopped_at
  * @property StudioPlanStatus $status
  * @property int|null $author_user_id
  * @property int $created_by_user_id
@@ -84,6 +85,7 @@ class StudioPlan extends Model
             'author_answer_option_ids' => 'array',
             'publication_mode' => StudioPlanPublicationMode::class,
             'publish_at' => 'immutable_datetime',
+            'stopped_at' => 'immutable_datetime',
             'lock_version' => 'integer',
         ];
     }
