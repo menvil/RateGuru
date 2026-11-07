@@ -91,28 +91,29 @@ it('sends nothing when the job is delivered again, or after its attempt was repl
     expect($second->refresh()->status)->toBe(StudioImageAnalysisStatus::Queued);
 });
 
-it('claims nothing when a new photo starts another attempt between the claim and the read', function () {
+it('claims nothing when the row is no longer this running attempt between the claim and the read', function (Closure $meanwhile) {
     $plan = studioPlanWithStoredPhoto();
     $analysis = requestStudioImageAnalysis($this->admin, $plan);
-    $replaced = false;
+    $changed = false;
 
-    // The plan gets a new photo the moment this attempt is claimed: the row
-    // is reused for the new attempt before the claim reads it back.
-    DB::listen(function (QueryExecuted $query) use (&$replaced, $analysis): void {
-        if ($replaced || ! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, 'studio_plan_image_analyses')) {
+    // The row changes the moment this attempt is claimed, before the claim
+    // reads it back.
+    DB::listen(function (QueryExecuted $query) use (&$changed, $analysis, $meanwhile): void {
+        if ($changed || ! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, 'studio_plan_image_analyses')) {
             return;
         }
 
-        $replaced = true;
-        DB::table('studio_plan_image_analyses')->where('id', $analysis->id)->update([
-            'attempt_id' => (string) Str::uuid(),
-            'status' => StudioImageAnalysisStatus::Queued->value,
-        ]);
+        $changed = true;
+        DB::table('studio_plan_image_analyses')->where('id', $analysis->id)->update($meanwhile());
     });
 
     expect(app(StartStudioImageAnalysisAction::class)->handle($analysis->id, $analysis->attempt_id))->toBeNull()
-        ->and($replaced)->toBeTrue();
-});
+        ->and($changed)->toBeTrue();
+})->with([
+    // Each on its own, so neither half of the read can go unnoticed.
+    'another attempt, running' => [fn (): array => ['attempt_id' => (string) Str::uuid()]],
+    'this attempt, no longer running' => [fn (): array => ['status' => StudioImageAnalysisStatus::Failed->value]],
+]);
 
 it('sends nothing for a plan deleted before the job ran', function () {
     Http::fake();
