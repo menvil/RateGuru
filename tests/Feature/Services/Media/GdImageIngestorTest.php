@@ -258,9 +258,11 @@ it('still turns a photo upright when its EXIF carries a recoverable quirk beside
 
     $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy());
 
-    // Orientation 6 rotates 90° clockwise: stored 20x10, upright 10x20.
+    // Orientation 6 rotates 90° clockwise: stored 20x10, upright 10x20. The
+    // corners tell it from orientation 8, which gives the same size.
     expect($result->width)->toBe(10)
-        ->and($result->height)->toBe(20);
+        ->and($result->height)->toBe(20)
+        ->and(markerCorners($result->bytes))->toMatchArray(['tl' => 'BLUE', 'tr' => 'RED', 'bl' => 'WHITE', 'br' => 'GREEN', 'width' => 10, 'height' => 20]);
 });
 
 it('rejects an image whose EXIF-corrected dimensions exceed asymmetric limits even though the as-stored dimensions do not', function () {
