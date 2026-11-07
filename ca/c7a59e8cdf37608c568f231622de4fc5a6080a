@@ -1,0 +1,31 @@
+tests/Feature/Actions/ExecuteStudioActionTest.php
+  s_0f80700cf0b8c6::t_3a37dde44b20d1 7,11
+  s_0f80700cf0b8c6::t_e40f1233b20fa8 239,245
+  s_0f80700cf0b8c6::t_803cc569e3d42b 237-238,240-244,246-250
+  s_0f80700cf0b8c6::t_650c2b070db1ad 323-330
+tests/Feature/Actions/DeleteCategoryActionTest.php
+  s_0f80700cf0b8c6::t_3a37dde44b20d1 11
+  s_0f80700cf0b8c6::t_bf412b9979cf1e 10,74-90
+app/Exceptions/Follows/FollowerNotificationsNotDeliveredException.php
+  s_0f80700cf0b8c6::t_0683c1bec05cd4 16-18
+app/Actions/Categories/DeleteCategoryAction.php
+  s_0f80700cf0b8c6::t_bf412b9979cf1e 24-26,42-51,76-78
+app/Actions/Studio/ExecuteStudioAction.php
+  s_0f80700cf0b8c6::t_0683c1bec05cd4 174-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cac7a59e8cdf37608c568f231622de4fc5a6080a",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
