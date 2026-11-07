@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 
 it('handles empty database gracefully', function () {
     $this->artisan('posts:recalculate-hot-scores')
@@ -77,4 +78,31 @@ it('continues processing posts and reports failures', function () {
         ->assertExitCode(1);
 
     expect((float) $valid->fresh()->hot_score)->toBeGreaterThan(0);
+});
+
+it('is scheduled hourly, so the score of a post nobody touches still decays', function () {
+    $events = collect(app(Schedule::class)->events())
+        ->filter(fn ($event) => str_contains($event->command ?? '', 'posts:recalculate-hot-scores'))
+        ->values();
+
+    expect($events)->toHaveCount(1)
+        ->and($events->first()->expression)->toBe('0 * * * *')
+        ->and($events->first()->withoutOverlapping)->toBeTrue();
+});
+
+it('lowers the score of an old post nobody has voted on or commented since', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-05-14 12:00:00'));
+    $post = Post::factory()->published()->create([
+        'upvotes_count' => 10,
+        'downvotes_count' => 0,
+        'comments_count' => 2,
+        'created_at' => CarbonImmutable::parse('2026-05-14 11:00:00'),
+    ]);
+    $this->artisan('posts:recalculate-hot-scores')->assertExitCode(0);
+    $fresh = (float) $post->fresh()->hot_score;
+
+    $this->travelTo(CarbonImmutable::parse('2026-05-17 12:00:00'));
+    $this->artisan('posts:recalculate-hot-scores')->assertExitCode(0);
+
+    expect((float) $post->fresh()->hot_score)->toBeLessThan($fresh);
 });

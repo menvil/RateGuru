@@ -56,6 +56,8 @@ final class PostDrawer extends Component
     {
         $this->postId = $postId;
         $this->isOpen = true;
+        // A failed deletion is said about the post it was for, not the next.
+        $this->deleteError = null;
 
         // Mirrors FeedPage::selectPost's forwarding of the same event/payload for the
         // split-grid path, so the drawer's own scroll-to-target listener (see
@@ -70,6 +72,7 @@ final class PostDrawer extends Component
     {
         $this->isOpen = false;
         $this->postId = null;
+        $this->deleteError = null;
     }
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
@@ -80,7 +83,10 @@ final class PostDrawer extends Component
             return;
         }
 
-        $post = Post::query()->find($this->postId);
+        $postId = $this->postId;
+        // An already deleted post too: deleting it again is the action's
+        // idempotent case, and its card still has to leave the list.
+        $post = Post::withTrashed()->find($postId);
 
         if ($post === null) {
             $this->deleteError = null;
@@ -99,6 +105,8 @@ final class PostDrawer extends Component
 
         $this->postId = null;
         $this->deleteError = null;
+        // The list behind the drawer drops the card, as for a delete from it.
+        $this->dispatch('post-deleted', postId: $postId);
         $this->dispatch('clear-selected-post');
     }
 

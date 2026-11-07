@@ -19,7 +19,9 @@ final class FeedPostDeletionService
             return FeedPostDeletionResult::skipped();
         }
 
-        $post = Post::query()->find($postId);
+        // With the deleted ones: a stale card of a post deleted meanwhile is
+        // the action's idempotent case, deleted as far as the list is concerned.
+        $post = Post::withTrashed()->find($postId);
 
         if ($post === null) {
             return FeedPostDeletionResult::skipped();

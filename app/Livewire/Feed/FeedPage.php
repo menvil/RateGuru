@@ -137,6 +137,8 @@ class FeedPage extends Component
 
         if ($result->error !== null) {
             $this->deleteError = $result->error;
+            // Nothing on the feed shows deleteError: the toast says it.
+            $this->dispatch('toast', message: $result->error);
 
             return;
         }
@@ -261,7 +263,8 @@ class FeedPage extends Component
     {
         $search = trim($this->search);
 
-        return strlen($search) >= 3 ? $search : null;
+        // Characters, not bytes: "ко" is two letters and four bytes.
+        return mb_strlen($search) >= 3 ? $search : null;
     }
 
     /** @return \Illuminate\Database\Eloquent\Collection<int, User> */
