@@ -8,6 +8,8 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\UrlImportDisabledException;
+use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Queries\Categories\ActiveCategoriesQuery;
@@ -88,10 +90,22 @@ final class UploadPostForm extends Component
         $importedTempFile = null;
 
         if ($this->importedImageUrl !== null && $this->image === null) {
+            // The link is the client's to set: nothing is fetched for an
+            // account that may not post, whatever it sends.
+            if (! auth()->user()?->can('create', Post::class)) {
+                $this->submitError = __('ui.upload.error_generic');
+
+                return;
+            }
+
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
                 $importedTempFile = $this->image;
                 $imageSource = ImageInputSource::UrlImport;
+            } catch (UrlImportDisabledException) {
+                $this->submitError = __('import.errors.feature_disabled');
+
+                return;
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('import.errors.fetch_failed');

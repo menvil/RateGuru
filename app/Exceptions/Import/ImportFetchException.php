@@ -77,30 +77,22 @@ class ImportFetchException extends RuntimeException
         return new self("Import request to '".self::sanitizeUrl($url)."' redirected without a Location header.");
     }
 
+    /**
+     * The address as far as its path: no query and no fragment at all. A
+     * query is where a pasted link carries its signature or token, under any
+     * name — X-Amz-Signature, sig, hm, a nested a[token] — so no list of
+     * names can be trusted to catch them.
+     */
     private static function sanitizeUrl(string $url): string
     {
         $parsed = parse_url($url);
 
-        if (empty($parsed['query'])) {
-            return $url;
+        if (! is_array($parsed) || ! isset($parsed['host'])) {
+            return '[unparseable url]';
         }
 
-        parse_str($parsed['query'], $params);
-
-        $sensitive = ['token', 'key', 'auth', 'password', 'secret'];
-
-        foreach ($params as $k => $v) {
-            foreach ($sensitive as $pat) {
-                if (str_contains(strtolower((string) $k), $pat)) {
-                    $params[$k] = '[REDACTED]';
-                    break;
-                }
-            }
-        }
-
-        return ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? '')
+        return ($parsed['scheme'] ?? 'https').'://'.$parsed['host']
             .(isset($parsed['port']) ? ':'.$parsed['port'] : '')
-            .($parsed['path'] ?? '')
-            .'?'.http_build_query($params);
+            .($parsed['path'] ?? '');
     }
 }

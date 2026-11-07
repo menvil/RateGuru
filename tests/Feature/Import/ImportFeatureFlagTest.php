@@ -1,8 +1,10 @@
 <?php
 
 use App\Actions\Import\ImportFromUrlAction;
+use App\Actions\Import\StoreImportedImageAction;
 use App\Exceptions\Import\UrlImportDisabledException;
 use App\Models\ProjectSettings;
+use App\Support\Import\ImportHttpTransport;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Http;
 
@@ -58,4 +60,15 @@ it('allows url import when feature flag is absent using default true', function 
     $preview = app(ImportFromUrlAction::class)->handle('https://example.com/page');
 
     expect($preview)->not->toBeNull();
+});
+
+it('downloads no direct image either while url imports are switched off', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+    $transport = new ScriptedImportHttpTransport([]);
+    app()->instance(ImportHttpTransport::class, $transport);
+
+    expect(fn () => app(StoreImportedImageAction::class)->download('https://example.com/image.jpg'))
+        ->toThrow(UrlImportDisabledException::class)
+        ->and($transport->calls)->toBe([]);
 });

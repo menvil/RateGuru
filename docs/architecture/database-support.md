@@ -30,6 +30,12 @@ Every suite runs in parallel (`--parallel`). Parallel testing gives each worker
 its own database, `<database>_test_<token>`, created on first use — which is
 why the MariaDB CI job widens the test user's grant to that family of names.
 
+Every engine runs transactions at READ COMMITTED, PostgreSQL's default and the
+level the locking code is written for: a plain read after a lock wait sees what
+the transaction it waited for committed. MariaDB and MySQL default to
+REPEATABLE READ, so their connections set READ COMMITTED explicitly
+(`config/database.php`).
+
 Operational support is intentionally different from application compatibility:
 each deployment still needs engine-appropriate backup, restore, monitoring, and
 upgrade procedures.

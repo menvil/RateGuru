@@ -41,8 +41,8 @@ final readonly class ImageInput
             $bytes = $file->getContent();
         } catch (ImageTooLargeException $exception) {
             throw $exception;
-        } catch (Throwable $exception) {
-            throw ImageDecodeException::couldNotReadUploadedFile($file->getClientOriginalName(), $exception);
+        } catch (Throwable) {
+            throw ImageDecodeException::couldNotReadUploadedFile();
         }
 
         return new self($bytes, $file->getClientOriginalName(), $source);

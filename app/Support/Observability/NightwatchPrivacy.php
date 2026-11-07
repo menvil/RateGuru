@@ -232,15 +232,18 @@ final class NightwatchPrivacy
      */
     public function redactException(Exception $record): void
     {
+        // Anchored to the text after the value, not to its first ')' or
+        // apostrophe: an address may hold either (o'brien@…, a)b@…), and
+        // the part after one would still be sent.
         $message = (string) preg_replace(
-            '/(Key \([^)]*\)=\()[^)]*(\))/',
+            '/(Key \((?:[^)]*)\)=\().*?(\) already exists)/s',
             '$1'.self::REDACTED.'$2',
             $record->message,
         );
 
         $record->message = (string) preg_replace(
-            "/(Duplicate entry )'[^']*'/",
-            "$1'".self::REDACTED."'",
+            "/(Duplicate entry ')(?:.*?)(' for key ')/s",
+            '$1'.self::REDACTED.'$2',
             $message,
         );
     }

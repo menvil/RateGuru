@@ -5,12 +5,16 @@ namespace App\Queries\Comments;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
+use App\Models\Post;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 final class CommentListQuery implements RawSqlPersistenceBoundary
 {
+    /** The most top-level comments one request lists. */
+    public const MOST_ROOTS = 200;
+
     /** @return Collection<int, Comment> */
     public function get(int $postId, string $sort, int $limit): Collection
     {
@@ -39,7 +43,9 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
         return $query
             ->orderByDesc('created_at')
             ->orderByDesc('id')
-            ->limit(max(1, $limit))
+            // However many a caller asks for, a page of a thread is bounded:
+            // each root loads its replies with it.
+            ->limit(min(max(1, $limit), self::MOST_ROOTS))
             ->get();
     }
 
@@ -69,7 +75,21 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
     {
         return Comment::query()
             ->where('post_id', $postId)
+            ->whereHas('post', $this->publicPost(...))
             ->where('status', CommentStatus::Visible);
+    }
+
+    /**
+     * Only a published post has a public thread. A hidden or pending post's
+     * comments are not public, and an author-deleted post is gone everywhere
+     * (the SoftDeletes scope of the relation already drops it), whatever post
+     * id a caller passes in.
+     *
+     * @param  Builder<Post>  $post
+     */
+    private function publicPost(Builder $post): void
+    {
+        $post->published();
     }
 
     /**
@@ -87,6 +107,7 @@ final class CommentListQuery implements RawSqlPersistenceBoundary
     {
         return Comment::withTrashed()
             ->where('post_id', $postId)
+            ->whereHas('post', $this->publicPost(...))
             ->whereNull('parent_id')
             ->where(function (Builder $query): void {
                 $query

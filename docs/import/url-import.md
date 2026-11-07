@@ -159,6 +159,12 @@ target is attempted. `import.max_redirects` bounds how many hops are followed.
 - Userinfo in the URL (`user:pass@host` or bare `token@host`).
 - CR/LF/NUL/other control bytes anywhere in the URL.
 - A missing host, a malformed authority, or a malformed IPv6 literal.
+- A hostname that is not plain ASCII letters, digits, `-`, `_` and `.` — a
+  percent-encoded host (`a%2eb.example`) or a raw non-ASCII one. The resolver
+  and the transport's pin take the host exactly as written, while libcurl
+  decodes or IDN-converts it before its own lookup: it would connect to a
+  different name than the one validated, resolve that itself, and the pin
+  would never apply.
 - Any port not in `import.allowed_ports` (`[80, 443]` by default) — this
   pipeline does not double as a port scanner against internal services (SSH,
   SMTP, MySQL, PostgreSQL, Redis, Elasticsearch, Memcached, etc.).
@@ -184,7 +190,10 @@ metadata endpoint), `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`
 
 Blocked IPv6 ranges: `::/128`, `::1/128`, `fc00::/7` (unique-local),
 `fe80::/10` (link-local), `ff00::/8` (multicast), `2001:db8::/32`
-(documentation). Three RFC-defined forms that embed a full IPv4 address in
+(documentation), and the ranges that tunnel into or reach IPv4 space this
+host never checks as IPv4: `2002::/16` (6to4), `2001::/32` (Teredo),
+`64:ff9b:1::/48` (local-use NAT64), `fec0::/10` (deprecated site-local) and
+`100::/64` (discard-only). Three RFC-defined forms that embed a full IPv4 address in
 their low 32 bits — `::ffff:a.b.c.d` (RFC4291 IPv4-mapped), `::a.b.c.d`
 (RFC4291 IPv4-compatible, `::/96`), and `64:ff9b::a.b.c.d` (RFC6052 NAT64
 well-known prefix, `64:ff9b::/96`) — are all unwrapped and the embedded IPv4

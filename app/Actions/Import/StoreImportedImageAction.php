@@ -3,8 +3,10 @@
 namespace App\Actions\Import;
 
 use App\Exceptions\Import\ImportFetchException;
+use App\Exceptions\Import\UrlImportDisabledException;
 use App\Services\Media\ImageIngestPolicy;
 use App\Support\Import\SafeImportHttpClient;
+use App\Support\Settings\ProjectSettingsManager;
 use Closure;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -20,10 +22,20 @@ class StoreImportedImageAction
      */
     private const WRITE_CHUNK_BYTES = 65536;
 
-    public function __construct(private readonly SafeImportHttpClient $client) {}
+    public function __construct(
+        private readonly SafeImportHttpClient $client,
+        private readonly ProjectSettingsManager $settings,
+    ) {}
 
     public function download(string $imageUrl): UploadedFile
     {
+        // The project's switch for fetching anything from a link holds here,
+        // where every direct-image download passes — the upload form and
+        // Content Studio alike — not only in the link preview.
+        if (! $this->settings->featureEnabled('allow_url_imports')) {
+            throw new UrlImportDisabledException;
+        }
+
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
 
         // Never fetch more than ImageIngestor would accept anyway — a

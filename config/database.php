@@ -28,6 +28,11 @@ return [
     | An example configuration is provided for each database system which
     | is supported by Laravel. You're free to add / remove connections.
     |
+    | Every connection masks its bindings in exception messages. Laravel would
+    | otherwise write each bound value into a failed query's message — a
+    | registration's name, email and password hash among them — and that
+    | message reaches the logs, Sentry and Nightwatch alike.
+    |
     */
 
     'connections' => [
@@ -35,6 +40,7 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
+            'mask_bindings_in_exception_messages' => true,
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
@@ -47,6 +53,12 @@ return [
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
+            'mask_bindings_in_exception_messages' => true,
+            // PostgreSQL's default, which the locking code is written for. InnoDB
+            // defaults to REPEATABLE READ, where a plain read inside a transaction
+            // sees the snapshot taken before a lock wait — two final actions on
+            // one plan could then each see the other still open.
+            'isolation_level' => 'READ COMMITTED',
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
             'database' => env('DB_DATABASE', 'laravel'),
@@ -67,6 +79,12 @@ return [
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),
+            'mask_bindings_in_exception_messages' => true,
+            // PostgreSQL's default, which the locking code is written for. InnoDB
+            // defaults to REPEATABLE READ, where a plain read inside a transaction
+            // sees the snapshot taken before a lock wait — two final actions on
+            // one plan could then each see the other still open.
+            'isolation_level' => 'READ COMMITTED',
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
             'database' => env('DB_DATABASE', 'laravel'),
@@ -87,6 +105,7 @@ return [
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DB_URL'),
+            'mask_bindings_in_exception_messages' => true,
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
             'database' => env('DB_DATABASE', 'laravel'),
@@ -102,6 +121,7 @@ return [
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),
+            'mask_bindings_in_exception_messages' => true,
             'host' => env('DB_HOST', 'localhost'),
             'port' => env('DB_PORT', '1433'),
             'database' => env('DB_DATABASE', 'laravel'),

@@ -5,6 +5,7 @@ use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 it('can render comments section component', function () {
@@ -387,3 +388,16 @@ it('targets refreshComments in the loading state', function () {
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
         ->assertSee('wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"', false);
 });
+
+it('does not let a client point the thread at another post', function () {
+    $published = Post::factory()->published()->create();
+    $hidden = Post::factory()->hidden()->create();
+
+    Livewire::test(CommentsSection::class, ['postId' => $published->id])
+        ->set('postId', $hidden->id);
+})->throws(CannotUpdateLockedPropertyException::class);
+
+it('does not let a client ask for more of the thread than load more gives', function () {
+    Livewire::test(CommentsSection::class, ['postId' => Post::factory()->published()->create()->id])
+        ->set('visibleCount', 100000);
+})->throws(CannotUpdateLockedPropertyException::class);

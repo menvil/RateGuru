@@ -464,6 +464,22 @@ it('says so by the post link when the post shows no image, or importing from lin
     }, 'Importing from links is switched off in Project settings.'],
 ]);
 
+it('downloads nothing from a direct image link while importing from links is switched off', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+    $transport = new ScriptedImportHttpTransport([]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://example.com/a.jpg')
+        ->call('importImage', 'link')
+        ->assertHasErrors(['imageUrl' => 'Importing from links is switched off in Project settings.']);
+
+    expect($transport->calls)->toBe([])
+        ->and($plan->fresh()->image_asset_id)->toBeNull();
+});
+
 it('keeps the source on screen apart: switching it clears the other one\'s error', function () {
     Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])
         ->set('imageUrl', 'ftp://example.com/a.jpg')
