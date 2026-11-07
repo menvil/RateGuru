@@ -25,12 +25,16 @@ class OpenGraphImportAdapter
 
         $imageUrl = null;
 
-        if ($metadata->imageUrl !== null) {
+        // The first the import may fetch; an unsafe one is passed over
+        // silently, and with none the preview shows without an image.
+        foreach ($metadata->imageCandidates as $candidate) {
             try {
-                $this->validator->validate($metadata->imageUrl);
-                $imageUrl = $metadata->imageUrl;
+                $this->validator->validate($candidate);
+                $imageUrl = $candidate;
+
+                break;
             } catch (UnsafeImportUrlException) {
-                // unsafe image URL — omit silently, preview shows without image
+                continue;
             }
         }
 

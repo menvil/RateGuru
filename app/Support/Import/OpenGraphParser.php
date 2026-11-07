@@ -27,38 +27,55 @@ class OpenGraphParser
             ?? $this->extractMeta($xpath, 'twitter:description', 'name')
             ?? $this->extractMeta($xpath, 'description', 'name');
 
-        $imageUrl = $this->extractMeta($xpath, 'og:image', 'property')
-            ?? $this->extractMeta($xpath, 'og:image:secure_url', 'property')
-            ?? $this->extractMeta($xpath, 'twitter:image', 'name');
-
-        if ($imageUrl !== null) {
-            $imageUrl = $this->resolveUrl($imageUrl, $pageUrl);
-        }
+        // Every image the page names, not only the first: a page often gives
+        // an http og:image and its https twin as og:image:secure_url, or a
+        // second og:image in Open Graph's array form, and the import takes only
+        // https — the first alone would leave it no image. In order of
+        // preference: the og:image values, then the secure ones, then Twitter's,
+        // each kind in the order the page gives them.
+        $imageCandidates = array_values(array_unique(array_map(
+            fn (string $candidate): string => $this->resolveUrl($candidate, $pageUrl),
+            [
+                ...$this->extractEveryMeta($xpath, 'og:image', 'property'),
+                ...$this->extractEveryMeta($xpath, 'og:image:secure_url', 'property'),
+                ...$this->extractEveryMeta($xpath, 'twitter:image', 'name'),
+            ],
+        )));
 
         return new OpenGraphMetadata(
             title: $title,
             description: $description,
-            imageUrl: $imageUrl,
+            imageUrl: $imageCandidates[0] ?? null,
+            imageCandidates: $imageCandidates,
         );
     }
 
     private function extractMeta(DOMXPath $xpath, string $value, string $attr): ?string
     {
+        return $this->extractEveryMeta($xpath, $value, $attr)[0] ?? null;
+    }
+
+    /** @return list<string> every non-empty value of this meta tag, in the order the page gives them */
+    private function extractEveryMeta(DOMXPath $xpath, string $value, string $attr): array
+    {
         $nodes = $xpath->query("//meta[@{$attr}='{$value}']");
+        $values = [];
 
-        if ($nodes === false || $nodes->length === 0) {
-            return null;
+        foreach ($nodes === false ? [] : $nodes as $node) {
+            if (! $node instanceof DOMElement) {
+                continue;
+            }
+
+            // Trimmed: whitespace around a URL would otherwise be resolved as part
+            // of it, against the page, into an address that is not the image.
+            $content = trim($node->getAttribute('content'));
+
+            if ($content !== '') {
+                $values[] = $content;
+            }
         }
 
-        $node = $nodes->item(0);
-
-        if (! $node instanceof DOMElement) {
-            return null;
-        }
-
-        $content = $node->getAttribute('content');
-
-        return $content !== '' ? $content : null;
+        return $values;
     }
 
     private function extractTitle(DOMXPath $xpath): ?string
