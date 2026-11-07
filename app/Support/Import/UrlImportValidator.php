@@ -138,6 +138,18 @@ class UrlImportValidator
             $host = substr($host, 0, -1);
         }
 
+        // Nothing but a plain ASCII hostname (or an IPv4 literal) from here
+        // on. The resolver and the transport's pin both take this exact
+        // string, while libcurl percent-decodes a URL host before its own
+        // lookup: "a%2eb.example" would be validated and pinned as one name
+        // and connected to as "a.b.example", which curl then resolves itself
+        // with the pin never applying. A raw non-ASCII (IDN) host is refused
+        // for the same reason — an IDN-enabled libcurl converts it on its own.
+        if (preg_match('/^[a-z0-9_-]+(\.[a-z0-9_-]+)*$/', $host) !== 1) {
+            $this->logUnsafeBlocked($url, 'invalid_url', redirectHop: $redirectHop);
+            throw UnsafeImportUrlException::invalidUrl($url);
+        }
+
         return $host;
     }
 

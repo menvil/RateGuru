@@ -356,6 +356,10 @@ trait EditsStudioPlan
 
         try {
             $file = $importer->download($imageUrl);
+        } catch (UrlImportDisabledException) {
+            $this->addError($field, 'Importing from links is switched off in Project settings.');
+
+            return;
         } catch (Throwable $exception) {
             report($exception);
             $this->addError($field, $source === 'post'

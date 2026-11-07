@@ -213,11 +213,12 @@ it('configures the Sentry scope in exactly one place', function () {
     expect($offenders)->toBe([]);
 });
 
-it('lets only the provider and the read-only health command reference the SDK at all', function () {
+it('lets only the provider, the read-only health command and the privacy callbacks reference the SDK at all', function () {
     // A closed list, so a new Sentry touchpoint has to be a deliberate edit
     // here. ObservabilityHealthCommand is allowed because it only *reads*
     // whether the SDK registered its middleware — the assertion above already
-    // proves it never captures or mutates the scope.
+    // proves it never captures or mutates the scope. SentryPrivacy only
+    // takes out what the SDK recorded of an outgoing request's address.
     $referencing = [];
 
     foreach (File::allFiles(app_path()) as $file) {
@@ -229,6 +230,7 @@ it('lets only the provider and the read-only health command reference the SDK at
     expect($referencing)->toEqualCanonicalizing([
         'app/Providers/ObservabilityServiceProvider.php',
         'app/Console/Commands/ObservabilityHealthCommand.php',
+        'app/Support/Observability/SentryPrivacy.php',
     ]);
 });
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Support\Deployment\DeploymentMetadata;
+use App\Support\Observability\SentryPrivacy;
 
 /*
  * A key present with an empty value is this repository's convention for "not
@@ -128,6 +129,13 @@ return [
     // The single identity field we do want — the internal user ID — is added
     // deliberately by App\Providers\ObservabilityServiceProvider.
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),
+
+    // RateGuru: an outgoing request is recorded without its query string or
+    // fragment, where a pasted link's credentials live, and an exception
+    // without the value a unique violation names (SentryPrivacy).
+    'before_send' => [SentryPrivacy::class, 'beforeSend'],
+    'before_breadcrumb' => [SentryPrivacy::class, 'beforeBreadcrumb'],
+    'before_send_transaction' => [SentryPrivacy::class, 'beforeSendTransaction'],
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     //

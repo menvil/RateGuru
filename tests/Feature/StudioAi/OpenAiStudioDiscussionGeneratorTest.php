@@ -353,6 +353,7 @@ it('sends nothing, and says so, while it is off or incomplete', function (array 
     'no key' => [['api_key' => null], []],
     'no model' => [['model' => ''], []],
     'a base URL that is not one' => [['base_url' => 'ftp://api.openai.com'], []],
+    'a plain http base URL off this machine' => [['base_url' => 'http://api.openai.com/v1'], []],
     'no timeout' => [[], ['timeout' => 0]],
     'no output ceiling' => [[], ['max_output_tokens' => null]],
     'no node bound' => [[], ['max_nodes' => 0]],

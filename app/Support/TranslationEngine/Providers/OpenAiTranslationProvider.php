@@ -11,6 +11,7 @@ use App\Support\TranslationEngine\Enums\TranslationErrorCode;
 use App\Support\TranslationEngine\Exceptions\TranslationConfigurationException;
 use App\Support\TranslationEngine\Exceptions\TranslationProviderException;
 use App\Support\TranslationEngine\TranslationPromptBuilder;
+use App\Support\Urls\ApiBaseUrl;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response;
@@ -357,9 +358,8 @@ final class OpenAiTranslationProvider implements TranslationProvider
     private function endpointFrom(mixed $value): string
     {
         $baseUrl = $this->requiredString($value, 'base_url');
-        $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
 
-        if (filter_var($baseUrl, FILTER_VALIDATE_URL) === false || ! in_array($scheme, ['http', 'https'], true)) {
+        if (! ApiBaseUrl::carriesKeySafely($baseUrl)) {
             throw TranslationConfigurationException::missingSetting($this->name, 'base_url');
         }
 

@@ -44,6 +44,20 @@ it('maps a getSize() stat failure to a narrow exception instead of letting it es
         ->toThrow(ImageDecodeException::class);
 });
 
+it('says nothing of the uploader in the error it reports for an unreadable upload', function () {
+    $file = Mockery::mock(UploadedFile::fake()->image('anna-petrova-passport.jpg', 800, 600))->makePartial();
+    $file->shouldReceive('getSize')->andThrow(new RuntimeException('stat failed on /tmp/livewire-tmp/anna-petrova-passport.jpg'));
+
+    try {
+        ImageInput::fromUploadedFile($file, 5 * 1024 * 1024);
+        $this->fail('The unreadable upload was accepted.');
+    } catch (ImageDecodeException $exception) {
+        // Neither the client's file name nor the temporary path behind it.
+        expect($exception->getMessage())->not->toContain('anna-petrova')
+            ->and($exception->getPrevious())->toBeNull();
+    }
+});
+
 it('propagates the given source', function () {
     $file = UploadedFile::fake()->image('dish.jpg', 800, 600);
 
