@@ -48,9 +48,11 @@ final class VerifySharingConfigurationCommand extends Command
 
         try {
             $publicImageUrl = $openGraph->absoluteUrl(Storage::disk($mediaDisk)->url('sharing-check.jpg'));
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            // Its first line names the cause, an unconfigured disk or a driver
+            // with no URLs, without whatever a driver appends below it.
             $publicImageUrl = null;
-            $errors[] = "Public image URLs cannot be built from the [{$mediaDisk}] disk.";
+            $errors[] = "Public image URLs cannot be built from the [{$mediaDisk}] disk: ".strtok($exception->getMessage(), "\n");
         }
 
         if ($publicImageUrl !== null) {

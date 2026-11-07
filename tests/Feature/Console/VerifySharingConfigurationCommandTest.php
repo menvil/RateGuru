@@ -164,3 +164,16 @@ it('checks the host a disk builds its own urls on, as a bucket does with no url 
         ->expectsOutputToContain('Public image URL host must match')
         ->assertFailed();
 });
+
+it('says why image URLs cannot be built from the media disk', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'nowhere',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URLs cannot be built from the [nowhere] disk: Disk [nowhere] does not have a configured driver.')
+        ->assertFailed();
+});
