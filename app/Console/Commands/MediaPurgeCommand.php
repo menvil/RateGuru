@@ -54,6 +54,14 @@ final class MediaPurgeCommand extends Command
         }
 
         if ((bool) $this->option('orphans')) {
+            // The orphan scan takes neither: a run meant to be narrowed must
+            // not delete every orphan instead.
+            if ($this->option('asset') !== null || $this->option('older-than') !== null) {
+                $this->error('--orphans scans every file: it cannot be combined with --asset or --older-than.');
+
+                return self::FAILURE;
+            }
+
             return $this->purgeOrphans($orphanScanner, $lifecycle, $dryRun, $force);
         }
 

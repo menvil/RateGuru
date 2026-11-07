@@ -83,6 +83,7 @@ it('every issue type maps to exactly one severity', function () {
         MediaAuditIssueType::MissingMasterFile->value => MediaAuditIssueSeverity::Critical,
         MediaAuditIssueType::MissingVariantFile->value => MediaAuditIssueSeverity::Warning,
         MediaAuditIssueType::ActiveUnreferencedAsset->value => MediaAuditIssueSeverity::Warning,
+        MediaAuditIssueType::ReleasedButReferenced->value => MediaAuditIssueSeverity::Warning,
         MediaAuditIssueType::PhysicalOrphanCandidate->value => MediaAuditIssueSeverity::Warning,
         MediaAuditIssueType::FailedGenerationJob->value => MediaAuditIssueSeverity::Warning,
         MediaAuditIssueType::PurgeableAsset->value => MediaAuditIssueSeverity::Info,

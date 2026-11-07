@@ -169,6 +169,27 @@ it('does not report a soft-deleted asset still within its grace period as an iss
         ->and($issues)->toBeEmpty();
 });
 
+it('reports a released asset something still references as an issue, not as a normal soft-delete, whatever its grace', function () {
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00'));
+    $asset = MediaAsset::factory()->postImage()->create(['path' => 'media/post-images/still-shown.jpg']);
+    Storage::disk('public')->put($asset->path, 'bytes');
+    Post::factory()->published()->create(['image_asset_id' => $asset->id]);
+    $asset->delete();
+
+    foreach (['2026-01-03 12:00:00', '2026-03-01 12:00:00'] as $now) {
+        Carbon::setTestNow(Carbon::parse($now));
+        $issues = [];
+        $summary = app(MediaAuditService::class)->run(onIssue: function (MediaAuditIssueData $issue) use (&$issues): void {
+            $issues[] = $issue;
+        });
+
+        expect($summary->releasedButReferenced)->toBe(1)
+            ->and($summary->softDeletedWithinGrace)->toBe(0)
+            ->and($summary->purgeableAssets)->toBe(0)
+            ->and(array_map(fn (MediaAuditIssueData $issue): MediaAuditIssueType => $issue->issueType, $issues))->toBe([MediaAuditIssueType::ReleasedButReferenced]);
+    }
+});
+
 it('reports physical orphan candidates past the orphan grace period', function () {
     config(['media.lifecycle.orphan_grace_hours' => 0]);
     Storage::disk('public')->put('media/post-images/orphan.jpg', 'bytes');
