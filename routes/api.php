@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 |
 | API endpoints are intentionally not implemented yet.
-| This file only reserves the route group; the JSON Resources exist ahead of it.
+| This file only reserves the API route file; no endpoints or JSON resources exist yet.
 |
 | Future API endpoints should:
 | - use /api/v1 route grouping;

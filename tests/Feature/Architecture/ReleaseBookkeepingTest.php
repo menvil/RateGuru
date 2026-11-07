@@ -158,7 +158,7 @@ it('references no release label from the application code', function () {
     // others: the behaviour stays right, the label stops meaning anything.
     $offenders = [];
 
-    foreach (['app', 'bootstrap', 'config', 'database', 'routes', 'resources/views', 'resources/js'] as $directory) {
+    foreach (['app', 'bootstrap', 'config', 'database', 'lang', 'routes', 'resources/views', 'resources/js'] as $directory) {
         $files = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator(base_path($directory), FilesystemIterator::SKIP_DOTS),
         );

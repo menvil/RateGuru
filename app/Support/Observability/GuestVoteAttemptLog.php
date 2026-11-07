@@ -52,9 +52,10 @@ final class GuestVoteAttemptLog
         // Counted before anything is written, and fail-open: an unreachable
         // cache leaves the log unlimited rather than empty.
         $lines = rescue(
-            // The client's address hashed: cache keys travel, into Sentry's
-            // cache breadcrumbs and spans among others.
-            fn (): int => RateLimiter::hit('guest-vote-attempt-log:'.hash('sha256', (string) $request->ip()), 60),
+            // The client's address hashed, keyed with the app key: cache keys
+            // travel, into Sentry's cache breadcrumbs and spans among others,
+            // and a plain hash of an IPv4 address is undone by trying them all.
+            fn (): int => RateLimiter::hit('guest-vote-attempt-log:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')), 60),
             0,
             report: false,
         );
