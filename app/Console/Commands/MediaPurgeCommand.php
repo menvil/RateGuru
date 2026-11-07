@@ -59,7 +59,7 @@ final class MediaPurgeCommand extends Command
             }
         }
 
-        $graceDays = $this->graceDaysOverride();
+        $graceDays = $this->graceDaysOverride() ?? $this->configuredGraceDays();
 
         if ($graceDays === false) {
             return self::FAILURE;
@@ -80,9 +80,9 @@ final class MediaPurgeCommand extends Command
         return $this->purgeAssets($lifecycle, $dryRun, $graceDays);
     }
 
-    private function purgeAssets(MediaLifecycleService $lifecycle, bool $dryRun, ?int $graceDays): int
+    private function purgeAssets(MediaLifecycleService $lifecycle, bool $dryRun, int $graceDays): int
     {
-        $cutoff = now()->subDays($graceDays ?? (int) config('media.lifecycle.purge_grace_days'));
+        $cutoff = now()->subDays($graceDays);
 
         $query = MediaAsset::onlyTrashed()->where('deleted_at', '<=', $cutoff);
 
@@ -248,12 +248,31 @@ final class MediaPurgeCommand extends Command
             return null;
         }
 
-        // Bounded as retention is everywhere: a grace past a century would
-        // wrap the cutoff round to today and purge everything.
+        // Bounded as retention is everywhere: no grace reaches back past a
+        // century, and a number near PHP_INT_MAX — where (int) saturates any
+        // longer one — would wrap the cutoff round to the present.
         $days = RetentionDays::tryParse((string) $raw);
 
         if ($days === null) {
             $this->error("Invalid --older-than value: [{$raw}].");
+
+            return false;
+        }
+
+        return $days;
+    }
+
+    /**
+     * The configured grace, held to the bounds --older-than is: a value the
+     * environment saturated would otherwise wrap the cutoff and purge all.
+     */
+    private function configuredGraceDays(): int|false
+    {
+        $configured = config('media.lifecycle.purge_grace_days');
+        $days = RetentionDays::tryParse($configured);
+
+        if ($days === null) {
+            $this->error('Invalid media.lifecycle.purge_grace_days: ['.(is_scalar($configured) ? $configured : gettype($configured)).'].');
 
             return false;
         }

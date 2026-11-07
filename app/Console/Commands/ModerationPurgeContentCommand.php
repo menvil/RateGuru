@@ -168,8 +168,9 @@ final class ModerationPurgeContentCommand extends Command
             return null;
         }
 
-        // Bounded as configured retention is: a number of days past a
-        // century would wrap the cutoff round to today and purge everything.
+        // Bounded as configured retention is: no retention reaches back past
+        // a century, and a number near PHP_INT_MAX — where (int) saturates any
+        // longer one — would wrap the cutoff round to the present.
         $days = RetentionDays::tryParse((string) $raw);
 
         if ($days === null) {
