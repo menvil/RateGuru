@@ -77,6 +77,23 @@ it('narrows the issues to what a figure of the overview counts', function () {
     ]);
 });
 
+it('says the path was copied only when the clipboard took it', function () {
+    $page = visitAdminEditor('/admin/media-diagnostics');
+
+    $page->click("#rg-admin-media-issue-{$this->purgeable->id} .rg-admin-button:last-child");
+    waitForScript($page, "document.querySelector('#rg-admin-media-inspector-title')?.textContent.trim()", "Asset #{$this->asset->id}");
+
+    $copy = "[...document.querySelectorAll('#rg-admin-media-inspector .rg-admin-button')].find((button) => /Copy|Copied/.test(button.textContent))";
+
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    $page->script("{$copy}.click()");
+    waitForScript($page, "{$copy}.textContent.trim()", 'Copy failed');
+
+    $page->script('(() => { navigator.clipboard.writeText = () => Promise.resolve() })()');
+    $page->script("{$copy}.click()");
+    waitForScript($page, "{$copy}.textContent.trim()", 'Copied');
+});
+
 it('purges an asset from the inspector once the acknowledgement is ticked', function () {
     $page = visitAdminEditor('/admin/media-diagnostics');
 

@@ -195,3 +195,12 @@ it('purges every applicable variant along with the master', function () {
     }
     expect(MediaVariant::query()->where('media_asset_id', $asset->id)->count())->toBe(0);
 });
+
+it('refuses an orphan purge narrowed by an asset or a grace it cannot apply, deleting nothing', function (string $narrowing) {
+    Storage::disk('public')->put('posts/orphan.jpg', 'orphan');
+    Carbon::setTestNow(now()->addDays(10));
+
+    $this->artisan("media:purge --orphans --force {$narrowing}")->assertFailed();
+
+    Storage::disk('public')->assertExists('posts/orphan.jpg');
+})->with(['--asset=1', '--older-than=30']);

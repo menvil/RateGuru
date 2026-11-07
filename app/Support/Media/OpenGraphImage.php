@@ -11,7 +11,9 @@ final readonly class OpenGraphImage
     public function __construct(
         public string $url,
         public string $mimeType,
-        public int $width,
-        public int $height,
+        // Unknown for an image stored before its size was recorded: the
+        // page leaves og:image:width/height out rather than failing.
+        public ?int $width,
+        public ?int $height,
     ) {}
 }

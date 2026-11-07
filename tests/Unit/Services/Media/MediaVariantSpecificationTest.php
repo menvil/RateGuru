@@ -41,3 +41,12 @@ it('considers a cover spec an upscale when either source dimension is smaller th
     'exact fit' => [1200, 630, false],
     'both larger' => [2400, 1600, false],
 ]);
+
+it('makes no cover variant from a source whose size is not recorded, and still contains it', function () {
+    $cover = new MediaVariantSpecification(MediaVariantName::Avatar128, 128, 128, MediaResizeMode::CoverSquare, 82);
+    $contain = new MediaVariantSpecification(MediaVariantName::PostFeed640, 640, 1280, MediaResizeMode::Contain, 82);
+
+    expect($cover->wouldUpscale(null, null))->toBeTrue()
+        ->and($cover->wouldUpscale(400, null))->toBeTrue()
+        ->and($contain->wouldUpscale(null, null))->toBeFalse();
+});
