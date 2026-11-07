@@ -19,7 +19,9 @@ Schedule::command('media:purge')->daily()->withoutOverlapping();
 // comment is what recalculates it: without this sweep a post nobody touches
 // keeps the score it had at its last activity, and stays on top of Hot. Each
 // post is recalculated under its own lock, the one votes and comments take.
-Schedule::command('posts:recalculate-hot-scores')->hourly()->withoutOverlapping();
+// Its overlap lock lasts an hour, not the default day: a scheduler killed in
+// the middle of a sweep would otherwise stop the decay for a day.
+Schedule::command('posts:recalculate-hot-scores')->hourly()->withoutOverlapping(60);
 
 // Retention purge for author-deleted posts (docs/architecture/
 // post-lifecycle.md): eligibility is re-verified per post under lock by

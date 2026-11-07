@@ -87,7 +87,9 @@ it('is scheduled hourly, so the score of a post nobody touches still decays', fu
 
     expect($events)->toHaveCount(1)
         ->and($events->first()->expression)->toBe('0 * * * *')
-        ->and($events->first()->withoutOverlapping)->toBeTrue();
+        ->and($events->first()->withoutOverlapping)->toBeTrue()
+        // Lapsing within the hour, so a sweep killed midway stops the decay for no longer.
+        ->and($events->first()->expiresAt)->toBe(60);
 });
 
 it('lowers the score of an old post nobody has voted on or commented since', function () {
