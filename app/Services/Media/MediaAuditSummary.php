@@ -20,7 +20,6 @@ final readonly class MediaAuditSummary
         public int $missingVariantFiles,
         public int $physicalOrphanCandidates,
         public int $failedMediaJobs,
-        // Reported as issues only: media_audit_runs keeps no column for it.
         public int $releasedButReferenced = 0,
     ) {}
 }

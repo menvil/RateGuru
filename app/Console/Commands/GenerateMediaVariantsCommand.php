@@ -70,17 +70,25 @@ final class GenerateMediaVariantsCommand extends Command
                 $progress?->advance();
 
                 // The check is part of the asset's own attempt: one asset it
-                // fails on is that asset's failure, never the end of the run.
+                // fails on is that asset's failure, never the end of the run,
+                // and counts among the candidates the summary names.
+                $counted = false;
+
                 try {
                     if (! $force && ! $this->isMissingAnyVariant($asset, $registry, $storage, $variantFilter)) {
                         continue;
                     }
 
                     $processed++;
+                    $counted = true;
                     $generator->generateAll($asset, $variantFilter, force: $force);
                     $generated++;
                 } catch (Throwable $exception) {
                     $failures++;
+
+                    if (! $counted) {
+                        $processed++;
+                    }
 
                     Log::error('Failed to generate media variants.', [
                         'media_asset_id' => $asset->id,

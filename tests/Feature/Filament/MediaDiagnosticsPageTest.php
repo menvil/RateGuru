@@ -13,6 +13,7 @@ use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
+use App\Services\Media\MediaStorage;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -148,14 +149,10 @@ it('computes totals from aggregate SQL, never scanning the filesystem, and shows
 });
 
 it('does not issue a filesystem existence check while rendering the page', function () {
-    // A targeted spy on MediaStorage would be the strongest version of this
-    // assertion; a simpler, still-meaningful proxy is that the page loads
-    // successfully with real, unwritten (never Storage::put()'d) asset
-    // paths on disk — if page rendering called exists() per asset the way
-    // MediaAuditService does, nothing here would fail either way, so the
-    // real guarantee is architectural (see MediaDiagnosticsPage's own
-    // docblock) — this test exists to document the expectation and catch a
-    // gross regression like a card that eager-loads exists() per row.
+    // Media storage that answers nothing: a render that asked it anything,
+    // exists() per row among others, fails here. The query count below
+    // keeps the render to aggregate queries too.
+    app()->instance(MediaStorage::class, Mockery::mock(MediaStorage::class));
     $admin = User::factory()->admin()->create();
     $queries = 0;
     DB::listen(function () use (&$queries): void {
@@ -456,6 +453,13 @@ it('holds Regenerate and Retry while their request runs, so a second click queue
 
     $page->call('inspect', $issue->id)
         ->assertSeeHtml('wire:click="regenerateVariants('.$asset->id.')" wire:loading.attr="disabled" wire:target="regenerateVariants"');
+
+    // Both Retry controls are held by either of their requests.
+    insertFailedJobRow(GenerateMediaVariantsJob::class, serialize(new GenerateMediaVariantsJob($asset->id)));
+
+    Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)
+        ->assertSeeHtml('wire:click="retryAllFailedMediaJobs" wire:loading.attr="disabled" wire:target="retryAllFailedMediaJobs,retryFailedMediaJob"')
+        ->assertSeeHtml('wire:click="retryFailedMediaJob('.$asset->id.')" wire:loading.attr="disabled" wire:target="retryAllFailedMediaJobs,retryFailedMediaJob"');
 });
 
 // --- Asset inspector ---------------------------------------------------------
@@ -826,6 +830,18 @@ it('says what an issue is now, once the disk or the asset no longer bears the fi
 
         return $asset;
     }, 'a new upload or a backup restore is needed', null],
+    'released and shown once, shown nowhere now' => [MediaAuditIssueType::ReleasedButReferenced, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        $asset->delete();
+
+        return $asset;
+    }, 'something still shows it. It is never purged', 'nothing does now, or it is active again'],
+    'released and shown once, active again now' => [MediaAuditIssueType::ReleasedButReferenced, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        Post::factory()->create(['image_asset_id' => $asset->id]);
+
+        return $asset;
+    }, 'something still shows it. It is never purged', 'nothing does now, or it is active again'],
     'unreferenced once, referenced now' => [MediaAuditIssueType::ActiveUnreferencedAsset, function (): MediaAsset {
         $asset = MediaAsset::factory()->postImage()->create();
         Post::factory()->create(['image_asset_id' => $asset->id]);

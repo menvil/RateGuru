@@ -25,12 +25,9 @@ final readonly class MediaVariantSpecification
      * Whether generating this variant for a source image of the given
      * dimensions would require upscaling (Contain never upscales; the two
      * cover modes crop-to-fill and so upscale whenever either source
-     * dimension is smaller than the corresponding target).
-     */
-    /**
-     * A source whose size is not recorded cannot be shown to be large enough
-     * to crop-to-fill, so a Cover variant is not made from it; Contain never
-     * upscales whatever the size.
+     * dimension is smaller than the corresponding target). A source whose
+     * size is not recorded cannot be shown to be large enough to
+     * crop-to-fill, so a cover variant is not made from it.
      */
     public function wouldUpscale(?int $sourceWidth, ?int $sourceHeight): bool
     {

@@ -104,3 +104,32 @@ it('checks the disk media is stored on, not the one named public', function () {
         ->expectsOutputToContain('Public image URL must use HTTPS')
         ->assertFailed();
 });
+
+it('reads a media disk with no url of its own as serving from APP_URL, as Open Graph does', function (array $disk) {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), ...$disk],
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])->assertSuccessful();
+})->with([
+    'no url' => [[]],
+    'a path' => [['url' => '/storage']],
+]);
+
+it('leaves a disk media is not stored on unchecked', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), 'url' => 'https://rateguru.staging.myprojects.pp.ua/media'],
+        // Wrong, but no image is served from it.
+        'filesystems.disks.public.url' => 'http://cdn.example.com/storage',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])->assertSuccessful();
+});

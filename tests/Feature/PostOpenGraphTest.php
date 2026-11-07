@@ -240,5 +240,6 @@ it('leaves the image size out, rather than failing, for an image stored before i
     $this->get(route('posts.show', $post))
         ->assertOk()
         ->assertSee('<meta property="og:image" content="https://rateguru.test/storage/posts/sizeless.jpg">', false)
-        ->assertDontSee('og:image:width', false);
+        ->assertDontSee('og:image:width', false)
+        ->assertDontSee('og:image:height', false);
 });

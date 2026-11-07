@@ -204,4 +204,14 @@ it('refuses an orphan purge narrowed by an asset or a grace it cannot apply, del
     $this->artisan("media:purge --orphans --force {$narrowing}")->assertFailed();
 
     Storage::disk('public')->assertExists('media/post-images/orphan.jpg');
-})->with(['--asset=1', '--older-than=30']);
+})->with(['--asset=1', '--older-than=30', '--asset', '--older-than']);
+
+it('refuses a narrowing option given without its value, purging nothing', function (string $narrowing) {
+    $asset = createPurgeableAsset();
+
+    $this->artisan("media:purge {$narrowing}")
+        ->expectsOutputToContain('needs a value')
+        ->assertFailed();
+
+    expect(MediaAsset::withTrashed()->find($asset->id))->not->toBeNull();
+})->with(['--asset', '--older-than']);

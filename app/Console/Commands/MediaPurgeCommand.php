@@ -47,6 +47,17 @@ final class MediaPurgeCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $force = (bool) $this->option('force');
 
+        // Given without its value, a narrowing option reads as not given at
+        // all: a run meant for one asset or one grace would take every one,
+        // and with --orphans --force delete every orphan.
+        foreach (['asset', 'older-than'] as $narrowing) {
+            if ($this->input->hasParameterOption("--{$narrowing}") && $this->option($narrowing) === null) {
+                $this->error("--{$narrowing} needs a value.");
+
+                return self::FAILURE;
+            }
+        }
+
         $graceDays = $this->graceDaysOverride();
 
         if ($graceDays === false) {

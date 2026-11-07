@@ -83,6 +83,7 @@ final class RunMediaAuditJob implements ShouldQueue
                 'missing_variant_files' => $summary->missingVariantFiles,
                 'physical_orphan_candidates' => $summary->physicalOrphanCandidates,
                 'failed_media_jobs' => $summary->failedMediaJobs,
+                'released_but_referenced' => $summary->releasedButReferenced,
             ]);
         } catch (Throwable $exception) {
             // Whatever issues were already found before the failure are

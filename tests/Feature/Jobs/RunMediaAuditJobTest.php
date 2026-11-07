@@ -3,11 +3,13 @@
 use App\Enums\MediaAuditIssueSeverity;
 use App\Enums\MediaAuditIssueType;
 use App\Enums\MediaAuditRunStatus;
+use App\Enums\MediaHealthStatus;
 use App\Jobs\RunMediaAuditJob;
 use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\Post;
+use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaReferenceChecker;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Collection;
@@ -272,4 +274,18 @@ it('still ends a run as failed when writing its issues is what fails', function 
     expect($run->status)->toBe(MediaAuditRunStatus::Failed)
         ->and($run->completed_at)->not->toBeNull();
     Exceptions::assertReported(RuntimeException::class);
+});
+
+it('keeps the count of released assets still shown, so the run reads as a warning', function () {
+    $asset = MediaAsset::factory()->postImage()->create(['path' => 'media/post-images/still-shown.jpg']);
+    Storage::disk('public')->put($asset->path, 'bytes');
+    Post::factory()->published()->create(['image_asset_id' => $asset->id]);
+    $asset->delete();
+
+    dispatch_sync(new RunMediaAuditJob);
+
+    $run = MediaAuditRun::query()->sole();
+
+    expect($run->released_but_referenced)->toBe(1)
+        ->and(app(MediaHealthResolver::class)->resolve($run))->toBe(MediaHealthStatus::Warning);
 });

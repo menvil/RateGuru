@@ -41,7 +41,13 @@ final class VerifySharingConfigurationCommand extends Command
         $mediaDisk = (string) config('media.disks.public', 'public');
         $publicImageUrl = trim((string) config("filesystems.disks.{$mediaDisk}.url"));
 
-        if ($expectedHost !== '' && strtolower((string) parse_url($publicImageUrl, PHP_URL_HOST)) !== $expectedHost) {
+        // A disk with no url of its own, or only a path, gives its images
+        // APP_URL's host: PostOpenGraph resolves such a URL against APP_URL,
+        // which is checked above.
+        $publicImageHost = (string) parse_url($publicImageUrl, PHP_URL_HOST);
+        $imageHost = $publicImageHost !== '' ? $publicImageHost : (string) parse_url($appUrl, PHP_URL_HOST);
+
+        if ($expectedHost !== '' && strtolower($imageHost) !== $expectedHost) {
             $errors[] = "Public image URL host must match [{$expectedHost}].";
         }
 

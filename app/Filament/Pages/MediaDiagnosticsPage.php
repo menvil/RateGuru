@@ -755,6 +755,10 @@ final class MediaDiagnosticsPage extends Page
             return 'The last audit found it active with nothing referencing it; it is referenced or released now. The next audit clears this issue.';
         }
 
+        if ($inspection !== null && $type === MediaAuditIssueType::ReleasedButReferenced && (! $inspection->referenced || ! $inspection->asset->trashed())) {
+            return 'The last audit found it released while something still showed it; nothing does now, or it is active again. The next audit clears this issue.';
+        }
+
         if ($inspection !== null && $type === MediaAuditIssueType::PurgeableAsset && ! $inspection->purgeable) {
             return 'The last audit found it released and past its grace period; it is not purgeable now. The next audit clears this issue.';
         }
