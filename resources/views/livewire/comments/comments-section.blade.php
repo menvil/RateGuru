@@ -77,6 +77,7 @@
             @foreach ($this->comments as $comment)
                 <x-comments.comment-item
                     :comment="$comment"
+                    :voting-state="$this->votingStateFor($comment)"
                     :can-delete="$this->canDeleteComment($comment)"
                     :can-hide="$this->userCanHideComments()"
                     can-reply
@@ -132,6 +133,7 @@
                         @foreach($comment->replies as $reply)
                             <x-comments.comment-item
                                 :comment="$reply"
+                                :voting-state="$this->votingStateFor($reply)"
                                 :can-delete="$this->canDeleteComment($reply)"
                                 :can-hide="$this->userCanHideComments()"
                                 wire:key="comment-reply-{{ $reply->id }}"

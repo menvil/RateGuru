@@ -19,6 +19,8 @@ final class CommentItem extends Component
         public bool $canDelete = false,
         public bool $canHide = false,
         public bool $canReply = false,
+        /** @var array{score: int, vote: ?string, own: bool}|null what the thread read for this comment's voting; null reads it there */
+        public ?array $votingState = null,
     ) {
         $this->isTombstone = $comment->isStructuralTombstone();
 

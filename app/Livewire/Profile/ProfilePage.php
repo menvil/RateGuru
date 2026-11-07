@@ -9,9 +9,11 @@ use App\Models\User;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Queries\UserPublicPostsQuery;
 use App\Queries\UserRatingActivityQuery;
+use App\Support\Feed\PostCardViewerState;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Rating\RatingVotingStateLoader;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -22,7 +24,11 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-/** @property-read bool $isOwner */
+/**
+ * @property-read bool $isOwner
+ * @property-read LengthAwarePaginator<int, Post> $posts
+ * @property-read LengthAwarePaginator<int, Post>|null $savedPosts
+ */
 final class ProfilePage extends Component
 {
     use WithPagination;
@@ -133,10 +139,23 @@ final class ProfilePage extends Component
         }
     }
 
-    public function render(RatingConfigurationManager $ratingConfiguration): View
-    {
+    public function render(
+        RatingConfigurationManager $ratingConfiguration,
+        PostCardViewerState $viewerState,
+        RatingVotingStateLoader $ratingVotingStateLoader,
+    ): View {
+        $cards = match (true) {
+            $this->tab === 'posts' => $this->posts->getCollection(),
+            $this->tab === 'saved' && $this->isOwner => $this->savedPosts?->getCollection() ?? new Collection,
+            default => new Collection,
+        };
+        $ratingGroups = $ratingConfiguration->activeGroups();
+
         return view('livewire.profile.profile-page', [
-            'ratingGroups' => $ratingConfiguration->activeGroups(),
+            'ratingGroups' => $ratingGroups,
+            'viewerStates' => $viewerState->forPosts($cards, auth()->user()),
+            // Every card's ratings read at once, as the feed and Saved posts do.
+            'ratingVotingStates' => $ratingVotingStateLoader->forPosts($cards, auth()->user(), $ratingGroups),
         ])
             ->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
