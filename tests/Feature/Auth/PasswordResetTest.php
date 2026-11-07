@@ -197,3 +197,19 @@ test('limits how many reset links one client can ask for in a minute, whatever t
 
     $this->post('/forgot-password', ['email' => 'someone7@example.test'])->assertTooManyRequests();
 });
+
+test('counts reset-link requests on their own, so they do not use up setting the new password', function () {
+    Notification::fake();
+    $user = User::factory()->create();
+
+    foreach (range(1, 6) as $request) {
+        $this->post('/forgot-password', ['email' => "someone{$request}@example.test"]);
+    }
+
+    $this->post('/reset-password', [
+        'token' => Password::createToken($user),
+        'email' => $user->email,
+        'password' => 'a-new-long-password',
+        'password_confirmation' => 'a-new-long-password',
+    ])->assertRedirect(route('login'))->assertSessionHasNoErrors();
+});

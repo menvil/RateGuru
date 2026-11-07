@@ -171,3 +171,15 @@ test('bounds the password an email change takes, as the other password checks ar
 
     expect($user->fresh()->email)->toBe('kept@example.com');
 });
+
+test('limits how often one account can update its profile in a minute', function () {
+    $user = User::factory()->create(['username' => 'kept_user']);
+
+    foreach (range(1, 6) as $n) {
+        $this->actingAs($user)->patch('/profile', ['name' => "Name {$n}", 'username' => 'kept_user', 'email' => $user->email]);
+    }
+
+    $this->actingAs($user)
+        ->patch('/profile', ['name' => 'Name 7', 'username' => 'kept_user', 'email' => $user->email])
+        ->assertTooManyRequests();
+});
