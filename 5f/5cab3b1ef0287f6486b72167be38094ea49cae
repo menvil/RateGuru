@@ -1,0 +1,35 @@
+app/Support/Observability/NightwatchPrivacy.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 235-237,239,245-246
+app/Livewire/Comments/CommentsSection.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 27-28
+docs/import/url-import.md
+  ai_agent 193-196
+tests/Feature/Livewire/CommentsSectionTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 399-403
+tests/Feature/Import/UrlImportValidatorTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 224-225
+app/Support/Import/Net/PublicIpClassifier.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 44-51
+tests/Feature/Observability/NightwatchPrivacyTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 361-368
+tests/Feature/Queries/CommentListQueryTest.php
+  s_0f80700cf0b8c6::t_22956d0f1d9c89 92-98
+app/Queries/Comments/CommentListQuery.php
+  s_0f80700cf0b8c6::t_b29e305a8777bd 15-17,46-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5f5cab3b1ef0287f6486b72167be38094ea49cae",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
