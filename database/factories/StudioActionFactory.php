@@ -7,7 +7,6 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioPlanStatus;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -29,7 +28,8 @@ class StudioActionFactory extends Factory
             'studio_plan_id' => StudioPlan::factory()->status(StudioPlanStatus::Approved),
             'parent_action_id' => null,
             'type' => StudioActionType::CreatePost,
-            'actor_user_id' => User::factory()->persona(),
+            // The post is the plan's, so its Persona writes it.
+            'actor_user_id' => fn (array $attributes): int => (int) StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('author_user_id'),
             'payload' => [],
             'occurs_at' => $at,
             'run_after' => $at,

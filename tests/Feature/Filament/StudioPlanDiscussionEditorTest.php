@@ -10,6 +10,7 @@ use App\Enums\UserStatus;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Models\Comment;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
@@ -392,7 +393,8 @@ it('keeps the Timing tab for the votes editor to draw, and moves a comment the t
     expect(StudioDiscussionNode::query()->findOrFail($saved->ids['a1'])->offset_seconds)->toBe(120);
 
     // While a generation is on its way, it says so to the tab, and moves nothing.
-    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id]);
+    // Which photo it was asked about does not matter here; that it was asked does.
+    StudioPlanDiscussionGeneration::factory()->create(['studio_plan_id' => $this->plan->id, 'source_image_asset_id' => MediaAsset::factory()->postImage()->create()->id]);
 
     discussionEditor($this->plan)->assertSet('awaiting', fn (?int $awaiting): bool => $awaiting !== null)
         ->assertSeeHtml('x-effect="$store.rgCommentVotes && ($store.rgCommentVotes.generating = $wire.awaiting !== null)"')

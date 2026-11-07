@@ -97,9 +97,10 @@ it('reads 25 plans a page, each with its author, the avatar and its photo loaded
 it('counts every plan, the drafts, and those with a photo and with an author', function () {
     StudioPlan::factory()->withImage()->authoredBy(User::factory()->persona()->create())->create();
     StudioPlan::factory()->withImage()->create();
+    // Approved, so with the author approval asked for.
     StudioPlan::factory()->status(StudioPlanStatus::Approved)->create();
 
-    expect(app(StudioPlansQuery::class)->stats())->toBe(['total' => 3, 'drafts' => 2, 'withImage' => 2, 'withAuthor' => 1]);
+    expect(app(StudioPlansQuery::class)->stats())->toBe(['total' => 3, 'drafts' => 2, 'withImage' => 2, 'withAuthor' => 2]);
 });
 
 it('keeps plans saved at the same moment in one place across pages, none twice and none left out', function () {

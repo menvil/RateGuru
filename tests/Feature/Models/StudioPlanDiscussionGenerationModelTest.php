@@ -52,7 +52,7 @@ it('goes with its plan', function () {
 });
 
 it('outlives the comment it wrote again, keeping that comment\'s id in its parameters', function () {
-    $node = StudioDiscussionNode::factory()->create();
+    $node = StudioDiscussionNode::factory()->create(['studio_plan_id' => StudioPlan::factory()->withImage()]);
     $generation = StudioPlanDiscussionGeneration::factory()->create([
         'studio_plan_id' => $node->studio_plan_id,
         'mode' => StudioDiscussionGenerationMode::RegenerateComment,
