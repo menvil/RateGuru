@@ -81,6 +81,20 @@ it('says so, and does nothing, when the comment changed meanwhile', function () 
     expect(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(1);
 });
 
+it('says so, offering no Undo, when the comment is hidden by someone else after the page checked it', function () {
+    $comment = Comment::factory()->create();
+    $page = Livewire::test(ListComments::class)->call('askToHide', $comment->id);
+
+    $landed = hideCommentOnceTheModeratorIsLocked($comment);
+
+    $page->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'This comment changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', message: "Comment #{$comment->id} hidden");
+
+    expect($landed())->toBeTrue()
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(0);
+});
+
 it('offers no way to delete a comment, not even to administrators', function () {
     $this->actingAs(User::factory()->admin()->create());
     $comment = Comment::factory()->create();

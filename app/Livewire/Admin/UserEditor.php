@@ -143,8 +143,30 @@ final class UserEditor extends Component
                 // Asked only when changed here; the action reads the level on the locked row.
                 'trusted' => $this->trust === $this->saved['trust'] ? null : $this->trust === 'trusted',
                 'password' => $this->password !== '' ? $this->password : null,
+            ], [
+                'name' => $this->saved['name'],
+                'username' => $this->saved['username'],
+                'email' => $this->saved['email'],
+                'role' => $this->saved['role'],
             ]);
         } catch (CannotUpdateUserAccountException $exception) {
+            if ($exception->isAboutTakenValue()) {
+                $this->addError((string) $exception->field, $exception->field === 'username'
+                    ? 'This username is taken. Choose another one.'
+                    : 'Another account uses this email address.');
+
+                return;
+            }
+
+            if ($exception->isAboutChangeMeanwhile()) {
+                // Shown as it is now, for the change to be made again on it.
+                $this->saved = self::savedValuesOf($person->fresh() ?? $person);
+                $this->fillDraft();
+                $this->moderationToast('This account was changed while you were editing it, so nothing was saved. Its current details are shown.', tone: 'error');
+
+                return;
+            }
+
             $this->moderationToast($exception->isAboutPersona()
                 ? 'A persona’s account can’t be edited here, so nothing was saved.'
                 : 'You can’t edit this account any more, so nothing was saved.', tone: 'error');
@@ -227,6 +249,7 @@ final class UserEditor extends Component
     public function confirmSanction(): void
     {
         $this->applySanction();
+        $this->followTrust();
         $this->dispatch('user-changed')->to(ListUsers::class);
     }
 
@@ -242,6 +265,29 @@ final class UserEditor extends Component
     public function refreshPerson(): void
     {
         $this->resetErrorBag();
+        $this->followTrust();
+    }
+
+    /**
+     * Takes the trust the account has now as the one saved — Mark trusted
+     * changes it outside this form — and shows it, unless the trust here was
+     * changed and not saved yet.
+     */
+    private function followTrust(): void
+    {
+        $person = User::query()->find($this->userId);
+
+        if ($person === null) {
+            return;
+        }
+
+        $trust = self::savedValuesOf($person)['trust'];
+
+        if ($this->trust === $this->saved['trust']) {
+            $this->trust = $trust;
+        }
+
+        $this->saved['trust'] = $trust;
     }
 
     /** @return array<string, mixed> */

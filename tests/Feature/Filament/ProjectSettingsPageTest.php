@@ -71,6 +71,37 @@ it('saves every tab together, and has nothing unsaved after', function () {
         ->and($settings->static_pages['about']['en']['title'])->toBe('About Pawrank');
 });
 
+it('writes only what this page changed, never putting back what another administrator saved since', function () {
+    $settings = ProjectSettings::factory()->create([
+        'sign_in_providers' => ['google' => true, 'facebook' => true],
+        'feature_flags' => ['allow_user_uploads' => true],
+    ]);
+
+    $page = Livewire::test(ProjectSettingsPage::class);
+
+    // Saved from another tab after this one was read.
+    $static = $settings->static_pages;
+    $static['privacy']['en']['content'] = 'Changed meanwhile.';
+    $settings->forceFill([
+        'sign_in_providers' => ['google' => false, 'facebook' => true],
+        'feature_flags' => [...$settings->feature_flags, 'allow_user_uploads' => false],
+        'static_pages' => $static,
+    ])->save();
+
+    $page->set('data.site_tagline', 'Rate every dog')
+        ->set('data.static_pages.privacy.en.title', 'Privacy, retitled')
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    $fresh = $settings->fresh();
+
+    expect($fresh->site_tagline)->toBe('Rate every dog')
+        ->and($fresh->sign_in_providers['google'])->toBeFalse()
+        ->and($fresh->feature_flags['allow_user_uploads'])->toBeFalse()
+        ->and($fresh->static_pages['privacy']['en']['title'])->toBe('Privacy, retitled')
+        ->and($fresh->static_pages['privacy']['en']['content'])->toBe('Changed meanwhile.');
+});
+
 it('saves only the flags and providers the project has, leaving out whatever a request adds', function () {
     ProjectSettings::factory()->create();
 
@@ -83,7 +114,10 @@ it('saves only the flags and providers the project has, leaving out whatever a r
 
     $settings = ProjectSettings::query()->sole();
 
-    expect($settings->feature_flags)->toHaveKeys(array_keys(ProjectSettingsPage::FLAGS))->not->toHaveKey('forged_flag')
+    // Only the flags the page shows are ever written — and of those only the
+    // ones it changed; a flag left alone keeps its stored or default value.
+    expect(array_diff(array_keys($settings->feature_flags), array_keys(ProjectSettingsPage::FLAGS), ['content_studio_execution_enabled']))->toBe([])
+        ->and($settings->feature_flags)->not->toHaveKey('forged_flag')
         ->and($settings->sign_in_providers)->not->toHaveKey('forged_provider')
         ->and($page->get('saved'))->not->toHaveKey('forged_setting')
         ->and($page->get('saved.feature_flags'))->not->toHaveKey('forged_flag')

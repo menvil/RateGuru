@@ -44,11 +44,14 @@ final class GlobalSearch extends FilamentGlobalSearch
             $kind = AdminShellNavigation::searchCategory((string) $category);
 
             foreach ($results as $result) {
+                // Tags are stripped only from what is HTML already: a plain
+                // title is text — "<b>" in a post's title is what it says —
+                // and the view escapes it.
                 $rows[] = [
-                    'title' => strip_tags($result->title instanceof Htmlable ? $result->title->toHtml() : $result->title),
+                    'title' => self::text($result->title),
                     'url' => $result->url,
                     'meta' => collect([$kind['type'], ...array_values($result->details)])
-                        ->map(fn (mixed $part): string => strip_tags((string) $part))
+                        ->map(fn (mixed $part): string => self::text($part))
                         ->filter()
                         ->implode(' · '),
                     'icon' => $kind['icon'],
@@ -57,5 +60,10 @@ final class GlobalSearch extends FilamentGlobalSearch
         }
 
         return $rows;
+    }
+
+    private static function text(mixed $value): string
+    {
+        return $value instanceof Htmlable ? strip_tags($value->toHtml()) : (string) $value;
     }
 }

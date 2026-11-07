@@ -53,6 +53,15 @@ it('lists matching records with their kind and a link to each', function () {
         ->assertSeeHtml('href="'.e(PostResource::getGlobalSearchResultUrl($post)).'"');
 });
 
+it('shows a title as it was written, tags in it included, escaped rather than stripped', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    Post::factory()->published()->create(['title' => 'Why <b> tags are fine']);
+
+    Livewire::test(GlobalSearch::class)
+        ->set('search', 'tags are fine')
+        ->assertSeeHtml('<span class="rg-admin-search-result__title">Why &lt;b&gt; tags are fine</span>');
+});
+
 it('says so when nothing matches', function () {
     $this->actingAs(User::factory()->admin()->create());
 

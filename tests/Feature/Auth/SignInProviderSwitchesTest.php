@@ -2,6 +2,7 @@
 
 use App\Actions\Settings\ApplyProjectPresetAction;
 use App\Data\Auth\PendingSocialLink;
+use App\Enums\SocialProvider;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Models\ProjectSettings;
 use App\Models\SocialAccount;
@@ -57,7 +58,12 @@ it('saves a provider switched off, leaving the other on', function () {
         ->call('save')
         ->assertHasNoErrors();
 
-    expect(ProjectSettings::query()->sole()->sign_in_providers)->toBe(['google' => true, 'facebook' => false]);
+    // Only the provider switched is written; one never switched off is on.
+    $settings = app(ProjectSettingsManager::class)->current();
+
+    expect(ProjectSettings::query()->sole()->sign_in_providers)->toMatchArray(['facebook' => false])
+        ->and($settings->signInProviderTurnedOn(SocialProvider::Facebook))->toBeFalse()
+        ->and($settings->signInProviderTurnedOn(SocialProvider::Google))->toBeTrue();
 });
 
 it('tells the admin how many accounts use each provider and which keys are missing', function () {
