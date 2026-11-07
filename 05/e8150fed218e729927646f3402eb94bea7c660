@@ -1,0 +1,23 @@
+resources/views/livewire/moderation/inline-post-moderation.blade.php
+  s_0f80700cf0b8c6::t_fc8c717788056b 5-9,117
+app/Livewire/Moderation/InlinePostModeration.php
+  s_0f80700cf0b8c6::t_fc8c717788056b 19-21,60-61,63-64,128-129
+tests/Feature/Livewire/InlinePostModerationTest.php
+  s_0f80700cf0b8c6::t_3b59ac393dcd67 203-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "05e8150fed218e729927646f3402eb94bea7c660",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
