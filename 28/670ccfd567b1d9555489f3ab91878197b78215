@@ -1,0 +1,26 @@
+tests/Feature/Livewire/PostFeedTest.php
+  s_0f80700cf0b8c6::t_bd5fe9faa32ea8 145-146,149,154-159,167-172
+tests/Feature/Livewire/CommentsSectionTest.php
+  s_0f80700cf0b8c6::t_44ed1f6314904f 4,7,421-431,433-439,453,456-458
+  s_0f80700cf0b8c6::t_31f447af07b333 442-446,448,450,454,459-460
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_0f80700cf0b8c6::t_bd5fe9faa32ea8 12-15,17,27-45,47
+tests/Feature/Livewire/CommentVotingTest.php
+  s_0f80700cf0b8c6::t_b64f3103cb4b2e 10-11,115-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "28670ccfd567b1d9555489f3ab91878197b78215",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
