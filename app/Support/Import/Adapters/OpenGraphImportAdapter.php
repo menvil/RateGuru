@@ -25,12 +25,25 @@ class OpenGraphImportAdapter
 
         $imageUrl = null;
 
-        if ($metadata->imageUrl !== null) {
+        // The first the import may fetch; an unsafe one is passed over
+        // silently, and with none the preview shows without an image. Every
+        // candidate's host is looked up, a lookup takes no timeout from the
+        // HTTP client, and a page can name ten hosts slow to fail: so they
+        // share one budget, and past it the preview goes without an image.
+        $deadline = now()->addSeconds((int) config('import.timeout_seconds'));
+
+        foreach ($metadata->imageCandidates as $candidate) {
+            if (now()->greaterThan($deadline)) {
+                break;
+            }
+
             try {
-                $this->validator->validate($metadata->imageUrl);
-                $imageUrl = $metadata->imageUrl;
+                $this->validator->validate($candidate);
+                $imageUrl = $candidate;
+
+                break;
             } catch (UnsafeImportUrlException) {
-                // unsafe image URL — omit silently, preview shows without image
+                continue;
             }
         }
 
