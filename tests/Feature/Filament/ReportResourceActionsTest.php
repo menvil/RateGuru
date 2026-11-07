@@ -185,3 +185,17 @@ it('offers no Hide when the target is gone', function () {
         ->call('askToHideTarget')
         ->assertSet('confirming', null);
 });
+
+it('holds a hiding reason to its minimum as it is stored, without the spaces at its ends', function () {
+    $post = Post::factory()->published()->create();
+    $report = reportOn($post);
+
+    Livewire::test(ListReports::class)
+        ->call('select', $report->id)
+        ->call('askToHideTarget')
+        ->set('reason', '   a   ')
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'min']);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+});

@@ -9,6 +9,7 @@ return [
     'login_required' => 'Jelentkezz be, hogy szerzőket követhess.',
     'cannot_follow_self' => 'Saját magadat nem követheted.',
     'cannot_follow_author' => 'Ez a szerző nem követhető.',
+    'cannot_follow' => 'Jelenleg nem követhetsz szerzőket.',
     'feature_disabled' => 'A követés funkció ki van kapcsolva.',
     'notifications' => [
         'followed_author_posted' => ':author új bejegyzést tett közzé: :title',

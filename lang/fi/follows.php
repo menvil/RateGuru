@@ -9,6 +9,7 @@ return [
     'login_required' => 'Kirjaudu sisään seurataksesi tekijöitä.',
     'cannot_follow_self' => 'Et voi seurata itseäsi.',
     'cannot_follow_author' => 'Tätä tekijää ei voi seurata.',
+    'cannot_follow' => 'Et voi seurata tekijöitä juuri nyt.',
     'feature_disabled' => 'Seuraaminen on poistettu käytöstä.',
     'notifications' => [
         'followed_author_posted' => ':author lisäsi uuden julkaisun: :title',

@@ -9,6 +9,7 @@ return [
     'login_required' => 'Prihlás sa a sleduj autorov.',
     'cannot_follow_self' => 'Nemôžeš sledovať vlastný účet.',
     'cannot_follow_author' => 'Tohto autora nemožno sledovať.',
+    'cannot_follow' => 'Momentálne nemôžeš sledovať autorov.',
     'feature_disabled' => 'Funkcia sledovania je vypnutá.',
     'notifications' => [
         'followed_author_posted' => ':author má nový príspevok: :title',

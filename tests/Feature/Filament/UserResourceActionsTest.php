@@ -142,3 +142,15 @@ it('moderates from the person\'s drawer too, the list behind told, and Undo run 
         ->assertDispatched('user-changed');
     expect($person->fresh()->status)->toBe(UserStatus::Active);
 });
+
+it('holds a sanction reason to its minimum as it is stored, without the spaces at its ends', function () {
+    $person = User::factory()->create();
+
+    Livewire::test(ListUsers::class)
+        ->call('askToSanction', 'ban', $person->id)
+        ->set('reason', '   ab   ')
+        ->call('confirmSanction')
+        ->assertHasErrors(['reason' => 'min']);
+
+    expect($person->fresh()->status)->toBe(UserStatus::Active);
+});

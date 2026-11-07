@@ -9,6 +9,7 @@ return [
     'login_required' => 'Piesakieties, lai sekotu autoriem.',
     'cannot_follow_self' => 'Jūs nevarat sekot sev.',
     'cannot_follow_author' => 'Šim autoram nevar sekot.',
+    'cannot_follow' => 'Pašlaik jūs nevarat sekot autoriem.',
     'feature_disabled' => 'Sekošanas funkcija ir izslēgta.',
     'notifications' => [
         'followed_author_posted' => ':author publicēja jaunu ierakstu: :title',

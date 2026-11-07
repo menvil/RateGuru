@@ -23,6 +23,9 @@ final class DeleteUserRequest extends FormRequest
         if ($user instanceof User && ! $user->hasPassword()) {
             return [
                 'email' => [
+                    // The comparison below reads the value as text, so nothing
+                    // that is not text reaches it.
+                    'bail',
                     'required',
                     'string',
                     'max:255',

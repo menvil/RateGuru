@@ -9,6 +9,7 @@ return [
     'login_required' => 'Đăng nhập để theo dõi tác giả.',
     'cannot_follow_self' => 'Bạn không thể tự theo dõi chính mình.',
     'cannot_follow_author' => 'Không thể theo dõi tác giả này.',
+    'cannot_follow' => 'Hiện tại bạn không thể theo dõi tác giả.',
     'feature_disabled' => 'Tính năng theo dõi đã bị tắt.',
     'notifications' => [
         'followed_author_posted' => ':author đã đăng bài mới: :title',

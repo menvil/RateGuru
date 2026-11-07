@@ -164,3 +164,26 @@ it('renders moderation history null-safe after the target is purged', function (
     $this->actingAs($admin);
     Livewire::test(ListComments::class)->assertOk();
 });
+
+it('holds a finalize reason to its minimum as it is stored, without the spaces at its ends', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $post = Post::factory()->hidden()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
+
+    Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class)
+        ->call('askToFinalize', $post->id)
+        ->set('reason', '   a   ')
+        ->set('acknowledged', true)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'min']);
+
+    Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
+        ->call('askToFinalize', $comment->id)
+        ->set('reason', '   a   ')
+        ->set('acknowledged', true)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => 'min']);
+
+    expect($post->fresh()->moderation_removed_at)->toBeNull()
+        ->and($comment->fresh()->moderation_removed_at)->toBeNull();
+});

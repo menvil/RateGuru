@@ -9,6 +9,7 @@ return [
     'login_required' => '登录后即可关注作者。',
     'cannot_follow_self' => '您不能关注自己。',
     'cannot_follow_author' => '无法关注该作者。',
+    'cannot_follow' => '您目前无法关注作者。',
     'feature_disabled' => '关注功能已停用。',
     'notifications' => [
         'followed_author_posted' => ':author 发布了新帖子：:title',

@@ -31,6 +31,9 @@ class EditProfileForm extends Component
 
     public ?string $submitError = null;
 
+    /** Whether the last save was written, for the form to say so until the next change. */
+    public bool $saved = false;
+
     public function mount(): void
     {
         /** @var User $user */
@@ -41,9 +44,15 @@ class EditProfileForm extends Component
         $this->rating_activity_visibility = $user->rating_activity_visibility->value;
     }
 
+    public function updated(): void
+    {
+        $this->saved = false;
+    }
+
     public function save(UpdateUserProfileAction $action): void
     {
         $this->submitError = null;
+        $this->saved = false;
 
         $rules = array_merge(
             app(ProfileValidationRules::class)->rules(),
@@ -61,6 +70,7 @@ class EditProfileForm extends Component
             // Saved once: the next save of this page is a profile edit, not
             // another new avatar made from the same upload.
             $this->reset('avatar');
+            $this->saved = true;
         } catch (ImageIngestException $e) {
             report($e);
             $this->submitError = __('ui.upload.error_invalid_image');
@@ -74,9 +84,11 @@ class EditProfileForm extends Component
     {
         $maxKb = (int) config('uploads.images.max_kilobytes', 5120);
 
+        // The formats the avatar ingest takes, so anything else is refused
+        // here by the field rather than after the rest of the profile.
         return [
             'nullable',
-            File::image()->max($maxKb),
+            File::image()->types(config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']))->max($maxKb),
         ];
     }
 

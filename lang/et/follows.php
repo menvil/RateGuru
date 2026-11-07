@@ -9,6 +9,7 @@ return [
     'login_required' => 'Autorite jälgimiseks logi sisse.',
     'cannot_follow_self' => 'Sa ei saa iseennast jälgida.',
     'cannot_follow_author' => 'Seda autorit ei saa jälgida.',
+    'cannot_follow' => 'Sa ei saa praegu autoreid jälgida.',
     'feature_disabled' => 'Jälgimise funktsioon on välja lülitatud.',
     'notifications' => [
         'followed_author_posted' => ':author avaldas uue postituse: :title',

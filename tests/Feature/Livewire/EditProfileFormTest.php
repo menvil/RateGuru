@@ -110,3 +110,23 @@ it('tells a sanctioned account why its profile was not saved instead of failing'
 
     expect($user->fresh()->display_name)->toBe('Before');
 });
+
+it('says its own save was written until the next change, never the identity form\'s', function () {
+    $user = User::factory()->create();
+
+    // The identity form's flash alone says nothing here.
+    $this->withSession(['status' => 'profile-updated']);
+    $form = Livewire::actingAs($user)->test(EditProfileForm::class)->assertDontSee(__('ui.actions.saved'));
+
+    $form->set('bio', 'Night owl.')->call('save')
+        ->assertSet('saved', true)
+        ->assertSee(__('ui.actions.saved'));
+
+    $form->set('bio', 'Early bird.')->assertSet('saved', false);
+});
+
+it('holds Save while a chosen avatar is still uploading', function () {
+    $html = Livewire::actingAs(User::factory()->create())->test(EditProfileForm::class)->html();
+
+    expect($html)->toMatch('/<button(?=[^>]*type="submit")(?=[^>]*wire:loading\.attr="disabled")(?=[^>]*wire:target="avatar")[^>]*>/');
+});

@@ -82,10 +82,12 @@
         @endif
 
         <div class="flex items-center gap-4">
-            <x-ui.button type="submit">{{ __('ui.actions.save') }}</x-ui.button>
+            {{-- Held while a chosen avatar is still on its way: saved before it arrives, it would be left out. --}}
+            <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="avatar">{{ __('ui.actions.save') }}</x-ui.button>
 
-            @if(session('status') === 'profile-updated')
-                <p class="text-sm text-rg-muted">{{ __('ui.actions.saved') }}</p>
+            {{-- This form's own save; the identity form above says its own. --}}
+            @if($saved)
+                <p class="text-sm text-rg-muted" data-testid="edit-profile-saved">{{ __('ui.actions.saved') }}</p>
             @endif
         </div>
     </form>

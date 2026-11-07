@@ -9,6 +9,7 @@ return [
     'login_required' => 'Log in to follow authors.',
     'cannot_follow_self' => 'You cannot follow yourself.',
     'cannot_follow_author' => 'This author cannot be followed.',
+    'cannot_follow' => 'You cannot follow authors right now.',
     'feature_disabled' => 'Follow feature is disabled.',
     'notifications' => [
         'followed_author_posted' => ':author published a new post: :title',

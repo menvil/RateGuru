@@ -9,6 +9,7 @@ return [
     'login_required' => 'Mag-log in para masundan ang mga may-akda.',
     'cannot_follow_self' => 'Hindi mo masusundan ang iyong sarili.',
     'cannot_follow_author' => 'Hindi masusundan ang may-akdang ito.',
+    'cannot_follow' => 'Hindi mo masusundan ang mga may-akda sa ngayon.',
     'feature_disabled' => 'Naka-disable ang feature na pagsunod.',
     'notifications' => [
         'followed_author_posted' => 'Nag-publish si :author ng bagong post: :title',

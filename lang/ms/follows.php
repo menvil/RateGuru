@@ -9,6 +9,7 @@ return [
     'login_required' => 'Log masuk untuk mengikuti pengarang.',
     'cannot_follow_self' => 'Anda tidak boleh mengikuti diri sendiri.',
     'cannot_follow_author' => 'Pengarang ini tidak boleh diikuti.',
+    'cannot_follow' => 'Anda tidak boleh mengikuti pengarang buat masa ini.',
     'feature_disabled' => 'Ciri ikut dinyahdayakan.',
     'notifications' => [
         'followed_author_posted' => ':author menerbitkan siaran baharu: :title',

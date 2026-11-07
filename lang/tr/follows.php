@@ -9,6 +9,7 @@ return [
     'login_required' => 'Yazarları takip etmek için giriş yapın.',
     'cannot_follow_self' => 'Kendinizi takip edemezsiniz.',
     'cannot_follow_author' => 'Bu yazar takip edilemez.',
+    'cannot_follow' => 'Şu anda yazarları takip edemezsiniz.',
     'feature_disabled' => 'Takip özelliği devre dışı.',
     'notifications' => [
         'followed_author_posted' => ':author yeni bir gönderi yayınladı: :title',

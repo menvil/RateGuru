@@ -9,6 +9,7 @@ return [
     'login_required' => 'Inicia sesión para seguir a autores.',
     'cannot_follow_self' => 'No puedes seguirte a ti mismo.',
     'cannot_follow_author' => 'No se puede seguir a este autor.',
+    'cannot_follow' => 'Ahora mismo no puedes seguir a autores.',
     'feature_disabled' => 'La función de seguir está desactivada.',
     'notifications' => [
         'followed_author_posted' => 'Nueva publicación de :author: :title',

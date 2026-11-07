@@ -9,6 +9,7 @@ return [
     'login_required' => 'Pro sledování autorů se přihlas.',
     'cannot_follow_self' => 'Sebe sledovat nemůžeš.',
     'cannot_follow_author' => 'Tohoto autora nelze sledovat.',
+    'cannot_follow' => 'Momentálně nemůžeš sledovat autory.',
     'feature_disabled' => 'Funkce sledování je vypnutá.',
     'notifications' => [
         'followed_author_posted' => 'Nový příspěvek od :author: :title',

@@ -84,7 +84,7 @@
                     wire:key="comment-{{ $comment->id }}"
                 />
 
-                @if($replyingTo === $comment->id)
+                @if($replyingTo === $comment->id && ! $comment->isStructuralTombstone())
                     <form
                         wire:submit.prevent="submitReply"
                         class="ml-4 flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 pl-3.5 pr-2"

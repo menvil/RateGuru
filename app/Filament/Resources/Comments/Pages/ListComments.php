@@ -145,6 +145,9 @@ final class ListComments extends Page
         ['action' => $action, 'id' => $id] = $this->confirming;
         $finalizing = $action === 'finalize';
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        $this->reason = trim($this->reason);
+
         $this->validate(
             [
                 'reason' => [$finalizing ? 'required' : 'nullable', 'string', 'min:3', 'max:'.self::REASON_LIMIT],

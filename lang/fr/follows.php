@@ -9,6 +9,7 @@ return [
     'login_required' => 'Connectez-vous pour suivre des auteurs.',
     'cannot_follow_self' => 'Vous ne pouvez pas vous suivre vous-même.',
     'cannot_follow_author' => 'Cet auteur ne peut pas être suivi.',
+    'cannot_follow' => 'Vous ne pouvez pas suivre d’auteurs pour le moment.',
     'feature_disabled' => 'La fonctionnalité d\'abonnement est désactivée.',
     'notifications' => [
         'followed_author_posted' => ':author a publié une nouvelle publication : :title',
