@@ -129,14 +129,27 @@ it('runs the screenshot suite with none of .env, so it never refreshes the devel
     $previous = app()->environmentPath();
     app()->useEnvironmentPath($scratch);
 
+    $target = app(VisualScreenshotTargets::class)->get('feed-desktop');
+
+    // Built, never started: what the run would be handed is read off it.
     try {
-        $environment = (new PestVisualScreenshotRunner)->environment(app(VisualScreenshotTargets::class)->get('feed-desktop'), false);
+        $current = (new PestVisualScreenshotRunner)->process($target, false);
+        $baseline = (new PestVisualScreenshotRunner)->process($target, true);
     } finally {
         app()->useEnvironmentPath($previous);
         removeScratchDir($scratch);
     }
 
+    expect($current->isStarted())->toBeFalse()
+        ->and($current->getCommandLine())->toContain('VisualScreenshotBrowserTest.php');
+
     // Removed, so phpunit.xml's test database and environment apply.
-    expect($environment)->toMatchArray(['APP_ENV' => false, 'DB_DATABASE' => false, 'DB_CONNECTION' => false])
-        ->and($environment['VISUAL_SCREENSHOT_TARGET'])->toBe('feed-desktop');
+    foreach ([$current, $baseline] as $process) {
+        expect($process->getEnv())->toMatchArray(['APP_ENV' => false, 'DB_DATABASE' => false, 'DB_CONNECTION' => false, 'VISUAL_SCREENSHOT_TARGET' => 'feed-desktop']);
+    }
+
+    expect($current->getEnv()['VISUAL_SCREENSHOT_OUTPUT'])->toBe($target->outputPath())
+        ->toEndWith('tests/Visual/current/feed-desktop.png')
+        ->and($baseline->getEnv()['VISUAL_SCREENSHOT_OUTPUT'])->toBe($target->outputPath(baseline: true))
+        ->toEndWith('tests/Visual/baselines/feed-desktop.png');
 });

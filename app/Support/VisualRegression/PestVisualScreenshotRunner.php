@@ -9,6 +9,12 @@ final class PestVisualScreenshotRunner implements VisualScreenshotRunner
 {
     public function capture(VisualScreenshotTarget $target, bool $baseline = false): void
     {
+        $this->process($target, $baseline)->mustRun();
+    }
+
+    /** The screenshot suite's run, built but not started. */
+    public function process(VisualScreenshotTarget $target, bool $baseline): Process
+    {
         $process = new Process([
             PHP_BINARY,
             base_path('vendor/bin/pest'),
@@ -16,7 +22,8 @@ final class PestVisualScreenshotRunner implements VisualScreenshotRunner
         ], base_path(), $this->environment($target, $baseline));
 
         $process->setTimeout(120);
-        $process->mustRun();
+
+        return $process;
     }
 
     /**
@@ -31,7 +38,7 @@ final class PestVisualScreenshotRunner implements VisualScreenshotRunner
      *
      * @return array<string, string|false>
      */
-    public function environment(VisualScreenshotTarget $target, bool $baseline): array
+    private function environment(VisualScreenshotTarget $target, bool $baseline): array
     {
         $file = app()->environmentFilePath();
         $loaded = is_file($file) ? array_keys(Dotenv::parse((string) file_get_contents($file))) : [];
