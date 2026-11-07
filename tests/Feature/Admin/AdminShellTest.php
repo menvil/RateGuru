@@ -24,6 +24,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\StudioPlan;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Filament\Facades\Filament;
 use Filament\Livewire\Sidebar as FilamentSidebar;
 use Filament\Livewire\Topbar as FilamentTopbar;
@@ -384,4 +385,15 @@ it('puts the admin search under the workspace in the sidebar, not in the top bar
         ->toContain('x-on:keydown.ctrl.k.window="focusSearch($event)"')
         ->and($topbar)->not->toContain('rg-admin-search')
         ->not->toContain('fi-global-search');
+});
+
+it('ends an admin session of an older generation, as the site does', function () {
+    $admin = User::factory()->admin()->create(['session_generation' => 'current-generation']);
+
+    $this->actingAs($admin)
+        ->withSession([SessionGeneration::SESSION_KEY => 'older-generation'])
+        ->get('/admin')
+        ->assertRedirect(route('login'));
+
+    $this->assertGuest();
 });

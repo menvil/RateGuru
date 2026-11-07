@@ -22,6 +22,7 @@ use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
@@ -158,6 +159,10 @@ class AdminPanelProvider extends PanelProvider
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
                 AuthenticateSession::class,
+                // The panel shares the site's sessions, so a session of an
+                // older generation — after a password change, a reset or an
+                // account claim — ends here too, whatever the session driver.
+                EnsureSessionGenerationIsCurrent::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,
                 SubstituteBindings::class,

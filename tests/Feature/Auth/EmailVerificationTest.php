@@ -50,6 +50,20 @@ test('email is not verified with invalid hash', function () {
     expect($user->fresh()->hasVerifiedEmail())->toBeFalse();
 });
 
+test('a link never confirms an address the account changed to after the request was authorized', function () {
+    Event::fake();
+    $user = User::factory()->unverified()->create(['email' => 'first@example.com']);
+
+    // The request authorized the link against this instance, still holding
+    // the address the link was sent to; the change commits in between.
+    $stale = User::findOrFail($user->id);
+    User::query()->whereKey($user->id)->update(['email' => 'victim@example.com', 'email_verified_at' => null]);
+
+    expect(app(VerifyEmailAction::class)->execute($stale, sha1('first@example.com')))->toBeFalse()
+        ->and($user->fresh()->hasVerifiedEmail())->toBeFalse();
+    Event::assertNotDispatched(Verified::class);
+});
+
 /*
  * A Persona's synthetic address is never confirmed: no link is sent for it,
  * however it is asked for, and none confirms it.
@@ -82,7 +96,7 @@ test('a persona address is never confirmed', function () {
 
     $persona = User::factory()->persona()->create();
 
-    expect(app(VerifyEmailAction::class)->execute($persona))->toBeFalse()
+    expect(app(VerifyEmailAction::class)->execute($persona, sha1($persona->getEmailForVerification())))->toBeFalse()
         ->and($persona->fresh()->hasVerifiedEmail())->toBeFalse();
 
     Event::assertNotDispatched(Verified::class);

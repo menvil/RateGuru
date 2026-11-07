@@ -20,12 +20,17 @@ final class AuthenticateUserAction
 
         $this->ensureIsNotRateLimited($throttleKey, $request);
 
+        // The attempt is counted before the slow password check, not after
+        // it: parallel attempts each see the others, so the limit holds
+        // however many arrive at once. A successful sign-in clears it.
+        if (RateLimiter::hit($throttleKey) > self::MAX_ATTEMPTS) {
+            $this->lockOut($throttleKey, $request);
+        }
+
         if (! Auth::attempt([
             'email' => $validated['email'],
             'password' => $validated['password'],
         ], (bool) ($validated['remember'] ?? false))) {
-            RateLimiter::hit($throttleKey);
-
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
             ]);
@@ -46,8 +51,6 @@ final class AuthenticateUserAction
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
-            RateLimiter::hit($throttleKey);
-
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
             ]);
@@ -62,6 +65,11 @@ final class AuthenticateUserAction
             return;
         }
 
+        $this->lockOut($throttleKey, $request);
+    }
+
+    private function lockOut(string $throttleKey, Request $request): never
+    {
         event(new Lockout($request));
 
         $seconds = RateLimiter::availableIn($throttleKey);
@@ -76,6 +84,16 @@ final class AuthenticateUserAction
 
     private function throttleKey(string $email, Request $request): string
     {
-        return Str::transliterate(Str::lower($email).'|'.$request->ip());
+        return self::throttleKeyFor($email, $request->ip());
+    }
+
+    /**
+     * The cache key failed sign-ins for an address from a client are counted
+     * under: hashed, as cache keys travel — into Sentry's cache breadcrumbs
+     * and spans, say — and the address and the IP are personal data.
+     */
+    public static function throttleKeyFor(string $email, ?string $ip): string
+    {
+        return 'login:'.hash('sha256', Str::transliterate(Str::lower($email)).'|'.$ip);
     }
 }

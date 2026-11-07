@@ -443,3 +443,17 @@ it('limits how often a provider can be connected or disconnected', function () {
 
     $this->delete(route('profile.connected-accounts.destroy', ['provider' => 'google']))->assertTooManyRequests();
 });
+
+it('still shows what a connection came back with when no provider is left to list', function () {
+    $user = User::factory()->create();
+    Socialite::fake('google', fakeSocialiteUser(['id' => 'g-1', 'email' => 'someone@example.com']));
+    $started = startConnectingProvider($user, 'google');
+
+    // Both providers turned off while the round trip was under way.
+    config()->set('services.google.client_id', null);
+    config()->set('services.facebook.client_id', null);
+
+    $this->followRedirects($started->get(socialCallbackUrl('google')))
+        ->assertOk()
+        ->assertSee('data-testid="connected-accounts-error"', false);
+});

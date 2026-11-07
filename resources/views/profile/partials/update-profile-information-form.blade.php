@@ -54,6 +54,15 @@
             @endif
         </div>
 
+        {{-- Asked for only when the email changes (ProfileUpdateRequest); an account with no password has none to give. --}}
+        @if ($user->password !== null)
+            <div>
+                <x-input-label for="profile_current_password" :value="__('profile.password.current')" />
+                <x-ui.input id="profile_current_password" name="current_password" type="password" class="mt-1" autocomplete="current-password" />
+                <x-input-error class="mt-2" :messages="$errors->get('current_password')" />
+            </div>
+        @endif
+
         <div class="flex items-center gap-4">
             <x-ui.button type="submit">{{ __('ui.actions.save') }}</x-ui.button>
 

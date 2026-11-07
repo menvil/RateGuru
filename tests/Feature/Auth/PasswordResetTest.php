@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Event;
@@ -21,6 +22,16 @@ test('reset password link can be requested', function () {
     $user = User::factory()->create();
 
     $this->post('/forgot-password', ['email' => $user->email]);
+
+    Notification::assertSentTo($user, ResetPassword::class);
+});
+
+test('a reset link reaches the account whatever case the address is typed in', function () {
+    Notification::fake();
+
+    $user = User::factory()->create(['email' => 'ada@example.com']);
+
+    $this->post('/forgot-password', ['email' => 'ADA@example.com']);
 
     Notification::assertSentTo($user, ResetPassword::class);
 });
@@ -62,6 +73,33 @@ test('password can be reset with valid token', function () {
 
         return true;
     });
+});
+
+test('a password reset ends every session of the account', function () {
+    Notification::fake();
+
+    $user = User::factory()->create(['session_generation' => 'before-the-reset']);
+
+    $this->post('/forgot-password', ['email' => $user->email]);
+
+    Notification::assertSentTo($user, ResetPassword::class, function ($notification) use ($user) {
+        $this->post('/reset-password', [
+            'token' => $notification->token,
+            'email' => $user->email,
+            'password' => 'a-new-password',
+            'password_confirmation' => 'a-new-password',
+        ])->assertSessionHasNoErrors();
+
+        return true;
+    });
+
+    expect($user->fresh()->session_generation)->not->toBe('before-the-reset');
+
+    $this->actingAs($user->fresh())
+        ->withSession([SessionGeneration::SESSION_KEY => 'before-the-reset'])
+        ->get(route('feed'))
+        ->assertRedirect(route('login'));
+    $this->assertGuest();
 });
 
 test('the PasswordReset event carries the credentials the reset actually wrote', function () {
@@ -150,4 +188,12 @@ test('a reset link sent before the account was made a persona sets nothing eithe
     ])->assertSessionHasErrors(['email' => __(Password::INVALID_USER)]);
 
     expect($user->fresh()->password)->toBe($before);
+});
+
+test('limits how many reset links one client can ask for in a minute, whatever the addresses', function () {
+    foreach (range(1, 6) as $n) {
+        $this->post('/forgot-password', ['email' => "someone{$n}@example.test"]);
+    }
+
+    $this->post('/forgot-password', ['email' => 'someone7@example.test'])->assertTooManyRequests();
 });

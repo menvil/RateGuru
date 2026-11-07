@@ -30,3 +30,13 @@ test('password is not confirmed with invalid password', function () {
 
     $response->assertSessionHasErrors();
 });
+
+test('password confirmation stops answering after six guesses a minute', function () {
+    $user = User::factory()->create();
+
+    foreach (range(1, 6) as $guess) {
+        $this->actingAs($user)->post('/confirm-password', ['password' => 'wrong-password']);
+    }
+
+    $this->actingAs($user)->post('/confirm-password', ['password' => 'wrong-password'])->assertStatus(429);
+});

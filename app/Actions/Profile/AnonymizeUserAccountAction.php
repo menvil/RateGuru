@@ -120,21 +120,27 @@ final class AnonymizeUserAccountAction
             // identity leak once the account is anonymized. Notifications
             // are private inbox state, not community contribution or
             // moderation evidence, so the ones referencing this user are
-            // simply deleted. Filtered in PHP chunk-by-chunk instead of a
-            // JSON-path WHERE so the same code runs identically on
-            // PostgreSQL, MariaDB and SQLite.
-            DatabaseNotification::query()->chunkById(200, function ($notifications) use ($locked): void {
-                $leaking = $notifications->filter(function (DatabaseNotification $notification) use ($locked): bool {
-                    $data = (array) $notification->data;
+            // simply deleted. Narrowed in the database by JSON path, which
+            // Laravel compiles for PostgreSQL, MariaDB and SQLite alike, so a
+            // deletion reads the notifications that name this person rather
+            // than every notification there is; the strict comparison below
+            // still decides.
+            DatabaseNotification::query()
+                ->where(fn ($naming) => $naming
+                    ->where('data->author_id', $locked->id)
+                    ->orWhere('data->actor_id', $locked->id))
+                ->chunkById(200, function ($notifications) use ($locked): void {
+                    $leaking = $notifications->filter(function (DatabaseNotification $notification) use ($locked): bool {
+                        $data = (array) $notification->data;
 
-                    return ($data['author_id'] ?? null) === $locked->id
-                        || ($data['actor_id'] ?? null) === $locked->id;
+                        return ($data['author_id'] ?? null) === $locked->id
+                            || ($data['actor_id'] ?? null) === $locked->id;
+                    });
+
+                    if ($leaking->isNotEmpty()) {
+                        DatabaseNotification::query()->whereKey($leaking->modelKeys())->delete();
+                    }
                 });
-
-                if ($leaking->isNotEmpty()) {
-                    DatabaseNotification::query()->whereKey($leaking->modelKeys())->delete();
-                }
-            });
 
             // The sessions table exists in the base schema for every DB
             // engine regardless of the configured session driver; with the
