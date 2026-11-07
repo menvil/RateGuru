@@ -1,8 +1,21 @@
 <?php
 
+use App\Livewire\Profile\ProfilePage;
 use App\Models\Post;
 use App\Models\PostSave;
+use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Profile\ProfileStats;
+use App\Support\Settings\ProjectSettingsManager;
+use Livewire\Livewire;
+
+/*
+ * Saved posts are a feature the project switches on; these are about the
+ * feature, so it is on.
+ */
+beforeEach(function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+});
 
 it('shows saved posts tab content to owner', function () {
     $owner = User::factory()->create(['username' => 'owner']);
@@ -37,4 +50,18 @@ it('does not show saved posts tab content to guests', function () {
     $this->get(route('profile.show', ['username' => $owner->username, 'tab' => 'saved']))
         ->assertOk()
         ->assertDontSee('data-testid="profile-saved-tab"', false);
+});
+
+it('offers no saved tab and no saved count while saved posts are switched off', function () {
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+    $owner = User::factory()->create();
+
+    Livewire::actingAs($owner)
+        ->test(ProfilePage::class, ['username' => $owner->username])
+        ->assertDontSee('data-testid="profile-tab-saved"', false)
+        ->call('setTab', 'saved')
+        ->assertSet('tab', 'posts');
+
+    expect(app(ProfileStats::class)->forUser($owner, $owner)->savedPostsCount)->toBeNull();
 });

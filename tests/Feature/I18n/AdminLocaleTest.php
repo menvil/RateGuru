@@ -30,25 +30,6 @@ function siteDefaultsTo(string $locale): void
     app()->setLocale($locale);
 }
 
-/**
- * The page component's snapshot from a rendered admin page, as the browser
- * would send it back in a Livewire update.
- */
-function adminPageSnapshot(string $html, string $componentName): string
-{
-    preg_match_all('/wire:snapshot="([^"]*)"/', $html, $matches);
-
-    foreach ($matches[1] as $attribute) {
-        $snapshot = html_entity_decode($attribute, ENT_QUOTES | ENT_HTML5);
-
-        if ((json_decode($snapshot, true)['memo']['name'] ?? null) === $componentName) {
-            return $snapshot;
-        }
-    }
-
-    throw new RuntimeException("the page rendered no [{$componentName}] component");
-}
-
 it('renders the public site in the language on the account', function (string $locale) {
     offerEveryInstalledLocale();
 
@@ -84,7 +65,7 @@ it('keeps English for actions taken inside the panel', function (string $locale)
     $response = $this->withHeaders(['X-Livewire' => '1'])
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
-                'snapshot' => adminPageSnapshot($html, 'admin.user-editor'),
+                'snapshot' => pageComponentSnapshot($html, 'admin.user-editor'),
                 'updates' => ['password' => 'short'],
                 'calls' => [['path' => '', 'method' => 'save', 'params' => []]],
             ]],

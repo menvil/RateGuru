@@ -3,8 +3,10 @@
 use App\Actions\Follows\NotifyFollowersAboutNewPostAction;
 use App\Models\Follow;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Support\Facades\Notification;
 
 it('notifies followers when author publishes post', function () {
@@ -86,4 +88,18 @@ it('does not send notification for non-published post', function () {
     app(NotifyFollowersAboutNewPostAction::class)->handle($post);
 
     Notification::assertNotSentTo($follower, FollowedAuthorPostedNotification::class);
+});
+
+it('notifies nobody while following is switched off', function () {
+    Notification::fake();
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $author = User::factory()->create();
+    $follower = User::factory()->create(['notify_followed_author_posts' => true]);
+    Follow::factory()->create(['follower_id' => $follower->id, 'author_id' => $author->id]);
+
+    app(NotifyFollowersAboutNewPostAction::class)->handle(Post::factory()->for($author, 'user')->published()->create());
+
+    Notification::assertNothingSent();
 });

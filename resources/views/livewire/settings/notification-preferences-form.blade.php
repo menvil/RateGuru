@@ -21,8 +21,12 @@
             </div>
         </div>
 
-        <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">
-            {{ __('ui.actions.save') }}
-        </x-ui.button>
+        <div class="flex items-center gap-4">
+            <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">
+                {{ __('ui.actions.save') }}
+            </x-ui.button>
+
+            <p class="text-sm text-rg-muted" role="status" data-testid="notification-preferences-saved">@if($saved){{ __('ui.actions.saved') }}@endif</p>
+        </div>
     </form>
 </section>
