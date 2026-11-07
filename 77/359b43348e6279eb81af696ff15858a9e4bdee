@@ -1,0 +1,25 @@
+tests/Feature/Services/Media/GdImageIngestorTest.php
+  s_0f80700cf0b8c6::t_5bc93dc95dfcf5 75-89,255-263
+app/Livewire/Profile/EditProfileForm.php
+  s_0f80700cf0b8c6::t_90856a880cf324 59-61
+tests/Feature/Livewire/AvatarUploadTest.php
+  s_0f80700cf0b8c6::t_8e1dec7db5f061 234-250
+app/Services/Media/GdImageIngestor.php
+  s_0f80700cf0b8c6::t_5bc93dc95dfcf5 247-253,255,259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "77359b43348e6279eb81af696ff15858a9e4bdee",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
