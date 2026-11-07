@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Studio\StartStudioImageAnalysisAction;
 use App\Enums\StudioImageAnalysisError;
 use App\Enums\StudioImageAnalysisStatus;
 use App\Enums\StudioPlanStatus;
@@ -10,6 +11,7 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
 use Database\Factories\StudioPlanImageAnalysisFactory;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +19,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * The queued job behind a photo's analysis: it claims its attempt before
@@ -86,6 +89,29 @@ it('sends nothing when the job is delivered again, or after its attempt was repl
 
     Http::assertSentCount(1);
     expect($second->refresh()->status)->toBe(StudioImageAnalysisStatus::Queued);
+});
+
+it('claims nothing when a new photo starts another attempt between the claim and the read', function () {
+    $plan = studioPlanWithStoredPhoto();
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
+    $replaced = false;
+
+    // The plan gets a new photo the moment this attempt is claimed: the row
+    // is reused for the new attempt before the claim reads it back.
+    DB::listen(function (QueryExecuted $query) use (&$replaced, $analysis): void {
+        if ($replaced || ! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, 'studio_plan_image_analyses')) {
+            return;
+        }
+
+        $replaced = true;
+        DB::table('studio_plan_image_analyses')->where('id', $analysis->id)->update([
+            'attempt_id' => (string) Str::uuid(),
+            'status' => StudioImageAnalysisStatus::Queued->value,
+        ]);
+    });
+
+    expect(app(StartStudioImageAnalysisAction::class)->handle($analysis->id, $analysis->attempt_id))->toBeNull()
+        ->and($replaced)->toBeTrue();
 });
 
 it('sends nothing for a plan deleted before the job ran', function () {

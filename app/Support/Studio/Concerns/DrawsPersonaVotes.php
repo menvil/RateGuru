@@ -150,7 +150,11 @@ trait DrawsPersonaVotes
      */
     private static function drawn(array $ids, int $seed, string $purpose): array
     {
-        usort($ids, fn (int $a, int $b): int => [hash('xxh3', "{$seed}|{$purpose}|{$a}"), $a] <=> [hash('xxh3', "{$seed}|{$purpose}|{$b}"), $b]);
+        // strcmp, not <=>: two hashes that both read as numbers ("12e4…")
+        // would be compared as numbers, and a comparison that is sometimes
+        // numeric and sometimes not is no order at all — the draw would then
+        // depend on the order the ids came in.
+        usort($ids, fn (int $a, int $b): int => strcmp(hash('xxh3', "{$seed}|{$purpose}|{$a}"), hash('xxh3', "{$seed}|{$purpose}|{$b}")) ?: $a <=> $b);
 
         return $ids;
     }

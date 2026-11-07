@@ -2,9 +2,11 @@
 
 namespace App\Actions\Categories;
 
+use App\Enums\StudioPlanStatus;
 use App\Exceptions\Categories\CannotDeleteCategoryException;
 use App\Models\Category;
 use App\Models\Concerns\LocksActorForWrite;
+use App\Models\StudioPlan;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -55,6 +57,19 @@ final class DeleteCategoryAction
             // this exception exists to give.
             if ($locked->posts()->withTrashed()->exists()) {
                 throw CannotDeleteCategoryException::becauseCategoryIsUsedByPosts();
+            }
+
+            // An approved plan publishes under the category it was approved
+            // with. The plan's foreign key only nulls itself — what a Draft may
+            // lose, since approval checks again — so without this its post would
+            // go out with no category and no failure to say so.
+            $awaited = StudioPlan::query()
+                ->where('category_id', $locked->getKey())
+                ->whereIn('status', [StudioPlanStatus::Approved, StudioPlanStatus::Running])
+                ->exists();
+
+            if ($awaited) {
+                throw CannotDeleteCategoryException::becauseApprovedStudioPlansAwaitIt();
             }
 
             $locked->delete();

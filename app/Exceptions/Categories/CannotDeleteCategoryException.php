@@ -10,6 +10,8 @@ final class CannotDeleteCategoryException extends DomainException
 
     public const REASON_USED_BY_POSTS = 'used_by_posts';
 
+    public const REASON_AWAITED_BY_STUDIO_PLANS = 'awaited_by_studio_plans';
+
     private function __construct(string $message, public readonly string $reason)
     {
         parent::__construct($message);
@@ -23,5 +25,10 @@ final class CannotDeleteCategoryException extends DomainException
     public static function becauseCategoryIsUsedByPosts(): self
     {
         return new self('Category is assigned to posts and cannot be deleted.', self::REASON_USED_BY_POSTS);
+    }
+
+    public static function becauseApprovedStudioPlansAwaitIt(): self
+    {
+        return new self('An approved Content Studio plan will publish under this category, so it cannot be deleted.', self::REASON_AWAITED_BY_STUDIO_PLANS);
     }
 }

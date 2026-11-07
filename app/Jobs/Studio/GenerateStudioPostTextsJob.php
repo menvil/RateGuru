@@ -78,7 +78,10 @@ final class GenerateStudioPostTextsJob implements ShouldQueue
 
         $refusal = match (true) {
             ! $plan->isDraft() => StudioPostTextGenerationError::PlanClosed,
-            $context === null || ! $generation->isFor($context->imageAssetId, $context->sourceHash()) => StudioPostTextGenerationError::StaleAnalysis,
+            // An analysis being run again is not one to write from: nothing new
+            // is written from a description that is being replaced, as the
+            // request and the discussion job already refuse.
+            $context === null || ! $context->complete || ! $generation->isFor($context->imageAssetId, $context->sourceHash()) => StudioPostTextGenerationError::StaleAnalysis,
             ! $generator->isConfigured() => StudioPostTextGenerationError::NotConfigured,
             default => null,
         };
