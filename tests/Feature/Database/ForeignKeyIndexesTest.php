@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /*
@@ -19,4 +20,7 @@ it('indexes the foreign keys that reads go through', function (string $table, ar
     'the posts with a picture' => ['posts', ['image_asset_id']],
     'the accounts with a picture' => ['users', ['avatar_asset_id']],
     'a tag\'s posts' => ['post_tag', ['tag_id']],
-]);
+])->skip(
+    fn (): bool => in_array(DB::getDriverName(), ['mysql', 'mariadb'], true),
+    'MySQL and MariaDB index each foreign key when they make it, so the migration leaves them as they are.',
+);
