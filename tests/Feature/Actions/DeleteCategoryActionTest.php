@@ -7,6 +7,8 @@ use App\Models\Category;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 
 it('deletes an unused category for an admin', function () {
     $admin = User::factory()->admin()->create();
@@ -69,3 +71,20 @@ it('keeps a category an approved Content Studio plan will publish under, and let
     'completed' => [StudioPlanStatus::Completed, false],
     'cancelled' => [StudioPlanStatus::Cancelled, false],
 ]);
+
+it('locks the category\'s plans, whatever their status, before the category, as the executor takes them', function () {
+    $admin = User::factory()->admin()->create();
+    $category = Category::factory()->create();
+    StudioPlan::factory()->create(['category_id' => $category->id]);
+    $locks = [];
+    DB::listen(function (QueryExecuted $query) use (&$locks): void {
+        if (str_contains(strtolower($query->sql), 'for update')) {
+            $locks[] = str_contains($query->sql, 'studio_plans') ? 'plans' : (str_contains($query->sql, 'categories') ? 'category' : 'other');
+        }
+    });
+
+    app(DeleteCategoryAction::class)->handle($admin, $category);
+
+    // Not narrowed by status: a plan being approved still reads as a Draft.
+    expect(array_values(array_intersect($locks, ['plans', 'category'])))->toBe(['plans', 'category']);
+})->skip(fn (): bool => DB::getDriverName() === 'sqlite', 'SQLite takes no row locks.');

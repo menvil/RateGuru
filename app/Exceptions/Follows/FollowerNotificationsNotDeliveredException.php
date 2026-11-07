@@ -13,6 +13,8 @@ final class FollowerNotificationsNotDeliveredException extends RuntimeException
 {
     public static function forPost(int $postId, int $failed): self
     {
-        return new self("{$failed} follower notification(s) for post {$postId} failed and will be retried.");
+        // Said as a fact, not as a promise of another try: on the job's last
+        // attempt this is the message failed_jobs keeps.
+        return new self("{$failed} follower notification(s) for post {$postId} were not delivered.");
     }
 }

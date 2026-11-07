@@ -21,9 +21,9 @@ final class DeleteCategoryAction
         }
 
         DB::transaction(function () use ($admin, $category): void {
-            // Lock order: Actor User -> Category, the repository's uniform order
-            // (docs/architecture/user-lifecycle.md, and the LocksActorForWrite
-            // docblock). Taking the category first inverted it against every
+            // Lock order: Actor User -> Studio plans -> Category. Actor first is
+            // the repository's uniform order (docs/architecture/user-lifecycle.md,
+            // and the LocksActorForWrite docblock). Taking the category first inverted it against every
             // other write, and the opposing pair is real rather than theoretical:
             // CreatePostAction locks the actor and then inserts a post, which
             // takes a foreign-key lock on the category row it references. Two
@@ -38,6 +38,16 @@ final class DeleteCategoryAction
             if ($actor === null) {
                 throw CannotDeleteCategoryException::becauseUserIsNotAllowed();
             }
+
+            // Every plan naming the category, whatever its status: one being
+            // approved meanwhile reads as a Draft until the approval commits, and
+            // only its lock waits for that. Before the category row, as the
+            // executor takes them: it locks its plan, then inserts the post whose
+            // foreign key locks the category.
+            $plans = StudioPlan::query()
+                ->where('category_id', $category->getKey())
+                ->lockForUpdate()
+                ->get(['id', 'status']);
 
             $locked = $category->newQuery()->lockForUpdate()->find($category->getKey());
 
@@ -63,10 +73,9 @@ final class DeleteCategoryAction
             // with. The plan's foreign key only nulls itself — what a Draft may
             // lose, since approval checks again — so without this its post would
             // go out with no category and no failure to say so.
-            $awaited = StudioPlan::query()
-                ->where('category_id', $locked->getKey())
-                ->whereIn('status', [StudioPlanStatus::Approved, StudioPlanStatus::Running])
-                ->exists();
+            $awaited = $plans->contains(
+                fn (StudioPlan $plan): bool => in_array($plan->status, [StudioPlanStatus::Approved, StudioPlanStatus::Running], true),
+            );
 
             if ($awaited) {
                 throw CannotDeleteCategoryException::becauseApprovedStudioPlansAwaitIt();
