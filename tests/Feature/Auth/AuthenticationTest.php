@@ -175,3 +175,13 @@ test('counts failed sign-ins under a key that holds neither the address nor the 
     expect($keys)->not->toBe([])
         ->and(implode(' ', $keys))->not->toContain('probe-person')->not->toContain('127.0.0.1');
 });
+
+test('keys the failed sign-in count with the app key, so it cannot be found by hashing a guessed address and IP', function () {
+    $plain = 'login:'.hash('sha256', 'ada@example.com|127.0.0.1');
+
+    $key = AuthenticateUserAction::throttleKeyFor('ada@example.com', '127.0.0.1');
+    config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
+
+    expect($key)->not->toBe($plain)
+        ->and(AuthenticateUserAction::throttleKeyFor('ada@example.com', '127.0.0.1'))->not->toBe($key);
+});

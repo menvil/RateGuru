@@ -19,9 +19,10 @@ Route::middleware('guest')->group(function () {
         ->name('register');
 
     // Limited per client, as every other credential form here: each one
-    // creates an account and sends a mail, or sends a reset link.
+    // creates an account and sends a mail, or sends a reset link. Named, so
+    // its count is its own: an unnamed limit shares one per client.
     Route::post('register', [RegisteredUserController::class, 'store'])
-        ->middleware('throttle:6,1');
+        ->middleware('throttle:6,1,register');
 
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');
@@ -82,10 +83,10 @@ Route::middleware('auth')->group(function () {
     // Both check the account's current password: limited, so a signed-in
     // session cannot guess it without end.
     Route::post('confirm-password', [ConfirmablePasswordController::class, 'store'])
-        ->middleware('throttle:6,1');
+        ->middleware('throttle:6,1,password-confirm');
 
     Route::put('password', [PasswordController::class, 'update'])
-        ->middleware('throttle:6,1')
+        ->middleware('throttle:6,1,password-update')
         ->name('password.update');
 
     Route::post('password/set-link', [PasswordSetLinkController::class, 'store'])

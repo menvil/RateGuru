@@ -29,7 +29,9 @@ return new class extends Migration
 
                     $lower = Str::lower($row->email);
 
-                    if ($lower === $row->email || DB::table('users')->where('email', $lower)->exists()) {
+                    // Another account than this one: where the collation ignores
+                    // case, the row itself matches its lowercase form.
+                    if ($lower === $row->email || DB::table('users')->where('email', $lower)->where('id', '!=', $row->id)->exists()) {
                         continue;
                     }
 

@@ -32,4 +32,4 @@ it('leaves an address alone when another account already holds its lowercase for
 
     expect(DB::table('users')->where('id', $lower->id)->value('email'))->toBe('ada@example.com')
         ->and(DB::table('users')->where('id', $upper->id)->value('email'))->toBe('Ada@Example.com');
-});
+})->skip(fn (): bool => in_array(DB::getDriverName(), ['mysql', 'mariadb'], true), 'A case-insensitive unique index cannot hold two addresses that differ only in case.');

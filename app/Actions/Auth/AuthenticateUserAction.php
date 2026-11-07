@@ -90,10 +90,12 @@ final class AuthenticateUserAction
     /**
      * The cache key failed sign-ins for an address from a client are counted
      * under: hashed, as cache keys travel — into Sentry's cache breadcrumbs
-     * and spans, say — and the address and the IP are personal data.
+     * and spans, say — and the address and the IP are personal data. Keyed
+     * with the app key: a plain hash of a guessed address and an IPv4
+     * address could be reversed by trying them all.
      */
     public static function throttleKeyFor(string $email, ?string $ip): string
     {
-        return 'login:'.hash('sha256', Str::transliterate(Str::lower($email)).'|'.$ip);
+        return 'login:'.hash_hmac('sha256', Str::transliterate(Str::lower($email)).'|'.$ip, (string) config('app.key'));
     }
 }
