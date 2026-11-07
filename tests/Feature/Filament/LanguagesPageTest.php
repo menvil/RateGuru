@@ -902,11 +902,25 @@ it('says a language whose catalogs a release broke stays offered while it is, an
         ->toContain('It stays offered to visitors as it is')
         ->not->toContain('so it cannot be enabled');
 
+    // The first copy goes before the second is made: afterEach removes only the last.
+    removeCatalogScratchDirectory($this);
     breakCatalogsOf($withheld);
 
     expect(languagesDrawer(languagesPage()->call('showMissing', $withheld)))
         ->toContain('so it cannot be enabled')
         ->not->toContain('It stays offered');
+});
+
+it('says the default language whose catalogs a release broke stays offered, never that it could be disabled', function () {
+    // A JSON catalog for English, which English never has: an issue of the default language.
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    File::put("{$root}/en.json", '{"Hello": "Hello"}');
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+
+    expect(languagesDrawer(languagesPage()->call('showMissing', 'en')))
+        ->toContain('It is the default language and stays offered as it is')
+        ->not->toContain('once disabled');
 });
 
 it('opens Translation Center from each missing item, on its language, section and unit, in Missing only', function () {

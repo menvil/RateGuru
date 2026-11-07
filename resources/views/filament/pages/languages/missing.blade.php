@@ -55,7 +55,9 @@
             </div>
             <x-admin.ui.inline-notice tone="warning">
                 {{-- A release that breaks an offered language leaves it offered (UpdateProjectLocaleSettingsAction). --}}
-                @if ($row['enabled'])
+                @if ($row['default'])
+                    The release breaks the catalog contract for this language. It is the default language and stays offered as it is.
+                @elseif ($row['enabled'])
                     The release breaks the catalog contract for this language. It stays offered to visitors as it is; once disabled, it cannot be enabled again until the release is fixed.
                 @else
                     The release breaks the catalog contract for this language, so it cannot be enabled.

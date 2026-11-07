@@ -10,8 +10,17 @@ use Symfony\Component\Finder\SplFileInfo;
  * link checks for one and leaves that click to the browser.
  */
 it('never cancels a click with a modifier key on an admin link that opens in place', function () {
+    // A whole tag: quoted values and PHP's => and -> inside Blade do not end it.
+    $tag = '/<(?:a|x-admin\.ui\.button|x-admin\.ui\.menu-item)\b(?:"[^"]*"|\'[^\']*\'|[=-]>|[^>"\'])*>/';
+
     $offenders = collect(File::allFiles(resource_path('views/filament')))
-        ->filter(fn (SplFileInfo $file): bool => preg_match('/<(a|x-admin\.ui\.button|x-admin\.ui\.menu-item)\b[^>]*href[^>]*wire:click\.prevent/', $file->getContents()) === 1)
+        ->filter(function (SplFileInfo $file) use ($tag): bool {
+            preg_match_all($tag, $file->getContents(), $tags);
+
+            return collect($tags[0])->contains(fn (string $link): bool => str_contains($link, 'href') && str_contains($link, 'wire:click.prevent'))
+                // Links built from attribute arrays, as the tabs component takes them.
+                || str_contains($file->getContents(), "'wire:click.prevent' =>");
+        })
         ->map(fn (SplFileInfo $file): string => $file->getRelativePathname())
         ->values()
         ->all();

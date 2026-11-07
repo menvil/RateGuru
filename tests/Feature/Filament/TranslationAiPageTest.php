@@ -212,6 +212,13 @@ it('draws the model combobox afresh when Refresh brings a new model, so its sear
     $page->call('refreshDiagnostics');
 
     expect($key($page))->not->toBe($before)->not->toBe('');
+
+    // And when only what an option says changes: the same model, another provider.
+    $before = $key($page);
+    translationAiCall('2026-10-12 10:30:00', ['model' => 'gpt-7-sol', 'provider' => 'another-provider']);
+    $page->call('refreshDiagnostics');
+
+    expect($key($page))->not->toBe($before);
 });
 
 it('marks the configured model as reported by its provider, a dated snapshot included, and adds no second entry for it', function () {

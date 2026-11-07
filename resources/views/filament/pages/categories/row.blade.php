@@ -25,7 +25,7 @@
         <a
             href="{{ $row['url'] }}"
             @class(['rg-admin-taxonomy__name', 'rg-admin-taxonomy__name--off' => ! $row['active']])
-            wire:click.prevent="edit({{ $row['id'] }})"
+            x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.edit({{ $row['id'] }}) }"
         >{{ $row['name'] }}</a>
         @include('filament.pages.taxonomy.chips', ['chips' => $row['chips'], 'missing' => $row['active'] ? $row['missing'] : 0])
     </div>
