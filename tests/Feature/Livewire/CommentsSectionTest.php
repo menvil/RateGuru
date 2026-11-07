@@ -439,23 +439,24 @@ it('reads the viewer\'s comment votes for the whole thread at once', function ()
             };
         });
 
+        // Shown in full the way a reader gets there: the count is locked. A
+        // voting button is drawn once, by the response that first shows its
+        // comment; later ones keep it as it is. In the long thread the voted,
+        // oldest root first appears with Load more.
         $thread = Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id]);
-        // The votes as the first render draws them: a later request redraws
-        // the thread around its voting buttons, not the buttons themselves.
         $shown = preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->html());
 
-        // Shown in full the way a reader gets there: the count is locked.
-        $thread->call('loadMore')->call('loadMore');
+        foreach (range(1, 2) as $more) {
+            $shown += preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->call('loadMore')->html());
+        }
 
         return [...$queries, 'shown' => $shown];
     };
 
     $two = $queriesOn(2);
-    $eight = $queriesOn(8);
 
     // Both votes drawn, read in one go per render, however long the thread.
     expect($two['shown'])->toBe(2)
         ->and($two['votes'])->toBeGreaterThan(0)
-        ->and($eight['votes'])->toBe($two['votes'])
-        ->and($eight['comments'])->toBe($two['comments']);
+        ->and($queriesOn(8))->toBe($two);
 });
