@@ -65,3 +65,10 @@ it('says the preferences were saved until the next change, and nothing for a sav
 
     $form->call('save')->assertSet('saved', false);
 });
+
+it('sends the box at once, so "Saved" goes as soon as it is changed', function () {
+    // A deferred box would reach updated() only with the next save.
+    Livewire::actingAs(User::factory()->create())
+        ->test(NotificationPreferencesForm::class)
+        ->assertSeeHtml('wire:model.live="notify_followed_author_posts"');
+});

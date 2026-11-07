@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -60,4 +61,18 @@ it('answers nothing to a guest from a feed drawn before guest viewing went off',
             'components' => [['snapshot' => $snapshot, 'updates' => ['search' => 'night'], 'calls' => []]],
         ])
         ->assertUnauthorized();
+});
+
+it('shows a guest no post through the panel the static pages draw too, once guest viewing is off', function () {
+    guestViewing(false);
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $this->post->id)
+        ->assertDontSee($this->post->title);
+
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $this->post->id)
+        ->assertSee($this->post->title);
 });

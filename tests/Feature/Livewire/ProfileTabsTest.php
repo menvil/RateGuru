@@ -45,6 +45,8 @@ it('shows saved tab only to profile owner', function () {
 });
 
 it('hides saved tab from other users', function () {
+    // With saved posts on, so it is the owner check that hides it.
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $owner = User::factory()->create(['username' => 'owner']);
     $viewer = User::factory()->create();
 
@@ -54,6 +56,7 @@ it('hides saved tab from other users', function () {
 });
 
 it('hides saved tab from guests', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $owner = User::factory()->create(['username' => 'owner']);
 
     $this->get(route('profile.show', $owner->username))

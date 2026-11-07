@@ -123,7 +123,12 @@ final class PostDrawer extends Component
     ): View {
         $post = null;
 
-        if ($this->postId !== null) {
+        // The layout draws this panel on every page, the static ones too, which
+        // the guest-viewing gate does not cover: with guest viewing off, it shows
+        // a guest no post, whatever was selected into it.
+        $mayRead = auth()->check() || app(ProjectSettingsManager::class)->featureEnabled('allow_guest_viewing');
+
+        if ($this->postId !== null && $mayRead) {
             $post = $publishedPostDetails->find($this->postId);
         }
 
