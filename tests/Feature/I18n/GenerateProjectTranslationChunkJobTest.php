@@ -46,7 +46,7 @@ it('is never retried, and stops well before Redis could hand it to another worke
     preg_match('/--timeout=(\d+)/', (string) file_get_contents(base_path('infrastructure/config/supervisor/rateguru-staging-queue.conf')), $worker);
     // The Redis queue's retry_after as the repository ships it — what the targets run with — rather
     // than whatever this test environment happens to configure; and as configured here as well.
-    preg_match("/env\('REDIS_QUEUE_RETRY_AFTER', (\d+)\)/", (string) file_get_contents(config_path('queue.php')), $shipped);
+    preg_match("/EnvironmentValue::integer\(env\('REDIS_QUEUE_RETRY_AFTER'\), (\d+)\)/", (string) file_get_contents(config_path('queue.php')), $shipped);
     $retryAfter = [(int) $shipped[1], (int) config('queue.connections.redis.retry_after')];
 
     expect($job->tries)->toBe(1)

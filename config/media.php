@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\Configuration\EnvironmentValue;
+
 return [
     /*
     |--------------------------------------------------------------------------
@@ -49,8 +51,8 @@ return [
     */
 
     'variant_lock' => [
-        'wait_seconds' => max(1, (int) env('MEDIA_VARIANT_LOCK_WAIT_SECONDS', 30)),
-        'ttl_seconds' => max(1, (int) env('MEDIA_VARIANT_LOCK_TTL_SECONDS', 60)),
+        'wait_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_VARIANT_LOCK_WAIT_SECONDS'), 30)),
+        'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_VARIANT_LOCK_TTL_SECONDS'), 60)),
     ],
 
     /*
@@ -78,10 +80,10 @@ return [
     */
 
     'lifecycle' => [
-        'purge_grace_days' => max(0, (int) env('MEDIA_PURGE_GRACE_DAYS', 7)),
-        'orphan_grace_hours' => max(0, (int) env('MEDIA_ORPHAN_GRACE_HOURS', 24)),
+        'purge_grace_days' => max(0, EnvironmentValue::integer(env('MEDIA_PURGE_GRACE_DAYS'), 7)),
+        'orphan_grace_hours' => max(0, EnvironmentValue::integer(env('MEDIA_ORPHAN_GRACE_HOURS'), 24)),
         'purge_lock' => [
-            'ttl_seconds' => max(1, (int) env('MEDIA_PURGE_LOCK_TTL_SECONDS', 60)),
+            'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_PURGE_LOCK_TTL_SECONDS'), 60)),
         ],
     ],
 
@@ -115,8 +117,8 @@ return [
 
     'diagnostics' => [
         'audit_lock' => [
-            'ttl_seconds' => max(1, (int) env('MEDIA_AUDIT_LOCK_TTL_SECONDS', 3660)),
+            'ttl_seconds' => max(1, EnvironmentValue::integer(env('MEDIA_AUDIT_LOCK_TTL_SECONDS'), 3660)),
         ],
-        'audit_run_retention' => max(1, (int) env('MEDIA_AUDIT_RUN_RETENTION', 30)),
+        'audit_run_retention' => max(1, EnvironmentValue::integer(env('MEDIA_AUDIT_RUN_RETENTION'), 30)),
     ],
 ];
