@@ -84,3 +84,16 @@ it('rejects og image url that is unsafe', function () {
 
     expect($preview->hasImage())->toBeFalse();
 });
+
+it('takes the https twin of an http og:image the import may not fetch', function () {
+    Http::fake([
+        'example.com/page' => Http::response(
+            '<head><meta property="og:image" content="http://example.com/photo.jpg"><meta property="og:image:secure_url" content="https://example.com/photo.jpg"></head>',
+            200,
+            ['Content-Type' => 'text/html']
+        ),
+    ]);
+
+    expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)
+        ->toBe('https://example.com/photo.jpg');
+});
