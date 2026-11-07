@@ -77,7 +77,6 @@
                                     :reportable-id="$comment->id"
                                     variant="menu"
                                     :key="'comment-report-'.$comment->id"
-                                    wire:lazy
                                 />
                             </div>
                         @endif

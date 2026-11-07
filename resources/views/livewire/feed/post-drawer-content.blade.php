@@ -143,7 +143,6 @@
                                     :reportable-id="$post->id"
                                     variant="menu"
                                     :key="'post-drawer-menu-report-'.$post->id"
-                                    wire:lazy
                                 />
                             </div>
                         @endif

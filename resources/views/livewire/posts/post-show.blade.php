@@ -188,7 +188,6 @@
                                         :reportable-id="$post->id"
                                         variant="menu"
                                         :key="'post-show-report-'.$post->id"
-                                        wire:lazy
                                     />
                                 </div>
                             @endif
@@ -207,7 +206,6 @@
                                 :post-id="$post->id"
                                 variant="menu"
                                 :key="'post-show-moderation-'.$post->id"
-                                wire:lazy
                             />
                         </div>
                     </div>

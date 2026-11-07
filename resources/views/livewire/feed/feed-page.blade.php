@@ -131,7 +131,6 @@
                 <livewire:feed.post-drawer
                     :post-id="$selectedPostId"
                     :key="'detail-'.$selectedPostId"
-                    wire:lazy
                 />
             </aside>
         @endif
@@ -142,7 +141,6 @@
             :key="'mobile-split-mode-post-overlay'"
             :as-overlay="true"
             :mobile-only="true"
-            wire:lazy
         />
     @endunless
 </div>

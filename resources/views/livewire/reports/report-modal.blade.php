@@ -2,7 +2,7 @@
     The root element must have the exact same shape on every render regardless of
     $variant. An earlier version branched the ROOT element itself
     (@if($variant === 'inline') @include(...) @else <div>...</div> @endif), and
-    that alone broke Livewire's wire:lazy nested-child tracking for the 'menu'
+    that alone broke Livewire's nested-child tracking for the 'menu'
     variant used in comment-item.blade.php ("Invalid Livewire child tag name"),
     even though that variant's own rendered output never changed — merely the
     possibility of a differently-shaped root was enough to confuse it. Keeping
