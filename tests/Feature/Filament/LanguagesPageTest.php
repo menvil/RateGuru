@@ -783,6 +783,28 @@ it('shows an enabled language as enabled, with Disable, in the same response', f
         ->not->toContain("askToEnable('{$other}')");
 });
 
+it('keeps a language another administrator offered or withdrew meanwhile', function () {
+    [$mine, $theirs] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($mine, $theirs);
+
+    $page = languagesPage();
+    expect(languageRow($page, $theirs))->toContain('Disabled');
+
+    // Another administrator offers a language, in a request of their own.
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode([...offeredLocales(), $theirs])]);
+
+    $page->call('enableLanguage', $mine);
+
+    expect(offeredLocales())->toContain($mine)->toContain($theirs);
+
+    // And withdraws it again while this page still shows it offered.
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(array_values(array_diff(offeredLocales(), [$theirs])))]);
+
+    $page->call('disableLanguage', $mine);
+
+    expect(offeredLocales())->not->toContain($mine)->not->toContain($theirs);
+});
+
 it('keeps the header and the tab counts in step with a change in the same response', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();

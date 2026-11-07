@@ -139,6 +139,23 @@ it('hides a reported comment with an optional reason', function () {
         ->and($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
+it('says so when the reported comment is hidden by someone else after the page checked it', function () {
+    $comment = Comment::factory()->create();
+    $report = reportOn($comment);
+    $page = Livewire::test(ListReports::class)->call('select', $report->id)->call('askToHideTarget')->set('reason', '');
+
+    $landed = hideCommentOnceTheModeratorIsLocked($comment);
+
+    $page->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+
+    expect($landed())->toBeTrue()
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(0);
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
+
 it('lets an administrator ban the author of the reported content, leaving the report open', function () {
     $this->actingAs(User::factory()->admin()->create());
     $author = User::factory()->create(['username' => 'cheap_pet_meds']);

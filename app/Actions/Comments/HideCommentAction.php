@@ -23,7 +23,12 @@ final class HideCommentAction
         private readonly CreateModerationLogAction $createModerationLog,
     ) {}
 
-    public function handle(User $user, Comment $comment, ?string $reason = null): void
+    /**
+     * @return bool whether this call hid it: false when, under the lock, the
+     *              comment was already hidden or gone — hidden by someone
+     *              else since the caller last read it
+     */
+    public function handle(User $user, Comment $comment, ?string $reason = null): bool
     {
         if (! Gate::forUser($user)->allows('moderate-content')) {
             throw CannotHideCommentException::becauseUserIsNotAllowed();
@@ -33,7 +38,7 @@ final class HideCommentAction
         // inside a single transaction with a row lock on the comment so two
         // concurrent hides cannot both pass an idempotency check and emit
         // duplicate moderation logs. Mirrors HidePostAction.
-        DB::transaction(function () use ($user, $comment, $reason) {
+        return DB::transaction(function () use ($user, $comment, $reason): bool {
             // Lock order: Actor User -> Post -> Comment; the moderator
             // instance may be stale, only the locked rows are
             // authoritative. The post lock is ordering only — moderation
@@ -52,7 +57,7 @@ final class HideCommentAction
             $locked = $comment->newQuery()->lockForUpdate()->find($comment->getKey());
 
             if ($lockedPost === null || $locked === null || $locked->status === CommentStatus::Hidden) {
-                return;
+                return false;
             }
 
             $fromStatus = $locked->status;
@@ -73,6 +78,8 @@ final class HideCommentAction
             );
 
             $comment->setRawAttributes($locked->getAttributes(), true);
+
+            return true;
         });
     }
 }

@@ -539,7 +539,13 @@ final class ListReports extends Page
     private function attempt(callable $action): bool
     {
         try {
-            $action();
+            // An action that answers false found its target already as it
+            // would have left it — changed by someone else since the check.
+            if ($action() === false) {
+                $this->changedMeanwhile();
+
+                return false;
+            }
 
             return true;
         } catch (CannotResolveReportException|CannotIgnoreReportException|CannotReopenReportException|CannotModeratePostException|CannotHideCommentException|CannotModerateUserException) {

@@ -71,4 +71,47 @@ final class UpdateProjectLocaleSettingsAction
 
         return $settings;
     }
+
+    /**
+     * Offers one more language, or stops offering one, applied to what the
+     * project offers once its row is locked — so a change another
+     * administrator saved meanwhile is kept, not overwritten by a list
+     * worked out before it.
+     */
+    public function change(string $locale, bool $offered): ProjectSettings
+    {
+        if (! array_key_exists($locale, $this->locales->supported())) {
+            throw new InvalidArgumentException("Locale [{$locale}] is not installed.");
+        }
+
+        if (! $offered && $locale === $this->locales->default()) {
+            throw new InvalidArgumentException("The default locale [{$locale}] is always offered and cannot be left out.");
+        }
+
+        if ($offered && ! $this->locales->isEnabled($locale)) {
+            $catalog = $this->catalogs->inspect($locale);
+
+            if (! $catalog->isComplete()) {
+                throw new IncompleteLocaleCatalogException($locale, count($catalog->issues));
+            }
+        }
+
+        $settings = DB::transaction(function () use ($locale, $offered): ProjectSettings {
+            $settings = $this->manager->lockedRow();
+            // Read as defensively as LocaleManager reads it: a damaged row
+            // offers what it can, and this write repairs it.
+            $stored = $settings->getAttribute('enabled_locales');
+            $now = array_keys($this->locales->offeredBy($stored === null || is_array($stored) ? $stored : []));
+            $wanted = $offered ? [...$now, $locale] : array_diff($now, [$locale]);
+
+            // Config order, as handle() stores it.
+            $settings->fill(['enabled_locales' => array_values(array_intersect(array_keys($this->locales->supported()), $wanted))])->save();
+
+            return $settings;
+        });
+
+        $this->manager->flush();
+
+        return $settings;
+    }
 }

@@ -20,6 +20,7 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
+use App\Enums\CommentStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -39,6 +40,7 @@ use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
+use App\Models\Comment;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
@@ -88,6 +90,7 @@ use Database\Factories\StudioPlanTextGenerationFactory;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13197,6 +13200,34 @@ function racingEnvironment(): array
         'DB_USERNAME' => (string) config("database.connections.{$name}.username"),
         'DB_PASSWORD' => (string) config("database.connections.{$name}.password"),
     ], fn (string $value): bool => $value !== '') + array_filter($_SERVER, 'is_string');
+}
+
+/**
+ * Hides the comment as another moderator would, at the moment the action under
+ * test locks its moderator's row: after the page's own check that the comment
+ * is visible, before the action locks the comment. The returned closure says
+ * whether that has happened.
+ *
+ * @return Closure(): bool
+ */
+function hideCommentOnceTheModeratorIsLocked(Comment $comment): Closure
+{
+    $landed = false;
+
+    DB::listen(function (QueryExecuted $query) use ($comment, &$landed): void {
+        // Identifier quoting is stripped rather than matched: PostgreSQL quotes
+        // "users", MariaDB `users`.
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (! $landed && preg_match('/\bfrom users\b/', $sql) === 1 && str_contains($sql, 'for update')) {
+            $landed = true;
+            DB::table('comments')->where('id', $comment->id)->update(['status' => CommentStatus::Hidden->value]);
+        }
+    });
+
+    return function () use (&$landed): bool {
+        return $landed;
+    };
 }
 
 /**
