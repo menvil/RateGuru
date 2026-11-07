@@ -4,6 +4,7 @@ namespace App\Actions\Auth;
 
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -15,14 +16,17 @@ final class ResetPasswordAction
 {
     use LocksActorForWrite;
 
-    /** @param array{token: string, email: string, password: string} $validated */
-    public function execute(array $validated): string
+    /**
+     * @param  array{token: string, email: string, password: string}  $validated
+     * @param  User|null  $signedIn  the account this session is signed in to: kept as the reset left it when it is the one reset, so the caller can keep this session current
+     */
+    public function execute(array $validated, ?User $signedIn = null): string
     {
         $terminalRejected = false;
 
         $status = Password::reset(
             $validated,
-            function (User $user) use ($validated, &$terminalRejected): void {
+            function (User $user) use ($validated, $signedIn, &$terminalRejected): void {
                 // The broker-provided instance may be stale: anonymization
                 // can commit between token validation and this write. Lock
                 // the row by immutable primary key and require an account
@@ -39,6 +43,9 @@ final class ResetPasswordAction
                     $locked->forceFill([
                         'password' => Hash::make($validated['password']),
                         'remember_token' => Str::random(60),
+                        // A reset proves control of the mailbox, not of
+                        // whoever is signed in: every existing session ends.
+                        'session_generation' => SessionGeneration::next(),
                     ])->save();
 
                     return $locked;
@@ -48,6 +55,10 @@ final class ResetPasswordAction
                     $terminalRejected = true;
 
                     return;
+                }
+
+                if ($signedIn !== null && (int) $signedIn->getKey() === (int) $written->getKey()) {
+                    $signedIn->setRawAttributes($written->getAttributes(), true);
                 }
 
                 // The written row, not the broker's instance: $user still holds

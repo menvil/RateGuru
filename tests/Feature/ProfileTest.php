@@ -22,6 +22,7 @@ test('profile information can be updated', function () {
             'name' => 'Test User',
             'username' => 'test_user',
             'email' => 'test@example.com',
+            'current_password' => 'password',
         ]);
 
     $response
@@ -34,6 +35,36 @@ test('profile information can be updated', function () {
     $this->assertSame('test_user', $user->username);
     $this->assertSame('test@example.com', $user->email);
     $this->assertNull($user->email_verified_at);
+});
+
+test('changing the email takes the account\'s password, and only the email does', function () {
+    $user = User::factory()->create(['email' => 'kept@example.com', 'username' => 'kept_user']);
+
+    // A session left open somewhere cannot move the account to another mailbox.
+    foreach ([[], ['current_password' => 'not-the-password']] as $given) {
+        $this->actingAs($user)
+            ->patch('/profile', ['name' => 'Kept', 'username' => 'kept_user', 'email' => 'taken-over@example.com', ...$given])
+            ->assertSessionHasErrors('current_password');
+
+        expect($user->fresh()->email)->toBe('kept@example.com');
+    }
+
+    // The name and the username alone need no password.
+    $this->actingAs($user)
+        ->patch('/profile', ['name' => 'Renamed', 'username' => 'kept_user', 'email' => 'kept@example.com'])
+        ->assertSessionHasNoErrors();
+
+    expect($user->fresh()->name)->toBe('Renamed');
+});
+
+test('an account with no password yet changes its email without one', function () {
+    $user = User::factory()->create(['email' => 'social@example.com', 'username' => 'social_user', 'password' => null]);
+
+    $this->actingAs($user)
+        ->patch('/profile', ['name' => 'Social', 'username' => 'social_user', 'email' => 'moved@example.com'])
+        ->assertSessionHasNoErrors();
+
+    expect($user->fresh()->email)->toBe('moved@example.com');
 });
 
 test('email verification status is unchanged when the email address is unchanged', function () {
@@ -114,4 +145,29 @@ test('correct password must be provided to delete account', function () {
     expect($fresh)->not->toBeNull();
     expect($fresh->status)->toBe(UserStatus::Active);
     expect($fresh->anonymized_at)->toBeNull();
+});
+
+test('a sanctioned account that may not edit its profile is told why, not shown an error page', function () {
+    $user = User::factory()->limited()->create(['name' => 'Original', 'username' => 'original_name']);
+
+    $this->actingAs($user)
+        ->patch('/profile', [
+            'name' => 'Changed',
+            'username' => $user->username,
+            'email' => $user->email,
+        ])
+        ->assertRedirect('/profile')
+        ->assertSessionHasErrors(['name' => __('ui.account_restriction.limited')]);
+
+    expect($user->fresh()->name)->toBe('Original');
+});
+
+test('bounds the password an email change takes, as the other password checks are', function () {
+    $user = User::factory()->create(['email' => 'kept@example.com', 'username' => 'kept_user']);
+
+    $this->actingAs($user)
+        ->patch('/profile', ['name' => 'Kept', 'username' => 'kept_user', 'email' => 'moved@example.com', 'current_password' => str_repeat('a', 256)])
+        ->assertSessionHasErrors(['current_password' => __('validation.max.string', ['attribute' => 'current password', 'max' => 255])]);
+
+    expect($user->fresh()->email)->toBe('kept@example.com');
 });

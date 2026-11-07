@@ -11,9 +11,12 @@ final class VerifyEmailAction
 {
     use LocksActorForWrite;
 
-    public function execute(User $user): bool
+    /**
+     * @param  string  $emailHash  the hash the verification link was signed for
+     */
+    public function execute(User $user, string $emailHash): bool
     {
-        $verified = DB::transaction(function () use ($user): bool {
+        $verified = DB::transaction(function () use ($user, $emailHash): bool {
             // The caller's instance may be stale: a verification link
             // clicked after anonymization must never restore
             // email_verified_at on a Deleted tombstone, and a Persona's
@@ -21,6 +24,14 @@ final class VerifyEmailAction
             $locked = $this->lockActor($user);
 
             if ($locked === null || ! $locked->canSignIn()) {
+                return false;
+            }
+
+            // The link proves the address it was sent to, and only that one.
+            // The request authorized it against the account as it was when
+            // the request started; an email change committed since then is
+            // a different, unproven address, and is never confirmed here.
+            if (! hash_equals(sha1($locked->getEmailForVerification()), $emailHash)) {
                 return false;
             }
 

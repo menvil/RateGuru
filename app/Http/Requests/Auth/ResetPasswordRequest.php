@@ -2,11 +2,14 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Http\Requests\Auth\Concerns\NormalizesEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules;
 
 final class ResetPasswordRequest extends FormRequest
 {
+    use NormalizesEmail;
+
     public function rules(): array
     {
         return [

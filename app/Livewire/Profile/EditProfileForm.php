@@ -3,9 +3,11 @@
 namespace App\Livewire\Profile;
 
 use App\Actions\Profile\UpdateUserProfileAction;
+use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Profile\ProfileValidationRules;
+use App\View\Components\AccountRestrictionNotice;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rules\File;
 use Livewire\Component;
@@ -59,6 +61,8 @@ class EditProfileForm extends Component
         } catch (ImageIngestException $e) {
             report($e);
             $this->submitError = __('ui.upload.error_invalid_image');
+        } catch (CannotUpdateProfileException) {
+            $this->submitError = __(AccountRestrictionNotice::messageKeyFor($user->status) ?? 'ui.account_restriction.shadowbanned');
         }
     }
 

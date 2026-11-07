@@ -19,7 +19,13 @@ class VerifyEmailController extends Controller
 
         assert($user instanceof User);
 
-        $verifyEmail->execute($user);
+        $verifyEmail->execute($user, (string) $request->route('hash'));
+
+        // Confirmed only when the address on the account now is verified: a
+        // link for an address changed since it was sent confirms nothing.
+        if (! $user->hasVerifiedEmail()) {
+            return redirect()->intended(route('dashboard', absolute: false));
+        }
 
         return redirect()->intended(route('dashboard', absolute: false).'?verified=1');
     }
