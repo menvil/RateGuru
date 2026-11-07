@@ -24,12 +24,13 @@ use function sprintf;
 /**
  * Account deletion means anonymization (AnonymizeUserAccountAction), never
  * a physical users-row delete: the tombstone row is what keeps every
- * community FK (posts, comments, votes, reports) valid. This rule bans
- * every way to delete one — on a user ($user->delete(), forceDelete(),
- * deleteQuietly(), deleteOrFail()), on a query or relation of users
- * (User::where(...)->delete(), truncate()) and on the class (User::destroy(),
- * forceDestroy(), truncate()) — everywhere in app code. There is deliberately
- * no exception list.
+ * community FK (posts, comments, votes, reports) valid. This rule bans the
+ * Eloquent ways to delete one — on a user ($user->delete(), forceDelete(),
+ * deleteQuietly(), forceDeleteQuietly(), deleteOrFail()), on an Eloquent
+ * query or relation of users (User::where(...)->delete(), truncate()) and on
+ * the class (User::destroy(), forceDestroy(), truncate()) — everywhere in app
+ * code. There is deliberately no exception list. The query builder underneath
+ * and raw SQL are the database facade and raw query rules' to refuse.
  *
  * @implements Rule<CallLike>
  */
