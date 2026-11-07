@@ -110,6 +110,23 @@ it('creates a persona in the drawer from the top bar, its username made from its
         ->and($persona->personaProfile->character)->toBe('Complains, then helps.');
 });
 
+it('leaves a click with a modifier key on an editor link to the browser, to open it in a new tab', function () {
+    $page = visitAdminEditor('/admin/personas');
+    $link = "document.querySelector('#rg-admin-persona-{$this->persona->id} .rg-admin-table__name')";
+
+    // What the page did with the click, read after its own handlers; the
+    // test then stops the browser following the link itself.
+    $page->script("document.addEventListener('click', (event) => { window.rgPrevented = event.defaultPrevented; event.preventDefault() }, { once: true })");
+    $page->script("{$link}.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }))");
+
+    expect($page->script('window.rgPrevented'))->toBeFalse();
+    proveNothingHappensFor($page, 0.5, 'the editor opening in this tab');
+    expect($page->script("document.getElementById('rg-admin-persona-editor') === null"))->toBeTrue();
+
+    $page->click("#rg-admin-persona-{$this->persona->id} .rg-admin-table__name");
+    waitForScript($page, "document.querySelector('#rg-admin-persona-editor .rg-admin-drawer__title')?.textContent.trim()", 'Edit Night Owl', 10.0);
+});
+
 it('counts the unsaved changes in the drawer, keeps nothing on Cancel, and saves from its footer', function () {
     $page = visitAdminEditor('/admin/personas');
 

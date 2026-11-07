@@ -49,6 +49,22 @@ it('draws the screen in Admin v2, with Create group in the top bar', function ()
         ->not->toContain('fi-ta');
 });
 
+it('explains every state a slot can be drawn in, an active option above the maximum included', function () {
+    ratingGroupWith(2);
+
+    $html = $this->get(ManageRatingGroups::getUrl())->assertOk()->getContent();
+
+    preg_match_all('/rg-admin-range-slots__slot--([a-z]+)" aria-hidden="true"><\/span>([^<]+)<\/li>/', $html, $legend, PREG_SET_ORDER);
+
+    expect(collect($legend)->mapWithKeys(fn (array $item): array => [$item[1] => trim($item[2])])->all())->toBe([
+        'active' => 'Active option',
+        'allowed' => 'Allowed, unused',
+        'required' => 'Required, missing',
+        'over' => 'Active, above maximum',
+        'outside' => 'Above maximum, unused',
+    ]);
+});
+
 it('lists every group in the order post pages show them, its options by state, its votes and its range', function () {
     $photo = ratingGroupWith(3, ['label' => 'Photo', 'sort_order' => 2, 'min_options' => 3, 'max_options' => 5], archived: 1);
     $cuteness = ratingGroupWith(4, ['label' => 'Cuteness', 'sort_order' => 1, 'min_options' => 2, 'max_options' => 4]);

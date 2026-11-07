@@ -1,6 +1,8 @@
 <?php
 
 use App\Actions\Translations\DiscardProjectTranslationGenerationAction;
+use App\Actions\Translations\UpdateProjectTranslationAction;
+use App\Models\User;
 use Illuminate\Support\Facades\Queue;
 
 /*
@@ -337,6 +339,62 @@ it('asks before saving all generated, saves nothing on Cancel and everything on 
         ->and(translationScreen($page)['stats'])->not->toBe($before)
         ->and(missingRowsInPage($page))->toBe([])
         ->and(generationScreen($page)['saveAll'])->toBeNull();
+});
+
+it('says a Save all that every row skipped saved none, and shows what was saved meanwhile', function () {
+    Queue::fake();
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+    generateMissingInPage($page);
+    runTranslationGenerationJobsAndPoll($page);
+    $missing = missingRowsInPage($page);
+    eventually(fn () => expect(translationAiState($page, $missing[0])['state'])->toBe(['AI suggestion · not saved']), 8);
+
+    // Another administrator translates every one of them meanwhile.
+    $other = User::factory()->admin()->create();
+    foreach ($missing as $unit) {
+        app(UpdateProjectTranslationAction::class)->handle($other, $unit, $this->target, "Theirs {$unit}");
+    }
+
+    $page->script("[...document.querySelectorAll('.rg-admin-translation-center__actions button')].find((button) => button.innerText.trim().startsWith('Save all generated')).click()");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Cancel');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('0 translations saved · '.count($missing).' skipped'), 8);
+    eventually(fn () => expect(translationAiState($page, $missing[0])['state'])->toBe(['Saved']), 8);
+});
+
+it('holds the rows it saves read-only until Save all answers, so nothing typed meanwhile is written over', function () {
+    Queue::fake();
+    $dogs = ($this->unit)($this->dogs);
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+    generateMissingInPage($page);
+    runTranslationGenerationJobsAndPoll($page);
+    eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
+
+    // A Save all that answers only when told to.
+    $page->script(<<<'JS'
+        (() => {
+            const data = Alpine.$data(document.querySelector('.rg-admin-translation-center'))
+            const wire = data.server()
+            data.server = () => new Proxy(wire, { get: (target, key) => key === 'saveAllGenerated'
+                ? () => new Promise((resolve) => (window.rgAnswerSaveAll = resolve))
+                : target[key] })
+        })()
+    JS);
+    $page->script("[...document.querySelectorAll('.rg-admin-translation-center__actions button')].find((button) => button.innerText.trim().startsWith('Save all generated')).click()");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Cancel');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+    waitForScript($page, 'typeof window.rgAnswerSaveAll', 'function');
+
+    $field = "document.querySelector('[data-unit=\"{$dogs}\"] input, [data-unit=\"{$dogs}\"] textarea')";
+
+    expect($page->script("{$field}.readOnly"))->toBeTrue();
+
+    $page->script("window.rgAnswerSaveAll({ saved: false, error: 'Not saved.' })");
+
+    waitForScript($page, "{$field}.readOnly", false);
 });
 
 it('keeps every draft when the server cannot be reached, and catches up once it can', function () {

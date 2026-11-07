@@ -202,6 +202,18 @@ it('offers the models that have history, and the configured model before it has 
         ->and($html)->not->toContain('gpt-4.1-mini')->not->toContain('gpt-4o-mini')->not->toContain('gpt-4.1<');
 });
 
+it('draws the model combobox afresh when Refresh brings a new model, so its search knows it', function () {
+    translationAiCall('2026-10-12 09:00:00', ['model' => 'gpt-5-luna-2026-05-01']);
+    $key = fn (Testable $page): string => (string) livewireDom($page)->query("//*[contains(@class, 'rg-admin-translation-ai__model')]")->item(0)?->getAttribute('wire:key');
+    $page = translationAiScreen();
+    $before = $key($page);
+
+    translationAiCall('2026-10-12 10:00:00', ['model' => 'gpt-7-sol']);
+    $page->call('refreshDiagnostics');
+
+    expect($key($page))->not->toBe($before)->not->toBe('');
+});
+
 it('marks the configured model as reported by its provider, a dated snapshot included, and adds no second entry for it', function () {
     translationAiCall('2026-10-12 09:00:00', ['model' => 'gpt-6-luna-2026-09-01']);
     translationAiCall('2026-09-01 09:00:00', ['model' => 'gpt-5-luna']);

@@ -18,8 +18,8 @@
     x-show="matches($el.dataset.search)"
 >
     <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
-        {{-- A real link to the drawer, so it opens in a new tab too; a click opens it in place. --}}
-        <a href="{{ $row['url'] }}" class="rg-admin-taxonomy__name" wire:click.prevent="edit({{ $row['id'] }})">{{ $row['name'] }}</a>
+        {{-- A real link to the drawer, so it opens in a new tab too — a click with a modifier key is left to the browser; a plain click opens it in place. --}}
+        <a href="{{ $row['url'] }}" class="rg-admin-taxonomy__name" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.edit({{ $row['id'] }}) }">{{ $row['name'] }}</a>
         @include('filament.pages.taxonomy.chips', ['chips' => $row['chips'], 'missing' => $row['missing']])
     </div>
 

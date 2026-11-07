@@ -51,6 +51,8 @@
         },
     }"
     x-effect="$store.adminEditor.changes = rgAdminEditorChanges($wire.data, $wire.saved)"
+    {{-- Its Translate links and the other admin pages are plain links: leaving asks first while anything is unsaved, as the other editors do. --}}
+    x-on:beforeunload.window="if (rgAdminEditorChanges($wire.data, $wire.saved) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
 

@@ -127,7 +127,8 @@
                 @foreach ($row['links'] as $link)
                     <x-admin.ui.button size="sm" icon="arrow-up-right" :href="$link['url']" target="_blank" rel="noopener">{{ $link['label'] }}</x-admin.ui.button>
                 @endforeach
-                @if ($row['links'] === [] && $row['state']['label'] === 'Done')
+                {{-- A vote or an answer writes nothing of its own to link to. --}}
+                @if ($row['links'] === [] && $row['writes'] && $row['state']['label'] === 'Done')
                     <span class="rg-admin-table__meta rg-admin-table__meta--small">What it wrote isn’t on the site now.</span>
                 @endif
             </div>

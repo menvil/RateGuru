@@ -23,7 +23,9 @@
     class="rg-admin-reports__panel"
     aria-labelledby="rg-admin-report-panel-title"
     wire:key="report-panel-{{ $detail['id'] }}"
-    x-on:keydown.escape="if (! wide) $wire.closePanel()"
+    {{-- Heard wherever the focus is — opening a report leaves it on the row —
+         unless a confirmation over the panel takes Escape for itself. --}}
+    x-on:keydown.escape.window="if (! wide && ! document.querySelector('.rg-admin-dialog')) $wire.closePanel()"
 >
     <div class="rg-admin-card rg-admin-reports__card">
         <div class="rg-admin-reports__head">

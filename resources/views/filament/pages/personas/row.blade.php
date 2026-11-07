@@ -6,7 +6,8 @@
      * engagement and how many replies a day it may write. Edit is inline; the
      * row menu (TBL-04) leads to its editor, its public profile and its
      * moderation in Users. Each link is an address of its own too, so it can
-     * open in a new tab.
+     * open in a new tab: a plain click opens the editor here, and one with a
+     * modifier key is left to the browser.
      */
     $id = 'rg-admin-persona-'.$row['id'];
     $character = trim(implode(' · ', array_filter([$row['style'], 'Emoji: '.$row['emoji']])));
@@ -23,7 +24,7 @@
                 @endif
             </span>
             <div class="rg-admin-table__stack">
-                <a href="{{ $row['editUrl'] }}" wire:click.prevent="editPersona({{ $row['id'] }})" class="rg-admin-table__name rg-admin-table__name--link rg-admin-table__ellipsis">{{ $row['name'] }}</a>
+                <a href="{{ $row['editUrl'] }}" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.editPersona({{ $row['id'] }}) }" class="rg-admin-table__name rg-admin-table__name--link rg-admin-table__ellipsis">{{ $row['name'] }}</a>
                 <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ '@'.$row['username'] }}</span>
             </div>
         </div>
@@ -49,11 +50,11 @@
     <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ number_format($row['replies']) }}</div>
 
     <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
-        <x-admin.ui.button size="sm" :href="$row['editUrl']" wire:click.prevent="editPersona({{ $row['id'] }})">Edit<span class="rg-admin-sr-only"> {{ $row['name'] }}</span></x-admin.ui.button>
+        <x-admin.ui.button size="sm" :href="$row['editUrl']" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.editPersona({{ $row['id'] }}) }">Edit<span class="rg-admin-sr-only"> {{ $row['name'] }}</span></x-admin.ui.button>
 
         <x-admin.ui.row-menu :id="$id.'-actions'" :label="'Actions for '.$row['name']">
             <p class="rg-admin-menu__caption">{{ $row['name'] }} · {{ $row['status']['label'] }}</p>
-            <x-admin.ui.menu-item icon="pencil" :href="$row['editUrl']" wire:click.prevent="editPersona({{ $row['id'] }})">Edit persona</x-admin.ui.menu-item>
+            <x-admin.ui.menu-item icon="pencil" :href="$row['editUrl']" x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.editPersona({{ $row['id'] }}) }">Edit persona</x-admin.ui.menu-item>
             <x-admin.ui.menu-item icon="arrow-up-right" :href="$row['profileUrl']" target="_blank" rel="noopener">View public profile</x-admin.ui.menu-item>
             @if ($row['usersUrl'] !== null)
                 <x-admin.ui.menu-item icon="users" :href="$row['usersUrl']" hint="Limit, ban or restore access">Moderate in Users</x-admin.ui.menu-item>

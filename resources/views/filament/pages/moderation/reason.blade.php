@@ -27,9 +27,16 @@
 
 @if ($acknowledge !== null)
     <div>
-        <x-admin.ui.checkbox :label="$acknowledge" id="rg-admin-moderation-acknowledge" wire:model="acknowledged" :aria-invalid="$errors->has('acknowledged') ? 'true' : null" />
+        {{-- The message is the box's description, as a field's error is its field's. --}}
+        <x-admin.ui.checkbox
+            :label="$acknowledge"
+            id="rg-admin-moderation-acknowledge"
+            wire:model="acknowledged"
+            :aria-invalid="$errors->has('acknowledged') ? 'true' : null"
+            :aria-describedby="$errors->has('acknowledged') ? 'rg-admin-moderation-acknowledge-error' : null"
+        />
         @error('acknowledged')
-            <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" />{{ $message }}</p>
+            <p id="rg-admin-moderation-acknowledge-error" class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" />{{ $message }}</p>
         @enderror
     </div>
 @endif

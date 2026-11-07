@@ -56,6 +56,7 @@
             // through it, every later call — a poll's included — would reach no component and answer
             // nothing, and a toast would be raised where no one listens.
             server: null,
+            destroyed: false,
             notify: null,
 
             init() {
@@ -105,6 +106,8 @@
                 })
             },
             destroy() {
+                // A read already on its way answers a screen that is gone: it must arm no timer.
+                this.destroyed = true
                 clearTimeout(this.pollTimer)
                 document.removeEventListener('visibilitychange', this.onVisibility)
             },
@@ -645,7 +648,7 @@
             schedulePoll(delay = 1000) {
                 clearTimeout(this.pollTimer)
 
-                if (this.generationRunning) {
+                if (this.generationRunning && ! this.destroyed) {
                     this.pollTimer = setTimeout(() => this.poll(), delay)
                 }
             },
@@ -665,6 +668,10 @@
                     result = await this.server().generationStatus(this.locale, this.generation?.version ?? null)
                 } catch (failure) {
                     result = null
+                }
+
+                if (this.destroyed) {
+                    return
                 }
 
                 if (! result?.read) {
@@ -727,6 +734,8 @@
 
                 this.generationBusy = true
                 this.announce(`Saving ${this.figure(units.length)} generated ${this.label} translations…`)
+                // Read-only while they are saved: a draft typed meanwhile would be written over.
+                units.forEach((id) => (this.units[id].saving = true))
 
                 try {
                     result = await this.server().saveAllGenerated(this.locale, batch, units)
@@ -734,6 +743,7 @@
                     result = null
                 }
 
+                units.forEach((id) => (this.units[id].saving = false))
                 this.generationBusy = false
 
                 if (! result?.saved) {
@@ -746,7 +756,7 @@
                 this.applySaved(result)
 
                 const outdated = result.results.filter((item) => item.outcome === 'source_changed').length
-                const parts = [`${this.figure(result.saved)} ${result.saved === 1 ? 'translation' : 'translations'} saved`]
+                const parts = [`${this.figure(result.count)} ${result.count === 1 ? 'translation' : 'translations'} saved`]
 
                 outdated > 0 && parts.push(`${this.figure(outdated)} outdated`)
                 result.skipped - outdated > 0 && parts.push(`${this.figure(result.skipped - outdated)} skipped`)
@@ -907,14 +917,14 @@
             switchTo(code) {
                 const from = this.locale
 
-                this.dropVolatile()
                 clearTimeout(this.pollTimer)
                 this.switching = true
                 window.rgAdminTranslationCenterRefocus = true
 
-                // On success the server draws the new language and this component is replaced. A request
-                // that fails changes nothing there, so the screen stays usable on the language it shows.
-                Promise.resolve(this.server().$set('locale', code)).catch(() => {
+                // On success the server draws the new language and this component is replaced, its
+                // drafts dropped with it. A request that fails changes nothing there, so the screen
+                // stays usable on the language it shows — the drafts it holds included.
+                Promise.resolve(this.server().$set('locale', code)).then(() => this.dropVolatile(), () => {
                     this.server().$set('locale', from, false)
                     this.switching = false
                     delete window.rgAdminTranslationCenterRefocus
