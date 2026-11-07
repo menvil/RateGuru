@@ -1,0 +1,21 @@
+tests/Feature/Filament/ModerationFinalizeUiTest.php
+  s_0f80700cf0b8c6::t_08a8998b3a7aea 82-85
+resources/views/filament/pages/moderation/reason.blade.php
+  s_0f80700cf0b8c6::t_08a8998b3a7aea 30-37,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61da55aa9655883cedee7dd6f63d4bfe82896eab",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
