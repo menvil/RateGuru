@@ -2,6 +2,8 @@
 
 use App\Enums\ImportProvider;
 use App\Support\Import\Adapters\OpenGraphImportAdapter;
+use App\Support\Import\Dns\HostResolver;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -109,4 +111,34 @@ it('takes a second og:image, in Open Graph\'s array form, when the first is one 
 
     expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)
         ->toBe('https://example.com/b.jpg');
+});
+
+it('gives the image candidates one lookup budget, and shows the preview without an image past it', function () {
+    config(['import.timeout_seconds' => 5]);
+    $images = collect(range(1, 9))->map(fn (int $n): string => "<meta property=\"og:image\" content=\"https://slow{$n}.example.net/a.jpg\">")->implode('')
+        .'<meta property="og:image" content="https://example.com/fine.jpg">';
+    Http::fake(['example.com/page' => Http::response("<head>{$images}</head>", 200, ['Content-Type' => 'text/html'])]);
+
+    // Each slow host takes two seconds to fail to resolve.
+    $resolver = new class implements HostResolver
+    {
+        /** @var list<string> */
+        public array $looked = [];
+
+        public function resolve(string $host): array
+        {
+            if ($host === 'example.com') {
+                return ['93.184.216.34'];
+            }
+
+            $this->looked[] = $host;
+            Carbon::setTestNow(now()->addSeconds(2));
+
+            return [];
+        }
+    };
+    app()->instance(HostResolver::class, $resolver);
+
+    expect(app(OpenGraphImportAdapter::class)->preview('https://example.com/page')->imageUrl)->toBeNull()
+        ->and($resolver->looked)->toBe(['slow1.example.net', 'slow2.example.net', 'slow3.example.net']);
 });
