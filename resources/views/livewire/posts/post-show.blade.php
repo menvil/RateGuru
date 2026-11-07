@@ -123,6 +123,7 @@
                         <livewire:voting.rating-voting
                             :post="$post"
                             :group-key="$ratingGroup->key"
+                            :group="$ratingGroup"
                             :variant="$ratingGroup->options->count() <= 2 ? 'default' : 'compact'"
                             :key="'post-show-rating-'.$ratingGroup->key.'-'.$post->id"
                         />

@@ -5,7 +5,7 @@
     x-on:keydown.space.stop
     class="{{ $variant === 'rail' ? 'flex flex-col items-center gap-1' : ($variant === 'pill' ? 'flex flex-col items-start gap-1' : 'flex flex-wrap items-center gap-2') }}"
 >
-    @if($post === null)
+    @if(! $available)
         <span data-testid="post-voting-unavailable" class="text-xs text-rg-muted">{{ __('ui.voting.unavailable') }}</span>
     @else
     @php
@@ -30,7 +30,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
-                data-testid="post-upvote-button-{{ $post->id }}"
+                data-testid="post-upvote-button-{{ $postId }}"
                 class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
@@ -40,7 +40,7 @@
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text2') }} text-[13px] font-bold"
                 title="{{ __('ui.voting.score') }}"
                 aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
-                data-testid="post-upvote-count-{{ $post->id }}"
+                data-testid="post-upvote-count-{{ $postId }}"
             >
                 {{ $score }}
             </span>
@@ -54,7 +54,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
-                data-testid="post-downvote-button-{{ $post->id }}"
+                data-testid="post-downvote-button-{{ $postId }}"
                 class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-1 transition hover:bg-rg-card2 hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
@@ -71,7 +71,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $upActive ? 'true' : 'false' }}"
                 data-state="{{ $upActive ? 'active' : 'idle' }}"
-                data-testid="post-upvote-button-{{ $post->id }}"
+                data-testid="post-upvote-button-{{ $postId }}"
                 class="{{ $upActive ? 'text-rg-good' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-0.5 transition hover:text-rg-good focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-up" class="size-4" />
@@ -81,7 +81,7 @@
                 class="{{ $upActive ? 'text-rg-good' : ($downActive ? 'text-rg-accent2' : 'text-rg-text') }} min-w-4 text-center text-[13px] font-bold"
                 title="{{ __('ui.voting.score') }}"
                 aria-label="{{ __('ui.a11y.score', ['score' => $score]) }}"
-                data-testid="post-upvote-count-{{ $post->id }}"
+                data-testid="post-upvote-count-{{ $postId }}"
             >
                 {{ $score }}
             </span>
@@ -95,7 +95,7 @@
                 @disabled($votingDisabled)
                 aria-pressed="{{ $downActive ? 'true' : 'false' }}"
                 data-state="{{ $downActive ? 'active' : 'idle' }}"
-                data-testid="post-downvote-button-{{ $post->id }}"
+                data-testid="post-downvote-button-{{ $postId }}"
                 class="{{ $downActive ? 'text-rg-accent2' : 'text-rg-muted' }} cursor-pointer rounded-rgSm p-0.5 transition hover:text-rg-accent2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <x-ui.icon name="arrow-down" class="size-4" />
@@ -111,14 +111,14 @@
         @disabled($votingDisabled)
         aria-pressed="{{ $upActive ? 'true' : 'false' }}"
         data-state="{{ $upActive ? 'active' : 'idle' }}"
-        data-testid="post-upvote-button-{{ $post->id }}"
+        data-testid="post-upvote-button-{{ $postId }}"
         class="{{ $baseClass }} {{ $upClass }}"
     >
-        <span wire:loading.remove wire:target="vote">▲ {{ __('ui.voting.up') }} {{ $post->upvotes_count }}</span>
+        <span wire:loading.remove wire:target="vote">▲ {{ __('ui.voting.up') }} {{ $upvotes }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
 
-    <span class="sr-only" data-testid="post-upvote-count-{{ $post->id }}">{{ $post->upvotes_count }}</span>
+    <span class="sr-only" data-testid="post-upvote-count-{{ $postId }}">{{ $upvotes }}</span>
 
     <button
         type="button"
@@ -129,10 +129,10 @@
         @disabled($votingDisabled)
         aria-pressed="{{ $downActive ? 'true' : 'false' }}"
         data-state="{{ $downActive ? 'active' : 'idle' }}"
-        data-testid="post-downvote-button-{{ $post->id }}"
+        data-testid="post-downvote-button-{{ $postId }}"
         class="{{ $baseClass }} {{ $downClass }}"
     >
-        <span wire:loading.remove wire:target="vote">▼ {{ __('ui.voting.down') }} {{ $post->downvotes_count }}</span>
+        <span wire:loading.remove wire:target="vote">▼ {{ __('ui.voting.down') }} {{ $downvotes }}</span>
         <span wire:loading wire:target="vote">…</span>
     </button>
     @endif

@@ -12,6 +12,9 @@ final class PostCard extends Component
 {
     public array $ratingVotingState = [];
 
+    /** @var array{vote: ?string, saved: bool, canVote: bool}|array{} what the list read for this card's buttons; empty reads it in them */
+    public array $viewerState = [];
+
     /** @var Collection<int, RatingGroup> */
     public Collection $ratingGroups;
 
@@ -28,12 +31,14 @@ final class PostCard extends Component
         public bool $selected = false,
         public bool $eagerImage = false,
         array $ratingVotingState = [],
+        array $viewerState = [],
         ?Collection $ratingGroups = null,
         bool $canDeletePost = false,
         bool $canReportPost = false,
         bool $canModeratePost = false,
     ) {
         $this->ratingVotingState = $ratingVotingState;
+        $this->viewerState = $viewerState;
         $this->ratingGroups = $ratingGroups ?? new Collection;
         $this->canDeletePost = $canDeletePost;
         $this->canReportPost = $canReportPost;
