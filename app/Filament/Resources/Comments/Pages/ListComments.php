@@ -19,6 +19,7 @@ use App\Filament\Support\ModerationListFormat;
 use App\Models\Comment;
 use App\Models\User;
 use App\Queries\Comments\ModerationCommentsQuery;
+use App\Support\Moderation\ModerationReason;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Auth;
@@ -146,7 +147,8 @@ final class ListComments extends Page
         $finalizing = $action === 'finalize';
 
         // Held to its limits as it is stored: without the spaces at its ends.
-        $this->reason = trim($this->reason);
+        // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
+        $this->reason = ModerationReason::normalize($this->reason);
 
         $this->validate(
             [
@@ -161,7 +163,7 @@ final class ListComments extends Page
             ],
         );
 
-        $reason = trim($this->reason) !== '' ? trim($this->reason) : null;
+        $reason = $this->reason !== '' ? $this->reason : null;
         $comment = app(ModerationCommentsQuery::class)->find($id);
 
         $this->closeConfirmation();

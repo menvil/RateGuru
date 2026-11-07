@@ -13,6 +13,7 @@ use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\User;
 use App\Queries\Users\ModerationUsersQuery;
+use App\Support\Moderation\ModerationReason;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
 
@@ -72,7 +73,8 @@ trait ModeratesUsers
         ['kind' => $kind, 'id' => $id] = $this->sanction;
 
         // Held to its limits as it is stored: without the spaces at its ends.
-        $this->reason = trim($this->reason);
+        // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
+        $this->reason = ModerationReason::normalize($this->reason);
 
         $this->validate(
             ['reason' => ['nullable', 'string', 'min:3', 'max:'.self::REASON_LIMIT]],
@@ -82,7 +84,7 @@ trait ModeratesUsers
             ],
         );
 
-        $reason = trim($this->reason) !== '' ? trim($this->reason) : null;
+        $reason = $this->reason !== '' ? $this->reason : null;
         $person = User::query()->find($id);
         $this->closeConfirmation();
 

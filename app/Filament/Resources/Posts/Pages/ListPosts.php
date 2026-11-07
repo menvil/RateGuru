@@ -21,6 +21,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Queries\Posts\ModerationPostsQuery;
 use App\Support\Media\PostImagePresenter;
+use App\Support\Moderation\ModerationReason;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Auth;
@@ -233,7 +234,8 @@ final class ListPosts extends Page
         ['action' => $action, 'ids' => $ids] = $this->confirming;
 
         // Held to its limits as it is stored: without the spaces at its ends.
-        $this->reason = trim($this->reason);
+        // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
+        $this->reason = ModerationReason::normalize($this->reason);
 
         $this->validate(
             [
@@ -248,7 +250,7 @@ final class ListPosts extends Page
             ],
         );
 
-        $reason = trim($this->reason) !== '' ? trim($this->reason) : null;
+        $reason = $this->reason !== '' ? $this->reason : null;
         $posts = app(ModerationPostsQuery::class)->among($ids)->get();
         $done = [];
 

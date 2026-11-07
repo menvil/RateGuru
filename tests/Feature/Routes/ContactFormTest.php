@@ -153,4 +153,5 @@ it('refuses an address the mailer could not reply to, rather than failing in the
 })->with([
     'a comment in the address' => 'jane(work)@example.test',
     'a comment before the address' => '(work)jane@example.test',
+    'folded whitespace in a quoted name' => "\"jane\r\n doe\"@example.test",
 ]);

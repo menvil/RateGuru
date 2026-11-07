@@ -98,6 +98,21 @@ it('says so, rather than failing, when a delete or hide is refused for what chan
     'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
 ]);
 
+it('says so, rather than answering 404, when the comment was deleted in another tab', function (string $method, Closure $actor) {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Soon gone', 'status' => CommentStatus::Visible]);
+    $page = Livewire::actingAs($actor($comment))->test(CommentsSection::class, ['postId' => $post->id]);
+
+    $comment->delete();
+
+    $page->call($method, $comment->id)
+        ->assertOk()
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'));
+})->with([
+    'its author deleting it' => ['deleteComment', fn (Comment $comment) => $comment->user],
+    'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
+]);
+
 it('does not render delete button for non owner', function () {
     $owner = User::factory()->create();
     $viewer = User::factory()->create();
