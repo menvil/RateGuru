@@ -4,8 +4,10 @@ namespace App\Livewire\Comments;
 
 use App\Actions\Comments\DeleteCommentAction;
 use App\Actions\Comments\HideCommentAction;
+use App\Enums\VoteType;
 use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
 use Illuminate\Contracts\View\View;
@@ -15,6 +17,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
+/** @property-read Collection<int, Comment> $comments */
 final class CommentsSection extends Component
 {
     public int $postId;
@@ -49,6 +52,41 @@ final class CommentsSection extends Component
     public function totalRenderableTopLevel(): int
     {
         return app(CommentListQuery::class)->countRenderableTopLevel($this->postId);
+    }
+
+    /**
+     * The viewer's vote on every comment the thread shows, replies included,
+     * read once for all of them.
+     *
+     * @return array<int, string>
+     */
+    #[Computed]
+    public function viewerVotes(): array
+    {
+        $user = auth()->user();
+
+        if ($user === null) {
+            return [];
+        }
+
+        $ids = $this->comments->flatMap(fn (Comment $comment): array => [$comment->id, ...$comment->replies->modelKeys()])->all();
+
+        return CommentVote::query()
+            ->where('user_id', $user->id)
+            ->whereIn('comment_id', $ids)
+            ->pluck('type', 'comment_id')
+            ->map(fn (VoteType|string $type): string => $type instanceof VoteType ? $type->value : $type)
+            ->all();
+    }
+
+    /** @return array{score: int, vote: ?string, own: bool} */
+    public function votingStateFor(Comment $comment): array
+    {
+        return [
+            'score' => (int) $comment->score,
+            'vote' => $this->viewerVotes[$comment->id] ?? null,
+            'own' => auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+        ];
     }
 
     public function loadMore(): void

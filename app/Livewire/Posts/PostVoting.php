@@ -8,6 +8,7 @@ use App\Exceptions\Votes\CannotVoteException;
 use App\Models\Post;
 use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -19,6 +20,26 @@ final class PostVoting extends Component
     public string $variant = 'buttons';
 
     public string $error = '';
+
+    /**
+     * What the list that drew this card already read for the whole page —
+     * the counts, the viewer's vote, whether they may vote — so the first
+     * render asks nothing of its own. Dropped once anything here changes.
+     */
+    #[Locked]
+    public bool $hasPreloadedState = false;
+
+    #[Locked]
+    public int $preloadedUpvotes = 0;
+
+    #[Locked]
+    public int $preloadedDownvotes = 0;
+
+    #[Locked]
+    public ?string $preloadedVote = null;
+
+    #[Locked]
+    public bool $preloadedCanVote = false;
 
     public function getPostProperty(): ?Post
     {
@@ -77,6 +98,7 @@ final class PostVoting extends Component
         }
 
         unset($this->post);
+        $this->hasPreloadedState = false;
 
         $this->dispatch('post-voted', postId: $this->postId);
     }
@@ -86,28 +108,39 @@ final class PostVoting extends Component
     {
         if ($postId === $this->postId) {
             unset($this->post);
+            $this->hasPreloadedState = false;
         }
     }
 
     public function render(): View
     {
-        $post = $this->post;
-        $currentVote = null;
-
-        if ($post !== null) {
-            $currentVote = $this->currentVoteFor($post)?->value;
+        if ($this->hasPreloadedState) {
+            return $this->voting(true, $this->preloadedUpvotes, $this->preloadedDownvotes, $this->preloadedVote, $this->preloadedCanVote);
         }
 
+        $post = $this->post;
         $user = auth()->user();
-        $canVote = $post !== null && ($user === null || $user->can('vote', $post));
 
+        return $this->voting(
+            $post !== null,
+            (int) $post?->upvotes_count,
+            (int) $post?->downvotes_count,
+            $post !== null ? $this->currentVoteFor($post)?->value : null,
+            $post !== null && ($user === null || $user->can('vote', $post)),
+        );
+    }
+
+    private function voting(bool $available, int $upvotes, int $downvotes, ?string $currentVote, bool $canVote): View
+    {
         return view('livewire.posts.post-voting', [
-            'post' => $post,
+            'available' => $available,
+            'upvotes' => $upvotes,
+            'downvotes' => $downvotes,
             'currentVote' => $currentVote,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
             'votingDisabled' => ! $canVote,
-            'score' => (int) $post?->score,
+            'score' => $upvotes - $downvotes,
         ]);
     }
 

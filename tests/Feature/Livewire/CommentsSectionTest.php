@@ -5,6 +5,8 @@ use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 it('can render comments section component', function () {
@@ -386,4 +388,26 @@ it('targets refreshComments in the loading state', function () {
 
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
         ->assertSee('wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"', false);
+});
+
+it('reads the viewer\'s comment votes for the whole thread at once', function () {
+    $viewer = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $queriesOn = function (int $comments) use ($viewer, $post): int {
+        Comment::query()->where('post_id', $post->id)->forceDelete();
+        Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible]);
+        $queries = 0;
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            if (str_contains(str_replace(['"', '`'], '', $query->sql), 'from comment_votes')) {
+                $queries++;
+            }
+        });
+
+        Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id])->set('visibleCount', 20);
+
+        return $queries;
+    };
+
+    expect($queriesOn(2))->toBe($queriesOn(8));
 });

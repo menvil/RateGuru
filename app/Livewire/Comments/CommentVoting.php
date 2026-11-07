@@ -7,7 +7,7 @@ use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Services\Comments\CommentVotingService;
 use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
-use Livewire\Attributes\On;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 final class CommentVoting extends Component
@@ -15,6 +15,23 @@ final class CommentVoting extends Component
     public int $commentId;
 
     public string $error = '';
+
+    /**
+     * What the thread already read for every comment it shows — the score,
+     * the viewer's vote, whether it is the viewer's own — so the first render
+     * asks nothing of its own. Dropped once a vote changes it.
+     */
+    #[Locked]
+    public bool $hasPreloadedState = false;
+
+    #[Locked]
+    public int $preloadedScore = 0;
+
+    #[Locked]
+    public ?string $preloadedVote = null;
+
+    #[Locked]
+    public bool $preloadedOwn = false;
 
     public function vote(string $type, CommentVotingService $commentVotingService, GuestVoteAttemptLog $guestVoteAttempts): void
     {
@@ -51,32 +68,37 @@ final class CommentVoting extends Component
             return;
         }
 
-        $this->dispatch('comment-voted', commentId: $this->commentId);
-    }
+        $this->hasPreloadedState = false;
 
-    #[On('comment-voted')]
-    public function refreshAfterCommentVote(int $commentId): void
-    {
-        //
+        $this->dispatch('comment-voted', commentId: $this->commentId);
     }
 
     public function render(CommentVotingService $commentVotingService): View
     {
-        $comment = $commentVotingService->comment($this->commentId);
-        $currentVote = null;
-
-        if ($comment !== null) {
-            $currentVote = $commentVotingService->currentVote(auth()->user(), $comment->id)?->value;
+        if ($this->hasPreloadedState) {
+            return $this->voting(true, $this->preloadedScore, $this->preloadedVote, $this->preloadedOwn);
         }
 
+        $comment = $commentVotingService->comment($this->commentId);
+
+        return $this->voting(
+            $comment !== null,
+            (int) $comment?->score,
+            $comment !== null ? $commentVotingService->currentVote(auth()->user(), $comment->id)?->value : null,
+            $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+        );
+    }
+
+    private function voting(bool $available, int $score, ?string $currentVote, bool $own): View
+    {
         return view('livewire.comments.comment-voting', [
-            'comment' => $comment,
+            'available' => $available,
             'currentVote' => $currentVote,
-            'isOwnComment' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+            'isOwnComment' => $own,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
-            'score' => (int) $comment?->score,
+            'votingDisabled' => $own,
+            'score' => $score,
         ]);
     }
 }
