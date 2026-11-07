@@ -16,17 +16,26 @@ final class UnarchiveRatingOptionAction
      * Takes an option out of the archive. It comes back inactive, so the
      * group's count of active options does not change: activating it is a
      * step of its own, held to the group's maximum like any other.
+     *
+     * Only an archived option is touched — one that is not, or no longer, is
+     * left as it is rather than switched off past the group's minimum.
+     *
+     * @return bool whether the option was taken out of the archive
      */
-    public function handle(User $admin, RatingOption $option): void
+    public function handle(User $admin, RatingOption $option): bool
     {
         if (! $admin->can('update', $option)) {
             throw new AuthorizationException('User is not allowed to unarchive rating options.');
         }
 
-        $this->mutationLock->run($option->rating_group_id, function (RatingGroup $group) use ($option): void {
+        return $this->mutationLock->run($option->rating_group_id, function (RatingGroup $group) use ($option): bool {
             $locked = $group->options()->lockForUpdate()->find($option->getKey());
 
-            $locked?->update(['archived_at' => null, 'is_active' => false]);
+            if ($locked === null || $locked->archived_at === null) {
+                return false;
+            }
+
+            return $locked->update(['archived_at' => null, 'is_active' => false]);
         });
     }
 }

@@ -32,7 +32,9 @@ final class DeleteTagAction
                 return;
             }
 
-            if ($locked->posts()->exists()) {
+            // With the posts their authors deleted: they can still be
+            // restored, and deleting the tag would take it off them for good.
+            if ($locked->posts()->withTrashed()->exists()) {
                 throw CannotDeleteTagException::becauseTagIsUsedByPosts();
             }
 

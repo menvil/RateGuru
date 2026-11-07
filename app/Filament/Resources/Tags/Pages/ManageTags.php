@@ -15,6 +15,8 @@ use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Str;
 use Livewire\Attributes\On;
 
@@ -264,7 +266,9 @@ final class ManageTags extends Page
         $translate = $status->canTranslate();
 
         return $this->rows = Tag::query()
-            ->withCount('posts')
+            // Counted as DeleteTagAction counts them: a post its author
+            // deleted still holds the tag until it is purged.
+            ->withCount(['posts' => fn (Builder $posts): Builder => $posts->withoutGlobalScope(SoftDeletingScope::class)])
             ->orderByDesc('posts_count')
             ->orderBy('name')
             ->orderBy('id')

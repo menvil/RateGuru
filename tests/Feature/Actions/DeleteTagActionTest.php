@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Actions\Tags\DeleteTagAction;
 use App\Exceptions\Tags\CannotDeleteTagException;
 use App\Models\Post;
@@ -45,4 +46,23 @@ it('throws a not-allowed reason when a non-admin attempts to delete a tag', func
     }
 
     $this->assertDatabaseHas('tags', ['id' => $tag->id]);
+});
+
+it('keeps a tag whose only posts their authors deleted, since those can still be restored', function () {
+    $admin = User::factory()->admin()->create();
+    $author = User::factory()->create();
+    $tag = Tag::factory()->create();
+    $post = Post::factory()->published()->for($author)->create();
+    $post->tags()->attach($tag);
+
+    app(DeletePostAction::class)->handle($author, $post);
+
+    try {
+        app(DeleteTagAction::class)->handle($admin, $tag);
+        $this->fail('Expected CannotDeleteTagException.');
+    } catch (CannotDeleteTagException $e) {
+        expect($e->reason)->toBe(CannotDeleteTagException::REASON_USED_BY_POSTS);
+    }
+
+    $this->assertDatabaseHas('post_tag', ['post_id' => $post->id, 'tag_id' => $tag->id]);
 });

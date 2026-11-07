@@ -749,7 +749,7 @@ it('lets a rating vote run and an administrator deleting its option take turns: 
             expect($after->status)->toBe('done')
                 ->and($cast)->toBe(1)
                 ->and($deleteResult['status'])->toBe(1, $report)
-                ->and($deleteResult['output'])->toContain('Rating options with votes cannot be deleted')
+                ->and($deleteResult['output'])->toContain('Rating options with votes or author answers cannot be deleted')
                 ->and($db->table('rating_options')->where('id', $option->id)->exists())->toBeTrue();
         } else {
             expect($deleteResult['status'])->toBe(0, $report)

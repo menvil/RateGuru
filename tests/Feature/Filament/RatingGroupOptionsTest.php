@@ -211,6 +211,16 @@ it('archives an option after asking, keeping its votes, and unarchives it inacti
     expect($option->fresh())->is_active->toBeFalse()->archived_at->toBeNull();
 });
 
+it('says an option is not archived rather than switching it off past the minimum', function () {
+    [$group, [$option]] = optionsGroup(2, min: 2);
+
+    optionsEditor($group)
+        ->call('unarchiveOption', $option->id)
+        ->assertDispatched('rg-admin-toast', message: "{$option->label} is not archived.", tone: 'info');
+
+    expect($option->fresh())->is_active->toBeTrue()->archived_at->toBeNull();
+});
+
 it('deletes an unused option after asking', function () {
     [$group, [$option]] = optionsGroup(3);
 

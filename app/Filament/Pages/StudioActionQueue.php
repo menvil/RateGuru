@@ -14,6 +14,7 @@ use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioActionPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
@@ -127,7 +128,7 @@ final class StudioActionQueue extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, is_numeric($page) ? (int) $page : 1);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     public function clearFilters(): void
@@ -413,6 +414,6 @@ final class StudioActionQueue extends Page
         $this->plan = is_numeric($this->plan) && preg_match('/\A[0-9]{1,18}\z/', (string) $this->plan) === 1 ? (string) (int) $this->plan : '';
         $this->order = $this->order === 'oldest' ? 'oldest' : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
     }
 }

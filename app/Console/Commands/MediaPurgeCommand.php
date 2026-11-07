@@ -7,6 +7,7 @@ use App\Models\MediaAsset;
 use App\Services\Media\MediaLifecycleService;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaOrphanScanner;
+use App\Support\ContentLifecycle\RetentionDays;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
@@ -228,9 +229,11 @@ final class MediaPurgeCommand extends Command
             return null;
         }
 
-        $days = filter_var($raw, FILTER_VALIDATE_INT);
+        // Bounded as retention is everywhere: a grace past a century would
+        // wrap the cutoff round to today and purge everything.
+        $days = RetentionDays::tryParse((string) $raw);
 
-        if ($days === false || $days < 0) {
+        if ($days === null) {
             $this->error("Invalid --older-than value: [{$raw}].");
 
             return false;

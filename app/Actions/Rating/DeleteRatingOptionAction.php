@@ -29,9 +29,9 @@ final class DeleteRatingOptionAction
                 return;
             }
 
-            if ($locked->votes()->exists()) {
+            if ($locked->isInUse()) {
                 throw new CannotDeleteVotedRatingOptionException(
-                    'Rating options with votes cannot be deleted. Archive the option instead.',
+                    'Rating options with votes or author answers cannot be deleted. Archive the option instead.',
                 );
             }
 

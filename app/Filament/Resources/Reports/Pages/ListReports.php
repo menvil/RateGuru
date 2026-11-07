@@ -20,6 +20,7 @@ use App\Exceptions\Reports\CannotReopenReportException;
 use App\Exceptions\Reports\CannotResolveReportException;
 use App\Filament\Resources\Reports\ReportResource;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\Comment;
 use App\Models\Post;
@@ -115,7 +116,7 @@ final class ListReports extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     /** Opens a report's chain. */
@@ -264,6 +265,13 @@ final class ListReports extends Page
         $query = app(ModerationReportsQuery::class);
         $counts = $query->counts();
         $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->kind(), (int) $this->pageNumber);
+
+        // The last page emptied while earlier ones still have rows: show the
+        // last one there is, not an empty list, and say so in the address.
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->kind(), $this->pageNumber);
+        }
         $oldest = $query->oldestOpenAt();
         $current = $this->current();
 
@@ -577,10 +585,10 @@ final class ListReports extends Page
     /** Whatever a link or a forged update put here, read as something the page offers. */
     private function normalize(): void
     {
-        $this->status = array_key_exists((string) $this->status, self::TABS) ? (string) $this->status : 'open';
-        $this->type = array_key_exists((string) $this->type, self::TYPES) ? (string) $this->type : 'all';
+        $this->status = is_string($this->status) && array_key_exists($this->status, self::TABS) ? $this->status : 'open';
+        $this->type = is_string($this->type) && array_key_exists($this->type, self::TYPES) ? $this->type : 'all';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
         $this->report = is_numeric($this->report) && app(ModerationReportsQuery::class)->find((int) $this->report) !== null ? (int) $this->report : null;
     }
 }

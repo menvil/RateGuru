@@ -37,14 +37,32 @@ it('purges expired posts and skips young ones at the default retention', functio
         ->and(Post::withTrashed()->find($young->id))->not->toBeNull();
 });
 
-it('honors --older-than as a per-run retention override', function () {
+it('honors --older-than as a per-run retention override, a shorter one acknowledged with --force', function () {
     $post = authorDeletedPost(ageDays: 10);
 
-    $this->artisan('posts:purge --older-than=5')
+    $this->artisan('posts:purge --older-than=5 --force')
         ->expectsOutputToContain(sprintf('post %d: purged', $post->id))
         ->assertSuccessful();
 
     expect(Post::withTrashed()->find($post->id))->toBeNull();
+});
+
+it('refuses a destructive --older-than shorter than the configured retention without --force, deleting nothing', function () {
+    $post = authorDeletedPost(ageDays: 10);
+
+    $this->artisan('posts:purge --older-than=5')->assertFailed();
+    // A dry run needs no acknowledgement.
+    $this->artisan('posts:purge --older-than=5 --dry-run')->assertSuccessful();
+
+    expect(Post::withTrashed()->find($post->id))->not->toBeNull();
+});
+
+it('refuses a --post that names no post, rather than purging every candidate', function () {
+    $expired = authorDeletedPost(ageDays: 400);
+
+    $this->artisan('posts:purge --post')->assertFailed();
+
+    expect(Post::withTrashed()->find($expired->id))->not->toBeNull();
 });
 
 it('rejects a negative or non-numeric --older-than', function (string $value) {
