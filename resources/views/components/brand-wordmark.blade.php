@@ -4,7 +4,7 @@
     // CamelCase site name at the second capitalised segment and render the tail
     // in the accent color. A leading acronym is one segment (AI + Guru). Names
     // without an inner capitalised word render single-tone.
-    preg_match('/^(\p{Lu}+?[^\p{Lu}]*)(\p{Lu}[^\p{Lu}].*)$/u', $brandName, $brandParts);
+    preg_match('/^(\p{Lu}+[^\p{Lu}]*)(\p{Lu}[^\p{Lu}].*)$/u', $brandName, $brandParts);
 @endphp
 <span {{ $attributes }}>
     @if($brandParts !== [])

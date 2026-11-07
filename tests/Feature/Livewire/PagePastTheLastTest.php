@@ -40,3 +40,15 @@ it('shows the last page of a list asked for a page past it', function (string $l
         ->assertSet('paginators.page', 1)
         ->assertSee('The only post there is');
 })->with(['feed', 'saved', 'deleted', 'profile']);
+
+it('shows the last of several pages, not the first', function () {
+    $owner = User::factory()->create();
+    // A page more than the twelve the saved posts show at once.
+    Post::factory()->count(13)->published()->create()
+        ->each(fn (Post $post) => PostSave::factory()->create(['user_id' => $owner->id, 'post_id' => $post->id]));
+
+    Livewire::actingAs($owner)
+        ->withQueryParams(['page' => 9])
+        ->test(SavedPostsPage::class)
+        ->assertSet('paginators.page', 2);
+});

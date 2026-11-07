@@ -89,5 +89,8 @@ it('keeps its status region in the page before there is anything to say, so what
         ->test(FollowButton::class, ['author' => User::factory()->create()])
         ->html();
 
-    expect($html)->toMatch('/<span[^>]*role="status"[^>]*data-testid="follow-button-message"><\/span>/');
+    expect($html)->toMatch('/<span[^>]*role="status"[^>]*data-testid="follow-button-message"><\/span>/')
+        // Out of the layout while empty, but still in the accessibility tree: not display:none.
+        ->toMatch('/class="[^"]*\bempty:sr-only\b[^"]*"[^>]*role="status"/')
+        ->not->toContain('empty:hidden');
 });

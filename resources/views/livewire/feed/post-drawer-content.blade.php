@@ -11,7 +11,9 @@
     @if($post)
         <article
             x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false, menuId: $id('post-drawer-menu') }"
-            x-on:keydown.escape.window="menuOpen = false"
+            {{-- The open menu takes Escape first, wherever the focus is — Safari leaves it on
+                 the panel after a click — and the panel stays open: as a dialog over it does. --}}
+            x-on:keydown.escape.window.capture="if (menuOpen) { menuOpen = false; $event.stopPropagation() }"
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
             class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >
@@ -117,8 +119,7 @@
                     @endif
                 </div>
                 @if($canReportPost || $canDeletePost || $canModeratePost)
-                {{-- Escape closes the open menu here and goes no further: the panel closes on Escape too. --}}
-                <div class="relative" wire:click.stop x-on:keydown.escape="if (menuOpen) { menuOpen = false; $event.stopPropagation() }">
+                <div class="relative" wire:click.stop>
                     <button
                         type="button"
                         x-on:click="menuOpen = ! menuOpen; if (menuOpen) $dispatch('dropdown-opened', menuId)"
@@ -132,6 +133,7 @@
                         x-cloak
                         x-show="menuOpen"
                         x-on:click.outside="menuOpen = false"
+                        data-testid="post-drawer-menu"
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)

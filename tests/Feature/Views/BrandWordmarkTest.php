@@ -16,6 +16,7 @@ it('splits the site name at its second word, a leading acronym being one word', 
         : expect($html)->toContain($head.'<span class="text-rg-accent">'.$tail.'</span>');
 })->with([
     'a preset with an acronym' => ['AIGuru', 'AI', 'Guru'],
+    'an acronym and a word' => ['AI Guru', 'AI ', 'Guru'],
     'two words' => ['RateGuru', 'Rate', 'Guru'],
     'one word' => ['Guru', null, null],
 ]);

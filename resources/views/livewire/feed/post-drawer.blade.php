@@ -45,7 +45,7 @@
             }"
             {{-- The phone's panel is hidden from the desktop breakpoint up: a window widened
                  with it open must not keep the page from scrolling. --}}
-            x-init="if (@js($mobileOnly)) window.matchMedia('(min-width: 1024px)').addEventListener('change', (event) => { if (event.matches && open) { close(); $wire.closeOverlay() } })"
+            x-init="if (@js($mobileOnly)) window.matchMedia('(min-width: 1024px)').addEventListener('change', (event) => { if (event.matches && open) { close(); $wire.closeOverlay(); $dispatch('clear-selected-post') } })"
             {{-- A dialog, so the focus stays in it while it is out. --}}
             x-trap.noautofocus="open"
             {{-- Open is flipped client-side the moment the (browser-level) select-post
