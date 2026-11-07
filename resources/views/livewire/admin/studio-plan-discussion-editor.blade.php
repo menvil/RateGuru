@@ -22,6 +22,7 @@
     $notReady = match (true) {
         ! $configured => 'Discussion generation is not configured. Comments can still be written by hand.',
         ! $hasTitle => 'Save the post’s final title first: the discussion is written from it.',
+        ! $analysed && $analysisStalled => 'The photo analysis did not finish. Run it again on the Image step; the discussion is written from it.',
         ! $analysed => 'The discussion can be written once the photo’s analysis is complete.',
         default => null,
     };
@@ -338,7 +339,8 @@
 
     @if ($dialogData !== null)
         <x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="$wire.closeDialog()" x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()">
-            <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing">
+            {{-- offsetInvalid: the moment field holds no number, so Save would keep the last one — it waits. --}}
+            <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing" x-data="{ offsetInvalid: false }">
                 <div class="rg-admin-studio__dialog-header">
                     <h2 id="rg-admin-discussion-dialog-title" class="rg-admin-dialog__title">{{ $dialogData['title'] }}</h2>
                     <x-admin.ui.icon-button icon="x" label="Close" variant="ghost" size="sm" x-on:click="dismiss()" />
@@ -411,12 +413,16 @@
                             shown() { return String(Math.round((this.seconds / this.units[this.unit]) * 100) / 100) },
                             pick(unit) {
                                 $wire.$set('dialogUnit', unit, false)
+                                this.offsetInvalid = false
                                 this.$nextTick(() => { this.$refs.offset.value = this.shown() })
                             },
                             set(input) {
-                                const n = Number.parseFloat(String(input.value).replace(',', '.'))
+                                const text = String(input.value).trim().replace(',', '.')
+                                const n = text === '' ? Number.NaN : Number(text)
 
-                                if (Number.isNaN(n) || n < 0) return
+                                this.offsetInvalid = ! Number.isFinite(n) || n < 0
+
+                                if (this.offsetInvalid) return
 
                                 $wire.$set('dialogSeconds', Math.round(n * this.units[this.unit]), false)
                             },
@@ -438,14 +444,15 @@
                     >
                         <label for="rg-admin-discussion-dialog-offset" class="rg-admin-label">Appears after the post</label>
                         <div class="rg-admin-studio__offset rg-admin-studio__offset--large">
-                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown()" x-on:input="set($event.target)" />
+                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown()" x-on:input="set($event.target)" x-bind:aria-invalid="offsetInvalid ? 'true' : null" aria-describedby="rg-admin-discussion-dialog-offset-invalid" />
                             <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
                                 @foreach (array_keys($units) as $unit)
                                     <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="pick(@js($unit))">{{ $unit }}</button>
                                 @endforeach
                             </div>
                         </div>
-                        <p class="rg-admin-hint" x-bind:class="early && 'rg-admin-studio__generate-hint--danger'" x-text="hint"></p>
+                        <p class="rg-admin-hint" x-bind:class="early && 'rg-admin-studio__generate-hint--danger'" x-text="hint" x-show="! offsetInvalid"></p>
+                        <p id="rg-admin-discussion-dialog-offset-invalid" class="rg-admin-error" x-show="offsetInvalid" x-cloak><x-admin.ui.icon name="circle-alert" :size="12" /> Enter how long after the post it appears, as a number.</p>
                         @error('dialogSeconds')
                             <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
                         @enderror
@@ -459,7 +466,7 @@
                 <div class="rg-admin-dialog__footer">
                     <span class="rg-admin-dialog__footnote">Saved to this draft at once. Nothing is published.</span>
                     <x-admin.ui.button x-on:click="dismiss()">Cancel</x-admin.ui.button>
-                    <x-admin.ui.button variant="primary" wire:click="saveDialog" x-bind:disabled="! String($wire.dialogBody ?? '').trim()">Save</x-admin.ui.button>
+                    <x-admin.ui.button variant="primary" wire:click="saveDialog" x-bind:disabled="! String($wire.dialogBody ?? '').trim() || offsetInvalid">Save</x-admin.ui.button>
                 </div>
             </div>
         </x-admin.ui.overlay>

@@ -105,6 +105,45 @@ it('saves the post\'s up votes as they are set, and a vote\'s moment set by hand
         ->and($this->plan->fresh()->lock_version)->toBe(4);
 });
 
+it('keeps a vote\'s moment unless the whole field is a number the plan saved, and moves its unit from the keyboard', function () {
+    $page = visitPostVotes($this->plan);
+    $page->click('button[aria-label="Plan up and down votes"]');
+    waitForScript($page, "!! document.getElementById('rg-admin-votes-up')");
+    $page->click('button[aria-label="Increase up votes"]');
+    waitForScript($page, "document.querySelector('.rg-admin-studio__votes-stat-value').textContent.trim()", '+1 / −0');
+
+    $vote = StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->sole();
+    $row = ".rg-admin-studio__votes-table [data-vote=\"post:{$vote->persona_user_id}\"]";
+    $field = "document.querySelector('{$row} .rg-admin-studio__offset-input')";
+    $type = fn (string $text) => $page->script("(() => { const input = {$field}; input.value = '{$text}'; input.dispatchEvent(new Event('change', { bubbles: true })) })()");
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__votes-tabs .rg-admin-tab')].find((tab) => tab.textContent.trim() === 'Timing').click()");
+    waitForScript($page, "!! {$field}");
+    $shown = $page->script("{$field}.value");
+
+    // Not a number as a whole: put back.
+    $type('2h');
+    waitForScript($page, "{$field}.value", $shown);
+
+    // A save that fails: put back too.
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.fail = true');
+    $type('120');
+    waitForScript($page, "{$field}.value", $shown);
+    $page->script('window.livewireGate.fail = false');
+
+    expect(StudioPlanVote::query()->find($vote->id)->offset_seconds)->toBe($vote->offset_seconds);
+
+    // One tab stop, the arrows move the unit.
+    $checked = "{$row} .rg-admin-studio__units [role=radio][aria-checked=true]";
+    $before = $page->script("document.querySelector('{$checked}').textContent.trim()");
+
+    expect($page->script("[...document.querySelectorAll('{$row} .rg-admin-studio__units [role=radio]')].filter((radio) => radio.tabIndex === 0).length"))->toBe(1);
+
+    $page->keys($checked, 'ArrowRight');
+    waitForScript($page, "document.querySelector('{$checked}').textContent.trim() !== '{$before}' && document.activeElement === document.querySelector('{$checked}')");
+});
+
 it('takes an option\'s answers typed straight in, saving them, the total following', function () {
     $group = RatingGroup::factory()->create(['label' => 'Is it fake or real?', 'is_active' => true]);
     $natural = RatingOption::factory()->for($group, 'group')->create(['label' => 'Natural', 'sort_order' => 1, 'is_active' => true]);
@@ -154,4 +193,18 @@ it('sends nothing for a number field emptied to type another, gives the number b
 
     expect($page->script("!! document.getElementById('livewire-error')"))->toBeFalse()
         ->and(StudioPlanVote::query()->where('studio_plan_id', $this->plan->id)->where('type', StudioActionType::VotePost)->count())->toBe(3);
+});
+
+it('asks before the page is left with a change of the votes that could not be saved', function () {
+    $page = visitPostVotes($this->plan);
+    $page->click('button[aria-label="Plan up and down votes"]');
+    waitForScript($page, "!! document.getElementById('rg-admin-votes-up')");
+
+    expect(pageAsksBeforeLeaving($page))->toBeFalse();
+
+    // More up votes than there are Personas: not saved, and kept to fix.
+    $page->script("(() => { const input = document.getElementById('rg-admin-votes-up'); input.value = '40'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) })()");
+    waitForScript($page, 'Alpine.store("rgPostVotes")?.unsaved === true || !! Livewire.all().find((component) => component.name === "admin.studio-plan-post-votes-editor")?.$wire.unsaved');
+
+    expect(pageAsksBeforeLeaving($page))->toBeTrue();
 });

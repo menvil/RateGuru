@@ -84,6 +84,26 @@ it('says what a finished action wrote is gone only for an action that writes som
     'a reply' => [StudioActionType::CreateReply],
 ]);
 
+it('marks as late only an action that ran more than an hour after its time', function (StudioActionStatus $status, string $finished, bool $late) {
+    StudioAction::factory()->create([
+        'studio_plan_id' => StudioPlan::factory()->status(StudioPlanStatus::Running)->create()->id,
+        'status' => $status,
+        'occurs_at' => '2026-10-20 12:00:00',
+        'run_after' => '2026-10-20 12:00:00',
+        'finished_at' => $finished,
+    ]);
+
+    $page = Livewire::test(StudioActionQueue::class);
+
+    $late ? $page->assertSeeHtml('rg-admin-studio__plan-time--due') : $page->assertDontSeeHtml('rg-admin-studio__plan-time--due');
+})->with([
+    'done two hours late' => [StudioActionStatus::Done, '2026-10-20 14:00:00', true],
+    'failed two hours late' => [StudioActionStatus::Failed, '2026-10-20 14:00:00', true],
+    'done on time' => [StudioActionStatus::Done, '2026-10-20 12:20:00', false],
+    'cancelled days before its time' => [StudioActionStatus::Cancelled, '2026-10-17 12:00:00', false],
+    'cancelled hours after its time' => [StudioActionStatus::Cancelled, '2026-10-20 15:00:00', false],
+]);
+
 it('narrows by state, kind and publication from the address, dropping what it does not offer', function () {
     $post = StudioAction::factory()->create();
     $comment = StudioAction::factory()->childOf($post)->create(['status' => StudioActionStatus::Held, 'failure_code' => 'author_restricted']);

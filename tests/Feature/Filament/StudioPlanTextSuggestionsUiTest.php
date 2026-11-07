@@ -88,6 +88,28 @@ it('waits for the photo\'s analysis, reading itself again only while the analysi
     'an analysis that failed' => [fn (StudioPlan $plan) => StudioPlanImageAnalysis::factory()->forPlan($plan)->failed()->create(), false],
 ]);
 
+it('stops waiting for an analysis whose worker died, and says to run it again', function () {
+    $plan = StudioPlan::factory()->withImage()->create();
+    StudioPlanImageAnalysis::factory()->forPlan($plan)->running()->create(['requested_at' => now()->subDay(), 'started_at' => now()->subDay()]);
+
+    suggestionsCard($plan)
+        ->assertSee('The photo analysis did not finish. Run it again on the Image step; text suggestions are written from it.')
+        ->assertDontSeeHtml('wire:poll');
+});
+
+it('says a batch asked for an earlier author is still on its way when one for the new author is asked for', function () {
+    $before = studioPersonaWithProfile();
+    $plan = studioPlanWithFinishedAnalysis(['author_user_id' => $before->id]);
+    $card = suggestionsCard($plan)->call('generate', $before->id);
+    $after = studioPersonaWithProfile();
+    $plan->forceFill(['author_user_id' => $after->id])->save();
+
+    $card->call('generate', $after->id)
+        ->assertDispatched('rg-admin-toast', message: 'A batch asked for before the author or photo changed is still on its way, so nothing new was asked for. Try again once it has finished.');
+
+    expect(StudioPlanTextGeneration::query()->count())->toBe(1);
+});
+
 it('says texts are not configured, and offers nothing to send', function () {
     configureStudioImageAnalysis(['api_key' => null]);
 

@@ -4,6 +4,8 @@
     'value' => null,
     'compact' => false,
     'icons' => [],
+    // Every option off where nothing may be changed.
+    'disabled' => false,
 ])
 
 @php
@@ -70,6 +72,7 @@
             x-bind:aria-checked="selected === @js($optionValue) ? 'true' : 'false'"
             x-bind:tabindex="selected === @js($optionValue) ? 0 : -1"
             x-on:click="selected = @js($optionValue)"
+            @disabled($disabled)
         >
             @isset($icons[$optionValue])
                 <x-admin.ui.icon :name="$icons[$optionValue]" :size="15" />

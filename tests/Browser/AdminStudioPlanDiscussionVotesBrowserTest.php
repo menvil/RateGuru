@@ -241,3 +241,38 @@ it('picks the discussion’s tone among its settings, saying it in the Generate 
     waitForScript($page, $chosen, 'Spicy / Adult humour');
     waitForScript($page, "document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__generate-summary').textContent.includes('· Spicy / Adult humour')");
 })->with([1440, 390]);
+
+it('holds the comment dialog\'s Save while its moment is no number, rather than keep the last one', function () {
+    $page = visitDiscussionVotes($this->plan);
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-action')].find((button) => button.textContent.trim() === 'Edit').click()");
+    waitForScript($page, "!! document.getElementById('rg-admin-discussion-dialog-offset')");
+
+    $save = "[...document.querySelectorAll('.rg-admin-studio__comment-dialog .rg-admin-dialog__footer button')].find((button) => button.textContent.trim() === 'Save')";
+    $type = fn (string $text) => $page->script("(() => { const input = document.getElementById('rg-admin-discussion-dialog-offset'); input.value = '{$text}'; input.dispatchEvent(new Event('input', { bubbles: true })) })()");
+
+    $type('');
+    waitForScript($page, "{$save}.disabled");
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display !== 'none'");
+
+    expect($page->script("document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-invalid')"))->toBe('true');
+
+    $type('15');
+    waitForScript($page, "{$save}.disabled", false);
+});
+
+it('chooses a comment\'s priority from the keyboard, one tab stop for the group', function () {
+    $page = visitDiscussionVotes($this->plan);
+    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
+
+    $group = '.rg-admin-studio__votes-chips[role=radiogroup][aria-label="Priority of C1"]';
+    $checked = "{$group} [role=radio][aria-checked=true]";
+    waitForScript($page, "!! document.querySelector('{$checked}')");
+    $before = $page->script("document.querySelector('{$checked}').textContent.trim()");
+
+    expect($page->script("[...document.querySelectorAll('{$group} [role=radio]')].filter((radio) => radio.tabIndex === 0).length"))->toBe(1);
+
+    $page->keys($checked, 'ArrowRight');
+
+    waitForScript($page, "document.querySelector('{$checked}').textContent.trim() !== '{$before}' && document.activeElement === document.querySelector('{$checked}')");
+});

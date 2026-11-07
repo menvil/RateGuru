@@ -3,6 +3,7 @@
 use App\Enums\MediaVariantName;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
+use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\ListStudioPlans;
@@ -91,6 +92,17 @@ it('names a deleted author as a deleted user, and nothing else of the account', 
         ->not->toContain('gone_owl')
         ->not->toContain('Gone Owl')
         ->not->toContain('tombstone.invalid');
+});
+
+it('says when the author is no longer a persona, as the editor does', function () {
+    $persona = User::factory()->persona()->create(['username' => 'former_owl']);
+    $plan = StudioPlan::factory()->authoredBy($persona)->create();
+    $persona->forceFill(['role' => UserRole::User])->save();
+
+    $html = $this->get(StudioPlanResource::getUrl('index'))->assertOk()->getContent();
+
+    // Livewire marks its blocks with comments; the text is what a person reads.
+    expect(preg_replace('/<!--.*?-->/s', '', $html))->toContain('@former_owl · Not a persona');
 });
 
 it('offers a draft Edit and Delete draft, and a plan past its draft neither, saying why', function () {
