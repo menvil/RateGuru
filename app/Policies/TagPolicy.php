@@ -30,7 +30,7 @@ class TagPolicy
      */
     public function delete(User $user, Tag $tag): bool
     {
-        return $user->isAdmin();
+        return $user->isAdmin() && $user->canAccessPrivilegedPanel();
     }
 
     private function canCurate(User $user): bool
