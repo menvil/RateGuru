@@ -19,7 +19,9 @@ use App\Support\Deployment\DeploymentMetadata;
 $sentryFloat = static function (string $key, ?float $default): ?float {
     $value = env($key);
 
-    if ($value === null || $value === '') {
+    // A value that is no number — a typo, a decimal comma — keeps the
+    // default too: as 0.0 it would drop every error report without a word.
+    if ($value === null || $value === '' || ! is_numeric($value)) {
         return $default;
     }
 

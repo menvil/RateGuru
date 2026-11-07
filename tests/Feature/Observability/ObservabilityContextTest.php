@@ -96,6 +96,27 @@ it('carries the deployment identity and the request ID across the queue boundary
     $job->delete();
 });
 
+it('records a queued job under the release that runs it, not the one that queued it', function () {
+    // A job queued before a deploy and picked up after it carries the old
+    // release in its payload; the worker running it is the new release.
+    $this->withHeaders(['X-Request-Id' => 'queued-before-the-deploy'])->get('/')->assertSuccessful();
+    Context::add(['release' => 'v1.2.2-20251231-000000-0000000', 'commit' => '0000000']);
+
+    Queue::connection('database')->push(new GenerateMediaVariantsJob(1));
+
+    Context::flush();
+    $job = Queue::connection('database')->pop();
+    event(new JobProcessing('database', $job));
+
+    expect(Context::all())->toMatchArray([
+        'release' => 'v1.2.3-20260101-000000-abc1234',
+        'commit' => 'abc1234',
+        'request_id' => 'queued-before-the-deploy',
+    ]);
+
+    $job->delete();
+});
+
 it('omits a deployment fact rather than sending an empty one', function () {
     // Locally and in CI there is no release. "Absent" is the honest answer;
     // an empty string would be a value that looks like a value.

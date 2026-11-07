@@ -5,6 +5,7 @@ namespace App\Support\Observability;
 use App\Exceptions\Observability\SecurityLogUnavailableException;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -19,10 +20,19 @@ use Throwable;
  * MessageLogged event. That event is what Sentry turns into breadcrumbs, and
  * an IP address stays on the server: Sentry is sent no personal data
  * (send_default_pii is off), and this log must not become the way round it.
+ *
+ * One address writes at most LINES_PER_MINUTE lines a minute, then a single
+ * line saying it was cut off, then nothing until the minute is over. A
+ * script repeating the call is still plain to see, and it cannot fill the
+ * disk the log is kept on for a month.
  */
 final class GuestVoteAttemptLog
 {
     public const EVENT = 'security.guest_vote_attempted';
+
+    public const THROTTLED_EVENT = 'security.guest_vote_attempts_throttled';
+
+    public const LINES_PER_MINUTE = 30;
 
     /** The longest header value kept; a real browser's is far shorter. */
     private const HEADER_LIMIT = 512;
@@ -39,8 +49,22 @@ final class GuestVoteAttemptLog
         $channel = Log::channel('security');
         $logger = $channel instanceof Logger ? $channel->getLogger() : $channel;
 
+        // Counted before anything is written, and fail-open: an unreachable
+        // cache leaves the log unlimited rather than empty.
+        $lines = rescue(
+            // The client's address hashed: cache keys travel, into Sentry's
+            // cache breadcrumbs and spans among others.
+            fn (): int => RateLimiter::hit('guest-vote-attempt-log:'.hash('sha256', (string) $request->ip()), 60),
+            0,
+            report: false,
+        );
+
+        if ($lines > self::LINES_PER_MINUTE + 1) {
+            return;
+        }
+
         try {
-            $logger->info(self::EVENT, [
+            $logger->info($lines > self::LINES_PER_MINUTE ? self::THROTTLED_EVENT : self::EVENT, [
                 'kind' => $kind,
                 ...$target,
                 'ip' => $request->ip(),
