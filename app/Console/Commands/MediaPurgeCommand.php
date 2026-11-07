@@ -59,7 +59,7 @@ final class MediaPurgeCommand extends Command
             }
         }
 
-        $graceDays = $this->graceDaysOverride() ?? $this->configuredGraceDays();
+        $graceDays = $this->graceDaysOverride();
 
         if ($graceDays === false) {
             return self::FAILURE;
@@ -75,6 +75,13 @@ final class MediaPurgeCommand extends Command
             }
 
             return $this->purgeOrphans($orphanScanner, $lifecycle, $dryRun, $force);
+        }
+
+        // The configured grace is the assets' alone: an orphan scan never reads it.
+        $graceDays ??= $this->configuredGraceDays();
+
+        if ($graceDays === false) {
+            return self::FAILURE;
         }
 
         return $this->purgeAssets($lifecycle, $dryRun, $graceDays);

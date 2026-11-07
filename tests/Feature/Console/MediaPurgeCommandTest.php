@@ -120,6 +120,12 @@ it('refuses a grace past a century, from the option or the configuration, and pu
     'the largest number configured' => ['', PHP_INT_MAX],
 ]);
 
+it('scans for orphans whatever the configured grace says, which only the assets\' purge reads', function () {
+    config(['media.lifecycle.purge_grace_days' => PHP_INT_MAX]);
+
+    $this->artisan('media:purge --orphans --dry-run')->assertExitCode(0);
+});
+
 it('clamps an out-of-range --chunk to the minimum and still succeeds', function () {
     $this->artisan('media:purge --chunk=0')
         ->expectsOutputToContain('Invalid chunk size provided; using 1.')
