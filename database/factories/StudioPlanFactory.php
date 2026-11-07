@@ -57,9 +57,25 @@ class StudioPlanFactory extends Factory
         ]);
     }
 
-    /** Moved past the Draft, as approval, a run or a cancellation will move it. */
+    /**
+     * Moved past the Draft, as approval, a run or a cancellation will move it.
+     * Only an approved plan gets past its Draft, so it has what approval
+     * asks for and records: a Persona author, a title, a photo its creator
+     * uploaded, and its approver.
+     */
     public function status(StudioPlanStatus $status): static
     {
-        return $this->state(fn (): array => ['status' => $status]);
+        if ($status === StudioPlanStatus::Draft) {
+            return $this->state(fn (): array => ['status' => $status]);
+        }
+
+        return $this->state(fn (array $attributes): array => [
+            'status' => $status,
+            'author_user_id' => $attributes['author_user_id'] ?? User::factory()->persona(),
+            'title' => $attributes['title'] ?? fake()->sentence(4),
+            'image_asset_id' => $attributes['image_asset_id'] ?? fn (array $plan) => MediaAsset::factory()->postImage()->state(['owner_user_id' => $plan['created_by_user_id']]),
+            'approved_by_user_id' => $attributes['approved_by_user_id'] ?? User::factory()->admin(),
+            'approved_at' => $attributes['approved_at'] ?? now(),
+        ]);
     }
 }

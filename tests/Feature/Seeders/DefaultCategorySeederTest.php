@@ -3,7 +3,9 @@
 use App\Models\Category;
 use App\Models\ProjectSettings;
 use Database\Seeders\DefaultCategorySeeder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 
 it('seeds generic standalone categories', function () {
     $this->seed(DefaultCategorySeeder::class);
@@ -50,4 +52,12 @@ it('rolls back every default category when one category fails', function () {
 
     expect(Category::query()->where('slug', 'transactional-category')->exists())
         ->toBeFalse();
+});
+
+it('lets the sidebar list the seeded categories at once, with model events off as DatabaseSeeder has them', function () {
+    Cache::put('sidebar-nav-categories', collect(), 300);
+
+    Model::withoutEvents(fn () => $this->seed(DefaultCategorySeeder::class));
+
+    expect(Cache::has('sidebar-nav-categories'))->toBeFalse();
 });

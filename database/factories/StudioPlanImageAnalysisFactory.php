@@ -8,6 +8,7 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
+use LogicException;
 
 /**
  * @extends Factory<StudioPlanImageAnalysis>
@@ -21,7 +22,8 @@ class StudioPlanImageAnalysisFactory extends Factory
     {
         return [
             'studio_plan_id' => StudioPlan::factory()->withImage(),
-            'source_image_asset_id' => fn (array $attributes): int => (int) StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id'),
+            'source_image_asset_id' => fn (array $attributes): int => (int) (StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id')
+                ?? throw new LogicException('A plan without a photo has nothing to analyse: make it withImage().')),
             'status' => StudioImageAnalysisStatus::Queued,
             'attempt_id' => (string) Str::uuid(),
             'requested_at' => now(),

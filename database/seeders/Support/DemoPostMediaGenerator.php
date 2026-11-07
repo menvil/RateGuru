@@ -41,23 +41,27 @@ final class DemoPostMediaGenerator
 
         // Demo seeders are commonly re-run in local dev; reuse the asset
         // already at this (disk, path) instead of leaving the previous run's
-        // row behind, unreferenced, every time.
-        return MediaAsset::query()->firstOrCreate(
-            ['disk' => $disk, 'path' => $path],
-            [
-                'kind' => MediaKind::PostImage,
-                'original_filename' => basename($path),
-                'mime_type' => 'image/svg+xml',
-                'extension' => 'svg',
-                'byte_size' => strlen($svg),
-                'width' => self::WIDTH,
-                'height' => self::HEIGHT,
-                'aspect_ratio' => round(self::WIDTH / self::HEIGHT, 6),
-                'orientation' => $this->orientationClassifier->classify(self::WIDTH, self::HEIGHT),
-                'status' => MediaStatus::Ready,
-                'visibility' => MediaVisibility::Public,
-            ],
-        );
+        // row behind, unreferenced, every time. Trashed rows too: the unique
+        // (disk, path) index counts them, so creating beside one fails. The
+        // file was just written again, so the row says what it now holds.
+        $asset = MediaAsset::withTrashed()->firstOrNew(['disk' => $disk, 'path' => $path]);
+        $asset->fill([
+            'kind' => MediaKind::PostImage,
+            'original_filename' => basename($path),
+            'mime_type' => 'image/svg+xml',
+            'extension' => 'svg',
+            'byte_size' => strlen($svg),
+            'width' => self::WIDTH,
+            'height' => self::HEIGHT,
+            'aspect_ratio' => round(self::WIDTH / self::HEIGHT, 6),
+            'orientation' => $this->orientationClassifier->classify(self::WIDTH, self::HEIGHT),
+            'status' => MediaStatus::Ready,
+            'visibility' => MediaVisibility::Public,
+        ]);
+        $asset->deleted_at = null;
+        $asset->save();
+
+        return $asset;
     }
 
     /** @param array{from: string, to: string, accent: string} $palette */

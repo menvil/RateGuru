@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\ProjectSettings;
 use App\Support\Translations\TranslatableField;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DefaultCategorySeeder extends Seeder
@@ -31,5 +32,10 @@ class DefaultCategorySeeder extends Seeder
                 );
             }
         });
+
+        // Category clears this itself on a save, but DatabaseSeeder runs its
+        // seeders without model events: the sidebar would list the old
+        // categories until the cache ran out.
+        Cache::forget('sidebar-nav-categories');
     }
 }
