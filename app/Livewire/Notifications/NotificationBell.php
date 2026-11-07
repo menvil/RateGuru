@@ -10,6 +10,8 @@ use Livewire\Component;
 
 final class NotificationBell extends Component
 {
+    private const SHOWN = 10;
+
     public function getUnreadCountProperty(): int
     {
         if (! auth()->check()) {
@@ -30,11 +32,17 @@ final class NotificationBell extends Component
             return new Collection;
         }
 
-        return auth()->user()
-            ->notifications()
-            ->latest()
-            ->limit(10)
-            ->get();
+        // Unread ones first, so every one the badge counts can be reached
+        // and marked read; read ones fill whatever room is left. The id breaks
+        // a tie in time, so the same ones are shown on every render.
+        $user = auth()->user();
+        $unread = $user->unreadNotifications()->latest()->orderByDesc('id')->limit(self::SHOWN)->get();
+
+        if ($unread->count() >= self::SHOWN) {
+            return $unread;
+        }
+
+        return $unread->concat($user->readNotifications()->latest()->orderByDesc('id')->limit(self::SHOWN - $unread->count())->get());
     }
 
     public function markAsRead(string $notificationId): void

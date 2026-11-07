@@ -13200,6 +13200,25 @@ function racingEnvironment(): array
 }
 
 /**
+ * A component's snapshot from a rendered page, as the browser would send it
+ * back in a Livewire update.
+ */
+function pageComponentSnapshot(string $html, string $componentName): string
+{
+    preg_match_all('/wire:snapshot="([^"]*)"/', $html, $matches);
+
+    foreach ($matches[1] as $attribute) {
+        $snapshot = html_entity_decode($attribute, ENT_QUOTES | ENT_HTML5);
+
+        if ((json_decode($snapshot, true)['memo']['name'] ?? null) === $componentName) {
+            return $snapshot;
+        }
+    }
+
+    throw new RuntimeException("the page rendered no [{$componentName}] component");
+}
+
+/**
  * A connection outside the test's own transaction, for state that was committed
  * by another process and therefore has to be read and removed for real.
  */

@@ -8,6 +8,7 @@ use App\Exceptions\Comments\CannotCommentException;
 use App\Models\Comment;
 use App\Queries\Comments\CommentListQuery;
 use App\Services\Comments\CommentReplyService;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -33,6 +34,17 @@ final class CommentsSection extends Component
     public ?int $replyingTo = null;
 
     public string $replyBody = '';
+
+    /**
+     * On every request, not only the first: a page drawn before comments were
+     * switched off still has this section, and none of it — more comments, a
+     * new order, a reply — goes on while they are off. Every page that draws
+     * it does so only while they are on.
+     */
+    public function boot(): void
+    {
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
+    }
 
     #[Computed]
     public function comments(): Collection

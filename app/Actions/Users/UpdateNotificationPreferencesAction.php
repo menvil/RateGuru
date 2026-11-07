@@ -10,15 +10,16 @@ final class UpdateNotificationPreferencesAction
 {
     use LocksActorForWrite;
 
-    public function handle(User $user, bool $notifyFollowedAuthorPosts): void
+    /** @return bool whether it was written: never for an account that can no longer sign in */
+    public function handle(User $user, bool $notifyFollowedAuthorPosts): bool
     {
         // Private-preference write: living accounts only; a stale request
         // must never persist into a Deleted tombstone.
-        DB::transaction(function () use ($user, $notifyFollowedAuthorPosts): void {
+        return DB::transaction(function () use ($user, $notifyFollowedAuthorPosts): bool {
             $locked = $this->lockActor($user);
 
             if ($locked === null || ! $locked->canAuthenticate()) {
-                return;
+                return false;
             }
 
             $locked->forceFill([
@@ -26,6 +27,8 @@ final class UpdateNotificationPreferencesAction
             ])->save();
 
             $user->setRawAttributes($locked->getAttributes(), true);
+
+            return true;
         });
     }
 }

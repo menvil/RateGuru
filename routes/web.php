@@ -8,6 +8,7 @@ use App\Http\Controllers\Sharing\SharePostController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
+use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
@@ -21,12 +22,14 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
 
-Route::get('/', FeedPage::class)->name('feed');
+Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function () {
+    Route::get('/', FeedPage::class)->name('feed');
 
-Route::get('/posts/{post}', PostShow::class)->name('posts.show');
-Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
+    Route::get('/posts/{post}', PostShow::class)->name('posts.show');
+    Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
 
-Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+    Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+});
 
 Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');
 Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');

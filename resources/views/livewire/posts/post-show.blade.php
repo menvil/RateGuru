@@ -286,12 +286,15 @@
             @endif
         </article>
 
-        <section class="mt-8 scroll-mt-24" data-testid="post-show-comments" x-ref="postComments">
-            <livewire:comments.comments-section
-                :post-id="$post->id"
-                :show-header="true"
-                :key="'comments-'.$post->id"
-            />
-        </section>
+        {{-- Comments switched off hide the thread here too, as on the feed and in the drawer. --}}
+        @if($projectSettings->featureEnabled('show_comments'))
+            <section class="mt-8 scroll-mt-24" data-testid="post-show-comments" x-ref="postComments">
+                <livewire:comments.comments-section
+                    :post-id="$post->id"
+                    :show-header="true"
+                    :key="'comments-'.$post->id"
+                />
+            </section>
+        @endif
     </main>
 </div>

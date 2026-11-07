@@ -42,10 +42,6 @@ final class ProfilePage extends Component
             ->where('username', $username)
             ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
-
-        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
-            $this->tab = 'posts';
-        }
     }
 
     /** @return list<string> */
@@ -53,11 +49,17 @@ final class ProfilePage extends Component
     {
         $tabs = ['posts', 'activity'];
 
-        if (auth()->id() === $this->profileUser->id) {
+        if (auth()->id() === $this->profileUser->id && app(ProjectSettingsManager::class)->featureEnabled('show_saved_posts')) {
             $tabs[] = 'saved';
         }
 
         return $tabs;
+    }
+
+    /** Whether the saved posts tab is offered: to the owner, while the feature is on. */
+    public function getOffersSavedTabProperty(): bool
+    {
+        return in_array('saved', $this->getAllowedTabs(), true);
     }
 
     public function getStatsProperty(): ProfileStatsData
@@ -86,7 +88,7 @@ final class ProfilePage extends Component
     /** @return LengthAwarePaginator<int, Post>|null */
     public function getSavedPostsProperty(): ?LengthAwarePaginator
     {
-        if (! $this->isOwner) {
+        if (! $this->isOwner || ! app(ProjectSettingsManager::class)->featureEnabled('show_saved_posts')) {
             return null;
         }
 
@@ -135,6 +137,14 @@ final class ProfilePage extends Component
 
     public function render(RatingConfigurationManager $ratingConfiguration): View
     {
+        // A tab the viewer may not have — from the address, or the saved tab
+        // of a page drawn before saved posts were switched off — shows the
+        // posts instead, from their first page, never an empty tab.
+        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
+            $this->tab = 'posts';
+            $this->resetPage();
+        }
+
         return view('livewire.profile.profile-page', [
             'ratingGroups' => $ratingConfiguration->activeGroups(),
         ])

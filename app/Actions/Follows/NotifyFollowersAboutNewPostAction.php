@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Notifications\FollowedAuthorPostedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\Observability\DomainLogger;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +20,7 @@ final class NotifyFollowersAboutNewPostAction
     public function __construct(
         private readonly DomainLogger $logger,
         private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
+        private readonly ProjectSettingsManager $settings,
     ) {}
 
     /**
@@ -42,6 +44,14 @@ final class NotifyFollowersAboutNewPostAction
     public function handle(Post $post): void
     {
         if ($post->status !== PostStatus::Published) {
+            return;
+        }
+
+        // Following is a feature the project can switch off, and with it
+        // goes what following brings: no notification of a followed author's
+        // post (docs/follows/follow-authors.md), the follows kept for when it
+        // is switched on again.
+        if (! $this->settings->featureEnabled('show_follow_buttons')) {
             return;
         }
 

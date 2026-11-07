@@ -8,7 +8,7 @@
         <div class="flex items-start gap-3">
             <input
                 type="checkbox"
-                wire:model="notify_followed_author_posts"
+                wire:model.live="notify_followed_author_posts"
                 id="notify_followed_author_posts"
                 data-testid="notification-preference-followed-author-posts"
                 class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
@@ -21,8 +21,12 @@
             </div>
         </div>
 
-        <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">
-            {{ __('ui.actions.save') }}
-        </x-ui.button>
+        <div class="flex items-center gap-4">
+            <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">
+                {{ __('ui.actions.save') }}
+            </x-ui.button>
+
+            <p class="text-sm text-rg-muted" role="status" data-testid="notification-preferences-saved">@if($saved){{ __('ui.actions.saved') }}@endif</p>
+        </div>
     </form>
 </section>
