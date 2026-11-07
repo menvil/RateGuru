@@ -82,7 +82,12 @@
     </x-admin.ui.confirm-dialog>
 @elseif ($confirming === 'above-max')
     <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" :title="$label.' can’t be activated'" wire:key="confirm-above-max-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
-        <p>{{ $group->label }} already has {{ $active }} active options, the maximum allowed.</p>
+        {{-- An inactive group's maximum may have been lowered below its active options. --}}
+        @if ($active > $group->max_options)
+            <p>{{ $group->label }} already has {{ $active }} active options, more than its maximum of {{ $group->max_options }}.</p>
+        @else
+            <p>{{ $group->label }} already has {{ $active }} active options, the maximum allowed.</p>
+        @endif
 
         <x-slot:details>
             <div>

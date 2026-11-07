@@ -47,8 +47,8 @@
         <ul class="rg-admin-translation-row__chips" aria-label="Constraints">
             <li class="rg-admin-constraint-chip">Max {{ number_format($row['max']) }}</li>
             <li class="rg-admin-constraint-chip">{{ $row['multiline'] ? 'Multiline' : 'Single line' }}</li>
-            @foreach ($row['placeholders'] as $placeholder)
-                <li class="rg-admin-constraint-chip rg-admin-constraint-chip--placeholder">{{ $placeholder }}</li>
+            @foreach ($row['placeholders'] as $token)
+                <li class="rg-admin-constraint-chip rg-admin-constraint-chip--placeholder">{{ $token }}</li>
             @endforeach
         </ul>
         <button type="button" class="rg-admin-translation-row__context" x-on:click="openContext(unit)">

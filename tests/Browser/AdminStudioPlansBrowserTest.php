@@ -200,6 +200,30 @@ it('takes the publication date from the calendar on Apply alone, whole in the wi
     expect($this->plan->fresh()->publish_at->toDateTimeString())->toBe('2019-06-03 18:00:00');
 })->with([1440, 390]);
 
+it('steps the publication time as a clock would, into the next hour or day', function () {
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit");
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][3].click()");
+    waitForScript($page, "document.querySelector('#rg-admin-studio-publish-at .rg-admin-date-time__value')?.textContent.trim()", 'Mon 06 May 2019 · 07:08');
+    $page->click('#rg-admin-studio-publish-at');
+
+    $dialog = '#rg-admin-studio-publish-at-dialog';
+    $press = fn (string $label, int $times = 1) => $page->script("(() => { const button = document.querySelector('{$dialog} button[aria-label=\"{$label}\"]'); for (let i = 0; i < {$times}; i++) button.click() })()");
+    $shows = fn (string $moment) => waitForScript($page, "document.querySelector('{$dialog} .rg-admin-date-time__summary').textContent.split(' · ').slice(0, 2).join(' · ')", $moment);
+
+    // 07:08 back to the five-minute grid, then past the hour.
+    $press('5 minutes earlier', 3);
+    $shows('Mon 06 May 2019 · 06:55');
+
+    // Back past midnight, and the calendar goes with it.
+    $press('Hour earlier', 7);
+    $shows('Sun 05 May 2019 · 23:55');
+    waitForScript($page, "document.querySelector('{$dialog} button[aria-label=\"Sunday 5 May 2019\"]').closest('[role=gridcell]').getAttribute('aria-selected')", 'true');
+
+    $press('5 minutes later');
+    $shows('Mon 06 May 2019 · 00:00');
+});
+
 it('opens a draft\'s editor from the list', function () {
     $page = visitAdminEditor('/admin/studio-plans');
 

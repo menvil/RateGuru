@@ -52,6 +52,9 @@
                 justFocused: false,
                 // The last whole number the field held, as wire:model last saw it.
                 kept: null,
+                // The value a change last reported, for a listener that hears
+                // only changes and never the input events kept follows.
+                committed: null,
                 whole(text) {
                     return /^-?\d+$/.test(String(text).trim())
                 },
@@ -84,12 +87,13 @@
                 autocomplete="off"
                 title="Type a number, or step it with − and + or the arrow keys"
                 x-ref="input"
-                x-on:focus="$el.select(); justFocused = true; if (whole($el.value)) kept = $el.value"
+                x-on:focus="$el.select(); justFocused = true; committed = $el.value; if (whole($el.value)) kept = $el.value"
                 x-on:mouseup="if (justFocused) $event.preventDefault(); justFocused = false"
                 x-on:blur="justFocused = false; if (! whole($el.value)) restore($el)"
                 {{-- At the input, these run before wire:model's own listeners, so a field that holds no number tells it nothing. --}}
                 x-on:input.capture="if (whole($el.value)) { kept = $el.value } else { $event.stopImmediatePropagation() }"
-                x-on:change.capture="if (! whole($el.value)) { $event.stopImmediatePropagation(); restore($el) }"
+                {{-- A number typed, then something else: the field goes back to the number, and a change-only listener, which heard neither, is told it. --}}
+                x-on:change.capture="if (! whole($el.value)) { $event.stopImmediatePropagation(); restore($el); if ($el.value !== committed) $el.dispatchEvent(new Event('change', { bubbles: true })) } else { committed = $el.value }"
                 x-on:keydown.arrow-up.prevent="step(1)"
                 x-on:keydown.arrow-down.prevent="step(-1)"
                 @if ($error !== null) aria-invalid="true" @endif

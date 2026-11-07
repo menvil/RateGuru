@@ -167,3 +167,16 @@ it('refuses a user who may not curate tags', function () {
 
     Livewire::test(ManageTags::class)->call('edit', $tag->id)->assertForbidden();
 });
+
+it('warns that links break only when the slug a save stores differs, a blank one made from the name again', function () {
+    $tag = Tag::factory()->create(['name' => 'Street Food', 'slug' => 'street-food']);
+
+    // Blank, and the name unchanged: the save makes the same slug again.
+    editedTagDraft($tag, 'Street Food', '')
+        ->assertDontSee('stop working once you save')
+        ->assertSee('Changing the slug breaks existing links to this tag.');
+
+    // Blank with a new name, or typed anew: the slug changes.
+    editedTagDraft($tag, 'Night Market', '')->assertSee('Feed links filtered by “street-food” stop working once you save.');
+    editedTagDraft($tag, 'Street Food', 'street-eats')->assertSee('Feed links filtered by “street-food” stop working once you save.');
+});

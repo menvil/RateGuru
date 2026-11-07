@@ -201,10 +201,9 @@ final class TranslationCenterPage extends Page
             return ['saved' => false, 'error' => $refusal->getMessage(), 'reason' => $refusal->reason];
         }
 
-        return $this->generation(fn (User $user): array => [
-            'saved' => true,
-            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, $unit),
-        ], 'saved');
+        return $this->generation(fn (User $user): array => self::savedAnswer(
+            app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, $unit),
+        ), 'saved');
     }
 
     /**
@@ -216,10 +215,23 @@ final class TranslationCenterPage extends Page
     #[Renderless]
     public function saveAllGenerated(mixed $locale = null, mixed $batch = null, mixed $units = []): array
     {
-        return $this->generation(fn (User $user): array => [
-            'saved' => true,
-            ...app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, null, $units),
-        ], 'saved');
+        return $this->generation(fn (User $user): array => self::savedAnswer(
+            app(SaveProjectTranslationGenerationAction::class)->handle($user, $locale, $batch, null, $units),
+        ), 'saved');
+    }
+
+    /**
+     * A save's answer to the browser: `saved` says the save went through, as
+     * a refusal's `saved: false` says it did not, and `count` how many
+     * translations it saved — none, when every row was skipped. The action
+     * calls its count `saved`, which would otherwise read as a refusal.
+     *
+     * @param  array{results: list<array<string, mixed>>, saved: int, skipped: int, generation: mixed}  $outcome
+     * @return array<string, mixed>
+     */
+    private static function savedAnswer(array $outcome): array
+    {
+        return [...$outcome, 'saved' => true, 'count' => $outcome['saved']];
     }
 
     /**
