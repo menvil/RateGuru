@@ -91,6 +91,29 @@ it('rejects invalid options', function (string $args) {
     'invalid comment id' => ['--comment=abc'],
 ]);
 
+it('refuses a number of days so large the cutoff would wrap round to today, and purges nothing', function (string $days) {
+    // Deleted yesterday: well inside any real retention.
+    $recent = deletedLeafAgedDays(1);
+
+    $this->artisan("comments:purge-deleted --older-than={$days} --force")->assertFailed();
+
+    expect(Comment::withTrashed()->find($recent->id))->not->toBeNull();
+})->with([
+    'past PHP_INT_MAX' => ['99999999999999999999'],
+    'PHP_INT_MAX' => [(string) PHP_INT_MAX],
+    'past a century' => ['36501'],
+]);
+
+it('fails closed when configured retention is past a century', function () {
+    $recent = deletedLeafAgedDays(1);
+
+    config(['content_lifecycle.comments.author_delete_retention_days' => (string) PHP_INT_MAX]);
+
+    $this->artisan('comments:purge-deleted')->assertFailed();
+
+    expect(Comment::withTrashed()->find($recent->id))->not->toBeNull();
+});
+
 it('fails closed with invalid retention config and purges nothing', function () {
     $expired = deletedLeafAgedDays(40);
 

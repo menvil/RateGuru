@@ -8,6 +8,7 @@ use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
 use App\Enums\MediaPurgeOutcome;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\RunMediaAuditJob;
@@ -157,7 +158,7 @@ final class MediaDiagnosticsPage extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     /** A figure in the overview narrows the issues to what it counts. */
@@ -439,6 +440,14 @@ final class MediaDiagnosticsPage extends Page
         $issues = app(MediaAuditIssuesQuery::class);
         $counts = $issues->counts($run);
         $paginator = $issues->paginate($run, MediaAuditIssueSeverity::tryFrom((string) $this->severity), MediaAuditIssueType::tryFrom((string) $this->type), (string) $this->q, (int) $this->pageNumber);
+
+        // Past the last page — an old link, or a new audit with fewer issues:
+        // the last page there is, not "the last audit found nothing to fix".
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $issues->paginate($run, MediaAuditIssueSeverity::tryFrom((string) $this->severity), MediaAuditIssueType::tryFrom((string) $this->type), (string) $this->q, $this->pageNumber);
+        }
+
         $totals = $this->totals();
         $jobs = $this->failedMediaJobs();
 
@@ -765,6 +774,6 @@ final class MediaDiagnosticsPage extends Page
         $this->severity = is_string($this->severity) && MediaAuditIssueSeverity::tryFrom($this->severity) !== null ? $this->severity : '';
         $this->type = is_string($this->type) && MediaAuditIssueType::tryFrom($this->type) !== null ? $this->type : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 200) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
     }
 }

@@ -15,6 +15,7 @@ use App\Exceptions\Moderation\CannotFinalizeRemovalException;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\Category;
 use App\Models\Post;
@@ -131,7 +132,7 @@ final class ListPosts extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
         $this->selected = [];
     }
 
@@ -356,6 +357,15 @@ final class ListPosts extends Page
         $counts = $query->counts();
         $categories = Category::query()->orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'slug']);
         $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->categoryId(), $this->order(), (int) $this->pageNumber);
+
+        // The last page emptied — its posts approved or rejected — while
+        // earlier ones still have some: show the last one there is, not an
+        // empty queue, and say so in the address.
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->categoryId(), $this->order(), $this->pageNumber);
+        }
+
         $oldest = $query->oldestPendingAt();
 
         return [
@@ -635,7 +645,7 @@ final class ListPosts extends Page
 
     private function order(): string
     {
-        return array_key_exists((string) $this->sort, self::SORTS) ? (string) $this->sort : ($this->status === 'pending' ? 'oldest' : 'newest');
+        return is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : ($this->status === 'pending' ? 'oldest' : 'newest');
     }
 
     private function categoryId(): ?int
@@ -652,11 +662,13 @@ final class ListPosts extends Page
     /** Whatever a link or a forged update put here, read as something the page offers. */
     private function normalize(): void
     {
-        $this->status = array_key_exists((string) $this->status, self::TABS) ? (string) $this->status : 'pending';
+        // A string the page offers, never cast: an array from the address
+        // would only break the page.
+        $this->status = is_string($this->status) && array_key_exists($this->status, self::TABS) ? $this->status : 'pending';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
         $this->category = is_string($this->category) && Category::query()->where('slug', $this->category)->exists() ? $this->category : '';
-        $this->sort = array_key_exists((string) $this->sort, self::SORTS) ? (string) $this->sort : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : '';
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
         $this->selected = array_map(strval(...), $this->selectedIds());
     }
 }

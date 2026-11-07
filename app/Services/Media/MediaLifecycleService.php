@@ -4,6 +4,7 @@ namespace App\Services\Media;
 
 use App\Enums\MediaPurgeOutcome;
 use App\Models\MediaAsset;
+use App\Support\ContentLifecycle\RetentionDays;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Collection;
@@ -85,13 +86,12 @@ final class MediaLifecycleService
      * rejects a negative --older-than before it gets here, but this is a
      * public service method other callers could reach directly, so the
      * invariant is enforced at the boundary rather than trusted from
-     * outside. config('media.lifecycle.purge_grace_days') is already
-     * clamped non-negative at the config layer, so only an explicit
-     * argument can trigger this.
+     * outside. config('media.lifecycle.purge_grace_days') is read through
+     * RetentionDays, which refuses anything negative or past a century.
      */
     private function resolveGraceDays(?int $graceDays): int
     {
-        $days = $graceDays ?? (int) config('media.lifecycle.purge_grace_days');
+        $days = $graceDays ?? RetentionDays::parse(config('media.lifecycle.purge_grace_days'), 'media.lifecycle.purge_grace_days');
 
         if ($days < 0) {
             throw new InvalidArgumentException("graceDays must not be negative, got [{$days}].");

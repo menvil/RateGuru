@@ -7,6 +7,7 @@ use App\Enums\StudioPlanStatus;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\StudioPlan;
 use App\Models\User;
@@ -93,7 +94,7 @@ final class ListStudioPlans extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     public function clearFilters(): void
@@ -267,6 +268,6 @@ final class ListStudioPlans extends Page
         $this->state = $state !== null && in_array($state, self::STATES, true) ? $state->value : '';
         $this->image = is_string($this->image) && in_array($this->image, ['with', 'without'], true) ? $this->image : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
     }
 }

@@ -197,7 +197,9 @@ class ApplyProjectPresetAction
      */
     private function applyTags(?array $tags): array
     {
-        if ($tags === null || $tags === []) {
+        // Only null leaves the tags as they are. A list is the whole set, as
+        // for categories and rating groups — an empty one included.
+        if ($tags === null) {
             return [0, 0];
         }
 

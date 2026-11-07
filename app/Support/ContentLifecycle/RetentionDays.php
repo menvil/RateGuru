@@ -5,8 +5,8 @@ namespace App\Support\ContentLifecycle;
 use InvalidArgumentException;
 
 /**
- * Shared strict parsing for retention-day config values: integer >= 0 or
- * unsigned digit string that fits in an int; anything else throws so
+ * Shared strict parsing for retention-day config values: integer from 0 to
+ * MAX_DAYS, or unsigned digit string of one; anything else throws so
  * destructive cleanup fails closed instead of silently collapsing to 0.
  * The public resolvers (PostRetention, CommentRetention,
  * ModerationContentRetention) stay the semantic boundaries — this is the
@@ -14,6 +14,15 @@ use InvalidArgumentException;
  */
 final class RetentionDays
 {
+    /**
+     * A century: as far back as any retention can sensibly reach, and a
+     * bound below the numbers that break the date — one near PHP_INT_MAX,
+     * where (int) saturates any longer number, subtracted from today wraps
+     * round to the present, and a purge would take everything instead of
+     * nothing.
+     */
+    public const MAX_DAYS = 36500;
+
     public static function parse(mixed $raw, string $context): int
     {
         $parsed = self::tryParse($raw);
@@ -23,7 +32,7 @@ final class RetentionDays
         }
 
         throw new InvalidArgumentException(sprintf(
-            '%s must be an integer >= 0, got [%s]; refusing to compute retention.',
+            '%s must be an integer from 0 to '.self::MAX_DAYS.', got [%s]; refusing to compute retention.',
             $context,
             is_scalar($raw) ? var_export($raw, true) : gettype($raw),
         ));
@@ -43,16 +52,21 @@ final class RetentionDays
         }
 
         throw new InvalidArgumentException(sprintf(
-            '%s must be empty (disabled) or an integer >= 0, got [%s]; refusing to compute retention.',
+            '%s must be empty (disabled) or an integer from 0 to '.self::MAX_DAYS.', got [%s]; refusing to compute retention.',
             $context,
             is_scalar($raw) ? var_export($raw, true) : gettype($raw),
         ));
     }
 
-    private static function tryParse(mixed $raw): ?int
+    /**
+     * The number of days, or null for anything else: a negative or larger
+     * than MAX_DAYS, a non-integer, a string that is not plain digits.
+     * Shared by the purge commands for their --older-than overrides.
+     */
+    public static function tryParse(mixed $raw): ?int
     {
-        if (is_int($raw) && $raw >= 0) {
-            return $raw;
+        if (is_int($raw)) {
+            return $raw >= 0 && $raw <= self::MAX_DAYS ? $raw : null;
         }
 
         // env() always yields strings from a real environment; accept only
@@ -66,7 +80,7 @@ final class RetentionDays
             $fitsInt = strlen($normalized) < strlen($max)
                 || (strlen($normalized) === strlen($max) && strcmp($normalized, $max) <= 0);
 
-            if ($fitsInt) {
+            if ($fitsInt && (int) $normalized <= self::MAX_DAYS) {
                 return (int) $normalized;
             }
         }
