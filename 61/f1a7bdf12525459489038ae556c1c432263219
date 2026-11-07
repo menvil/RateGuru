@@ -1,0 +1,31 @@
+app/Filament/Resources/Reports/Pages/ListReports.php
+  s_0f80700cf0b8c6::t_1af45f80b7d21c 542-548
+app/Actions/Comments/HideCommentAction.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 26-31,41,60,81-82
+app/Filament/Resources/Comments/Pages/ListComments.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 362-368
+tests/Feature/Filament/CommentResourceActionsTest.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 84-87,89-93,95
+  s_0f80700cf0b8c6::t_31cb4a2d957618 88,94
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_0f80700cf0b8c6::t_31cb4a2d957618 147,152
+  s_0f80700cf0b8c6::t_fe99b0d1aa62fe 142-146,148-151,153
+tests/Pest.php
+  s_0f80700cf0b8c6::t_31cb4a2d957618 23,43,93,13205-13226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61f1a7bdf12525459489038ae556c1c432263219",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
