@@ -1,0 +1,63 @@
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  ai_agent 742,747
+resources/views/components/admin/ui/date-time-field.blade.php
+  ai_agent 342-351,353,359
+resources/views/filament/pages/users/row.blade.php
+  ai_agent 8-10,22,66,75
+resources/views/filament/pages/personas/row.blade.php
+  ai_agent 9-10,27,53,57
+tests/Browser/AdminProjectSettingsBrowserTest.php
+  ai_agent 74-84
+tests/Browser/AdminReportsBrowserTest.php
+  ai_agent 71-74
+tests/Browser/AdminStudioPlansBrowserTest.php
+  ai_agent 203-226
+tests/Browser/AdminUiKitBrowserTest.php
+  ai_agent 182-206
+tests/Feature/Filament/ModerationFinalizeUiTest.php
+  ai_agent 82-85
+app/Filament/Resources/StudioPlans/StudioActionPlan.php
+  ai_agent 312-317
+resources/views/filament/pages/tags/row.blade.php
+  ai_agent 21-22
+resources/views/filament/pages/rating-groups/legend.blade.php
+  ai_agent 6-8
+tests/Feature/Filament/RatingGroupOptionsTest.php
+  ai_agent 184-195
+app/Filament/Pages/StudioActionQueue.php
+  ai_agent 316
+tests/Feature/Filament/LanguagesPageTest.php
+  ai_agent 872-889,990
+resources/views/components/admin/ui/number-stepper.blade.php
+  ai_agent 55-57,90,95-96
+resources/views/filament/pages/project-settings.blade.php
+  ai_agent 54-55
+resources/views/filament/pages/reports/panel.blade.php
+  ai_agent 26-28
+resources/views/filament/pages/studio-action-queue/row.blade.php
+  ai_agent 130-131
+tests/Feature/Admin/AdminInPlaceLinksTest.php
+  ai_agent 1-20
+tests/Browser/AdminPersonasBrowserTest.php
+  ai_agent 113-129
+resources/views/filament/pages/moderation/reason.blade.php
+  ai_agent 30-37,39
+resources/views/filament/pages/languages/missing.blade.php
+  ai_agent 57-62
+resources/views/components/admin/ui/toast-stack.blade.php
+  ai_agent 57-58,66-70
+tests/Browser/AdminStudioPlanPostVotesBrowserTest.php
+  ai_agent 57-72
+tests/Feature/Filament/RatingGroupResourceTest.php
+  ai_agent 52-67
+tests/Feature/Filament/StudioActionQueueTest.php
+  ai_agent 69-82
+resources/views/filament/pages/rating-group/confirmation.blade.php
+  ai_agent 81-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1482e4dcdd580170908d5168b1f754a85b2fae07",
+  "prompts": {}
+}
