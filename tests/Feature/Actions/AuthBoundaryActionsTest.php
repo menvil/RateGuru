@@ -115,7 +115,7 @@ it('sends and completes email verification through auth actions', function () {
     expect(app(SendEmailVerificationNotificationAction::class)->execute($user))->toBeTrue();
     Notification::assertSentTo($user, VerifyEmail::class);
 
-    app(VerifyEmailAction::class)->execute($user);
+    app(VerifyEmailAction::class)->execute($user, sha1($user->getEmailForVerification()));
 
     expect($user->fresh()->hasVerifiedEmail())->toBeTrue();
     Event::assertDispatched(Verified::class);

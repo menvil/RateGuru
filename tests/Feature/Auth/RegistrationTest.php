@@ -8,6 +8,7 @@ use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Notification;
 
 test('registration screen can be rendered', function () {
     $response = $this->get('/register');
@@ -153,4 +154,27 @@ test('registration converts username generation exhaustion into a validation err
         // The generator's own message is for logs; the reader gets ours.
         'name' => __('auth.username_unavailable'),
     ]);
+});
+
+test('limits how many accounts one client can register in a minute', function () {
+    foreach (range(1, 6) as $n) {
+        $this->post('/register', ['name' => "Person {$n}", 'username' => "person_{$n}", 'email' => "person{$n}@example.test", 'password' => 'a-long-password', 'password_confirmation' => 'a-long-password']);
+        auth()->logout();
+    }
+
+    $this->post('/register', ['name' => 'Person 7', 'username' => 'person_7', 'email' => 'person7@example.test', 'password' => 'a-long-password', 'password_confirmation' => 'a-long-password'])
+        ->assertTooManyRequests();
+});
+
+test('counts registrations on their own, so reset links asked for from the same client do not use them up', function () {
+    Notification::fake();
+
+    foreach (range(1, 6) as $request) {
+        $this->post('/forgot-password', ['email' => "someone{$request}@example.test"]);
+    }
+
+    $this->post('/register', ['name' => 'Ada', 'username' => 'ada', 'email' => 'ada@example.test', 'password' => 'a-long-password', 'password_confirmation' => 'a-long-password'])
+        ->assertRedirect();
+
+    $this->assertAuthenticated();
 });

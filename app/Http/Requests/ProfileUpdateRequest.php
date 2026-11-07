@@ -33,6 +33,23 @@ class ProfileUpdateRequest extends FormRequest
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ],
+            // A new address takes the account's password: a session left open
+            // somewhere must not be able to move the account to another
+            // mailbox, and with it every reset link. An account with no
+            // password yet — one made through Google or Facebook — has none
+            // to give.
+            'current_password' => $this->changesEmailOfAccountWithPassword()
+                ? ['required', 'string', 'max:255', 'current_password']
+                : ['nullable'],
         ];
+    }
+
+    private function changesEmailOfAccountWithPassword(): bool
+    {
+        $user = $this->user();
+
+        return $user->password !== null
+            && is_string($this->input('email'))
+            && $this->input('email') !== $user->email;
     }
 }

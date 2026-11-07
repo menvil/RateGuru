@@ -133,7 +133,7 @@ it('never re-verifies email on a tombstone through a stale request', function ()
 
     app(AnonymizeUserAccountAction::class)->execute(User::findOrFail($user->id));
 
-    expect(app(VerifyEmailAction::class)->execute($stale))->toBeFalse();
+    expect(app(VerifyEmailAction::class)->execute($stale, sha1($stale->getEmailForVerification())))->toBeFalse();
 
     expect($user->fresh()->email_verified_at)->toBeNull();
 });
@@ -141,9 +141,9 @@ it('never re-verifies email on a tombstone through a stale request', function ()
 it('still verifies email for living accounts and reports already-verified', function () {
     $user = User::factory()->unverified()->create();
 
-    expect(app(VerifyEmailAction::class)->execute($user))->toBeTrue()
+    expect(app(VerifyEmailAction::class)->execute($user, sha1($user->getEmailForVerification())))->toBeTrue()
         ->and($user->fresh()->email_verified_at)->not->toBeNull()
-        ->and(app(VerifyEmailAction::class)->execute($user->fresh()))->toBeFalse();
+        ->and(app(VerifyEmailAction::class)->execute($user->fresh(), sha1($user->getEmailForVerification())))->toBeFalse();
 });
 
 it('keeps session locale but never persists preferences to a tombstone', function () {

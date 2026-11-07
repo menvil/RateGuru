@@ -98,3 +98,15 @@ it('renders edit profile form on profile edit page', function () {
         ->assertOk()
         ->assertSee('data-testid="edit-profile-form"', false);
 });
+
+it('tells a sanctioned account why its profile was not saved instead of failing', function () {
+    $user = User::factory()->banned()->create(['display_name' => 'Before']);
+
+    Livewire::actingAs($user)
+        ->test(EditProfileForm::class)
+        ->set('display_name', 'After')
+        ->call('save')
+        ->assertSet('submitError', __('ui.account_restriction.banned'));
+
+    expect($user->fresh()->display_name)->toBe('Before');
+});

@@ -32,6 +32,8 @@
         data-testid="connected-accounts-error"
     />
 
+    {{-- Nothing to list once the last switched-off sign-in is removed: the card is shown then only for its message. --}}
+    @if ($connectedAccounts->providers() !== [])
     <ul class="mt-6 divide-y divide-rg-border rounded-rgControl border border-rg-border">
         @foreach ($connectedAccounts->providers() as $provider)
             @php
@@ -129,4 +131,5 @@
             </li>
         @endforeach
     </ul>
+    @endif
 </section>

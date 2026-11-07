@@ -22,6 +22,7 @@ use App\Models\Report;
 use App\Models\Session;
 use App\Models\User;
 use App\Services\Media\MediaReferenceChecker;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -379,6 +380,25 @@ it('deletes other users\' notifications that snapshot the deleted identity', fun
     $remaining = $recipient->fresh()->notifications;
     expect($remaining)->toHaveCount(1)
         ->and($remaining->first()->data['message'])->toBe('unrelated');
+});
+
+it('reads only the notifications that name the deleted account, not every notification there is', function () {
+    $author = User::factory()->create();
+    $recipient = User::factory()->create();
+    foreach (range(1, 5) as $i) {
+        $recipient->notifications()->create(['id' => (string) Str::uuid(), 'type' => 'App\\Notifications\\PostCommentedNotification', 'data' => ['actor_id' => 999990 + $i, 'message' => 'unrelated']]);
+    }
+    $recipient->notifications()->create(['id' => (string) Str::uuid(), 'type' => 'App\\Notifications\\PostCommentedNotification', 'data' => ['actor_id' => $author->id, 'message' => 'naming them']]);
+
+    $read = 0;
+    DatabaseNotification::retrieved(function () use (&$read): void {
+        $read++;
+    });
+
+    app(AnonymizeUserAccountAction::class)->execute($author);
+
+    expect($read)->toBe(1)
+        ->and($recipient->fresh()->notifications)->toHaveCount(5);
 });
 
 it('never delivers new notifications to a tombstone', function () {

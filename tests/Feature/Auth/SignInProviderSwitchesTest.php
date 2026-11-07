@@ -296,6 +296,20 @@ it('hides the card when there is nothing to connect and nothing connected', func
         ->assertDontSee('id="connected-accounts"', false);
 });
 
+it('still says the last switched-off sign-in was removed, on a card with nothing else left', function () {
+    $user = User::factory()->create();
+    SocialAccount::factory()->for($user)->facebook()->create();
+    switchSignInProviders(['google' => false, 'facebook' => false]);
+
+    $this->actingAs($user)
+        ->followingRedirects()
+        ->delete(route('profile.connected-accounts.destroy', ['provider' => 'facebook']))
+        ->assertOk()
+        ->assertSee('id="connected-accounts"', false)
+        ->assertSee(__('profile.connected.disconnected', ['provider' => 'Facebook']))
+        ->assertDontSee('divide-y divide-rg-border rounded-rgControl', false);
+});
+
 it('never counts a switched-off provider as a way in when disconnecting', function () {
     $user = User::factory()->withoutPassword()->create();
     SocialAccount::factory()->for($user)->google()->create();
