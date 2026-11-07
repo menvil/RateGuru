@@ -20,6 +20,7 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
+use App\Enums\CommentStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -39,6 +40,7 @@ use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
+use App\Models\Comment;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
@@ -88,6 +90,7 @@ use Database\Factories\StudioPlanTextGenerationFactory;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13216,6 +13219,30 @@ function pageComponentSnapshot(string $html, string $componentName): string
     }
 
     throw new RuntimeException("the page rendered no [{$componentName}] component");
+}
+
+/**
+ * Hides the comment as another moderator would, at the moment the action under
+ * test locks its moderator's row: after the page's own check that the comment
+ * is visible, before the action locks the comment. The returned closure says
+ * whether that has happened.
+ *
+ * @return Closure(): bool
+ */
+function hideCommentOnceTheModeratorIsLocked(Comment $comment): Closure
+{
+    $landed = false;
+
+    DB::listen(function (QueryExecuted $query) use ($comment, &$landed): void {
+        if (! $landed && str_contains($query->sql, 'from "users"') && str_contains($query->sql, 'for update')) {
+            $landed = true;
+            DB::table('comments')->where('id', $comment->id)->update(['status' => CommentStatus::Hidden->value]);
+        }
+    });
+
+    return function () use (&$landed): bool {
+        return $landed;
+    };
 }
 
 /**

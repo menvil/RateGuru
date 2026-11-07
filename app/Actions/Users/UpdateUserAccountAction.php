@@ -8,6 +8,8 @@ use App\Enums\UserRole;
 use App\Exceptions\Moderation\CannotModerateUserException;
 use App\Exceptions\Users\CannotUpdateUserAccountException;
 use App\Models\User;
+use App\Support\Database\UniqueColumnViolation;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
@@ -35,14 +37,33 @@ final class UpdateUserAccountAction
 
     /**
      * @param  array{name: string, username: string, email: string, role: UserRole, trusted: bool|null, password?: string|null}  $changes  `trusted` null leaves trust as it is
+     * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom  the account as the editor read it
      */
-    public function handle(User $admin, User $target, array $changes): void
+    public function handle(User $admin, User $target, array $changes, array $drawnFrom): void
     {
         if (! $admin->can('manage', $target)) {
             throw CannotUpdateUserAccountException::becauseUserIsNotAllowed();
         }
 
-        DB::transaction(function () use ($admin, $target, $changes): void {
+        try {
+            $this->write($admin, $target, $changes, $drawnFrom);
+        } catch (QueryException $exception) {
+            // The editor checked both before the save, but only a write can
+            // claim them: one that lost the race to another account is a
+            // field error, not a failure.
+            $taken = UniqueColumnViolation::among($exception, 'users', ['username', 'email']);
+
+            throw $taken !== null ? CannotUpdateUserAccountException::becauseValueIsTaken($taken) : $exception;
+        }
+    }
+
+    /**
+     * @param  array{name: string, username: string, email: string, role: UserRole, trusted: bool|null, password?: string|null}  $changes
+     * @param  array{name: string, username: string, email: string, role: string}  $drawnFrom
+     */
+    private function write(User $admin, User $target, array $changes, array $drawnFrom): void
+    {
+        DB::transaction(function () use ($admin, $target, $changes, $drawnFrom): void {
             try {
                 [, $locked] = $this->lockAndAuthorizePair($admin, $target, 'manage');
             } catch (CannotModerateUserException) {
@@ -53,6 +74,14 @@ final class UpdateUserAccountAction
             // one the account has now, whatever the page was drawn from.
             if ($locked->isPersona() || $changes['role'] === UserRole::Persona) {
                 throw CannotUpdateUserAccountException::becauseAccountIsPersona();
+            }
+
+            // The editor sends every field it shows, so it may only save over
+            // the account it read: a name, address or role changed meanwhile
+            // — by the person themselves or another administrator — is never
+            // silently put back.
+            if (! self::isAsDrawn($locked, $drawnFrom)) {
+                throw CannotUpdateUserAccountException::becauseAccountChangedMeanwhile();
             }
 
             $locked->forceFill([
@@ -89,5 +118,14 @@ final class UpdateUserAccountAction
             $trusted => MarkUserTrustedAction::TRUSTED_LEVEL,
             default => 0,
         };
+    }
+
+    /** @param  array{name: string, username: string, email: string, role: string}  $drawnFrom */
+    private static function isAsDrawn(User $locked, array $drawnFrom): bool
+    {
+        return (string) $locked->name === $drawnFrom['name']
+            && (string) $locked->username === $drawnFrom['username']
+            && (string) $locked->email === $drawnFrom['email']
+            && $locked->role->value === $drawnFrom['role'];
     }
 }

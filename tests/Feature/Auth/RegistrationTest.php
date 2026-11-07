@@ -7,7 +7,6 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Database\QueryException;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Notification;
 
 test('registration screen can be rendered', function () {
@@ -95,7 +94,7 @@ test('registration stops retrying username collisions after the maximum attempts
     ]);
 });
 
-test('registration does not retry non-username query exceptions', function () {
+test('registration does not retry an address taken meanwhile, and says the address is taken', function () {
     $action = Mockery::mock(GenerateUniqueUsernameAction::class);
     $action->shouldReceive('handle')
         ->once()
@@ -109,14 +108,15 @@ test('registration does not retry non-username query exceptions', function () {
         });
     app()->instance(GenerateUniqueUsernameAction::class, $action);
 
-    $this->withoutExceptionHandling();
-
-    expect(fn () => $this->post('/register', [
+    $this->post('/register', [
         'name' => 'Test User',
         'email' => 'racing@example.com',
         'password' => 'password',
         'password_confirmation' => 'password',
-    ]))->toThrow(UniqueConstraintViolationException::class);
+    ])->assertSessionHasErrors('email');
+
+    expect(User::query()->where('email', 'racing@example.com')->count())->toBe(1);
+    $this->assertGuest();
 });
 
 test('registration lets a database failure inside the username generator propagate', function () {

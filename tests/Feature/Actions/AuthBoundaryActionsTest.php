@@ -120,3 +120,19 @@ it('sends and completes email verification through auth actions', function () {
     expect($user->fresh()->hasVerifiedEmail())->toBeTrue();
     Event::assertDispatched(Verified::class);
 });
+
+it('tells a registration that lost its address to another one meanwhile that the address is taken', function () {
+    // The form checked the address before this; another registration took
+    // it in between, as a double submission does.
+    User::factory()->create(['email' => 'raced@example.com']);
+
+    try {
+        app(RegisterUserAction::class)->execute(['name' => 'Second Try', 'email' => 'raced@example.com', 'password' => 'password']);
+        $this->fail('The registration was not refused.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toHaveKey('email');
+    }
+
+    expect(User::query()->where('email', 'raced@example.com')->count())->toBe(1);
+    $this->assertGuest();
+});

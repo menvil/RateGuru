@@ -28,6 +28,7 @@ trait CreatesUserWithUniqueUsername
      * @param  Closure(string): User  $create  persists the user, and whatever must land with it, inside the transaction
      *
      * @throws CannotGenerateUsernameException when no unique username could be generated or created
+     * @throws QueryException any failed write but a username collision — an email address taken meanwhile included
      */
     private function createUserWithUniqueUsername(
         GenerateUniqueUsernameAction $generateUniqueUsername,

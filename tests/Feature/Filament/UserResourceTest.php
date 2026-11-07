@@ -12,6 +12,8 @@ use App\Livewire\Admin\UserEditor;
 use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
@@ -140,6 +142,52 @@ it('opens the suspicious from the dashboard', function () {
         ->assertSet('suspicious', true)
         ->assertSeeHtml('Suspicious: shadowbanned or reported content');
 });
+
+it('saves nothing from a drawer opened before the account changed, and shows it as it is now', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->moderator()->create(['name' => 'Old Name']);
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
+
+    // Another administrator takes the moderator role away meanwhile.
+    User::query()->whereKey($person->id)->update(['role' => 'user']);
+
+    $page->set('name', 'New Name')
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'This account was changed while you were editing it, so nothing was saved. Its current details are shown.', tone: 'error')
+        ->assertSet('role', 'user')
+        ->assertSet('name', 'Old Name');
+
+    expect($person->fresh())->role->toBe(UserRole::User)->name->toBe('Old Name');
+});
+
+it('shows a username or address taken by another account between the check and the save as that field\'s error', function (string $field, string $value, string $message) {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create();
+    $other = User::factory()->create();
+
+    // Another account claims the value right after the drawer's own check
+    // passed: the first row lock the save takes is the moment in between.
+    $claimed = false;
+    DB::listen(function (QueryExecuted $query) use (&$claimed, $other, $field, $value): void {
+        if (! $claimed && str_contains($query->sql, 'for update')) {
+            $claimed = true;
+            User::query()->whereKey($other->id)->update([$field => $value]);
+        }
+    });
+
+    Livewire::test(UserEditor::class, ['userId' => $person->id])
+        ->set($field, $value)
+        ->call('save')
+        ->assertHasErrors([$field])
+        ->assertSee($message);
+
+    expect($claimed)->toBeTrue()
+        ->and($person->fresh()->{$field})->not->toBe($value);
+})->with([
+    'username' => ['username', 'claimed_name', 'This username is taken. Choose another one.'],
+    'email' => ['email', 'claimed@example.com', 'Another account uses this email address.'],
+]);
 
 it('saves the profile, the role, the trust and a new password from the drawer, the role change asked about first', function () {
     $admin = User::factory()->admin()->create();
@@ -468,3 +516,15 @@ it('never offers to mark a persona trusted', function (int $trustLevel) {
 
     expect($persona->fresh()->trust_level)->toBe($trustLevel);
 })->with(['not trusted' => 0, 'trusted' => 10]);
+
+it('shows the person trusted in the drawer once marked trusted from it, with nothing left to save', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['trust_level' => 0]);
+
+    Livewire::test(UserEditor::class, ['userId' => $person->id])
+        ->assertSet('trust', 'reviewed')
+        ->call('askToSanction', 'trust', $person->id)
+        ->call('confirmSanction')
+        ->assertSet('trust', 'trusted')
+        ->assertSet('saved.trust', 'trusted');
+});

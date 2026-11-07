@@ -280,13 +280,48 @@ final class ProjectSettingsPage extends Page
             $validated[$field] = is_string($validated[$field] ?? null) ? trim($validated[$field]) : null;
         }
 
-        app(SaveProjectSettingsAction::class)->handle($validated);
+        // Only what this draft changed is written. Another administrator may
+        // have saved since the page was read, and a setting left as it was
+        // read here — a sign-in provider, a flag, a page — keeps their value.
+        app(SaveProjectSettingsAction::class)->handle(self::changedFrom($this->saved, $validated));
 
         // The draft becomes what was saved, trimmed, so the page shows what is
         // saved and keeps nothing a request added beside the settings.
         $this->data = $validated;
         $this->saved = $validated;
         $this->dispatch('rg-admin-toast', message: 'Project settings saved. Visitors see the changes on their next page load.', tone: 'success');
+    }
+
+    /**
+     * The settings that differ from what the page was read with, nested the
+     * way the action takes them: the flags, providers and page fields that
+     * changed, never the ones that did not.
+     *
+     * @param  array<string, mixed>  $saved
+     * @param  array<string, mixed>  $draft
+     * @return array<string, mixed>
+     */
+    private static function changedFrom(array $saved, array $draft): array
+    {
+        $changed = [];
+
+        foreach ($draft as $key => $value) {
+            if (! is_array($value)) {
+                if (($saved[$key] ?? null) !== $value) {
+                    $changed[$key] = $value;
+                }
+
+                continue;
+            }
+
+            $nested = self::changedFrom(is_array($saved[$key] ?? null) ? $saved[$key] : [], $value);
+
+            if ($nested !== []) {
+                $changed[$key] = $nested;
+            }
+        }
+
+        return $changed;
     }
 
     /**

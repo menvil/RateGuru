@@ -214,7 +214,7 @@ final class LanguagesPage extends Page
         }
 
         try {
-            $this->offer([...$locales->enabledCodes(), $locale]);
+            $this->offer($locale, true);
         } catch (IncompleteLocaleCatalogException) {
             $this->catalogReports = null;
             $this->rows = null;
@@ -258,7 +258,7 @@ final class LanguagesPage extends Page
             return;
         }
 
-        $this->offer(array_values(array_diff($locales->enabledCodes(), [$locale])));
+        $this->offer($locale, false);
 
         $this->toast("{$label} disabled");
     }
@@ -318,16 +318,15 @@ final class LanguagesPage extends Page
     }
 
     /**
-     * Writes the offered languages. Only whether each language is offered
-     * changed, so only the rows are read again; the catalogs and the project
-     * content this request read still hold, and the response already shows
-     * the new state — the row and its action — without a reload.
-     *
-     * @param  list<string>  $enabled
+     * Offers one language, or stops offering it, beside whatever else the
+     * project offers when it is written. Only whether each language is
+     * offered changed, so only the rows are read again; the catalogs and the
+     * project content this request read still hold, and the response already
+     * shows the new state — the row and its action — without a reload.
      */
-    private function offer(array $enabled): void
+    private function offer(string $locale, bool $offered): void
     {
-        app(UpdateProjectLocaleSettingsAction::class)->handle($enabled);
+        app(UpdateProjectLocaleSettingsAction::class)->change($locale, $offered);
         $this->rows = null;
     }
 
