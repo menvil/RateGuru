@@ -116,3 +116,17 @@ it('draws the header avatar ring as a circle', function (array $screen) {
     'laptop' => [[1440, 900]],
     'phone' => [MobileViewports::SMALL_MOBILE],
 ]);
+
+it('lets the profile\'s Saved go as soon as a field is edited again, before any request', function () {
+    actingAs(User::factory()->create());
+
+    $page = visit(route('profile.edit'))->resize(1440, 900);
+    $page->type('#edit-bio', 'Night owl.');
+    $page->script("document.getElementById('edit-bio').form.querySelector('button[type=\"submit\"]').click()");
+    waitForScript($page, "!!document.querySelector('[data-testid=\"edit-profile-saved\"]') && getComputedStyle(document.querySelector('[data-testid=\"edit-profile-saved\"]')).display !== 'none'");
+
+    // A plain field sends nothing until the next save: Saved is hidden in the
+    // page, not taken away by an answer.
+    $page->type('#edit-bio', 'Early bird.');
+    waitForScript($page, "getComputedStyle(document.querySelector('[data-testid=\"edit-profile-saved\"]')).display", 'none');
+});

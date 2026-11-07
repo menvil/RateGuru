@@ -94,6 +94,11 @@ class EditProfileForm extends Component
 
     public function render(): View
     {
-        return view('livewire.profile.edit-profile-form');
+        return view('livewire.profile.edit-profile-form', [
+            // The picker offers only what the save takes.
+            'avatarAccept' => collect((array) config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']))
+                ->map(fn (string $extension): string => '.'.$extension)
+                ->implode(','),
+        ]);
     }
 }

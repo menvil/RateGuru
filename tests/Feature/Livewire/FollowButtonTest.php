@@ -89,7 +89,9 @@ it('tells a viewer whose own account may not follow so, neutrally, without blami
         ->test(FollowButton::class, ['author' => User::factory()->create()])
         ->call('toggle')
         ->assertSet('isFollowing', false)
-        ->assertSet('message', __('follows.cannot_follow'));
+        ->assertSet('message', __('follows.cannot_follow'))
+        // In English, as it is said: about the viewer, not the author.
+        ->assertSeeHtml('<span class="text-xs text-rg-muted" role="status" data-testid="follow-button-message">You cannot follow authors right now.</span>');
 })->with(['limited', 'banned', 'shadowbanned']);
 
 it('still says the author cannot be followed when it is the author', function () {
@@ -98,5 +100,6 @@ it('still says the author cannot be followed when it is the author', function ()
     Livewire::actingAs(User::factory()->create())
         ->test(FollowButton::class, ['author' => User::factory()->banned()->create()])
         ->call('toggle')
-        ->assertSet('message', __('follows.cannot_follow_author'));
+        ->assertSet('message', __('follows.cannot_follow_author'))
+        ->assertSeeHtml('<span class="text-xs text-rg-muted" role="status" data-testid="follow-button-message">This author cannot be followed.</span>');
 });

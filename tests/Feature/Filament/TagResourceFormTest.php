@@ -102,6 +102,15 @@ it('says what to do when a tag cannot be saved', function (Closure $draft, strin
     'a blank slug the name would make too long' => [fn (): Testable => newTagDraft(str_repeat('щ', 40), ''), 'draftSlug', 'The slug made from this name would be longer than 100 characters. Type a shorter slug.'],
 ]);
 
+it('saves a tag whose slug, made from its name, is exactly 100 characters', function () {
+    // Thirty-three letters that each transliterate to three, and one more.
+    $name = str_repeat('щ', 33).'a';
+
+    newTagDraft($name, '')->call('save')->assertHasNoErrors();
+
+    expect(Tag::query()->where('name', $name)->sole()->slug)->toHaveLength(100);
+});
+
 it('allows admin to edit tag from tag resource', function () {
     $tag = Tag::factory()->create(['name' => 'Old Name', 'slug' => 'old-name']);
 

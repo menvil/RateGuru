@@ -130,3 +130,10 @@ it('holds Save while a chosen avatar is still uploading', function () {
 
     expect($html)->toMatch('/<button(?=[^>]*type="submit")(?=[^>]*wire:loading\.attr="disabled")(?=[^>]*wire:target="avatar")[^>]*>/');
 });
+
+it('offers in the picker only the avatar formats the save takes', function () {
+    config(['uploads.images.mimes' => ['jpg', 'jpeg', 'png', 'webp']]);
+
+    Livewire::actingAs(User::factory()->create())->test(EditProfileForm::class)
+        ->assertSeeHtml('accept=".jpg,.jpeg,.png,.webp"');
+});
