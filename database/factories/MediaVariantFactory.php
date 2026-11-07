@@ -22,7 +22,8 @@ class MediaVariantFactory extends Factory
     public function definition(): array
     {
         return [
-            'media_asset_id' => MediaAsset::factory(),
+            // Large enough that every variant is made without upscaling.
+            'media_asset_id' => MediaAsset::factory()->dimensions(1920, 1080),
             ...self::madeAs(MediaVariantName::PostFeed640),
             'disk' => 'public',
             'byte_size' => fake()->numberBetween(10_000, 500_000),
@@ -38,7 +39,8 @@ class MediaVariantFactory extends Factory
 
     /**
      * The variant as MediaVariantSpecificationRegistry has it made: its type,
-     * and a size a 4:3 photo fits to — the box itself for a cropped one.
+     * and the size a 16:9 photo — the asset factory's shape — fits to; the box
+     * itself for a cropped one.
      *
      * @return array{name: MediaVariantName, path: string, mime_type: string, extension: string, width: int, height: int}
      */
@@ -55,7 +57,7 @@ class MediaVariantFactory extends Factory
             'extension' => $extension,
             'width' => $specification->maxWidth,
             'height' => $specification->mode === MediaResizeMode::Contain
-                ? intdiv($specification->maxWidth * 3, 4)
+                ? intdiv($specification->maxWidth * 9, 16)
                 : $specification->maxHeight,
         ];
     }
