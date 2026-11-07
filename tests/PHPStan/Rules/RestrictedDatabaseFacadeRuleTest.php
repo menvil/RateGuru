@@ -33,8 +33,12 @@ final class RestrictedDatabaseFacadeRuleTest extends RuleTestCase
             ['Direct DB::table() access is restricted to approved infrastructure classes.', 13],
             ['Direct DB::select() access is restricted to approved infrastructure classes.', 18],
             ['Direct DB::raw() access is restricted to approved infrastructure classes.', 23],
-            ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 28],
+            ['Direct DB::cursor() access is restricted to approved infrastructure classes.', 28],
+            ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 34],
             ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 13],
+            ['Presentation classes must not manage transactions; move DB::beginTransaction() to an Action.', 18],
+            ['Presentation classes must not manage transactions; move DB::commit() to an Action.', 19],
+            ['Presentation classes must not manage transactions; move DB::rollBack() to an Action.', 20],
         ]);
     }
 

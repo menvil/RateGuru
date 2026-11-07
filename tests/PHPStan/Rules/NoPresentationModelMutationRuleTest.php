@@ -21,8 +21,14 @@ final class NoPresentationModelMutationRuleTest extends RuleTestCase
         $this->analyse([
             __DIR__.'/../Fixtures/Presentation/ModelMutation.php',
         ], [
-            ['Presentation classes must delegate Eloquent update() mutations to an Action.', 13],
-            ['Presentation classes must delegate Eloquent updateOrCreate() mutations to an Action.', 40],
+            ['Presentation classes must delegate Eloquent update() mutations to an Action.', 14],
+            ['Presentation classes must delegate Eloquent update() mutations to an Action.', 25],
+            ['Presentation classes must delegate Eloquent create() mutations to an Action.', 34],
+            ['Presentation classes must delegate Eloquent incrementQuietly() mutations to an Action.', 42],
+            ['Presentation classes must delegate Eloquent createOrFirst() mutations to an Action.', 43],
+            ['Presentation classes must delegate Eloquent insertUsing() mutations to an Action.', 44],
+            ['Presentation classes must delegate Eloquent update() mutations to an Action.', 53],
+            ['Presentation classes must delegate Eloquent updateOrCreate() mutations to an Action.', 80],
         ]);
     }
 }

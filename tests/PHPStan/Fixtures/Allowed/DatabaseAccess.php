@@ -20,4 +20,10 @@ final class TransactionalAction
     {
         DB::transaction(static fn (): null => null);
     }
+
+    public function executeByHand(): void
+    {
+        DB::beginTransaction();
+        DB::commit();
+    }
 }

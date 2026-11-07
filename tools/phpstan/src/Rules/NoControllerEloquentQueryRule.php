@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RateGuru\PHPStan\Rules;
 
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use PhpParser\Node;
 use PhpParser\Node\Expr\CallLike;
 use PhpParser\Node\Expr\MethodCall;
@@ -12,6 +13,7 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
+use PHPStan\Type\ObjectType;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 use RateGuru\PHPStan\Support\EloquentCallInspector;
 
@@ -65,6 +67,7 @@ final class NoControllerEloquentQueryRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.controller.eloquentQuery')
+                ->nonIgnorable()
                 ->build(),
         ];
     }
@@ -81,8 +84,10 @@ final class NoControllerEloquentQueryRule implements Rule
 
         $method = $node->name instanceof Node\Identifier ? $node->name->toString() : '';
 
+        // A collection of models loads its relations with queries as a model does.
         return EloquentCallInspector::returnsQuery($scope, $node)
             || (in_array($method, self::MODEL_READ_METHODS, true)
-                && EloquentCallInspector::hasModelOrQueryReceiver($scope, $node));
+                && (EloquentCallInspector::hasModelOrQueryReceiver($scope, $node)
+                    || (new ObjectType(EloquentCollection::class))->isSuperTypeOf(EloquentCallInspector::receiverType($scope, $node->var))->yes()));
     }
 }

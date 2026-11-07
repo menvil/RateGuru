@@ -6,19 +6,19 @@ namespace RateGuru\PHPStan\Rules;
 
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use PhpParser\Node;
 use PhpParser\Node\Expr\CallLike;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticCall;
-use PhpParser\Node\Name;
 use PhpParser\Node\Scalar\String_;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ObjectType;
+use PHPStan\Type\TypeCombinator;
+use RateGuru\PHPStan\Support\EloquentCallInspector;
 
 use function in_array;
 use function sprintf;
@@ -72,6 +72,7 @@ final class RestrictedRawQueryRule implements Rule
                 return [
                     RuleErrorBuilder::message('This approved raw SQL call requires a separate bindings argument.')
                         ->identifier('rateguru.database.rawQueryBindings')
+                        ->nonIgnorable()
                         ->build(),
                 ];
             }
@@ -81,6 +82,7 @@ final class RestrictedRawQueryRule implements Rule
                 return [
                     RuleErrorBuilder::message('This approved raw SQL call only permits a literal SQL string.')
                         ->identifier('rateguru.database.rawQueryLiteral')
+                        ->nonIgnorable()
                         ->build(),
                 ];
             }
@@ -94,6 +96,7 @@ final class RestrictedRawQueryRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.database.rawQuery')
+                ->nonIgnorable()
                 ->build(),
         ];
     }
@@ -117,26 +120,15 @@ final class RestrictedRawQueryRule implements Rule
 
     private function isDatabaseQuery(Scope $scope, MethodCall|StaticCall $node): bool
     {
+        // A model instance forwards a raw method to a new query, as its class does.
         if ($node instanceof MethodCall) {
-            $type = $scope->getType($node->var);
-
-            foreach ([EloquentBuilder::class, QueryBuilder::class, Relation::class] as $builderClass) {
-                if ((new ObjectType($builderClass))->isSuperTypeOf($type)->yes()) {
-                    return true;
-                }
-            }
-
-            return false;
+            return EloquentCallInspector::hasModelOrQueryReceiver($scope, $node);
         }
 
-        if (! $node->class instanceof Name) {
-            return false;
-        }
-
-        $type = new ObjectType($scope->resolveName($node->class));
-
-        return (new ObjectType(Model::class))->isSuperTypeOf($type)->yes()
-            || (new ObjectType(EloquentBuilder::class))->isSuperTypeOf($type)->yes()
-            || (new ObjectType(QueryBuilder::class))->isSuperTypeOf($type)->yes();
+        return TypeCombinator::union(
+            new ObjectType(Model::class),
+            new ObjectType(EloquentBuilder::class),
+            new ObjectType(QueryBuilder::class),
+        )->isSuperTypeOf(EloquentCallInspector::staticCallClass($scope, $node))->yes();
     }
 }

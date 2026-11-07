@@ -173,8 +173,14 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
   manage/ban/unban/shadowban/markTrusted for tombstone targets, and the
   moderation actions re-check under lock so a stale instance cannot slip a
   tombstone back into the moderation lifecycle.
-- The `NoPhysicalUserDeletionRule` PHPStan rule (non-ignorable) bans
-  `$user->delete()` / `forceDelete()` / `User::destroy()` in all app code.
+- The `NoPhysicalUserDeletionRule` PHPStan rule (non-ignorable) bans the
+  Eloquent ways to physically delete a users row in all app code: on a user
+  (`delete()`, `forceDelete()`, `deleteQuietly()`, `forceDeleteQuietly()`,
+  `deleteOrFail()`), on an Eloquent query or relation of users
+  (`User::where(...)->delete()`, `truncate()`) and on the class
+  (`User::destroy()`, `forceDestroy()`, `truncate()`). A delete through the
+  query builder underneath, or raw SQL, is `RestrictedDatabaseFacadeRule`'s
+  and `RestrictedRawQueryRule`'s to refuse.
 - The `EnsureAccountIsNotTombstoned` middleware (web group) force-terminates
   any surviving session of a tombstoned account on its next request —
   effective for file/redis session backends the DB cleanup cannot reach.
