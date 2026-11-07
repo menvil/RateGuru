@@ -4,10 +4,9 @@ namespace App\Services\Posts;
 
 use App\Enums\PostPurgeOutcome;
 use App\Enums\PostStatus;
-use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
-use App\Models\Report;
+use App\Support\Moderation\OpenReportHold;
 use App\Support\Posts\PostRetention;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -31,6 +30,7 @@ final class PostRetentionPurgeService
 {
     public function __construct(
         private readonly PostGraphDeletionService $graphDeletion,
+        private readonly OpenReportHold $openReports,
     ) {}
 
     /**
@@ -73,7 +73,10 @@ final class PostRetentionPurgeService
                 return PostPurgeOutcome::NotExpired;
             }
 
-            if ($this->hasModerationHold($post)) {
+            // Active moderation evidence holds the purge: a review flag, or
+            // an open report on the post or any of its comments. Closed
+            // reports never hold it forever.
+            if ($post->needs_review || $this->openReports->onPostGraph($post->id, lock: ! $dryRun)) {
                 return PostPurgeOutcome::ModerationHold;
             }
 
@@ -88,36 +91,6 @@ final class PostRetentionPurgeService
 
             return PostPurgeOutcome::Purged;
         });
-    }
-
-    /**
-     * Active moderation evidence blocks the purge: a post flagged for
-     * review, or any open report against the post or its comment graph.
-     * Resolved/ignored reports never hold a purge open forever.
-     */
-    private function hasModerationHold(Post $post): bool
-    {
-        if ($post->needs_review) {
-            return true;
-        }
-
-        $openPostReport = Report::query()
-            ->where('status', ReportStatus::Open)
-            ->where('target_type', Post::class)
-            ->where('target_id', $post->id)
-            ->exists();
-
-        if ($openPostReport) {
-            return true;
-        }
-
-        return Report::query()
-            ->where('status', ReportStatus::Open)
-            ->where('target_type', Comment::class)
-            ->whereIn('target_id', Comment::withTrashed()
-                ->where('post_id', $post->id)
-                ->select('id'))
-            ->exists();
     }
 
     private function cutoff(?int $olderThanDays): Carbon

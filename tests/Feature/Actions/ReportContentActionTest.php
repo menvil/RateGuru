@@ -127,7 +127,8 @@ it('does not let an author report their own comment', function () {
     expect(fn () => app(ReportContentAction::class)->handle($author, $comment, ReportReason::Spam))
         ->toThrow(CannotReportContentException::class, 'User is not allowed to report content.');
 
-    expect(Report::query()->count())->toBe(0);
+    expect(Report::query()->count())->toBe(0)
+        ->and($comment->fresh()->reports_count)->toBe(0);
 });
 
 it('checks authorship on the rows it locks, not only on the instance it was given', function () {

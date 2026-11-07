@@ -19,6 +19,24 @@ class CommentPolicy
             && $comment->user_id === $user->id;
     }
 
+    /**
+     * As for a post: an account that still has voting, on someone else's
+     * comment.
+     */
+    public function vote(User $user, Comment $comment): bool
+    {
+        return $user->canVote()
+            && (int) $comment->user_id !== (int) $user->id;
+    }
+
+    public function report(User $user, Comment $comment): bool
+    {
+        // As for posts: a sanctioned account has lost reporting, and nobody
+        // reports what they wrote themselves.
+        return $user->canReport()
+            && (int) $comment->user_id !== (int) $user->id;
+    }
+
     public function hide(User $user, Comment $comment): bool
     {
         // Only a live, visible comment can be hidden: an author-deleted row

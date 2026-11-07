@@ -5,11 +5,10 @@ namespace App\Services\Comments;
 use App\Enums\CommentPurgeOutcome;
 use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
-use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
-use App\Models\Report;
 use App\Support\ContentLifecycle\CommentRetention;
+use App\Support\Moderation\OpenReportHold;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +28,7 @@ final class CommentRetentionPurgeService
 {
     public function __construct(
         private readonly CommentPhysicalDeletionService $physicalDeletion,
+        private readonly OpenReportHold $openReports,
     ) {}
 
     /**
@@ -110,13 +110,7 @@ final class CommentRetentionPurgeService
                 return CommentPurgeOutcome::StructuralAnchor;
             }
 
-            $hasOpenReport = Report::query()
-                ->where('status', ReportStatus::Open)
-                ->where('target_type', Comment::class)
-                ->where('target_id', $comment->id)
-                ->exists();
-
-            if ($hasOpenReport) {
+            if ($this->openReports->onComment($comment->id, lock: ! $dryRun)) {
                 return CommentPurgeOutcome::OpenReportHold;
             }
 

@@ -51,6 +51,15 @@ class UserPolicy
             && ! $target->isTombstoned();
     }
 
+    /**
+     * Whether the actor could report the target: someone else, while the
+     * actor's own account still has reporting.
+     */
+    public function report(User $actor, User $target): bool
+    {
+        return $actor->canReport() && $actor->id !== $target->id;
+    }
+
     public function viewAdmin(User $actor): bool
     {
         return in_array($actor->role, [UserRole::Admin, UserRole::Moderator], true);

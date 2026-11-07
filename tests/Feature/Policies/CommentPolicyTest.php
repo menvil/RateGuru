@@ -116,3 +116,12 @@ it('refuses to authorize restoring a comment whose removal was finalized', funct
 
     expect($moderator->can('restore', $hidden))->toBeTrue();
 });
+
+it('lets an account that still has voting vote on someone else\'s comment, never its own', function () {
+    $voter = User::factory()->create();
+    $comment = Comment::factory()->create();
+
+    expect($voter->can('vote', $comment))->toBeTrue()
+        ->and($comment->user->can('vote', $comment))->toBeFalse()
+        ->and(User::factory()->limited()->create()->can('vote', $comment))->toBeFalse();
+});

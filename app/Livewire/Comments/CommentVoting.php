@@ -104,7 +104,11 @@ final class CommentVoting extends Component
             'isOwnComment' => $own,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            'votingDisabled' => $own,
+            // Off for one's own comment and for an account that has lost
+            // voting, whose every vote would be refused: CommentPolicy::vote
+            // read from what was handed over, with no query. A guest is asked
+            // to sign in instead.
+            'votingDisabled' => $available && auth()->check() && ($own || ! (auth()->user()?->canVote() ?? false)),
             'score' => $score,
         ]);
     }

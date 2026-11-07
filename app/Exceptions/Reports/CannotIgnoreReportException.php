@@ -10,4 +10,10 @@ final class CannotIgnoreReportException extends DomainException
     {
         return new self('User is not allowed to ignore reports.');
     }
+
+    /** Someone else closed it first — or reopened and closed it — so this changes nothing. */
+    public static function becauseItIsNoLongerOpen(): self
+    {
+        return new self('The report is no longer open.');
+    }
 }

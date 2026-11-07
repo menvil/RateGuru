@@ -141,7 +141,10 @@ allowlist). Per post, in one transaction, after a locked re-read:
   `invalid_state`.
 - **Moderation hold**: `needs_review`, an open report against the post, or
   an open report against any of its comments blocks the purge
-  (`moderation_hold`). Resolved/ignored reports never block.
+  (`moderation_hold`). Resolved/ignored reports never block. The reports
+  are read under lock — closed ones too (`OpenReportHold`) — so a
+  moderator reopening one while the purge runs waits for it, and is never
+  told a report is open that the purge then deletes.
 - **Deletion order (PR-C FK-safe)**: lock the post's comment rows →
   comment votes → comment-targeted reports → comments strictly
   leaves-first until the graph is empty (depth-agnostic: the public

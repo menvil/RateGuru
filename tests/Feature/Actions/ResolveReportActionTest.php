@@ -53,7 +53,8 @@ it('does not overwrite original resolver when resolving an already resolved repo
     $report->refresh();
     $originalResolvedAt = $report->resolved_at;
 
-    app(ResolveReportAction::class)->handle($second, $report, 'Second resolution.');
+    expect(fn () => app(ResolveReportAction::class)->handle($second, $report, 'Second resolution.'))
+        ->toThrow(CannotResolveReportException::class, 'no longer open');
 
     $report->refresh();
 
@@ -61,4 +62,22 @@ it('does not overwrite original resolver when resolving an already resolved repo
     expect($report->resolved_by)->toBe($first->id);
     expect($report->resolution_note)->toBe('First resolution.');
     expect($report->resolved_at->equalTo($originalResolvedAt))->toBeTrue();
+});
+
+it('refuses to resolve a report another moderator ignored, keeping their decision', function () {
+    $ignoredBy = User::factory()->moderator()->create();
+    $report = Report::factory()->create([
+        'status' => ReportStatus::Ignored,
+        'resolved_by' => $ignoredBy->id,
+        'resolved_at' => now()->subHour(),
+        'resolution_note' => 'Not a violation.',
+    ]);
+
+    expect(fn () => app(ResolveReportAction::class)->handle(User::factory()->moderator()->create(), $report, 'Late resolution.'))
+        ->toThrow(CannotResolveReportException::class, 'no longer open');
+
+    expect($report->fresh())
+        ->status->toBe(ReportStatus::Ignored)
+        ->resolved_by->toBe($ignoredBy->id)
+        ->resolution_note->toBe('Not a violation.');
 });

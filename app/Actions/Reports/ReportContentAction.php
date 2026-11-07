@@ -55,9 +55,9 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // The policy denies reporting your own post. It reads the caller's
-        // instance; the row read under lock below is checked again.
-        if ($content instanceof Post && ! $user->can('report', $content)) {
+        // The policy denies reporting what you wrote. It reads the caller's
+        // instance; the rows read under lock below are checked again.
+        if (($content instanceof Post || $content instanceof Comment) && ! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
