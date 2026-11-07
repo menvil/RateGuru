@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class CreateAdminUserCommand extends Command
 {
@@ -21,7 +22,9 @@ class CreateAdminUserCommand extends Command
 
     public function handle(): int
     {
-        $email = trim((string) $this->option('email'));
+        // Stored lowercase like every other account's, so the address signs
+        // in whatever case it is typed in.
+        $email = Str::lower(trim((string) $this->option('email')));
         $username = trim((string) $this->option('username'));
         $name = trim((string) $this->option('name')) ?: $username;
 

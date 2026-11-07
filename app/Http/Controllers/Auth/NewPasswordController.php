@@ -6,6 +6,7 @@ use App\Actions\Auth\ResetPasswordAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -29,15 +30,19 @@ class NewPasswordController extends Controller
         /** @var array{token: string, email: string, password: string} $validated */
         $validated = $request->validated();
 
-        $status = $resetPassword->execute($validated);
-
         // Reached from the emailed link while signed in to the same account —
         // how an account created through Google or Facebook sets its first
         // password. A reset of some other address is not news about this
         // profile, so it takes the ordinary route.
         $user = $request->user();
 
+        $status = $resetPassword->execute($validated, $user instanceof User ? $user : null);
+
         if ($user instanceof User && Str::lower((string) $user->email) === Str::lower(trim($validated['email']))) {
+            // The reset ended every session of the account; the one that set
+            // the password from its own mailbox carries on.
+            SessionGeneration::remember($request->session(), $user);
+
             return redirect()->route('profile.edit')->with('status', 'password-set');
         }
 

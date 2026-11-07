@@ -4,8 +4,10 @@ namespace App\Actions\Auth;
 
 use App\Models\Concerns\LocksActorForWrite;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -34,6 +36,12 @@ final class UpdatePasswordAction
 
             $locked->forceFill([
                 'password' => Hash::make($password),
+                // Every other session and remember-me cookie of the account
+                // ends with the old password: a stolen session must not
+                // outlive its owner changing it. The caller keeps its own
+                // session current (SessionGeneration::remember()).
+                'remember_token' => Str::random(60),
+                'session_generation' => SessionGeneration::next(),
             ])->save();
 
             $user->setRawAttributes($locked->getAttributes(), true);

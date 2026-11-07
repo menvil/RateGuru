@@ -154,3 +154,13 @@ test('registration converts username generation exhaustion into a validation err
         'name' => __('auth.username_unavailable'),
     ]);
 });
+
+test('limits how many accounts one client can register in a minute', function () {
+    foreach (range(1, 6) as $n) {
+        $this->post('/register', ['name' => "Person {$n}", 'username' => "person_{$n}", 'email' => "person{$n}@example.test", 'password' => 'a-long-password', 'password_confirmation' => 'a-long-password']);
+        auth()->logout();
+    }
+
+    $this->post('/register', ['name' => 'Person 7', 'username' => 'person_7', 'email' => 'person7@example.test', 'password' => 'a-long-password', 'password_confirmation' => 'a-long-password'])
+        ->assertTooManyRequests();
+});

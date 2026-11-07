@@ -4,12 +4,14 @@ namespace App\Http\Requests\Auth;
 
 use App\Enums\AuthModalMode;
 use App\Http\Requests\Auth\Concerns\CarriesAuthSurface;
+use App\Http\Requests\Auth\Concerns\NormalizesEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class LoginRequest extends FormRequest
 {
     use CarriesAuthSurface;
+    use NormalizesEmail;
 
     /**
      * Determine if the user is authorized to make this request.
