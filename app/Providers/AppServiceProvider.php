@@ -110,6 +110,9 @@ class AppServiceProvider extends ServiceProvider
             $view->with([
                 'themePreference' => $themePreference,
                 'appliedTheme' => $appliedTheme,
+                // A choice saved to the account outranks one a browser kept
+                // in localStorage — the client reads which this is.
+                'themeSource' => $user?->theme_preference !== null ? 'user' : 'default',
             ]);
         });
 
