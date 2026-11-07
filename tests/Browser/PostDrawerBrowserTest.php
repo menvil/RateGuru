@@ -311,4 +311,25 @@ it('gives the page its scroll back when the window widens past the phone\'s pane
     $page->resize(1440, 900);
 
     waitForScript($page, "document.documentElement.classList.contains('overflow-hidden')", false);
+    // Nor any card left marked for a post the wide feed never opened beside it.
+    waitForScript($page, "document.querySelector('[data-testid=\"post-card\"][data-post-id=\"{$post->id}\"]').classList.contains('border-rg-accent')", false);
+});
+
+it('closes only its open menu on Escape, wherever the focus is, as Safari leaves it on the panel', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['post_detail_overlay_mode' => true]]);
+    $post = Post::factory()->published()->create(['title' => 'A post with a menu']);
+    actingAs(User::factory()->create());
+    $page = visit(route('feed'))->resize(1440, 900);
+
+    openPostInOverlay($page, $post);
+    $page->click('[data-testid="post-detail-overlay"] button[aria-label="'.__('ui.a11y.post_actions').'"]');
+    $menuShown = "document.querySelector('[data-testid=\"post-detail-overlay\"] [data-testid=\"post-drawer-menu\"]').checkVisibility()";
+    waitForScript($page, $menuShown);
+
+    // The focus on the panel itself, where a click in Safari leaves it.
+    $page->script("document.querySelector('[data-testid=\"post-detail-overlay\"]').focus()");
+    $page->keys(':focus', 'Escape');
+
+    waitForScript($page, $menuShown, false);
+    $page->assertScript(OVERLAY_OPEN, true);
 });

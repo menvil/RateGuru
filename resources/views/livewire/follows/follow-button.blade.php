@@ -31,6 +31,6 @@
         @endif
 
         {{-- In the page before there is anything to say, so a screen reader hears what comes. --}}
-        <span class="text-xs text-rg-muted empty:hidden" role="status" data-testid="follow-button-message">{{ $message }}</span>
+        <span class="text-xs text-rg-muted empty:sr-only" role="status" data-testid="follow-button-message">{{ $message }}</span>
     @endif
 </div>

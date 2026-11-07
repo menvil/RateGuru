@@ -173,6 +173,9 @@
                     data-testid="upload-image-url-input"
                     x-on:input="previewUrl = $event.target.value || null"
                 />
+                <div data-testid="field-error-image-url">
+                    <x-input-error :messages="$errors->get('importedImageUrl')" />
+                </div>
                 <template x-if="previewUrl && imageTab === 'url'">
                     <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" class="max-h-48 w-full rounded-rgMedia object-contain" />
                 </template>

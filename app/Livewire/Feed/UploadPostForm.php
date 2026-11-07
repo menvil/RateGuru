@@ -103,6 +103,10 @@ final class UploadPostForm extends Component
                 return;
             }
 
+            // A link that is no web address is said to be one, not tried and
+            // answered with "could not fetch".
+            $this->validateOnly('importedImageUrl');
+
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
                 $importedTempFile = $this->image;
@@ -204,6 +208,7 @@ final class UploadPostForm extends Component
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
+            'importedImageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
             'tagIds' => ['array', 'max:'.PostContentRules::MOST_TAGS],
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryId' => [
