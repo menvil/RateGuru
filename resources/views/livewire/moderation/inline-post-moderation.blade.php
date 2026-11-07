@@ -2,6 +2,11 @@
     @if ($this->canModerate)
         @if ($variant === 'menu')
             <div x-data="{ compactHideOpen: false }" data-testid="inline-post-moderation-menu">
+                {{-- What a refused hide or restore says, as the panel does. --}}
+                @if ($error)
+                    <p data-testid="moderation-error" role="alert" class="px-3 py-1.5 text-xs text-rg-danger">{{ $error }}</p>
+                @endif
+
                 @if ($this->adminPostUrl)
                     <a
                         href="{{ $this->adminPostUrl }}"
@@ -109,7 +114,7 @@
                     name="moderation_reason"
                     id="moderation-reason-{{ $post->id }}"
                     rows="2"
-                    maxlength="1000"
+                    maxlength="{{ \App\Livewire\Moderation\InlinePostModeration::REASON_LIMIT }}"
                     placeholder="{{ __('ui.moderation.reason_placeholder') }}"
                     wire:model.defer="reason"
                     data-testid="moderation-reason-input"

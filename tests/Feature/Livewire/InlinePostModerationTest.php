@@ -200,3 +200,36 @@ it('links the admin entry to the post edit page once the panel has one', functio
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('href="'.route('filament.admin.resources.posts.edit', ['record' => $post->id]).'"', false);
 });
+
+it('offers no Restore for a removal finalized since, which the action would refuse', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->hidden()->create(['moderation_removed_at' => now()]);
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id, 'variant' => 'menu'])
+        ->assertDontSee('data-testid="moderation-restore"', false);
+});
+
+it('holds the reason to its limit on the server, not only in the field', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', str_repeat('a', InlinePostModeration::REASON_LIMIT + 1))
+        ->call('hide')
+        ->assertHasErrors(['reason' => 'max']);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+});
+
+it('says in the post menu what a refused hide is about', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+    $menu = Livewire::actingAs($moderator)->test(InlinePostModeration::class, ['postId' => $post->id, 'variant' => 'menu']);
+
+    // Hidden by someone else since the menu was drawn.
+    $post->forceFill(['status' => PostStatus::Hidden])->save();
+
+    $menu->call('hide')->assertSee('data-testid="moderation-error"', false);
+});

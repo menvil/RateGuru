@@ -16,6 +16,9 @@ use Livewire\Component;
 
 final class InlinePostModeration extends Component
 {
+    /** The longest reason kept, as the admin's moderation dialogs take. */
+    public const REASON_LIMIT = 1000;
+
     public int $postId;
 
     public ?string $reason = null;
@@ -54,8 +57,11 @@ final class InlinePostModeration extends Component
     #[Computed]
     public function canRestore(): bool
     {
+        // A removal finalized since can no longer be taken back: no Restore
+        // the action would refuse.
         return $this->canModerate()
-            && $this->post()->status === PostStatus::Hidden;
+            && $this->post()->status === PostStatus::Hidden
+            && $this->post()->moderation_removed_at === null;
     }
 
     public function hide(HidePostAction $hidePostAction): void
@@ -118,6 +124,9 @@ final class InlinePostModeration extends Component
 
             return;
         }
+
+        // Held to its limit here too, not by the field's maxlength alone.
+        $this->validate(['reason' => ['nullable', 'string', 'max:'.self::REASON_LIMIT]]);
 
         try {
             $callback();

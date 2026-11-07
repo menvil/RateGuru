@@ -13,6 +13,8 @@ use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 /**
@@ -99,6 +101,29 @@ it('says so, and changes nothing, when someone closed the report meanwhile', fun
 
     expect($report->fresh())->status->toBe(ReportStatus::Resolved)->resolution_note->toBe('Elsewhere.');
 });
+
+it('says so, rather than offering Undo, when the report is closed between the page\'s check and the write', function (string $method) {
+    $report = reportOn(Post::factory()->published()->create());
+    $page = Livewire::test(ListReports::class);
+    $elsewhere = User::factory()->moderator()->create();
+
+    // Another moderator's close commits right after this one has read the
+    // report as open and locked its own row, just before it writes.
+    $closedElsewhere = false;
+    DB::listen(function (QueryExecuted $query) use (&$closedElsewhere, $report, $elsewhere): void {
+        if (! $closedElsewhere && str_contains($query->sql, 'for update')) {
+            $closedElsewhere = true;
+            Report::query()->whereKey($report->id)->update(['status' => ReportStatus::Resolved->value, 'resolved_by' => $elsewhere->id, 'resolved_at' => now()]);
+        }
+    });
+
+    $page->call($method, $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', action: ['label' => 'Undo', 'event' => 'reopen-report', 'params' => ['id' => $report->id]]);
+
+    expect($closedElsewhere)->toBeTrue()
+        ->and($report->fresh())->status->toBe(ReportStatus::Resolved)->resolved_by->toBe($elsewhere->id);
+})->with(['resolve', 'ignore']);
 
 it('hides a reported post only with a reason, the report\'s own filled in, and leaves the report open', function () {
     $post = Post::factory()->published()->create();

@@ -52,7 +52,8 @@ it('does not overwrite already resolved report', function () {
     $report = Report::factory()->resolved()->create();
     $originalResolver = $report->resolved_by;
 
-    app(IgnoreReportAction::class)->handle($moderator, $report, 'late ignore');
+    expect(fn () => app(IgnoreReportAction::class)->handle($moderator, $report, 'late ignore'))
+        ->toThrow(CannotIgnoreReportException::class, 'no longer open');
 
     $report->refresh();
     expect($report->status)->toBe(ReportStatus::Resolved);

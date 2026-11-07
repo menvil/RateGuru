@@ -84,7 +84,10 @@ graph → `ParentPostHold`), cutoff reached, no child row (trashed included
 through `CommentPhysicalDeletionService`.
 
 Evidence semantics: open reports block, resolved/ignored never hold
-forever and are swept with the purged target. **ModerationLog rows are
+forever and are swept with the purged target. Every report on the target
+is locked before its status is read (`OpenReportHold`), so a reopen racing
+the purge either lands first and holds it, or waits and finds the target
+gone — never an open report on a purged comment. **ModerationLog rows are
 retained indefinitely** — hide/restore/finalize/sanction history all
 survive the physical purge; admin rendering is null-safe for missing
 targets. Media is released DB-only (`releaseUnreferenced`) after the post

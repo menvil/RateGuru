@@ -263,6 +263,14 @@ it('shows report user placeholder to authenticated non owner', function () {
         ->assertSee('data-testid="report-user-button"', false);
 });
 
+it('does not show report user placeholder to an account whose sanction took reporting away', function (string $state) {
+    User::factory()->create(['username' => 'chef_ivan']);
+
+    Livewire::actingAs(User::factory()->{$state}()->create())
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('data-testid="report-user-button"', false);
+})->with(['limited', 'banned', 'shadowbanned']);
+
 it('does not show report user placeholder to profile owner', function () {
     $owner = User::factory()->create(['username' => 'chef_ivan']);
 

@@ -88,3 +88,40 @@ it('asks nothing when none of the selected posts can be hidden', function () {
         ->call('askToHideSelected')
         ->assertSet('confirming', null);
 });
+
+it('says nothing was done when every selected post changed before the hide was confirmed', function () {
+    $published = Post::factory()->count(2)->published()->create();
+    $ids = $published->pluck('id')->sort()->values()->all();
+
+    $page = Livewire::test(ListPosts::class)
+        ->set('selected', array_map(strval(...), $ids))
+        ->call('askToHideSelected')
+        ->set('reason', 'Spam');
+
+    // Another moderator hides both while the confirmation is open.
+    Post::query()->whereKey($ids)->update(['status' => PostStatus::Hidden->value]);
+
+    $page->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'These posts changed meanwhile, so nothing was done. The list now shows them as they are.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', tone: 'success');
+});
+
+it('names the post Undo actually brought back, and says when it brought back none', function (string $event, PostStatus $from, PostStatus $to, string $said) {
+    $kept = Post::factory()->create(['status' => $from, 'title' => 'Changed meanwhile']);
+    $undone = Post::factory()->create(['status' => $from, 'title' => 'Still as left']);
+    // The first one was moved on by someone else after the toast went up.
+    $kept->forceFill(['status' => PostStatus::Pending])->save();
+
+    $page = Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
+        ->dispatch($event, ids: [$kept->id, $undone->id])
+        ->assertDispatched('rg-admin-toast', message: '“Still as left” '.$said);
+
+    expect($undone->fresh()->status)->toBe($to)
+        ->and($kept->fresh()->status)->toBe(PostStatus::Pending);
+
+    $page->dispatch($event, ids: [$kept->id])
+        ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+})->with([
+    'undoing a hide' => ['restore-posts', PostStatus::Hidden, PostStatus::Published, 'is visible again'],
+    'undoing a restore' => ['hide-posts-again', PostStatus::Published, PostStatus::Hidden, 'is hidden again'],
+]);

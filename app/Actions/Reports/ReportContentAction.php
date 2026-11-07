@@ -55,9 +55,9 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // Ownership is immutable on posts, so the policy check (which
-        // denies reporting your own post) needs no locked re-read.
-        if ($content instanceof Post && ! $user->can('report', $content)) {
+        // Ownership is immutable on posts and comments, so the policy check
+        // (which denies reporting what you wrote) needs no locked re-read.
+        if (($content instanceof Post || $content instanceof Comment) && ! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
