@@ -13215,7 +13215,11 @@ function hideCommentOnceTheModeratorIsLocked(Comment $comment): Closure
     $landed = false;
 
     DB::listen(function (QueryExecuted $query) use ($comment, &$landed): void {
-        if (! $landed && str_contains($query->sql, 'from "users"') && str_contains($query->sql, 'for update')) {
+        // Identifier quoting is stripped rather than matched: PostgreSQL quotes
+        // "users", MariaDB `users`.
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (! $landed && preg_match('/\bfrom users\b/', $sql) === 1 && str_contains($sql, 'for update')) {
             $landed = true;
             DB::table('comments')->where('id', $comment->id)->update(['status' => CommentStatus::Hidden->value]);
         }

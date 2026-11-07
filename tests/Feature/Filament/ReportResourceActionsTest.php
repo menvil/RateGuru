@@ -151,7 +151,10 @@ it('says so when the reported comment is hidden by someone else after the page c
 
     expect($landed())->toBeTrue()
         ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(0);
-});
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
 
 it('lets an administrator ban the author of the reported content, leaving the report open', function () {
     $this->actingAs(User::factory()->admin()->create());

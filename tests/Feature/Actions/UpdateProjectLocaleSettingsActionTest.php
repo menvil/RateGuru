@@ -96,7 +96,9 @@ it('leaves an offered language with broken catalogs alone, so the rest can still
 it('changes one language against what the locked row offers, in config order, under the same rules', function () {
     [$offered, $other] = twoTranslatedLocales();
     updateProjectLocales(['en', $offered]);
-    // Written behind the settings cache, as another request would.
+    // Read into the settings memo, then written behind it, as another request
+    // would: only the locked row knows the third language.
+    app(ProjectSettingsManager::class)->current();
     ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(['en', $offered, $other])]);
 
     app(UpdateProjectLocaleSettingsAction::class)->change($offered, false);
