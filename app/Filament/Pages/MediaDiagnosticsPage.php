@@ -579,6 +579,8 @@ final class MediaDiagnosticsPage extends Page
             'severity' => self::severityBadge($issue->severity),
             'explain' => self::explain($issue->issue_type, $inspection, $missing),
             'exists' => $inspection !== null,
+            // Only a lost master leaves nothing to do here but upload again or restore.
+            'needsRestore' => $inspection !== null && ! $inspection->masterExists,
             'path' => $asset?->path,
             'details' => $asset === null ? [] : [
                 ['icon' => 'image', 'label' => 'Kind', 'value' => Str::headline($asset->kind->value), 'mono' => false],
@@ -741,8 +743,20 @@ final class MediaDiagnosticsPage extends Page
             return 'The last audit found the original upload gone from its disk; it is there again now. The next audit clears this issue.';
         }
 
-        if ($inspection !== null && $type === MediaAuditIssueType::MissingVariantFile && $inspection->masterExists && $missingVariants === 0) {
+        if ($inspection !== null && $type === MediaAuditIssueType::MissingVariantFile && $missingVariants === 0) {
             return 'The last audit found variants missing; they are all there now. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::MissingVariantFile && ! $inspection->masterExists) {
+            return 'Some of its variants are missing, and so is the original upload: nothing can regenerate them. A new upload or a backup restore is needed.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::ActiveUnreferencedAsset && ($inspection->referenced || $inspection->asset->trashed())) {
+            return 'The last audit found it active with nothing referencing it; it is referenced or released now. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::PurgeableAsset && ! $inspection->purgeable) {
+            return 'The last audit found it released and past its grace period; it is not purgeable now. The next audit clears this issue.';
         }
 
         return match ($type) {

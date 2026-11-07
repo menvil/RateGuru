@@ -9,6 +9,7 @@ use App\Jobs\RunMediaAuditJob;
 use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
+use App\Models\MediaVariant;
 use App\Models\Post;
 use App\Models\StudioPlan;
 use App\Models\User;
@@ -798,3 +799,43 @@ it('retryFailedMediaJob dispatches a fresh GenerateMediaVariantsJob rather than 
 
     Queue::assertPushed(GenerateMediaVariantsJob::class, fn ($job): bool => $job->mediaAssetId === 99 && $job->force === false);
 });
+
+it('says what an issue is now, once the disk or the asset no longer bears the finding out', function (MediaAuditIssueType $type, Closure $asset, string $not, ?string $instead) {
+    $admin = User::factory()->admin()->create();
+    $media = $asset();
+    $run = MediaAuditRun::factory()->create(['completed_at' => now()]);
+    $issue = MediaAuditIssue::factory()->ofType($type)->create(['media_audit_run_id' => $run->id, 'media_asset_id' => $media->id]);
+
+    $page = Livewire::actingAs($admin)->test(MediaDiagnosticsPage::class)->call('inspect', $issue->id)->assertDontSee($not);
+
+    if ($instead !== null) {
+        $page->assertSee($instead);
+    }
+})->with([
+    'variants missing and the master gone too' => [MediaAuditIssueType::MissingVariantFile, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        MediaVariant::factory()->create(['media_asset_id' => $asset->id]);
+
+        return $asset;
+    }, 'The master is intact', 'and so is the original upload'],
+    'released but still shown, its files on disk' => [MediaAuditIssueType::ReleasedButReferenced, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        Storage::disk('public')->put($asset->path, 'master-bytes');
+        Post::factory()->create(['image_asset_id' => $asset->id]);
+        $asset->delete();
+
+        return $asset;
+    }, 'a new upload or a backup restore is needed', null],
+    'unreferenced once, referenced now' => [MediaAuditIssueType::ActiveUnreferencedAsset, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        Post::factory()->create(['image_asset_id' => $asset->id]);
+
+        return $asset;
+    }, 'nothing references it', 'it is referenced or released now'],
+    'purgeable once, within its grace now' => [MediaAuditIssueType::PurgeableAsset, function (): MediaAsset {
+        $asset = MediaAsset::factory()->postImage()->create();
+        $asset->delete();
+
+        return $asset;
+    }, 'Purging deletes', 'it is not purgeable now'],
+]);
