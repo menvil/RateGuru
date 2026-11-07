@@ -161,3 +161,13 @@ test('a sanctioned account that may not edit its profile is told why, not shown 
 
     expect($user->fresh()->name)->toBe('Original');
 });
+
+test('bounds the password an email change takes, as the other password checks are', function () {
+    $user = User::factory()->create(['email' => 'kept@example.com', 'username' => 'kept_user']);
+
+    $this->actingAs($user)
+        ->patch('/profile', ['name' => 'Kept', 'username' => 'kept_user', 'email' => 'moved@example.com', 'current_password' => str_repeat('a', 256)])
+        ->assertSessionHasErrors(['current_password' => __('validation.max.string', ['attribute' => 'current password', 'max' => 255])]);
+
+    expect($user->fresh()->email)->toBe('kept@example.com');
+});

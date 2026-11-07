@@ -39,7 +39,7 @@ class ProfileUpdateRequest extends FormRequest
             // password yet — one made through Google or Facebook — has none
             // to give.
             'current_password' => $this->changesEmailOfAccountWithPassword()
-                ? ['required', 'string', 'current_password']
+                ? ['required', 'string', 'max:255', 'current_password']
                 : ['nullable'],
         ];
     }
