@@ -142,39 +142,86 @@ it('references no pull request from the operational surface', function () {
     expect($offenders)->toBe([], "pull request references in the operational surface:\n".implode("\n", $offenders));
 });
 
-it('references no release label from the application code', function () {
-    // The same rule as above, applied to app/. CLAUDE.md states it for the whole
-    // repository, but the guard only ever scanned the operational surface — and
-    // `app/` had quietly collected thirteen `PR-F` and `PR-E` labels, which is
-    // exactly what an unenforced rule does.
-    //
-    // The pattern covers three spellings, because the labels use all of them and
-    // a guard that catches two is a guard that teaches people the third. `PR #12`
-    // the numbered reference, `PR-F` the lettered phase, and `PR-06` the
-    // hyphenated number — which the first version of this guard missed, leaving
-    // three live examples in app/ untouched. None of them ages any better than
-    // the others: the behaviour stays right, the label stops meaning anything.
+/**
+ * Every release label in the shipped directories under $root, as
+ * `path:line — text`.
+ *
+ * Three spellings of a PR label are covered, because the labels use all of
+ * them and a guard that catches two is a guard that teaches people the third:
+ * `PR #12` the numbered reference, `PR-F` the lettered phase, and `PR-06` the
+ * hyphenated number. None of them ages any better than the others: the
+ * behaviour stays right, the label stops meaning anything.
+ *
+ * @return list<string>
+ */
+function releaseLabelOffenders(string $root): array
+{
     $offenders = [];
 
-    $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator(base_path('app'), FilesystemIterator::SKIP_DOTS),
-    );
-
-    foreach ($files as $file) {
-        if ($file->getExtension() !== 'php') {
+    foreach (['app', 'bootstrap', 'config', 'database', 'lang', 'routes', 'resources/views', 'resources/js', 'resources/css'] as $directory) {
+        if (! is_dir("{$root}/{$directory}")) {
             continue;
         }
 
-        $relative = str_replace(base_path().'/', '', $file->getPathname());
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator("{$root}/{$directory}", FilesystemIterator::SKIP_DOTS),
+        );
 
-        foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
-            if (preg_match('/\bPR[ -](#?\d+|[A-Z])\b|\bpull request #\d+/i', $line)) {
-                $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
+        foreach ($files as $file) {
+            if (! in_array($file->getExtension(), ['php', 'js', 'css'], true)) {
+                continue;
+            }
+
+            $relative = str_replace($root.'/', '', $file->getPathname());
+
+            foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
+                // The hyphenated and lettered PR forms are case-sensitive on
+                // purpose: Tailwind's `pr-10` is padding, not a pull request,
+                // and the views are full of it. A `#` number, a phase and a
+                // slice are labels in any case.
+                if (preg_match('/\bPR[ -](#?\d+|[A-Z])\b|\b(?i:pr|pull request) #\d+|\b(?i:phases?) \d+(\.\d+)?[A-C]?\b|\b(?i:slices?) \d+\.\d+\b/', $line)) {
+                    $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
+                }
             }
         }
     }
 
+    return $offenders;
+}
+
+it('references no release label from the application code', function () {
+    // The same rule as above, applied to the application. CLAUDE.md states it
+    // for the whole repository, but the guard only ever scanned the
+    // operational surface — and `app/` had quietly collected thirteen `PR-F`
+    // and `PR-E` labels, which is exactly what an unenforced rule does. Once
+    // only `app/` was scanned for those, the phase numbers and the migrations'
+    // lettered labels collected next door instead, so the scope is every
+    // directory that ships, and both vocabularies are matched in all of it.
+    $offenders = releaseLabelOffenders(base_path());
+
     expect($offenders)->toBe([], "release labels in application code:\n".implode("\n", $offenders));
+});
+
+it('finds a release label in every shipped directory, in any case, and not in a padding class', function () {
+    $root = makeScratchDir('rg-release-labels');
+    File::ensureDirectoryExists("{$root}/lang/en");
+    File::ensureDirectoryExists("{$root}/resources/css");
+    File::ensureDirectoryExists("{$root}/resources/views");
+    File::put("{$root}/lang/en/ui.php", "<?php\n// phase 5 adds these\nreturn [];\n");
+    File::put("{$root}/resources/css/app.css", "/* fixed in pr #12 */\n.a { color: red; }\n");
+    File::put("{$root}/resources/views/card.blade.php", "<div class=\"pr-10 lg:pr-4\"></div>\n{{-- see Pull Request #34 --}}\n");
+
+    try {
+        $offenders = releaseLabelOffenders($root);
+    } finally {
+        removeScratchDir($root);
+    }
+
+    expect($offenders)->toEqualCanonicalizing([
+        'lang/en/ui.php:2 — // phase 5 adds these',
+        'resources/css/app.css:1 — /* fixed in pr #12 */',
+        'resources/views/card.blade.php:2 — {{-- see Pull Request #34 --}}',
+    ]);
 });
 
 it('names no test file or helper after the release step that produced it', function () {

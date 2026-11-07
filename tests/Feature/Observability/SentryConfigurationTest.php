@@ -58,6 +58,21 @@ it('treats a key present with an empty value as not configured', function (strin
     ['SENTRY_PROFILES_SAMPLE_RATE', 'profiles_sample_rate', 0.0],
 ]);
 
+it('keeps the default rate for a value that is no number', function (string $raw) {
+    $_ENV['SENTRY_SAMPLE_RATE'] = $_SERVER['SENTRY_SAMPLE_RATE'] = $raw;
+    putenv("SENTRY_SAMPLE_RATE={$raw}");
+
+    try {
+        $config = require base_path('config/sentry.php');
+    } finally {
+        unset($_ENV['SENTRY_SAMPLE_RATE'], $_SERVER['SENTRY_SAMPLE_RATE']);
+        putenv('SENTRY_SAMPLE_RATE');
+    }
+
+    // As 0.0 it would drop every error report.
+    expect($config['sample_rate'])->toBe(1.0);
+})->with(['a decimal comma' => '0,5', 'a word' => 'all', 'a typo' => '1.0x']);
+
 it('still honours an explicitly configured rate, including a deliberate zero', function (string $key, string $configKey, string $raw, float $expected) {
     $_ENV[$key] = $raw;
     $_SERVER[$key] = $raw;

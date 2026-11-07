@@ -15,7 +15,7 @@ return new class extends Migration
             // Deliberate cascade: a pure implementation-owned pivot edge.
             // The Post itself is restrict-protected by its community
             // children (comments/votes/saves/answers); once a sanctioned
-            // purge service (PR-E) actually deletes a post, dropping its
+            // purge service actually deletes a post, dropping its
             // tag associations is safe and meaningless to preserve.
             $table->foreignId('post_id')->constrained()->cascadeOnDelete();
             $table->foreignId('tag_id')->constrained()->cascadeOnDelete();

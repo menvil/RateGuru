@@ -7,6 +7,7 @@ use App\Support\Observability\NightwatchPrivacy;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Events\DiagnosingHealth;
+use Illuminate\Log\Context\Repository;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Nightwatch\Facades\Nightwatch;
@@ -20,7 +21,7 @@ use Sentry\State\Scope;
  * event; controllers, jobs and services never touch a vendor's scope
  * themselves.
  *
- * Two products are configured side by side for the Phase 6B evaluation, each
+ * Two products are configured side by side while Nightwatch is evaluated, each
  * through its own official API and with no shared abstraction between them.
  * They are deliberately not symmetrical, because their native event shapes are
  * not: Sentry has native `environment` and `release` fields (populated from
@@ -47,9 +48,12 @@ final class ObservabilityServiceProvider extends ServiceProvider
      * Laravel's Context is the framework's own correlation mechanism and the
      * one Nightwatch reads natively (it serializes Context::all() onto each
      * request, command and job record), so there is no RateGuru-specific
-     * carrier for these — and, because Context is dehydrated into every queued
-     * job payload and rehydrated by the worker, they cross the queue boundary
-     * without anything here arranging it.
+     * carrier for these. Context is dehydrated into every queued job payload
+     * and rehydrated by the worker, which carries the request ID across the
+     * queue boundary — but rehydrating replaces the worker's Context with the
+     * dispatcher's, so the deployment facts are put back after every
+     * hydration: a job queued before a deploy and run after it ran the new
+     * release's code, and is recorded under that release.
      *
      * The values come from config/deployment.php, which is the single
      * authoritative reader of the artifact's release.json. Nothing here reads
@@ -70,6 +74,12 @@ final class ObservabilityServiceProvider extends ServiceProvider
         ], static fn (mixed $value): bool => is_string($value) && $value !== '');
 
         Context::add($context);
+        // The worker's own, in place of the dispatcher's: a key the worker has
+        // no value for is dropped rather than left as the dispatcher's, or a job
+        // would be recorded under this release with the last one's commit.
+        Context::hydrated(static function (Repository $hydrated) use ($context): void {
+            $hydrated->forget(['app', 'environment', 'deployment_target', 'release', 'commit'])->add($context);
+        });
     }
 
     private function configureSentry(): void

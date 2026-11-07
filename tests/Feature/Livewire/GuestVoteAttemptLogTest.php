@@ -14,6 +14,9 @@ use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\User;
 use App\Support\Observability\GuestVoteAttemptLog;
+use Illuminate\Cache\Events\CacheHit;
+use Illuminate\Cache\Events\CacheMissed;
+use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Http\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Event;
@@ -177,4 +180,51 @@ it('keeps the visitor out of Laravel\'s log event, which Sentry turns into bread
     Livewire::test(PostVoting::class, ['postId' => $post->id])->call('vote', VoteType::Up->value);
 
     Event::assertNotDispatched(MessageLogged::class);
+});
+
+it('writes a minute\'s worth of attempts from one address, says when it stops, then waits out the minute', function () {
+    $log = fakeSecurityLog();
+    $from = fn (string $ip) => $this->app->instance('request', Request::create('/livewire/update', 'POST', server: ['REMOTE_ADDR' => $ip]));
+    $from('203.0.113.7');
+
+    foreach (range(1, GuestVoteAttemptLog::LINES_PER_MINUTE + 5) as $attempt) {
+        app(GuestVoteAttemptLog::class)->record('post', ['post_id' => 1, 'vote' => 'up']);
+    }
+
+    $throttled = collect($log->getRecords())->filter(fn (LogRecord $record): bool => $record->message === GuestVoteAttemptLog::THROTTLED_EVENT);
+
+    expect(guestVoteAttempts($log))->toHaveCount(GuestVoteAttemptLog::LINES_PER_MINUTE)
+        ->and($throttled)->toHaveCount(1)
+        ->and($throttled->first()->context)->toMatchArray(['ip' => '203.0.113.7', 'kind' => 'post']);
+
+    // Another address is counted on its own.
+    $from('198.51.100.4');
+    app(GuestVoteAttemptLog::class)->record('post', ['post_id' => 1, 'vote' => 'up']);
+
+    expect(guestVoteAttempts($log))->toHaveCount(GuestVoteAttemptLog::LINES_PER_MINUTE + 1);
+
+    // And the first one is written again once its minute is over.
+    $this->travel(61)->seconds();
+    $from('203.0.113.7');
+    app(GuestVoteAttemptLog::class)->record('post', ['post_id' => 1, 'vote' => 'up']);
+
+    expect(guestVoteAttempts($log))->toHaveCount(GuestVoteAttemptLog::LINES_PER_MINUTE + 2);
+});
+
+it('limits the log under a key that holds no client address', function () {
+    fakeSecurityLog();
+    $post = Post::factory()->published()->create();
+    $keys = [];
+    Event::listen([KeyWritten::class, CacheHit::class, CacheMissed::class], function (object $event) use (&$keys): void {
+        $keys[] = $event->key;
+    });
+
+    Livewire::test(PostVoting::class, ['postId' => $post->id])->call('vote', VoteType::Up->value);
+
+    // Keyed with the app key, which nobody trying addresses has.
+    expect(collect($keys)->filter(fn (string $key): bool => str_contains($key, 'guest-vote-attempt-log'))->all())->not->toBe([])
+        ->and(implode(' ', $keys))->toContain('guest-vote-attempt-log:'.hash_hmac('sha256', '127.0.0.1', (string) config('app.key')))
+        ->and(implode(' ', $keys))->not->toContain('127.0.0.1')
+        // Nor the plain hash of it, which trying every IPv4 address would undo.
+        ->and(implode(' ', $keys))->not->toContain(hash('sha256', '127.0.0.1'));
 });

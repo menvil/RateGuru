@@ -827,7 +827,7 @@ class DemoFillSeeder extends Seeder
         $userIds = $users->modelKeys();
         $postIds = $posts->modelKeys();
 
-        // Community FKs restrict instead of cascading (PR-C), so this
+        // Community FKs restrict instead of cascading, so this
         // dev-only reseed cleanup must delete the child graph explicitly
         // and in dependency order: votes on the generated comments first,
         // then the comments themselves leaves-first — reply chains can be

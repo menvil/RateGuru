@@ -129,7 +129,7 @@ final class SetPersonaAvatarAction
         }
 
         $this->logger->info('persona.avatar.updated', [
-            'user_id' => $persona->id,
+            'persona_id' => $persona->id,
             'admin_id' => $admin->id,
         ]);
 
@@ -142,7 +142,7 @@ final class SetPersonaAvatarAction
             // this means the job ran and failed: the avatar is set, and its
             // variants can be generated again from Media diagnostics.
             Log::error('Failed to dispatch or run media variant generation.', [
-                'user_id' => $persona->id,
+                'persona_id' => $persona->id,
                 'media_asset_id' => $assetId,
                 'exception' => $exception->getMessage(),
             ]);

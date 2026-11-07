@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->restrictOnDelete();
             // Rating votes are user contribution/history: deleting rating
             // configuration must not silently destroy them (restrict), and
-            // they survive account deletion via the PR-B tombstone.
+            // they survive account deletion via the account tombstone.
             $table->foreignId('rating_group_id')->constrained()->restrictOnDelete();
             $table->unsignedBigInteger('rating_option_id');
             $table->timestamps();
