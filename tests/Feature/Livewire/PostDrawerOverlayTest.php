@@ -2,6 +2,7 @@
 
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('does not render overlay chrome by default', function () {
@@ -97,4 +98,45 @@ it('keeps the panel chrome static across renders so only the class attribute ani
     preg_match('/data-testid="post-detail-overlay"[^>]*class="([^"]*)"/', $test->html(), $switchMatch);
     expect($switchMatch[1] ?? '')->not->toContain('translate-x-full');
     expect($openMatch[1] ?? '')->toBe($switchMatch[1] ?? '');
+});
+
+it('drops the deleted post\'s card from the list behind the drawer', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $post->id)
+        ->call('deleteSelectedPost')
+        ->assertDispatched('post-deleted', postId: $post->id)
+        ->assertDispatched('clear-selected-post');
+});
+
+it('drops the card of a post purged while the drawer was open', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    $test = Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $post->id);
+
+    $post->forceDelete();
+
+    $test->call('deleteSelectedPost')
+        ->assertDispatched('post-deleted', postId: $post->id)
+        ->assertDispatched('clear-selected-post');
+});
+
+it('says a failed deletion about the post it was for, not the next one opened', function () {
+    $user = User::factory()->create();
+    $someoneElses = Post::factory()->published()->create();
+    $next = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $someoneElses->id)
+        ->call('deleteSelectedPost')
+        ->assertSet('deleteError', __('ui.post.delete_errors.not_allowed'))
+        ->call('setSelectedPost', $next->id)
+        ->assertSet('deleteError', null);
 });
