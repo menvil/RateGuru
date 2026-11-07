@@ -30,14 +30,15 @@ class OpenGraphParser
             ?? $this->extractMeta($xpath, 'twitter:description', 'name')
             ?? $this->extractMeta($xpath, 'description', 'name');
 
-        // Every image the page names, not only the first: a page often gives
+        // The images the page names, not only the first: a page often gives
         // an http og:image and its https twin as og:image:secure_url, or a
         // second og:image in Open Graph's array form, and the import takes only
         // https — the first alone would leave it no image. In order of
         // preference: the og:image values, then the secure ones, then Twitter's,
         // each kind in the order the page gives them.
-        // The first few only: each is checked by resolving its host, and a page
-        // naming thousands would hold the import on as many lookups.
+        // Up to the first ten (MOST_IMAGE_CANDIDATES): each is checked by
+        // resolving its host, and a page naming thousands would hold the import
+        // on as many lookups.
         $imageCandidates = array_slice(array_values(array_unique(array_map(
             fn (string $candidate): string => $this->resolveUrl($candidate, $pageUrl),
             [

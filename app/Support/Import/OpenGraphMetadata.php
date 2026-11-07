@@ -5,7 +5,7 @@ namespace App\Support\Import;
 class OpenGraphMetadata
 {
     /**
-     * @param  list<string>  $imageCandidates  every image the page names, in order of preference; `imageUrl` is the first
+     * @param  list<string>  $imageCandidates  up to the first ten images the page names (OpenGraphParser::MOST_IMAGE_CANDIDATES), in order of preference; `imageUrl` is the first
      */
     public function __construct(
         public readonly ?string $title = null,
