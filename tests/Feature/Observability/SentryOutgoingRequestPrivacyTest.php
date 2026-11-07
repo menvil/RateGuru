@@ -56,7 +56,9 @@ it('sends an exception without the value a unique violation names, keeping its c
     $sent = SentryPrivacy::beforeSend($event)->getExceptions()[0]->getValue();
 
     expect($sent)->not->toContain($value)
-        ->and($sent)->toContain('[Filtered]');
+        ->and($sent)->toContain(str_contains($message, 'Key (')
+            ? 'Key (email)=([Filtered]) already exists.'
+            : "Duplicate entry '[Filtered]' for key 'users.users_email_unique'");
 })->with([
     'postgres' => ['SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint "users_email_unique" DETAIL: Key (email)=(ada@example.invalid) already exists.', 'ada@example.invalid'],
     'mysql' => ["SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'ada@example.invalid' for key 'users.users_email_unique'", 'ada@example.invalid'],

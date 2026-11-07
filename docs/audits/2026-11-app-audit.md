@@ -17,7 +17,7 @@ moves it.
   - Each pull request's base was `develop` with the batch's files removed, so every file showed as added in full.
   - CodeRabbit and cubic reviewed each batch as existing production code. The batches were closed unmerged.
 - **Triage:**
-  - Every bot finding, and CodeRabbit's full list beyond its inline comments, was checked against the code of the snapshot, its callers, tests and docs, and merged with its duplicates.
+  - Every bot finding, and CodeRabbit's full list beyond its inline comments, was checked against the code of the snapshot, its callers, tests and docs, and merged with its duplicates within its batch.
   - Each got one verdict:
     - **BUG:** a real defect with a concrete failure.
     - **MINOR:** correct but weak, worth a cheap fix.
@@ -29,7 +29,8 @@ moves it.
 
 ## Results
 
-- **Findings and verdicts:** 956 findings after merging duplicates.
+- **Findings and verdicts:** 956 findings after merging duplicates within each batch.
+  - A few defects were found again in a later batch and counted there too, such as the tag check that missed author-deleted posts and the comment status default. Each is fixed once, by the pull request that lists it first.
   - 43 bugs and 283 minor issues.
   - 167 claims were invalid and 463 were skipped.
   - Roughly two findings in three needed no change, about the share the bots' earlier reviews of this repository had.

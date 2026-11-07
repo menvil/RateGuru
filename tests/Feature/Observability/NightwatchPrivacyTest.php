@@ -347,8 +347,10 @@ it('removes the offending value from a unique-constraint violation message', fun
     nightwatchPrivacy()->redactException($record);
 
     // The column name is the diagnosis and stays; the value does not.
-    expect($record->message)->not->toContain($leaked);
-    expect($record->message)->toContain('[redacted]');
+    expect($record->message)->not->toContain($leaked)
+        ->toContain(str_contains($message, 'Key (')
+            ? 'Key (email)=([redacted]) already exists.'
+            : "Duplicate entry '[redacted]' for key 'users.users_email_unique'");
 })->with([
     'postgres' => [
         'SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint "users_email_unique" DETAIL: Key (email)=(someone@example.invalid) already exists.',
