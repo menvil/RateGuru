@@ -13201,9 +13201,11 @@ function racingEnvironment(): array
 
 /**
  * A connection outside the test's own transaction, for state that was committed
- * by another process and therefore has to be read and removed for real.
+ * by another process and therefore has to be read and removed for real. A
+ * second name gives a second, independent session — a competitor that has to
+ * wait on the first one's locks.
  */
-function committedConnection(): ConnectionInterface
+function committedConnection(string $name = 'committed_peer'): ConnectionInterface
 {
     $default = (string) config('database.default');
     $peer = config("database.connections.{$default}");
@@ -13215,10 +13217,10 @@ function committedConnection(): ConnectionInterface
     // transaction, and freeing it would roll that transaction back mid-test.
     $peer['options'] = [PDO::ATTR_PERSISTENT => false] + ($peer['options'] ?? []);
 
-    config(['database.connections.committed_peer' => $peer]);
-    DB::purge('committed_peer');
+    config(["database.connections.{$name}" => $peer]);
+    DB::purge($name);
 
-    return DB::connection('committed_peer');
+    return DB::connection($name);
 }
 
 /**

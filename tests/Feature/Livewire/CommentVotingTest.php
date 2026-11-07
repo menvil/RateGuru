@@ -93,3 +93,17 @@ it('renders selected comment voting state', function () {
         ->assertSee('data-state="active"', false)
         ->assertSee('text-rg-good', false);
 });
+
+it('offers no vote to an account that has lost voting, whose every vote would be refused', function (string $status) {
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
+    $restricted = User::factory()->{$status}()->create();
+
+    $html = Livewire::actingAs($restricted)->test(CommentVoting::class, ['commentId' => $comment->id])->html();
+
+    expect(preg_match_all('/<button[^>]*\sdisabled[\s>]/', $html))->toBe(2);
+
+    // An account in good standing votes on it.
+    $html = Livewire::actingAs(User::factory()->create())->test(CommentVoting::class, ['commentId' => $comment->id])->html();
+
+    expect(preg_match('/<button[^>]*\sdisabled[\s>]/', $html))->toBe(0);
+})->with(['limited', 'banned', 'shadowbanned']);

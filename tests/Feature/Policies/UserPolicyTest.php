@@ -145,3 +145,12 @@ it('gives a persona no admin ability of its own', function () {
         ->and((new UserPolicy)->ban($persona, $member))->toBeFalse()
         ->and((new UserPolicy)->markTrusted($persona, $member))->toBeFalse();
 });
+
+it('lets an account that still has reporting report someone else, never itself', function () {
+    $reporter = User::factory()->create();
+    $target = User::factory()->create();
+
+    expect((new UserPolicy)->report($reporter, $target))->toBeTrue()
+        ->and((new UserPolicy)->report($reporter, $reporter))->toBeFalse()
+        ->and((new UserPolicy)->report(User::factory()->limited()->create(), $target))->toBeFalse();
+});

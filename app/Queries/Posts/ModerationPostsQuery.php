@@ -86,10 +86,19 @@ final class ModerationPostsQuery implements RawSqlPersistenceBoundary, StablePag
         $counts = [];
 
         foreach (self::TABS as $tab) {
-            $counts[$tab] = $this->onTab($this->listed(), $tab)->count();
+            $counts[$tab] = $this->count($tab);
         }
 
         return $counts;
+    }
+
+    /**
+     * How many posts one tab lists, before any search — what a dashboard card
+     * linking to that tab shows, so the card and the list cannot disagree.
+     */
+    public function count(string $tab): int
+    {
+        return $this->onTab($this->listed(), $tab)->count();
     }
 
     /** When the post that has waited longest for review was submitted. */

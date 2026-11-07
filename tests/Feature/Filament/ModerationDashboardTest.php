@@ -5,6 +5,7 @@ use App\Enums\UserStatus;
 use App\Filament\Pages\ModerationDashboard;
 use App\Filament\Resources\Comments\Pages\ListComments;
 use App\Filament\Resources\Posts\Pages\ListPosts;
+use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Widgets\PendingPostsWidget;
 use App\Filament\Widgets\ReportedCommentsWidget;
 use App\Filament\Widgets\ReportedPostsWidget;
@@ -171,4 +172,44 @@ it('opens each moderation widget\'s list on exactly the records the widget count
     $comments = array_column(Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))->test(ListComments::class)->viewData('rows'), 'id');
 
     expect($comments)->toContain($reportedComment->id)->not->toContain($cleanComment->id);
+});
+
+it('counts on each reported card exactly what the list it opens shows', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    Post::factory()->published()->create(['reports_count' => 2]);
+    // Deleted by its author after being reported: the list still shows it.
+    Post::factory()->authorDeleted()->create(['reports_count' => 1]);
+    Post::factory()->published()->create(['reports_count' => 0]);
+
+    Comment::factory()->create(['reports_count' => 3, 'status' => CommentStatus::Visible]);
+    // Deleted by its author after being reported: listed.
+    Comment::factory()->create(['reports_count' => 1, 'status' => CommentStatus::Visible, 'deleted_at' => now()]);
+    // Removed for good by moderation: no longer waiting for anyone.
+    Comment::factory()->create(['reports_count' => 2, 'status' => CommentStatus::Hidden, 'moderation_removed_at' => now()]);
+
+    $carded = fn (string $widget): int => (int) (fn (): array => $this->getStats())->call(Livewire::test($widget)->instance())[0]->getValue();
+
+    expect($carded(ReportedPostsWidget::class))->toBe(2)
+        ->and(Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedPostsWidget::class))->test(ListPosts::class)->viewData('rows'))->toHaveCount(2)
+        ->and($carded(ReportedCommentsWidget::class))->toBe(2)
+        ->and(Livewire::withQueryParams(moderationWidgetLinkQuery(ReportedCommentsWidget::class))->test(ListComments::class)->viewData('rows'))->toHaveCount(2);
+});
+
+it('keeps a member on the suspicious card and list after they delete what was reported', function () {
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    $postAuthor = User::factory()->create();
+    Post::factory()->for($postAuthor)->authorDeleted()->create(['reports_count' => 2]);
+    $commentAuthor = User::factory()->create();
+    Comment::factory()->for($commentAuthor)->create(['reports_count' => 1, 'deleted_at' => now()]);
+    User::factory()->create();
+
+    $carded = (int) (fn (): array => $this->getStats())->call(Livewire::test(SuspiciousUsersWidget::class)->instance())[0]->getValue();
+    $listed = array_column(Livewire::withQueryParams(moderationWidgetLinkQuery(SuspiciousUsersWidget::class))->test(ListUsers::class)->viewData('rows'), 'id');
+
+    expect($carded)->toBe(2)
+        ->and($listed)->toEqualCanonicalizing([$postAuthor->id, $commentAuthor->id]);
 });
