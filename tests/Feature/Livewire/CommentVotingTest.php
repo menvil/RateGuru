@@ -7,6 +7,8 @@ use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 it('renders comment voting controls', function () {
@@ -109,4 +111,48 @@ it('draws the comment as it is once a vote on it is refused, not as the page had
 
     $voting->call('vote', VoteType::Up->value)
         ->assertSee('data-testid="comment-voting-unavailable"', false);
+});
+
+it('draws the score, vote and ownership the thread handed it, reading none of them', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+    $reads = 0;
+    DB::listen(function (QueryExecuted $query) use (&$reads): void {
+        $sql = str_replace(['"', '`'], '', $query->sql);
+
+        if (str_contains($sql, 'from comment_votes') || str_contains($sql, 'from comments')) {
+            $reads++;
+        }
+    });
+
+    $html = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+        'preloadedScore' => 7,
+        'preloadedVote' => VoteType::Up->value,
+        'preloadedOwn' => true,
+    ])->html();
+
+    expect($reads)->toBe(0)
+        ->and(preg_match('/font-semibold">\s*7\s*</', $html))->toBe(1)
+        ->and(preg_match('/aria-pressed="true"\s+data-state="active"/', $html))->toBe(1)
+        // Its own comment: the buttons are held.
+        ->and(preg_match_all('/wire:loading\.attr="disabled"\s+disabled/', $html))->toBe(2);
+});
+
+it('draws the comment as it is after a vote cast from what the thread handed it', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+
+    $html = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+        'preloadedScore' => 0,
+        'preloadedVote' => null,
+        'preloadedOwn' => false,
+    ])->call('vote', VoteType::Up->value)->html();
+
+    expect(CommentVote::query()->where('user_id', $user->id)->where('comment_id', $comment->id)->value('type'))->toBe(VoteType::Up)
+        ->and(preg_match('/font-semibold">\s*1\s*</', $html))->toBe(1)
+        ->and(preg_match('/aria-pressed="true"\s+data-state="active"/', $html))->toBe(1);
 });

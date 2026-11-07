@@ -142,17 +142,21 @@ it('reads the viewer\'s votes and saves for the whole page at once, however many
     ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $viewer = User::factory()->create();
 
-    $queriesOn = function (int $cards) use ($viewer): int {
+    /** @return array{votes: int, saves: int, lookups: int} */
+    $queriesOn = function (int $cards) use ($viewer): array {
         Post::query()->forceDelete();
         Post::factory()->count($cards)->published()->create();
-        $queries = 0;
+        $queries = ['votes' => 0, 'saves' => 0, 'lookups' => 0];
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
             // Quoting stripped: PostgreSQL quotes "post_votes", MariaDB `post_votes`.
             $sql = str_replace(['"', '`'], '', $query->sql);
 
-            if (str_contains($sql, 'from post_votes') || str_contains($sql, 'from post_saves') || preg_match('/from posts where posts.id = \?/', $sql) === 1) {
-                $queries++;
-            }
+            match (true) {
+                str_contains($sql, 'from post_votes') => $queries['votes']++,
+                str_contains($sql, 'from post_saves') => $queries['saves']++,
+                preg_match('/from posts where posts.id = \?/', $sql) === 1 => $queries['lookups']++,
+                default => null,
+            };
         });
 
         Livewire::actingAs($viewer)->test(PostFeed::class);
@@ -160,7 +164,12 @@ it('reads the viewer\'s votes and saves for the whole page at once, however many
         return $queries;
     };
 
-    expect($queriesOn(3))->toBe($queriesOn(9));
+    $three = $queriesOn(3);
+
+    // Each read made, once for the page, whatever its size.
+    expect($three['votes'])->toBeGreaterThan(0)
+        ->and($three['saves'])->toBeGreaterThan(0)
+        ->and($queriesOn(9))->toBe($three);
 });
 
 it('draws every card\'s rating questions from the groups the feed already read', function () {

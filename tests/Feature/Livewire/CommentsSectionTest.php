@@ -1,8 +1,10 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\VoteType;
 use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Comments\CommentListQuery;
@@ -415,28 +417,45 @@ it('does not let a client ask for more of the thread than load more gives', func
 
 it('reads the viewer\'s comment votes for the whole thread at once', function () {
     $viewer = User::factory()->create();
-    $post = Post::factory()->published()->create();
 
-    $queriesOn = function (int $comments) use ($viewer, $post): int {
-        Comment::query()->where('post_id', $post->id)->whereNotNull('parent_id')->forceDelete();
-        Comment::query()->where('post_id', $post->id)->forceDelete();
-        // Each with a reply, so replies are read with the thread too.
-        Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible])
-            ->each(fn (Comment $root) => Comment::factory()->for($post)->create(['status' => CommentStatus::Visible, 'parent_id' => $root->id]));
-        $queries = 0;
+    /** @return array{votes: int, comments: int, shown: int} */
+    $queriesOn = function (int $comments) use ($viewer): array {
+        // A thread of its own each time, each root with a reply, so replies
+        // are read with the thread too; the viewer voted on one root and its reply.
+        $post = Post::factory()->published()->create();
+        $roots = Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible]);
+        $replies = $roots->map(fn (Comment $root): Comment => Comment::factory()->for($post)->create(['status' => CommentStatus::Visible, 'parent_id' => $root->id]));
+        foreach ([$roots->first(), $replies->first()] as $voted) {
+            CommentVote::factory()->create(['user_id' => $viewer->id, 'comment_id' => $voted->id, 'type' => VoteType::Up]);
+        }
+        $queries = ['votes' => 0, 'comments' => 0];
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
-            if (str_contains(str_replace(['"', '`'], '', $query->sql), 'from comment_votes')) {
-                $queries++;
-            }
+            $sql = str_replace(['"', '`'], '', $query->sql);
+
+            match (true) {
+                str_contains($sql, 'from comment_votes') => $queries['votes']++,
+                str_contains($sql, 'from comments') => $queries['comments']++,
+                default => null,
+            };
         });
 
-        // Shown in full the way a reader gets there: the count is locked.
-        Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id])
-            ->call('loadMore')
-            ->call('loadMore');
+        $thread = Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id]);
+        // The votes as the first render draws them: a later request redraws
+        // the thread around its voting buttons, not the buttons themselves.
+        $shown = preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->html());
 
-        return $queries;
+        // Shown in full the way a reader gets there: the count is locked.
+        $thread->call('loadMore')->call('loadMore');
+
+        return [...$queries, 'shown' => $shown];
     };
 
-    expect($queriesOn(2))->toBe($queriesOn(8));
+    $two = $queriesOn(2);
+    $eight = $queriesOn(8);
+
+    // Both votes drawn, read in one go per render, however long the thread.
+    expect($two['shown'])->toBe(2)
+        ->and($two['votes'])->toBeGreaterThan(0)
+        ->and($eight['votes'])->toBe($two['votes'])
+        ->and($eight['comments'])->toBe($two['comments']);
 });
