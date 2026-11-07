@@ -1,0 +1,9 @@
+tests/Feature/Livewire/ProfileTabsTest.php
+  ai_agent 4,38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a5224836b16b247a1d09587e6bef49cfcfb24a1a",
+  "prompts": {}
+}
