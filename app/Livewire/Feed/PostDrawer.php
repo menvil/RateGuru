@@ -89,7 +89,9 @@ final class PostDrawer extends Component
         $post = Post::withTrashed()->find($postId);
 
         if ($post === null) {
+            // Purged meanwhile: its card leaves the list all the same.
             $this->deleteError = null;
+            $this->dispatch('post-deleted', postId: $postId);
             $this->dispatch('clear-selected-post');
 
             return;

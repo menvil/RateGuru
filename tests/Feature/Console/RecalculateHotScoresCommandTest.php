@@ -37,6 +37,23 @@ it('recalculates hot scores for all posts', function () {
     expect((float) $second->fresh()->hot_score)->toBeGreaterThan(0);
 });
 
+it('does not count a post deleted after its chunk was read', function () {
+    $first = Post::factory()->published()->create();
+    $second = Post::factory()->published()->create();
+
+    // The second post goes once the first is saved, after the chunk holding
+    // both was read.
+    Post::saved(function (Post $saved) use ($first, $second): void {
+        if ($saved->is($first)) {
+            Post::query()->whereKey($second->id)->delete();
+        }
+    });
+
+    $this->artisan('posts:recalculate-hot-scores')
+        ->expectsOutput('Recalculated hot scores for 1 posts.')
+        ->assertExitCode(0);
+});
+
 it('recalculates hot scores using chunk option', function () {
     Post::factory()->count(3)->published()->create([
         'upvotes_count' => 1,

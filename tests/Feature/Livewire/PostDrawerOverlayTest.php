@@ -112,6 +112,21 @@ it('drops the deleted post\'s card from the list behind the drawer', function ()
         ->assertDispatched('clear-selected-post');
 });
 
+it('drops the card of a post purged while the drawer was open', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    $test = Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $post->id);
+
+    $post->forceDelete();
+
+    $test->call('deleteSelectedPost')
+        ->assertDispatched('post-deleted', postId: $post->id)
+        ->assertDispatched('clear-selected-post');
+});
+
 it('says a failed deletion about the post it was for, not the next one opened', function () {
     $user = User::factory()->create();
     $someoneElses = Post::factory()->published()->create();

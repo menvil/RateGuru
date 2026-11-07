@@ -35,14 +35,23 @@ final class RecalculateHotScoresCommand extends Command
                         // Under the post's lock, as every vote and comment
                         // recalculates it: a sweep must never write a score
                         // computed from counters a vote has just changed.
-                        DB::transaction(function () use ($post, $recalculatePostScore): void {
+                        // A post deleted since the chunk was read is skipped,
+                        // and not counted as recalculated.
+                        $recalculated = DB::transaction(function () use ($post, $recalculatePostScore): bool {
                             $locked = Post::query()->whereKey($post->id)->lockForUpdate()->first();
 
-                            if ($locked !== null) {
-                                $recalculatePostScore->handle($locked);
+                            if ($locked === null) {
+                                return false;
                             }
+
+                            $recalculatePostScore->handle($locked);
+
+                            return true;
                         });
-                        $count++;
+
+                        if ($recalculated) {
+                            $count++;
+                        }
                     } catch (Throwable $exception) {
                         $failures++;
 
