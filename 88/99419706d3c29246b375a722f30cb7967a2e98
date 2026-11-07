@@ -1,0 +1,98 @@
+app/Http/Middleware/RequireSignInWhileGuestViewingIsOff.php
+  s_0f80700cf0b8c6::t_a4cf06f03d8db1 1-34
+app/Support/Profile/ProfileStats.php
+  s_0f80700cf0b8c6::t_d752482385b9b7 8,24
+  s_0f80700cf0b8c6::t_b99e425fd1fa07 25-27
+app/Livewire/Profile/ProfilePage.php
+  s_0f80700cf0b8c6::t_93f0f1a2a76f51 63-68
+  s_0f80700cf0b8c6::t_d752482385b9b7 56,95
+app/Livewire/Feed/UploadPostForm.php
+  s_0f80700cf0b8c6::t_a91d63d5f7b353 17,63,80-82,165-172
+app/Providers/AppServiceProvider.php
+  s_0f80700cf0b8c6::t_edb3b8a3785d0a 7,49,93-95
+app/Livewire/Notifications/NotificationBell.php
+  s_0f80700cf0b8c6::t_d752482385b9b7 13-14,35-44
+app/Actions/Follows/UnfollowAuthorAction.php
+  s_0f80700cf0b8c6::t_0c9510759c3a14 21-25
+tests/Pest.php
+  s_0f80700cf0b8c6::t_9b96119b3e13f9 13203-13220
+app/Actions/Follows/NotifyFollowersAboutNewPostAction.php
+  s_0f80700cf0b8c6::t_d752482385b9b7 12,23,50-54
+tests/Feature/I18n/AdminLocaleTest.php
+  s_0f80700cf0b8c6::t_9b96119b3e13f9 68
+tests/Feature/Livewire/NotificationBellTest.php
+  s_0f80700cf0b8c6::t_6113fffc2d300e 164-193
+app/Livewire/Settings/NotificationPreferencesForm.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 14-16,24-28,31-32,39
+docs/admin/project-settings.md
+  ai_agent 121-122,129-131,133-140
+resources/views/livewire/profile/profile-page.blade.php
+  s_0f80700cf0b8c6::t_93f0f1a2a76f51 125
+tests/Feature/Domain/ProfileStatsTest.php
+  s_0f80700cf0b8c6::t_f658134d4eb855 7,54,70
+  s_0f80700cf0b8c6::t_4ba424cebe59bb 68-69,71-77
+app/Livewire/Comments/CommentsSection.php
+  s_0f80700cf0b8c6::t_38762b0d1e3724 11,94-96
+tests/Feature/Domain/UserRatingActivityQueryTest.php
+  s_0f80700cf0b8c6::t_4ba424cebe59bb 62-70
+routes/web.php
+  s_0f80700cf0b8c6::t_a4cf06f03d8db1 11,25-26,28-29,31-32
+tests/Feature/Settings/FeatureFlagsPublicUiTest.php
+  s_0f80700cf0b8c6::t_ee1c2f8324abf7 142-153,155-169
+  s_0f80700cf0b8c6::t_d20851a42d45ea 3,154
+tests/Feature/Livewire/UploadPostFormTest.php
+  s_0f80700cf0b8c6::t_34d29b467a5319 6,9,81-98
+tests/Feature/Actions/ToggleFollowAuthorActionTest.php
+  s_0f80700cf0b8c6::t_3701042bcbeea1 8,58-78
+tests/Feature/Livewire/ProfileSavedTabTest.php
+  s_0f80700cf0b8c6::t_390907c18cd29d 61
+  s_0f80700cf0b8c6::t_cbd8bfba42b437 3,6,8-18,54-60,62-66
+tests/Feature/Settings/GuestViewingTest.php
+  s_0f80700cf0b8c6::t_9b96119b3e13f9 1-63
+tests/Feature/Livewire/ProfileTabsTest.php
+  ai_agent 4,38-39
+tests/Feature/Livewire/NotificationPreferencesFormTest.php
+  s_0f80700cf0b8c6::t_e8e4fd7aaf722f 50-67
+  s_0f80700cf0b8c6::t_ab85db1882e865 3
+resources/views/livewire/settings/notification-preferences-form.blade.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 24-30
+tests/Browser/MediaAspectRatioBrowserTest.php
+  s_0f80700cf0b8c6::t_5129a4ff3ad1c5 5,196
+tests/Feature/Security/SavedPostsPrivacyTest.php
+  s_0f80700cf0b8c6::t_cbd8bfba42b437 5,8-14
+app/Actions/Users/UpdateNotificationPreferencesAction.php
+  s_0f80700cf0b8c6::t_8c9051e0685d4f 13-14,18,22,30-31
+tests/Feature/Notifications/NotifyFollowersAboutNewPostActionTest.php
+  s_0f80700cf0b8c6::t_5567ff5aac863e 6,9,92-104
+app/Actions/Follows/ToggleFollowAuthorAction.php
+  s_0f80700cf0b8c6::t_0c9510759c3a14 16-20
+app/Livewire/Comments/CommentForm.php
+  s_0f80700cf0b8c6::t_38762b0d1e3724 8,20-23
+app/Livewire/SavedPosts/SavedPostsPage.php
+  s_0f80700cf0b8c6::t_d752482385b9b7 8,18-22
+  s_0f80700cf0b8c6::t_b99e425fd1fa07 30-36
+resources/views/livewire/posts/post-show.blade.php
+  s_0f80700cf0b8c6::t_38762b0d1e3724 289-298
+tests/Feature/Livewire/SavedPostsPageTest.php
+  s_0f80700cf0b8c6::t_cbd8bfba42b437 10,13-20,90-91,108-115
+  s_0f80700cf0b8c6::t_4ba424cebe59bb 117-126,128-129
+  s_0f80700cf0b8c6::t_c7211587535aff 127
+app/Queries/UserRatingActivityQuery.php
+  s_0f80700cf0b8c6::t_b99e425fd1fa07 28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8899419706d3c29246b375a722f30cb7967a2e98",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
