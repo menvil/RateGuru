@@ -59,6 +59,22 @@ it('rejects image exceeding max image bytes', function () {
     app(DirectImageImportAdapter::class)->preview('https://example.com/big.jpg');
 })->throws(ImportFetchException::class);
 
+it('refuses in the preview an image the download would refuse for the upload limit', function () {
+    // Under the import's own cap, over what the image ingest takes.
+    config(['import.max_image_bytes' => 8 * 1024 * 1024, 'uploads.images.max_kilobytes' => 1024]);
+    $body = str_repeat('x', 1024 * 1024 + 1);
+
+    Http::fake([
+        'example.com/medium.jpg' => Http::response($body, 200, [
+            'Content-Type' => 'image/jpeg',
+            'Content-Length' => strlen($body),
+        ]),
+    ]);
+
+    expect(fn () => app(DirectImageImportAdapter::class)->preview('https://example.com/medium.jpg'))
+        ->toThrow(ImportFetchException::class, 'exceeds the 1024 KB limit');
+});
+
 it('rejects response with empty content-type header', function () {
     Http::fake([
         'example.com/image.jpg' => Http::response('fake-content', 200, [

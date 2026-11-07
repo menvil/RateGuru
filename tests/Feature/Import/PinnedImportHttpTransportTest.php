@@ -279,6 +279,15 @@ switch ($mode) {
         sleep(20);
         break;
 
+    case 'oversized-content-length-error':
+        http_response_code(500);
+        header('Content-Length: 999999999');
+        header('Content-Type: text/html');
+        echo str_repeat('A', 1024);
+        flush();
+        sleep(20);
+        break;
+
     case 'sleep-forever':
         sleep(30);
         echo 'done';
@@ -526,6 +535,21 @@ it('rejects an honestly oversized Content-Length before the body is read at all,
         // The fixture sleeps 20s after sending its headers -- a genuine
         // early reject finishes in a fraction of a second, nowhere near that.
         expect($elapsed)->toBeLessThan(5.0);
+    } finally {
+        stopLoopbackFixtureServer($server);
+    }
+});
+
+it('says an error response the cap cut short was too large, rather than letting the error response escape', function () {
+    $server = startLoopbackFixtureServer();
+    [, $port] = $server;
+
+    try {
+        $transport = new PinnedImportHttpTransport;
+        $target = new ResolvedImportTarget(url: "http://127.0.0.1:{$port}/router.php?mode=oversized-content-length-error", scheme: 'http', host: '127.0.0.1', port: $port, ip: '127.0.0.1');
+
+        expect(fn () => $transport->get($target, new ImportFetchPolicy(maxBytes: 2048, timeoutSeconds: 25, connectTimeoutSeconds: 3)))
+            ->toThrow(ImportFetchException::class, 'exceeds the 2 KB limit');
     } finally {
         stopLoopbackFixtureServer($server);
     }

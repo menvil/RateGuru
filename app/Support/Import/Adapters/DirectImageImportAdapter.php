@@ -4,6 +4,7 @@ namespace App\Support\Import\Adapters;
 
 use App\Enums\ImportProvider;
 use App\Exceptions\Import\ImportFetchException;
+use App\Support\Import\ImportedImageLimit;
 use App\Support\Import\ImportPreview;
 use App\Support\Import\SafeImportHttpClient;
 
@@ -13,10 +14,9 @@ class DirectImageImportAdapter
 
     public function preview(string $url): ImportPreview
     {
-        $maxImageBytes = (int) config('import.max_image_bytes', 8 * 1024 * 1024);
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
 
-        $response = $this->client->get($url, $maxImageBytes);
+        $response = $this->client->get($url, ImportedImageLimit::bytes());
 
         $rawContentType = $response->header('Content-Type') ?? '';
         $host = parse_url($url, PHP_URL_HOST) ?? 'unknown';
