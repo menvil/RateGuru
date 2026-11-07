@@ -11,6 +11,9 @@ use Throwable;
 
 class OpenGraphParser
 {
+    /** As many images of a page as the import tries, in order of preference. */
+    public const MOST_IMAGE_CANDIDATES = 10;
+
     public function parse(string $html, string $pageUrl): OpenGraphMetadata
     {
         $doc = new DOMDocument;
@@ -33,14 +36,16 @@ class OpenGraphParser
         // https — the first alone would leave it no image. In order of
         // preference: the og:image values, then the secure ones, then Twitter's,
         // each kind in the order the page gives them.
-        $imageCandidates = array_values(array_unique(array_map(
+        // The first few only: each is checked by resolving its host, and a page
+        // naming thousands would hold the import on as many lookups.
+        $imageCandidates = array_slice(array_values(array_unique(array_map(
             fn (string $candidate): string => $this->resolveUrl($candidate, $pageUrl),
             [
                 ...$this->extractEveryMeta($xpath, 'og:image', 'property'),
                 ...$this->extractEveryMeta($xpath, 'og:image:secure_url', 'property'),
                 ...$this->extractEveryMeta($xpath, 'twitter:image', 'name'),
             ],
-        )));
+        ))), 0, self::MOST_IMAGE_CANDIDATES);
 
         return new OpenGraphMetadata(
             title: $title,

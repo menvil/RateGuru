@@ -123,3 +123,12 @@ HTML;
     expect($metadata->imageCandidates)->toBe(['http://example.com/photo.jpg', 'https://example.com/second.jpg', 'https://example.com/photo.jpg'])
         ->and($metadata->imageUrl)->toBe('http://example.com/photo.jpg');
 });
+
+it('names no more images than the import tries, the preferred ones first', function () {
+    $tags = implode('', array_map(fn (int $n): string => "<meta property=\"og:image\" content=\"https://img{$n}.example.com/photo.jpg\">", range(1, 50)));
+
+    $metadata = app(OpenGraphParser::class)->parse("<html><head>{$tags}</head></html>", 'https://example.com/page');
+
+    expect($metadata->imageCandidates)->toHaveCount(OpenGraphParser::MOST_IMAGE_CANDIDATES)
+        ->and($metadata->imageCandidates[0])->toBe('https://img1.example.com/photo.jpg');
+});
