@@ -1,9 +1,12 @@
 <?php
 
+use App\Enums\VoteType;
 use App\Livewire\Comments\CommentForm;
 use App\Livewire\Comments\CommentsSection;
+use App\Livewire\Comments\CommentVoting;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -183,3 +186,18 @@ it('lets a thread drawn before comments were switched off do nothing more', func
     'a reply begun' => ['startReply', [fn (Comment $comment): int => $comment->id]],
     'a reply sent' => ['submitReply', []],
 ]);
+
+it('takes no vote on a comment from a thread drawn before comments were switched off', function () {
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['show_comments' => true]]);
+    $comment = Comment::factory()->for(Post::factory()->published())->create();
+    $member = User::factory()->create();
+
+    $voting = Livewire::actingAs($member)->test(CommentVoting::class, ['commentId' => $comment->id]);
+
+    $settings->update(['feature_flags' => ['show_comments' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $voting->call('vote', VoteType::Up->value)->assertForbidden();
+
+    expect(CommentVote::query()->count())->toBe(0);
+});

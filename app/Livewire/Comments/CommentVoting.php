@@ -6,6 +6,7 @@ use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
 use App\Services\Comments\CommentVotingService;
 use App\Support\Observability\GuestVoteAttemptLog;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -18,6 +19,11 @@ final class CommentVoting extends Component
 
     public function vote(string $type, CommentVotingService $commentVotingService, GuestVoteAttemptLog $guestVoteAttempts): void
     {
+        // No vote on a comment while comments are switched off, from a thread
+        // drawn before they were: the section around it refuses its own
+        // requests, and this is a request of its own.
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
+
         $this->error = '';
 
         $voteType = VoteType::tryFrom($type);
