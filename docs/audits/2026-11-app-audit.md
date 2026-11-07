@@ -1,8 +1,8 @@
 # App audit, November 2026
 
-An audit of the application code as it was on `develop` at `85553ca2`, tagged
-`audit-2026-11`. The next audit reviews what changed since that tag, and then
-moves it.
+An audit of the application code as it was on `develop` at `85553ca2`. Once
+its fixes are merged, `develop` is tagged `audit-2026-11` there, and the next
+audit reviews what changed since that tag.
 
 ## Scope
 
@@ -34,9 +34,9 @@ moves it.
   - 43 bugs and 283 minor issues.
   - 167 claims were invalid and 463 were skipped.
   - Roughly two findings in three needed no change, about the share the bots' earlier reviews of this repository had.
-- **Fixes:** 318 of the 326 bugs and minor issues are fixed in the pull requests below.
-  - Two wait for a decision.
-  - Six were reconsidered against the running code and left as they are, for the reasons given below.
+- **Fixes:** 320 of the 326 bugs and minor issues are fixed in the pull requests below.
+  - One, the lock order of member votes and comments, gets a change of its own.
+  - Five were reconsidered against the running code and left as they are, for the reasons given below.
 - **Bugs that mattered most:**
   - **Access and privacy:**
     - a URL import that a percent-encoded host could steer past its pinned address;
@@ -51,14 +51,17 @@ moves it.
     - post cards on profiles and saved posts that opened nothing with the overlay mode off.
 - **Tooling:** the architecture rules missed common forms of what they forbid, among them nullable receivers and static calls. None of those forms was in `app/`, and PHPStan stayed at 0 errors once the rules caught them.
 
-## Waiting for a decision
+## Left for a change of its own
 
 - **Lock order of member votes and comments** (`LocksActorForWrite`). A post vote or comment can deadlock with an operation that locks the same two users the other way round. The fix that orders those locks starts a new deadlock with Content Studio's executor.
   - The clean fix is one post update per transaction, or notification recipients locked without their key.
   - Both change the executor's documented lock reasoning, so they need a change of their own.
-- **`IMPORT_FROM_URL_ENABLED` is read by nothing.**
-  - Enforcing it would switch URL import off on every target whose environment ships it `false`, though the project flag keeps the import on there.
-  - Dropping it changes the environment contract, which belongs to the infrastructure audit.
+
+## Decided after the review
+
+- **`IMPORT_FROM_URL_ENABLED` is dropped.** Nothing read it, and the project flag `allow_url_imports` is what switches URL import on and off. Enforcing it instead would have switched the import off on every target whose environment ships it `false`.
+  - A target's environment file may keep the key: the deploy's contract check reports an extra key and lets it pass.
+- **The inert `wire:lazy` is dropped.** Livewire 4.4 reads only `lazy` and `defer`, so the feed drawers and the report and moderation menus rendered with the page anyway. Real lazy loading changes how a selection scrolls, and is left until it is wanted.
 
 ## Reconsidered and left as they are
 
@@ -67,7 +70,6 @@ moves it.
 - **The Translation AI model combobox's focus:** Livewire gives the focus back to the new trigger.
 - **The admin sidebar's new-tab links:** no navigation item opens in a new tab.
 - **The post votes editor before a cleared author is saved:** the label stays true of the saved plan.
-- **The feed drawers' `wire:lazy`:** inert in Livewire 4.4. Making them lazy changes how a selection scrolls, so it is a change of its own.
 
 ## Numbers
 
@@ -387,13 +389,13 @@ moves it.
 - `16-49` minor, `app/Livewire/Theme/ThemeSwitcher.php` — The mounted theme switchers do not synchronise their selected state when another switcher changes the theme.
 - `17-50` minor, `app/Livewire/Theme/ThemeSwitcher.php` — After a reload, the guest theme switcher highlights System even when Light or Dark is applied.
 
-#### waiting for a decision
+#### a change of its own
 
 - `06-10` minor, `app/Models/Concerns/LocksActorForWrite.php` — Member votes/comments lock Actor -> Post and then implicitly take a KEY SHARE lock on the post author's row, out of the documented order, so they can deadlock with two-user operations that lock the author first.
-- `17-01` bug, `config/import.php` — IMPORT_FROM_URL_ENABLED=false does not disable URL imports because nothing reads import.enabled; only the project flag allow_url_imports is checked.
 
 #### views — #1400
 
+- `17-34` minor, `resources/views/livewire/feed/feed-page.blade.php` — The feed drawers are marked wire:lazy, which Livewire 4.4 does not read, so they render with the page; the report and moderation menus carry the same inert attribute.
 - `14-44` minor, `resources/views/components/ui/search-form.blade.php` — request('search') can be an array (?search[]=x); echoing it in value="{{ $value }}" raises a TypeError and a 500 on every page with the header.
 - `14-60` minor, `resources/views/auth/reset-password.blade.php` — An array-valued email query parameter or flashed old input makes the reset page throw and return 500.
 - `14-22` minor, `resources/views/components/comments/comment-item.blade.php` — For a tombstoned author the comment shows the stored English name instead of the localized deleted-user label.
@@ -459,6 +461,7 @@ moves it.
 
 #### config — #1397
 
+- `17-01` bug, `config/import.php` — IMPORT_FROM_URL_ENABLED=false does not disable URL imports because nothing reads import.enabled; only the project flag allow_url_imports is checked.
 - `17-12` minor, `config/queue.php` — (int) env('REDIS_QUEUE_RETRY_AFTER', 90) becomes 0 when the variable is present but blank, as the templates ship it, making reserved jobs immediately re-runnable.
 - `17-13` minor, `config/uploads.php` — Blank numeric env values (UPLOAD_IMAGE_*, RATE_LIMIT_*, MEDIA_PURGE_GRACE_DAYS) are cast to 0 instead of falling back to the default.
 
