@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Enums\CommentPurgeOutcome;
 use App\Services\Comments\CommentRetentionPurgeService;
 use App\Support\ContentLifecycle\CommentRetention;
+use App\Support\ContentLifecycle\RetentionDays;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -126,13 +127,17 @@ final class CommentsPurgeDeletedCommand extends Command
             return null;
         }
 
-        if (! ctype_digit((string) $raw)) {
-            $this->error('The --older-than option must be a non-negative integer number of days.');
+        // Bounded as configured retention is: a number of days past a
+        // century would wrap the cutoff round to today and purge everything.
+        $days = RetentionDays::tryParse((string) $raw);
+
+        if ($days === null) {
+            $this->error(sprintf('The --older-than option must be a whole number of days from 0 to %d.', RetentionDays::MAX_DAYS));
 
             return false;
         }
 
-        return (int) $raw;
+        return $days;
     }
 
     private function chunkSize(): int|false

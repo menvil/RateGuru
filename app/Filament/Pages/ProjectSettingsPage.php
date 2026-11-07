@@ -131,7 +131,7 @@ final class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
-        $this->tab = array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity';
+        $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity';
         $this->page = in_array($this->page, self::pageKeys(), true) ? $this->page : 'about';
 
         // What the project stores, as it stores it: a page with no text shows
@@ -173,7 +173,7 @@ final class ProjectSettingsPage extends Page
     /** A tab or a page that does not exist opens the first. */
     public function updatedTab(): void
     {
-        $this->tab = array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity';
+        $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity';
     }
 
     public function updatedPage(): void
@@ -298,7 +298,7 @@ final class ProjectSettingsPage extends Page
         $status = app(ContentTranslationStatus::class);
 
         return [
-            'tab' => array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity',
+            'tab' => is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity',
             'page' => in_array($this->page, self::pageKeys(), true) ? $this->page : 'about',
             'pages' => $this->staticPages($settings, $status),
             'preset' => $this->preset($settings),

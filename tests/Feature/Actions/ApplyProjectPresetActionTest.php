@@ -231,3 +231,17 @@ it('leaves the static pages of an existing project as they are when a preset is 
 
     expect(ProjectSettings::findOrFail(1)->static_pages)->toBe($pages);
 });
+
+it('reads an empty tag list as a project with no tags, and only a missing one as leaving them be', function (?array $tags, int $left) {
+    Tag::factory()->count(2)->create();
+    $preset = config('project_presets.nature');
+    $preset['tags'] = $tags;
+    config(['project_presets.tagless' => $preset]);
+
+    app(ApplyProjectPresetAction::class)->handle('tagless');
+
+    expect(Tag::query()->count())->toBe($left);
+})->with([
+    'an empty list' => [[], 0],
+    'no list' => [null, 2],
+]);

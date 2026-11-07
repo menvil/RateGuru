@@ -8,6 +8,7 @@ use App\Enums\UserStatus;
 use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
@@ -83,7 +84,7 @@ final class ListPersonas extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     #[On('create-persona')]
@@ -196,7 +197,7 @@ final class ListPersonas extends Page
         $this->status = $status !== null && in_array($status, PersonasQuery::STATUSES, true) ? $status->value : '';
         $this->engagement = $engagement !== null ? $engagement->value : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
         $this->editing = $this->openable($this->editing);
     }
 

@@ -46,6 +46,22 @@ class RatingOption extends Model
         return $this->hasMany(RatingVote::class);
     }
 
+    /** @return HasMany<PostAuthorAnswer, $this> */
+    public function authorAnswers(): HasMany
+    {
+        return $this->hasMany(PostAuthorAnswer::class, 'rating_option_id');
+    }
+
+    /**
+     * Whether anything refers to the option — a vote, or an author's answer
+     * to their own post. Such an option is archived, never deleted: the rows
+     * that point at it would lose their meaning, and the database refuses it.
+     */
+    public function isInUse(): bool
+    {
+        return $this->votes()->exists() || $this->authorAnswers()->exists();
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);

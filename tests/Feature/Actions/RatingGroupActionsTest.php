@@ -4,7 +4,9 @@ use App\Actions\Rating\ActivateRatingOptionRaisingMaximumAction;
 use App\Actions\Rating\CreateRatingGroupAction;
 use App\Actions\Rating\UnarchiveRatingOptionAction;
 use App\Actions\Rating\UpdateRatingGroupAction;
+use App\Actions\Rating\UpdateRatingOptionAction;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
+use App\Exceptions\Rating\RatingOptionIsArchivedException;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
@@ -127,6 +129,36 @@ it('unarchives an option inactive even when it was stored active', function () {
     app(UnarchiveRatingOptionAction::class)->handle(User::factory()->admin()->create(), $option);
 
     expect($option->fresh())->archived_at->toBeNull()->is_active->toBeFalse();
+});
+
+it('leaves an option that is not archived as it is, rather than switching it off past the minimum', function () {
+    $group = rangedGroup(2, min: 2);
+    $option = $group->options()->firstOrFail();
+
+    expect(app(UnarchiveRatingOptionAction::class)->handle(User::factory()->admin()->create(), $option))->toBeFalse()
+        ->and($option->fresh()->is_active)->toBeTrue()
+        ->and($group->options()->active()->count())->toBe(2);
+});
+
+it('refuses to make an archived option active through an edit drawn before it was archived', function () {
+    $group = rangedGroup(2);
+    $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
+    $drawn = $option->fresh();
+    $option->update(['archived_at' => now()]);
+
+    expect(fn () => app(UpdateRatingOptionAction::class)->handle(User::factory()->admin()->create(), $drawn, ['label' => 'Back', 'is_active' => true]))
+        ->toThrow(RatingOptionIsArchivedException::class);
+
+    expect($option->fresh())->is_active->toBeFalse()->label->not->toBe('Back');
+});
+
+it('still saves an archived option\'s text while it stays inactive', function () {
+    $group = rangedGroup(2);
+    $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => false, 'archived_at' => now()]);
+
+    app(UpdateRatingOptionAction::class)->handle(User::factory()->admin()->create(), $option, ['label' => 'Renamed', 'is_active' => false]);
+
+    expect($option->fresh())->label->toBe('Renamed')->archived_at->not->toBeNull();
 });
 
 it('raises a full group\'s maximum by one to activate an option, together', function () {

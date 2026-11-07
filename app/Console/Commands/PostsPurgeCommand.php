@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Enums\PostPurgeOutcome;
 use App\Services\Posts\PostRetentionPurgeService;
+use App\Support\ContentLifecycle\RetentionDays;
 use App\Support\Posts\PostRetention;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -26,7 +27,8 @@ final class PostsPurgeCommand extends Command
         {--post= : Only process the post with this id}
         {--older-than= : Override the configured retention, in days, for this run}
         {--dry-run : Report outcomes without deleting anything}
-        {--chunk=200 : Number of posts to load per chunk}';
+        {--chunk=200 : Number of posts to load per chunk}
+        {--force : Required to destructively run an --older-than override shorter than the configured retention}';
 
     protected $description = 'Permanently delete author-deleted posts past their retention window, including their discussion graph, and release their media assets.';
 
@@ -40,19 +42,27 @@ final class PostsPurgeCommand extends Command
             return self::FAILURE;
         }
 
-        if ($olderThanDays === null) {
-            // Resolve the configured retention up front, before any
-            // candidate query or purge attempt: a misconfigured value must
-            // stop the whole run (fail closed), not fall back to 0 and
-            // purge everything immediately.
-            try {
-                $olderThanDays = PostRetention::days();
-            } catch (InvalidArgumentException $exception) {
-                $this->error($exception->getMessage());
+        // Resolve the configured retention up front, before any candidate
+        // query or purge attempt: a misconfigured value must stop the whole
+        // run (fail closed), not fall back to 0 and purge everything.
+        try {
+            $configuredDays = PostRetention::days();
+        } catch (InvalidArgumentException $exception) {
+            $this->error($exception->getMessage());
 
-                return self::FAILURE;
-            }
+            return self::FAILURE;
         }
+
+        // A destructive override shorter than the configured window needs
+        // explicit acknowledgement, as the comment and moderation purges
+        // ask; dry-run is always allowed without it.
+        if ($olderThanDays !== null && $olderThanDays < $configuredDays && ! $dryRun && ! $this->option('force')) {
+            $this->error('A destructive --older-than override shorter than the configured retention requires --force (dry-run is allowed without it).');
+
+            return self::FAILURE;
+        }
+
+        $olderThanDays ??= $configuredDays;
 
         $chunkSize = $this->chunkSize();
 
@@ -122,13 +132,17 @@ final class PostsPurgeCommand extends Command
             return null;
         }
 
-        if (! ctype_digit((string) $raw)) {
-            $this->error('The --older-than option must be a non-negative integer number of days.');
+        // Bounded as configured retention is: a number of days past a
+        // century would wrap the cutoff round to today and purge everything.
+        $days = RetentionDays::tryParse((string) $raw);
+
+        if ($days === null) {
+            $this->error(sprintf('The --older-than option must be a whole number of days from 0 to %d.', RetentionDays::MAX_DAYS));
 
             return false;
         }
 
-        return (int) $raw;
+        return $days;
     }
 
     private function chunkSize(): int|false
@@ -147,6 +161,14 @@ final class PostsPurgeCommand extends Command
     private function postIdFilter(): int|null|false
     {
         $raw = $this->option('post');
+
+        // `--post` given with no id is a targeted run that names nothing —
+        // never a run over every candidate.
+        if (($raw === null || $raw === '') && $this->input->hasParameterOption('--post')) {
+            $this->error('The --post option must be a positive integer id.');
+
+            return false;
+        }
 
         if ($raw === null) {
             return null;

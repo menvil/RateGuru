@@ -6,6 +6,7 @@ use App\Actions\Rating\DeleteRatingOptionAction;
 use App\Actions\Rating\UpdateRatingOptionAction;
 use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
+use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
@@ -23,6 +24,22 @@ it('does not allow deleting a rating option with votes', function () {
 
     app(DeleteRatingOptionAction::class)->handle($admin, $option);
 })->throws(CannotDeleteVotedRatingOptionException::class);
+
+it('does not delete an option an author chose as the answer to their post, though nobody voted for it', function () {
+    $admin = User::factory()->admin()->create();
+    $group = RatingGroup::factory()->create();
+    $option = RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
+    // post_id is not fillable: an answer is always created through its post.
+    Post::factory()->published()->create()->authorAnswers()->create([
+        'rating_group_id' => $group->id,
+        'rating_option_id' => $option->id,
+    ]);
+
+    expect(fn () => app(DeleteRatingOptionAction::class)->handle($admin, $option))
+        ->toThrow(CannotDeleteVotedRatingOptionException::class);
+
+    expect(RatingOption::query()->find($option->id))->not->toBeNull();
+});
 
 it('allows archiving a voted rating option when the minimum remains satisfied', function () {
     $admin = User::factory()->admin()->create();
