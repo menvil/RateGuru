@@ -1,0 +1,35 @@
+tests/Browser/CommentsBrowserTest.php
+  s_0f80700cf0b8c6::t_993b1169646858 3,5,32-70
+resources/views/livewire/profile/profile-page.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 67
+resources/views/livewire/reports/report-modal.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 35
+tests/Feature/Livewire/ReportModalTest.php
+  s_0f80700cf0b8c6::t_3d53456b5b82a8 259-260
+resources/views/components/comments/comment-item.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 52-54,115
+resources/views/components/feed/post-card.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 145-147
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_0f80700cf0b8c6::t_3d53456b5b82a8 129-130
+tests/Browser/PostDrawerBrowserTest.php
+  s_0f80700cf0b8c6::t_2fcc163154dede 6,10-11,58-85
+resources/views/livewire/posts/post-show.blade.php
+  s_0f80700cf0b8c6::t_3d53456b5b82a8 165-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "85994401ac72fbe00c901b91ce302c813229abc3",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
