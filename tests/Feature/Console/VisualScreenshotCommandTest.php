@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotTarget;
 use App\Support\VisualRegression\VisualScreenshotTargets;
@@ -121,3 +122,21 @@ final class FakeVisualScreenshotRunner implements VisualScreenshotRunner
         file_put_contents($path, 'fake png');
     }
 }
+
+it('runs the screenshot suite with none of .env, so it never refreshes the developer\'s own database', function () {
+    $scratch = makeScratchDir('rg-visual-env');
+    file_put_contents("{$scratch}/.env", "APP_ENV=local\nDB_DATABASE=rateguru\nDB_CONNECTION=pgsql\n");
+    $previous = app()->environmentPath();
+    app()->useEnvironmentPath($scratch);
+
+    try {
+        $environment = (new PestVisualScreenshotRunner)->environment(app(VisualScreenshotTargets::class)->get('feed-desktop'), false);
+    } finally {
+        app()->useEnvironmentPath($previous);
+        removeScratchDir($scratch);
+    }
+
+    // Removed, so phpunit.xml's test database and environment apply.
+    expect($environment)->toMatchArray(['APP_ENV' => false, 'DB_DATABASE' => false, 'DB_CONNECTION' => false])
+        ->and($environment['VISUAL_SCREENSHOT_TARGET'])->toBe('feed-desktop');
+});
