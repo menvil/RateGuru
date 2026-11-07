@@ -33,15 +33,16 @@ final class NotificationBell extends Component
         }
 
         // Unread ones first, so every one the badge counts can be reached
-        // and marked read; read ones fill whatever room is left.
+        // and marked read; read ones fill whatever room is left. The id breaks
+        // a tie in time, so the same ones are shown on every render.
         $user = auth()->user();
-        $unread = $user->unreadNotifications()->latest()->limit(self::SHOWN)->get();
+        $unread = $user->unreadNotifications()->latest()->orderByDesc('id')->limit(self::SHOWN)->get();
 
         if ($unread->count() >= self::SHOWN) {
             return $unread;
         }
 
-        return $unread->concat($user->readNotifications()->latest()->limit(self::SHOWN - $unread->count())->get());
+        return $unread->concat($user->readNotifications()->latest()->orderByDesc('id')->limit(self::SHOWN - $unread->count())->get());
     }
 
     public function markAsRead(string $notificationId): void

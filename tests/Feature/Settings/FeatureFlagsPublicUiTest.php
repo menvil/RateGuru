@@ -7,6 +7,7 @@ use App\Models\Comment;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use Livewire\Livewire;
 
 it('hides comments when comments feature flag is disabled', function () {
@@ -156,14 +157,29 @@ it('hides the comment thread on a post\'s own page too when show_comments is dis
         ->call('submit')
         ->assertForbidden();
 
-    // A reply too.
-    $comment = Comment::factory()->for($post)->create();
+    expect($post->comments()->count())->toBe(0);
+});
 
-    Livewire::actingAs($member)->test(CommentsSection::class, ['postId' => $post->id])
+it('lets a thread drawn before comments were switched off do nothing more', function (string $method, array $arguments) {
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['show_comments' => true]]);
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create();
+    $member = User::factory()->create();
+
+    $section = Livewire::actingAs($member)->test(CommentsSection::class, ['postId' => $post->id])
         ->set('replyingTo', $comment->id)
-        ->set('replyBody', 'And a reply?')
-        ->call('submitReply')
+        ->set('replyBody', 'And a reply?');
+
+    $settings->update(['feature_flags' => ['show_comments' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $section->call($method, ...array_map(fn ($argument) => $argument instanceof Closure ? $argument($comment) : $argument, $arguments))
         ->assertForbidden();
 
     expect($post->comments()->count())->toBe(1);
-});
+})->with([
+    'more comments' => ['loadMore', []],
+    'another order' => ['setCommentSort', ['newest']],
+    'a reply begun' => ['startReply', [fn (Comment $comment): int => $comment->id]],
+    'a reply sent' => ['submitReply', []],
+]);

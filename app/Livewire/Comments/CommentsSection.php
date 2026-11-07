@@ -35,6 +35,17 @@ final class CommentsSection extends Component
 
     public string $replyBody = '';
 
+    /**
+     * On every request, not only the first: a page drawn before comments were
+     * switched off still has this section, and none of it — more comments, a
+     * new order, a reply — goes on while they are off. Every page that draws
+     * it does so only while they are on.
+     */
+    public function boot(): void
+    {
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
+    }
+
     #[Computed]
     public function comments(): Collection
     {
@@ -97,9 +108,6 @@ final class CommentsSection extends Component
 
     public function submitReply(CommentReplyService $commentReplyService): void
     {
-        // As a new comment: none while comments are switched off.
-        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
-
         if ($this->replyingTo === null) {
             return;
         }

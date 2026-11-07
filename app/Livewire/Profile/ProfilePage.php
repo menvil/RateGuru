@@ -42,10 +42,6 @@ final class ProfilePage extends Component
             ->where('username', $username)
             ->withCount(['followerRelations', 'followingRelations'])
             ->firstOrFail();
-
-        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
-            $this->tab = 'posts';
-        }
     }
 
     /** @return list<string> */
@@ -141,6 +137,14 @@ final class ProfilePage extends Component
 
     public function render(RatingConfigurationManager $ratingConfiguration): View
     {
+        // A tab the viewer may not have — from the address, or the saved tab
+        // of a page drawn before saved posts were switched off — shows the
+        // posts instead, from their first page, never an empty tab.
+        if (! in_array($this->tab, $this->getAllowedTabs(), true)) {
+            $this->tab = 'posts';
+            $this->resetPage();
+        }
+
         return view('livewire.profile.profile-page', [
             'ratingGroups' => $ratingConfiguration->activeGroups(),
         ])

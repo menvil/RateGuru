@@ -116,14 +116,30 @@ it('is not there while saved posts are switched off', function () {
 });
 
 it('shows the last page there is for a page past the end, not the empty state', function () {
+    // Two pages of twelve, so the last page is not also the first.
     $user = User::factory()->create();
-    foreach (Post::factory()->count(3)->published()->create() as $post) {
+    foreach (Post::factory()->count(13)->published()->create() as $post) {
         PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
     }
+    $last = PostSave::query()->where('user_id', $user->id)->orderBy('created_at')->orderBy('id')->first()->post_id;
 
     Livewire::withQueryParams(['page' => 5])
         ->actingAs($user)
         ->test(SavedPostsPage::class)
         ->assertDontSee('data-testid="saved-posts-empty-state"', false)
-        ->assertViewHas('savedPosts', fn ($paginator): bool => $paginator->count() === 3 && $paginator->currentPage() === 1);
+        ->assertViewHas('savedPosts', fn ($paginator): bool => $paginator->currentPage() === 2
+            && $paginator->getCollection()->pluck('id')->all() === [$last]);
+});
+
+it('turns no further page once saved posts are switched off under it', function () {
+    $user = User::factory()->create();
+    foreach (Post::factory()->count(13)->published()->create() as $post) {
+        PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
+    }
+    $page = Livewire::actingAs($user)->test(SavedPostsPage::class)->assertOk();
+
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $page->call('nextPage')->assertNotFound();
 });

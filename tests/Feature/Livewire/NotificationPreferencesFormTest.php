@@ -64,6 +64,8 @@ it('says the preferences were saved until the next change, and nothing for a sav
     $user->forceFill(['status' => UserStatus::Deleted])->save();
 
     $form->call('save')->assertSet('saved', false);
+
+    expect($user->fresh()->notify_followed_author_posts)->toBeFalse();
 });
 
 it('sends the box at once, so "Saved" goes as soon as it is changed', function () {

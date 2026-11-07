@@ -15,8 +15,12 @@ final class SavedPostsPage extends Component
 {
     use WithPagination;
 
-    /** Saved posts are a feature the project can switch off; the page goes with it. */
-    public function mount(ProjectSettingsManager $settings): void
+    /**
+     * Saved posts are a feature the project can switch off; the page goes
+     * with it, on every request: a page open when they were switched off
+     * turns no further page of them.
+     */
+    public function boot(ProjectSettingsManager $settings): void
     {
         abort_unless($settings->featureEnabled('show_saved_posts'), 404);
     }

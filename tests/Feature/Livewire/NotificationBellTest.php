@@ -191,6 +191,20 @@ it('lists every unread notification before read ones, so each the badge counts c
     expect($user->unreadNotifications()->count())->toBe(0);
 });
 
+it('shows the same notifications on every render when many share a moment', function () {
+    $this->freezeTime();
+    $user = User::factory()->create();
+
+    foreach (range(1, 12) as $i) {
+        $user->notify(new TestDatabaseNotification(['message' => "Unread {$i}"]));
+    }
+
+    $shown = Livewire::actingAs($user)->test(NotificationBell::class)->get('notifications')->pluck('id')->all();
+
+    // The ten with the highest ids, highest first: the tie in time broken by id.
+    expect($shown)->toBe($user->notifications()->reorder()->orderByDesc('id')->limit(10)->pluck('id')->all());
+});
+
 final class TestDatabaseNotification extends Notification
 {
     /**

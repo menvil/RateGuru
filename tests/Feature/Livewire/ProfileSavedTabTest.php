@@ -65,3 +65,22 @@ it('offers no saved tab and no saved count while saved posts are switched off', 
 
     expect(app(ProfileStats::class)->forUser($owner, $owner)->savedPostsCount)->toBeNull();
 });
+
+it('shows the posts, from their first page, once saved posts are switched off under an open saved tab', function () {
+    $owner = User::factory()->create();
+    PostSave::factory()->create(['user_id' => $owner->id, 'post_id' => Post::factory()->published()->create()->id]);
+
+    $profile = Livewire::actingAs($owner)
+        ->test(ProfilePage::class, ['username' => $owner->username])
+        ->call('setTab', 'saved')
+        ->call('gotoPage', 2)
+        ->assertSet('tab', 'saved');
+
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $profile->call('gotoPage', 3)
+        ->assertSet('tab', 'posts')
+        ->assertSet('paginators.page', 1)
+        ->assertSee('data-testid="profile-posts-tab"', false);
+});
