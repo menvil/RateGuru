@@ -18,7 +18,7 @@ decisions behind it are recorded in `docs/architecture/content-studio-phase-0.md
 | `approved_by_user_id`, `approved_at` | who approved it and when, in UTC; nullable, written only by its approval; the account restricted |
 | `image_asset_id` | the photo, a `post_image` MediaAsset; nullable, restricted |
 | `title`, `description`, `source_url` | the post's texts, each nullable |
-| `category_id` | nullable; set to null if the category itself is deleted |
+| `category_id` | nullable; set to null if the category itself is deleted — a Draft's only: an approved or running plan's category cannot be deleted |
 | `tag_ids`, `author_answer_option_ids` | JSON lists of ids: whole numbers, once each, ascending |
 | `publication_mode` | `StudioPlanPublicationMode`: `now` (default) or `at_date` |
 | `publish_at` | the date for `at_date`, past or future; none for `now` |

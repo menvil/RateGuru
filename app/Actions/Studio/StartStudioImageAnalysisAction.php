@@ -40,7 +40,14 @@ final class StartStudioImageAnalysisAction
             return null;
         }
 
-        $analysis = StudioPlanImageAnalysis::query()->find($analysisId);
+        // The attempt this claimed, and only while it still runs: the row is
+        // reused, and a new photo can start a new attempt on it between the
+        // claim and this read — one this job must not pay to analyse.
+        $analysis = StudioPlanImageAnalysis::query()
+            ->whereKey($analysisId)
+            ->where('attempt_id', $attemptId)
+            ->where('status', StudioImageAnalysisStatus::Running->value)
+            ->first();
 
         if ($analysis !== null) {
             $this->logger->info('studio.image_analysis.started', [

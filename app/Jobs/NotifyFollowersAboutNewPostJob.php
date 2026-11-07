@@ -16,7 +16,9 @@ final class NotifyFollowersAboutNewPostJob implements ShouldQueue
 
     public array $backoff = [60, 300, 600];
 
-    public int $timeout = 120;
+    // Below the queue's retry_after (90 s): a run still going when the queue
+    // gives its job out again would notify the same followers twice.
+    public int $timeout = 80;
 
     public function __construct(public readonly int $postId) {}
 
