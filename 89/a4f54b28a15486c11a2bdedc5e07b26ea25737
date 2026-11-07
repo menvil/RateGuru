@@ -1,0 +1,42 @@
+app/Providers/ObservabilityServiceProvider.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 23
+database/seeders/DemoFillSeeder.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 830
+resources/views/dev/partials/platerate-reference-composition.blade.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 4
+app/Support/Observability/NightwatchPrivacy.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 151
+database/migrations/2026_05_21_000000_backfill_dismissed_report_status.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 9
+database/migrations/2026_05_14_183853_create_post_tag_table.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 18
+routes/api.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 11
+database/migrations/2026_06_05_000003_create_rating_votes_table.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 17
+tests/Feature/Architecture/ReleaseBookkeepingTest.php
+  s_0f80700cf0b8c6::t_d59812b17fb45d 146-152,154-158,161-164,166-169,171,173,177-178
+  s_0f80700cf0b8c6::t_e21c80058e65e5 174-176
+database/migrations/2026_05_26_000001_add_parent_id_to_comments_table.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 14
+app/Console/Commands/ObservabilityHealthCommand.php
+  s_0f80700cf0b8c6::t_b4f5e49dbee6c1 214-215,227
+database/migrations/2026_06_10_223617_create_follows_table.php
+  s_0f80700cf0b8c6::t_3900e86afb9f9b 16-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "89a4f54b28a15486c11a2bdedc5e07b26ea25737",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
