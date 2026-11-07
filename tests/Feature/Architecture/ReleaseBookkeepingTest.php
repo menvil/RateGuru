@@ -143,33 +143,39 @@ it('references no pull request from the operational surface', function () {
 });
 
 it('references no release label from the application code', function () {
-    // The same rule as above, applied to app/. CLAUDE.md states it for the whole
-    // repository, but the guard only ever scanned the operational surface — and
-    // `app/` had quietly collected thirteen `PR-F` and `PR-E` labels, which is
-    // exactly what an unenforced rule does.
+    // The same rule as above, applied to the application. CLAUDE.md states it
+    // for the whole repository, but the guard only ever scanned the
+    // operational surface — and `app/` had quietly collected thirteen `PR-F`
+    // and `PR-E` labels, which is exactly what an unenforced rule does. Once
+    // only `app/` was scanned for those, the phase numbers and the migrations'
+    // lettered labels collected next door instead, so the scope is every
+    // directory that ships, and both vocabularies are matched in all of it.
     //
-    // The pattern covers three spellings, because the labels use all of them and
-    // a guard that catches two is a guard that teaches people the third. `PR #12`
-    // the numbered reference, `PR-F` the lettered phase, and `PR-06` the
-    // hyphenated number — which the first version of this guard missed, leaving
-    // three live examples in app/ untouched. None of them ages any better than
-    // the others: the behaviour stays right, the label stops meaning anything.
+    // Three spellings of a PR label are covered, because the labels use all of
+    // them and a guard that catches two is a guard that teaches people the
+    // third: `PR #12` the numbered reference, `PR-F` the lettered phase, and
+    // `PR-06` the hyphenated number. None of them ages any better than the
+    // others: the behaviour stays right, the label stops meaning anything.
     $offenders = [];
 
-    $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator(base_path('app'), FilesystemIterator::SKIP_DOTS),
-    );
+    foreach (['app', 'bootstrap', 'config', 'database', 'lang', 'routes', 'resources/views', 'resources/js'] as $directory) {
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(base_path($directory), FilesystemIterator::SKIP_DOTS),
+        );
 
-    foreach ($files as $file) {
-        if ($file->getExtension() !== 'php') {
-            continue;
-        }
+        foreach ($files as $file) {
+            if (! in_array($file->getExtension(), ['php', 'js'], true)) {
+                continue;
+            }
 
-        $relative = str_replace(base_path().'/', '', $file->getPathname());
+            $relative = str_replace(base_path().'/', '', $file->getPathname());
 
-        foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
-            if (preg_match('/\bPR[ -](#?\d+|[A-Z])\b|\bpull request #\d+/i', $line)) {
-                $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
+            foreach (preg_split('/\R/', File::get($file->getPathname())) as $number => $line) {
+                // Case-sensitive on purpose: Tailwind's `pr-10` is padding, not
+                // a pull request, and the views are full of it.
+                if (preg_match('/\bPR[ -](#?\d+|[A-Z])\b|\b[Pp]ull request #\d+|\bPhases? \d+(\.\d+)?[A-C]?\b|\bslices? \d+\.\d+\b/', $line)) {
+                    $offenders[] = $relative.':'.($number + 1).' — '.trim($line);
+                }
             }
         }
     }

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 |
 | API endpoints are intentionally not implemented yet.
-| Phase 40 only prepares the route file and JSON Resources.
+| This file only reserves the API route file; no endpoints or JSON resources exist yet.
 |
 | Future API endpoints should:
 | - use /api/v1 route grouping;

@@ -13,6 +13,7 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 
@@ -284,4 +285,18 @@ it('does not take a password set straight into the row for a sign-in, or touch i
 
     expect($persona->fresh()->password)->toBe($hash)
         ->and($persona->fresh()->canSignIn())->toBeFalse();
+});
+
+it('logs the persona under its own key, leaving user_id to the signed-in administrator', function () {
+    Log::spy();
+    $admin = User::factory()->admin()->create();
+    $persona = personaWithProfile();
+    $this->actingAs($admin);
+
+    updatePersona($admin, $persona, ['displayName' => 'Night Owl']);
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $message, array $context): bool => $message === 'persona.updated'
+        && $context['persona_id'] === $persona->id
+        && $context['admin_id'] === $admin->id
+        && $context['user_id'] === $admin->id);
 });

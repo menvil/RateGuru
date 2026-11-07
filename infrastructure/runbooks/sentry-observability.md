@@ -137,7 +137,9 @@ The security log, `storage/logs/security-YYYY-MM-DD.log` (a file a day, kept 30
 days), records each guest's attempt to vote with the visitor's IP address,
 browser and page, for tracing spam and abuse. It is written past Laravel's log
 event, so none of it becomes a Sentry breadcrumb: an IP address stays on the
-server.
+server. One address writes at most 30 lines a minute; past that a single
+`security.guest_vote_attempts_throttled` line says so, and nothing more is
+written for that address until the minute is over.
 
 ---
 
