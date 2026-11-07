@@ -57,9 +57,10 @@ final class ReportContentAction
 
         // Ownership is immutable on posts and comments, so the policy check
         // (which denies reporting what you wrote, or yourself) needs no locked
-        // re-read. An account too: the modal's target is client-set, so its
-        // hidden button alone does not keep one from reporting itself.
-        if (($content instanceof Post || $content instanceof Comment || $content instanceof User) && ! $user->can('report', $content)) {
+        // re-read. An account is held to it too: the modal's target is set by
+        // the client, so its hidden button alone did not keep one from
+        // reporting itself.
+        if (! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
