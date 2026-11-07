@@ -341,12 +341,15 @@
         },
         // The buttons move the moment itself, as they say: five minutes past
         // :55 is the next hour, an hour past 23:00 the next day, and the
-        // calendar follows to the day it lands on.
+        // calendar follows to the day it lands on. On the minute, as setting
+        // the time always was: a value's seconds are kept only until its time
+        // is changed.
         move(milliseconds) {
-            const date = new Date(this.draft + milliseconds)
+            const next = Math.floor((this.draft + milliseconds) / 60000) * 60000
+            const date = new Date(next)
 
-            this.draft += milliseconds
-            this.focused = this.dayOf(this.draft)
+            this.draft = next
+            this.focused = this.dayOf(next)
             this.view = { year: date.getUTCFullYear(), month: date.getUTCMonth() }
         },
         stepHour(by) {

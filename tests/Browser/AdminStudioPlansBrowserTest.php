@@ -224,6 +224,20 @@ it('steps the publication time as a clock would, into the next hour or day', fun
     $shows('Mon 06 May 2019 · 00:00');
 });
 
+it('steps a time with seconds onto the minute, as setting it does', function () {
+    $this->plan->forceFill(['publish_at' => '2019-05-06 07:08:30'])->save();
+    $page = visitAdminEditor("/admin/studio-plans/{$this->plan->id}/edit");
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__step')][3].click()");
+    waitForScript($page, "!! document.querySelector('#rg-admin-studio-publish-at')");
+    $page->click('#rg-admin-studio-publish-at');
+
+    $dialog = '#rg-admin-studio-publish-at-dialog';
+    $page->script("document.querySelector('{$dialog} button[aria-label=\"Hour later\"]').click()");
+
+    waitForScript($page, "Alpine.\$data(document.querySelector('{$dialog}')).draft % 60000", 0);
+});
+
 it('opens a draft\'s editor from the list', function () {
     $page = visitAdminEditor('/admin/studio-plans');
 

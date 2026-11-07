@@ -22,7 +22,8 @@
                     href="{{ ProjectSettingsPage::getUrl(['tab' => 'pages', 'page' => $key]) }}"
                     @class(['rg-admin-settings__page', 'rg-admin-settings__page--current' => $key === $page])
                     @if ($key === $page) aria-current="page" @endif
-                    wire:click.prevent="$set('page', '{{ $key }}')"
+                    {{-- A real address too: a click with a modifier key opens it in a new tab. --}}
+                    x-on:click="if (! ($event.metaKey || $event.ctrlKey || $event.shiftKey || $event.altKey)) { $event.preventDefault(); $wire.$set('page', '{{ $key }}') }"
                 >
                     <span class="rg-admin-settings__page-title">{{ $item['label'] }}</span>
                     <span @class(['rg-admin-settings__page-meta', 'rg-admin-settings__page-meta--due' => $item['missing'] > 0 || $refused])>
