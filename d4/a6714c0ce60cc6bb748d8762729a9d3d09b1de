@@ -1,0 +1,111 @@
+app/Http/Requests/Auth/ResetPasswordRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 5,11-12
+app/Http/Controllers/Auth/NewPasswordController.php
+  s_0f80700cf0b8c6::t_1d093f4fa50186 9,42-43,45
+  s_0f80700cf0b8c6::t_4c04e80cfaf912 39-40,44
+app/Http/Requests/ProfileUpdateRequest.php
+  s_0f80700cf0b8c6::t_02c959df2dc7e0 36-43,46-53
+tests/Feature/Database/LowercaseUserEmailsMigrationTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 1-35
+app/Actions/Profile/AnonymizeUserAccountAction.php
+  s_0f80700cf0b8c6::t_aeb20761e1c3b6 123-142
+app/Console/Commands/CreateAdminUserCommand.php
+  s_0f80700cf0b8c6::t_b132d8946d9c44 12,25-27
+routes/web.php
+  s_0f80700cf0b8c6::t_02c959df2dc7e0 71-72
+app/Http/Requests/Auth/LoginRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 7,14
+routes/auth.php
+  s_0f80700cf0b8c6::t_a44e0522ef3fec 21-24,35
+  s_0f80700cf0b8c6::t_f66d35423faa73 82-85,87-89
+app/Actions/Auth/UpdatePasswordAction.php
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 7,10,39-44
+app/Http/Controllers/ProfileController.php
+  s_0f80700cf0b8c6::t_ff5e91e5293d79 7,13,52-60
+tests/Feature/Auth/AuthenticationTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 33-43
+  s_0f80700cf0b8c6::t_303969c240a002 3,7-9,122,165-176
+  s_0f80700cf0b8c6::t_bdf986cfa66e16 6,10,139-141,143-156,158-163
+  s_0f80700cf0b8c6::t_550e1a155c6705 142,157
+tests/Feature/Profile/ConnectedAccountsTest.php
+  s_0f80700cf0b8c6::t_aa9b0359ef2791 447-452,456,458-459
+  s_0f80700cf0b8c6::t_5d8e8c0f962a5d 446,453-455,457
+app/View/Components/AccountRestrictionNotice.php
+  s_0f80700cf0b8c6::t_ff5e91e5293d79 20,30-39
+tests/Feature/ProfileTest.php
+  s_0f80700cf0b8c6::t_85b39eb69dc634 149-163
+  s_0f80700cf0b8c6::t_be3ba01514437f 25,40-67
+app/Providers/Filament/AdminPanelProvider.php
+  s_0f80700cf0b8c6::t_dc14a3e27f8e70 25,162-165
+tests/Feature/Auth/SignInProviderSwitchesTest.php
+  s_0f80700cf0b8c6::t_cb5fe2367061d4 299-312
+app/Http/Controllers/Auth/VerifyEmailController.php
+  s_0f80700cf0b8c6::t_124533d34ac28a 22-28
+tests/Feature/Auth/PasswordResetTest.php
+  s_0f80700cf0b8c6::t_68684ef3e31555 5,78-102
+  s_0f80700cf0b8c6::t_844bf4557f67ca 29-38
+  s_0f80700cf0b8c6::t_a9beb54158dd78 192-199
+resources/views/profile/partials/update-profile-information-form.blade.php
+  s_0f80700cf0b8c6::t_02c959df2dc7e0 57-65
+tests/Feature/Livewire/EditProfileFormTest.php
+  s_0f80700cf0b8c6::t_85b39eb69dc634 101-112
+app/Livewire/Profile/EditProfileForm.php
+  s_0f80700cf0b8c6::t_ff5e91e5293d79 6,10,64-65
+app/Actions/Auth/ResetPasswordAction.php
+  s_0f80700cf0b8c6::t_4c04e80cfaf912 19-23,29,60-61
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 7,46-48
+database/migrations/2026_11_07_100000_lowercase_user_emails.php
+  s_0f80700cf0b8c6::t_5cecc91b1786eb 1-46
+tests/Feature/Console/CreateAdminUserCommandTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 99-110
+tests/Feature/Admin/AdminShellTest.php
+  s_0f80700cf0b8c6::t_85b39eb69dc634 27,389-398
+tests/Feature/Domain/TerminalUserWriteBarrierTest.php
+  s_0f80700cf0b8c6::t_b57c492f9d1d57 144,146
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 136
+app/Http/Requests/Auth/Concerns/NormalizesEmail.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 1-23
+tests/Feature/Auth/RegistrationTest.php
+  s_0f80700cf0b8c6::t_a9beb54158dd78 157-166
+app/Http/Controllers/Auth/PasswordController.php
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 9,27-28
+tests/Feature/Auth/EmailVerificationTest.php
+  s_0f80700cf0b8c6::t_dcd33907bfc2b7 53-66
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 99
+tests/Feature/Auth/PasswordUpdateTest.php
+  s_0f80700cf0b8c6::t_bdf986cfa66e16 72-89
+  s_0f80700cf0b8c6::t_5be96f1f462542 4,42-70
+tests/Feature/Actions/AnonymizeUserAccountActionTest.php
+  s_0f80700cf0b8c6::t_9752a21e8034cf 25,385-401
+app/Actions/Auth/AuthenticateUserAction.php
+  s_0f80700cf0b8c6::t_f66d35423faa73 23-29,68-72
+  s_0f80700cf0b8c6::t_303969c240a002 87-97
+tests/Feature/Actions/AuthBoundaryActionsTest.php
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 118
+resources/views/profile/edit.blade.php
+  s_0f80700cf0b8c6::t_8bc3d89afc1f59 28-33
+app/Actions/Auth/VerifyEmailAction.php
+  s_0f80700cf0b8c6::t_124533d34ac28a 14-17,19,30-34
+resources/views/profile/partials/connected-accounts.blade.php
+  s_0f80700cf0b8c6::t_cb5fe2367061d4 35-36,134
+app/Http/Requests/Auth/SendPasswordResetLinkRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 7,13
+tests/Feature/Auth/PasswordConfirmationTest.php
+  s_0f80700cf0b8c6::t_bdf986cfa66e16 33-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d4a6714c0ce60cc6bb748d8762729a9d3d09b1de",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
