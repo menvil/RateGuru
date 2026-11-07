@@ -61,6 +61,14 @@ final class ReportContentAction
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
+        // Nobody reports their own comment or their own account either. The
+        // interface never offers it; a crafted request is refused here, where
+        // it holds for every caller. Authorship and identity are immutable.
+        if (($content instanceof Comment && (int) $content->user_id === (int) $user->id)
+            || ($content instanceof User && (int) $content->id === (int) $user->id)) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
+        }
+
         // A Deleted tombstone is not a reportable public target; living
         // users stay reportable through the existing product flow.
         if ($content instanceof User && $content->isTombstoned()) {
