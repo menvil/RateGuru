@@ -83,14 +83,20 @@ final class RunMediaAuditJob implements ShouldQueue
                 'missing_variant_files' => $summary->missingVariantFiles,
                 'physical_orphan_candidates' => $summary->physicalOrphanCandidates,
                 'failed_media_jobs' => $summary->failedMediaJobs,
+                'released_but_referenced' => $summary->releasedButReferenced,
             ]);
-
-            $this->pruneOldRuns();
         } catch (Throwable $exception) {
             // Whatever issues were already found before the failure are
             // still worth keeping — flushed and left attached to this
-            // (failed) run rather than discarded.
-            $this->flushIssueBuffer();
+            // (failed) run rather than discarded. Unless the flush is what
+            // failed: then the buffer that broke it is dropped, and the run
+            // is still marked Failed instead of staying Running for ever.
+            try {
+                $this->flushIssueBuffer();
+            } catch (Throwable $flushFailure) {
+                $this->issueBuffer = [];
+                report($flushFailure);
+            }
 
             $run->update([
                 'completed_at' => now(),
@@ -107,6 +113,15 @@ final class RunMediaAuditJob implements ShouldQueue
             // full audit" action, or a retry) sees a real failure — not a
             // silently-incomplete "completed" run.
             throw $exception;
+        }
+
+        // Outside the audit's failure boundary: tidying away old runs is not
+        // the audit, and its failure never turns a completed run into a
+        // failed one.
+        try {
+            $this->pruneOldRuns();
+        } catch (Throwable $pruneFailure) {
+            report($pruneFailure);
         }
     }
 
@@ -201,8 +216,11 @@ final class RunMediaAuditJob implements ShouldQueue
      * prevent. The configured value still wins whenever it's already long
      * enough; this only raises the floor, it never lowers a deliberately
      * longer configured TTL.
+     *
+     * Public for Media diagnostics, which tells a running audit from an
+     * abandoned one by the same number.
      */
-    private function lockTtlSeconds(): int
+    public function lockTtlSeconds(): int
     {
         return max(
             (int) config('media.diagnostics.audit_lock.ttl_seconds'),

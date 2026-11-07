@@ -91,7 +91,7 @@
                                 <div class="rg-admin-table__cell rg-admin-comments__created" role="cell">{{ $row['detected'] }}</div>
                                 <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
                                     @if ($row['regenerate'])
-                                        <x-admin.ui.button size="sm" wire:click="regenerate({{ $row['assetId'] }})">Regenerate<span class="rg-admin-sr-only"> asset {{ $row['asset'] }}</span></x-admin.ui.button>
+                                        <x-admin.ui.button size="sm" wire:click="regenerate({{ $row['assetId'] }})" wire:loading.attr="disabled" wire:target="regenerate">Regenerate<span class="rg-admin-sr-only"> asset {{ $row['asset'] }}</span></x-admin.ui.button>
                                     @endif
                                     @if ($row['release'])
                                         <x-admin.ui.button size="sm" wire:click="askToRelease({{ $row['assetId'] }})">Release<span class="rg-admin-sr-only"> asset {{ $row['asset'] }}</span></x-admin.ui.button>
@@ -182,7 +182,7 @@
                 <div class="rg-admin-card__body rg-admin-media__jobs-head">
                     <div class="rg-admin-section-label"><h2 class="rg-admin-section-label__text">Failed media jobs</h2></div>
                     @if (collect($jobs)->whereNotNull('assetId')->isNotEmpty())
-                        <x-admin.ui.button size="sm" icon="rotate-ccw" wire:click="retryAllFailedMediaJobs">Retry all</x-admin.ui.button>
+                        <x-admin.ui.button size="sm" icon="rotate-ccw" wire:click="retryAllFailedMediaJobs" wire:loading.attr="disabled" wire:target="retryAllFailedMediaJobs,retryFailedMediaJob">Retry all</x-admin.ui.button>
                     @endif
                 </div>
                 @forelse ($jobs as $job)
@@ -199,7 +199,7 @@
                             <p class="rg-admin-media__exception">{{ $job['exception'] }}</p>
                         </div>
                         @if ($job['assetId'] !== null)
-                            <x-admin.ui.button size="sm" wire:click="retryFailedMediaJob({{ $job['assetId'] }})">Retry<span class="rg-admin-sr-only"> asset #{{ $job['assetId'] }}</span></x-admin.ui.button>
+                            <x-admin.ui.button size="sm" wire:click="retryFailedMediaJob({{ $job['assetId'] }})" wire:loading.attr="disabled" wire:target="retryAllFailedMediaJobs,retryFailedMediaJob">Retry<span class="rg-admin-sr-only"> asset #{{ $job['assetId'] }}</span></x-admin.ui.button>
                         @endif
                     </div>
                 @empty

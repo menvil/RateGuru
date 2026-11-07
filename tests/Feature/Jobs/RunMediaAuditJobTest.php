@@ -3,15 +3,19 @@
 use App\Enums\MediaAuditIssueSeverity;
 use App\Enums\MediaAuditIssueType;
 use App\Enums\MediaAuditRunStatus;
+use App\Enums\MediaHealthStatus;
 use App\Jobs\RunMediaAuditJob;
 use App\Models\MediaAsset;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
 use App\Models\Post;
+use App\Services\Media\MediaHealthResolver;
 use App\Services\Media\MediaReferenceChecker;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -234,4 +238,54 @@ it('releases the lock in the finally path after a failure, letting a subsequent 
     expect(MediaAuditRun::count())->toBe(2);
     $second = MediaAuditRun::orderByDesc('id')->first();
     expect($second->status)->toBe(MediaAuditRunStatus::Completed);
+});
+
+it('keeps a completed run completed when tidying away old runs fails afterwards', function () {
+    MediaAsset::factory()->postImage()->create();
+    Exceptions::fake();
+
+    // Every delete of an old run fails: only the tidying up does that.
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_starts_with(strtolower(ltrim($query->sql)), 'delete') && str_contains($query->sql, 'media_audit_runs')) {
+            throw new RuntimeException('Simulated prune failure.');
+        }
+    });
+    MediaAuditRun::factory()->count(30)->create(['status' => MediaAuditRunStatus::Completed, 'started_at' => now()->subYear()]);
+
+    dispatch_sync(new RunMediaAuditJob);
+
+    expect(MediaAuditRun::query()->latest('id')->first()->status)->toBe(MediaAuditRunStatus::Completed);
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('still ends a run as failed when writing its issues is what fails', function () {
+    // An asset whose master is gone: the audit has an issue to write.
+    MediaAsset::factory()->postImage()->create();
+    Exceptions::fake();
+    DB::listen(function (QueryExecuted $query): void {
+        if (str_starts_with(strtolower(ltrim($query->sql)), 'insert') && str_contains($query->sql, 'media_audit_issues')) {
+            throw new RuntimeException('Simulated issue write failure.');
+        }
+    });
+
+    expect(fn () => dispatch_sync(new RunMediaAuditJob))->toThrow(RuntimeException::class);
+
+    $run = MediaAuditRun::query()->latest('id')->first();
+    expect($run->status)->toBe(MediaAuditRunStatus::Failed)
+        ->and($run->completed_at)->not->toBeNull();
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('keeps the count of released assets still shown, so the run reads as a warning', function () {
+    $asset = MediaAsset::factory()->postImage()->create(['path' => 'media/post-images/still-shown.jpg']);
+    Storage::disk('public')->put($asset->path, 'bytes');
+    Post::factory()->published()->create(['image_asset_id' => $asset->id]);
+    $asset->delete();
+
+    dispatch_sync(new RunMediaAuditJob);
+
+    $run = MediaAuditRun::query()->sole();
+
+    expect($run->released_but_referenced)->toBe(1)
+        ->and(app(MediaHealthResolver::class)->resolve($run))->toBe(MediaHealthStatus::Warning);
 });

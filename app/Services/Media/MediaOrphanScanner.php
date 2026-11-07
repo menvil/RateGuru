@@ -4,6 +4,7 @@ namespace App\Services\Media;
 
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
+use App\Services\Media\Exceptions\MediaStorageException;
 
 /**
  * Finds physical files with no matching MediaAsset/MediaVariant row at all —
@@ -45,7 +46,19 @@ final class MediaOrphanScanner
 
                 $location = new MediaLocation($disk, $path);
 
-                if ($this->storage->lastModified($location) <= $cutoff) {
+                try {
+                    $modified = $this->storage->lastModified($location);
+                } catch (MediaStorageException $exception) {
+                    // Gone since the listing — deleted by a concurrent purge:
+                    // nothing left to consider. Any other failure is real.
+                    if (! $this->storage->exists($location)) {
+                        continue;
+                    }
+
+                    throw $exception;
+                }
+
+                if ($modified <= $cutoff) {
                     $candidates[] = $location;
                 }
             }

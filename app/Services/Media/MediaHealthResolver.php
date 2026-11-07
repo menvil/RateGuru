@@ -30,7 +30,8 @@ final class MediaHealthResolver
         $warningSignals = $latestCompletedRun->missing_variant_files
             + $latestCompletedRun->active_unreferenced_assets
             + $latestCompletedRun->physical_orphan_candidates
-            + $latestCompletedRun->failed_media_jobs;
+            + $latestCompletedRun->failed_media_jobs
+            + $latestCompletedRun->released_but_referenced;
 
         if ($warningSignals > 0) {
             return MediaHealthStatus::Warning;

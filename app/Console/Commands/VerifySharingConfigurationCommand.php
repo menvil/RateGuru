@@ -6,6 +6,8 @@ use App\Models\Post;
 use App\Support\Seo\PostOpenGraph;
 use App\Support\Urls\PostUrl;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 final class VerifySharingConfigurationCommand extends Command
 {
@@ -36,28 +38,36 @@ final class VerifySharingConfigurationCommand extends Command
             }
         }
 
-        $publicImageUrl = trim((string) config('filesystems.disks.public.url'));
+        // The disk media is actually stored on, which need not be the one
+        // named `public`: a deployment may point MEDIA_PUBLIC_DISK elsewhere.
+        // A URL is built as a real post image's is: by the disk, then made
+        // absolute by Open Graph. A disk with no url, or only a path, resolves
+        // against APP_URL; a protocol-relative one takes APP_URL's scheme; a
+        // driver that builds its own URLs, a bucket's, keeps its own host.
+        $mediaDisk = (string) config('media.disks.public', 'public');
 
-        if ($expectedHost !== '' && strtolower((string) parse_url($publicImageUrl, PHP_URL_HOST)) !== $expectedHost) {
-            $errors[] = "Public image URL host must match [{$expectedHost}].";
+        try {
+            $publicImageUrl = $openGraph->absoluteUrl(Storage::disk($mediaDisk)->url('sharing-check.jpg'));
+        } catch (Throwable $exception) {
+            // Its first line names the cause, an unconfigured disk or a driver
+            // with no URLs, without whatever a driver appends below it.
+            $publicImageUrl = null;
+            $errors[] = "Public image URLs cannot be built from the [{$mediaDisk}] disk: ".strtok($exception->getMessage(), "\n");
         }
 
-        // Checked here and not only through the probe below. The probe post has
-        // no image asset, so its Open Graph image is the APP_URL-based fallback
-        // and never touches this disk — an http:// public disk on the right host
-        // would pass every other check in this command and then serve every real
-        // post image to Facebook over plain HTTP.
-        //
-        // Only an explicit non-HTTPS scheme is rejected. A protocol-relative
-        // `//host/storage` URL carries no scheme of its own and inherits APP_URL's,
-        // which this command has already required to be https — and
-        // PostOpenGraph::absoluteUrl resolves it that way deliberately. Treating a
-        // missing scheme as "not https" would fail a deployment that serves every
-        // image over HTTPS.
-        $publicImageScheme = strtolower((string) parse_url($publicImageUrl, PHP_URL_SCHEME));
+        if ($publicImageUrl !== null) {
+            if ($expectedHost !== '' && strtolower((string) parse_url($publicImageUrl, PHP_URL_HOST)) !== $expectedHost) {
+                $errors[] = "Public image URL host must match [{$expectedHost}].";
+            }
 
-        if ($publicImageUrl !== '' && $publicImageScheme !== '' && $publicImageScheme !== 'https') {
-            $errors[] = 'Public image URL must use HTTPS.';
+            // Checked here and not only through the probe below. The probe post
+            // has no image asset, so its Open Graph image is the APP_URL-based
+            // fallback and never touches this disk — an http:// disk on the right
+            // host would pass every other check in this command and then serve
+            // every real post image to Facebook over plain HTTP.
+            if (strtolower((string) parse_url($publicImageUrl, PHP_URL_SCHEME)) !== 'https') {
+                $errors[] = 'Public image URL must use HTTPS.';
+            }
         }
 
         if (! extension_loaded('gd')) {

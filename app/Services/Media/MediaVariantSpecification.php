@@ -25,13 +25,18 @@ final readonly class MediaVariantSpecification
      * Whether generating this variant for a source image of the given
      * dimensions would require upscaling (Contain never upscales; the two
      * cover modes crop-to-fill and so upscale whenever either source
-     * dimension is smaller than the corresponding target).
+     * dimension is smaller than the corresponding target). A source whose
+     * size is not recorded cannot be shown to be large enough to
+     * crop-to-fill, so a cover variant is not made from it.
      */
-    public function wouldUpscale(int $sourceWidth, int $sourceHeight): bool
+    public function wouldUpscale(?int $sourceWidth, ?int $sourceHeight): bool
     {
         return match ($this->mode) {
             MediaResizeMode::Contain => false,
-            MediaResizeMode::CoverSquare, MediaResizeMode::Cover => $sourceWidth < $this->maxWidth || $sourceHeight < $this->maxHeight,
+            MediaResizeMode::CoverSquare, MediaResizeMode::Cover => $sourceWidth === null
+                || $sourceHeight === null
+                || $sourceWidth < $this->maxWidth
+                || $sourceHeight < $this->maxHeight,
         };
     }
 }

@@ -34,7 +34,7 @@ it('resolves critical when a completed run has any missing masters, regardless o
 });
 
 it('resolves warning when there are no missing masters but a warning-severity counter is nonzero', function () {
-    foreach (['missing_variant_files', 'active_unreferenced_assets', 'physical_orphan_candidates', 'failed_media_jobs'] as $counter) {
+    foreach (['missing_variant_files', 'active_unreferenced_assets', 'physical_orphan_candidates', 'failed_media_jobs', 'released_but_referenced'] as $counter) {
         $run = MediaAuditRun::factory()->make([
             'status' => MediaAuditRunStatus::Completed,
             'missing_masters' => 0,
