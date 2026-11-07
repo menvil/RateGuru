@@ -15,6 +15,7 @@
                     :rating-groups="$ratingGroups"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                     :eager-image="$loop->first"
+                    wire:key="saved-post-{{ $post->id }}"
                 />
             @endforeach
         </div>

@@ -136,3 +136,19 @@ it('does not mount the global sliding overlay when post_detail_overlay_mode is d
         ->assertDontSee('data-testid="post-detail-overlay-backdrop-root"', false)
         ->assertDontSee('data-testid="post-detail-overlay-host"', false);
 });
+
+it('mounts the global sliding overlay on a profile when post_detail_overlay_mode is disabled, as the feed alone has a detail column', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => [
+            'post_detail_overlay_mode' => false,
+        ],
+    ]);
+
+    $author = User::factory()->create(['username' => 'night_owl']);
+    Post::factory()->published()->create(['user_id' => $author->id]);
+
+    $this->get(route('profile.show', $author->username))
+        ->assertOk()
+        ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
+        ->assertSee('data-testid="post-detail-overlay-host"', false);
+});

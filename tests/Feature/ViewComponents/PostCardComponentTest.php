@@ -197,6 +197,14 @@ it('renders feed card vote error placeholder below footer actions', function () 
         ->toContain('postVoteError');
 });
 
+it('clears its vote error once a vote on its post goes through', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('x-on:post-voted.window="if ($event.detail.postId === '.$post->id.') postVoteError = \'\'"');
+});
+
 it('does not render report button for unsaved post preview', function () {
     $this->actingAs(User::factory()->create());
 

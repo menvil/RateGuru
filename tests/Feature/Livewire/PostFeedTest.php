@@ -2,6 +2,7 @@
 
 use App\Actions\Posts\DeletePostAction;
 use App\Livewire\Feed\PostFeed;
+use App\Models\Follow;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -133,4 +134,16 @@ it('serves the original image with no srcset while its variants have not been ge
 
     expect($image?->getAttribute('src'))->toContain('posts/1/original.jpg')
         ->and($image?->hasAttribute('srcset'))->toBeFalse();
+});
+
+it('says a search found nothing in the authors\' feed too, not that the authors have posted nothing', function () {
+    $reader = User::factory()->create();
+    $author = User::factory()->create();
+    Follow::factory()->create(['follower_id' => $reader->id, 'author_id' => $author->id]);
+    Post::factory()->for($author)->published()->create(['title' => 'Lemon tart']);
+
+    Livewire::actingAs($reader)
+        ->test(PostFeed::class, ['followingOnly' => true, 'search' => 'pavlova'])
+        ->assertSee(__('ui.feed.no_results_title'))
+        ->assertDontSee(__('ui.feed.following_empty_title'));
 });

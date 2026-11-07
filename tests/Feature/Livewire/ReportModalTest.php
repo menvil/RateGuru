@@ -256,7 +256,8 @@ it('has alpine report modal open close behavior', function () {
         ->assertSee('reportOpen', false)
         ->assertSee('x-show', false)
         ->assertSee('x-cloak', false)
-        ->assertSee('@keydown.escape.window', false)
+        // Escape is the shared dialog's, taken before anything under it hears it.
+        ->assertSee('x-on:keydown.escape.window.capture="if (reportOpen) { reportOpen = false; $event.stopPropagation() }"', false)
         ->assertSee('data-testid="report-button"', false)
         ->assertSee(__('ui.a11y.close'))
         ->assertDontSee('data-testid="close-report-modal"', false);
@@ -334,4 +335,21 @@ it('renders compact report trigger with symmetric menu padding support', functio
         ->assertSee('class="leading-none"', false)
         ->assertSee('inline-flex h-5', false)
         ->assertSee('leading-none text-rg-muted', false);
+});
+
+it('names its details field after its own form, so the report forms of one page never share it', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post, 'post')->create();
+
+    $ids = collect([['post', $post->id], ['comment', $comment->id]])->map(function (array $reportable) use ($user): string {
+        $form = Livewire::actingAs($user)->test(ReportModal::class, ['reportableType' => $reportable[0], 'reportableId' => $reportable[1]]);
+        $id = 'report-message-'.$form->id();
+
+        $form->assertSee('for="'.$id.'"', false)->assertSee('id="'.$id.'"', false);
+
+        return $id;
+    });
+
+    expect($ids->unique())->toHaveCount(2);
 });

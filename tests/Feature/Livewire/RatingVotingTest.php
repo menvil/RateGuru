@@ -64,6 +64,31 @@ it('marks the authenticated users selected rating option', function () {
         ->assertSee('text-rg-accent', false);
 });
 
+it('marks the answer a member gave in a two-answer group, whichever side it is on', function (string $side) {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $options = [
+        'first' => RatingOption::factory()->for($group, 'group')->create(['label' => 'First answer', 'sort_order' => 10]),
+        'second' => RatingOption::factory()->for($group, 'group')->create(['label' => 'Second answer', 'sort_order' => 20]),
+    ];
+
+    RatingVote::factory()->for($user)->for($post)->for($group, 'group')->for($options[$side], 'option')->create();
+
+    $html = Livewire::actingAs($user)
+        ->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
+        ->assertSee('data-testid="rating-option-'.$post->id.'-results"', false)
+        ->html();
+
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="utf-8"?>'.$html);
+    $marked = (new DOMXPath($document))->query('//*[@aria-current="true"]');
+
+    expect($marked->length)->toBe(1)
+        ->and(trim($marked->item(0)->textContent))->toBe($options[$side]->label)
+        ->and($marked->item(0)->getElementsByTagName('svg')->length)->toBe(1);
+})->with(['first', 'second']);
+
 it('renders nothing for a missing or inactive rating group', function (string $groupKey) {
     $post = Post::factory()->published()->create();
 

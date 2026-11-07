@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Import\StoreImportedImageAction;
 use App\Enums\PostStatus;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
@@ -43,8 +44,8 @@ it('renders the upload form fields, loading state and image preview for an authe
     expect($html)
         ->toContain('wire:loading')
         ->toContain('Uploading')
-        // Switching to the image url tab clears the selected file.
-        ->toContain('wire:click="$set(\'image\', null)"')
+        // Switching to the image url tab clears the selected file, here and on the server.
+        ->toContain("\$wire.set('image', null)")
         ->toContain('x-data')
         ->toContain('previewUrl')
         ->toContain('FileReader');
@@ -425,3 +426,18 @@ it('allows uploaded images within configured max dimensions', function () {
 
     expect(Post::query()->where('title', 'Valid Dimensions Test')->exists())->toBeTrue();
 });
+
+it('says a picture link is no web address before trying to fetch it', function (string $link) {
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldNotReceive('download');
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', $link)
+        ->call('submit')
+        ->assertHasErrors(['importedImageUrl'])
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->exists())->toBeFalse();
+})->with(['a typo' => ['not a url'], 'another scheme' => ['ftp://example.com/dish.jpg']]);

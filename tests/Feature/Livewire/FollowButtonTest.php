@@ -81,3 +81,16 @@ it('mounts with following state true when already following', function () {
         ->test(FollowButton::class, ['author' => $author])
         ->assertSet('isFollowing', true);
 });
+
+it('keeps its status region in the page before there is anything to say, so what comes is heard', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    $html = Livewire::actingAs(User::factory()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->create()])
+        ->html();
+
+    expect($html)->toMatch('/<span[^>]*role="status"[^>]*data-testid="follow-button-message"><\/span>/')
+        // Out of the layout while empty, but still in the accessibility tree: not display:none.
+        ->toMatch('/class="[^"]*\bempty:sr-only\b[^"]*"[^>]*role="status"/')
+        ->not->toContain('empty:hidden');
+});

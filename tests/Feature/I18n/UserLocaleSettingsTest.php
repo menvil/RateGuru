@@ -93,3 +93,9 @@ it('preselects a language that can be saved when the stored one is no longer off
     expect(app()->getLocale())->not->toBe($withheld)
         ->and($user->fresh()->locale)->toBe($withheld);
 });
+
+it('names the language list by its heading', function () {
+    Livewire::actingAs(User::factory()->create())
+        ->test(UserLocaleSettings::class)
+        ->assertSeeInOrder(['id="user-locale-settings-title"', 'aria-labelledby="user-locale-settings-title"'], false);
+});

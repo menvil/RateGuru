@@ -11,7 +11,6 @@
 <div
     class="leading-none"
     x-data="{ reportOpen: {{ $variant === 'inline' ? 'true' : 'false' }} }"
-    @keydown.escape.window="reportOpen = false"
 >
     @unless($variant === 'inline')
         <button
@@ -33,7 +32,7 @@
              trigger button and the modal wrapper (see profile-page.blade.php). --}}
         @include('livewire.reports._report-modal-content')
     @else
-        <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" data-testid="report-modal">
+        <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" close-on-escape data-testid="report-modal">
             @include('livewire.reports._report-modal-content')
         </x-ui.modal>
     @endif

@@ -28,7 +28,7 @@ it('takes a reported post down from the report in the panel, for everyone', func
         ->click("@post-actions-menu-{$post->id}")
         ->click('@report-button')
         ->click('[data-testid="report-modal"] input[name="reason"][value="spam"]')
-        ->type('#report-message', 'Advertising, not a post.')
+        ->type('[data-testid="report-modal"] textarea[name="message"]', 'Advertising, not a post.')
         ->click('@submit-report')
         ->assertVisible('@report-success');
 
