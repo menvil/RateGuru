@@ -118,6 +118,37 @@ it('says the totals wait for the comments when the discussion has none, and save
     expect($plan->fresh()->lock_version)->toBe($version);
 });
 
+it('counts every step of a count\'s buttons, two sent before the page redraws included', function () {
+    $editor = discussionVotesEditor($this->plan)->set('voterCount', 4)->update(
+        calls: [
+            ['method' => 'stepVotes', 'params' => [$this->c1, 'up', 1], 'path' => ''],
+            ['method' => 'stepVotes', 'params' => [$this->c1, 'up', 1], 'path' => ''],
+        ],
+    )->assertHasNoErrors()->assertSet("targets.{$this->c1}.up", 2);
+
+    // Down to none, and no further; a step is one, never more.
+    $editor->call('stepVotes', $this->c1, 'up', -1)->call('stepVotes', $this->c1, 'up', -1)->call('stepVotes', $this->c1, 'up', -1)
+        ->assertSet("targets.{$this->c1}.up", 0)
+        ->call('stepVotes', $this->c1, 'up', 5)->assertSet("targets.{$this->c1}.up", 0);
+
+    expect(file_get_contents(resource_path('views/livewire/admin/studio-plan-vote-count.blade.php')))
+        ->toContain("wire:click=\"stepVotes({{ \$node }}, '{{ \$way }}', 1)\"")
+        ->toContain("wire:click=\"stepVotes({{ \$node }}, '{{ \$way }}', -1)\"");
+});
+
+it('clears what a refused preview said once the votes are back at the saved ones', function () {
+    // Saved: two up votes on C1.
+    $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c1, 'up', 2)->assertHasNoErrors()->assertSet('unsaved', false);
+
+    // More votes on a comment than Personas able to give them: refused, and said.
+    $editor->call('setVotes', $this->c1, 'up', 9)->assertHasErrors("targets.{$this->c1}");
+
+    // Back at the saved votes.
+    $editor->call('setVotes', $this->c1, 'up', 2)
+        ->assertHasNoErrors()
+        ->assertSet("summary.{$this->c1}.problem", null);
+});
+
 it('shares a total out by priority as soon as it changes — Low 1, Normal 2, High 3 — and keeps the totals what the comments\' own votes add up to', function () {
     $editor = discussionVotesEditor($this->plan)
         ->call('setPriority', $this->c1, 'high')->call('setPriority', $this->c2, 'low')
@@ -272,6 +303,25 @@ it('says on the comment how many voters it is short, saves nothing until it is f
     // One more voter chosen: saved at once.
     $editor->call('setVotes', $this->c1, 'up', 2)->assertHasErrors(["targets.{$this->c1}"])
         ->call('toggleVoter', $this->eli->id)->assertHasNoErrors()->assertSet('unsaved', false);
+
+    expect(collect(savedCommentVotes($this->plan))->pluck(0)->sort()->values()->all())->toBe(collect([$this->dana->id, $this->eli->id])->sort()->values()->all());
+});
+
+it('tries a refused preview again once what it was short of comes back, the settings unchanged', function () {
+    $editor = discussionVotesEditor($this->plan)->set('voterMode', 'manual')
+        ->call('toggleVoter', $this->anna->id)->call('toggleVoter', $this->dana->id)->call('toggleVoter', $this->eli->id);
+
+    // Eli, chosen, is restricted for a while: the votes asked for now are short of a voter.
+    $this->eli->forceFill(['status' => UserStatus::Limited])->save();
+    $editor->call('setVotes', $this->c1, 'up', 2)->assertHasErrors(["targets.{$this->c1}"]);
+
+    // Eli may vote again; nothing on the page changed.
+    $this->eli->forceFill(['status' => UserStatus::Active])->save();
+
+    $editor->call('$refresh')->assertHasNoErrors()->assertSet('preview', fn (?array $preview): bool => $preview !== null);
+
+    // Saved with the next change, as any preview is.
+    $editor->call('setTiming', 'first', 300)->assertHasNoErrors()->assertSet('unsaved', false);
 
     expect(collect(savedCommentVotes($this->plan))->pluck(0)->sort()->values()->all())->toBe(collect([$this->dana->id, $this->eli->id])->sort()->values()->all());
 });
@@ -764,4 +814,12 @@ it('casts nothing: no vote, action, job or notification', function () {
     Queue::assertNothingPushed();
     Bus::assertNothingDispatched();
     Notification::assertNothingSent();
+});
+
+it('takes both totals changed in one request', function () {
+    discussionVotesEditor($this->plan)
+        ->update(updates: ['totalUp' => 6, 'totalDown' => 4])
+        ->assertSet('totalUp', 6)
+        ->assertSet('totalDown', 4)
+        ->assertSet('targets', fn (array $targets): bool => array_sum(array_column($targets, 'up')) === 6 && array_sum(array_column($targets, 'down')) === 4);
 });

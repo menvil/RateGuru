@@ -315,11 +315,16 @@ trait EditsStudioPlan
         $this->keepPhoto('photo', $photo, ImageInputSource::Upload);
     }
 
-    /** Switching the source keeps nothing of the other one's, and no error of it. */
+    /**
+     * Switching the source keeps nothing of the other one's, and no error of
+     * it — and starts afresh: an address that failed before, whose Try again
+     * went with its error, can be given again.
+     */
     public function updatedImageSource(): void
     {
         $this->imageSource = in_array($this->imageSource, ['link', 'post'], true) ? $this->imageSource : 'upload';
         $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        $this->importedFrom = '';
     }
 
     /**
@@ -346,29 +351,37 @@ trait EditsStudioPlan
         $this->validateOnly($field, $this->imageRules(), $this->imageMessages());
         $this->importedFrom = "{$source} {$url}";
 
-        $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
-
-        if ($imageUrl === null) {
-            return;
-        }
-
-        $importer = app(StoreImportedImageAction::class);
-
         try {
-            $file = $importer->download($imageUrl);
-        } catch (Throwable $exception) {
-            report($exception);
-            $this->addError($field, $source === 'post'
-                ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
-                : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+            $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
 
-            return;
-        }
+            if ($imageUrl === null) {
+                return;
+            }
 
-        try {
-            $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+            $importer = app(StoreImportedImageAction::class);
+
+            try {
+                $file = $importer->download($imageUrl);
+            } catch (Throwable $exception) {
+                report($exception);
+                $this->addError($field, $source === 'post'
+                    ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
+                    : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+
+                return;
+            }
+
+            try {
+                $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+            } finally {
+                $importer->cleanup($file);
+            }
         } finally {
-            $importer->cleanup($file);
+            // The browser forgets the address too, so the same one can be
+            // given again once the source is switched away and back.
+            if ($this->getErrorBag()->hasAny([$field, 'photo'])) {
+                $this->dispatch('rg-studio-import-failed', source: $source);
+            }
         }
     }
 

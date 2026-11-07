@@ -76,6 +76,8 @@
                             <x-admin.ui.button size="sm" icon="refresh-cw" x-on:click="$dispatch('reload-studio-plan')">Reload</x-admin.ui.button>
                         </x-slot:actions>
                     </x-admin.ui.inline-notice>
+                @elseif ($analysisStalled)
+                    <x-admin.ui.inline-notice tone="warning" role="status">The photo analysis did not finish. Run it again on the Image step; text suggestions are written from it.</x-admin.ui.inline-notice>
                 @else
                     <x-admin.ui.inline-notice tone="info" icon="clock" role="status">Text suggestions will be available when photo analysis is complete.</x-admin.ui.inline-notice>
                 @endif
