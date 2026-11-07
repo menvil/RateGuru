@@ -64,7 +64,7 @@
                         >
                             {{ __('ui.user.report') }}
                         </x-ui.button>
-                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md">
+                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md" close-on-escape>
                             <livewire:reports.report-modal
                                 reportable-type="user"
                                 :reportable-id="$profileUser->id"

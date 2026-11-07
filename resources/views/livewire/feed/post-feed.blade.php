@@ -9,17 +9,18 @@
 
     <div wire:loading.remove class="grid gap-4 transition-opacity duration-200 sm:gap-5">
         @if($posts->isEmpty())
-            @if($followingOnly)
-                <x-ui.empty-state
-                    :title="__('ui.feed.following_empty_title')"
-                    :description="__('ui.feed.following_empty_description')"
-                    class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
-                    data-testid="feed-empty-state"
-                />
-            @elseif(filled($search))
+            {{-- A search that found nothing says so, in the authors' feed too. --}}
+            @if(filled($search))
                 <x-ui.empty-state
                     :title="__('ui.feed.no_results_title')"
                     :description="__('ui.feed.no_results_description', ['search' => $search])"
+                    class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
+                    data-testid="feed-empty-state"
+                />
+            @elseif($followingOnly)
+                <x-ui.empty-state
+                    :title="__('ui.feed.following_empty_title')"
+                    :description="__('ui.feed.following_empty_description')"
                     class="-mx-2 w-[calc(100%+1rem)] rounded-none! sm:mx-0 sm:w-full sm:rounded-rgCard!"
                     data-testid="feed-empty-state"
                 />

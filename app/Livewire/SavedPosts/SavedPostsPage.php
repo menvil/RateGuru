@@ -2,6 +2,7 @@
 
 namespace App\Livewire\SavedPosts;
 
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
@@ -12,6 +13,7 @@ use Livewire\WithPagination;
 
 final class SavedPostsPage extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     public function render(
@@ -19,7 +21,7 @@ final class SavedPostsPage extends Component
         RatingConfigurationManager $ratingConfiguration,
         RatingVotingStateLoader $ratingVotingStateLoader,
     ): View {
-        $savedPosts = $query->forUser(auth()->user());
+        $savedPosts = $this->pageThatExists(fn () => $query->forUser(auth()->user()));
         $ratingGroups = $ratingConfiguration->activeGroups();
 
         return view('livewire.saved-posts.saved-posts-page', [

@@ -153,3 +153,16 @@ it('keeps mobile search beside authenticated actions and opens an eighty five pe
 
     expect(abs($drawerGeometry['width'] - $drawerGeometry['expected']))->toBeLessThanOrEqual(1);
 });
+
+it('keeps the focus in the open mobile menu and gives it back to the menu button when it closes', function () {
+    $page = visit(route('feed'))->resize(390, 844);
+
+    $page->click('[data-testid="mobile-nav-trigger"]')
+        ->assertVisible('[data-testid="mobile-nav-panel"]');
+
+    waitForScript($page, "document.querySelector('[data-testid=\"mobile-nav-panel\"]').contains(document.activeElement)");
+
+    $page->keys(':focus', 'Escape');
+
+    waitForScript($page, 'document.activeElement?.dataset.testid', 'mobile-nav-trigger');
+});

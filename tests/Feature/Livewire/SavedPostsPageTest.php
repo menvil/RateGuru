@@ -77,9 +77,10 @@ it('renders active rating groups on saved post cards', function () {
         ->assertSee('data-testid="post-card-rating-confidence"', false);
 });
 
-it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function () {
+it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function (bool $overlayMode) {
+    // The page has no detail column of its own, so it needs the overlay in either view mode.
     ProjectSettings::factory()->create([
-        'feature_flags' => ['post_detail_overlay_mode' => true],
+        'feature_flags' => ['post_detail_overlay_mode' => $overlayMode],
     ]);
 
     $user = User::factory()->create();
@@ -95,4 +96,16 @@ it('mounts the global sliding overlay so clicking a saved post opens the same pa
         ->assertOk()
         ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
         ->assertSee('data-testid="post-detail-overlay-host"', false);
+})->with(['overlay mode' => true, 'split view' => false]);
+
+it('keys each saved card by its post, on the card itself, so a new page never hands one post\'s card to another', function () {
+    $user = User::factory()->create();
+    $posts = Post::factory()->count(2)->published()->create();
+    $posts->each(fn (Post $post) => PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]));
+
+    $html = Livewire::actingAs($user)->test(SavedPostsPage::class)->html();
+
+    foreach ($posts as $post) {
+        expect($html)->toMatch('/<div(?=[^>]*\swire:key="saved-post-'.$post->id.'")(?=[^>]*data-testid="post-card")/');
+    }
 });

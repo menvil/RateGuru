@@ -223,7 +223,7 @@ it('renders the deletion dialog with the shared modal and its dialog behaviours'
     expect($html)
         ->toContain('data-testid="delete-account-modal"')
         ->toContain('x-trap.noscroll="deleteOpen"')
-        ->toContain('x-on:keydown.escape.window="deleteOpen = false"')
+        ->toContain('x-on:keydown.escape.window.capture="if (deleteOpen) { deleteOpen = false; $event.stopPropagation() }"')
         ->toContain('data-modal-below-header')
         ->not->toContain('open-modal');
 });

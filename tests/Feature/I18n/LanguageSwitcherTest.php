@@ -61,3 +61,10 @@ it('shows the flags a little larger than the text beside them, in the trigger an
             ->toBeTrue("the {$code} option has no larger flag");
     }
 });
+
+it('tells assistive technology the switcher opens a menu, and whether it is open', function () {
+    $this->get(route('feed'))
+        ->assertSee('data-testid="locale-switcher-trigger"', false)
+        ->assertSee('aria-haspopup="true"', false)
+        ->assertSee('x-bind:aria-expanded="open.toString()"', false);
+});

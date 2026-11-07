@@ -3,6 +3,7 @@
 namespace App\Livewire\Profile;
 
 use App\Enums\ProfileActivityVisibility;
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Models\Post;
 use App\Models\RatingVote;
 use App\Models\User;
@@ -25,6 +26,7 @@ use Livewire\WithPagination;
 /** @property-read bool $isOwner */
 final class ProfilePage extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     public User $profileUser;
@@ -68,7 +70,7 @@ final class ProfilePage extends Component
     /** @return LengthAwarePaginator<int, Post> */
     public function getPostsProperty(): LengthAwarePaginator
     {
-        return app(UserPublicPostsQuery::class)->forProfile($this->profileUser);
+        return $this->pageThatExists(fn () => app(UserPublicPostsQuery::class)->forProfile($this->profileUser));
     }
 
     public function getCanSeeActivityProperty(): bool
@@ -90,7 +92,7 @@ final class ProfilePage extends Component
             return null;
         }
 
-        return app(SavedPostsQuery::class)->forUser($this->profileUser);
+        return $this->pageThatExists(fn () => app(SavedPostsQuery::class)->forUser($this->profileUser));
     }
 
     public function getDisplayNameProperty(): string

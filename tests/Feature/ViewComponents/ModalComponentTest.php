@@ -77,7 +77,8 @@ it('traps focus and locks page scroll when asked to', function () {
 it('closes on Escape when asked to', function () {
     $html = Blade::render('<x-ui.modal title="Sign in" state="authOpen" close-on-escape>Content</x-ui.modal>');
 
-    expect($html)->toContain('x-on:keydown.escape.window="authOpen = false"')
+    // Taken on the window before anything else hears it, and only while open.
+    expect($html)->toContain('x-on:keydown.escape.window.capture="if (authOpen) { authOpen = false; $event.stopPropagation() }"')
         ->not->toContain('x-trap');
 });
 
@@ -115,9 +116,9 @@ it('lays a dialog out below the app header when asked to', function () {
         ->not->toContain('class="fixed inset-0 z-50');
 });
 
-it('opts every image viewer into the below-header layout', function (string $view) {
+it('opts every image viewer into the below-header layout, closing on Escape before what it is over', function (string $view) {
     expect(file_get_contents(resource_path('views/'.$view)))
-        ->toContain('<x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>');
+        ->toContain('<x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>');
 })->with([
     'components/feed/post-card.blade.php',
     'livewire/posts/post-show.blade.php',

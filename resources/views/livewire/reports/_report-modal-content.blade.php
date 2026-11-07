@@ -45,13 +45,15 @@
             @enderror
         </fieldset>
 
+        {{-- One per report form: a page holds several (a card's, a comment's, the panel's). --}}
+        @php $messageId = 'report-message-'.$this->getId(); @endphp
         <div class="space-y-2">
-            <label for="report-message" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
+            <label for="{{ $messageId }}" class="block text-xs font-semibold uppercase tracking-wide text-rg-muted">
                 {{ __('ui.report.optional_details_label') }}
             </label>
 
             <x-ui.textarea
-                id="report-message"
+                id="{{ $messageId }}"
                 name="message"
                 wire:model.defer="message"
                 rows="4"

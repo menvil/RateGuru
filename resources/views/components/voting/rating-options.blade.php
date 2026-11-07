@@ -58,10 +58,21 @@
         @php($pctA = $total > 0 ? (int) round($cntA / $total * 100) : 0)
         @php($pctB = $total > 0 ? 100 - $pctA : 0)
 
+        {{-- The split keeps its colours, the first answer's share filling the
+             bar; the answer this person gave is marked on its own side. --}}
+        @php($chosenA = (int) $selectedOptionId === (int) $optionA->id)
+        @php($chosenB = (int) $selectedOptionId === (int) $optionB->id)
+
         <div data-testid="{{ $testIdPrefix }}-results">
             <div class="mb-1 flex justify-between">
-                <span class="text-sm font-semibold text-rg-good">{{ $optionA->translatedLabel() }}</span>
-                <span class="text-sm font-semibold text-rg-text2">{{ $optionB->translatedLabel() }}</span>
+                <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-good" @if($chosenA) aria-current="true" @endif>
+                    {{ $optionA->translatedLabel() }}
+                    @if($chosenA)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                </span>
+                <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-text2" @if($chosenB) aria-current="true" @endif>
+                    @if($chosenB)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                    {{ $optionB->translatedLabel() }}
+                </span>
             </div>
             <div class="mb-1.5 flex justify-between">
                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $pctA }}% ({{ $cntA }})</span>

@@ -98,3 +98,21 @@ it('keeps the panel chrome static across renders so only the class attribute ani
     expect($switchMatch[1] ?? '')->not->toContain('translate-x-full');
     expect($openMatch[1] ?? '')->toBe($switchMatch[1] ?? '');
 });
+
+it('sizes the loading skeleton with classes the skeleton takes', function () {
+    $html = file_get_contents(resource_path('views/livewire/feed/post-drawer-content.blade.php'));
+
+    expect($html)->toContain('height="h-64"')
+        ->not->toContain('height="16rem"')
+        ->not->toContain('width="70%"');
+});
+
+it('offers its close button on a post that is gone, the only way out on a phone', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post deleted meanwhile']);
+    $post->delete();
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])
+        ->call('setSelectedPost', $post->id)
+        ->assertSee(__('ui.post.not_found_title'))
+        ->assertSee('data-testid="post-detail-close"', false);
+});

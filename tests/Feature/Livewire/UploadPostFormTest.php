@@ -43,8 +43,8 @@ it('renders the upload form fields, loading state and image preview for an authe
     expect($html)
         ->toContain('wire:loading')
         ->toContain('Uploading')
-        // Switching to the image url tab clears the selected file.
-        ->toContain('wire:click="$set(\'image\', null)"')
+        // Switching to the image url tab clears the selected file, here and on the server.
+        ->toContain("\$wire.set('image', null)")
         ->toContain('x-data')
         ->toContain('previewUrl')
         ->toContain('FileReader');

@@ -1,18 +1,29 @@
 @inject('postCardSettings', \App\Support\Settings\ProjectSettingsManager::class)
 @inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
+{{-- The list's key goes on the card itself, so a redrawn list keeps each card with its post. --}}
 <x-ui.card
+    {{ $attributes->only('wire:key') }}
     variant="{{ $selected ? 'selected-post' : 'post' }}"
     data-testid="post-card"
     data-post-id="{{ $post->id }}"
     role="button"
     tabindex="0"
-    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '', menuId: $id('post-actions-menu') }"
+    x-data="{ postMenuOpen: false, deleteOpen: false, shareOpen: false, imageOpen: false, postVoteError: '', menuId: $id('post-actions-menu'), selected: {{ $selected ? 'true' : 'false' }} }"
+    {{-- The card of the post open in the drawer is marked as the selection
+         happens, without the list being drawn again for it. --}}
+    x-on:post-selected.window="selected = $event.detail.postId === {{ $post->exists ? $post->id : 'null' }}"
+    x-on:clear-selected-post.window="selected = false"
+    x-bind:class="{ 'border-rg-accent shadow-rgSelected': selected, 'border-rg-border': ! selected }"
     x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
+    x-on:post-voted.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = ''"
     x-on:keydown.escape.window="postMenuOpen = false"
     x-on:dropdown-opened.window="if ($event.detail !== menuId) postMenuOpen = false"
     wire:click="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
-    wire:keydown.enter="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
-    wire:keydown.space.prevent="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
+    {{-- The card's own keys only: Enter or Space on a link or button inside
+         it is that control's, and opening the post as well would put the
+         drawer over whatever the control opened. --}}
+    wire:keydown.enter.self="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
+    wire:keydown.space.prevent.self="$dispatch('select-post', { postId: {{ $post->exists ? $post->id : 'null' }} })"
     class="grid cursor-pointer grid-cols-[32px_minmax(0,1fr)] gap-3 overflow-hidden transition-colors hover:border-rg-border2 hover:bg-rg-cardHover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg"
 >
     <div data-testid="post-card-voting" class="w-8 pt-1.5" wire:click.stop wire:keydown.stop>
@@ -31,14 +42,14 @@
         <div class="flex min-w-0 items-start gap-2">
             @if($post->user?->public_username)
                 <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="md" />
+                    <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="md" />
                 </a>
             @else
                 <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="md" />
             @endif
             <div class="min-w-0 flex-1">
                 @if($post->user?->public_username)
-                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                    <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate x-on:click.stop class="block w-fit max-w-full truncate text-[13px] font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
                 @else
                     <span class="block truncate text-[13px] font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
                 @endif
@@ -138,7 +149,9 @@
             </div>
 
             @if($post->exists && ($canReportPost || $canDeletePost || $canModeratePost))
-                <div class="relative ml-auto">
+                {{-- The footer keeps its keys from the card, Escape included, so
+                     the menu hears Escape here. --}}
+                <div class="relative ml-auto" x-on:keydown.escape="postMenuOpen = false">
                     <button
                         type="button"
                         x-on:click="postMenuOpen = ! postMenuOpen; if (postMenuOpen) $dispatch('dropdown-opened', menuId)"
@@ -188,7 +201,7 @@
                     </div>
                 </div>
 
-                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm" close-on-escape>
                     <div class="space-y-4">
                         <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
@@ -208,7 +221,7 @@
             @endif
 
             @if($post->exists && $postCardSettings->featureEnabled('show_share_buttons'))
-                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg" close-on-escape>
                     <x-sharing.share-buttons :post="$post" />
                 </x-ui.modal>
             @endif
@@ -217,7 +230,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"
