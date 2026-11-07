@@ -9,6 +9,7 @@ return [
     'login_required' => 'Skráðu þig inn til að fylgja höfundum.',
     'cannot_follow_self' => 'Þú getur ekki fylgt eigin aðgangi.',
     'cannot_follow_author' => 'Ekki er hægt að fylgja þessum höfundi.',
+    'cannot_follow' => 'Þú getur ekki fylgt höfundum eins og er.',
     'feature_disabled' => 'Slökkt er á möguleikanum að fylgja höfundum.',
     'notifications' => [
         'followed_author_posted' => ':author birti nýja færslu: :title',

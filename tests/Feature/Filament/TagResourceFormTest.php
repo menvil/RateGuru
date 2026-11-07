@@ -98,6 +98,8 @@ it('says what to do when a tag cannot be saved', function (Closure $draft, strin
     'a blank slug whose name is taken' => [fn (): Testable => newTagDraft('Street Food', ''), 'draftSlug', 'The slug has already been taken.'],
     'a slug in use' => [fn (): Testable => newTagDraft('Other', 'street-food'), 'draftSlug', 'The slug has already been taken.'],
     'a slug that is not URL-safe' => [fn (): Testable => newTagDraft('Bad Slug', 'Bad Slug!'), 'draftSlug', 'Use lowercase letters and numbers, with single hyphens between words: best-friends.'],
+    // Forty letters that each transliterate to three.
+    'a blank slug the name would make too long' => [fn (): Testable => newTagDraft(str_repeat('щ', 40), ''), 'draftSlug', 'The slug made from this name would be longer than 100 characters. Type a shorter slug.'],
 ]);
 
 it('allows admin to edit tag from tag resource', function () {

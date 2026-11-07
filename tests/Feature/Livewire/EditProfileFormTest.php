@@ -98,3 +98,23 @@ it('renders edit profile form on profile edit page', function () {
         ->assertOk()
         ->assertSee('data-testid="edit-profile-form"', false);
 });
+
+it('says its own save was written until the next change, never the identity form\'s', function () {
+    $user = User::factory()->create();
+
+    // The identity form's flash alone says nothing here.
+    $this->withSession(['status' => 'profile-updated']);
+    $form = Livewire::actingAs($user)->test(EditProfileForm::class)->assertDontSee(__('ui.actions.saved'));
+
+    $form->set('bio', 'Night owl.')->call('save')
+        ->assertSet('saved', true)
+        ->assertSee(__('ui.actions.saved'));
+
+    $form->set('bio', 'Early bird.')->assertSet('saved', false);
+});
+
+it('holds Save while a chosen avatar is still uploading', function () {
+    $html = Livewire::actingAs(User::factory()->create())->test(EditProfileForm::class)->html();
+
+    expect($html)->toMatch('/<button(?=[^>]*type="submit")(?=[^>]*wire:loading\.attr="disabled")(?=[^>]*wire:target="avatar")[^>]*>/');
+});

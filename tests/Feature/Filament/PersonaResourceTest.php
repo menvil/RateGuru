@@ -18,10 +18,12 @@ use App\Models\MediaAsset;
 use App\Models\PersonaProfile;
 use App\Models\User;
 use App\Queries\Personas\PersonasQuery;
+use App\Services\Media\Exceptions\MediaStorageException;
 use App\Services\Media\GdImageIngestor;
 use App\Services\Media\ImageIngestor;
 use App\Services\Media\ImageIngestPolicy;
 use App\Services\Media\ImageInput;
+use App\Services\Media\MediaStorage;
 use App\Services\Media\NormalizedImage;
 use App\Support\Profile\ProfileValidationRules;
 use Filament\Facades\Filament;
@@ -506,6 +508,38 @@ it('gives the persona a new photo with the rest of the draft, its own save no co
     $page->set('photo', UploadedFile::fake()->image('newer.jpg', 200, 200))->call('save')->assertHasNoErrors();
 
     expect($persona->fresh()->avatar_asset_id)->not->toBe($persona->avatar_asset_id);
+});
+
+it('refuses a photo in a format the avatar ingest does not take before saving any of the draft', function () {
+    Storage::fake('public');
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
+
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
+        ->set('character', 'Warmer')
+        ->set('photo', UploadedFile::fake()->image('owl.gif', 200, 200))
+        ->call('save')
+        ->assertHasErrors(['photo'])
+        ->assertSee('Choose a JPEG, PNG or WebP image.');
+
+    expect($persona->fresh()->personaProfile->character)->toBe('Dry')
+        ->and($persona->fresh()->avatar_asset_id)->toBeNull();
+});
+
+it('keeps the rest of the draft and says so by the photo when the photo cannot be stored', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $persona = studioPersona(['display_name' => 'Night Owl'], ['character' => 'Dry']);
+    $this->mock(MediaStorage::class, fn ($storage) => $storage->shouldReceive('storeNormalized')->andThrow(MediaStorageException::couldNotStore('public', 'avatars/x.jpg')));
+
+    Livewire::test(PersonaEditor::class, ['personaId' => $persona->id])
+        ->set('character', 'Warmer')
+        ->set('photo', UploadedFile::fake()->image('owl.jpg', 200, 200))
+        ->call('save')
+        ->assertHasErrors(['photo'])
+        ->assertSee('The photo couldn’t be stored. Try again in a moment.');
+
+    expect($persona->fresh()->personaProfile->character)->toBe('Warmer')
+        ->and($persona->fresh()->avatar_asset_id)->toBeNull();
 });
 
 it('refuses a photo alone chosen before somebody else\'s save, keeping their avatar and no file', function (Closure $meanwhile) {

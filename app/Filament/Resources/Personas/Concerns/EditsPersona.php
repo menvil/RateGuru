@@ -11,6 +11,7 @@ use App\Filament\Support\ModerationListFormat;
 use App\Models\PersonaProfile;
 use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Services\Media\Exceptions\MediaStorageException;
 use App\Support\Personas\PersonaValidationRules;
 use App\Support\Profile\ProfileValidationRules;
 use Illuminate\Validation\Rules\File;
@@ -154,10 +155,13 @@ trait EditsPersona
 
         $this->validate([
             ...$rules->rules($persona, $persona !== null && $this->username === $persona->username),
-            'photo' => ['nullable', File::image()->max((int) config('uploads.images.max_kilobytes', 5120))],
+            // The formats the avatar ingest takes: a photo it would refuse is
+            // refused here, before anything else of the Persona is saved.
+            'photo' => ['nullable', File::image()->types(config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']))->max((int) config('uploads.images.max_kilobytes', 5120))],
         ], [
             ...$rules->messages(),
             'photo.image' => 'Choose a JPEG, PNG or WebP image.',
+            'photo.mimes' => 'Choose a JPEG, PNG or WebP image.',
             'photo.max' => 'Choose an image of '.number_format((int) config('uploads.images.max_kilobytes', 5120) / 1024, 0).' MB or less.',
         ]);
     }
@@ -181,6 +185,12 @@ trait EditsPersona
         } catch (ImageIngestException $exception) {
             report($exception);
             $this->addError('photo', 'This image can’t be used. Choose another JPEG, PNG or WebP photo.');
+
+            return false;
+        } catch (MediaStorageException $exception) {
+            // The rest is saved already; the photo can be chosen again.
+            report($exception);
+            $this->addError('photo', 'The photo couldn’t be stored. Try again in a moment.');
 
             return false;
         }

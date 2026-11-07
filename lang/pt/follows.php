@@ -9,6 +9,7 @@ return [
     'login_required' => 'Entre para seguir autores.',
     'cannot_follow_self' => 'Você não pode seguir a si mesmo.',
     'cannot_follow_author' => 'Não é possível seguir este autor.',
+    'cannot_follow' => 'No momento, você não pode seguir autores.',
     'feature_disabled' => 'O recurso de seguir está desativado.',
     'notifications' => [
         'followed_author_posted' => ':author fez uma nova publicação: :title',

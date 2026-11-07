@@ -9,6 +9,7 @@ return [
     'login_required' => 'შედით, რომ ავტორები გამოიწეროთ.',
     'cannot_follow_self' => 'საკუთარი თავის გამოწერა შეუძლებელია.',
     'cannot_follow_author' => 'ამ ავტორის გამოწერა შეუძლებელია.',
+    'cannot_follow' => 'ამჟამად ავტორების გამოწერა არ შეგიძლიათ.',
     'feature_disabled' => 'გამოწერის ფუნქცია გამორთულია.',
     'notifications' => [
         'followed_author_posted' => 'ავტორმა :author გამოაქვეყნა ახალი პოსტი: :title',

@@ -231,3 +231,18 @@ it('creates no asset or file and leaves the previous avatar untouched when the a
     expect(MediaAsset::query()->count())->toBe(1);
     Storage::disk('public')->assertDirectoryEmpty('avatars');
 });
+
+it('refuses an avatar in a format the ingest does not take as a field error, saving nothing', function () {
+    Storage::fake('public');
+    $user = User::factory()->create(['bio' => 'Before']);
+
+    Livewire::actingAs($user)
+        ->test(EditProfileForm::class)
+        ->set('bio', 'After')
+        ->set('avatar', UploadedFile::fake()->image('avatar.gif', 400, 400))
+        ->call('save')
+        ->assertHasErrors(['avatar'])
+        ->assertSet('submitError', null);
+
+    expect($user->fresh())->bio->toBe('Before')->avatar_asset_id->toBeNull();
+});

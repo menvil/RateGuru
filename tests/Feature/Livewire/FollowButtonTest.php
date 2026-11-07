@@ -81,3 +81,22 @@ it('mounts with following state true when already following', function () {
         ->test(FollowButton::class, ['author' => $author])
         ->assertSet('isFollowing', true);
 });
+
+it('tells a viewer whose own account may not follow so, neutrally, without blaming the author', function (string $state) {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    Livewire::actingAs(User::factory()->{$state}()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->create()])
+        ->call('toggle')
+        ->assertSet('isFollowing', false)
+        ->assertSet('message', __('follows.cannot_follow'));
+})->with(['limited', 'banned', 'shadowbanned']);
+
+it('still says the author cannot be followed when it is the author', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->banned()->create()])
+        ->call('toggle')
+        ->assertSet('message', __('follows.cannot_follow_author'));
+});

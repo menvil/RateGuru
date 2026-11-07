@@ -164,3 +164,30 @@ it('renders moderation history null-safe after the target is purged', function (
     $this->actingAs($admin);
     Livewire::test(ListComments::class)->assertOk();
 });
+
+it('holds a finalize reason to its limits as it is stored, without what renders as nothing at its ends', function (string $reason, string $rule) {
+    $this->actingAs(User::factory()->admin()->create());
+    $post = Post::factory()->hidden()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden]);
+
+    Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class)
+        ->call('askToFinalize', $post->id)
+        ->set('reason', $reason)
+        ->set('acknowledged', true)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => $rule]);
+
+    Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
+        ->call('askToFinalize', $comment->id)
+        ->set('reason', $reason)
+        ->set('acknowledged', true)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => $rule]);
+
+    expect($post->fresh()->moderation_removed_at)->toBeNull()
+        ->and($comment->fresh()->moderation_removed_at)->toBeNull();
+})->with([
+    'spaces around too little' => ['   a   ', 'min'],
+    'no-break spaces around too little' => ["\u{00A0}ab\u{00A0}", 'min'],
+    'zero-width spaces only' => ["\u{200B}\u{200B}\u{200B}", 'required'],
+]);

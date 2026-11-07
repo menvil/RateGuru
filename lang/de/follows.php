@@ -9,6 +9,7 @@ return [
     'login_required' => 'Melde dich an, um Autoren zu folgen.',
     'cannot_follow_self' => 'Du kannst dir nicht selbst folgen.',
     'cannot_follow_author' => 'Diesem Autor kann man nicht folgen.',
+    'cannot_follow' => 'Du kannst Autoren gerade nicht folgen.',
     'feature_disabled' => 'Die Folgen-Funktion ist deaktiviert.',
     'notifications' => [
         'followed_author_posted' => ':author hat einen neuen Beitrag veröffentlicht: :title',
