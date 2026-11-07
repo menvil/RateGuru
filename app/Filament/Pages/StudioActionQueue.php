@@ -304,7 +304,11 @@ final class StudioActionQueue extends Page
             'overdue' => $action->status === StudioActionStatus::Pending && $action->occurs_at->lessThan($now),
             'runAfter' => StudioActionPlan::at($action->run_after),
             'finished' => $action->finished_at !== null ? StudioActionPlan::at($action->finished_at) : null,
-            'late' => $action->finished_at !== null && $action->finished_at->diffInSeconds($action->occurs_at, true) > 3600,
+            // Ran, and more than an hour after its time. A cancelled action
+            // never ran, and one finished early was not late.
+            'late' => in_array($action->status, [StudioActionStatus::Done, StudioActionStatus::Failed], true)
+                && $action->finished_at !== null
+                && $action->finished_at->greaterThan($action->occurs_at->copy()->addHour()),
             ...StudioActionPlan::runs($action, $now),
             'state' => StudioActionPlan::state($action->status),
             'reason' => $failure !== null && $action->status !== StudioActionStatus::Done ? $failure->description() : null,

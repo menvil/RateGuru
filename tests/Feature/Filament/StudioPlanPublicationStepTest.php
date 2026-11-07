@@ -236,6 +236,17 @@ it('stops the remaining actions after asking, taking nothing published back', fu
         ->and($plan->fresh()->status)->toBe(StudioPlanStatus::Cancelled);
 });
 
+it('stops nothing unless it was asked first', function () {
+    $plan = approvableStudioPlan();
+    approveStudioPlan($this->admin, $plan);
+
+    Livewire::test(StudioPlanActionPlan::class, ['planId' => $plan->id])
+        ->call('stop')
+        ->assertNotDispatched('rg-admin-toast');
+
+    expect(StudioAction::query()->sole()->status)->not->toBe(StudioActionStatus::Cancelled);
+});
+
 it('keeps the action plan to administrators', function () {
     $plan = approvableStudioPlan();
     $this->actingAs(User::factory()->moderator()->create());

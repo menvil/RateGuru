@@ -193,6 +193,17 @@ final class EditStudioPlan extends Page
         $data = $this->validateDraft();
 
         if (self::fingerprintOf($data) === $this->fingerprint) {
+            // Nothing typed here, but somebody else saved meanwhile: the draft
+            // is drawn again from their save, the page's other editors are
+            // told, and nothing is generated from a version nobody looked at.
+            if ($plan->lock_version !== $this->lockVersion) {
+                $this->draw($plan);
+                $this->saidReloaded();
+                $this->toast('This draft was saved elsewhere meanwhile. It now shows that version; nothing was generated.');
+
+                return;
+            }
+
             $this->draw($plan);
             $this->generateAfterSave($then);
 
@@ -404,6 +415,11 @@ final class EditStudioPlan extends Page
      */
     public function delete(): void
     {
+        // The answer to Delete draft's question, and only that.
+        if (! $this->confirmingDelete) {
+            return;
+        }
+
         $this->confirmingDelete = false;
         $plan = StudioPlan::query()->find($this->planId);
 

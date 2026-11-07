@@ -238,3 +238,14 @@ it('deletes every batch with its Draft', function () {
 
     expect(StudioPlanTextGeneration::query()->exists())->toBeFalse();
 });
+
+it('says the photo changed, not that its analysis is missing, when the photo was taken off meanwhile', function () {
+    $plan = studioPlanWithFinishedAnalysis();
+    $shown = $plan->image_asset_id;
+    $plan->forceFill(['image_asset_id' => null])->save();
+
+    expect(fn () => requestStudioPostTexts($this->admin, $plan, imageAssetId: $shown))
+        ->toThrow(fn (CannotRequestStudioPostTextGenerationException $exception) => expect($exception->error)->toBe(StudioPostTextGenerationError::StaleAnalysis));
+
+    Queue::assertNothingPushed();
+});

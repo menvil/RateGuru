@@ -39,6 +39,11 @@
         replacing: false,
         imported: { link: '', post: '' },
         incomplete: { link: false, post: false },
+        // Undoes the watch x-init puts on the start of an upload.
+        stopWatchingStart: null,
+        destroy() {
+            this.stopWatchingStart?.()
+        },
         get busy() {
             return this.phase !== ''
         },
@@ -88,7 +93,10 @@
         importFrom(source, value) {
             const url = (value ?? '').trim()
 
-            this.incomplete[source] = url !== '' && ! /^https?:\/\/[^\s\/?#]+\.[a-z]{2,}(?:[\/?#]\S*)?$/i.test(url)
+            // Complete enough to send: a web address with a dotted host, its
+            // port and a punycode or non-Latin name included. The server holds
+            // it to the real rules.
+            this.incomplete[source] = url !== '' && ! /^https?:\/\/[^\s\/?#:]+\.[^\s\/?#:.]{2,}(?::\d{1,5})?(?:[\/?#]\S*)?$/i.test(url)
 
             if (this.busy || url === '' || this.incomplete[source] || this.imported[source] === url) {
                 return
@@ -103,8 +111,18 @@
             this.$wire.retryImport().finally(() => this.finish())
         },
     }"
-    x-init="saved = {{ $hasPhoto ? 'true' : 'false' }}"
+    {{-- An upload whose start the server never answered — a dropped connection — calls back
+         nothing of $wire.upload's: without this the photo would stay "uploading" for good. --}}
+    x-init="
+        saved = {{ $hasPhoto ? 'true' : 'false' }}
+        stopWatchingStart = $wire.$intercept('_startUpload', ({ onFailure, onError }) => {
+            onFailure(() => finish())
+            onError(() => finish())
+        })
+    "
     x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: '', post: '' }; saved = $event.detail.saved"
+    {{-- A try that failed may be made again with the same address. --}}
+    x-on:rg-studio-import-failed.window="imported[$event.detail.source] = ''"
 >
     <x-admin.ui.card flush title="Photo for the publication" description="Upload a file, paste an image link or import from a social post. The upload rules and checks every post's image goes through apply.">
         @if ($hasPhoto)

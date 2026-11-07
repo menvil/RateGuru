@@ -384,6 +384,24 @@ it('cleans the imported file up even when the image is refused, says so by the l
     Queue::assertNotPushed(AnalyzeStudioPlanImageJob::class);
 });
 
+it('tries an address that failed again when it is given again, after the source was switched away and back', function () {
+    $importer = $this->mock(StoreImportedImageAction::class);
+    $importer->shouldReceive('download')->twice()->with('https://example.com/photo.jpg')->andThrow(new RuntimeException('Nothing there'));
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl')
+        ->assertDispatched('rg-studio-import-failed', source: 'link')
+        // Switching away and back clears the error, and Try again with it.
+        ->set('imageSource', 'upload')
+        ->set('imageSource', 'link')
+        ->assertHasNoErrors()
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+});
+
 it('says by the link when nothing can be downloaded from it, and tries the same address again on Try again', function () {
     bindFakeHostResolver();
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
@@ -505,10 +523,10 @@ it('imports a link it kept once more after the photo was removed or replaced by 
 it('forgets in the browser what it sent once a photo is kept or removed, and learns whether there is one', function () {
     expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])->html())
         ->toContain('x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: \'\', post: \'\' }; saved = $event.detail.saved"')
-        ->toContain('x-init="saved = false"');
+        ->toMatch('/x-init="\\s*saved = false\\n/');
 
     expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->withImage()->create()->id])->html())
-        ->toContain('x-init="saved = true"');
+        ->toMatch('/x-init="\\s*saved = true\\n/');
 });
 
 it('keeps the choice of a new photo out of the way while a chosen file is on its way, showing it in place of the photo', function () {

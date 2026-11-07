@@ -181,10 +181,32 @@
                             <p class="rg-admin-studio__votes-problem"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $breakdown['problem'] }}</p>
                         @endif
 
-                        <div class="rg-admin-studio__votes-chips" role="radiogroup" aria-label="Priority of {{ $breakdown['label'] }}">
+                        {{-- One radio group: one tab stop, and the arrows, Home and End choose, as every radio group here. --}}
+                        <div
+                            class="rg-admin-studio__votes-chips"
+                            role="radiogroup"
+                            aria-label="Priority of {{ $breakdown['label'] }}"
+                            x-data="{
+                                move(to) {
+                                    const radios = [...$el.querySelectorAll('[role=radio]')]
+                                    const at = Math.max(0, radios.findIndex((radio) => radio.getAttribute('aria-checked') === 'true'))
+                                    const next = radios[to === 'first' ? 0 : (to === 'last' ? radios.length - 1 : (at + to + radios.length) % radios.length)]
+
+                                    if (next.disabled || next.getAttribute('aria-checked') === 'true') return
+
+                                    $wire.setPriority({{ $breakdown['id'] }}, next.dataset.value).then(() => $el.querySelector('[role=radio][aria-checked=true]')?.focus())
+                                },
+                            }"
+                            x-on:keydown.arrow-right.prevent="move(1)"
+                            x-on:keydown.arrow-down.prevent="move(1)"
+                            x-on:keydown.arrow-left.prevent="move(-1)"
+                            x-on:keydown.arrow-up.prevent="move(-1)"
+                            x-on:keydown.home.prevent="move('first')"
+                            x-on:keydown.end.prevent="move('last')"
+                        >
                             <span class="rg-admin-studio__votes-chips-label">Priority</span>
                             @foreach ($priorities as $value => $label)
-                                <button type="button" role="radio" class="rg-admin-studio__votes-chip" aria-checked="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" aria-pressed="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" wire:click="setPriority({{ $breakdown['id'] }}, '{{ $value }}')" @disabled(! $editable)>{{ $label }}</button>
+                                <button type="button" role="radio" class="rg-admin-studio__votes-chip" data-value="{{ $value }}" tabindex="{{ $breakdown['priority'] === $value ? '0' : '-1' }}" aria-checked="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" aria-pressed="{{ $breakdown['priority'] === $value ? 'true' : 'false' }}" wire:click="setPriority({{ $breakdown['id'] }}, '{{ $value }}')" @disabled(! $editable)>{{ $label }}</button>
                             @endforeach
                         </div>
                         <p class="rg-admin-hint">How much of Total up and Total down this comment gets when Distribute automatically shares them: High three parts, Normal two, Low one. It changes no vote until then.</p>
