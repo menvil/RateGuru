@@ -1,9 +1,0 @@
-includes:
-    - ../../vendor/larastan/larastan/extension.neon
-    - ../../tools/phpstan/architecture.neon
-
-parameters:
-    customRulesetUsed: true
-    paths:
-        - ../../app
-        - src
