@@ -17,7 +17,10 @@ final class InvisibleEdges
 {
     public static function strip(string $text): string
     {
-        return preg_replace('/^[\s\p{Z}\p{Cc}\p{Cf}]+|[\s\p{Z}\p{Cc}\p{Cf}]+$/u', '', $text)
+        // The tag characters (U+E0020–U+E007F) are Cf too, but at the end they
+        // are part of an emoji — a subdivision flag such as Scotland's — so the
+        // end keeps them; text made only of them still comes back empty.
+        return preg_replace('/^[\s\p{Z}\p{Cc}\p{Cf}]+|(?:(?![\x{E0020}-\x{E007F}])[\s\p{Z}\p{Cc}\p{Cf}])+$/u', '', $text)
             ?? $text;
     }
 }

@@ -287,3 +287,13 @@ it('strips what shows as nothing from the ends of a comment, and keeps the rest 
 
     expect($comment->body)->toBe('Looks  delicious.');
 });
+
+it('keeps an emoji flag at the end of a comment whole, while what renders as nothing still goes', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $scotland = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+
+    $comment = app(AddCommentAction::class)->handle($user, $post, "\u{200B}Go {$scotland}\u{00A0}");
+
+    expect($comment->body)->toBe("Go {$scotland}");
+});

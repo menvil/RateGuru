@@ -228,9 +228,17 @@ final class CommentsSection extends Component
             return;
         }
 
+        // Deleted in another tab meanwhile: said as any other change meanwhile
+        // is, not answered with a 404.
         $comment = Comment::query()
             ->where('post_id', $this->postId)
-            ->findOrFail($commentId);
+            ->find($commentId);
+
+        if ($comment === null) {
+            $this->refusedMeanwhile();
+
+            return;
+        }
 
         try {
             $deleteCommentAction->handle(auth()->user(), $comment);
@@ -257,9 +265,17 @@ final class CommentsSection extends Component
             return;
         }
 
+        // Deleted in another tab meanwhile: said as any other change meanwhile
+        // is, not answered with a 404.
         $comment = Comment::query()
             ->where('post_id', $this->postId)
-            ->findOrFail($commentId);
+            ->find($commentId);
+
+        if ($comment === null) {
+            $this->refusedMeanwhile();
+
+            return;
+        }
 
         try {
             $hideCommentAction->handle(auth()->user(), $comment);
