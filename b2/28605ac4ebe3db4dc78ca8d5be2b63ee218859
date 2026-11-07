@@ -1,0 +1,35 @@
+app/Services/Media/MediaAuditSummary.php
+  s_0f80700cf0b8c6::t_4b2bfd01bfc21b 23-24
+tests/Feature/Services/Media/MediaAuditServiceTest.php
+  s_0f80700cf0b8c6::t_7d99664d32a60c 172-192
+app/Console/Commands/MediaAuditCommand.php
+  s_0f80700cf0b8c6::t_4b2bfd01bfc21b 40
+app/Jobs/RunMediaAuditJob.php
+  s_0f80700cf0b8c6::t_764a100b3510b0 218-220,222
+app/Enums/MediaAuditIssueType.php
+  s_0f80700cf0b8c6::t_4b2bfd01bfc21b 11,26
+app/Services/Media/MediaAuditService.php
+  s_0f80700cf0b8c6::t_4b2bfd01bfc21b 46,54,69-78,165
+tests/Feature/Filament/MediaDiagnosticsPageTest.php
+  s_0f80700cf0b8c6::t_03ef18e81f098f 159-172,177-178
+  s_0f80700cf0b8c6::t_7d99664d32a60c 249-277,482-497
+app/Filament/Pages/MediaDiagnosticsPage.php
+  s_0f80700cf0b8c6::t_4b2bfd01bfc21b 585
+  s_0f80700cf0b8c6::t_764a100b3510b0 354,358,383-385,388,428,614-616
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b228605ac4ebe3db4dc78ca8d5be2b63ee218859",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
