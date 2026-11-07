@@ -4,9 +4,11 @@ use App\Actions\Studio\ExecuteStudioAction;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Enums\StudioActionStatus;
+use App\Enums\StudioActionType;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
+use App\Exceptions\Studio\StudioActionStoppedException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
@@ -232,6 +234,22 @@ it('reports an unexpected fault in a run, so its stack trace is not lost with th
     Exceptions::assertReported(RuntimeException::class);
 });
 
+it('reports a stop its own invariant checks make, so which one fired is not lost', function () {
+    Exceptions::fake();
+    $post = approvedStudioAction();
+    // A comment whose text is no text: a check of the run's own, not a refusal.
+    $comment = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->create([
+        'actor_user_id' => User::factory()->persona()->create()->id,
+        'payload' => ['discussion_node_id' => 1, 'body' => null],
+    ]);
+    sendAndRunStudioAction($post);
+
+    $comment = sendAndRunStudioAction($comment);
+
+    expect($comment)->failure_code->toBe('unexpected_failure');
+    Exceptions::assertReported(StudioActionStoppedException::class);
+});
+
 it('reports nothing for a refusal it understood', function () {
     Exceptions::fake();
     $action = approvedStudioAction();
@@ -302,8 +320,14 @@ it('cancels a run the posting limit sends back once its plan was stopped meanwhi
     dispatchDueStudioActions();
     runStudioActionJob($first->id);
 
-    // Stopped while the second run is under way: Stop leaves a running run be.
-    StudioPlan::query()->whereKey($second->studio_plan_id)->update(['stopped_at' => now()]);
+    // Stopped while the second run is under way — once it is claimed, so the
+    // claim lets it run: Stop leaves a running run be, and only the posting
+    // limit sending it back finds the plan stopped.
+    StudioAction::updated(function (StudioAction $action) use ($second): void {
+        if ($action->id === $second->id && $action->status === StudioActionStatus::Running) {
+            StudioPlan::query()->whereKey($second->studio_plan_id)->update(['stopped_at' => now()]);
+        }
+    });
     runStudioActionJob($second->id);
 
     expect($second->fresh())->status->toBe(StudioActionStatus::Cancelled)->failure_code->toBe('cancelled_by_administrator')

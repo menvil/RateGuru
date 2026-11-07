@@ -171,6 +171,12 @@ final class ExecuteStudioAction
         try {
             $written = DB::transaction(fn (): ?Model => $this->run($actionId, $attempt));
         } catch (StudioActionStoppedException $stop) {
+            // One of the run's own invariant checks: which one fired is in the
+            // stack trace, and the error report is the only place it is kept.
+            if ($stop->failure === StudioActionFailure::UnexpectedFailure) {
+                report($stop);
+            }
+
             return $this->stop($actionId, $attempt, $stop->failure);
         } catch (RateLimitExceededException $limit) {
             return $this->postpone($actionId, $attempt, $limit->retryAfterSeconds());
