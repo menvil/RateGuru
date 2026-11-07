@@ -2,6 +2,7 @@
 
 namespace App\Livewire\SavedPosts;
 
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Queries\SavedPosts\SavedPostsQuery;
 use App\Support\Feed\PostCardViewerState;
 use App\Support\Rating\RatingConfigurationManager;
@@ -14,6 +15,7 @@ use Livewire\WithPagination;
 
 final class SavedPostsPage extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     /**
@@ -32,14 +34,7 @@ final class SavedPostsPage extends Component
         RatingVotingStateLoader $ratingVotingStateLoader,
         PostCardViewerState $viewerState,
     ): View {
-        $savedPosts = $query->forUser(auth()->user());
-
-        // A page past the end — the last saves on it undone, or an old link —
-        // shows the last page there is, not "no saved posts".
-        if ($savedPosts->isEmpty() && $savedPosts->total() > 0) {
-            $this->setPage($savedPosts->lastPage());
-            $savedPosts = $query->forUser(auth()->user());
-        }
+        $savedPosts = $this->pageThatExists(fn () => $query->forUser(auth()->user()));
         $ratingGroups = $ratingConfiguration->activeGroups();
 
         return view('livewire.saved-posts.saved-posts-page', [

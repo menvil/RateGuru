@@ -80,6 +80,19 @@ it('renders Deleted user in the post drawer without link, handle or old identity
         ->assertDontSee('/u/'.$author->username, false);
 });
 
+it('names a deleted comment author in the page\'s language', function () {
+    [, $post] = tombstonedAuthorWithPost();
+    app()->setLocale('ru');
+
+    $html = (string) $this->blade(
+        '<x-comments.comment-item :comment="$comment" />',
+        ['comment' => $post->comments()->first()],
+    );
+
+    expect($html)->toContain(__('ui.user.deleted'))
+        ->not->toContain(User::TOMBSTONE_DISPLAY_NAME);
+});
+
 it('returns 404 for the tombstone profile route and the pre-deletion username', function () {
     [$author, , , $originalUsername] = tombstonedAuthorWithPost();
 

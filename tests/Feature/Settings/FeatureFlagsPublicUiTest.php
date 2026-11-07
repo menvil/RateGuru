@@ -201,3 +201,19 @@ it('takes no vote on a comment from a thread drawn before comments were switched
 
     expect(CommentVote::query()->count())->toBe(0);
 });
+
+it('mounts the global sliding overlay on a profile when post_detail_overlay_mode is disabled, as the feed alone has a detail column', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => [
+            'post_detail_overlay_mode' => false,
+        ],
+    ]);
+
+    $author = User::factory()->create(['username' => 'night_owl']);
+    Post::factory()->published()->create(['user_id' => $author->id]);
+
+    $this->get(route('profile.show', $author->username))
+        ->assertOk()
+        ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
+        ->assertSee('data-testid="post-detail-overlay-host"', false);
+});

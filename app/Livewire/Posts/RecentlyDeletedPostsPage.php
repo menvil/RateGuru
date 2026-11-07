@@ -4,6 +4,7 @@ namespace App\Livewire\Posts;
 
 use App\Actions\Posts\RestoreDeletedPostAction;
 use App\Exceptions\Posts\CannotRestoreDeletedPostException;
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Models\Post;
 use App\Queries\Posts\RecentlyDeletedPostsQuery;
 use App\Support\Posts\PostRetention;
@@ -21,6 +22,7 @@ use Livewire\WithPagination;
  */
 final class RecentlyDeletedPostsPage extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     public ?string $statusMessage = null;
@@ -50,7 +52,7 @@ final class RecentlyDeletedPostsPage extends Component
 
     public function render(RecentlyDeletedPostsQuery $query): View
     {
-        $posts = $query->forOwner(auth()->user());
+        $posts = $this->pageThatExists(fn () => $query->forOwner(auth()->user()));
 
         return view('livewire.posts.recently-deleted-posts-page', [
             'posts' => $posts,

@@ -279,7 +279,7 @@ it('uses the dialog behaviours of the shared modal instead of its own', function
 
     expect($dialog->getAttribute('role'))->toBe('dialog')
         ->and($dialog->getAttribute('aria-modal'))->toBe('true')
-        ->and($dialog->getAttribute('x-on:keydown.escape.window'))->toBe('open = false')
+        ->and($dialog->getAttribute('x-on:keydown.escape.window.capture'))->toBe('if (open) { open = false; $event.stopPropagation() }')
         ->and($xpath->query('.//*[@x-trap.noscroll.noautofocus="open"]', $modal)->length)->toBe(1)
         ->and($xpath->query('.//*[@id="'.$dialog->getAttribute('aria-labelledby').'"]', $modal)->length)->toBe(1)
         // Provider glyphs are decoration: nothing extra for a screen reader.

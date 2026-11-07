@@ -10,6 +10,8 @@
         type="button"
         @click="open = !open"
         aria-label="{{ __('ui.a11y.switch_language') }}"
+        aria-haspopup="true"
+        x-bind:aria-expanded="open.toString()"
         data-testid="locale-switcher-trigger"
         class="inline-flex h-10 cursor-pointer items-center gap-1 rounded-rgControl border border-rg-border2 bg-rg-card px-2 text-[13px] font-medium text-rg-text2 transition-colors hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-3"
     >

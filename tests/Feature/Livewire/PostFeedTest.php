@@ -2,6 +2,7 @@
 
 use App\Actions\Posts\DeletePostAction;
 use App\Livewire\Feed\PostFeed;
+use App\Models\Follow;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
@@ -192,4 +193,16 @@ it('draws every card\'s rating questions from the groups the feed already read',
     };
 
     expect($queriesOn(2))->toBe($queriesOn(6));
+});
+
+it('says a search found nothing in the authors\' feed too, not that the authors have posted nothing', function () {
+    $reader = User::factory()->create();
+    $author = User::factory()->create();
+    Follow::factory()->create(['follower_id' => $reader->id, 'author_id' => $author->id]);
+    Post::factory()->for($author)->published()->create(['title' => 'Lemon tart']);
+
+    Livewire::actingAs($reader)
+        ->test(PostFeed::class, ['followingOnly' => true, 'search' => 'pavlova'])
+        ->assertSee(__('ui.feed.no_results_title'))
+        ->assertDontSee(__('ui.feed.following_empty_title'));
 });

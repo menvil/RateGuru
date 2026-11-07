@@ -36,7 +36,12 @@
     x-transition:leave-start="opacity-100"
     x-transition:leave-end="opacity-0"
     x-on:click.stop
-    @if ($closeOnEscape) x-on:keydown.escape.window="{{ $state }} = false" @endif
+    @if ($closeOnEscape)
+        {{-- Heard on the window before anything else is, and stopped there
+             while the dialog is open: Escape is the dialog's, so a drawer or
+             panel under it that listens for Escape stays as it is. --}}
+        x-on:keydown.escape.window.capture="if ({{ $state }}) { {{ $state }} = false; $event.stopPropagation() }"
+    @endif
     @if ($belowHeader)
         {{-- A page-level dialog sits under the sticky header (z-[60]), so its
              top must start where the header ends — measured, because the
@@ -58,7 +63,16 @@
         x-on:click.stop="{{ $state }} = false"
     ></div>
 
-    <div class="relative mx-auto flex min-h-full items-center justify-center">
+    {{-- This box covers the backdrop wherever the panel is not, so a click
+         on the dimmed page lands here. It closes the dialog only when the
+         press began here too: a drag that starts in a field and ends outside
+         the panel is a selection, not a dismissal. --}}
+    <div
+        class="relative mx-auto flex min-h-full items-center justify-center"
+        x-data="{ pressedOutside: false }"
+        x-on:pointerdown="pressedOutside = $event.target === $el"
+        x-on:click.self="if (pressedOutside) { {{ $state }} = false }"
+    >
         <div
             data-modal-panel
             class="relative w-full {{ $maxWidthClass }} {{ $allowOverflow ? 'overflow-visible' : 'overflow-hidden' }} rounded-rgCard border border-rg-border2 bg-rg-card text-rg-text shadow-rgPopover{{ $fitViewport ? ' flex max-h-[calc(100dvh-3rem)] flex-col' : '' }}"

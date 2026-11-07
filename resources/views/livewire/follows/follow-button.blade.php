@@ -1,4 +1,4 @@
-<div class="inline-flex items-center gap-2" wire:click.stop wire:keydown.stop>
+<div class="inline-flex items-center gap-2" wire:click.stop>
     @if($this->isFeatureEnabled() && !$this->isSelf())
         @if($isFollowing)
             <button
@@ -30,8 +30,7 @@
             </button>
         @endif
 
-        @if($message)
-            <span class="text-xs text-rg-muted" role="status" data-testid="follow-button-message">{{ $message }}</span>
-        @endif
+        {{-- In the page before there is anything to say, so a screen reader hears what comes. --}}
+        <span class="text-xs text-rg-muted empty:hidden" role="status" data-testid="follow-button-message">{{ $message }}</span>
     @endif
 </div>

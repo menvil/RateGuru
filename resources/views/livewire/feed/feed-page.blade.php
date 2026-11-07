@@ -63,6 +63,7 @@
         }
     }"
     x-on:post-selected.window="scrollToSelectedPost($event.detail.postId); scrollToDetailTarget($event.detail.focus)"
+    x-on:post-comments-requested.window="scrollToDetailTarget('comments')"
     {{-- Overlay mode always marks the selected card; the split view selects only where its
          detail column is drawn, on a desktop. See FeedPage::selectPost(). --}}
     x-on:select-post.window="if (@js($overlayMode) || window.innerWidth >= 1024) $wire.selectPost($event.detail.postId, $event.detail.focus ?? null)"

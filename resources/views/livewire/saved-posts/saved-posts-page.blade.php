@@ -16,6 +16,7 @@
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                     :viewer-state="$viewerStates[$post->id] ?? []"
                     :eager-image="$loop->first"
+                    wire:key="saved-post-{{ $post->id }}"
                 />
             @endforeach
         </div>
