@@ -1,0 +1,40 @@
+tests/Feature/Admin/AdminInPlaceLinksTest.php
+  s_0f80700cf0b8c6::t_6ee933f4dd86d4 13-15,17-23
+tests/Feature/Filament/LanguagesPageTest.php
+  s_0f80700cf0b8c6::t_256d406f2378a7 883-884
+  s_0f80700cf0b8c6::t_73d35e69043afd 893-897
+  s_0f80700cf0b8c6::t_54ffa18bc30d48 892,898-903
+resources/views/filament/pages/translation-ai.blade.php
+  s_0f80700cf0b8c6::t_256d406f2378a7 35-37
+tests/Browser/AdminStudioPlansBrowserTest.php
+  s_0f80700cf0b8c6::t_5a6fd7c07b773a 238
+  s_0f80700cf0b8c6::t_78150192d3b03d 227-237,239-240
+resources/views/filament/pages/categories/row.blade.php
+  s_0f80700cf0b8c6::t_6ee933f4dd86d4 28
+resources/views/filament/pages/languages/missing.blade.php
+  s_0f80700cf0b8c6::t_256d406f2378a7 58-60
+tests/Feature/Filament/TranslationAiPageTest.php
+  s_0f80700cf0b8c6::t_256d406f2378a7 215-221
+resources/views/filament/pages/project-settings.blade.php
+  s_0f80700cf0b8c6::t_6ee933f4dd86d4 15-16
+resources/views/filament/pages/project-settings/pages.blade.php
+  s_0f80700cf0b8c6::t_6ee933f4dd86d4 25-26
+resources/views/components/admin/ui/date-time-field.blade.php
+  s_0f80700cf0b8c6::t_78150192d3b03d 344-346,348-349,351-352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4991333c0886ef0d6bbdfa024a6a91f973405653",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
