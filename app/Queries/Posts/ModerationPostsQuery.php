@@ -109,7 +109,8 @@ final class ModerationPostsQuery implements RawSqlPersistenceBoundary, StablePag
      */
     public function among(array $ids): Builder
     {
-        return $this->listed()->whereIn('posts.id', $ids);
+        // In id order, so a selection reads the same every time it is read.
+        return $this->listed()->whereIn('posts.id', $ids)->orderBy('posts.id');
     }
 
     /**

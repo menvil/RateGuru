@@ -15,10 +15,11 @@ use InvalidArgumentException;
 final class RetentionDays
 {
     /**
-     * A century: as far back as any retention can sensibly reach. A larger
-     * number is refused rather than used — subtracted from today it wraps
-     * the date round, the cutoff lands in the present, and a purge would
-     * take everything instead of nothing.
+     * A century: as far back as any retention can sensibly reach, and a
+     * bound below the numbers that break the date — one near PHP_INT_MAX,
+     * where (int) saturates any longer number, subtracted from today wraps
+     * round to the present, and a purge would take everything instead of
+     * nothing.
      */
     public const MAX_DAYS = 36500;
 
