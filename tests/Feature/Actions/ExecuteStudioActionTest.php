@@ -4,9 +4,11 @@ use App\Actions\Studio\ExecuteStudioAction;
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
 use App\Enums\StudioActionStatus;
+use App\Enums\StudioActionType;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
+use App\Exceptions\Studio\StudioActionStoppedException;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\NotifyFollowersAboutNewPostJob;
 use App\Jobs\Studio\ExecuteStudioActionJob;
@@ -26,6 +28,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -220,6 +223,44 @@ it('takes the whole run back when a write of it is not saved, then fails the act
         ->and($queued->getArrayCopy())->not->toContain(NotifyFollowersAboutNewPostJob::class);
 });
 
+it('reports an unexpected fault in a run, so its stack trace is not lost with the class stored on the action', function () {
+    Exceptions::fake();
+    $action = approvedStudioAction();
+    StudioAction::updating(fn (StudioAction $updated): ?bool => $updated->status === StudioActionStatus::Done ? false : null);
+
+    $action = sendAndRunStudioAction($action);
+
+    expect($action)->failure_code->toBe('unexpected_failure');
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('reports a stop its own invariant checks make, so which one fired is not lost', function () {
+    Exceptions::fake();
+    $post = approvedStudioAction();
+    // A comment whose text is no text: a check of the run's own, not a refusal.
+    $comment = StudioAction::factory()->childOf($post, StudioActionType::CreateComment)->create([
+        'actor_user_id' => User::factory()->persona()->create()->id,
+        'payload' => ['discussion_node_id' => 1, 'body' => null],
+    ]);
+    sendAndRunStudioAction($post);
+
+    $comment = sendAndRunStudioAction($comment);
+
+    expect($comment)->failure_code->toBe('unexpected_failure');
+    Exceptions::assertReported(StudioActionStoppedException::class);
+});
+
+it('reports nothing for a refusal it understood', function () {
+    Exceptions::fake();
+    $action = approvedStudioAction();
+    User::query()->whereKey($action->actor_user_id)->update(['status' => 'banned']);
+
+    $action = sendAndRunStudioAction($action);
+
+    expect($action)->failure_code->toBe('author_banned');
+    Exceptions::assertNothingReported();
+});
+
 it('takes the whole run back when the post\'s score is not saved: no post, no approval, no notification, the action failed', function () {
     $action = approvedStudioAction();
     // The score's save alone is cancelled, as a model event cancels one: false, no exception.
@@ -268,6 +309,45 @@ it('sends an action back, its date kept, while its Persona is at its posting lim
 
     expect($third->fresh())->status->toBe(StudioActionStatus::Done)->attempts->toBe(2)
         ->and(Post::query()->whereKey($third->fresh()->result_id)->sole()->created_at->toDateTimeString())->toBe('2026-10-20 10:00:00');
+});
+
+it('cancels a run the posting limit sends back once its plan was stopped meanwhile, so nothing of the plan is published', function () {
+    config(['rate_limits.upload.max_attempts' => 1, 'rate_limits.upload.decay_seconds' => 600]);
+    Carbon::setTestNow('2026-10-20 10:00:00');
+    $persona = User::factory()->persona()->create();
+    [$first, $second] = collect(range(1, 2))->map(fn (int $index): StudioAction => approvedStudioAction(['author_user_id' => $persona->id, 'title' => "Harbour {$index}"]))->all();
+
+    dispatchDueStudioActions();
+    runStudioActionJob($first->id);
+
+    // Stopped while the second run is under way — once it is claimed, so the
+    // claim lets it run: Stop leaves a running run be, and only the posting
+    // limit sending it back finds the plan stopped.
+    StudioAction::updated(function (StudioAction $action) use ($second): void {
+        if ($action->id === $second->id && $action->status === StudioActionStatus::Running) {
+            StudioPlan::query()->whereKey($second->studio_plan_id)->update(['stopped_at' => now()]);
+        }
+    });
+    runStudioActionJob($second->id);
+
+    expect($second->fresh())->status->toBe(StudioActionStatus::Cancelled)->failure_code->toBe('cancelled_by_administrator')
+        ->and(StudioPlan::query()->findOrFail($second->studio_plan_id)->status)->toBe(StudioPlanStatus::Cancelled)
+        ->and(Post::query()->count())->toBe(1);
+
+    // And never sent again.
+    Carbon::setTestNow('2026-10-20 11:00:00');
+    expect(dispatchDueStudioActions()['sent'])->toBe(0);
+});
+
+it('cancels a run of a stopped plan that recovery sends again, instead of running it', function () {
+    $action = approvedStudioAction();
+    dispatchDueStudioActions();
+    StudioPlan::query()->whereKey($action->studio_plan_id)->update(['stopped_at' => now()]);
+
+    runStudioActionJob($action->id);
+
+    expect($action->fresh())->status->toBe(StudioActionStatus::Cancelled)
+        ->and(Post::query()->exists())->toBeFalse();
 });
 
 it('publishes a backlog its Persona\'s posting limit spreads over many rounds, giving none of it up as failed deliveries', function () {

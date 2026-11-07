@@ -221,6 +221,12 @@ final class ManageCategories extends Page
                 return;
             }
 
+            if ($exception->reason === CannotDeleteCategoryException::REASON_AWAITED_BY_STUDIO_PLANS) {
+                $this->toast("An approved Content Studio plan will publish under {$category->name}. Deactivate it instead, or cancel the plan first.", 'error');
+
+                return;
+            }
+
             $this->toast('You are not allowed to delete categories.', 'error');
 
             return;

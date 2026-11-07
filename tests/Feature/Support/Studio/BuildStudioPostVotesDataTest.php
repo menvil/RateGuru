@@ -326,3 +326,12 @@ it('only reads: nothing is written', function () {
     expect($writes)->toBe([])
         ->and(StudioPlanVote::query()->exists())->toBeFalse();
 });
+
+it('draws the same order whatever order the personas came in, even when some draws read as numbers', function () {
+    // Seed 2546 gives two of these forty a hash that reads as a number, so a
+    // numeric comparison would treat those two differently from the rest.
+    $drawn = new ReflectionMethod(BuildStudioPostVotesData::class, 'drawn');
+    $ids = range(1, 40);
+
+    expect($drawn->invoke(null, array_reverse($ids), 2546, 'voters'))->toBe($drawn->invoke(null, $ids, 2546, 'voters'));
+});

@@ -60,7 +60,7 @@ services only decide HOW to delete an already-approved target safely.
 | users.avatar_asset_id | media_assets | SET NULL | SET NULL | same |
 | studio_plans.author_user_id / created_by_user_id | users | — | **RESTRICT** | a plan keeps its author and creator; accounts become tombstones |
 | studio_plans.image_asset_id | media_assets | — | **RESTRICT** | only the media lifecycle removes an asset, never one a plan still holds |
-| studio_plans.category_id | categories | — | SET NULL | an incomplete Draft may lose a deleted category; checked again on approval |
+| studio_plans.category_id | categories | — | SET NULL | an incomplete Draft may lose a deleted category; checked again on approval. An approved or running plan keeps it: `DeleteCategoryAction` refuses (`awaited_by_studio_plans`) |
 | sessions.user_id | — | no FK | no FK | framework table, cleaned explicitly by PR-B |
 | notifications.notifiable | — | morph, no FK | morph, no FK | cleaned explicitly by PR-B |
 

@@ -3,6 +3,7 @@
 namespace App\Actions\Follows;
 
 use App\Enums\PostStatus;
+use App\Exceptions\Follows\FollowerNotificationsNotDeliveredException;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Models\User;
@@ -63,6 +64,7 @@ final class NotifyFollowersAboutNewPostAction
 
         $sentCount = 0;
         $skippedCount = 0;
+        $failedCount = 0;
 
         User::query()
             ->whereIn(
@@ -73,7 +75,10 @@ final class NotifyFollowersAboutNewPostAction
             )
             ->where('id', '!=', $author->id)
             ->where('notify_followed_author_posts', true)
-            ->chunk(500, function ($followers) use ($post, $author, &$sentCount, &$skippedCount): void {
+            // By id, not by offset: a follower who turns notifications off or
+            // unfollows mid-send leaves the filter, and an offset would then
+            // step over someone who never got the notification.
+            ->chunkById(500, function ($followers) use ($post, $author, &$sentCount, &$skippedCount, &$failedCount): void {
                 $alreadyNotifiedIds = $this->getAlreadyNotifiedFollowerIds($followers, $post);
 
                 foreach ($followers as $follower) {
@@ -104,6 +109,7 @@ final class NotifyFollowersAboutNewPostAction
                             $skippedCount++;
                         }
                     } catch (Throwable $exception) {
+                        $failedCount++;
                         report($exception);
 
                         $this->logger->error('notifications.followed_author_posted.failed', [
@@ -129,6 +135,12 @@ final class NotifyFollowersAboutNewPostAction
                 'recipient_count' => $sentCount,
                 'skipped_count' => $skippedCount,
             ]);
+        }
+
+        // Only now, so everyone else was notified first: the retry skips them
+        // and tries again only the ones this run missed.
+        if ($failedCount > 0) {
+            throw FollowerNotificationsNotDeliveredException::forPost((int) $post->id, $failedCount);
         }
     }
 }

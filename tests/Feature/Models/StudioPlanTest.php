@@ -34,7 +34,7 @@ it('has the columns its contract names, and none a later stage adds', function (
     expect(Schema::getColumnListing('studio_plans'))->toEqualCanonicalizing([
         'id', 'status', 'author_user_id', 'created_by_user_id', 'approved_by_user_id', 'approved_at', 'image_asset_id',
         'title', 'description', 'source_url', 'category_id', 'tag_ids', 'author_answer_option_ids', 'publication_mode',
-        'publish_at', 'lock_version', 'created_at', 'updated_at',
+        'publish_at', 'stopped_at', 'lock_version', 'created_at', 'updated_at',
     ]);
 });
 

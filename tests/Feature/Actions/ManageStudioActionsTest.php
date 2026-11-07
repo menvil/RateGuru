@@ -179,7 +179,9 @@ it('stops what is left of a plan whose post is published: its comments and votes
         ->and(collect($actions)->except(['post', 'c1'])->every(fn (StudioAction $action): bool => $action->fresh()->status === StudioActionStatus::Cancelled && $action->fresh()->failure_code === 'cancelled_by_administrator'))->toBeTrue()
         ->and(Post::query()->count())->toBe(1)
         ->and(Comment::query()->count())->toBe(1)
-        ->and($plan->fresh()->status)->toBe(StudioPlanStatus::Completed);
+        ->and($plan->fresh()->status)->toBe(StudioPlanStatus::Completed)
+        // Kept, so a run still under way never queues itself again.
+        ->and($plan->fresh()->stopped_at?->toDateTimeString())->toBe('2026-10-25 12:06:00');
 
     // Nothing left to stop.
     expect(managementRefusal(fn () => app(StopStudioPlanAction::class)->handle($this->admin, $plan->id)))->toBe(['plan_not_running', null]);

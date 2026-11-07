@@ -40,7 +40,14 @@ final class StartStudioPostTextGenerationAction
             return null;
         }
 
-        $generation = StudioPlanTextGeneration::query()->find($generationId);
+        // The attempt this claimed, and only while it still runs: a claim held
+        // up until it went stale can be failed and the batch asked for again
+        // before this read — an attempt this job must not pay to write.
+        $generation = StudioPlanTextGeneration::query()
+            ->whereKey($generationId)
+            ->where('attempt_id', $attemptId)
+            ->where('status', StudioPostTextGenerationStatus::Running->value)
+            ->first();
 
         if ($generation !== null) {
             $this->logger->info('studio.post_text_generation.started', [
