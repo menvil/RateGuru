@@ -42,6 +42,9 @@ final class CommentVoting extends Component
         abort_unless(app(ProjectSettingsManager::class)->featureEnabled('show_comments'), 403);
 
         $this->error = '';
+        // From here on the comment as it is: a refusal below — the comment gone —
+        // is drawn beside the buttons it now has.
+        $this->hasPreloadedState = false;
 
         $voteType = VoteType::tryFrom($type);
 
@@ -73,8 +76,6 @@ final class CommentVoting extends Component
 
             return;
         }
-
-        $this->hasPreloadedState = false;
 
         $this->dispatch('comment-voted', commentId: $this->commentId);
     }

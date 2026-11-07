@@ -51,6 +51,9 @@ final class PostVoting extends Component
     public function vote(string $type, VotePostAction $votePostAction, GuestVoteAttemptLog $guestVoteAttempts): void
     {
         $this->error = '';
+        // From here on the post as it is: a refusal below — the post gone, a vote
+        // no longer allowed — is drawn beside the buttons it now has.
+        $this->hasPreloadedState = false;
 
         $voteType = VoteType::tryFrom($type);
 
@@ -98,7 +101,6 @@ final class PostVoting extends Component
         }
 
         unset($this->post);
-        $this->hasPreloadedState = false;
 
         $this->dispatch('post-voted', postId: $this->postId);
     }
