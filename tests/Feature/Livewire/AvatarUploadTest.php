@@ -231,3 +231,20 @@ it('creates no asset or file and leaves the previous avatar untouched when the a
     expect(MediaAsset::query()->count())->toBe(1);
     Storage::disk('public')->assertDirectoryEmpty('avatars');
 });
+
+it('makes one avatar from one upload, however often the page is saved after', function () {
+    Storage::fake('public');
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test(EditProfileForm::class)
+        ->set('avatar', UploadedFile::fake()->image('avatar.jpg', 400, 400))
+        ->call('save')
+        ->assertSet('avatar', null)
+        ->set('bio', 'Edited after the avatar')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect(MediaAsset::withTrashed()->where('owner_user_id', $user->id)->where('kind', MediaKind::Avatar)->count())->toBe(1)
+        ->and($user->fresh()->bio)->toBe('Edited after the avatar');
+});
