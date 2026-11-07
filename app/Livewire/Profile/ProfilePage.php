@@ -53,11 +53,17 @@ final class ProfilePage extends Component
     {
         $tabs = ['posts', 'activity'];
 
-        if (auth()->id() === $this->profileUser->id) {
+        if (auth()->id() === $this->profileUser->id && app(ProjectSettingsManager::class)->featureEnabled('show_saved_posts')) {
             $tabs[] = 'saved';
         }
 
         return $tabs;
+    }
+
+    /** Whether the saved posts tab is offered: to the owner, while the feature is on. */
+    public function getOffersSavedTabProperty(): bool
+    {
+        return in_array('saved', $this->getAllowedTabs(), true);
     }
 
     public function getStatsProperty(): ProfileStatsData
@@ -86,7 +92,7 @@ final class ProfilePage extends Component
     /** @return LengthAwarePaginator<int, Post>|null */
     public function getSavedPostsProperty(): ?LengthAwarePaginator
     {
-        if (! $this->isOwner) {
+        if (! $this->isOwner || ! app(ProjectSettingsManager::class)->featureEnabled('show_saved_posts')) {
             return null;
         }
 

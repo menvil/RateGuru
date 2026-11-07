@@ -4,6 +4,7 @@ use App\Enums\PostStatus;
 use App\Models\Follow;
 use App\Models\Post;
 use App\Models\PostSave;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Profile\ProfileStats;
 use App\Support\Profile\ProfileStatsData;
@@ -50,6 +51,7 @@ it('does not count hidden or rejected posts in public posts count', function () 
 });
 
 it('shows saved posts count to owner only', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $owner = User::factory()->create();
     $post = Post::factory()->published()->create();
     PostSave::factory()->create(['user_id' => $owner->id, 'post_id' => $post->id]);
@@ -62,4 +64,14 @@ it('shows saved posts count to owner only', function () {
     expect($ownerStats->savedPostsCount)->toBe(1);
     expect($guestStats->savedPostsCount)->toBeNull();
     expect($otherStats->savedPostsCount)->toBeNull();
+});
+
+it('counts only the saved posts the Saved tab lists', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+    $owner = User::factory()->create();
+    foreach ([Post::factory()->published()->create(), Post::factory()->hidden()->create(), Post::factory()->authorDeleted()->create()] as $post) {
+        PostSave::factory()->create(['user_id' => $owner->id, 'post_id' => $post->id]);
+    }
+
+    expect(app(ProfileStats::class)->forUser($owner, $owner)->savedPostsCount)->toBe(1);
 });

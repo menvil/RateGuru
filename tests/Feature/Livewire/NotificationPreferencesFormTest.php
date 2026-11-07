@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UserStatus;
 use App\Livewire\Settings\NotificationPreferencesForm;
 use App\Models\User;
 use Livewire\Livewire;
@@ -45,4 +46,29 @@ it('shows notification preference form on profile edit page', function () {
         ->get(route('profile.edit'))
         ->assertOk()
         ->assertSee('data-testid="notification-preferences-form"', false);
+});
+
+it('says the preferences were saved until the next change, and nothing for a save that was not written', function () {
+    $user = User::factory()->create(['notify_followed_author_posts' => true]);
+
+    $form = Livewire::actingAs($user)->test(NotificationPreferencesForm::class)
+        ->assertSet('saved', false)
+        ->set('notify_followed_author_posts', false)
+        ->call('save')
+        ->assertSet('saved', true)
+        ->assertSee(__('ui.actions.saved'));
+
+    $form->set('notify_followed_author_posts', true)->assertSet('saved', false)->assertDontSee(__('ui.actions.saved'));
+
+    // An account deleted meanwhile: nothing written, nothing said.
+    $user->forceFill(['status' => UserStatus::Deleted])->save();
+
+    $form->call('save')->assertSet('saved', false);
+});
+
+it('sends the box at once, so "Saved" goes as soon as it is changed', function () {
+    // A deferred box would reach updated() only with the next save.
+    Livewire::actingAs(User::factory()->create())
+        ->test(NotificationPreferencesForm::class)
+        ->assertSeeHtml('wire:model.live="notify_followed_author_posts"');
 });

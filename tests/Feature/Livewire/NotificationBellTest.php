@@ -161,6 +161,36 @@ it('ignores missing notification id when marking as read', function () {
         ->assertStatus(200);
 });
 
+it('lists every unread notification before read ones, so each the badge counts can be marked read', function () {
+    $user = User::factory()->create();
+
+    foreach (range(1, 12) as $i) {
+        $user->notify(new TestDatabaseNotification(['message' => "Unread {$i}"]));
+    }
+
+    // Newer than all of the unread ones, and already read.
+    $this->travel(1)->minutes();
+    foreach (range(1, 3) as $i) {
+        $user->notify(new TestDatabaseNotification(['message' => "Read {$i}"]));
+    }
+    $user->notifications()->where('data->message', 'like', 'Read %')->update(['read_at' => now()]);
+
+    $bell = Livewire::actingAs($user)->test(NotificationBell::class);
+
+    while ($bell->get('unreadCount') > 0) {
+        $listed = $bell->get('notifications')->whereNull('read_at');
+        expect($listed)->not->toBeEmpty('an unread notification the badge counts is out of reach');
+
+        foreach ($listed as $notification) {
+            $bell->call('markAsRead', $notification->id);
+        }
+
+        $bell = Livewire::actingAs($user)->test(NotificationBell::class);
+    }
+
+    expect($user->unreadNotifications()->count())->toBe(0);
+});
+
 final class TestDatabaseNotification extends Notification
 {
     /**

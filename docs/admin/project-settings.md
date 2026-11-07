@@ -118,17 +118,26 @@ Feature flags are stored in `feature_flags` JSON column:
 | `show_vote_breakdown` | true | Vote distribution display |
 | `show_follow_buttons` | false | Follow/unfollow UI |
 | `show_saved_posts` | false | Saved/bookmarked posts UI |
-| `allow_user_uploads` | true | Upload button visibility |
-| `allow_guest_viewing` | true | Whether guests can see the feed |
+| `allow_user_uploads` | true | Whether members can create posts: the upload button, and the upload form itself |
+| `allow_guest_viewing` | true | Whether guests can see the content: off, the feed, posts, share links and profiles ask to sign in (the legal and contact pages stay open) |
 | `content_studio_verified_adults` | false | An administrator's confirmation that everyone in Content Studio's photos is a verified adult; lets its texts and discussions flirt with the people shown (`docs/architecture/studio-personas.md`). Applying a preset switches it off |
 
 ### Security warning for feature flags
 
 **UI flags are not security by themselves.**
 
-Disabling `allow_user_uploads` in settings hides the upload button, but does not block the backend action. A determined user could still call the upload endpoint directly.
+A flag that only hides a control does not stop the action behind it: a page
+drawn before the change, or a request made by hand, still reaches the server.
+A flag that has to stop something is checked where the action happens too.
 
-For security-critical flags, a backend guard must also be added. This is documented as future work.
+`allow_guest_viewing` is: switched off, `RequireSignInWhileGuestViewingIsOff`
+sends a guest to sign in on those pages and answers nothing to a component
+drawn on one before the change.
+
+`allow_user_uploads` is too: switched off, the upload form (`UploadPostForm`)
+refuses to open and to submit, so no member creates a post — even from a page
+drawn before the pause. Content Studio publishes on its own schedule and is not
+paused by it.
 
 ## Sign-in methods
 

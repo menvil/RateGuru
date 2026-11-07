@@ -7,7 +7,16 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use Livewire\Livewire;
+
+/*
+ * Saved posts are a feature the project switches on; these are about the
+ * feature, so it is on.
+ */
+beforeEach(function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+});
 
 it('shows saved posts page to owner', function () {
     $user = User::factory()->create();
@@ -78,8 +87,8 @@ it('renders active rating groups on saved post cards', function () {
 });
 
 it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function () {
-    ProjectSettings::factory()->create([
-        'feature_flags' => ['post_detail_overlay_mode' => true],
+    ProjectSettings::query()->sole()->update([
+        'feature_flags' => ['show_saved_posts' => true, 'post_detail_overlay_mode' => true],
     ]);
 
     $user = User::factory()->create();
@@ -95,4 +104,26 @@ it('mounts the global sliding overlay so clicking a saved post opens the same pa
         ->assertOk()
         ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
         ->assertSee('data-testid="post-detail-overlay-host"', false);
+});
+
+it('is not there while saved posts are switched off', function () {
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('saved-posts.index'))
+        ->assertNotFound();
+});
+
+it('shows the last page there is for a page past the end, not the empty state', function () {
+    $user = User::factory()->create();
+    foreach (Post::factory()->count(3)->published()->create() as $post) {
+        PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
+    }
+
+    Livewire::withQueryParams(['page' => 5])
+        ->actingAs($user)
+        ->test(SavedPostsPage::class)
+        ->assertDontSee('data-testid="saved-posts-empty-state"', false)
+        ->assertViewHas('savedPosts', fn ($paginator): bool => $paginator->count() === 3 && $paginator->currentPage() === 1);
 });

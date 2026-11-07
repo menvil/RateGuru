@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use App\Models\PostSave;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use Tests\Browser\Support\ImageFixtures;
 use Tests\Browser\Support\MobileViewports;
@@ -192,6 +193,7 @@ it('does not crop post images in the profile feed', function () {
 });
 
 it('does not crop post images on the saved posts page', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $user = User::factory()->create();
     $post = Post::factory()->published()->create([
         'title' => 'Saved Portrait Post',

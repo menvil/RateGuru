@@ -25,6 +25,9 @@ final class UserRatingActivityQuery
             ->whereHas('post', fn ($q) => $q->where('status', PostStatus::Published))
             ->with(['post', 'group', 'option'])
             ->latest()
+            // Votes cast in the same second keep their order, so the cut
+            // at the limit is the same from one request to the next.
+            ->orderByDesc('id')
             ->limit($limit)
             ->get();
     }
