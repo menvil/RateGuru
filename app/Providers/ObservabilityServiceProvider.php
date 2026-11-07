@@ -74,8 +74,11 @@ final class ObservabilityServiceProvider extends ServiceProvider
         ], static fn (mixed $value): bool => is_string($value) && $value !== '');
 
         Context::add($context);
+        // The worker's own, in place of the dispatcher's: a key the worker has
+        // no value for is dropped rather than left as the dispatcher's, or a job
+        // would be recorded under this release with the last one's commit.
         Context::hydrated(static function (Repository $hydrated) use ($context): void {
-            $hydrated->add($context);
+            $hydrated->forget(['app', 'environment', 'deployment_target', 'release', 'commit'])->add($context);
         });
     }
 
