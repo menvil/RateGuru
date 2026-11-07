@@ -14,6 +14,7 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
@@ -263,4 +264,17 @@ it('stores the texts as typed at their limits, trimmed, and an empty one as none
         ->and($persona->bio)->toBeNull()
         ->and($persona->personaProfile->character)->toBe(str_repeat('c', 2000))
         ->and($persona->personaProfile->max_replies_per_day)->toBe(50);
+});
+
+it('logs the persona under its own key, leaving user_id to the signed-in administrator', function () {
+    Log::spy();
+    $admin = User::factory()->admin()->create();
+    $this->actingAs($admin);
+
+    $persona = createPersona($admin);
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $message, array $context): bool => $message === 'persona.created'
+        && $context['persona_id'] === $persona->id
+        && $context['admin_id'] === $admin->id
+        && $context['user_id'] === $admin->id);
 });

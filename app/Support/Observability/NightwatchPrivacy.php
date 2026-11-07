@@ -148,7 +148,7 @@ final class NightwatchPrivacy
     public function redactRequest(Request $record): void
     {
         // Not hashed, not truncated to a /24, not replaced with a stable
-        // pseudonym: Phase 6B has no question that a client address answers,
+        // pseudonym: nothing the evaluation asks is answered by a client address,
         // and a reversible-by-lookup stand-in is not anonymity. Sentry runs
         // with send_default_pii off for the same reason.
         $record->ip = '';

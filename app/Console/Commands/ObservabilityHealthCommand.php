@@ -86,8 +86,18 @@ final class ObservabilityHealthCommand extends Command
 
         $this->line("  {$file}: {$state}");
 
+        // Said by what is missing: a damaged file can still hold a valid
+        // release, which Sentry does carry, beside a commit it drops.
         if ($state !== 'present') {
-            $this->warn("  Release metadata is {$state} — Sentry events will carry no release.");
+            $this->warn("  Release metadata is {$state}.");
+        }
+
+        if (config('deployment.release') === null) {
+            $this->warn('  Sentry events will carry no release.');
+        }
+
+        if (config('deployment.commit') === null) {
+            $this->warn('  Events will carry no commit.');
         }
     }
 
@@ -211,7 +221,8 @@ final class ObservabilityHealthCommand extends Command
      *
      * The package registers a `nightwatch` log channel whether or not anyone
      * uses it, so the only thing that decides this is the log stack — which is
-     * per-target `.env`, not code. Phase 6B leaves it out deliberately, so a
+     * per-target `.env`, not code. Log ingestion stays off by policy, because
+     * the Nightwatch redaction does not cover every Laravel log record, so a
      * target that has added it is a finding, not a detail.
      */
     private function checkNightwatchLogChannel(): void
@@ -223,7 +234,7 @@ final class ObservabilityHealthCommand extends Command
         $this->line('  Log level (if enabled): '.$this->orUnknown(config('nightwatch.filtering.log_level')));
 
         if ($inStack) {
-            $this->warn('  Laravel log records are being shipped to Nightwatch — Phase 6B deliberately leaves this off; see infrastructure/runbooks/nightwatch-evaluation.md.');
+            $this->warn('  Laravel log records are being shipped to Nightwatch — log ingestion is off by policy, because redaction does not cover every log record; see infrastructure/runbooks/nightwatch-evaluation.md.');
         }
     }
 
