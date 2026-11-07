@@ -1,0 +1,32 @@
+resources/views/components/share/copy-link-button.blade.php
+  s_0f80700cf0b8c6::t_0b3d3c9e28424d 50,55
+tests/Feature/Auth/AuthModalRenderingTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 282
+resources/views/components/ui/modal.blade.php
+  s_0f80700cf0b8c6::t_0b3d3c9e28424d 39-44,66-75
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 80-81
+tests/Feature/ViewComponents/CopyLinkButtonComponentTest.php
+  s_0f80700cf0b8c6::t_298270c23376a5 4,68-70,72-73
+  s_0f80700cf0b8c6::t_c94488818cd435 64-67,71,74-77
+tests/Browser/AuthModalBrowserTest.php
+  s_0f80700cf0b8c6::t_bf2b6cc1adff73 4,187-233
+tests/Feature/Profile/AccountWithoutPasswordTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3cd961e044b850f22e410e783e235688f1efbb99",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
