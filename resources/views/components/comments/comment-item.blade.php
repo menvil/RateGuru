@@ -113,6 +113,10 @@
             @if($comment->exists)
                 <livewire:comments.comment-voting
                     :comment-id="$comment->id"
+                    :has-preloaded-state="$votingState !== null"
+                    :preloaded-score="$votingState['score'] ?? 0"
+                    :preloaded-vote="$votingState['vote'] ?? null"
+                    :preloaded-own="$votingState['own'] ?? false"
                     :key="'comment-voting-'.$comment->id"
                 />
             @else

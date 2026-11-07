@@ -1,11 +1,15 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\VoteType;
 use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Comments\CommentListQuery;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
@@ -410,3 +414,49 @@ it('does not let a client ask for more of the thread than load more gives', func
     Livewire::test(CommentsSection::class, ['postId' => Post::factory()->published()->create()->id])
         ->set('visibleCount', 100000);
 })->throws(CannotUpdateLockedPropertyException::class);
+
+it('reads the viewer\'s comment votes for the whole thread at once', function () {
+    $viewer = User::factory()->create();
+
+    /** @return array{votes: int, comments: int, shown: int} */
+    $queriesOn = function (int $comments) use ($viewer): array {
+        // A thread of its own each time, each root with a reply, so replies
+        // are read with the thread too; the viewer voted on one root and its reply.
+        $post = Post::factory()->published()->create();
+        $roots = Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible]);
+        $replies = $roots->map(fn (Comment $root): Comment => Comment::factory()->for($post)->create(['status' => CommentStatus::Visible, 'parent_id' => $root->id]));
+        foreach ([$roots->first(), $replies->first()] as $voted) {
+            CommentVote::factory()->create(['user_id' => $viewer->id, 'comment_id' => $voted->id, 'type' => VoteType::Up]);
+        }
+        $queries = ['votes' => 0, 'comments' => 0];
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            $sql = str_replace(['"', '`'], '', $query->sql);
+
+            match (true) {
+                str_contains($sql, 'from comment_votes') => $queries['votes']++,
+                str_contains($sql, 'from comments') => $queries['comments']++,
+                default => null,
+            };
+        });
+
+        // Shown in full the way a reader gets there: the count is locked. A
+        // voting button is drawn once, by the response that first shows its
+        // comment; later ones keep it as it is. In the long thread the voted,
+        // oldest root first appears with Load more.
+        $thread = Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id]);
+        $shown = preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->html());
+
+        foreach (range(1, 2) as $more) {
+            $shown += preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->call('loadMore')->html());
+        }
+
+        return [...$queries, 'shown' => $shown];
+    };
+
+    $two = $queriesOn(2);
+
+    // Both votes drawn, read in one go per render, however long the thread.
+    expect($two['shown'])->toBe(2)
+        ->and($two['votes'])->toBeGreaterThan(0)
+        ->and($queriesOn(8))->toBe($two);
+});

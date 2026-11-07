@@ -4,7 +4,7 @@
     x-on:keydown.stop
     class="flex items-center gap-1.5"
 >
-    @if($comment === null)
+    @if(! $available)
         <span data-testid="comment-voting-unavailable" class="text-xs text-rg-muted">{{ __('ui.voting.unavailable') }}</span>
     @else
         <button

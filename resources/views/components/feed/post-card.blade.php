@@ -20,6 +20,11 @@
             <livewire:posts.post-voting
                 :post-id="$post->id"
                 variant="rail"
+                :has-preloaded-state="$viewerState !== []"
+                :preloaded-upvotes="(int) $post->upvotes_count"
+                :preloaded-downvotes="(int) $post->downvotes_count"
+                :preloaded-vote="$viewerState['vote'] ?? null"
+                :preloaded-can-vote="$viewerState['canVote'] ?? false"
                 :key="'post-card-vote-rail-'.$post->id"
             />
         @else
@@ -96,6 +101,7 @@
                         <livewire:voting.rating-voting
                             :post="$post"
                             :group-key="$ratingGroup->key"
+                            :group="$ratingGroup"
                             variant="{{ $ratingGroup->options->count() > 2 ? 'compact' : 'default' }}"
                             :has-preloaded-state="isset($ratingVotingState[$ratingGroup->key])"
                             :preloaded-distribution="$ratingVotingState[$ratingGroup->key]['distribution'] ?? []"
@@ -130,6 +136,7 @@
                     @if($post->exists)
                         <livewire:posts.save-post-button
                             :post-id="$post->id"
+                            :preloaded-saved="$viewerState['saved'] ?? null"
                             :key="'post-card-save-'.$post->id"
                         />
                     @endif

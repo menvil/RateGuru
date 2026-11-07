@@ -51,16 +51,16 @@ Constraints:
 - Checks feature flag
 - Deletes where user_id + post_id (idempotent)
 
-### ToggleSavedPostAction
-
-- Composes Save + Unsave actions
-- Returns `ToggleSavedPostResult { isSaved: bool }`
+The save button calls Save or Unsave for what it shows, never a toggle of
+what is stored: a second button for the same post (the card and the open
+drawer) may have changed it since, and the buttons tell each other through a
+`saved-post-changed` event.
 
 ## Services
 
 ### SavedPostState
 
-Batch-loads saved state for a collection of posts in a single query. Use `forUserAndPosts($user, $posts)` to avoid N+1 on feed pages.
+Batch-loads saved state for a collection of posts in a single query. Feed, saved and profile lists read it for the whole page through `PostCardViewerState`, together with the viewer's votes, and hand each card's button its state.
 
 ### SavedPostsQuery
 

@@ -5,6 +5,7 @@ namespace App\Livewire\Voting;
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Models\Post;
+use App\Models\RatingGroup;
 use App\Models\RatingVote;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
@@ -32,6 +33,18 @@ class RatingVoting extends Component
     public array $preloadedDistribution = [];
 
     public ?int $preloadedSelectedOptionId = null;
+
+    /**
+     * The group as the list that drew this card loaded it, active options
+     * and all. Protected, so it lives for the first render only: every later
+     * request reads the group as it is then.
+     */
+    protected ?RatingGroup $drawnGroup = null;
+
+    public function mount(?RatingGroup $group = null): void
+    {
+        $this->drawnGroup = $group;
+    }
 
     /**
      * Re-sync this component whenever any rating vote happens for the same
@@ -105,7 +118,9 @@ class RatingVoting extends Component
         RatingConfigurationManager $configuration,
         RatingVoteDistribution $voteDistribution,
     ): View {
-        $group = $configuration->activeGroupByKey($this->groupKey);
+        $group = $this->drawnGroup?->key === $this->groupKey
+            ? $this->drawnGroup
+            : $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
         $user = auth()->user();
         $canVote = $this->post !== null && ($user === null || $user->can('vote', $this->post));

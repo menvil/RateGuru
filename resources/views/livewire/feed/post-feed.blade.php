@@ -38,6 +38,7 @@
                     :selected="$selectedPostId === $post->id"
                     :rating-groups="$ratingGroups"
                     :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
+                    :viewer-state="$viewerStates[$post->id] ?? []"
                     :can-delete-post="$deletePermissions[$post->id] ?? false"
                     :can-report-post="$reportPermissions[$post->id] ?? false"
                     :can-moderate-post="$moderationPermissions[$post->id] ?? false"

@@ -3,6 +3,7 @@
 namespace App\Livewire\SavedPosts;
 
 use App\Queries\SavedPosts\SavedPostsQuery;
+use App\Support\Feed\PostCardViewerState;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
 use App\Support\Settings\ProjectSettingsManager;
@@ -29,6 +30,7 @@ final class SavedPostsPage extends Component
         SavedPostsQuery $query,
         RatingConfigurationManager $ratingConfiguration,
         RatingVotingStateLoader $ratingVotingStateLoader,
+        PostCardViewerState $viewerState,
     ): View {
         $savedPosts = $query->forUser(auth()->user());
 
@@ -48,6 +50,7 @@ final class SavedPostsPage extends Component
                 auth()->user(),
                 $ratingGroups,
             ),
+            'viewerStates' => $viewerState->forPosts($savedPosts->getCollection(), auth()->user()),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

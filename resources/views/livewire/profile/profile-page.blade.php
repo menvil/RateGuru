@@ -149,6 +149,8 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :viewer-state="$viewerStates[$post->id] ?? []"
+                                    :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                                     :eager-image="$loop->first"
                                     wire:key="profile-post-{{ $post->id }}"
                                 />
@@ -207,6 +209,8 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :viewer-state="$viewerStates[$post->id] ?? []"
+                                    :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                                     :eager-image="$loop->first"
                                     wire:key="profile-saved-post-{{ $post->id }}"
                                 />

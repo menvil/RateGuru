@@ -333,3 +333,20 @@ it('calls vote action when down button is clicked', function () {
         'type' => VoteType::Down->value,
     ]);
 });
+
+it('draws the post as it is once a vote on it is refused, not as the page had it', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $voting = Livewire::actingAs($user)->test(PostVoting::class, [
+        'postId' => $post->id,
+        'hasPreloadedState' => true,
+        'preloadedCanVote' => true,
+    ]);
+
+    // Taken down after the page was drawn.
+    $post->update(['status' => PostStatus::Hidden]);
+
+    $voting->call('vote', VoteType::Up->value)
+        ->assertSee('data-testid="post-voting-unavailable"', false);
+});
