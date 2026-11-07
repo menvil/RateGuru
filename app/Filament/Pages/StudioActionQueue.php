@@ -305,11 +305,13 @@ final class StudioActionQueue extends Page
             'overdue' => $action->status === StudioActionStatus::Pending && $action->occurs_at->lessThan($now),
             'runAfter' => StudioActionPlan::at($action->run_after),
             'finished' => $action->finished_at !== null ? StudioActionPlan::at($action->finished_at) : null,
-            // Ran, and more than an hour after its time. A cancelled action
-            // never ran, and one finished early was not late.
+            // Ran, and more than an hour after it could: its time, or its plan's
+            // approval when that came later — a plan dated in the past runs at
+            // approval. A cancelled action never ran, and one finished early
+            // was not late.
             'late' => in_array($action->status, [StudioActionStatus::Done, StudioActionStatus::Failed], true)
                 && $action->finished_at !== null
-                && $action->finished_at->greaterThan($action->occurs_at->copy()->addHour()),
+                && $action->finished_at->greaterThan(self::couldRunFrom($action)->addHour()),
             ...StudioActionPlan::runs($action, $now),
             'state' => StudioActionPlan::state($action->status),
             'reason' => $failure !== null && $action->status !== StudioActionStatus::Done ? $failure->description() : null,
@@ -420,5 +422,13 @@ final class StudioActionQueue extends Page
         $this->order = $this->order === 'oldest' ? 'oldest' : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
         $this->pageNumber = ListPageNumber::from($this->pageNumber);
+    }
+
+    /** The first moment an action could run: its time, or its plan's approval if that came later. */
+    private static function couldRunFrom(StudioAction $action): CarbonImmutable
+    {
+        $approvedAt = $action->plan?->approved_at;
+
+        return $approvedAt !== null && $approvedAt->greaterThan($action->occurs_at) ? $approvedAt : $action->occurs_at;
     }
 }

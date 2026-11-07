@@ -331,7 +331,9 @@
                                             <x-admin.ui.badge :tone="$total > 0 ? 'outline' : 'neutral'">{{ $total > 0 ? $total.' '.($total === 1 ? 'answer' : 'answers') : 'No answers' }}</x-admin.ui.badge>
                                         @endif
                                     </div>
-                                    @if (isset($ratings[$question['id']]))
+                                    {{-- An open question made active after the editor was drawn has no entry yet:
+                                         drawn from the zero defaults above, so it can still be answered. --}}
+                                    @if (isset($ratings[$question['id']]) || $question['open'])
                                         <div class="rg-admin-studio__votes-answers">
                                             <x-admin.ui.number-stepper
                                                 label="Answers"

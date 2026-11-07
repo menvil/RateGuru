@@ -199,3 +199,33 @@ it('lets the photo go when the server never answers the start of its upload', fu
 
     expect($page->script("{$photo}.busy"))->toBeFalse();
 });
+
+it('sends the same link again once the request importing it failed', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+
+    // The first import request never reaches the server: the connection drops.
+    $page->script(<<<'JS'
+        (() => {
+            const fetch = window.fetch
+            window.importRequestsFailed = 0
+            window.fetch = function (input, init, ...rest) {
+                if (window.importRequestsFailed === 0 && String(init?.body ?? '').includes('importImage')) {
+                    window.importRequestsFailed++
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+                return fetch.call(this, input, init, ...rest)
+            }
+        })()
+    JS);
+
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+    waitForScript($page, 'window.importRequestsFailed', 1);
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+
+    // The same address once more: sent, and imported this time.
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued', 10.0);
+});

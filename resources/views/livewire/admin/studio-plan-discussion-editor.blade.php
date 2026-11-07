@@ -339,7 +339,8 @@
 
     @if ($dialogData !== null)
         <x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="$wire.closeDialog()" x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()">
-            {{-- offsetInvalid: the moment field holds no number, so Save would keep the last one — it waits. --}}
+            {{-- offsetInvalid: the moment field holds no number, so Save would keep the last one — it waits.
+                 A field drawn afresh, for another parent, starts with a number, so the flag goes with it. --}}
             <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing" x-data="{ offsetInvalid: false }">
                 <div class="rg-admin-studio__dialog-header">
                     <h2 id="rg-admin-discussion-dialog-title" class="rg-admin-dialog__title">{{ $dialogData['title'] }}</h2>
@@ -444,7 +445,7 @@
                     >
                         <label for="rg-admin-discussion-dialog-offset" class="rg-admin-label">Appears after the post</label>
                         <div class="rg-admin-studio__offset rg-admin-studio__offset--large">
-                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown()" x-on:input="set($event.target)" x-bind:aria-invalid="offsetInvalid ? 'true' : null" aria-describedby="rg-admin-discussion-dialog-offset-invalid" />
+                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown(); offsetInvalid = false" x-on:input="set($event.target)" x-bind:aria-invalid="offsetInvalid ? 'true' : null" x-bind:aria-describedby="offsetInvalid ? 'rg-admin-discussion-dialog-offset-invalid' : null" />
                             <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
                                 @foreach (array_keys($units) as $unit)
                                     <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="pick(@js($unit))">{{ $unit }}</button>

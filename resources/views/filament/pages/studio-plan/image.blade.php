@@ -104,7 +104,11 @@
 
             this.imported[source] = url
             this.begin('importing')
-            this.$wire.importImage(source).finally(() => this.finish())
+            // A request that failed answered nothing — no error, no Try again — so the
+            // address is forgotten, or the same one could never be sent again.
+            this.$wire.importImage(source)
+                .catch(() => { this.imported[source] = '' })
+                .finally(() => this.finish())
         },
         retry() {
             this.begin('importing')

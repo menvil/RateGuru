@@ -381,9 +381,11 @@ trait EditsStudioPlan
                 $importer->cleanup($file);
             }
         } finally {
-            // The browser forgets the address too, so the same one can be
-            // given again once the source is switched away and back.
+            // A try that failed is forgotten here as in the browser, so the same
+            // address given again is fetched again — not answered with nothing
+            // after its error was cleared.
             if ($this->getErrorBag()->hasAny([$field, 'photo'])) {
+                $this->importedFrom = '';
                 $this->dispatch('rg-studio-import-failed', source: $source);
             }
         }

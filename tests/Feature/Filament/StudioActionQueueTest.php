@@ -104,6 +104,23 @@ it('marks as late only an action that ran more than an hour after its time', fun
     'cancelled hours after its time' => [StudioActionStatus::Cancelled, '2026-10-20 15:00:00', false],
 ]);
 
+it('takes a plan dated in the past as due at its approval, not at its date', function (string $finished, bool $late) {
+    StudioAction::factory()->create([
+        'studio_plan_id' => StudioPlan::factory()->status(StudioPlanStatus::Running)->create(['approved_at' => '2026-10-25 09:00:00'])->id,
+        'status' => StudioActionStatus::Done,
+        'occurs_at' => '2026-10-20 12:00:00',
+        'run_after' => '2026-10-25 09:00:00',
+        'finished_at' => $finished,
+    ]);
+
+    $page = Livewire::test(StudioActionQueue::class);
+
+    $late ? $page->assertSeeHtml('rg-admin-studio__plan-time--due') : $page->assertDontSeeHtml('rg-admin-studio__plan-time--due');
+})->with([
+    'run just after its approval' => ['2026-10-25 09:05:00', false],
+    'run two hours after its approval' => ['2026-10-25 11:00:00', true],
+]);
+
 it('narrows by state, kind and publication from the address, dropping what it does not offer', function () {
     $post = StudioAction::factory()->create();
     $comment = StudioAction::factory()->childOf($post)->create(['status' => StudioActionStatus::Held, 'failure_code' => 'author_restricted']);

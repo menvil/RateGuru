@@ -1228,8 +1228,13 @@
         cursor: pointer;
     }
 
-    .rg-admin-stepper__button:hover {
+    .rg-admin-stepper__button:hover:not(:disabled) {
         background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-stepper__button:disabled {
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
     }
 
     .rg-admin-stepper__button:focus-visible {
@@ -1255,6 +1260,11 @@
         font-variant-numeric: tabular-nums;
         text-align: center;
         cursor: text;
+    }
+
+    .rg-admin-stepper__control:disabled {
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
     }
 
     /* FRM-06 · Switch: 36×20 track, 16 knob; ink on, gray-300 off */
@@ -1963,8 +1973,13 @@
         font-size: var(--rg-admin-text-caption);
     }
 
-    .rg-admin-segmented__option:hover:not([aria-checked='true']) {
+    .rg-admin-segmented__option:hover:not([aria-checked='true']):not(:disabled) {
         color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-segmented__option:disabled {
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
     }
 
     /* Checked: raised and heavier, not only a different colour. */

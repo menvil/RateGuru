@@ -418,8 +418,10 @@ it('says by the link when nothing can be downloaded from it, and tries the same 
 
     expect($plan->fresh()->image_asset_id)->toBeNull();
 
-    // Sent again unchanged, it is not fetched again; Try again fetches it.
-    $page->call('importImage', 'link')->assertHasNoErrors();
+    // Sent again unchanged after it failed, it is tried again, and says so again
+    // rather than clearing the error for nothing; Try again fetches it too.
+    $page->call('importImage', 'link')
+        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.']);
     $page->set('imageUrl', 'https://example.com/photo.jpg')->call('retryImport')->assertHasNoErrors();
 
     expect($plan->fresh()->imageAsset)->width->toBe(120);
@@ -554,4 +556,26 @@ it('keeps the choice of a new photo out of the way while a chosen file is on its
         // The chosen file's image is the browser's alone, so a redraw never takes its address away.
         ->and($saved)->toMatch('/<img alt="The chosen photo"[^>]*wire:ignore[^>]*x-show="previewing"/')
         ->and($saved)->toMatch('/<img src="[^"]+" alt="Photo for the publication"[^>]*x-ref="kept" x-show="! previewing"/');
+});
+
+it('fetches an address that failed again when it is given again, keeping its error rather than clearing it for nothing', function () {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(404, ['content-type' => 'text/html'], 'gone'),
+        new ImportTransportResponse(404, ['content-type' => 'text/html'], 'gone'),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageSource', 'link')
+        ->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+
+    $page->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+
+    expect($transport->calls)->toHaveCount(2);
 });

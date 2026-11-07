@@ -245,20 +245,33 @@ it('picks the discussion’s tone among its settings, saying it in the Generate 
 it('holds the comment dialog\'s Save while its moment is no number, rather than keep the last one', function () {
     $page = visitDiscussionVotes($this->plan);
 
-    $page->script("[...document.querySelectorAll('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-action')].find((button) => button.textContent.trim() === 'Edit').click()");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__node[data-node=\"C2\"] .rg-admin-studio__node-action')].find((button) => button.textContent.trim() === 'Edit').click()");
     waitForScript($page, "!! document.getElementById('rg-admin-discussion-dialog-offset')");
 
     $save = "[...document.querySelectorAll('.rg-admin-studio__comment-dialog .rg-admin-dialog__footer button')].find((button) => button.textContent.trim() === 'Save')";
     $type = fn (string $text) => $page->script("(() => { const input = document.getElementById('rg-admin-discussion-dialog-offset'); input.value = '{$text}'; input.dispatchEvent(new Event('input', { bubbles: true })) })()");
 
+    $describedBy = "document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-describedby')";
+    // A number: no error to describe it with.
+    expect($page->script($describedBy))->toBeNull();
+
     $type('');
     waitForScript($page, "{$save}.disabled");
     waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display !== 'none'");
 
-    expect($page->script("document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-invalid')"))->toBe('true');
+    expect($page->script("document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-invalid')"))->toBe('true')
+        ->and($page->script($describedBy))->toBe('rg-admin-discussion-dialog-offset-invalid');
 
     $type('15');
     waitForScript($page, "{$save}.disabled", false);
+
+    // No number again, then another parent: the field drawn for it holds one, and Save goes with it.
+    $type('x');
+    waitForScript($page, "{$save}.disabled");
+    $page->script("document.querySelector('.rg-admin-studio__comment-dialog .rg-admin-studio__parent-trigger').click()");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-dialog .rg-admin-studio__parent-option')].find((option) => option.getAttribute('aria-selected') !== 'true').click()");
+    waitForScript($page, "{$save}.disabled", false);
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display === 'none'");
 });
 
 it('chooses a comment\'s priority from the keyboard, one tab stop for the group', function () {

@@ -542,6 +542,9 @@ it('takes answers for a question or option made active after the editor was draw
     [$newGroup, [$newAnswer]] = votableRatingQuestion(1);
     $addedOption = RatingOption::factory()->create(['rating_group_id' => $this->group->id]);
 
+    // Drawn again, the new question has its controls: it can be answered from the page.
+    $editor->call('$refresh')->assertSeeHtml('id="rg-admin-votes-answers-'.$newGroup->id.'"');
+
     $editor->call('setAnswerCount', $newGroup->id, $newAnswer->id, 2)
         ->call('setAnswerCount', $this->group->id, $addedOption->id, 1)
         ->assertHasNoErrors();
