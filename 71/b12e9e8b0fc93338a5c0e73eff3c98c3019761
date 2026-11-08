@@ -1,0 +1,30 @@
+resources/views/components/feed/post-card.blade.php
+  s_e673602b49c9b2::t_5e6c105e6b9b4b 111-116
+resources/views/livewire/posts/post-show.blade.php
+  s_e673602b49c9b2::t_b63a62241a9c89 119-124,221
+tests/Feature/Routes/PostShowRouteTest.php
+  s_e673602b49c9b2::t_1264917d34655c 123-125
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_e673602b49c9b2::t_cfb720b1c0c7a4 91-96
+tests/Feature/Livewire/PostTagsTest.php
+  s_e673602b49c9b2::t_99e7258b00fab8 20
+  s_e673602b49c9b2::t_cc0b13054b0291 1-19,21-77
+resources/views/components/posts/tag-links.blade.php
+  s_e673602b49c9b2::t_732b8da56d97b1 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "71b12e9e8b0fc93338a5c0e73eff3c98c3019761",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

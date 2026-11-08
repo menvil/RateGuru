@@ -1,0 +1,93 @@
+lang/is/ui.php
+  ai_agent 13-14
+lang/ro/ui.php
+  ai_agent 13-14
+app/Livewire/Feed/FeedPage.php
+  ai_agent 262-277
+lang/sr/ui.php
+  ai_agent 13-14
+lang/mk/ui.php
+  ai_agent 13-14
+resources/views/livewire/feed/feed-page.blade.php
+  ai_agent 84-102
+lang/sv/ui.php
+  ai_agent 13-14
+lang/vi/ui.php
+  ai_agent 13-14
+lang/pt/ui.php
+  ai_agent 13-14
+lang/es/ui.php
+  ai_agent 13-14
+lang/cs/ui.php
+  ai_agent 13-14
+lang/fil/ui.php
+  ai_agent 13-14
+lang/fr/ui.php
+  ai_agent 13-14
+tests/Browser/FeedTagFilterBrowserTest.php
+  ai_agent 1-33
+lang/de/ui.php
+  ai_agent 13-14
+lang/et/ui.php
+  ai_agent 13-14
+lang/ja/ui.php
+  ai_agent 13-14
+lang/fi/ui.php
+  ai_agent 13-14
+lang/bg/ui.php
+  ai_agent 13-14
+lang/bs/ui.php
+  ai_agent 13-14
+lang/sq/ui.php
+  ai_agent 13-14
+lang/nb/ui.php
+  ai_agent 13-14
+lang/th/ui.php
+  ai_agent 13-14
+lang/da/ui.php
+  ai_agent 13-14
+lang/hu/ui.php
+  ai_agent 13-14
+lang/sl/ui.php
+  ai_agent 13-14
+lang/uk/ui.php
+  ai_agent 13-14
+lang/ru/ui.php
+  ai_agent 13-14
+lang/sk/ui.php
+  ai_agent 13-14
+lang/hr/ui.php
+  ai_agent 13-14
+lang/ka/ui.php
+  ai_agent 13-14
+lang/tr/ui.php
+  ai_agent 13-14
+lang/pl/ui.php
+  ai_agent 13-14
+lang/it/ui.php
+  ai_agent 13-14
+lang/lv/ui.php
+  ai_agent 13-14
+lang/ms/ui.php
+  ai_agent 13-14
+lang/nl/ui.php
+  ai_agent 13-14
+lang/el/ui.php
+  ai_agent 13-14
+lang/lt/ui.php
+  ai_agent 13-14
+lang/en/ui.php
+  ai_agent 13-14
+lang/zh/ui.php
+  ai_agent 13-14
+tests/Feature/Livewire/FeedTagFilterTest.php
+  ai_agent 1-47
+lang/cnr/ui.php
+  ai_agent 13-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f98e4c005f4acce38225e37fc388ed0e366f485d",
+  "prompts": {}
+}
