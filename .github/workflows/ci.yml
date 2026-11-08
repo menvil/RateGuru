@@ -524,7 +524,9 @@ jobs:
       # a second source widens only where the bytes come from, never what they
       # may be. An attempt that stalls — under 50 kB/s for half a minute — is
       # cut short, while a slow but steady one has three minutes for the
-      # package's 32 MB; a source that refuses at once is asked again for two.
+      # package's 32 MB. A source that refuses is asked up to three times more,
+      # none starting after two minutes, so a source takes at most two minutes
+      # and the last attempt's three; the step's timeout is both sources' worst.
       - name: Cache the rclone package
         uses: actions/cache@v6
         with:
@@ -532,7 +534,7 @@ jobs:
           key: rclone-${{ env.RCLONE_VERSION }}-${{ env.RCLONE_DEB_SHA256 }}
 
       - name: Install rclone
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           set -Eeuo pipefail
           package="${HOME}/.cache/rclone-package/rclone-${RCLONE_VERSION}-linux-amd64.deb"

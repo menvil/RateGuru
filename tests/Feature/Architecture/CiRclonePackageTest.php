@@ -101,6 +101,19 @@ it('pins the rclone package once, for the cache and the install alike', function
         ->and($steps->firstWhere('name', 'Install rclone'))->not->toHaveKey('env');
 });
 
+it('gives the install step the time every source may take at its worst', function () {
+    $install = architectureJobOfCi()['steps']->firstWhere('name', 'Install rclone');
+    $flag = fn (string $name): int => preg_match('/--'.$name.' (\d+)\b/', $install['run'], $match) === 1 ? (int) $match[1] : 0;
+    $sources = substr_count($install['run'], '"https://');
+    // A retry may start just before --retry-max-time runs out, and then has all of --max-time.
+    $worstSource = $flag('retry-max-time') + $flag('max-time');
+
+    expect($sources)->toBe(2)
+        ->and($flag('max-time'))->toBeGreaterThan(0)
+        ->and($flag('retry-max-time'))->toBeGreaterThan(0)
+        ->and($install['timeout-minutes'] * 60)->toBeGreaterThan($sources * $worstSource);
+});
+
 it('installs only the pinned package, whichever source has it', function (array $sources, ?string $cached, array $asked, array $warned) {
     $scratch = makeScratchDir('ci-rclone', ['', '/bin', '/served', '/home']);
     $package = $scratch.'/home/.cache/rclone-package/rclone-v1.75.0-linux-amd64.deb';
