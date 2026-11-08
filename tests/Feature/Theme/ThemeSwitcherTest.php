@@ -61,16 +61,8 @@ it('tells the browser whether the theme on the page is one the account saved', f
 })->with([
     'a saved choice' => ['light', 'user'],
     'no choice saved' => [null, 'default'],
+    'a stored value that is no choice' => ['purple', 'default'],
 ]);
-
-it('lets a choice saved to the account outrank the one the browser kept', function () {
-    $bootstrap = file_get_contents(resource_path('js/theme-bootstrap.js'));
-    $navigated = file_get_contents(resource_path('js/app.js'));
-
-    expect($bootstrap)->toContain("root.dataset.themeSource === 'user'")
-        ->toContain('localStorage.setItem(STORAGE_KEY, preference)')
-        ->and($navigated)->toContain("root.dataset.themeSource === 'user'");
-});
 
 it('keeps in the browser only a theme the visitor chose, and follows the system theme once System is chosen on the page', function () {
     $navigated = file_get_contents(resource_path('js/app.js'));

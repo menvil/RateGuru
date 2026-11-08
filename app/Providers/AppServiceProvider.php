@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
+use App\Enums\ThemePreference;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
@@ -111,8 +112,9 @@ class AppServiceProvider extends ServiceProvider
                 'themePreference' => $themePreference,
                 'appliedTheme' => $appliedTheme,
                 // A choice saved to the account outranks one a browser kept
-                // in localStorage — the client reads which this is.
-                'themeSource' => $user?->theme_preference !== null ? 'user' : 'default',
+                // in localStorage — the client reads which this is. A stored
+                // value that is no choice is none, and the browser's stands.
+                'themeSource' => is_string($user?->theme_preference) && ThemePreference::isValid($user->theme_preference) ? 'user' : 'default',
             ]);
         });
 

@@ -7,12 +7,14 @@
 @endphp
 
 {{-- A guest's choice lives in the browser, out of the server's sight: once the
-     page has applied it, a switcher drawn with another one takes it up. --}}
+     page has applied it, a switcher drawn with another one takes it up. After
+     a navigate link too, where the choice is applied again only once the new
+     page is in, after the switchers were drawn. --}}
 @php($follow = "if (document.documentElement.dataset.themePreference && document.documentElement.dataset.themePreference !== ".\Illuminate\Support\Js::from($preference).") \$wire.followPreference(document.documentElement.dataset.themePreference)")
 
 @if($layout === 'dropdown')
     {{-- Icon-only buttons for inside the user dropdown --}}
-    <div data-testid="theme-switcher" class="flex gap-1" x-data x-init="{{ $follow }}">
+    <div data-testid="theme-switcher" class="flex gap-1" x-data x-init="{{ $follow }}" x-on:livewire:navigated.document="{{ $follow }}">
         @foreach($options as $option)
             <button
                 type="button"
@@ -39,7 +41,7 @@
         data-testid="theme-switcher"
         class="flex items-center gap-0.5 rounded-rgControl border border-rg-border bg-rg-card p-0.5"
         x-data
-        x-init="{{ $follow }}"
+        x-init="{{ $follow }}" x-on:livewire:navigated.document="{{ $follow }}"
     >
         @foreach($options as $option)
             <button
