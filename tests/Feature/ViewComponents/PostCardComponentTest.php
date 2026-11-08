@@ -203,7 +203,9 @@ it('says which card is the post open in the drawer, not only shows it', function
     $card = livewireDom(Blade::render('<x-feed.post-card :post="$post" :selected="$selected" />', ['post' => $post, 'selected' => $selected]))
         ->query("//*[@data-testid='post-card']")->item(0);
 
-    expect($card->getAttribute('aria-current'))->toBe($selected ? 'true' : '')
+    // Left out, not empty, on a card that is not the open post.
+    expect($card->hasAttribute('aria-current'))->toBe($selected)
+        ->and($card->getAttribute('aria-current'))->toBe($selected ? 'true' : '')
         // Kept true to the selection as it changes, without the list being drawn again.
         ->and($card->getAttribute('x-bind:aria-current'))->toBe("selected ? 'true' : null");
 })->with(['the open post' => true, 'another post' => false]);

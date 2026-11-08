@@ -160,7 +160,7 @@ it('stops hearing the window\'s width once the phone\'s panel leaves the page', 
     // Heard from init() and let go in destroy(): a page left with the panel open does not close it later.
     expect($html)->toContain("desktop.addEventListener('change', widened)")
         ->toContain("this.stopHearingTheWidth = () => desktop.removeEventListener('change', widened)")
-        ->toContain('destroy() {');
+        ->toMatch('/destroy\(\) \{\s*this\.stopHearingTheWidth\?\.\(\)/');
 });
 
 it('offers its close button on a post that is gone, the only way out on a phone', function () {
