@@ -61,6 +61,10 @@ services only decide HOW to delete an already-approved target safely.
 | studio_plans.author_user_id / created_by_user_id | users | — | **RESTRICT** | a plan keeps its author and creator; accounts become tombstones |
 | studio_plans.image_asset_id | media_assets | — | **RESTRICT** | only the media lifecycle removes an asset, never one a plan still holds |
 | studio_plans.category_id | categories | — | SET NULL | an incomplete Draft may lose a deleted category; checked again on approval. An approved or running plan keeps it: `DeleteCategoryAction` refuses (`awaited_by_studio_plans`) |
+| game_round_options.post_id | posts | — | SET NULL | protective detach: a draft round never holds a post back from its purge; the round then asks for another post. A published version keeps its own copy of the reference in its snapshot |
+| game_version_posts.post_id | posts | — | no FK | history only: which posts a published version showed, read to find versions a post leaving the site made unplayable |
+| games / game_* `*_asset_id`, game_version_assets.media_asset_id | media_assets | — | **RESTRICT** | only the media lifecycle removes an asset, never one a game, round, profile or published version still holds (`MediaReferenceChecker`) |
+| games / game_* user references (created_by, updated_by, published_by, started_by, attempts, assignments, events) | users | — | **RESTRICT** | accounts become tombstones and are never deleted |
 | sessions.user_id | — | no FK | no FK | framework table, cleaned explicitly by PR-B |
 | notifications.notifiable | — | morph, no FK | morph, no FK | cleaned explicitly by PR-B |
 

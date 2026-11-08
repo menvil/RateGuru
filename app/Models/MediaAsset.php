@@ -9,6 +9,7 @@ use App\Enums\MediaVisibility;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -54,5 +55,16 @@ class MediaAsset extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(MediaVariant::class);
+    }
+
+    /**
+     * The published game versions that show the asset as an upload and so
+     * keep it (MediaReferenceChecker).
+     *
+     * @return BelongsToMany<GameVersion, $this>
+     */
+    public function gameVersions(): BelongsToMany
+    {
+        return $this->belongsToMany(GameVersion::class, 'game_version_assets', 'media_asset_id', 'version_id');
     }
 }
