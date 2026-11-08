@@ -15,6 +15,7 @@ final class UpdateUserIdentityAction
      * @param  array{name: string, username: string, email: string}  $validated
      *
      * @throws ValidationException when another account claimed the username or address after the form checked it
+     * @throws CannotUpdateProfileException when the account may not change its profile
      */
     public function execute(User $user, array $validated): void
     {
