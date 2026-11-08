@@ -10,6 +10,7 @@
         "Tests\\Feature\\Architecture\\BootstrapHostPreflightTest": 72.6254,
         "Tests\\Feature\\Architecture\\BrowserTestWaitingTest": 0.5534,
         "Tests\\Feature\\Architecture\\BuildRateGuruActionTest": 4.0908,
+        "Tests\\Feature\\Architecture\\CiRclonePackageTest": 0.3,
         "Tests\\Feature\\Architecture\\CiRunComparisonTest": 1.1439,
         "Tests\\Feature\\Architecture\\CleanHostRecoveryRunbookTest": 0.7115,
         "Tests\\Feature\\Architecture\\CleanupTest": 6.9938,

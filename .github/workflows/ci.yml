@@ -475,6 +475,11 @@ jobs:
       # The commit this branch is measured against, for the architecture scope
       # guards. Empty on a push event, where those guards correctly skip.
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      # The rclone package the suite installs (see "Install rclone"), here so
+      # the cache is keyed by the very package the install checks. Bump the
+      # two together.
+      RCLONE_VERSION: v1.75.0
+      RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
     steps:
       # Depth 2, not the default 1. On a pull_request event the checkout is a
       # merge commit whose first parent is the base branch tip, so two commits
@@ -505,21 +510,54 @@ jobs:
       # The target-aware offsite backup Architecture tests exercise a real
       # `rclone` binary (against a local-backend config, never real B2) to
       # get genuine --immutable/check/purge semantics instead of a stub.
-      # Installed from the pinned, checksum-verified GitHub release .deb —
-      # never from apt: the Azure Ubuntu mirror proved capable of stalling or
-      # trickling for hours (regional outages), while dpkg -i needs no network
-      # at all. Same pin-and-verify philosophy as the mail-capture binaries.
-      # Bump RCLONE_VERSION and RCLONE_DEB_SHA256 together.
+      # Installed from the pinned, checksum-verified .deb — never from apt: the
+      # Azure Ubuntu mirror proved capable of stalling or trickling for hours
+      # (regional outages), while dpkg -i needs no network at all. Same
+      # pin-and-verify philosophy as the mail-capture binaries.
+      #
+      # The package is cached by its pin, so a leg downloads it only when the
+      # pin changes or the cache has been evicted. A download tries GitHub's
+      # release first and rclone's own download server second: GitHub's
+      # release downloads have answered 504 for hours at a time, failing every
+      # leg before a test ran. Each source is held to the same checksum before
+      # its bytes are kept, and the package once more before dpkg sees it, so
+      # a second source widens only where the bytes come from, never what they
+      # may be.
+      - name: Cache the rclone package
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/rclone-package
+          key: rclone-${{ env.RCLONE_VERSION }}-${{ env.RCLONE_DEB_SHA256 }}
+
       - name: Install rclone
-        timeout-minutes: 5
-        env:
-          RCLONE_VERSION: v1.75.0
-          RCLONE_DEB_SHA256: 266598b5c66a42b821571332013cc85a88ffcff8939cf0643861c8d033dd3a4a
+        timeout-minutes: 8
         run: |
-          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 -o /tmp/rclone.deb \
-            "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"
-          echo "${RCLONE_DEB_SHA256}  /tmp/rclone.deb" | sha256sum --check -
-          sudo dpkg -i /tmp/rclone.deb
+          set -Eeuo pipefail
+          package="${HOME}/.cache/rclone-package/rclone-${RCLONE_VERSION}-linux-amd64.deb"
+          pinned() { echo "${RCLONE_DEB_SHA256}  $1" | sha256sum --check --status -; }
+
+          if [ -f "${package}" ] && pinned "${package}"; then
+            echo "rclone ${RCLONE_VERSION} from the cache"
+          else
+            mkdir -p "$(dirname "${package}")"
+
+            for source in \
+              "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb" \
+              "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"; do
+              if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 --max-time 60 --retry-max-time 120 \
+                  -o "${package}.part" "${source}" && pinned "${package}.part"; then
+                mv "${package}.part" "${package}"
+                echo "rclone ${RCLONE_VERSION} from ${source}"
+                break
+              fi
+
+              rm -f "${package}.part"
+              echo "::warning title=rclone download::rclone ${RCLONE_VERSION} was not taken from ${source}"
+            done
+          fi
+
+          echo "${RCLONE_DEB_SHA256}  ${package}" | sha256sum --check -
+          sudo dpkg -i "${package}"
 
       - name: Prepare application
         run: |
