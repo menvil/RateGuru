@@ -116,6 +116,12 @@
             @endif
             </div>
 
+            @if($post->tags->isNotEmpty())
+                <div class="mt-3">
+                    <x-posts.tag-links :tags="$post->tags" test-id="post-show-tags" />
+                </div>
+            @endif
+
             @if($activeRatingGroups->isNotEmpty())
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
                 @foreach($activeRatingGroups as $ratingGroup)
@@ -212,15 +218,11 @@
                 @endif
             </footer>
 
-            @if($post->category || $post->tags->isNotEmpty() || $post->source_url)
+            @if($post->category || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
                     @if($post->category)
                         <x-posts.category-link :category="$post->category" test-id="post-show-category" />
                     @endif
-
-                    @foreach($post->tags as $tag)
-                        <x-ui.badge>{{ $tag->name }}</x-ui.badge>
-                    @endforeach
 
                     @if($post->source_url)
                         <a

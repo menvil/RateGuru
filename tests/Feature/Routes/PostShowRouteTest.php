@@ -120,7 +120,9 @@ it('renders post metadata', function () {
         ->assertOk()
         ->assertSee('Demo Chef')
         ->assertSee('@demo_chef')
-        ->assertSee('Pasta')
+        // Tags are named by slug, as the sidebar's top tags and the tag filter name them.
+        ->assertSee('#pasta')
+        ->assertSee('href="'.route('feed', ['tag' => 'pasta']).'"', false)
         ->assertSee('Source');
 });
 

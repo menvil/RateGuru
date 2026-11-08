@@ -108,6 +108,12 @@
             </div>
         @endif
 
+        @if($post->tags->isNotEmpty())
+            <div class="mt-3">
+                <x-posts.tag-links :tags="$post->tags" test-id="post-card-tags" />
+            </div>
+        @endif
+
         <div class="mt-3 space-y-2.5" wire:click.stop wire:keydown.stop>
             @if($post->exists)
                 @foreach($ratingGroups as $ratingGroup)

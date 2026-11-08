@@ -88,6 +88,12 @@
                 @endif
             </div>
 
+            @if($post->tags->isNotEmpty())
+                <div class="mt-3">
+                    <x-posts.tag-links :tags="$post->tags" test-id="post-drawer-tags" />
+                </div>
+            @endif
+
             <footer class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-3">
                 <div class="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
                     <div data-testid="post-drawer-voting" wire:click.stop>
