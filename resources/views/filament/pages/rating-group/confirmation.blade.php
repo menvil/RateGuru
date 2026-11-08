@@ -53,8 +53,12 @@
         </x-slot:actions>
     </x-admin.ui.confirm-dialog>
 @elseif ($confirming === 'voted')
-    <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" icon="archive" :title="$label.' has vote history'" wire:key="confirm-voted-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
-        <p>{{ $votesText }} {{ $votes === 1 ? 'references' : 'reference' }} this option. Deleting it would rewrite past results, so it can only be archived.</p>
+    <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" icon="archive" :title="$votes > 0 ? $label.' has vote history' : $label.' is an author’s answer'" wire:key="confirm-voted-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
+        @if ($votes > 0)
+            <p>{{ $votesText }} {{ $votes === 1 ? 'references' : 'reference' }} this option. Deleting it would rewrite past results, so it can only be archived.</p>
+        @else
+            <p>Authors chose this option as the answer to their own posts. Deleting it would take those answers away, so it can only be archived.</p>
+        @endif
         @if ($row['archived'] !== null)
             <p>It is already archived.</p>
         @endif

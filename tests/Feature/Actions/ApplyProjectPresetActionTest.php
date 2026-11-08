@@ -122,6 +122,19 @@ it('refuses to apply a preset when content already exists', function () {
     app(ApplyProjectPresetAction::class)->handle('nature');
 })->throws(ProjectPresetHasContentException::class);
 
+it('counts a post its author deleted as content, keeping its tags unless forced', function () {
+    config(['project_presets.bare' => ['tags' => []] + config('project_presets.nature')]);
+    $tag = Tag::factory()->create();
+    $post = Post::factory()->authorDeleted()->create();
+    $post->tags()->attach($tag);
+
+    expect(fn () => app(ApplyProjectPresetAction::class)->handle('bare'))->toThrow(ProjectPresetHasContentException::class);
+    $this->assertDatabaseHas('post_tag', ['post_id' => $post->id, 'tag_id' => $tag->id]);
+
+    app(ApplyProjectPresetAction::class)->handle('bare', force: true);
+    $this->assertDatabaseMissing('tags', ['id' => $tag->id]);
+});
+
 it('checks setup guards inside the application transaction', function () {
     ProjectSettings::factory()->create();
     $projectSettingsQueryLevels = [];
@@ -231,3 +244,17 @@ it('leaves the static pages of an existing project as they are when a preset is 
 
     expect(ProjectSettings::findOrFail(1)->static_pages)->toBe($pages);
 });
+
+it('reads an empty tag list as a project with no tags, and only a missing one as leaving them be', function (?array $tags, int $left) {
+    Tag::factory()->count(2)->create();
+    $preset = config('project_presets.nature');
+    $preset['tags'] = $tags;
+    config(['project_presets.tagless' => $preset]);
+
+    app(ApplyProjectPresetAction::class)->handle('tagless');
+
+    expect(Tag::query()->count())->toBe($left);
+})->with([
+    'an empty list' => [[], 0],
+    'no list' => [null, 2],
+]);

@@ -87,12 +87,10 @@ final class TranslationAiDiagnostics
         return in_array($filter, self::CALL_FILTERS, true) ? $filter : 'all';
     }
 
-    /** A page number, or the first page for anything that is not one. */
+    /** A page number, or the first page for anything that is not one — or is past any list. */
     public static function page(mixed $page): int
     {
-        $page = filter_var($page, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-
-        return $page === false ? 1 : $page;
+        return ListPageNumber::from($page);
     }
 
     /**

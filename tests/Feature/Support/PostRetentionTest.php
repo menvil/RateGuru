@@ -67,9 +67,10 @@ it('fails the posts:purge run cleanly on bad config without touching any post', 
     expect(Post::withTrashed()->find($post->id))->not->toBeNull();
 });
 
-it('still honors an explicit --older-than override under bad config', function () {
-    // The override never consults the broken config value; the run is
-    // explicit and validated at the option boundary.
+it('refuses even an explicit --older-than override while the configured retention cannot be read', function () {
+    // As the comment and moderation purges do: whether an override is shorter
+    // than the configured window — and so needs --force — cannot be told
+    // from a broken value, so the run fails closed until the config is fixed.
     $owner = User::factory()->create();
     $post = Post::factory()->published()->for($owner)->create();
     app(DeletePostAction::class)->handle($owner, $post);
@@ -77,9 +78,9 @@ it('still honors an explicit --older-than override under bad config', function (
 
     config(['posts.author_delete_retention_days' => 'foo']);
 
-    $this->artisan('posts:purge --older-than=30')->assertSuccessful();
+    $this->artisan('posts:purge --older-than=30 --force')->assertFailed();
 
-    expect(Post::withTrashed()->find($post->id))->toBeNull();
+    expect(Post::withTrashed()->find($post->id))->not->toBeNull();
 });
 
 it('fails closed for the restore boundary as well', function () {

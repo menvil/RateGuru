@@ -92,6 +92,17 @@ it('does not allow voting for an inactive rating option', function () {
         ->toThrow(CannotVoteForRatingOptionException::class);
 });
 
+it('does not allow voting for an archived option, whatever its active flag says', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $option = RatingOption::factory()->for(RatingGroup::factory()->create(), 'group')->create(['is_active' => true, 'archived_at' => now()]);
+
+    expect(fn () => app(VoteRatingOptionAction::class)->handle($user, $post, $option))
+        ->toThrow(CannotVoteForRatingOptionException::class);
+
+    expect(RatingVote::query()->count())->toBe(0);
+});
+
 it('does not allow voting in an inactive rating group', function () {
     $user = User::factory()->create();
     $post = Post::factory()->published()->create();

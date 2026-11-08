@@ -72,7 +72,9 @@ class ApplyProjectPresetAction
                 throw ProjectPresetAlreadyAppliedException::make();
             }
 
-            if (! $force && Post::query()->exists()) {
+            // Posts their authors deleted too: they can be restored, and the
+            // tags a preset replaces would be taken off them for good.
+            if (! $force && Post::withTrashed()->exists()) {
                 throw ProjectPresetHasContentException::make();
             }
 
@@ -197,7 +199,9 @@ class ApplyProjectPresetAction
      */
     private function applyTags(?array $tags): array
     {
-        if ($tags === null || $tags === []) {
+        // Only null leaves the tags as they are. A list is the whole set, as
+        // for categories and rating groups — an empty one included.
+        if ($tags === null) {
             return [0, 0];
         }
 

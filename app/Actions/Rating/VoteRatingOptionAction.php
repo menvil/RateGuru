@@ -100,7 +100,9 @@ final class VoteRatingOptionAction
                 throw CannotVoteForRatingOptionException::becauseOptionIsUnavailable();
             }
 
-            if (! $lockedOption->is_active) {
+            // Archived counts as inactive whatever its flag says: archiving is
+            // how an option is retired, and it takes no new votes.
+            if (! $lockedOption->is_active || $lockedOption->archived_at !== null) {
                 throw CannotVoteForRatingOptionException::becauseOptionIsInactive();
             }
 
