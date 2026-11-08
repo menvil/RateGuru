@@ -543,12 +543,20 @@ it('keeps a trust choice not yet saved when the drawer is drawn again', function
     $this->actingAs(User::factory()->admin()->create());
     $person = User::factory()->create(['trust_level' => 10]);
 
-    Livewire::test(UserEditor::class, ['userId' => $person->id])
+    $editor = Livewire::test(UserEditor::class, ['userId' => $person->id])
         ->assertSet('trust', 'trusted')
         ->set('trust', 'reviewed')
         ->dispatch('user-changed')
+        // A redraw over the draft would have put 'trusted' back.
         ->assertSet('trust', 'reviewed')
         ->assertSet('saved.trust', 'trusted');
+
+    // Its trust taken away meanwhile: drawn again, the drawer takes that as saved.
+    User::query()->whereKey($person->id)->update(['trust_level' => 0]);
+
+    $editor->dispatch('user-changed')
+        ->assertSet('saved.trust', 'reviewed')
+        ->assertSet('trust', 'reviewed');
 });
 
 it('shows the person trusted in the drawer once marked trusted from it, with nothing left to save', function () {
