@@ -11,8 +11,12 @@ it('renders a checkbox that keeps the attributes it is given', function () {
         ->toContain('name="remember"')
         ->toContain('x-model="remember"')
         ->toContain('data-testid="remember-box"')
-        ->toContain('checked')
+        ->toContain('checked="checked"')
         ->toContain('mt-0.5');
+});
+
+it('leaves a box it is not told to check unchecked', function () {
+    expect(Blade::render('<x-ui.checkbox name="remember" />'))->not->toContain('checked="checked"');
 });
 
 it('fills a checked box with the accent so the white check shows, and draws no focus ring', function () {
