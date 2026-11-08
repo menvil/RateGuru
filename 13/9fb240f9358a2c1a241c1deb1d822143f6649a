@@ -1,0 +1,42 @@
+tests/Feature/Filament/StudioActionQueueTest.php
+  s_0f80700cf0b8c6::t_74d4291a35e410 89-105
+tests/Feature/Filament/StudioPlanImageUiTest.php
+  s_0f80700cf0b8c6::t_5fcab9f7c14a7f 421-424
+  s_0f80700cf0b8c6::t_4e2bb0a631da20 544-565
+app/Filament/Resources/StudioPlans/Concerns/EditsStudioPlan.php
+  s_0f80700cf0b8c6::t_eae7ae96662b8c 380-382,384
+app/Filament/Pages/StudioActionQueue.php
+  s_0f80700cf0b8c6::t_105f715acb274d 307-310,313,424-425,427-429
+  s_0f80700cf0b8c6::t_1e62f02dcc108c 426,430
+tests/Browser/AdminStudioPlanImageAnalysisBrowserTest.php
+  s_0f80700cf0b8c6::t_3623c38b36fd8c 202-231
+resources/css/filament/admin/components.css
+  s_0f80700cf0b8c6::t_c3952055a5f4d5 1231,1235-1239,1265-1269,1976,1980-1982
+tests/Browser/AdminStudioPlanDiscussionVotesBrowserTest.php
+  s_0f80700cf0b8c6::t_ecb5ff96478988 248
+  s_0f80700cf0b8c6::t_025c763d2090c1 254-257,262-263,267-274
+tests/Feature/Filament/StudioPlanPostVotesEditorTest.php
+  s_0f80700cf0b8c6::t_77b4ae76a2d4e7 545-547
+resources/views/filament/pages/studio-plan/image.blade.php
+  s_0f80700cf0b8c6::t_2708936419a8a7 107-111
+resources/views/livewire/admin/studio-plan-post-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_77b4ae76a2d4e7 334-336
+resources/views/livewire/admin/studio-plan-discussion-editor.blade.php
+  s_0f80700cf0b8c6::t_12f53f796d4f83 342-343,448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "139fb240f9358a2c1a241c1deb1d822143f6649a",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+tests/Browser/ThemeSwitcherBrowserTest.php
+  s_0f80700cf0b8c6::t_2a8c0e09c49a3a 22,24,26,28-31,33,35
+  s_0f80700cf0b8c6::t_db5ded86b4207c 23,25,27,32,34
+resources/views/livewire/theme/theme-switcher.blade.php
+  s_0f80700cf0b8c6::t_b19524685677ac 9-12,15,41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f2c3220d38d6db8cd138a09a3474a7e2d3ad307d",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

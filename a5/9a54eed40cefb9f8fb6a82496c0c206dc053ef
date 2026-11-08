@@ -1,0 +1,11 @@
+docs/architecture/user-lifecycle.md
+  ai_agent 176-183
+tools/phpstan/src/Rules/NoPhysicalUserDeletionRule.php
+  ai_agent 27-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a59a54eed40cefb9f8fb6a82496c0c206dc053ef",
+  "prompts": {}
+}

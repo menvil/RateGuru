@@ -1,0 +1,58 @@
+tests/Feature/Actions/AuthBoundaryActionsTest.php
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 118
+app/Console/Commands/CreateAdminUserCommand.php
+  s_0f80700cf0b8c6::t_b132d8946d9c44 12,25-27
+database/migrations/2026_11_07_100000_lowercase_user_emails.php
+  s_0f80700cf0b8c6::t_5cecc91b1786eb 1-46
+tests/Feature/Auth/PasswordUpdateTest.php
+  s_0f80700cf0b8c6::t_5be96f1f462542 4,42-70
+app/Http/Requests/Auth/ResetPasswordRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 5,11-12
+app/Http/Controllers/Auth/VerifyEmailController.php
+  s_0f80700cf0b8c6::t_124533d34ac28a 22-28
+tests/Feature/Auth/PasswordResetTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 29-38
+  s_0f80700cf0b8c6::t_68684ef3e31555 5,78-102
+app/Actions/Auth/VerifyEmailAction.php
+  s_0f80700cf0b8c6::t_124533d34ac28a 14-17,19,30-34
+tests/Feature/Auth/EmailVerificationTest.php
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 99
+  s_0f80700cf0b8c6::t_dcd33907bfc2b7 53-66
+app/Http/Controllers/Auth/PasswordController.php
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 9,27-28
+app/Http/Requests/Auth/Concerns/NormalizesEmail.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 1-23
+tests/Feature/Database/LowercaseUserEmailsMigrationTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 1-35
+app/Http/Requests/Auth/SendPasswordResetLinkRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 7,13
+app/Http/Requests/Auth/LoginRequest.php
+  s_0f80700cf0b8c6::t_c8cd37449cc442 7,14
+tests/Feature/Auth/AuthenticationTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 27-37
+tests/Feature/Domain/TerminalUserWriteBarrierTest.php
+  s_0f80700cf0b8c6::t_b57c492f9d1d57 144,146
+  s_0f80700cf0b8c6::t_e72e9c26f88b98 136
+tests/Feature/Console/CreateAdminUserCommandTest.php
+  s_0f80700cf0b8c6::t_844bf4557f67ca 99-110
+app/Actions/Auth/ResetPasswordAction.php
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 7,43-45
+app/Actions/Auth/UpdatePasswordAction.php
+  s_0f80700cf0b8c6::t_05bc69fb849b6f 7,10,39-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b5bba5fc19e4507a00b782c838c90ba362766c12",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

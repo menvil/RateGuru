@@ -1,0 +1,73 @@
+resources/views/dev/partials/platerate-reference-composition.blade.php
+  ai_agent 4
+app/Http/Middleware/AttachRequestId.php
+  ai_agent 54-56
+database/migrations/2026_05_14_183853_create_post_tag_table.php
+  ai_agent 18
+database/migrations/2026_06_10_223617_create_follows_table.php
+  ai_agent 16-18
+app/Actions/Personas/UpdatePersonaAction.php
+  ai_agent 108
+infrastructure/runbooks/sentry-observability.md
+  ai_agent 140-142
+app/Support/Observability/GuestVoteAttemptLog.php
+  ai_agent 8,23-27,33-36,52-65,67
+tests/Feature/Actions/CreatePersonaActionTest.php
+  ai_agent 17,268-279
+tests/Feature/Observability/ExceptionContextTest.php
+  ai_agent 5-9,45-72
+tests/Feature/Observability/ObservabilityHealthCommandTest.php
+  ai_agent 60,64-75
+tests/Feature/Observability/RequestIdMiddlewareTest.php
+  ai_agent 19-32
+app/Support/Observability/NightwatchPrivacy.php
+  ai_agent 151
+tests/Feature/Observability/SentryConfigurationTest.php
+  ai_agent 61-75
+database/seeders/DemoFillSeeder.php
+  ai_agent 830
+tests/Feature/Livewire/GuestVoteAttemptLogTest.php
+  ai_agent 17-19,184-225
+database/migrations/2026_05_21_000000_backfill_dismissed_report_status.php
+  ai_agent 9
+database/migrations/2026_06_05_000003_create_rating_votes_table.php
+  ai_agent 17
+app/Actions/Personas/SetPersonaAvatarAction.php
+  ai_agent 132,145
+tests/Feature/Actions/SetPersonaAvatarActionTest.php
+  ai_agent 21,258-271
+app/Support/Observability/LogContext.php
+  ai_agent 6,11-19,31-50,53-58
+database/migrations/2026_05_26_000001_add_parent_id_to_comments_table.php
+  ai_agent 14
+tests/Feature/Actions/UpdatePersonaActionTest.php
+  ai_agent 16,289-301
+tests/Feature/Observability/StructuredLogContextMiddlewareTest.php
+  ai_agent 3-6,8-26,38-82
+routes/api.php
+  ai_agent 11
+bootstrap/app.php
+  ai_agent 5,37-39
+app/Actions/Personas/CreatePersonaAction.php
+  ai_agent 81
+app/Http/Middleware/AttachStructuredLogContext.php
+  ai_agent 11-15,23
+tests/Feature/Observability/ObservabilityContextTest.php
+  ai_agent 99-119
+app/Providers/ObservabilityServiceProvider.php
+  ai_agent 10,24,51-56,77-79
+app/Http/Middleware/AttachVisitorLogContext.php
+  ai_agent 1-29
+config/sentry.php
+  ai_agent 22-24
+tests/Feature/Architecture/ReleaseBookkeepingTest.php
+  ai_agent 146-152,154-158,161-164,166-169,171,173-178
+app/Console/Commands/ObservabilityHealthCommand.php
+  ai_agent 89-90,92-100,224-225,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dda467bceb221564f7d339a6d584733e224872e9",
+  "prompts": {}
+}

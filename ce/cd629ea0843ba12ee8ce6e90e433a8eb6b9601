@@ -1,0 +1,9 @@
+tests/Feature/Models/StudioPlanTest.php
+  ai_agent 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cecd629ea0843ba12ee8ce6e90e433a8eb6b9601",
+  "prompts": {}
+}

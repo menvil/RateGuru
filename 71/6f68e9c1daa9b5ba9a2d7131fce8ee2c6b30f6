@@ -1,0 +1,85 @@
+tests/Feature/Actions/UpdateProjectLocaleSettingsActionTest.php
+  s_0f80700cf0b8c6::t_ffbfd55a25f6df 96-114
+app/Actions/Settings/SaveProjectSettingsAction.php
+  s_0f80700cf0b8c6::t_72d76f57551eda 58,63-69,110-111,122-123
+app/Actions/Auth/RegisterUserAction.php
+  s_0f80700cf0b8c6::t_3652f326de01b7 9,12,55-64
+tests/Pest.php
+  s_0f80700cf0b8c6::t_31cb4a2d957618 23,43,93,13205-13226
+app/Exceptions/Users/CannotUpdateUserAccountException.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 13-15,30-40,46-56
+tests/Feature/Filament/LanguagesPageTest.php
+  s_0f80700cf0b8c6::t_b1ffdc3f740372 786-807
+app/Support/Locale/LocaleManager.php
+  s_0f80700cf0b8c6::t_f6adf2b30b3a87 100-101,103-112
+tests/Feature/Actions/AuthBoundaryActionsTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 123-138
+app/Filament/Pages/LanguagesPage.php
+  s_0f80700cf0b8c6::t_f6adf2b30b3a87 217,261,327,329
+  s_0f80700cf0b8c6::t_9480fde655738a 321-325
+app/Filament/Resources/Reports/Pages/ListReports.php
+  s_0f80700cf0b8c6::t_1af45f80b7d21c 542-548
+tests/Feature/Admin/AdminGlobalSearchTest.php
+  s_0f80700cf0b8c6::t_46328a60d51672 56-64
+app/Livewire/Admin/UserEditor.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 153-160
+  s_0f80700cf0b8c6::t_ff1c20f4ad7c3b 252,268-290
+tests/Feature/Filament/CommentResourceActionsTest.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 84-87,89-93,95
+  s_0f80700cf0b8c6::t_31cb4a2d957618 88,94
+tests/Feature/Filament/ProjectSettingsPageTest.php
+  s_0f80700cf0b8c6::t_8bd2da170bc205 74-104
+  s_0f80700cf0b8c6::t_7e91df05770544 117-120
+app/Actions/Auth/Concerns/CreatesUserWithUniqueUsername.php
+  s_0f80700cf0b8c6::t_603d528d8bda28 31
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_0f80700cf0b8c6::t_fe99b0d1aa62fe 142-146,148-151,153
+  s_0f80700cf0b8c6::t_31cb4a2d957618 147,152
+app/Actions/Settings/UpdateProjectLocaleSettingsAction.php
+  s_0f80700cf0b8c6::t_df011e4960a7a6 101-104
+  s_0f80700cf0b8c6::t_f6adf2b30b3a87 74-100,105-116
+tests/Feature/Auth/SignInProviderSwitchesTest.php
+  s_0f80700cf0b8c6::t_58f816c7782ae8 5,61-66
+tests/Feature/Actions/ProfileIdentityActionsTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 5,34-50
+app/Livewire/Admin/GlobalSearch.php
+  s_0f80700cf0b8c6::t_63a9a9a4fbe226 47-49,51,54,64-67
+tests/Feature/Filament/UserResourceTest.php
+  s_0f80700cf0b8c6::t_f32fe10af72e34 519-530
+  s_0f80700cf0b8c6::t_eba7f73c121f76 15-16,146-190
+tests/Feature/Actions/UpdateUserAccountActionTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 172-190
+  s_0f80700cf0b8c6::t_3c92ed9d7a1898 21-26,34,49,63,75,85,96,119,129,148,152-171
+app/Actions/Comments/HideCommentAction.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 26-31,41,60,81-82
+app/Actions/Profile/UpdateUserIdentityAction.php
+  s_0f80700cf0b8c6::t_3652f326de01b7 7-8,10,14-18,20-37
+app/Support/Database/UsernameUniqueViolation.php
+  s_0f80700cf0b8c6::t_1148cca81278e9 16
+app/Filament/Pages/ProjectSettingsPage.php
+  s_0f80700cf0b8c6::t_72d76f57551eda 283-286,295-324
+app/Filament/Resources/Comments/Pages/ListComments.php
+  s_0f80700cf0b8c6::t_cdedb71cfae1fe 362-368
+tests/Feature/Auth/RegistrationTest.php
+  s_0f80700cf0b8c6::t_599dd46bb80713 96,110,115-118
+app/Actions/Users/UpdateUserAccountAction.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 11-12,40,42,48-65
+app/Support/Database/UniqueColumnViolation.php
+  s_0f80700cf0b8c6::t_1148cca81278e9 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "716f68e9c1daa9b5ba9a2d7131fce8ee2c6b30f6",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

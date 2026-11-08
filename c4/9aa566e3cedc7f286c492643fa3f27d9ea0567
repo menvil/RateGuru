@@ -1,0 +1,26 @@
+resources/views/livewire/admin/studio-plan-post-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_cf207342e5fb00 84,96,290-291
+  s_0f80700cf0b8c6::t_c0b608e33f9bea 341
+resources/views/components/admin/ui/number-stepper.blade.php
+  s_0f80700cf0b8c6::t_cf207342e5fb00 11-12,77,82,102
+tests/Feature/Filament/StudioPlanPostVotesEditorTest.php
+  s_0f80700cf0b8c6::t_2599d904c515ae 614-627
+resources/views/components/admin/ui/segmented.blade.php
+  s_0f80700cf0b8c6::t_cf207342e5fb00 7-8,75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c49aa566e3cedc7f286c492643fa3f27d9ea0567",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

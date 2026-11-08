@@ -1,0 +1,27 @@
+tests/Feature/Filament/PersonaResourceTest.php
+  s_0f80700cf0b8c6::t_e42ff649ccb45b 21,26,513-521,523-542
+  s_0f80700cf0b8c6::t_8e0228d9433d21 522
+app/Livewire/Profile/EditProfileForm.php
+  s_0f80700cf0b8c6::t_3f71b1aaf75973 70-71,74
+tests/Feature/Livewire/AvatarUploadTest.php
+  s_0f80700cf0b8c6::t_e42ff649ccb45b 234-243,245-248
+  s_0f80700cf0b8c6::t_8e0228d9433d21 244
+app/Filament/Resources/Personas/Concerns/EditsPersona.php
+  s_0f80700cf0b8c6::t_3f71b1aaf75973 14,158-160,164,189-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e2a30b90c2fa01cd9c9c58e5561459f570111e7d",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

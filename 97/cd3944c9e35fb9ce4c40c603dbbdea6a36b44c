@@ -1,0 +1,27 @@
+tests/Feature/Filament/CreateStudioPlanPageTest.php
+  s_0f80700cf0b8c6::t_03e4abf69d41ce 144-147,153,156,159-164
+  s_0f80700cf0b8c6::t_631cabeb7f21c5 154-155
+  s_0f80700cf0b8c6::t_15e058b97768c9 150
+  s_0f80700cf0b8c6::t_20f9d753390a1f 148-149
+  s_0f80700cf0b8c6::t_319e6e3951bfd2 151,157-158
+  s_0f80700cf0b8c6::t_8178bf93465f4b 152
+app/Filament/Resources/StudioPlans/Pages/CreateStudioPlan.php
+  s_0f80700cf0b8c6::t_2d60ce54d7e76e 176,189-201,207-214
+  s_0f80700cf0b8c6::t_631cabeb7f21c5 16,202-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97cd3944c9e35fb9ce4c40c603dbbdea6a36b44c",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

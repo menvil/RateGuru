@@ -1,0 +1,107 @@
+app/Services/Moderation/ModerationContentPurgeService.php
+  s_0f80700cf0b8c6::t_87b3f428c75eb5 82-84
+  s_0f80700cf0b8c6::t_689c4a4125464d 33,85
+  s_0f80700cf0b8c6::t_d038061276f4a7 13
+  s_0f80700cf0b8c6::t_d2ad0b8dabf4c9 156
+tests/Feature/Actions/IgnoreReportActionTest.php
+  s_0f80700cf0b8c6::t_5047d9555a8d72 55-56
+tests/Feature/Livewire/ProfilePageTest.php
+  s_0f80700cf0b8c6::t_cfb31dd9150213 266-273
+tests/Feature/ViewComponents/CommentItemComponentTest.php
+  s_0f80700cf0b8c6::t_cfb31dd9150213 26-39
+tests/Feature/Filament/PostResourceBulkActionsTest.php
+  s_0f80700cf0b8c6::t_7ba8142d616bf4 91-127
+app/Livewire/Comments/CommentVoting.php
+  s_0f80700cf0b8c6::t_0daabafd1f0c31 78-81
+app/Policies/UserPolicy.php
+  s_0f80700cf0b8c6::t_961e8c3cc80027 54-62
+app/Queries/Comments/ModerationCommentsQuery.php
+  s_0f80700cf0b8c6::t_4567f6b9131d56 57,63-69
+app/Queries/Users/ModerationUsersQuery.php
+  s_0f80700cf0b8c6::t_b535bc12d40a1a 71-76,119-120,123-124
+app/Filament/Resources/Posts/Pages/ListPosts.php
+  s_0f80700cf0b8c6::t_a6e4cd8e60efed 268-273,313,315-319,331,333-337,623-625
+app/Actions/Reports/IgnoreReportAction.php
+  s_0f80700cf0b8c6::t_7c96cd94ab9998 26-29,54-55,57-58
+app/Actions/Reports/ReportContentAction.php
+  s_0f80700cf0b8c6::t_7006f4d0f308fa 58-60
+app/Services/Posts/PostRetentionPurgeService.php
+  s_0f80700cf0b8c6::t_d2ad0b8dabf4c9 79
+  s_0f80700cf0b8c6::t_d038061276f4a7 9
+  s_0f80700cf0b8c6::t_689c4a4125464d 33
+  s_0f80700cf0b8c6::t_87b3f428c75eb5 76-78
+app/Filament/Widgets/ReportedCommentsWidget.php
+  s_0f80700cf0b8c6::t_4567f6b9131d56 6,24
+tests/Feature/Livewire/InlinePostModerationTest.php
+  s_0f80700cf0b8c6::t_3b59ac393dcd67 203-235
+tests/Feature/Actions/ResolveReportActionTest.php
+  s_0f80700cf0b8c6::t_5047d9555a8d72 56-57,66-82
+docs/architecture/post-lifecycle.md
+  ai_agent 144-147
+docs/architecture/moderation-content-lifecycle.md
+  ai_agent 87-90
+app/Livewire/Moderation/InlinePostModeration.php
+  s_0f80700cf0b8c6::t_fc8c717788056b 19-21,60-61,63-64,128-129
+app/Services/Comments/CommentRetentionPurgeService.php
+  s_0f80700cf0b8c6::t_d2ad0b8dabf4c9 31,113
+  s_0f80700cf0b8c6::t_d038061276f4a7 11
+tests/Feature/Livewire/CommentVotingTest.php
+  s_0f80700cf0b8c6::t_6dc9c704ee7100 96-102,104-109
+  s_0f80700cf0b8c6::t_db2c47188ae93c 103
+app/Filament/Widgets/SuspiciousUsersWidget.php
+  s_0f80700cf0b8c6::t_b535bc12d40a1a 6,30
+resources/views/livewire/moderation/inline-post-moderation.blade.php
+  s_0f80700cf0b8c6::t_fc8c717788056b 5-9,117
+app/Filament/Widgets/ReportedPostsWidget.php
+  s_0f80700cf0b8c6::t_4567f6b9131d56 6,24
+tests/Feature/Policies/UserPolicyTest.php
+  s_0f80700cf0b8c6::t_34ae1345d3ede0 148-156
+tests/Feature/Filament/ModerationDashboardTest.php
+  s_0f80700cf0b8c6::t_78b99d37cf09f0 176-198
+  s_0f80700cf0b8c6::t_5aa9ab1c5db592 8,199-214
+app/Exceptions/Reports/CannotIgnoreReportException.php
+  s_0f80700cf0b8c6::t_7c96cd94ab9998 13-18
+app/Actions/Reports/ResolveReportAction.php
+  s_0f80700cf0b8c6::t_7c96cd94ab9998 26-32,42,51-52,54-55
+tests/Feature/Policies/CommentPolicyTest.php
+  s_0f80700cf0b8c6::t_369a11318ae617 119-127
+app/Support/Moderation/OpenReportHold.php
+  s_0f80700cf0b8c6::t_961e8c3cc80027 55-58
+  s_0f80700cf0b8c6::t_d2ad0b8dabf4c9 1-54,59-60
+app/Exceptions/Reports/CannotResolveReportException.php
+  s_0f80700cf0b8c6::t_7c96cd94ab9998 13-18
+tests/Feature/Concurrency/ReportReopenPurgeRaceTest.php
+  s_0f80700cf0b8c6::t_4013f7915cc525 1-165
+tests/Pest.php
+  s_0f80700cf0b8c6::t_4013f7915cc525 13204-13206,13208,13220-13221,13223
+tests/Feature/Actions/ReportContentActionTest.php
+  s_0f80700cf0b8c6::t_68e235edf81c3c 123-133
+app/Livewire/Profile/ProfilePage.php
+  s_0f80700cf0b8c6::t_7006f4d0f308fa 116-117
+  s_0f80700cf0b8c6::t_961e8c3cc80027 118
+tests/Feature/Filament/ReportResourceActionsTest.php
+  s_0f80700cf0b8c6::t_5047d9555a8d72 16-17,105-126
+app/Policies/CommentPolicy.php
+  s_0f80700cf0b8c6::t_7006f4d0f308fa 32-39
+  s_0f80700cf0b8c6::t_0daabafd1f0c31 22-31
+app/View/Components/Comments/CommentItem.php
+  s_0f80700cf0b8c6::t_7006f4d0f308fa 39
+app/Queries/Posts/ModerationPostsQuery.php
+  s_0f80700cf0b8c6::t_4567f6b9131d56 89,95-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ccccba6e93382c8df8c66c7398748071d877e920",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

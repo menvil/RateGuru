@@ -1,0 +1,9 @@
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  ai_agent 3,23-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "62eee0ecee8f8ccd630eae33e4eb63de46fc5540",
+  "prompts": {}
+}

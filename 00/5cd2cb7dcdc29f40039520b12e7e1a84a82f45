@@ -1,0 +1,21 @@
+resources/views/livewire/admin/studio-plan-post-votes-editor.blade.php
+  s_0f80700cf0b8c6::t_d559e968fa8e1e 51-52
+tests/Browser/AdminStudioPlanPostVotesBrowserTest.php
+  s_0f80700cf0b8c6::t_d559e968fa8e1e 181-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "005cd2cb7dcdc29f40039520b12e7e1a84a82f45",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

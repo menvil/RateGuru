@@ -1,0 +1,189 @@
+app/Livewire/Profile/ProfilePage.php
+  s_0f80700cf0b8c6::t_9ad39e4a9a267d 6,29,73,95
+tests/Feature/Auth/AuthModalRenderingTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 282
+resources/views/livewire/feed/post-drawer-close.blade.php
+  s_0f80700cf0b8c6::t_949ddd2e22a1ee 1-14
+tests/Feature/Livewire/SavedPostsPageTest.php
+  s_0f80700cf0b8c6::t_1599c634b5dfca 100-110
+  s_0f80700cf0b8c6::t_1595f2d52d9eea 80-81,83,99
+tests/Feature/Profile/AccountWithoutPasswordTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 226
+resources/views/components/share/copy-link-button.blade.php
+  s_0f80700cf0b8c6::t_0b3d3c9e28424d 50,55
+tests/Browser/SearchControlsBrowserTest.php
+  s_0f80700cf0b8c6::t_e26e177be613e2 156-168
+tests/Feature/I18n/LanguageSwitcherTest.php
+  ai_agent 64-70
+resources/views/livewire/profile/profile-page.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 67
+resources/views/livewire/feed/upload-post-form.blade.php
+  s_0f80700cf0b8c6::t_5b38288e3a6ca0 247-252
+tests/Feature/Livewire/PostDrawerOverlayTest.php
+  s_0f80700cf0b8c6::t_888c8a671f9810 109-118
+tests/Feature/Livewire/FollowButtonTest.php
+  ai_agent 84-93
+resources/views/livewire/feed/post-drawer.blade.php
+  s_0f80700cf0b8c6::t_505e9315b0d9d7 73-77
+  s_0f80700cf0b8c6::t_34148d9618fd91 104-107
+  s_0f80700cf0b8c6::t_8700990af4f83d 30-50,65,93-94,103,109-110
+tests/Feature/Livewire/DeletedUserPresentationTest.php
+  s_0f80700cf0b8c6::t_290233c7ded0f4 83-95
+app/Livewire/SavedPosts/SavedPostsPage.php
+  s_0f80700cf0b8c6::t_9ad39e4a9a267d 5,16,24
+tests/Browser/ProfileBrowserTest.php
+  s_0f80700cf0b8c6::t_94e5389bf781fa 3,29-41
+  s_0f80700cf0b8c6::t_4cc4221c384b01 6-7
+  s_0f80700cf0b8c6::t_436435e991d2d3 42-49,51-56
+  s_0f80700cf0b8c6::t_bfd5b0b46b641c 50
+resources/views/components/ui/search-form.blade.php
+  s_0f80700cf0b8c6::t_1026fe1556f712 11-12
+tests/Browser/PaginationBrowserTest.php
+  s_0f80700cf0b8c6::t_d678b4e4dae2e0 1-19
+tests/Feature/Views/AuthorNameTest.php
+  s_0f80700cf0b8c6::t_2bcf2b9e4536af 1-25
+tests/Feature/Mobile/MobileNavigationPolishTest.php
+  s_0f80700cf0b8c6::t_342d55a45e3caa 63
+  s_0f80700cf0b8c6::t_e26e177be613e2 5,61-62
+tests/Feature/Livewire/UploadPostFormTest.php
+  s_0f80700cf0b8c6::t_63491c8ff5707f 46-47
+tests/Feature/Theme/CssTokensTest.php
+  s_0f80700cf0b8c6::t_7209b779fd8eef 3-4,32-49
+resources/views/livewire/notifications/notification-bell.blade.php
+  s_0f80700cf0b8c6::t_bd2a36ce621351 9
+  s_0f80700cf0b8c6::t_bae98fe72cc8f6 14-15,34
+resources/views/livewire/follows/follow-button.blade.php
+  s_0f80700cf0b8c6::t_48fd713e50e9dc 1,33-34
+tests/Browser/ImportUrlBrowserTest.php
+  s_0f80700cf0b8c6::t_c4b3624455df17 4-5,21-68
+resources/views/components/danger-button.blade.php
+  s_0f80700cf0b8c6::t_85c9f00f9636f2 1
+resources/views/livewire/posts/post-show.blade.php
+  s_0f80700cf0b8c6::t_2be04b7d290d38 57,65
+  s_0f80700cf0b8c6::t_3d53456b5b82a8 165-166
+  s_0f80700cf0b8c6::t_191817318f1ab8 240,249,265
+tests/Browser/NotificationBellBrowserTest.php
+  ai_agent 1-28
+tests/Feature/Routes/ListValuedQueryParametersTest.php
+  s_0f80700cf0b8c6::t_09eb17c9165f37 1-17
+resources/views/components/brand-wordmark.blade.php
+  s_0f80700cf0b8c6::t_e4a1352a7ae367 5-7
+tests/Feature/I18n/UserLocaleSettingsTest.php
+  ai_agent 96-101
+resources/views/components/voting/rating-options.blade.php
+  s_0f80700cf0b8c6::t_2ec8f58265a62f 61-65,68-75
+resources/views/vendor/livewire/tailwind.blade.php
+  ai_agent 57-58,60
+resources/views/components/ui/modal.blade.php
+  s_0f80700cf0b8c6::t_0b3d3c9e28424d 39-44,66-75
+tests/Feature/ViewComponents/CopyLinkButtonComponentTest.php
+  s_0f80700cf0b8c6::t_298270c23376a5 4,68-70,72-73
+  s_0f80700cf0b8c6::t_c94488818cd435 64-67,71,74-77
+tests/Browser/ModerationJourneyBrowserTest.php
+  s_0f80700cf0b8c6::t_95db34356c5b43 31
+resources/views/layouts/partials/app-sidebar.blade.php
+  s_0f80700cf0b8c6::t_b8a547ca347f7a 1
+tests/Feature/Settings/FeatureFlagsPublicUiTest.php
+  s_0f80700cf0b8c6::t_1595f2d52d9eea 139-154
+tests/Feature/Livewire/RatingVotingTest.php
+  s_0f80700cf0b8c6::t_f9c7e09e2fbde8 67-89
+resources/views/livewire/settings/user-locale-settings.blade.php
+  s_0f80700cf0b8c6::t_48fd713e50e9dc 3,13
+tests/Browser/CommentsBrowserTest.php
+  s_0f80700cf0b8c6::t_993b1169646858 3,5,32-70
+resources/views/components/locale-switcher.blade.php
+  s_0f80700cf0b8c6::t_752fbe75b2d7eb 13-14
+resources/views/livewire/feed/post-feed.blade.php
+  s_0f80700cf0b8c6::t_f604e048d07339 12-13,15-16,20,22-23
+app/Livewire/Concerns/ShowsAPageThatExists.php
+  s_0f80700cf0b8c6::t_01f2956fad947b 1-33
+tests/Feature/Livewire/PostFeedTest.php
+  s_0f80700cf0b8c6::t_39dd0219892602 138-141,143-149
+  s_0f80700cf0b8c6::t_d5b22d3b6aae72 5,142
+resources/views/livewire/saved-posts/saved-posts-page.blade.php
+  s_0f80700cf0b8c6::t_5a171785f2de9b 18
+resources/views/livewire/reports/report-modal.blade.php
+  s_0f80700cf0b8c6::t_5852488c035c4a 35
+resources/views/livewire/feed/feed-page.blade.php
+  s_0f80700cf0b8c6::t_34148d9618fd91 66
+resources/views/livewire/reports/_report-modal-content.blade.php
+  s_0f80700cf0b8c6::t_48fd713e50e9dc 48-49,51,56
+resources/views/components/comments/comment-item.blade.php
+  s_0f80700cf0b8c6::t_2be04b7d290d38 26
+  s_0f80700cf0b8c6::t_e4a1352a7ae367 29,40-41
+  s_0f80700cf0b8c6::t_5852488c035c4a 52-54,115
+tests/Feature/ViewComponents/ModalComponentTest.php
+  s_0f80700cf0b8c6::t_029d5af42a0749 80-81
+  s_0f80700cf0b8c6::t_b0451a77a469d0 119,121
+resources/css/theme.css
+  s_0f80700cf0b8c6::t_85c9f00f9636f2 37-38,110,157,235
+tests/Pest.php
+  s_0f80700cf0b8c6::t_3838efc683d9aa 296-316
+tests/Browser/AuthModalBrowserTest.php
+  s_0f80700cf0b8c6::t_bf2b6cc1adff73 4,187-233
+tests/Feature/Livewire/PagePastTheLastTest.php
+  s_0f80700cf0b8c6::t_077e16696fc5f3 1-42
+tests/Feature/ViewComponents/PostCardComponentTest.php
+  s_0f80700cf0b8c6::t_c826e85c03d3bf 200-207
+resources/views/layouts/app.blade.php
+  s_0f80700cf0b8c6::t_b8a547ca347f7a 77,80,293-294,298
+  s_0f80700cf0b8c6::t_1b212b0c32a44e 347-350
+resources/views/livewire/posts/save-post-button.blade.php
+  s_0f80700cf0b8c6::t_3ca8e5c8bb200c 1
+app/Livewire/Feed/PostFeed.php
+  s_0f80700cf0b8c6::t_9ad39e4a9a267d 5,17,52,59
+resources/views/auth/reset-password.blade.php
+  s_0f80700cf0b8c6::t_1026fe1556f712 11
+tests/Feature/ApplicationShellTest.php
+  s_0f80700cf0b8c6::t_e26e177be613e2 56-57
+tests/Feature/Livewire/ReportModalTest.php
+  s_0f80700cf0b8c6::t_3d53456b5b82a8 259-260
+app/Livewire/Posts/RecentlyDeletedPostsPage.php
+  s_0f80700cf0b8c6::t_9ad39e4a9a267d 7,25,55
+tests/Browser/PostDrawerBrowserTest.php
+  s_0f80700cf0b8c6::t_2fcc163154dede 6,10-11,58-85
+  s_0f80700cf0b8c6::t_cb983865d36481 114,116
+  s_0f80700cf0b8c6::t_2a45b0ce5a549d 284-288,291
+  s_0f80700cf0b8c6::t_2de597c9e2e89b 112,117
+  s_0f80700cf0b8c6::t_feda690e66c6ef 113,115
+  s_0f80700cf0b8c6::t_4cbc6e3cbafc58 101,110
+  s_0f80700cf0b8c6::t_505e9315b0d9d7 135-138
+  s_0f80700cf0b8c6::t_69c166ac0ec69d 7,12-15,29-55
+  s_0f80700cf0b8c6::t_e84505cf84909f 103-108
+  s_0f80700cf0b8c6::t_79f509fd660a09 289-290,292-294
+  s_0f80700cf0b8c6::t_d096451aaecae4 120-134,139-143
+resources/views/components/feed/post-card.blade.php
+  s_0f80700cf0b8c6::t_2be04b7d290d38 45,52
+  s_0f80700cf0b8c6::t_5852488c035c4a 152-154
+  s_0f80700cf0b8c6::t_01b2a0fe25d0bf 12-16
+  s_0f80700cf0b8c6::t_c894c2b50a2979 18
+  s_0f80700cf0b8c6::t_5a171785f2de9b 3,5
+  s_0f80700cf0b8c6::t_69c166ac0ec69d 22-26
+  s_0f80700cf0b8c6::t_191817318f1ab8 204,224,233
+resources/views/livewire/feed/post-drawer-content.blade.php
+  s_0f80700cf0b8c6::t_2be04b7d290d38 23,31
+  s_0f80700cf0b8c6::t_752fbe75b2d7eb 4-7
+  s_0f80700cf0b8c6::t_22c0d11e269e7b 47,89,120-121,222
+  s_0f80700cf0b8c6::t_191817318f1ab8 171,180,195
+  s_0f80700cf0b8c6::t_34148d9618fd91 100-102
+  s_0f80700cf0b8c6::t_949ddd2e22a1ee 18,240-247
+tests/Feature/Views/BrandWordmarkTest.php
+  s_0f80700cf0b8c6::t_18cd7d019d3f26 10
+  s_0f80700cf0b8c6::t_290233c7ded0f4 1-9,11-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d48ca9c7165504489694f335f947fdf8a60ead5",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

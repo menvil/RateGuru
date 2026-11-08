@@ -1,0 +1,41 @@
+app/Support/Database/UniqueColumnViolation.php
+  s_0f80700cf0b8c6::t_1148cca81278e9 1-52
+tests/Feature/Auth/RegistrationTest.php
+  s_0f80700cf0b8c6::t_599dd46bb80713 96,110,115-118
+app/Actions/Users/UpdateUserAccountAction.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 11-12,48-65
+tests/Feature/Actions/AuthBoundaryActionsTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 123-138
+app/Exceptions/Users/CannotUpdateUserAccountException.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 13-15,35-40,52-56
+tests/Feature/Actions/UpdateUserAccountActionTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 172-190
+tests/Feature/Filament/UserResourceTest.php
+  s_0f80700cf0b8c6::t_eba7f73c121f76 15-16,164-190
+app/Actions/Auth/RegisterUserAction.php
+  s_0f80700cf0b8c6::t_3652f326de01b7 9,12,55-64
+app/Actions/Profile/UpdateUserIdentityAction.php
+  s_0f80700cf0b8c6::t_3652f326de01b7 7-8,10,14-18,20-37
+tests/Feature/Actions/ProfileIdentityActionsTest.php
+  s_0f80700cf0b8c6::t_3a3474f92cf0bd 5,34-50
+app/Livewire/Admin/UserEditor.php
+  s_0f80700cf0b8c6::t_1278d906bd8fcd 153-160
+app/Support/Database/UsernameUniqueViolation.php
+  s_0f80700cf0b8c6::t_1148cca81278e9 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1cdae1055279ece2e8c1f9c087b8cdab0f7d596",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

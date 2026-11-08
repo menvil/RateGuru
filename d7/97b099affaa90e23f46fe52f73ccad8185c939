@@ -1,0 +1,122 @@
+tests/PHPStan/Fixtures/Controllers/DatabaseAccess.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 26-31
+tools/phpstan/src/Rules/RegisteredPaginationBoundaryRule.php
+  s_0f80700cf0b8c6::t_7e71a78bec008e 50,62
+  s_0f80700cf0b8c6::t_1667762df2fb18 8,10,20,30,36-39,41
+tests/PHPStan/Rules/RegisteredPaginationBoundaryRuleTest.php
+  s_0f80700cf0b8c6::t_1667762df2fb18 48-49
+tools/phpstan/src/Support/ArchitectureScope.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 13-15
+tests/PHPStan/Fixtures/Services/Pagination.php
+  s_0f80700cf0b8c6::t_1667762df2fb18 7,17-20
+tools/phpstan/src/Rules/NoControllerValidatorHelperRule.php
+  s_0f80700cf0b8c6::t_7e71a78bec008e 37
+tests/PHPStan/Rules/NoUnvalidatedControllerInputRuleTest.php
+  s_0f80700cf0b8c6::t_a5c3b410d41193 26,30,34,38-54
+tools/phpstan/src/Support/BaselineInventory.php
+  s_0f80700cf0b8c6::t_2129eccdd0fa4d 130-133,166-174
+tools/phpstan/src/Support/EloquentMutationDetector.php
+  s_0f80700cf0b8c6::t_807c15e41d53fb 23-24,26-27,29,41-42,46-47,63,67
+tools/phpstan/src/Rules/NoPresentationModelMutationRule.php
+  s_0f80700cf0b8c6::t_7e71a78bec008e 45
+tools/phpstan/src/Rules/RestrictedRawQueryRule.php
+  s_0f80700cf0b8c6::t_ebd1eb99cb0503 123,125,128-132
+  s_0f80700cf0b8c6::t_7e71a78bec008e 75,85,99
+  s_0f80700cf0b8c6::t_d4557351e79fe1 20-21
+tests/PHPStan/Rules/NoPhysicalUserDeletionRuleTest.php
+  s_0f80700cf0b8c6::t_2f5216d471e62d 19-24
+  s_0f80700cf0b8c6::t_ed7075a0d955cf 25,32,36,40,44-76
+tools/phpstan/src/Support/EloquentCallInspector.php
+  s_0f80700cf0b8c6::t_d16251a35b24a9 11,17-18,20-25,31-33,41-43,48-51,53-56,59-63,65-66,69-73,75,78-85
+tests/PHPStan/Rules/RestrictedDatabaseFacadeRuleTest.php
+  s_0f80700cf0b8c6::t_2544ba59572b49 36-37,39-41
+tools/ci/bin/compare-runs.php
+  s_0f80700cf0b8c6::t_82dae82eb7f71b 95-100,118-119
+tests/PHPStan/Fixtures/Users/PhysicalUserDeletion.php
+  s_0f80700cf0b8c6::t_83bf0c920f577d 10,34-63,75-79
+tools/phpstan/src/Rules/NoControllerValidatorFacadeRule.php
+  s_0f80700cf0b8c6::t_7e71a78bec008e 42
+tests/PHPStan/Fixtures/Allowed/DatabaseAccess.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 23-28
+tools/phpstan/src/Rules/NoPhysicalUserDeletionRule.php
+  s_0f80700cf0b8c6::t_83bf0c920f577d 7-8,18-19,28-32,40,42-44,68,72-73,75-76,79-83,91,96-102,104-108,111-115
+tests/PHPStan/Fixtures/Controllers/EloquentReads.php
+  s_0f80700cf0b8c6::t_6075fca7f1ffa1 23-31
+tests/PHPStan/Rules/NoInlineControllerValidationRuleTest.php
+  s_0f80700cf0b8c6::t_1655ad0664b2e4 19-23
+  s_0f80700cf0b8c6::t_0d23020a5943e2 35-40,43
+  s_0f80700cf0b8c6::t_6d75c7b096f882 41-42
+docs/architecture/user-lifecycle.md
+  s_0f80700cf0b8c6::t_8de95ef15b2e88 176-180
+tests/PHPStan/Fixtures/Database/RawQueries.php
+  s_0f80700cf0b8c6::t_d4557351e79fe1 12,15
+tests/PHPStan/RuleErrorsAreNeverIgnorableTest.php
+  s_0f80700cf0b8c6::t_5906270474c690 1-23
+tests/PHPStan/Fixtures/Baseline/duplicated.neon
+  s_0f80700cf0b8c6::t_2129eccdd0fa4d 1-19
+tests/Feature/Architecture/CiRunComparisonTest.php
+  s_0f80700cf0b8c6::t_82dae82eb7f71b 154-155
+tools/phpstan/src/Rules/NoReadOnlyLayerMutationRule.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 45,47-49,77
+  s_0f80700cf0b8c6::t_7e71a78bec008e 84
+tests/PHPStan/Rules/RestrictedRawQueryRuleTest.php
+  s_0f80700cf0b8c6::t_9d018c6f193b1a 51-53
+tests/PHPStan/Support/BaselineInventoryTest.php
+  s_0f80700cf0b8c6::t_2129eccdd0fa4d 52-61
+tools/phpstan/src/Rules/NoUnvalidatedControllerInputRule.php
+  s_0f80700cf0b8c6::t_e8c5177085e5f3 33-35,41-42,45,47,51,54-57,59,61,63-65
+  s_0f80700cf0b8c6::t_a5c3b410d41193 8,12,15-16,88-107
+  s_0f80700cf0b8c6::t_7e71a78bec008e 138
+tests/PHPStan/Rules/NoReadOnlyLayerMutationRuleTest.php
+  s_0f80700cf0b8c6::t_2544ba59572b49 30-31
+tests/PHPStan/Fixtures/Controllers/TraitValidation.php
+  s_0f80700cf0b8c6::t_0d23020a5943e2 1-18
+tests/PHPStan/Rules/NoPresentationModelMutationRuleTest.php
+  s_0f80700cf0b8c6::t_bdd8a86643eed8 24-31
+tests/PHPStan/Rules/NoControllerEloquentQueryRuleTest.php
+  s_0f80700cf0b8c6::t_6075fca7f1ffa1 28-31
+tests/PHPStan/ArchitectureRegistryTest.php
+  s_0f80700cf0b8c6::t_dbb756cab48bb4 64-73
+tests/PHPStan/Fixtures/Presentation/ModelMutation.php
+  s_0f80700cf0b8c6::t_807c15e41d53fb 38-47
+  s_0f80700cf0b8c6::t_23029e046aa324 8,48-53
+  s_0f80700cf0b8c6::t_2a6d42dfa22aab 18-37
+tests/PHPStan/Fixtures/Controllers/UnvalidatedInput.php
+  s_0f80700cf0b8c6::t_a5c3b410d41193 9,14,25-28
+tools/phpstan/src/Rules/RestrictedDatabaseFacadeRule.php
+  s_0f80700cf0b8c6::t_edfb525892d062 27,29-30,37,67-68,74
+  s_0f80700cf0b8c6::t_7e71a78bec008e 76,92
+tests/PHPStan/Fixtures/Queries/MutatingQuery.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 36-45
+tools/phpstan/src/Rules/NoInlineControllerValidationRule.php
+  s_0f80700cf0b8c6::t_7e71a78bec008e 48,67
+  s_0f80700cf0b8c6::t_6d75c7b096f882 7,16,39-47,49-52,71-81
+tests/PHPStan/Rules/inline-validation.neon
+  s_0f80700cf0b8c6::t_0d23020a5943e2 1-2,5
+  s_0f80700cf0b8c6::t_1655ad0664b2e4 3
+  s_0f80700cf0b8c6::t_5f8682fdb82a16 4
+docs/architecture/http-and-database-boundaries.md
+  s_0f80700cf0b8c6::t_8de95ef15b2e88 69-82
+tools/phpstan/src/Rules/NoControllerEloquentQueryRule.php
+  s_0f80700cf0b8c6::t_6075fca7f1ffa1 7,16
+  s_0f80700cf0b8c6::t_7e71a78bec008e 70
+  s_0f80700cf0b8c6::t_94f4a0dd7aba8d 87,90-91
+tests/PHPStan/Fixtures/Presentation/Transaction.php
+  s_0f80700cf0b8c6::t_c4972795f84c60 15-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d797b099affaa90e23f46fe52f73ccad8185c939",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/Feature/Jobs/GenerateStudioPostTextsJobTest.php
+  s_0f80700cf0b8c6::t_fa53d6199021a6 3,21,26,437-458
+tests/Feature/Jobs/AnalyzeStudioPlanImageJobTest.php
+  s_0f80700cf0b8c6::t_bad14120f5705c 94,97,99-102,106-107,111-116
+app/Actions/Studio/StartStudioPostTextGenerationAction.php
+  s_0f80700cf0b8c6::t_bad14120f5705c 43-50
+tests/Feature/Notifications/NotifyFollowersAboutNewPostActionTest.php
+  s_0f80700cf0b8c6::t_278336dec627c3 148-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9e220519fd6662f7cc5b18221890bd5bf11df15e",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+docs/audits/2026-11-app-audit.md
+  ai_agent 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d149cc26688ed06343c620c1a3c8d5a12b388a9e",
+  "prompts": {}
+}

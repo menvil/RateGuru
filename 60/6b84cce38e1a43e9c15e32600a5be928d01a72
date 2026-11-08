@@ -1,0 +1,9 @@
+tests/Feature/Models/MediaAuditModelsTest.php
+  ai_agent 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "606b84cce38e1a43e9c15e32600a5be928d01a72",
+  "prompts": {}
+}

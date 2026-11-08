@@ -1,0 +1,11 @@
+tests/PHPStan/Fixtures/Presentation/ModelMutation.php
+  ai_agent 33
+tests/PHPStan/Rules/NoPresentationModelMutationRuleTest.php
+  ai_agent 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2934d153a27504e9355abbcb040b1482aae0c0db",
+  "prompts": {}
+}

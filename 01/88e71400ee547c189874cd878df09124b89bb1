@@ -1,0 +1,9 @@
+tests/Feature/Observability/SentryCommonContextTest.php
+  ai_agent 216,220-221,233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0188e71400ee547c189874cd878df09124b89bb1",
+  "prompts": {}
+}

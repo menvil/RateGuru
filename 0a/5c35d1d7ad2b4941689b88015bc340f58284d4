@@ -1,0 +1,11 @@
+tests/Feature/Console/RecalculateHotScoresCommandTest.php
+  ai_agent 90-92
+routes/console.php
+  ai_agent 22-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a5c35d1d7ad2b4941689b88015bc340f58284d4",
+  "prompts": {}
+}

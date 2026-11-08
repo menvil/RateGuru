@@ -1,0 +1,11 @@
+docs/architecture/media.md
+  ai_agent 284-286
+app/Services/Media/GdImageIngestor.php
+  ai_agent 394-401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "52947da19ec8152532ad571dd75fabe52d9bb441",
+  "prompts": {}
+}
