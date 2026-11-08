@@ -73,6 +73,7 @@ final class ProjectSettingsPage extends Page
         'post_detail_overlay_mode' => 'Posts open in an overlay above the feed instead of a page of their own.',
         'show_saved_posts' => 'People can save posts to a private list.',
         'allow_user_uploads' => 'Turn off to pause all new posts across the site. Existing posts stay visible.',
+        'allow_url_imports' => 'A post can start from a link: the server fetches the page and its picture. Off, pictures are uploaded only.',
         'allow_guest_viewing' => 'Visitors can browse without an account. Off means every page asks to sign in.',
         'content_studio_verified_adults' => 'Everyone shown in the photos Content Studio uses is a verified adult (18+) who agreed to their publication. On, the texts and discussions it writes may flirt with and compliment the people shown — never graphic. Off, they keep to the situation. Applying a preset switches it off.',
     ];

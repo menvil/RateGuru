@@ -48,6 +48,7 @@ it('reads the defaults for the numbers the templates may leave blank', function 
 })->with([
     'redis retry_after' => ['queue', 'REDIS_QUEUE_RETRY_AFTER', 'connections.redis.retry_after', 90],
     'database retry_after' => ['queue', 'DB_QUEUE_RETRY_AFTER', 'connections.database.retry_after', 90],
+    'beanstalkd retry_after' => ['queue', 'BEANSTALKD_QUEUE_RETRY_AFTER', 'connections.beanstalkd.retry_after', 90],
     'session lifetime' => ['session', 'SESSION_LIFETIME', 'lifetime', 120],
     'upload size' => ['uploads', 'UPLOAD_IMAGE_MAX_KB', 'images.max_kilobytes', 5120],
     'upload width' => ['uploads', 'UPLOAD_IMAGE_MAX_WIDTH', 'images.max_width', 6000],
@@ -56,3 +57,7 @@ it('reads the defaults for the numbers the templates may leave blank', function 
     'vote attempts' => ['rate_limits', 'RATE_LIMIT_VOTE_ATTEMPTS', 'vote.max_attempts', 60],
     'media purge grace' => ['media', 'MEDIA_PURGE_GRACE_DAYS', 'lifecycle.purge_grace_days', 7],
 ]);
+
+it('still holds a number the config clamps to its minimum', function () {
+    expect(data_get(configFileWith('uploads', ['UPLOAD_IMAGE_MAX_WIDTH' => '0']), 'images.max_width'))->toBe(1);
+});
