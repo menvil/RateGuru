@@ -34,10 +34,6 @@
             "description": "How many posts a feed page serves, and the ceiling a caller may ask for.\n\nFeedQuery reads both directly, so these are deployed performance policy: the\ndefault decides the size of every feed query, and the maximum is what stops a\ncaller asking for the whole table. The values below are the application's own\ndefaults, made visible rather than changed."
         },
         {
-            "name": "Import",
-            "description": "Whether a visitor may create a post from an external URL. Off by default, and\noff is a decision rather than an oversight: the importer fetches a\ncaller-supplied address from the server, so enabling it widens what the host\nwill connect to."
-        },
-        {
             "name": "Rate limits",
             "description": "Attempts per decay window, per action. The values below are the application's\ncurrent defaults, made explicit because they are abuse policy and belong where\nan operator can see them — not because they are being changed."
         },
@@ -381,12 +377,6 @@
             "section": "Feed",
             "classification": "target",
             "value": "50"
-        },
-        {
-            "key": "IMPORT_FROM_URL_ENABLED",
-            "section": "Import",
-            "classification": "target",
-            "value": "false"
         },
         {
             "key": "RATE_LIMIT_UPLOAD_ATTEMPTS",

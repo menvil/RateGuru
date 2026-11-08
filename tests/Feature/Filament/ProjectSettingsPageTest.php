@@ -5,6 +5,7 @@ use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Support\TranslationSourceEditor;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -115,6 +116,19 @@ it('writes only what this page changed, never putting back what another administ
         ->and($fresh->feature_flags['allow_user_uploads'])->toBeFalse()
         ->and($fresh->static_pages['privacy']['en']['title'])->toBe('Privacy, retitled')
         ->and($fresh->static_pages['privacy']['en']['content'])->toBe('Changed meanwhile.');
+});
+
+it('switches imports from a link off, the one switch they have', function () {
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => true]]);
+
+    Livewire::withQueryParams(['tab' => 'features'])->test(ProjectSettingsPage::class)
+        ->assertSeeHtml(__('admin.fields.allow_url_imports'))
+        ->set('data.feature_flags.allow_url_imports', false)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($settings->fresh()->feature_flags['allow_url_imports'])->toBeFalse()
+        ->and(app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports'))->toBeFalse();
 });
 
 it('saves only the flags and providers the project has, leaving out whatever a request adds', function () {
