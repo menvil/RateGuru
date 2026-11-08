@@ -1,0 +1,59 @@
+tests/PHPStan/Rules/RestrictedDatabaseFacadeRuleTest.php
+  s_0f80700cf0b8c6::t_ce70feef743da6 38-43,48
+tools/phpstan/src/Support/ArchitectureScope.php
+  s_0f80700cf0b8c6::t_547185e6470fe0 9
+  s_0f80700cf0b8c6::t_1e4c7054421745 10,12,19-23
+tools/phpstan/src/Rules/NoUnvalidatedControllerInputRule.php
+  s_0f80700cf0b8c6::t_1e4c7054421745 38,98,102
+tests/PHPStan/Rules/NoPhysicalUserDeletionRuleTest.php
+  s_0f80700cf0b8c6::t_ce70feef743da6 78-82
+tests/PHPStan/Fixtures/Allowed/DatabaseAccess.php
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 14
+tests/PHPStan/Fixtures/Presentation/Transaction.php
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 22-26
+tools/phpstan/src/Rules/NoPhysicalUserDeletionRule.php
+  s_0f80700cf0b8c6::t_1e4c7054421745 19,77-82,84-86
+tests/PHPStan/Support/BaselineInventoryTest.php
+  s_0f80700cf0b8c6::t_b9ccfb4f37fccc 62-70
+tools/phpstan/src/Rules/RestrictedDatabaseFacadeRule.php
+  s_0f80700cf0b8c6::t_1e4c7054421745 17,20,31,70-72,85,107
+tests/PHPStan/Rules/NoUnvalidatedControllerInputRuleTest.php
+  s_0f80700cf0b8c6::t_ce70feef743da6 56-68
+tests/PHPStan/Fixtures/Allowed/ReadOnlyQuery.php
+  ai_agent 8,19
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 18,20-22
+tests/PHPStan/Fixtures/Controllers/DatabaseAccess.php
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 36-48
+tests/PHPStan/Fixtures/Controllers/UnvalidatedInput.php
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 14,29-31
+tests/Feature/Architecture/CiRunComparisonTest.php
+  s_0f80700cf0b8c6::t_b9ccfb4f37fccc 144-153,165
+tests/PHPStan/Rules/NoReadOnlyLayerMutationRuleTest.php
+  s_0f80700cf0b8c6::t_ce70feef743da6 32-39
+tests/PHPStan/Fixtures/Users/PhysicalUserDeletion.php
+  ai_agent 10,83-84,89-90
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 82,85-88,91-93
+tests/PHPStan/Fixtures/Baseline/merged.neon
+  s_0f80700cf0b8c6::t_b9ccfb4f37fccc 1-13
+tools/phpstan/src/Rules/NoReadOnlyLayerMutationRule.php
+  s_0f80700cf0b8c6::t_1e4c7054421745 7,18,47,49-50,72,75-85
+tests/PHPStan/Fixtures/Queries/MutatingQuery.php
+  s_0f80700cf0b8c6::t_db8438e51c3f1e 46-59,61-67
+  ai_agent 8,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1660133f3e2c943eb4484643f490d6afd1e09d35",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
