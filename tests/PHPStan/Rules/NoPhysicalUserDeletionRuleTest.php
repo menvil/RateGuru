@@ -52,33 +52,37 @@ final class NoPhysicalUserDeletionRuleTest extends RuleTestCase
                 38,
             ],
             [
-                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call delete().',
-                44,
+                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call forceDeleteQuietly().',
+                39,
             ],
             [
                 'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call delete().',
-                49,
+                45,
             ],
             [
-                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call forceDelete().',
+                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call delete().',
                 50,
             ],
             [
-                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call truncate().',
+                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call forceDelete().',
                 51,
             ],
             [
+                'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call truncate().',
+                52,
+            ],
+            [
                 'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call destroy().',
-                57,
+                58,
             ],
             [
                 'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call delete().',
-                62,
+                63,
             ],
-            // Whichever a User|Builder<User> turns out to be; a Post|Builder<Post> at 92 is not.
+            // Whichever a User|Builder<User> turns out to be; a Post|Builder<Post> at 93 is not.
             [
                 'User rows are never physically deleted; account deletion must anonymize into a tombstone (AnonymizeUserAccountAction), not call delete().',
-                86,
+                87,
             ],
         ]);
     }

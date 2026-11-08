@@ -6,7 +6,9 @@ namespace App\Queries\ArchitectureFixtures;
 
 use App\Models\Post;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use PDO;
 
 final class MutatingQuery
 {
@@ -65,5 +67,26 @@ final class MutatingQuery
     public function transactionInMixedCase(): void
     {
         DB::BeginTransaction();
+    }
+
+    public function lockOnAModelThatMayBeNull(?Post $post): void
+    {
+        $post?->lockForUpdate()->first();
+    }
+
+    /** @param Post|Builder<Post> $posts */
+    public function lockOnAModelOrQuery(Post|Builder $posts): void
+    {
+        $posts->lockForUpdate()->first();
+    }
+
+    public function transactionOnAConnectionThatMayBeNull(?ConnectionInterface $connection): void
+    {
+        $connection?->beginTransaction();
+    }
+
+    public function transactionOnAConnectionOrPdo(ConnectionInterface|PDO $connection): void
+    {
+        $connection->beginTransaction();
     }
 }

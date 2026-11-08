@@ -16,6 +16,7 @@ use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ObjectType;
+use PHPStan\Type\UnionType;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 use RateGuru\PHPStan\Support\EloquentCallInspector;
 use RateGuru\PHPStan\Support\EloquentMutationDetector;
@@ -80,9 +81,16 @@ final class NoReadOnlyLayerMutationRule implements Rule
             return $node->class instanceof Name && $scope->resolveName($node->class) === DB::class;
         }
 
-        return (new ObjectType(ConnectionInterface::class))
-            ->isSuperTypeOf(EloquentCallInspector::receiverType($scope, $node->var))
-            ->yes();
+        $receiver = EloquentCallInspector::receiverType($scope, $node->var);
+
+        // A union may hold a connection beside something else: any connection arm counts.
+        foreach ($receiver instanceof UnionType ? $receiver->getTypes() : [$receiver] as $type) {
+            if ((new ObjectType(ConnectionInterface::class))->isSuperTypeOf($type)->yes()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function error(string $message): IdentifierRuleError

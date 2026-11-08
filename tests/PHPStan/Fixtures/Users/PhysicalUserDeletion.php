@@ -36,6 +36,7 @@ final class PhysicalUserDeletionAction
     {
         $user->deleteQuietly();
         $user->deleteOrFail();
+        $user->forceDeleteQuietly();
     }
 
     // A user that may be null is deleted all the same when it is not.
