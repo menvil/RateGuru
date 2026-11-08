@@ -520,7 +520,7 @@ it('locks a reply\'s action, then the Persona and the post\'s author in ascendin
     DB::listen(function (QueryExecuted $query) use (&$locked): void {
         $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
 
-        if (preg_match('/for (no key )?update/', $sql) === 1 && preg_match('/\\bfrom (studio_plan_actions|users|studio_plans|posts|comments)\\b/', $sql, $table) === 1) {
+        if (str_contains($sql, 'for update') && preg_match('/\\bfrom (studio_plan_actions|users|studio_plans|posts|comments)\\b/', $sql, $table) === 1) {
             $locked[] = $table[1].'#'.$query->bindings[0];
         }
     });

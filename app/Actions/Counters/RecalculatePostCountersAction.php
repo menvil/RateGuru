@@ -26,25 +26,39 @@ class RecalculatePostCountersAction
                 ->lockForUpdate()
                 ->first();
 
-            $upvotes = PostVote::query()
-                ->where('post_id', $post->id)
-                ->where('type', VoteType::Up)
-                ->count();
+            $counted = $this->fill($post);
 
-            $downvotes = PostVote::query()
-                ->where('post_id', $post->id)
-                ->where('type', VoteType::Down)
-                ->count();
+            $post->save();
 
-            $post->forceFill([
-                'upvotes_count' => $upvotes,
-                'downvotes_count' => $downvotes,
-            ])->save();
-
-            return new PostCounterSnapshot(
-                upvotes: $upvotes,
-                downvotes: $downvotes,
-            );
+            return $counted;
         });
+    }
+
+    /**
+     * The post's votes counted and filled in, not saved: for a caller that
+     * holds the post's lock already and saves the counts with the rest of
+     * what it writes to the post, in one update.
+     */
+    public function fill(Post $post): PostCounterSnapshot
+    {
+        $upvotes = PostVote::query()
+            ->where('post_id', $post->id)
+            ->where('type', VoteType::Up)
+            ->count();
+
+        $downvotes = PostVote::query()
+            ->where('post_id', $post->id)
+            ->where('type', VoteType::Down)
+            ->count();
+
+        $post->forceFill([
+            'upvotes_count' => $upvotes,
+            'downvotes_count' => $downvotes,
+        ]);
+
+        return new PostCounterSnapshot(
+            upvotes: $upvotes,
+            downvotes: $downvotes,
+        );
     }
 }

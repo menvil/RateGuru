@@ -553,7 +553,7 @@ it('locks the action, then the users in ascending id order, then the plan, the p
     DB::listen(function (QueryExecuted $query) use (&$locked): void {
         $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
 
-        if (preg_match('/for (no key )?update/', $sql) === 1 && preg_match('/\bfrom (studio_plan_actions|users|studio_plans|posts|comments|post_votes|comment_votes|rating_groups|rating_options)\b/', $sql, $table) === 1) {
+        if (str_contains($sql, 'for update') && preg_match('/\bfrom (studio_plan_actions|users|studio_plans|posts|comments|post_votes|comment_votes|rating_groups|rating_options)\b/', $sql, $table) === 1) {
             $locked[] = $table[1].(in_array($table[1], ['post_votes', 'comment_votes'], true) ? '' : '#'.$query->bindings[0]);
         }
     });
@@ -575,8 +575,8 @@ it('locks the action, then the users in ascending id order, then the plan, the p
             ...array_map(fn (string $row): string => str_replace(['{comment}', '{group}'], [(string) $comment, (string) $approved['group']->id], $row), $after),
         ]);
 })->with([
-    // The post's author too: the vote's second update of the post checks its key.
-    'a vote on the post' => ['postUp', fn (array $approved, Post $post): array => collect([$approved['voters']['up']->id, $post->user_id])->sort()->values()->all(), ['post_votes']],
+    // The voter alone: the vote writes the post once, which checks none of its keys — its author's among them.
+    'a vote on the post' => ['postUp', fn (array $approved): array => [$approved['voters']['up']->id], ['post_votes']],
     'a vote on a comment' => ['c1Up', fn (array $approved): array => [$approved['voters']['up']->id], ['comments#{comment}', 'comment_votes']],
     // The option is asked for within its question: the query's first binding is the question's.
     'a rating answer' => ['ratingUp', fn (array $approved): array => [$approved['voters']['up']->id], ['rating_groups#{group}', 'rating_options#{group}']],

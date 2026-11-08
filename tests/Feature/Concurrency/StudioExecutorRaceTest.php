@@ -533,7 +533,7 @@ it('writes a Persona\'s comment beside a member\'s own comment or vote on the sa
             executorCompetitor($directory, 'b', ['action' => $beside === 'comment' ? 'comment' : 'vote-post', 'admin' => $member->id, 'post' => $post->id]),
         ]);
 
-        // Both update the post twice in one transaction — counts, then score.
+        // Both write the post, its count and its score in one update each: neither locks the author after the post.
         expect($report)->not->toContain('eadlock')
             ->and($results[0]['status'])->toBe(0, $report)
             ->and($results[0]['output'])->toContain('became done')
@@ -593,7 +593,7 @@ it('casts a Persona\'s vote beside a member\'s own vote on the same post or comm
                 : ['action' => 'vote-comment', 'admin' => $member->id, 'comment' => $comment->id]),
         ]);
 
-        // A vote on the post updates it twice in one transaction — counts, then score — on both sides.
+        // A vote on the post writes it, its counts and its score in one update, on both sides.
         expect($report)->not->toContain('eadlock')
             ->and($results[0]['status'])->toBe(0, $report)
             ->and($results[0]['output'])->toContain('became done')
