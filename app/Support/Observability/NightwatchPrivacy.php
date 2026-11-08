@@ -106,7 +106,7 @@ final class NightwatchPrivacy
     private const ALLOWED_CACHE_KEYS = [
         // App\Providers\AppServiceProvider — constant keys, no interpolation.
         '/^sidebar-nav-categories$/',
-        '/^sidebar-nav-top-tags$/',
+        '/^sidebar-nav-top-tag-slugs$/',
 
         // App\Jobs\RunMediaAuditJob — one global lock, constant key.
         '/^media-audit:full$/',

@@ -10,6 +10,8 @@ return [
         'search_label' => '搜索标签、用户、帖子',
         'search_button' => '搜索',
         'clear_search' => '清除搜索',
+        'tag_filter' => '带有标签的帖子',
+        'clear_tag_filter' => '移除筛选 :tag',
         'no_posts_title' => '暂无帖子',
         'no_posts_description' => '已发布的帖子将显示在这里。',
         'users_heading' => '用户',

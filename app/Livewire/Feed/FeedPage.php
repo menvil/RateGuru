@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Queries\Categories\ActiveCategorySlugsQuery;
 use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
+use App\Support\Feed\FeedAddress;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -257,6 +258,22 @@ class FeedPage extends Component
         $values[] = $value;
 
         return $this->normalizeFilterValues($values, $allowed);
+    }
+
+    /**
+     * The feed as it is now, without its tag: where removing the tag filter
+     * leads. The sort stays only when it is not the default one, as the
+     * address carries it.
+     */
+    public function urlWithoutTag(): string
+    {
+        return (new FeedAddress([
+            'search' => $this->search,
+            'category' => $this->category,
+            'ratings' => $this->ratings,
+            'sort' => $this->sort === 'newest' ? null : $this->sort,
+            'feed' => $this->feed,
+        ]))->with(['tag' => null]);
     }
 
     public function effectiveSearch(): ?string

@@ -10,6 +10,8 @@ return [
         'search_label' => 'Ieškoti žymų, naudotojų, įrašų',
         'search_button' => 'Ieškoti',
         'clear_search' => 'Išvalyti paiešką',
+        'tag_filter' => 'Įrašai su žyma',
+        'clear_tag_filter' => 'Pašalinti filtrą :tag',
         'no_posts_title' => 'Įrašų dar nėra',
         'no_posts_description' => 'Čia bus rodomi paskelbti įrašai.',
         'users_heading' => 'Naudotojai',

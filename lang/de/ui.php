@@ -10,6 +10,8 @@ return [
         'search_label' => 'Tags, Nutzer, Beiträge suchen',
         'search_button' => 'Suchen',
         'clear_search' => 'Suche löschen',
+        'tag_filter' => 'Beiträge mit dem Tag',
+        'clear_tag_filter' => 'Filter :tag entfernen',
         'no_posts_title' => 'Noch keine Beiträge',
         'no_posts_description' => 'Veröffentlichte Beiträge erscheinen hier.',
         'users_heading' => 'Nutzer',

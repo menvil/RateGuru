@@ -10,6 +10,8 @@ return [
         'search_label' => 'Поиск тегов, пользователей, постов',
         'search_button' => 'Искать',
         'clear_search' => 'Сбросить поиск',
+        'tag_filter' => 'Посты с тегом',
+        'clear_tag_filter' => 'Убрать фильтр :tag',
         'no_posts_title' => 'Постов пока нет',
         'no_posts_description' => 'Опубликованные посты появятся здесь.',
         'users_heading' => 'Пользователи',

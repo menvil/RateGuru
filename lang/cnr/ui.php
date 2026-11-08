@@ -10,6 +10,8 @@ return [
         'search_label' => 'Pretraži tagove, korisnike, objave',
         'search_button' => 'Pretraži',
         'clear_search' => 'Obriši pretragu',
+        'tag_filter' => 'Objave s tagom',
+        'clear_tag_filter' => 'Ukloni filter :tag',
         'no_posts_title' => 'Još nema objava',
         'no_posts_description' => 'Objavljene objave pojaviće se ovdje.',
         'users_heading' => 'Korisnici',

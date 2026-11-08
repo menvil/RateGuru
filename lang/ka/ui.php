@@ -10,6 +10,8 @@ return [
         'search_label' => 'ძიება თეგებში, მომხმარებლებსა და პოსტებში',
         'search_button' => 'ძიება',
         'clear_search' => 'ძიების გასუფთავება',
+        'tag_filter' => 'პოსტები თეგით',
+        'clear_tag_filter' => 'ფილტრის მოხსნა: :tag',
         'no_posts_title' => 'პოსტები ჯერ არ არის',
         'no_posts_description' => 'გამოქვეყნებული პოსტები აქ გამოჩნდება.',
         'users_heading' => 'მომხმარებლები',

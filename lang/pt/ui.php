@@ -10,6 +10,8 @@ return [
         'search_label' => 'Pesquisar tags, usuários, publicações',
         'search_button' => 'Pesquisar',
         'clear_search' => 'Limpar pesquisa',
+        'tag_filter' => 'Publicações com a tag',
+        'clear_tag_filter' => 'Remover o filtro :tag',
         'no_posts_title' => 'Nenhuma publicação ainda',
         'no_posts_description' => 'As novas publicações aparecerão aqui.',
         'users_heading' => 'Usuários',

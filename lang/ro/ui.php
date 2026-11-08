@@ -10,6 +10,8 @@ return [
         'search_label' => 'Caută etichete, utilizatori, postări',
         'search_button' => 'Caută',
         'clear_search' => 'Șterge căutarea',
+        'tag_filter' => 'Postări cu eticheta',
+        'clear_tag_filter' => 'Elimină filtrul :tag',
         'no_posts_title' => 'Nicio postare încă',
         'no_posts_description' => 'Postările publicate vor apărea aici.',
         'users_heading' => 'Utilizatori',

@@ -81,6 +81,25 @@
                 : 'mx-auto min-w-0 max-w-[820px]' }}"
             data-testid="feed-layout"
         >
+            @if(filled($tag))
+                <div class="mb-4 flex flex-wrap items-center gap-2" data-testid="feed-tag-filter">
+                    <span class="text-[13px] text-rg-muted">{{ __('ui.feed.tag_filter') }}</span>
+                    <span class="inline-flex items-center gap-0.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft pl-2.5 pr-0.5 text-xs leading-5 font-semibold text-rg-text">
+                        <span data-testid="feed-tag-filter-name">#{{ $tag }}</span>
+                        <a
+                            href="{{ $this->urlWithoutTag() }}"
+                            wire:navigate
+                            aria-label="{{ __('ui.feed.clear_tag_filter', ['tag' => '#'.$tag]) }}"
+                            title="{{ __('ui.feed.clear_tag_filter', ['tag' => '#'.$tag]) }}"
+                            data-testid="feed-tag-filter-clear"
+                            class="grid size-5 place-items-center rounded-full text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                        >
+                            <x-ui.icon name="x" class="size-3" />
+                        </a>
+                    </span>
+                </div>
+            @endif
+
             @php $matchedUsers = $this->matchedUsers(); @endphp
             @if($matchedUsers->isNotEmpty())
                 <div class="mb-5 rounded-rgCard border border-rg-border bg-rg-card p-4" data-testid="feed-user-results">

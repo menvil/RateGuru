@@ -10,6 +10,8 @@ return [
         'search_label' => 'Maghanap ng mga tag, user, post',
         'search_button' => 'Maghanap',
         'clear_search' => 'I-clear ang paghahanap',
+        'tag_filter' => 'Mga post na may tag na',
+        'clear_tag_filter' => 'Alisin ang filter na :tag',
         'no_posts_title' => 'Wala pang mga post',
         'no_posts_description' => 'Lalabas dito ang mga na-publish na post.',
         'users_heading' => 'Mga user',
