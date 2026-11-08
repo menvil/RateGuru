@@ -302,7 +302,10 @@ it('takes no typing while it switches language, which the new language would dro
     $readOnly = fn (string $unit): mixed => $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').readOnly");
 
     expect($readOnly($cats))->toBeTrue()
-        ->and($readOnly($dogs))->toBeTrue();
+        ->and($readOnly($dogs))->toBeTrue()
+        // Nor is the draft discarded or saved meanwhile: a switch that then fails keeps it.
+        ->and($page->script("[...document.querySelectorAll('[data-unit=\"{$dogs}\"] button')].filter((button) => /^(Discard|Save)/.test(button.textContent.trim())).map((button) => [button.textContent.trim().split(/\\s+/)[0], button.disabled])"))
+        ->toBe([['Discard', true], ['Save', true], ['Save', true]]);
 
     $page->script('window.releaseLivewire()');
     waitForTranslationTarget($page, $this->other);

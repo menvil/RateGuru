@@ -97,7 +97,7 @@
                 aria-describedby="{{ $describedBy }}"
                 x-model="units[unit].value"
                 x-on:input="edited(unit)"
-                x-bind:readonly="units[unit].saving > 0 || waiting(unit) || switching"
+                x-bind:readonly="held(unit)"
                 x-bind:class="{ 'rg-admin-textarea--changed': state(unit) === 'edited', 'rg-admin-textarea--info': state(unit) === 'ai', 'rg-admin-textarea--invalid': error(unit) !== null }"
                 x-bind:aria-invalid="error(unit) !== null ? 'true' : false"
                 x-bind:aria-describedby="error(unit) !== null ? '{{ $describedBy }} {{ $dom }}-error' : '{{ $describedBy }}'"
@@ -118,7 +118,7 @@
                     aria-describedby="{{ $describedBy }}"
                     x-model="units[unit].value"
                     x-on:input="edited(unit)"
-                    x-bind:readonly="units[unit].saving > 0 || waiting(unit) || switching"
+                    x-bind:readonly="held(unit)"
                     x-bind:aria-invalid="error(unit) !== null ? 'true' : false"
                     x-bind:aria-describedby="error(unit) !== null ? '{{ $describedBy }} {{ $dom }}-error' : '{{ $describedBy }}'"
                 />
@@ -160,7 +160,7 @@
                 </span>
             </span>
             <div class="rg-admin-translation-row__actions">
-                <x-admin.ui.button variant="ghost" size="sm" x-cloak x-show="isDirty(unit)" x-bind:disabled="waiting(unit) || units[unit].saving > 0" x-on:click="discard(unit)">
+                <x-admin.ui.button variant="ghost" size="sm" x-cloak x-show="isDirty(unit)" x-bind:disabled="held(unit)" x-on:click="discard(unit)">
                     Discard<span class="rg-admin-sr-only"> the {{ $target['label'] }} draft of {{ $row['name'] }}</span>
                 </x-admin.ui.button>
                 {{--
@@ -171,7 +171,7 @@
                     size="sm"
                     icon="sparkles"
                     x-show="offersAi(unit)"
-                    x-bind:aria-disabled="waiting(unit) || units[unit].saving > 0 ? 'true' : 'false'"
+                    x-bind:aria-disabled="held(unit) ? 'true' : 'false'"
                     x-on:click="suggest(unit)"
                 >
                     <span x-text="aiLabel(unit)">{{ $state === 'saved' ? 'Suggest alternative' : 'AI translate' }}</span><span class="rg-admin-sr-only"> {{ $row['name'] }}</span>

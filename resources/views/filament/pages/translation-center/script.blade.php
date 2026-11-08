@@ -204,7 +204,7 @@
             canSave(id) {
                 const unit = this.units[id]
 
-                return this.isDirty(id) && ! unit.saving && ! unit.generating && ! unit.bulkPending && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
+                return this.isDirty(id) && ! this.held(id) && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
             },
             // AI translate fills a missing translation, Suggest alternative offers another version of a
             // saved one, Regenerate replaces an AI suggestion. None is offered for a draft someone typed,
@@ -216,13 +216,17 @@
                 return { missing: 'AI translate', saved: 'Suggest alternative', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
             },
             canSuggest(id) {
-                const unit = this.units[id]
-
-                return this.offersAi(id) && ! unit.generating && ! unit.saving && ! unit.bulkPending
+                return this.offersAi(id) && ! this.held(id)
             },
             // A row waiting for its background suggestion, or for its own.
             waiting(id) {
                 return this.units[id].generating || this.units[id].bulkPending
+            },
+            // A row that takes nothing now: a suggestion or a save of it on its way, or the language
+            // switching, whose answer draws the screen afresh — what was typed or discarded meanwhile
+            // would be lost with it, or gone if the switch then failed.
+            held(id) {
+                return this.waiting(id) || this.units[id].saving > 0 || this.switching
             },
 
             // Filters -------------------------------------------------------------
