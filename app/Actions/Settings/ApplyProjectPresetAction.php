@@ -72,7 +72,9 @@ class ApplyProjectPresetAction
                 throw ProjectPresetAlreadyAppliedException::make();
             }
 
-            if (! $force && Post::query()->exists()) {
+            // Posts their authors deleted too: they can be restored, and the
+            // tags a preset replaces would be taken off them for good.
+            if (! $force && Post::withTrashed()->exists()) {
                 throw ProjectPresetHasContentException::make();
             }
 

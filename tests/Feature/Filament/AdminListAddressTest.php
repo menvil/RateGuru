@@ -12,6 +12,7 @@ use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Reports\Pages\ListReports;
 use App\Filament\Resources\StudioPlans\Pages\ListStudioPlans;
 use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Filament\Support\ListPageNumber;
 use App\Models\Comment;
 use App\Models\MediaAuditIssue;
 use App\Models\MediaAuditRun;
@@ -43,6 +44,16 @@ it('opens on the first page for a page number past anything a list has', functio
     'the largest integer' => (string) PHP_INT_MAX,
     'not a number' => 'two',
 ]);
+
+it('takes the highest page number it allows, as a number or as text', function () {
+    expect(ListPageNumber::from(100_000))->toBe(100_000)
+        ->and(ListPageNumber::from('100000'))->toBe(100_000);
+});
+
+it('reads a posts status given as a list as the default, pending', function () {
+    Livewire::withQueryParams(['status' => ['published']])->test(ListPosts::class)->assertOk()
+        ->assertSet('status', 'pending');
+});
 
 it('reads a filter given as a list as no filter at all', function (string $page, array $query) {
     Livewire::withQueryParams($query)->test($page)->assertOk();

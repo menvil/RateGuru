@@ -389,6 +389,13 @@ final class EditRatingGroup extends Page
         $this->loaded = null;
 
         if (! app(UnarchiveRatingOptionAction::class)->handle($this->actor(), $option)) {
+            // Deleted since it was found here: said as for any option gone.
+            if (! RatingOption::query()->whereKey($option->getKey())->exists()) {
+                $this->refuseMissing();
+
+                return;
+            }
+
             $this->toast("{$option->label} is not archived.", 'info');
 
             return;

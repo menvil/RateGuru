@@ -46,7 +46,13 @@ it('makes a comment the old default left unreadable a visible one', function () 
         'updated_at' => now(),
     ]);
 
-    (require base_path('database/migrations/2026_11_07_120000_default_comment_status_to_visible.php'))->up();
+    $migration = require base_path('database/migrations/2026_11_07_120000_default_comment_status_to_visible.php');
+    $migration->up();
+
+    expect(Comment::query()->findOrFail($id)->status)->toBe(CommentStatus::Visible);
+
+    // Rolled back, only the default returns: the row stays readable.
+    $migration->down();
 
     expect(Comment::query()->findOrFail($id)->status)->toBe(CommentStatus::Visible);
 });

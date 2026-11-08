@@ -6,6 +6,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
@@ -219,6 +221,26 @@ it('says an option is not archived rather than switching it off past the minimum
         ->assertDispatched('rg-admin-toast', message: "{$option->label} is not archived.", tone: 'info');
 
     expect($option->fresh())->is_active->toBeTrue()->archived_at->toBeNull();
+});
+
+it('says an option deleted since it was found no longer exists, not that it is not archived', function () {
+    [$group, [$option]] = optionsGroup(3);
+    $option->update(['archived_at' => now(), 'is_active' => false]);
+    $page = optionsEditor($group);
+
+    // Deleted by another administrator right after this page found it.
+    $deleted = false;
+    DB::listen(function (QueryExecuted $query) use (&$deleted, $option): void {
+        if (! $deleted && str_contains(str_replace(['"', '`'], '', $query->sql), 'from rating_options') && in_array($option->id, $query->bindings, false)) {
+            $deleted = true;
+            DB::table('rating_options')->where('id', $option->id)->delete();
+        }
+    });
+
+    $page->call('unarchiveOption', $option->id)
+        ->assertDispatched('rg-admin-toast', message: 'That option no longer exists.', tone: 'error');
+
+    expect($deleted)->toBeTrue();
 });
 
 it('deletes an unused option after asking', function () {
