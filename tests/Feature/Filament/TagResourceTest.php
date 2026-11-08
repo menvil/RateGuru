@@ -77,9 +77,8 @@ it('lists every tag, the most used first, with its posts', function () {
 it('counts a post its author deleted among a tag\'s posts, so the tag is not unused', function () {
     $this->actingAs(User::factory()->admin()->create());
     $tag = Tag::factory()->create();
-    $post = Post::factory()->published()->create();
+    $post = Post::factory()->authorDeleted()->create();
     $post->tags()->attach($tag);
-    $post->delete();
 
     $page = Livewire::test(ManageTags::class);
 

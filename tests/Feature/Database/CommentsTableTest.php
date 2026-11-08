@@ -53,6 +53,8 @@ it('makes a comment the old default left unreadable a visible one', function () 
 
     // Rolled back, only the default returns: the row stays readable.
     $migration->down();
+    $default = collect(Schema::getColumns('comments'))->firstWhere('name', 'status')['default'];
 
-    expect(Comment::query()->findOrFail($id)->status)->toBe(CommentStatus::Visible);
+    expect((string) $default)->toContain('published')
+        ->and(Comment::query()->findOrFail($id)->status)->toBe(CommentStatus::Visible);
 });

@@ -125,9 +125,8 @@ it('refuses to apply a preset when content already exists', function () {
 it('counts a post its author deleted as content, keeping its tags unless forced', function () {
     config(['project_presets.bare' => ['tags' => []] + config('project_presets.nature')]);
     $tag = Tag::factory()->create();
-    $post = Post::factory()->published()->create();
+    $post = Post::factory()->authorDeleted()->create();
     $post->tags()->attach($tag);
-    $post->delete();
 
     expect(fn () => app(ApplyProjectPresetAction::class)->handle('bare'))->toThrow(ProjectPresetHasContentException::class);
     $this->assertDatabaseHas('post_tag', ['post_id' => $post->id, 'tag_id' => $tag->id]);
