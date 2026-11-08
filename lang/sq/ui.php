@@ -10,6 +10,8 @@ return [
         'search_label' => 'Kërko etiketa, përdorues, postime',
         'search_button' => 'Kërko',
         'clear_search' => 'Pastro kërkimin',
+        'tag_filter' => 'Postime me etiketën',
+        'clear_tag_filter' => 'Hiq filtrin :tag',
         'no_posts_title' => 'Ende nuk ka postime',
         'no_posts_description' => 'Postimet e publikuara do të shfaqen këtu.',
         'users_heading' => 'Përdoruesit',

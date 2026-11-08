@@ -10,6 +10,8 @@ return [
         'search_label' => 'Etiket, kullanıcı, gönderi ara',
         'search_button' => 'Ara',
         'clear_search' => 'Aramayı temizle',
+        'tag_filter' => 'Etiketli gönderiler',
+        'clear_tag_filter' => ':tag filtresini kaldır',
         'no_posts_title' => 'Henüz gönderi yok',
         'no_posts_description' => 'Yayınlanan gönderiler burada görünecek.',
         'users_heading' => 'Kullanıcılar',

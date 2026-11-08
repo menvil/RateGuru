@@ -10,6 +10,8 @@ return [
         'search_label' => 'Søg efter tags, brugere, opslag',
         'search_button' => 'Søg',
         'clear_search' => 'Ryd søgning',
+        'tag_filter' => 'Opslag med tagget',
+        'clear_tag_filter' => 'Fjern filteret :tag',
         'no_posts_title' => 'Ingen opslag endnu',
         'no_posts_description' => 'Udgivne opslag vises her.',
         'users_heading' => 'Brugere',

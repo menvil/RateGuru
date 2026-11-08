@@ -10,6 +10,8 @@ return [
         'search_label' => 'タグ、ユーザー、投稿を検索',
         'search_button' => '検索',
         'clear_search' => '検索をクリア',
+        'tag_filter' => 'タグ付きの投稿',
+        'clear_tag_filter' => ':tag の絞り込みを解除',
         'no_posts_title' => '投稿はまだありません',
         'no_posts_description' => '公開された投稿はここに表示されます。',
         'users_heading' => 'ユーザー',

@@ -10,6 +10,8 @@ return [
         'search_label' => 'Išči oznake, uporabnike, objave',
         'search_button' => 'Išči',
         'clear_search' => 'Počisti iskanje',
+        'tag_filter' => 'Objave z oznako',
+        'clear_tag_filter' => 'Odstrani filter :tag',
         'no_posts_title' => 'Še ni objav',
         'no_posts_description' => 'Objavljene objave bodo prikazane tukaj.',
         'users_heading' => 'Uporabniki',

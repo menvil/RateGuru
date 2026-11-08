@@ -10,6 +10,8 @@ return [
         'search_label' => 'Cerca tag, utenti, post',
         'search_button' => 'Cerca',
         'clear_search' => 'Cancella ricerca',
+        'tag_filter' => 'Post con il tag',
+        'clear_tag_filter' => 'Rimuovi il filtro :tag',
         'no_posts_title' => 'Ancora nessun post',
         'no_posts_description' => 'I post pubblicati appariranno qui.',
         'users_heading' => 'Utenti',

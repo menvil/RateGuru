@@ -259,6 +259,22 @@ class FeedPage extends Component
         return $this->normalizeFilterValues($values, $allowed);
     }
 
+    /**
+     * The feed as it is now, without its tag: where removing the tag filter
+     * leads. The sort stays only when it is not the default one, as the
+     * address carries it.
+     */
+    public function urlWithoutTag(): string
+    {
+        return route('feed', array_filter([
+            'search' => $this->search,
+            'category' => $this->category,
+            'ratings' => $this->ratings,
+            'sort' => $this->sort === 'newest' ? null : $this->sort,
+            'feed' => $this->feed,
+        ], fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []));
+    }
+
     public function effectiveSearch(): ?string
     {
         $search = trim($this->search);

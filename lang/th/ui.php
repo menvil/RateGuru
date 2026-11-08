@@ -10,6 +10,8 @@ return [
         'search_label' => 'ค้นหาแท็ก ผู้ใช้ โพสต์',
         'search_button' => 'ค้นหา',
         'clear_search' => 'ล้างการค้นหา',
+        'tag_filter' => 'โพสต์ที่ติดแท็ก',
+        'clear_tag_filter' => 'ล้างตัวกรอง :tag',
         'no_posts_title' => 'ยังไม่มีโพสต์',
         'no_posts_description' => 'โพสต์ที่เผยแพร่แล้วจะแสดงที่นี่',
         'users_heading' => 'ผู้ใช้',

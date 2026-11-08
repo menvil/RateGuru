@@ -10,6 +10,8 @@ return [
         'search_label' => 'Търсене на тагове, потребители, постове',
         'search_button' => 'Търси',
         'clear_search' => 'Изчисти търсенето',
+        'tag_filter' => 'Постове с таг',
+        'clear_tag_filter' => 'Премахни филтъра :tag',
         'no_posts_title' => 'Все още няма постове',
         'no_posts_description' => 'Публикуваните постове ще се появят тук.',
         'users_heading' => 'Потребители',

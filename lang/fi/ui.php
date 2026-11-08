@@ -10,6 +10,8 @@ return [
         'search_label' => 'Hae tunnisteita, käyttäjiä, julkaisuja',
         'search_button' => 'Hae',
         'clear_search' => 'Tyhjennä haku',
+        'tag_filter' => 'Julkaisut tunnisteella',
+        'clear_tag_filter' => 'Poista suodatin :tag',
         'no_posts_title' => 'Ei vielä julkaisuja',
         'no_posts_description' => 'Julkaisut näkyvät täällä, kun niitä julkaistaan.',
         'users_heading' => 'Käyttäjät',

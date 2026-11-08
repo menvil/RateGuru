@@ -10,6 +10,8 @@ return [
         'search_label' => 'Пошук тегів, користувачів, дописів',
         'search_button' => 'Шукати',
         'clear_search' => 'Очистити пошук',
+        'tag_filter' => 'Дописи з тегом',
+        'clear_tag_filter' => 'Прибрати фільтр :tag',
         'no_posts_title' => 'Дописів ще немає',
         'no_posts_description' => 'Тут з’являтимуться опубліковані дописи.',
         'users_heading' => 'Користувачі',

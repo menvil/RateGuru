@@ -10,6 +10,8 @@ return [
         'search_label' => 'Címkék, felhasználók, bejegyzések keresése',
         'search_button' => 'Keresés',
         'clear_search' => 'Keresés törlése',
+        'tag_filter' => 'Bejegyzések címkével',
+        'clear_tag_filter' => ':tag szűrő törlése',
         'no_posts_title' => 'Még nincsenek bejegyzések',
         'no_posts_description' => 'A közzétett bejegyzések itt jelennek meg.',
         'users_heading' => 'Felhasználók',

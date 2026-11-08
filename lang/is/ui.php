@@ -10,6 +10,8 @@ return [
         'search_label' => 'Leita að merkjum, notendum, færslum',
         'search_button' => 'Leita',
         'clear_search' => 'Hreinsa leit',
+        'tag_filter' => 'Færslur merktar',
+        'clear_tag_filter' => 'Fjarlægja síuna :tag',
         'no_posts_title' => 'Engar færslur enn',
         'no_posts_description' => 'Birtar færslur birtast hér.',
         'users_heading' => 'Notendur',

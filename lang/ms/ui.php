@@ -10,6 +10,8 @@ return [
         'search_label' => 'Cari tag, pengguna, siaran',
         'search_button' => 'Cari',
         'clear_search' => 'Kosongkan carian',
+        'tag_filter' => 'Siaran bertag',
+        'clear_tag_filter' => 'Buang penapis :tag',
         'no_posts_title' => 'Belum ada siaran',
         'no_posts_description' => 'Siaran yang diterbitkan akan dipaparkan di sini.',
         'users_heading' => 'Pengguna',

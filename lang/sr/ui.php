@@ -10,6 +10,8 @@ return [
         'search_label' => 'Претражи ознаке, кориснике, објаве',
         'search_button' => 'Претражи',
         'clear_search' => 'Обриши претрагу',
+        'tag_filter' => 'Објаве са ознаком',
+        'clear_tag_filter' => 'Уклони филтер :tag',
         'no_posts_title' => 'Још нема објава',
         'no_posts_description' => 'Објављене објаве појавиће се овде.',
         'users_heading' => 'Корисници',
