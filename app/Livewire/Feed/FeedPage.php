@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Queries\Categories\ActiveCategorySlugsQuery;
 use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
+use App\Support\Feed\FeedAddress;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -266,13 +267,13 @@ class FeedPage extends Component
      */
     public function urlWithoutTag(): string
     {
-        return route('feed', array_filter([
+        return (new FeedAddress([
             'search' => $this->search,
             'category' => $this->category,
             'ratings' => $this->ratings,
             'sort' => $this->sort === 'newest' ? null : $this->sort,
             'feed' => $this->feed,
-        ], fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []));
+        ]))->with(['tag' => null]);
     }
 
     public function effectiveSearch(): ?string

@@ -24,6 +24,7 @@ use App\Services\Media\MediaStorage;
 use App\Services\Media\MediaUrlResolver;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SocialProviderAvailability;
+use App\Support\Feed\FeedAddress;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
@@ -152,9 +153,14 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer('layouts.partials.app-sidebar-content', function ($view): void {
             $locale = app()->getLocale();
-            $activeCategories = (array) request('category');
-            $activeRatings = (array) request('ratings');
-            $noFilters = $activeCategories === [] && $activeRatings === [] && blank(request('tag'));
+            $onFeed = request()->routeIs('feed');
+            $activeCategories = $onFeed ? (array) request('category') : [];
+            $activeTag = $onFeed ? request('tag') : null;
+            $sort = $onFeed ? request('sort') : null;
+            $feed = $onFeed ? request('feed') : null;
+            // Each link changes one part of the feed and keeps the others: a
+            // sort, a category and a tag narrow the feed together.
+            $address = FeedAddress::fromRequest(request());
 
             // Cached as plain arrays, not Eloquent models: the file cache store's
             // serializable_classes=false setting silently corrupts cached objects
@@ -175,8 +181,8 @@ class AppServiceProvider extends ServiceProvider
             $categories = [
                 [
                     'label' => __('ui.feed.all'),
-                    'href' => route('feed'),
-                    'active' => $noFilters && blank(request('search')) && blank(request('sort')) && blank(request('feed')),
+                    'href' => $address->with(['category' => null]),
+                    'active' => $onFeed && $activeCategories === [],
                 ],
             ];
 
@@ -187,39 +193,43 @@ class AppServiceProvider extends ServiceProvider
                         $category['name'],
                         $locale,
                     ),
-                    'href' => route('feed', ['category' => [$category['slug']]]),
+                    'href' => $address->with(['category' => [$category['slug']]]),
                     'active' => in_array($category['slug'], $activeCategories, true),
                 ];
             }
 
-            // Not locale-sensitive: labels/hrefs are built from slugs, not translations.
-            $topTags = Cache::remember('sidebar-nav-top-tags', 300, function () {
+            // Not locale-sensitive: tags are named by slug, not by translation.
+            $topTagSlugs = Cache::remember('sidebar-nav-top-tag-slugs', 300, function () {
                 return Tag::query()
                     ->whereHas('posts', fn ($query) => $query->where('status', PostStatus::Published))
                     ->withCount(['posts as published_posts_count' => fn ($query) => $query->where('status', PostStatus::Published)])
                     ->orderByDesc('published_posts_count')
                     ->orderBy('name')
                     ->limit(5)
-                    ->get()
-                    ->map(fn ($tag): array => [
-                        'label' => '#'.$tag->slug,
-                        'href' => route('feed', ['tag' => $tag->slug]),
-                    ])
+                    ->pluck('slug')
                     ->all();
             });
+
+            $topTags = array_map(fn (string $slug): array => [
+                'label' => '#'.$slug,
+                'href' => $address->with(['tag' => $slug]),
+                'active' => $activeTag === $slug,
+            ], $topTagSlugs);
 
             $settings = app(ProjectSettingsManager::class);
             $user = auth()->user();
 
+            // The sorts and the following feed are one choice: picking one
+            // replaces the other, and keeps the categories, the tag and the search.
             $navItems = [
-                ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => route('feed'), 'active' => request()->routeIs('feed') && blank(request('sort')) && blank(request('search')) && blank(request('feed')) && $noFilters, 'testid' => null],
-                ['label' => __('ui.nav.top'), 'icon' => 'flame', 'href' => route('feed', ['sort' => 'top']), 'active' => request('sort') === 'top', 'testid' => null],
-                ['label' => __('ui.nav.new'), 'icon' => 'plus', 'href' => route('feed', ['sort' => 'newest']), 'active' => request('sort') === 'newest', 'testid' => null],
-                ['label' => __('ui.nav.hot'), 'icon' => 'trending', 'href' => route('feed', ['sort' => 'hot']), 'active' => request('sort') === 'hot', 'testid' => 'nav-hot'],
+                ['label' => __('ui.nav.home'), 'icon' => 'home', 'href' => $address->with(['sort' => null, 'feed' => null]), 'active' => $onFeed && blank($sort) && blank($feed), 'testid' => 'nav-home'],
+                ['label' => __('ui.nav.top'), 'icon' => 'flame', 'href' => $address->with(['sort' => 'top', 'feed' => null]), 'active' => $sort === 'top', 'testid' => 'nav-top'],
+                ['label' => __('ui.nav.new'), 'icon' => 'plus', 'href' => $address->with(['sort' => 'newest', 'feed' => null]), 'active' => $sort === 'newest', 'testid' => 'nav-new'],
+                ['label' => __('ui.nav.hot'), 'icon' => 'trending', 'href' => $address->with(['sort' => 'hot', 'feed' => null]), 'active' => $sort === 'hot', 'testid' => 'nav-hot'],
             ];
 
             if ($user !== null) {
-                $navItems[] = ['label' => __('ui.nav.following'), 'icon' => 'users', 'href' => route('feed', ['feed' => 'following']), 'active' => request('feed') === 'following', 'testid' => 'nav-following'];
+                $navItems[] = ['label' => __('ui.nav.following'), 'icon' => 'users', 'href' => $address->with(['feed' => 'following', 'sort' => null]), 'active' => $feed === 'following', 'testid' => 'nav-following'];
             }
 
             if ($user !== null && $settings->featureEnabled('show_saved_posts')) {

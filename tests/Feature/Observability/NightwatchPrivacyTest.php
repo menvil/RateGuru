@@ -261,7 +261,7 @@ it('allows exactly the cache key shapes RateGuru is known to produce', function 
     expect(nightwatchPrivacy()->rejectCacheEvent($record))->toBeFalse();
 })->with([
     'sidebar-nav-categories',
-    'sidebar-nav-top-tags',
+    'sidebar-nav-top-tag-slugs',
     'media-audit:full',
     'media-purge:1234',
     'media-variant-write:1234:post_feed_640',

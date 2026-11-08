@@ -43,7 +43,11 @@
         <p class="px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-rg-muted">{{ __('ui.nav.top_tags_heading') }}</p>
         <div class="mt-3 flex flex-wrap gap-2 px-3">
             @foreach ($topTags as $tag)
-                <a href="{{ $tag['href'] }}" class="rounded-rgPill border border-rg-border bg-rg-card px-2.5 py-1 text-xs font-semibold text-rg-text2 transition hover:border-rg-accent hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
+                <a
+                    href="{{ $tag['href'] }}"
+                    @if($tag['active']) aria-current="page" @endif
+                    class="{{ $tag['active'] ? 'border-rg-accentBorder bg-rg-accentSoft text-rg-text' : 'border-rg-border bg-rg-card text-rg-text2 hover:border-rg-accent hover:text-rg-text' }} rounded-rgPill border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                >
                     {{ $tag['label'] }}
                 </a>
             @endforeach
