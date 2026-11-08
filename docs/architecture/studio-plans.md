@@ -1502,12 +1502,14 @@ The run has two transaction boundaries:
    a reply, the comment it answers — still there, visible, a comment on this
    post and no reply itself. The post's author may be the commenting Persona
    itself, answering under its own post: its row is then locked once. A
-   member's comment or vote on the same post never locks the post's author:
-   each writes the post once, its count and its score in one update, and
-   PostgreSQL checks a row's foreign keys — `FOR KEY SHARE` on the author's
-   row — only on a second update of it in one transaction. The Persona must
-   still be a Persona able to comment (`canComment()`). The comment is written
-   through `AddCommentAction` with the action's `occurs_at` as its `created_at`
+   member's comment or vote on the same post never locks the post's author
+   while it holds the post: each writes the post once, its count and its score
+   in one update, and PostgreSQL checks a row's foreign keys — `FOR KEY SHARE`
+   on the author's row — only on a second update of it in one transaction. A
+   member's comment notifies the author only once its own transaction has
+   committed, holding nothing of the post. The Persona must still be a Persona
+   able to comment (`canComment()`). The comment is written through
+   `AddCommentAction` with the action's `occurs_at` as its `created_at`
    and `updated_at` — every lock it takes already held — under
    `Post::withoutTimestamps()` and `Comment::withoutTimestamps()`, so the
    post's comment count and score it updates leave the post's dates as they

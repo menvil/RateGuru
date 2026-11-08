@@ -6,6 +6,7 @@ use App\Actions\Comments\HideCommentAction;
 use App\Actions\Comments\RestoreCommentAction;
 use App\Actions\Reports\ReportContentAction;
 use App\Actions\Votes\VotePostAction;
+use App\Enums\CommentStatus;
 use App\Enums\ReportReason;
 use App\Enums\VoteType;
 use App\Models\Comment;
@@ -19,30 +20,29 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 
 /*
- * A member's vote, comment or report on a post locks the member, then the post
- * (docs/architecture/user-lifecycle.md), and never the post's author after it.
- * PostgreSQL would lock the author all the same, unasked, were the post updated
- * twice in that transaction: it checks the second update's foreign keys, the
- * author's among them, with FOR KEY SHARE on the author's row. A two-user
- * operation locks both users in ascending id order — a follow, here, of the
- * member by the post's author, the lower id: holding the author and waiting for
- * the member, while the member's write holds the member and the post and waits
- * for that check, each would wait for the other.
+ * A vote, a comment or a report on a post — and a comment deleted by its
+ * member, or hidden or restored by a moderator — locks its writer, then the
+ * post (docs/architecture/user-lifecycle.md), and never the post's author while
+ * it holds the post. PostgreSQL would lock the author all the same, unasked,
+ * were the post updated twice in that transaction: it checks the second
+ * update's foreign keys, the author's among them, with FOR KEY SHARE on the
+ * author's row. A two-user operation locks both users in ascending id order —
+ * a follow, here, of the writer by the post's author, the lower id: holding the
+ * author and waiting for the writer, while the write holds the writer and the
+ * post and waits for that check, each would wait for the other.
  *
- * So each such write updates the post once — and so does a comment deleted,
- * hidden or restored, which recounts the post's comments as a new one does —
- * which every engine shows; the race itself runs on PostgreSQL. There the
- * member's write leads
- * (lockRaceCompetitor()): it holds its vote, comment or report, written, until
- * the follow is seen waiting for it.
+ * So each such write updates the post once, which every engine shows; the race
+ * itself runs on PostgreSQL. There the write leads (lockRaceCompetitor()): it
+ * holds its vote, comment, comment change or report, written, until the follow
+ * is seen waiting for it.
  */
 
 const POST_AUTHOR_RACE_SKIP = 'PostgreSQL only: the competitors find each other through pg_blocking_pids(), and SQLite runs the suite in memory, where a second process cannot join at all. PostgreSQL is the primary runtime (docs/architecture/database-support.md).';
 
 /**
- * Removes what a race of a member's write and a follow committed, for real:
- * the post and all written on it, the follow, the notifications, the settings
- * row and the users.
+ * Removes what a race of a write on a post and a follow committed, for real:
+ * the post and all written on it, the follow, the notifications, the
+ * moderation logged, the settings row and the users.
  *
  * @param  list<int>  $userIds
  */
@@ -56,6 +56,7 @@ function forgetPostAuthorRace(ConnectionInterface $db, array $userIds, string $d
     $db->table('posts')->whereIn('id', $postIds)->delete();
     $db->table('follows')->whereIn('follower_id', $userIds)->delete();
     $db->table('notifications')->whereIn('notifiable_id', $userIds)->delete();
+    $db->table('moderation_logs')->whereIn('moderator_id', $userIds)->delete();
     $db->table('project_settings')->where('id', 1)->delete();
     $db->table('users')->whereIn('id', $userIds)->delete();
     File::deleteDirectory($directory);
@@ -91,45 +92,48 @@ it('updates the post once for a vote, a comment, a comment deleted, hidden or re
     'a report that flags the post' => [fn (User $member, User $moderator, Post $post) => app(ReportContentAction::class)->handle($member, $post, ReportReason::Spam)],
 ]);
 
-it('lets a member\'s write on a post and its author following the member take turns rather than deadlocking', function (string $write, string $hold) {
+it('lets a write on a post and its author following the writer take turns rather than deadlocking', function (string $write, string $hold, bool $moderates, array $after) {
     $db = committedConnection();
-    // The author first, so its id is the lower: the follow locks the author before the member.
+    // The author first, so its id is the lower: the follow locks the author before the writer.
     $author = User::factory()->connection('committed_peer')->create();
     $member = User::factory()->connection('committed_peer')->create();
+    $moderator = User::factory()->moderator()->connection('committed_peer')->create();
+    $writer = $moderates ? $moderator : $member;
     // Two reports already there: the member's is the one that flags the post for review.
     $reporters = User::factory()->count(2)->connection('committed_peer')->create();
-    $post = Post::factory()->published()->connection('committed_peer')->create(['user_id' => $author->id, 'reports_count' => 2]);
+    // Its one visible comment counted, so each change to its comments changes the count.
+    $post = Post::factory()->published()->connection('committed_peer')->create(['user_id' => $author->id, 'reports_count' => 2, 'comments_count' => 1]);
     $reporters->each(fn (User $reporter) => Report::factory()->connection('committed_peer')->create(['reporter_id' => $reporter->id, 'target_type' => Post::class, 'target_id' => $post->id]));
+    // The member's own comment, and one a moderator has hidden.
+    $comment = Comment::factory()->connection('committed_peer')->create(['post_id' => $post->id, 'user_id' => $member->id]);
+    $hidden = Comment::factory()->connection('committed_peer')->create(['post_id' => $post->id, 'user_id' => $member->id, 'status' => CommentStatus::Hidden]);
     $db->table('project_settings')->where('id', 1)->delete();
     ProjectSettings::factory()->connection('committed_peer')->create(['id' => 1, 'feature_flags' => ['show_follow_buttons' => true]]);
-    expect($author->id)->toBeLessThan($member->id);
+    expect($author->id)->toBeLessThan($writer->id);
 
     $directory = raceDirectory('post-author');
     $race = fn (string $label, array $job): array => lockRaceCompetitor($directory, $label, [...$job, 'disk' => $directory.'/disk', 'config' => ['cache.default' => 'array']]);
 
     try {
         ['results' => $results, 'report' => $report] = finishedRace([
-            $race('a', ['action' => $write, 'sync' => 'lead', 'hold' => $hold, 'admin' => $member->id, 'post' => $post->id]),
-            $race('b', ['action' => 'follow', 'sync' => 'follow', 'admin' => $author->id, 'target' => $member->id]),
+            $race('a', ['action' => $write, 'sync' => 'lead', 'hold' => $hold, 'admin' => $writer->id, 'post' => $post->id, 'comment' => $write === 'restore-comment' ? $hidden->id : $comment->id]),
+            $race('b', ['action' => 'follow', 'sync' => 'follow', 'admin' => $author->id, 'target' => $writer->id]),
         ]);
 
         expect($report)->not->toContain('eadlock')
             ->and($results[0]['status'])->toBe(0, $report)
             ->and($results[1]['status'])->toBe(0, $report)
-            ->and($db->table('follows')->where('follower_id', $author->id)->where('author_id', $member->id)->count())->toBe(1);
-
-        $written = $db->table('posts')->where('id', $post->id)->first();
-
-        match ($write) {
-            'vote-post' => expect($written)->upvotes_count->toBe(1),
-            'comment' => expect($written)->comments_count->toBe(1),
-            'report-post' => expect($written)->reports_count->toBe(3)->needs_review->toBeTrue(),
-        };
+            ->and($db->table('follows')->where('follower_id', $author->id)->where('author_id', $writer->id)->count())->toBe(1)
+            ->and((array) $db->table('posts')->where('id', $post->id)->first(array_keys($after)))->toEqual($after);
     } finally {
-        forgetPostAuthorRace($db, [$author->id, $member->id, ...$reporters->modelKeys()], $directory);
+        forgetPostAuthorRace($db, [$author->id, $member->id, $moderator->id, ...$reporters->modelKeys()], $directory);
     }
 })->with([
-    'a vote' => ['vote-post', 'vote'],
-    'a comment' => ['comment', 'comment'],
-    'a report that flags the post' => ['report-post', 'report'],
+    'a member\'s vote' => ['vote-post', 'vote', false, ['upvotes_count' => 1]],
+    // Visible then: the member's comment and the new one.
+    'a member\'s comment' => ['comment', 'comment', false, ['comments_count' => 2]],
+    'a member\'s comment deleted' => ['delete-comment', 'comment-change', false, ['comments_count' => 0]],
+    'a comment a moderator hides' => ['hide-comment', 'comment-change', true, ['comments_count' => 0]],
+    'a comment a moderator restores' => ['restore-comment', 'comment-change', true, ['comments_count' => 2]],
+    'a member\'s report that flags the post' => ['report-post', 'report', false, ['reports_count' => 3, 'needs_review' => true]],
 ])->skip(fn (): bool => config('database.default') !== 'pgsql', POST_AUTHOR_RACE_SKIP);

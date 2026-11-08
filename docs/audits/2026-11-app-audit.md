@@ -55,7 +55,7 @@ audit reviews what changed since that tag.
 
 - **Lock order of member votes and comments** (`LocksActorForWrite`, #1406). A post vote or comment could deadlock with an operation that locks the same two users the other way round, such as a follow between the post's author and the member.
   - **Cause:** the write updated the post twice — its counts, then its score — and PostgreSQL checks a row's foreign keys again on its second update in a transaction. That check locked the author's row after the post.
-  - **Fix:** every vote, comment and threshold-crossing report now updates the post once, so no member's write locks the author at all.
+  - **Fix:** every vote, comment and threshold-crossing report now updates the post once, so no member's write locks the author while it holds the post. A comment notifies the author only after its own transaction has committed.
   - **Content Studio's executor** no longer works around the second update: a comment's run locks the author like any user row, and a vote's run does not lock the author.
 
 ## Decided after the review
