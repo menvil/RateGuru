@@ -25,9 +25,10 @@ final class NoControllerEloquentQueryRuleTest extends RuleTestCase
             ['HTTP controllers must delegate Eloquent queries to a Query Object; where() is not allowed here.', 15],
             ['HTTP controllers must delegate Eloquent queries to a Query Object; get() is not allowed here.', 15],
             ['HTTP controllers must delegate Eloquent queries to a Query Object; loadMissing() is not allowed here.', 20],
-            ['HTTP controllers must delegate Eloquent queries to a Query Object; comments() is not allowed here.', 25],
-            ['HTTP controllers must delegate Eloquent queries to a Query Object; latest() is not allowed here.', 25],
-            ['HTTP controllers must delegate Eloquent queries to a Query Object; get() is not allowed here.', 25],
+            ['HTTP controllers must delegate Eloquent queries to a Query Object; load() is not allowed here.', 29],
+            ['HTTP controllers must delegate Eloquent queries to a Query Object; comments() is not allowed here.', 34],
+            ['HTTP controllers must delegate Eloquent queries to a Query Object; latest() is not allowed here.', 34],
+            ['HTTP controllers must delegate Eloquent queries to a Query Object; get() is not allowed here.', 34],
         ]);
     }
 

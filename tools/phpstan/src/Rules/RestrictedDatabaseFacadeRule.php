@@ -14,8 +14,10 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 
+use function array_map;
 use function in_array;
 use function sprintf;
+use function strtolower;
 
 /** @implements Rule<StaticCall> */
 final class RestrictedDatabaseFacadeRule implements Rule
@@ -24,13 +26,18 @@ final class RestrictedDatabaseFacadeRule implements Rule
     private const RESTRICTED_METHODS = [
         'affectingStatement',
         'connection',
+        'cursor',
         'delete',
+        'getConnections',
+        'getPdo',
+        'getReadPdo',
         'insert',
         'query',
         'raw',
         'scalar',
         'select',
         'selectOne',
+        'selectFromWriteConnection',
         'selectResultSets',
         'statement',
         'table',
@@ -60,19 +67,22 @@ final class RestrictedDatabaseFacadeRule implements Rule
 
         $method = $node->name->toString();
 
-        if ($method === 'transaction') {
+        // A transaction opened, committed or rolled back by hand is managed all
+        // the same, and a method is the same in any case.
+        if (ArchitectureScope::isTransactionMethod($method)) {
             if (! ArchitectureScope::isPresentationLayer($scope)) {
                 return [];
             }
 
             return [
-                RuleErrorBuilder::message('Presentation classes must not manage transactions; move DB::transaction() to an Action.')
+                RuleErrorBuilder::message(sprintf('Presentation classes must not manage transactions; move DB::%s() to an Action.', $method))
                     ->identifier('rateguru.presentation.transaction')
+                    ->nonIgnorable()
                     ->build(),
             ];
         }
 
-        if (! in_array($method, self::RESTRICTED_METHODS, true)
+        if (! in_array(strtolower($method), array_map(strtolower(...), self::RESTRICTED_METHODS), true)
             || $this->isApprovedException($scope, $method)) {
             return [];
         }
@@ -83,6 +93,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
                 $method,
             ))
                 ->identifier('rateguru.database.restrictedFacade')
+                ->nonIgnorable()
                 ->build(),
         ];
     }
@@ -93,7 +104,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
 
         foreach ($this->exceptions as $exception) {
             if ($exception['class'] === $class
-                && in_array($method, $exception['methods'], true)) {
+                && in_array(strtolower($method), array_map(strtolower(...), $exception['methods']), true)) {
                 return true;
             }
         }

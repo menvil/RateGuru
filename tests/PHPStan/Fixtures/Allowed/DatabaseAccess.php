@@ -11,6 +11,7 @@ final class ApprovedDatabaseAccess
     public function read(): void
     {
         DB::table('legacy_records')->count();
+        DB::Table('legacy_records')->count();
     }
 }
 
@@ -19,5 +20,11 @@ final class TransactionalAction
     public function execute(): void
     {
         DB::transaction(static fn (): null => null);
+    }
+
+    public function executeByHand(): void
+    {
+        DB::beginTransaction();
+        DB::commit();
     }
 }

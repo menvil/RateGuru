@@ -12,4 +12,16 @@ final class Transaction
     {
         DB::transaction(static fn (): null => null);
     }
+
+    public function saveByHand(): void
+    {
+        DB::beginTransaction();
+        DB::commit();
+        DB::rollBack();
+    }
+
+    public function saveInMixedCase(): void
+    {
+        DB::BeginTransaction();
+    }
 }

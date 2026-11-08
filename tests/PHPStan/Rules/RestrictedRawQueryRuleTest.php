@@ -48,8 +48,9 @@ final class RestrictedRawQueryRuleTest extends RuleTestCase
             __DIR__.'/../Fixtures/Database/RawQueries.php',
         ], [
             ['Raw query method whereRaw() is restricted to approved Query Objects.', 14],
-            ['Raw query method orderByRaw() is restricted to approved Query Objects.', 16],
-            ['Raw query method whereRaw() is restricted to approved Query Objects.', 16],
+            ['Raw query method whereRaw() is restricted to approved Query Objects.', 15],
+            ['Raw query method orderByRaw() is restricted to approved Query Objects.', 17],
+            ['Raw query method whereRaw() is restricted to approved Query Objects.', 17],
         ]);
     }
 

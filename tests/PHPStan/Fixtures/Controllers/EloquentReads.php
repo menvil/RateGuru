@@ -20,6 +20,15 @@ final class EloquentReads
         return $post->loadMissing('user');
     }
 
+    /**
+     * @param  Collection<int, Post>  $posts
+     * @return Collection<int, Post>
+     */
+    public function loadAll(Collection $posts): Collection
+    {
+        return $posts->load('user');
+    }
+
     public function relation(Post $post): Collection
     {
         return $post->comments()->latest()->get();
