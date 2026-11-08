@@ -33,6 +33,31 @@ it('renders active standalone categories in configured order', function () {
         ->assertSee('category%5B0%5D=first', false);
 });
 
+it('marks the open sort and the open category with the accent outline, as the current page', function (string $url, array $current) {
+    Category::factory()->create(['name' => 'First', 'slug' => 'first', 'sort_order' => 10]);
+    Category::factory()->create(['name' => 'Second', 'slug' => 'second', 'sort_order' => 20]);
+
+    $dom = livewireDom($this->get($url)->assertOk()->getContent());
+
+    // The sidebar is drawn twice, in the desktop column and the mobile drawer.
+    $marked = collect($dom->query('//a[@aria-current="page"]'))
+        ->map(fn (DOMElement $link): array => [trim($link->textContent), $link->getAttribute('class')])
+        ->unique(fn (array $link): string => $link[0])
+        ->values();
+
+    expect($marked->pluck(0)->all())->toBe($current);
+
+    $marked->each(fn (array $link) => expect($link[1])->toContain('border-rg-accentBorder')->toContain('bg-rg-accentSoft'));
+
+    collect($dom->query('//nav[@aria-label="'.__('ui.a11y.primary_nav').'"]//a[not(@aria-current)]'))
+        ->each(fn (DOMElement $link) => expect($link->getAttribute('class'))->not->toContain('bg-rg-accentSoft'));
+})->with([
+    'a category' => ['/?category[]=first', ['First']],
+    'a sort' => ['/?sort=top', ['Top']],
+    // Home, and All among the categories: both are the unfiltered feed.
+    'the whole feed' => ['/', ['Home', 'All']],
+]);
+
 it('links top tags through the dedicated tag filter', function () {
     $tag = Tag::factory()->create(['name' => 'Pasta', 'slug' => 'pasta']);
     $post = Post::factory()->published()->create();

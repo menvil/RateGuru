@@ -12,7 +12,8 @@
             <a
                 href="{{ $item['href'] }}"
                 @if($item['testid']) data-testid="{{ $item['testid'] }}" @endif
-                class="{{ $item['active'] ? 'border-rg-border2 bg-rg-card2 text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} flex h-10 items-center gap-3 rounded-rgControl border px-3.5 text-[13.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                @if($item['active']) aria-current="page" @endif
+                class="{{ $item['active'] ? 'border-rg-accentBorder bg-rg-accentSoft text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} flex h-10 items-center gap-3 rounded-rgControl border px-3.5 text-[13.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
                 <x-ui.icon :name="$item['icon']" class="size-4" />
                 {{ $item['label'] }}
@@ -27,7 +28,8 @@
         @foreach ($categories as $category)
             <a
                 href="{{ $category['href'] }}"
-                class="{{ $category['active'] ? 'bg-rg-card2 text-rg-text' : 'text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} block rounded-rgControl px-3.5 py-2 text-[13.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                @if($category['active']) aria-current="page" @endif
+                class="{{ $category['active'] ? 'border-rg-accentBorder bg-rg-accentSoft text-rg-text' : 'border-transparent text-rg-text2 hover:bg-rg-card hover:text-rg-text' }} block rounded-rgControl border px-3.5 py-2 text-[13.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
                 {{ $category['label'] }}
             </a>
