@@ -34,8 +34,8 @@ audit reviews what changed since that tag.
   - 43 bugs and 283 minor issues.
   - 167 claims were invalid and 463 were skipped.
   - Roughly two findings in three needed no change, about the share the bots' earlier reviews of this repository had.
-- **Fixes:** 320 of the 326 bugs and minor issues are fixed in the pull requests below.
-  - One, the lock order of member votes and comments, gets a change of its own.
+- **Fixes:** 321 of the 326 bugs and minor issues are fixed in the pull requests below.
+  - One of them, the lock order of member votes and comments, in a change of its own after the others (#1406).
   - Five were reconsidered against the running code and left as they are, for the reasons given below.
 - **Bugs that mattered most:**
   - **Access and privacy:**
@@ -51,11 +51,12 @@ audit reviews what changed since that tag.
     - post cards on profiles and saved posts that opened nothing with the overlay mode off.
 - **Tooling:** the architecture rules missed common forms of what they forbid, among them nullable receivers and static calls. None of those forms was in `app/`, and PHPStan stayed at 0 errors once the rules caught them.
 
-## Left for a change of its own
+## Fixed in a change of its own
 
-- **Lock order of member votes and comments** (`LocksActorForWrite`). A post vote or comment can deadlock with an operation that locks the same two users the other way round. The fix that orders those locks starts a new deadlock with Content Studio's executor.
-  - The clean fix is one post update per transaction, or notification recipients locked without their key.
-  - Both change the executor's documented lock reasoning, so they need a change of their own.
+- **Lock order of member votes and comments** (`LocksActorForWrite`, #1406). A post vote or comment could deadlock with an operation that locks the same two users the other way round, such as a follow between the post's author and the member.
+  - **Cause:** the write updated the post twice — its counts, then its score — and PostgreSQL checks a row's foreign keys again on its second update in a transaction. That check locked the author's row after the post.
+  - **Fix:** every vote, comment and threshold-crossing report now updates the post once, so no member's write locks the author while it holds the post. A comment notifies the author only after its own transaction has committed.
+  - **Content Studio's executor** no longer works around the second update: a comment's run locks the author like any user row, and a vote's run does not lock the author.
 
 ## Decided after the review
 
@@ -389,7 +390,7 @@ audit reviews what changed since that tag.
 - `16-49` minor, `app/Livewire/Theme/ThemeSwitcher.php` — The mounted theme switchers do not synchronise their selected state when another switcher changes the theme.
 - `17-50` minor, `app/Livewire/Theme/ThemeSwitcher.php` — After a reload, the guest theme switcher highlights System even when Light or Dark is applied.
 
-#### a change of its own
+#### post-author lock order — #1406
 
 - `06-10` minor, `app/Models/Concerns/LocksActorForWrite.php` — Member votes/comments lock Actor -> Post and then implicitly take a KEY SHARE lock on the post author's row, out of the documented order, so they can deadlock with two-user operations that lock the author first.
 

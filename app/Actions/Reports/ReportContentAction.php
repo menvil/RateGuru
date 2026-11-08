@@ -146,14 +146,6 @@ final class ReportContentAction
 
                 if ($content instanceof Post) {
                     $this->refreshPostReportsCount($content);
-
-                    // Re-read post-recount state; may be null if the post was
-                    // deleted concurrently, in which case there is nothing to flag.
-                    $freshPost = $content->fresh();
-
-                    if ($freshPost !== null) {
-                        $this->flagPostForReviewIfThresholdReached($freshPost);
-                    }
                 }
 
                 if ($content instanceof Comment) {
@@ -257,7 +249,7 @@ final class ReportContentAction
     private function recountReports(Model $content): void
     {
         DB::transaction(function () use ($content) {
-            $content->newQueryWithoutScopes()
+            $locked = $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
                 ->lockForUpdate()
                 ->first();
@@ -269,24 +261,34 @@ final class ReportContentAction
 
             $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
-                ->update(['reports_count' => $count]);
+                ->update([
+                    'reports_count' => $count,
+                    // A post's flag for review in the same update: a second
+                    // update of the post in this transaction would have
+                    // PostgreSQL check its foreign keys, locking its author's
+                    // `users` row after the post, out of the lock order
+                    // (docs/architecture/user-lifecycle.md).
+                    ...($locked instanceof Post ? $this->reviewFlag($locked, $count) : []),
+                ]);
         });
     }
 
-    private function flagPostForReviewIfThresholdReached(Post $post): void
+    /**
+     * The flag for review a post's reports raise: once they reach the
+     * threshold, on a post not flagged already.
+     *
+     * @return array<string, mixed>
+     */
+    private function reviewFlag(Post $post, int $reports): array
     {
-        if ($post->reports_count < self::POST_REVIEW_REPORT_THRESHOLD) {
-            return;
+        if ($reports < self::POST_REVIEW_REPORT_THRESHOLD || $post->needs_review) {
+            return [];
         }
 
-        if ($post->needs_review) {
-            return;
-        }
-
-        $post->forceFill([
+        return [
             'needs_review' => true,
             'flagged_at' => now(),
             'flagged_reason' => 'reports_threshold',
-        ])->save();
+        ];
     }
 }

@@ -16,6 +16,19 @@ final class RecalculatePostScoreAction
     {
         $post->refresh();
 
+        return $this->saveWithCounts($post);
+    }
+
+    /**
+     * The post's score from the counts it holds — counts a caller holding the
+     * post's lock has just filled in among them — saved with them in one
+     * update. A second update of a post in one transaction would have
+     * PostgreSQL check the post's foreign keys, locking its author's `users`
+     * row after the post, out of the lock order
+     * (docs/architecture/user-lifecycle.md).
+     */
+    public function saveWithCounts(Post $post): float
+    {
         $score = $this->calculator->calculate(
             upvotes: (int) $post->upvotes_count,
             downvotes: (int) $post->downvotes_count,

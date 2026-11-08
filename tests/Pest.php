@@ -13367,9 +13367,11 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
  *   of a photo (`release`), a vote cast (`vote`), a rating option written
- *   (`option`), a user's row written (`user`), a Persona's
- *   profile written (`profile`), a discussion generation claimed by its job
- *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
+ *   (`option`), a user's row written (`user`), a Persona's profile written
+ *   (`profile`), a discussion generation claimed by its job (`claim`), a post
+ *   or a comment written (`post`, `comment`), a comment deleted, hidden or
+ *   restored (`comment-change`) or a report filed (`report`) with its
+ *   transaction still open, or — for an executor — the moment
  *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
@@ -13477,8 +13479,12 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
                 // A comment written, its transaction still open.
                 'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
+                // A comment deleted, hidden or restored, its transaction still open.
+                'comment-change' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?comments"?\s/i', $sql) === 1,
                 // A vote cast — on a post, on a comment, or for a rating option — its transaction still open.
                 'vote' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?(post|comment|rating)_votes"?\s/i', $sql) === 1,
+                // A report filed, its transaction still open.
+                'report' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?reports"?\s/i', $sql) === 1,
                 // A rating option written — archived or deleted, say — its transaction still open.
                 'option' => static fn (string $sql): bool => preg_match('/^\s*(update|delete\s+from)\s+"?rating_options"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
@@ -13614,7 +13620,14 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // A member's own comment on a post, or a moderator hiding a comment.
                 'comment' => app(App\Actions\Comments\AddCommentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
                 'hide-comment' => app(App\Actions\Comments\HideCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
+                // A moderator restoring a hidden comment, or a member deleting their own.
+                'restore-comment' => app(App\Actions\Comments\RestoreCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
+                'delete-comment' => app(App\Actions\Comments\DeleteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment'])),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
+                // A member's report of a post.
+                'report-post' => app(App\Actions\Reports\ReportContentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\ReportReason::Spam),
+                // One user following another.
+                'follow' => app(App\Actions\Follows\FollowAuthorAction::class)->handle($admin, App\Models\User::query()->findOrFail($job['target'])),
                 // A member's own vote on a comment.
                 'vote-comment' => app(App\Actions\Votes\VoteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), App\Enums\VoteType::Up),
                 // An administrator archiving a rating option.

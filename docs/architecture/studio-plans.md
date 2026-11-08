@@ -1501,19 +1501,16 @@ The run has two transaction boundaries:
    the post, still able to receive comments (`canReceiveComments()`); and, for
    a reply, the comment it answers — still there, visible, a comment on this
    post and no reply itself. The post's author may be the commenting Persona
-   itself, answering under its own post: its row is then locked once. On
-   PostgreSQL the post's author's row is locked for an update of no key (`FOR
-   NO KEY UPDATE`), whoever comments: a member's comment or vote on the same
-   post updates the post twice in its own transaction, and PostgreSQL checks
-   that second update's foreign keys with `FOR KEY SHARE` on the author's row
-   while holding the post, which `FOR UPDATE` would block, each side then
-   waiting for the other; a sanction, an anonymization or a notification of
-   the author still takes turns with the run, and `AddCommentAction`'s own lock
-   of its commenter and the notification's only strengthen the lock the run
-   holds. The Persona must still be a
-   Persona able to comment (`canComment()`). The comment is written through
-   `AddCommentAction` with the action's `occurs_at` as its `created_at` and
-   `updated_at` — every lock it takes already held — under
+   itself, answering under its own post: its row is then locked once. A
+   member's comment or vote on the same post never locks the post's author
+   while it holds the post: each writes the post once, its count and its score
+   in one update, and PostgreSQL checks a row's foreign keys — `FOR KEY SHARE`
+   on the author's row — only on a second update of it in one transaction. A
+   member's comment notifies the author only once its own transaction has
+   committed, holding nothing of the post. The Persona must still be a Persona
+   able to comment (`canComment()`). The comment is written through
+   `AddCommentAction` with the action's `occurs_at` as its `created_at`
+   and `updated_at` — every lock it takes already held — under
    `Post::withoutTimestamps()` and `Comment::withoutTimestamps()`, so the
    post's comment count and score it updates leave the post's dates as they
    are. The action becomes `done` with its comment, and the plan Completed once
@@ -1553,10 +1550,9 @@ them is ever called on a vote already there.
    a comment of another post is never voted on: the action fails,
    `unexpected_failure`.
 2. **The locks**, in the project's order: the action; the voting Persona's
-   `users` row — and, for a vote on the post, the post's author's too, `FOR NO
-   KEY UPDATE` on PostgreSQL, as a comment's run takes it, since the vote's
-   second update of the post (its counters, then its score) checks that key; the
-   plan, still Running; the post, still able to receive votes
+   `users` row — the post's author's is never needed: `VotePostAction` writes
+   the post's counters and score in one update, which checks none of its keys;
+   the plan, still Running; the post, still able to receive votes
    (`canReceiveVotes()`); and the comment, still visible and not deleted. No
    `post_votes` or `comment_votes` row is locked before them: every member's
    vote takes the voter's row and the post first, so the post held already

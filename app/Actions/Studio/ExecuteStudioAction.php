@@ -44,7 +44,6 @@ use App\Support\Studio\StudioExecutionSwitch;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\DetectsConcurrencyErrors;
 use Illuminate\Database\DetectsLostConnections;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -87,9 +86,9 @@ use Throwable;
  *     `created_at` and `updated_at` (Comment::withoutTimestamps() too);
  *   - a vote: what it is cast on read first — the post its CreatePost wrote,
  *     the comment its CreateComment or CreateReply wrote, a comment of the
- *     plan's own post — then the voting Persona's row, and for a vote on the
- *     post the post's author's too, the plan, the post and the comment; only
- *     then, all of them held, the Persona's vote as it stands (castVote()).
+ *     plan's own post — then the voting Persona's row, the plan, the post and
+ *     the comment; only then, all of them held, the Persona's vote as it
+ *     stands (castVote()).
  *     None there yet: VotePostAction, VoteCommentAction or
  *     VoteRatingOptionAction casts it, their own locks all held already, with
  *     the action's date as the vote's own. The same vote there already: the
@@ -430,7 +429,11 @@ final class ExecuteStudioAction
             throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
         }
 
-        $users = $this->lockActorAndPostAuthor($action->actor_user_id, (int) $postAuthorId);
+        // The post's author too, who PostCommentedNotification goes to: the
+        // notification locks that row again, so no user is first locked
+        // after the post. The two may be one — a post's author answering
+        // under its own post.
+        $users = $this->lockUsersInOrder($action->actor_user_id, (int) $postAuthorId);
         $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
 
         if ($plan === null || $plan->status !== StudioPlanStatus::Running) {
@@ -494,9 +497,7 @@ final class ExecuteStudioAction
      * depends on, done, and what that wrote — the post its CreatePost wrote,
      * or the comment its CreateComment or CreateReply wrote, on the post the
      * plan's own CreatePost wrote. Then the rows, in the project's order: the
-     * voting Persona's — and, for a vote on the post, the post's author's
-     * (lockActorAndPostAuthor()), as the vote's second update of the post
-     * checks its key — the plan, the post, and the comment. Only then is the
+     * voting Persona's, the plan, the post, and the comment. Only then is the
      * Persona's vote read as it stands, under the post's lock every member's
      * vote on it takes first, its own row never locked before them.
      *
@@ -515,15 +516,7 @@ final class ExecuteStudioAction
             throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
         }
 
-        $postAuthorId = Post::withTrashed()->whereKey($postId)->value('user_id');
-
-        if ($postAuthorId === null) {
-            throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
-        }
-
-        $users = $action->type === StudioActionType::VotePost
-            ? $this->lockActorAndPostAuthor($action->actor_user_id, (int) $postAuthorId)
-            : $this->lockUsersInOrder($action->actor_user_id);
+        $users = $this->lockUsersInOrder($action->actor_user_id);
         $plan = StudioPlan::query()->whereKey($action->studio_plan_id)->lockForUpdate()->first();
 
         if ($plan === null || $plan->status !== StudioPlanStatus::Running) {
@@ -536,11 +529,6 @@ final class ExecuteStudioAction
         // Hidden, deleted or no longer published: no vote is cast on it, as none is for a member.
         if ($post === null || ! $post->canReceiveVotes()) {
             throw new StudioActionStoppedException(StudioActionFailure::PostUnavailable);
-        }
-
-        // Its author never changes, so the rows locked are the ones the write needs.
-        if ((int) $post->user_id !== (int) $postAuthorId) {
-            throw new StudioActionStoppedException(StudioActionFailure::UnexpectedFailure);
         }
 
         $vote = match ($action->type) {
@@ -680,52 +668,6 @@ final class ExecuteStudioAction
         }
 
         return $post->result_id;
-    }
-
-    /**
-     * The `users` rows a comment's run — or a vote's on the post — writes
-     * under, in ascending id order, before the plan and the post: the
-     * commenting or voting Persona's, for update, as AddCommentAction and
-     * VotePostAction take it; and the post's author's — who
-     * PostCommentedNotification goes to, whose row the notification locks
-     * again, and whose key a vote's second update of the post checks — so no
-     * user is ever first locked after the post. The two may be one: a post's
-     * author answering under its own post.
-     *
-     * On PostgreSQL the author's row is locked for an update of no key,
-     * whether or not the author is the one commenting: a member's comment or
-     * vote on the same post updates the post twice in its transaction, and
-     * PostgreSQL checks the second update's foreign keys by taking FOR KEY
-     * SHARE on the author's row while it holds the post — which FOR UPDATE
-     * would block, with each side then waiting for the other. FOR NO KEY
-     * UPDATE leaves that check alone, and still takes turns with a sanction,
-     * an anonymization or another notification of the author, all of them FOR
-     * UPDATE; AddCommentAction's own lock of its commenter, and the
-     * notification's, only strengthen the lock this run already holds, at a
-     * moment no member's write of the post can be holding that check. Other
-     * engines check no key on such an update.
-     *
-     * @return Collection<int, User> keyed by id; a row gone is absent
-     */
-    private function lockActorAndPostAuthor(int $actorId, int $authorId): Collection
-    {
-        $locked = new Collection;
-        $ids = array_unique([$actorId, $authorId]);
-        $keyless = (new User)->getConnection()->getDriverName() === 'pgsql';
-        sort($ids);
-
-        foreach ($ids as $id) {
-            $query = User::query()->whereKey($id);
-            $row = ($id === $authorId && $keyless
-                ? $query->lock('for no key update')
-                : $query->lockForUpdate())->first();
-
-            if ($row !== null) {
-                $locked->put($id, $row);
-            }
-        }
-
-        return $locked;
     }
 
     /**
