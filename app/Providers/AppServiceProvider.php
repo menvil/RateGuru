@@ -154,13 +154,6 @@ class AppServiceProvider extends ServiceProvider
         View::composer('layouts.partials.app-sidebar-content', function ($view): void {
             $locale = app()->getLocale();
             $onFeed = request()->routeIs('feed');
-            $activeCategories = $onFeed ? (array) request('category') : [];
-            $activeTag = $onFeed ? request('tag') : null;
-            $sort = $onFeed ? request('sort') : null;
-            $feed = $onFeed ? request('feed') : null;
-            // Each link changes one part of the feed and keeps the others: a
-            // sort, a category and a tag narrow the feed together.
-            $address = FeedAddress::fromRequest(request());
 
             // Cached as plain arrays, not Eloquent models: the file cache store's
             // serializable_classes=false setting silently corrupts cached objects
@@ -177,6 +170,15 @@ class AppServiceProvider extends ServiceProvider
                     ])
                     ->all();
             });
+
+            // Each link changes one part of the feed and keeps the others: a
+            // sort, a category and a tag narrow the feed together. What is
+            // marked as chosen is the feed as FeedPage reads it.
+            $address = FeedAddress::fromRequest(request(), array_column($sidebarCategories, 'slug'));
+            $activeCategories = $address->part('category') ?? [];
+            $activeTag = $address->part('tag');
+            $sort = $address->part('sort');
+            $feed = $address->part('feed');
 
             $categories = [
                 [

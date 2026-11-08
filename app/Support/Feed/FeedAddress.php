@@ -3,7 +3,6 @@
 namespace App\Support\Feed;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 
 /**
  * Addresses of the feed that change one part of the feed a visitor is on — its
@@ -17,16 +16,48 @@ use Illuminate\Support\Arr;
  */
 final class FeedAddress
 {
-    /** The query parameters the feed reads (App\Livewire\Feed\FeedPage). */
-    private const PARTS = ['search', 'tag', 'category', 'ratings', 'sort', 'feed'];
+    /** The sorts App\Livewire\Feed\FeedPage knows; any other falls back to its default. */
+    private const SORTS = ['newest', 'top', 'hot'];
 
     /** @param  array<string, mixed>  $current */
     public function __construct(private readonly array $current) {}
 
-    /** The feed the request shows, or, anywhere but the feed, nothing to keep. */
-    public static function fromRequest(Request $request): self
+    /**
+     * The feed the request shows, as App\Livewire\Feed\FeedPage reads it: a
+     * part the feed ignores — a sort it does not know, a list where one value
+     * belongs, a category that is not active, a guest's following feed — is
+     * left out, so it is neither kept nor shown as chosen. Anywhere but the
+     * feed there is nothing to keep.
+     *
+     * @param  list<string>  $categorySlugs  the active categories
+     */
+    public static function fromRequest(Request $request, array $categorySlugs): self
     {
-        return new self($request->routeIs('feed') ? Arr::only($request->query(), self::PARTS) : []);
+        if (! $request->routeIs('feed')) {
+            return new self([]);
+        }
+
+        $text = fn (string $name): ?string => is_string($value = $request->query($name)) ? $value : null;
+        $sort = $text('sort');
+        $ratings = $request->query('ratings');
+
+        return new self([
+            'search' => $text('search'),
+            'tag' => $text('tag'),
+            'category' => array_values(array_intersect(
+                array_filter((array) $request->query('category'), 'is_string'),
+                $categorySlugs,
+            )),
+            'ratings' => is_array($ratings) ? $ratings : null,
+            'sort' => in_array($sort, self::SORTS, true) ? $sort : null,
+            'feed' => $text('feed') === 'following' && $request->user() !== null ? 'following' : null,
+        ]);
+    }
+
+    /** One part of the feed as kept, or null when the feed does not have it. */
+    public function part(string $name): mixed
+    {
+        return $this->current[$name] ?? null;
     }
 
     /**

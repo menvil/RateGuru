@@ -84,3 +84,24 @@ it('narrows the feed by a sort, a tag and a category together, each choice keepi
     $page->assertSee('Lentil soup')
         ->assertDontSee('Pasta salad');
 });
+
+it('keeps only the parts the feed reads when a post’s tag is followed, by mouse or by keyboard', function () {
+    $pasta = Tag::factory()->create(['slug' => 'pasta']);
+    $carbonara = Post::factory()->published()->create(['title' => 'Carbonara']);
+    $carbonara->tags()->attach($pasta);
+    $link = "[data-post-id=\"{$carbonara->id}\"] [data-testid=\"post-tag-link\"]";
+
+    $page = visit(route('feed', ['sort' => 'top', 'utm_source' => 'mail', 'search' => '']));
+
+    $page->click($link);
+    waitForScript($page, feedQueryPart('tag'), 'pasta');
+    expect($page->script('location.search'))->toBe('?sort=top&tag=pasta');
+
+    // A redraw puts the link's fresh-feed address back while it has the
+    // focus; Enter still follows it with the rest of the feed.
+    $page = visit(route('feed', ['sort' => 'hot']));
+    $page->script("(() => { const link = document.querySelector('{$link}'); link.focus(); link.setAttribute('href', '/?tag=pasta'); return true })()");
+    $page->keys($link, 'Enter');
+    waitForScript($page, feedQueryPart('tag'), 'pasta');
+    expect($page->script(feedQueryPart('sort')))->toBe('hot');
+});

@@ -82,7 +82,21 @@ it('marks the open sort, category and tag with the accent outline, as the curren
     'a category' => ['/?category[]=first', ['Home', 'First']],
     'a tag' => ['/?tag=pasta', ['Home', 'All', '#pasta']],
     'all three' => ['/?sort=hot&category[]=second&tag=pasta', ['Hot', 'Second', '#pasta']],
+    // What the feed ignores is not shown as chosen: it shows its default.
+    'an unknown sort' => ['/?sort=bogus', ['Home', 'All']],
+    'a list for a sort' => ['/?sort[]=top', ['Home', 'All']],
+    'a guest’s following feed' => ['/?feed=following', ['Home', 'All']],
+    'an inactive category' => ['/?category[]=missing', ['Home', 'All']],
 ]);
+
+it('keeps only what the feed reads when a sidebar link keeps the rest of the feed', function () {
+    Category::factory()->create(['name' => 'First', 'slug' => 'first', 'sort_order' => 10]);
+
+    $links = sidebarFeedLinks($this->get('/?sort[]=top&category[]=missing&tag=pasta&utm_source=mail&search=')->assertOk()->getContent());
+
+    expect($links['First'])->toEqual(['category' => ['first'], 'tag' => 'pasta'])
+        ->and($links['Top'])->toEqual(['sort' => 'top', 'tag' => 'pasta']);
+});
 
 it('changes one part of the feed from each sidebar link and keeps the others', function () {
     Category::factory()->create(['name' => 'First', 'slug' => 'first', 'sort_order' => 10]);
