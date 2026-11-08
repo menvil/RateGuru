@@ -1,0 +1,49 @@
+app/Actions/Counters/RecalculatePostCountersAction.php
+  s_0f80700cf0b8c6::t_69710a75a70c50 63
+  s_0f80700cf0b8c6::t_8d07aea3611bb6 29-33,36-62
+app/Actions/Comments/Concerns/RefreshesPostCommentsCount.php
+  s_0f80700cf0b8c6::t_1e62348283083b 30,34-36
+tests/Pest.php
+  s_0f80700cf0b8c6::t_a5e2d8fc997db0 13370-13373
+  s_0f80700cf0b8c6::t_3bfbc5f6dfcad1 13483-13484,13621-13624
+app/Actions/Studio/ExecuteStudioAction.php
+  s_0f80700cf0b8c6::t_8cfcdd11941329 89-91,432-436,500,519
+tests/Feature/Actions/ExecuteStudioVoteActionTest.php
+  s_0f80700cf0b8c6::t_98819bcea7cb40 556
+  s_0f80700cf0b8c6::t_1aa0c3b6dc9c80 578-579
+app/Actions/Reports/ReportContentAction.php
+  s_0f80700cf0b8c6::t_4658cc59595b75 252,264-272,276-282,284-285,288,292
+docs/architecture/studio-plans.md
+  s_0f80700cf0b8c6::t_dec5ed41af7e4b 1504-1508,1551-1553
+  s_0f80700cf0b8c6::t_a2fde244f1f6c8 1509
+  s_0f80700cf0b8c6::t_41d98b4f73caf7 1510-1511
+app/Actions/Ranking/RecalculatePostScoreAction.php
+  s_0f80700cf0b8c6::t_8d07aea3611bb6 19-31
+docs/architecture/content-studio-phase-0.md
+  s_0f80700cf0b8c6::t_7c9084bf262ac1 1548-1549
+  s_0f80700cf0b8c6::t_e08cd29d425077 1330-1333,1547
+tests/Feature/Concurrency/PostAuthorLockOrderTest.php
+  ai_agent 1-135
+app/Actions/Votes/VotePostAction.php
+  s_0f80700cf0b8c6::t_1e62348283083b 106-110
+tests/Feature/Actions/ExecuteStudioDiscussionActionTest.php
+  s_0f80700cf0b8c6::t_1aa0c3b6dc9c80 523
+tests/Feature/Concurrency/StudioExecutorRaceTest.php
+  s_0f80700cf0b8c6::t_1aa0c3b6dc9c80 536,596
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ea207e5c2e2edeb6d11ef11e280c311e7b018325",
+  "prompts": {},
+  "sessions": {
+    "s_0f80700cf0b8c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c487690-cbdd-45b4-bfb3-e59a0da356a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
