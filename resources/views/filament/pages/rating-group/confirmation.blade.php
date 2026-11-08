@@ -95,7 +95,9 @@
                     <h3 class="rg-admin-section-label__text">To activate it</h3>
                 </div>
                 <ul class="rg-admin-dialog-facts">
-                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="minus" :size="16" />Deactivate or archive another option first{{ $canRaise ? ', or' : '.' }}</li>
+                    {{-- As many as it takes to leave room for one more: one at the maximum, more above it. --}}
+                    @php($toFree = $active - $group->max_options + 1)
+                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="minus" :size="16" />Deactivate or archive {{ $toFree === 1 ? 'another option' : $toFree.' other options' }} first{{ $canRaise ? ', or' : '.' }}</li>
                     @if ($canRaise)
                         <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="plus" :size="16" />raise the maximum to {{ $active + 1 }}. Voters will see one more choice.</li>
                     @endif

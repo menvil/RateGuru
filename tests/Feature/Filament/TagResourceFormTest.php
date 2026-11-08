@@ -179,4 +179,12 @@ it('warns that links break only when the slug a save stores differs, a blank one
     // Blank with a new name, or typed anew: the slug changes.
     editedTagDraft($tag, 'Night Market', '')->assertSee('Feed links filtered by “street-food” stop working once you save.');
     editedTagDraft($tag, 'Street Food', 'street-eats')->assertSee('Feed links filtered by “street-food” stop working once you save.');
+
+    // The same slug with spaces around it: the save trims them, so nothing breaks.
+    editedTagDraft($tag, 'Street Food', ' street-food ')
+        ->assertDontSee('stop working once you save')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($tag->fresh()->slug)->toBe('street-food');
 });

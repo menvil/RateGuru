@@ -283,6 +283,31 @@ it('keeps the drafts a switch was to drop when the switch then fails', function 
         ->and(translationScreen($page))->toMatchArray(['search' => "?locale={$this->target}"]);
 });
 
+it('takes no typing while it switches language, which the new language would drop', function () {
+    [$dogs, $cats] = [($this->unit)($this->dogs), ($this->unit)($this->cats)];
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    typeTranslation($page, $dogs, 'Собаки');
+
+    // The switch's answer held: the screen is still this language's until it comes.
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.hold = true');
+
+    openTranslationTargetList($page);
+    $page->click("[role=option][data-value=\"{$this->other}\"]");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Keep editing');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-translation-center').getAttribute('aria-busy')", 'true');
+
+    $readOnly = fn (string $unit): mixed => $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').readOnly");
+
+    expect($readOnly($cats))->toBeTrue()
+        ->and($readOnly($dogs))->toBeTrue();
+
+    $page->script('window.releaseLivewire()');
+    waitForTranslationTarget($page, $this->other);
+});
+
 it('arms no further reading of the progress once the screen is gone', function () {
     $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
 

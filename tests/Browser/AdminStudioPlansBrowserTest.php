@@ -236,6 +236,10 @@ it('steps a time with seconds onto the minute, as setting it does', function () 
     $page->script("document.querySelector('{$dialog} button[aria-label=\"Hour later\"]').click()");
 
     waitForScript($page, "Alpine.\$data(document.querySelector('{$dialog}')).draft % 60000", 0);
+
+    // An hour on, the seconds gone, not the hour kept.
+    $page->click("{$dialog} .rg-admin-button--primary");
+    waitForScript($page, "document.querySelector('#rg-admin-studio-publish-at .rg-admin-date-time__value').textContent.trim()", 'Mon 06 May 2019 · 08:08');
 });
 
 it('opens a draft\'s editor from the list', function () {

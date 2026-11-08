@@ -74,6 +74,25 @@ it('keeps every column where the window is narrower, and opens the chain over th
     waitForScript($page, "document.getElementById('rg-admin-report-panel') === null");
 })->with([1024, 768, 390]);
 
+it('closes the chain on Escape once its confirmation is dismissed, before the page has heard so', function () {
+    $page = visitAdminEditor('/admin/reports?report='.$this->first->id, 768);
+    waitForScript($page, "document.getElementById('rg-admin-report-panel-title')?.textContent.trim()", "Report #{$this->first->id}");
+
+    $page->click('.rg-admin-reports__panel button[wire\\:click="askToHideTarget"]');
+    waitForScript($page, "document.querySelector('.rg-admin-dialog')?.checkVisibility() ?? false");
+
+    // The dismissal's answer held: the dialog is hidden but still in the page.
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.hold = true');
+    $page->click('.rg-admin-dialog button[aria-label="Close"]');
+    waitForScript($page, "document.querySelector('.rg-admin-dialog')?.checkVisibility() ?? true", false);
+
+    $page->keys(':root', 'Escape');
+    $page->script('window.releaseLivewire()');
+
+    waitForScript($page, "document.getElementById('rg-admin-report-panel') === null");
+});
+
 it('steps through reports with J and K', function () {
     $page = openReportChain($this->first->id);
 

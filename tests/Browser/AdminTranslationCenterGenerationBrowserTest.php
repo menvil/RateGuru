@@ -397,6 +397,44 @@ it('holds the rows it saves read-only until Save all answers, so nothing typed m
     waitForScript($page, "{$field}.readOnly", false);
 });
 
+it('keeps a row read-only while Save all is on its way, though the row\'s own save answered first', function () {
+    Queue::fake();
+    $dogs = ($this->unit)($this->dogs);
+    useScriptedTranslationProvider(ScriptedTranslationProvider::translating());
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+    generateMissingInPage($page);
+    runTranslationGenerationJobsAndPoll($page);
+    eventually(fn () => expect(translationAiState($page, $dogs)['state'])->toBe(['AI suggestion · not saved']), 8);
+
+    // The row's save and Save all, each answering only when told to.
+    $page->script(<<<'JS'
+        (() => {
+            const data = Alpine.$data(document.querySelector('.rg-admin-translation-center'))
+            const wire = data.server()
+            const held = { saveGenerated: 'rgAnswerRow', saveAllGenerated: 'rgAnswerSaveAll' }
+            data.server = () => new Proxy(wire, { get: (target, key) => held[key]
+                ? () => new Promise((resolve) => (window[held[key]] = resolve))
+                : target[key] })
+        })()
+    JS);
+    clickRowButton($page, $dogs, 'Save');
+    waitForScript($page, 'typeof window.rgAnswerRow', 'function');
+    $page->script("[...document.querySelectorAll('.rg-admin-translation-center__actions button')].find((button) => button.innerText.trim().startsWith('Save all generated')).click()");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Cancel');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+    waitForScript($page, 'typeof window.rgAnswerSaveAll', 'function');
+
+    $field = "document.querySelector('[data-unit=\"{$dogs}\"] input, [data-unit=\"{$dogs}\"] textarea')";
+
+    // The row's own save answers first: Save all, still out, holds the row.
+    $page->script("window.rgAnswerRow({ saved: false, error: 'Not saved.' })");
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('Not saved.'));
+    expect($page->script("{$field}.readOnly"))->toBeTrue();
+
+    $page->script("window.rgAnswerSaveAll({ saved: false, error: 'Nothing saved.' })");
+    waitForScript($page, "{$field}.readOnly", false);
+});
+
 it('keeps every draft when the server cannot be reached, and catches up once it can', function () {
     Queue::fake();
     $dogs = ($this->unit)($this->dogs);

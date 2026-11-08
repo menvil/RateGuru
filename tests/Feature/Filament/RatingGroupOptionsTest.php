@@ -173,6 +173,7 @@ it('raises the maximum and activates an option in one step, while one more is al
         ->call('activateOption', $inactive->id)
         ->assertSet('confirming', 'above-max')
         ->assertSeeHtml('Vibe already has 4 active options, the maximum allowed.')
+        ->assertSeeHtml('Deactivate or archive another option first')
         ->assertSeeHtml('Raise maximum to 5 and activate')
         ->call('raiseMaximumAndActivate', $inactive->id)
         ->assertDispatched('rg-admin-toast', message: "Maximum raised to 5 · {$inactive->label} activated")
@@ -192,8 +193,27 @@ it('names both the active options and the maximum when the group already has mor
         ->call('activateOption', end($options)->id)
         ->assertSet('confirming', 'above-max')
         ->assertSeeHtml('Vibe already has 5 active options, more than its maximum of 3.')
-        ->assertDontSeeHtml('the maximum allowed');
+        ->assertDontSeeHtml('the maximum allowed')
+        // Room for one more takes three fewer, not one.
+        ->assertSeeHtml('Deactivate or archive 3 other options first')
+        ->assertDontSeeHtml('another option first');
 });
+
+it('drops a limit\'s explanation once another administrator has moved the limit', function (string $confirming) {
+    [$group, $options] = $confirming === 'above-max' ? optionsGroup(3, max: 3, inactive: 1) : optionsGroup(2, min: 2);
+
+    $page = $confirming === 'above-max'
+        ? optionsEditor($group)->call('activateOption', end($options)->id)
+        : optionsEditor($group)->call('deactivateOption', $options[0]->id);
+
+    $page->assertSet('confirming', $confirming);
+
+    $group->update($confirming === 'above-max' ? ['max_options' => 5] : ['min_options' => 1]);
+
+    $page->call('$refresh')
+        ->assertSet('confirming', null)
+        ->assertDontSeeHtml('id="rg-admin-rating-group-confirm"');
+})->with(['above-max', 'below-min']);
 
 it('offers no higher maximum past the most a group allows', function () {
     [$group, $options] = optionsGroup(RatingGroup::MOST_OPTIONS, max: RatingGroup::MOST_OPTIONS, inactive: 1);

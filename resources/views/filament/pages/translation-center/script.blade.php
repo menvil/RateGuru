@@ -71,8 +71,10 @@
                     // attempt tells a suggestion that arrives after its row was discarded from one that is awaited.
                     // persisted marks the untouched background suggestion the server holds; bulk, the batch a
                     // row's draft came from, kept after an edit so the server's copy can be let go later.
+                    // saving counts the saves of the row on their way: its own and a Save all can overlap,
+                    // and the row stays read-only until the last of them answers.
                     this.units[unit.id] = {
-                        ...unit, value: unit.stored, error: null, saving: false, ai: false, generating: false, generatedAt: null, attempt: 0,
+                        ...unit, value: unit.stored, error: null, saving: 0, ai: false, generating: false, generatedAt: null, attempt: 0,
                         persisted: false, bulk: null, bulkPending: false, bulkIssue: null,
                     }
                     this.order.push(unit.id)
@@ -422,7 +424,7 @@
                     return this.saveGeneratedRow(id, next, after)
                 }
 
-                unit.saving = true
+                unit.saving++
 
                 try {
                     result = await this.server().save(id, this.locale, unit.value)
@@ -430,7 +432,7 @@
                     result = null
                 }
 
-                unit.saving = false
+                unit.saving--
 
                 if (! result?.saved) {
                     unit.error = result?.error ?? 'Not saved: the server did not answer. Try again.'
@@ -735,7 +737,7 @@
                 this.generationBusy = true
                 this.announce(`Saving ${this.figure(units.length)} generated ${this.label} translations…`)
                 // Read-only while they are saved: a draft typed meanwhile would be written over.
-                units.forEach((id) => (this.units[id].saving = true))
+                units.forEach((id) => this.units[id].saving++)
 
                 try {
                     result = await this.server().saveAllGenerated(this.locale, batch, units)
@@ -743,7 +745,7 @@
                     result = null
                 }
 
-                units.forEach((id) => (this.units[id].saving = false))
+                units.forEach((id) => this.units[id].saving--)
                 this.generationBusy = false
 
                 if (! result?.saved) {
@@ -768,7 +770,7 @@
                 const unit = this.units[id]
                 let result = null
 
-                unit.saving = true
+                unit.saving++
 
                 try {
                     result = await this.server().saveGenerated(this.locale, unit.bulk, id)
@@ -776,7 +778,7 @@
                     result = null
                 }
 
-                unit.saving = false
+                unit.saving--
 
                 if (! result?.saved) {
                     this.toast(result?.error ?? 'Not saved: the server did not answer. Try again.', 'error')
