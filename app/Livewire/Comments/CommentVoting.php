@@ -81,7 +81,15 @@ final class CommentVoting extends Component
             $this->error = $e->getMessage();
 
             if ($e->isGuest()) {
-                $this->openAuthModal();
+                // The guest refusal comes before the comment's own checks.
+                // Signing in cannot make a hidden comment, or one on a post
+                // that is gone, votable again: that is the answer then, as a
+                // member gets it, not the sign-in dialog.
+                if ($comment->canReceiveVotes() && $comment->post?->canReceiveVotes() === true) {
+                    $this->openAuthModal();
+                } else {
+                    $this->error = CannotVoteCommentException::becauseCommentIsNotVisible()->getMessage();
+                }
             }
 
             return;

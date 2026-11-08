@@ -349,6 +349,9 @@ it('opens in login mode over the post\'s page when a guest votes on one of its c
         ->assertSee('Lovely plating')
         ->assertMissing(AUTH_MODAL);
 
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
     // From the rendered comment thread to the dialog: the refusal travels as
     // the comment's own answer, and the dialog opens over the same page.
     $page->click('[data-testid="comment-voting"]:visible button[aria-label="'.__('ui.a11y.vote_up').'"]');
@@ -356,7 +359,12 @@ it('opens in login mode over the post\'s page when a guest votes on one of its c
     waitForScript($page, AUTH_MODAL_SHOWN);
     $page->assertVisible(LOGIN_PANEL)
         ->assertSeeIn('@comment-voting-error', __('ui.voting.errors.guest_comment'))
-        ->assertPathIs(route('posts.show', $post, absolute: false));
+        ->assertPathIs(route('posts.show', $post, absolute: false))
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    // Signing in comes back to this post.
+    expect($page->script('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value'))
+        ->toBe(route('posts.show', $post, absolute: false));
 
     expect(CommentVote::query()->count())->toBe(0);
 });

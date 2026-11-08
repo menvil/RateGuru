@@ -36,9 +36,11 @@ vote for a post or a rating option that is no longer there gets that answer
 instead of the dialog, since signing in cannot bring it back.
 
 The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
-best-effort and limited: one visitor address writes at most 30 attempts a
-minute, then one line saying it was cut off, and nothing more until the
-minute is over. A failure to write it never changes the refusal.
+best-effort and normally limited: one visitor address writes at most 30
+attempts a minute, then one line saying it was cut off, and nothing more
+until the minute is over. The limit is counted in the cache, and fails open:
+while the cache cannot be reached, every attempt is written. A failure to
+write the log never changes the refusal.
 
 ## Three states, no tabs
 

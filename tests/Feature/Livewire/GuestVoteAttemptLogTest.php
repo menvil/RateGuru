@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Exceptions\Observability\SecurityLogUnavailableException;
@@ -131,21 +132,55 @@ it('answers a guest\'s vote for a post that is gone with that, not the sign-in d
     expect(guestVoteAttempts($log))->toHaveCount(1);
 });
 
-it('answers a guest\'s vote for a rating option that is gone with that, not the sign-in dialog, and still records it', function () {
+it('answers a guest\'s vote for a rating option that is gone with that, not the sign-in dialog, and still records it', function (array $stale) {
     $log = fakeSecurityLog();
     $post = Post::factory()->published()->create();
     $group = RatingGroup::factory()->create(['key' => 'type']);
     RatingOption::factory()->for($group, 'group')->create();
-    // Switched off while the guest's page still shows its button.
-    $stale = RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
+    // Taken away while the guest's page still shows its button; archived
+    // counts as inactive whatever its flag says.
+    $option = RatingOption::factory()->for($group, 'group')->create($stale);
 
     Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
-        ->call('vote', $stale->id)
+        ->call('vote', $option->id)
         ->assertSet('error', __('ui.voting.option_unavailable'))
         ->assertNotDispatched('open-auth-modal');
 
     expect(guestVoteAttempts($log))->toHaveCount(1);
+})->with([
+    'switched off' => [['is_active' => false]],
+    'archived' => [['is_active' => true, 'archived_at' => now()]],
+]);
+
+it('answers a guest\'s rating vote on a post hidden since the page was drawn with that, not the sign-in dialog', function () {
+    $log = fakeSecurityLog();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $option = RatingOption::factory()->for($group, 'group')->create();
+    $voting = Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type']);
+    $post->update(['status' => PostStatus::Hidden]);
+
+    $voting->call('vote', $option->id)
+        ->assertSet('error', __('ui.post.unavailable'))
+        ->assertNotDispatched('open-auth-modal');
+
+    expect(guestVoteAttempts($log))->toHaveCount(1);
 });
+
+it('answers a guest\'s vote for a comment that cannot take votes with that, not the sign-in dialog', function (Closure $comment) {
+    $log = fakeSecurityLog();
+    $comment = $comment();
+
+    Livewire::test(CommentVoting::class, ['commentId' => $comment->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.errors.comment_not_visible'))
+        ->assertNotDispatched('open-auth-modal');
+
+    expect(guestVoteAttempts($log))->toHaveCount(1);
+})->with([
+    'a hidden comment' => [fn () => Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Hidden])],
+    'a comment on a hidden post' => [fn () => Comment::factory()->for(Post::factory()->hidden(), 'post')->create()],
+]);
 
 it('records nothing when a signed-in account votes', function () {
     $log = fakeSecurityLog();

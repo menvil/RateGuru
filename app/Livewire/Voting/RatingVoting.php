@@ -85,7 +85,7 @@ class RatingVoting extends Component
 
             // Signing in cannot bring back a post or an option that is gone:
             // that is the answer then, as a member gets it, not the dialog.
-            if ($this->post === null) {
+            if ($this->post === null || ! $this->post->canReceiveRatingVotes()) {
                 $this->error = __('ui.post.unavailable');
 
                 return;
@@ -133,10 +133,16 @@ class RatingVoting extends Component
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 
-    /** The option asked for, while it is still one of this group's active options. */
+    /**
+     * The option asked for, while it is still one of this group's active
+     * options; archived counts as inactive whatever its flag says, as
+     * VoteRatingOptionAction counts it.
+     */
     private function activeOption(RatingConfigurationManager $configuration, int $optionId): ?RatingOption
     {
-        return $configuration->activeGroupByKey($this->groupKey)?->options->firstWhere('id', $optionId);
+        return $configuration->activeGroupByKey($this->groupKey)?->options
+            ->whereNull('archived_at')
+            ->firstWhere('id', $optionId);
     }
 
     public function render(
