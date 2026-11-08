@@ -522,7 +522,9 @@ jobs:
       # leg before a test ran. Each source is held to the same checksum before
       # its bytes are kept, and the package once more before dpkg sees it, so
       # a second source widens only where the bytes come from, never what they
-      # may be.
+      # may be. An attempt that stalls — under 50 kB/s for half a minute — is
+      # cut short, while a slow but steady one has three minutes for the
+      # package's 32 MB; a source that refuses at once is asked again for two.
       - name: Cache the rclone package
         uses: actions/cache@v6
         with:
@@ -530,7 +532,7 @@ jobs:
           key: rclone-${{ env.RCLONE_VERSION }}-${{ env.RCLONE_DEB_SHA256 }}
 
       - name: Install rclone
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: |
           set -Eeuo pipefail
           package="${HOME}/.cache/rclone-package/rclone-${RCLONE_VERSION}-linux-amd64.deb"
@@ -544,7 +546,8 @@ jobs:
             for source in \
               "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb" \
               "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-amd64.deb"; do
-              if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 --max-time 60 --retry-max-time 120 \
+              if curl -fsSL --retry 3 --retry-all-errors --retry-max-time 120 --connect-timeout 15 \
+                  --speed-limit 50000 --speed-time 30 --max-time 180 \
                   -o "${package}.part" "${source}" && pinned "${package}.part"; then
                 mv "${package}.part" "${package}"
                 echo "rclone ${RCLONE_VERSION} from ${source}"
