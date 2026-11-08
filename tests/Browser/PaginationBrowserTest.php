@@ -7,7 +7,8 @@ use App\Models\Post;
  */
 
 it('takes the reader to the top of the next page, not to the foot of it', function () {
-    Post::factory()->count(13)->published()->create();
+    // One more than a page, whatever a page is here.
+    Post::factory()->count(config('feed.default_per_page') + 1)->published()->create();
     $page = visit(route('feed'))->resize(1440, 900);
 
     $page->script('window.scrollTo(0, document.documentElement.scrollHeight)');
@@ -15,5 +16,7 @@ it('takes the reader to the top of the next page, not to the foot of it', functi
 
     $page->click('[aria-label="'.__('ui.pagination.next').'"]');
 
-    waitForScript($page, "document.querySelectorAll('[data-testid=\"post-card\"]').length === 1 && window.scrollY === 0");
+    // The next page drawn, and then the reader at its top: each its own failure.
+    waitForScript($page, "document.querySelectorAll('[data-testid=\"post-card\"]').length === 1");
+    waitForScript($page, 'window.scrollY === 0');
 });

@@ -11,9 +11,11 @@
     @if($post)
         <article
             x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false, menuId: $id('post-drawer-menu') }"
-            {{-- The open menu takes Escape first, wherever the focus is — Safari leaves it on
-                 the panel after a click — and the panel stays open: as a dialog over it does. --}}
-            x-on:keydown.escape.window.capture="if (menuOpen) { menuOpen = false; $event.stopPropagation() }"
+            {{-- The open menu takes Escape before the panel, wherever the focus is — Safari leaves
+                 it on the panel after a click — and the panel stays open: as a dialog over it does.
+                 Heard on the document, after the window: a dialog opened from the menu (Report)
+                 takes that Escape on the window first and stops it there, leaving the menu open. --}}
+            x-on:keydown.escape.document.capture="if (menuOpen) { menuOpen = false; $event.stopPropagation() }"
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
             class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >

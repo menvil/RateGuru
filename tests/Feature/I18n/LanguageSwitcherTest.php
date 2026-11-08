@@ -62,9 +62,15 @@ it('shows the flags a little larger than the text beside them, in the trigger an
     }
 });
 
-it('tells assistive technology the switcher opens a menu, and whether it is open', function () {
-    $this->get(route('feed'))
-        ->assertSee('data-testid="locale-switcher-trigger"', false)
-        ->assertSee('aria-haspopup="true"', false)
-        ->assertSee('x-bind:aria-expanded="open.toString()"', false);
+it('tells assistive technology whether the switcher is open, on its button, without calling its list a menu', function () {
+    $triggers = livewireDom($this->get(route('feed'))->assertOk()->getContent())
+        ->query("//*[@data-testid='locale-switcher-trigger']");
+
+    expect($triggers->length)->toBeGreaterThan(0);
+
+    foreach ($triggers as $trigger) {
+        // A list of buttons, opened and closed: not a menu, which would promise arrow keys it has not.
+        expect($trigger->getAttribute('x-bind:aria-expanded'))->toBe('open.toString()')
+            ->and($trigger->hasAttribute('aria-haspopup'))->toBeFalse();
+    }
 });

@@ -17,6 +17,9 @@ it('closes the notifications on a click elsewhere and says whether they are open
     $shown = "document.querySelector('[data-testid=\"notifications-dropdown\"]').checkVisibility()";
 
     $page->assertAttribute($bell, 'aria-expanded', 'false');
+    // And which list it opens: the one dropdown with that id.
+    $page->assertAttribute($bell, 'aria-controls', 'notifications-dropdown');
+    $page->assertScript("document.querySelectorAll('#notifications-dropdown').length === 1 && document.getElementById('notifications-dropdown').dataset.testid === 'notifications-dropdown'", true);
 
     $page->click($bell);
     waitForScript($page, $shown);

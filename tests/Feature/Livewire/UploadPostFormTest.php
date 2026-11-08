@@ -7,6 +7,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Posts\PostContentRules;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +47,9 @@ it('renders the upload form fields, loading state and image preview for an authe
     expect($html)
         ->toContain('wire:loading')
         ->toContain('Uploading')
-        // Switching to the image url tab clears the selected file, here and on the server.
+        // Switching to the image url tab clears the selected file, here and on the server,
+        // and stops one still uploading from arriving after the switch.
+        ->toContain("\$wire.cancelUpload('image')")
         ->toContain("\$wire.set('image', null)")
         ->toContain('x-data')
         ->toContain('previewUrl')
@@ -462,4 +465,37 @@ it('says a picture link is no web address before trying to fetch it', function (
         ->assertSet('submitError', null);
 
     expect(Post::query()->exists())->toBeFalse();
-})->with(['a typo' => ['not a url'], 'another scheme' => ['ftp://example.com/dish.jpg']]);
+})->with([
+    'a typo' => ['not a url'],
+    'another scheme' => ['ftp://example.com/dish.jpg'],
+    'a link too long' => [fn (): string => 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 19)],
+]);
+
+it('tries a picture link as long as a link may be', function () {
+    $link = 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 20);
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldReceive('download')->once()->with($link)->andThrow(new RuntimeException('unreachable'));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', $link)
+        ->call('submit')
+        ->assertHasNoErrors(['importedImageUrl'])
+        ->assertSet('submitError', __('import.errors.fetch_failed'));
+});
+
+it('asks for a picture, not a fetch, when the link field was emptied', function () {
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldNotReceive('download');
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', '')
+        ->call('submit')
+        ->assertHasErrors(['image' => 'required'])
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->exists())->toBeFalse();
+});

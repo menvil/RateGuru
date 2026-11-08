@@ -14,6 +14,9 @@
     x-on:post-selected.window="selected = $event.detail.postId === {{ $post->exists ? $post->id : 'null' }}"
     x-on:clear-selected-post.window="selected = false"
     x-bind:class="{ 'border-rg-accent shadow-rgSelected': selected, 'border-rg-border': ! selected }"
+    {{-- Said, not only shown: a screen reader moving among the cards hears which post is open. --}}
+    :aria-current="$selected ? 'true' : null"
+    x-bind:aria-current="selected ? 'true' : null"
     x-on:post-vote-error.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = $event.detail.message"
     x-on:post-voted.window="if ($event.detail.postId === {{ $post->exists ? $post->id : 'null' }}) postVoteError = ''"
     x-on:keydown.escape.window="postMenuOpen = false"

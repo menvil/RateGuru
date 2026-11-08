@@ -94,7 +94,8 @@ final class UploadPostForm extends Component
         // either way.
         $importedTempFile = null;
 
-        if ($this->importedImageUrl !== null && $this->image === null) {
+        // A link field emptied is no link: the picture is then simply missing.
+        if (filled($this->importedImageUrl) && $this->image === null) {
             // The link is the client's to set: nothing is fetched for an
             // account that may not post, whatever it sends.
             if (! auth()->user()?->can('create', Post::class)) {

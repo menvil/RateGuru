@@ -55,3 +55,22 @@ it('shows the last of several pages, not the first', function () {
         ->test(SavedPostsPage::class)
         ->assertSet('paginators.page', 2);
 });
+
+it('shows the last page of a profile\'s saved posts asked for a page past it', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+    $owner = User::factory()->create(['username' => 'saving_owner']);
+    // A page more than the twelve the tab shows at once; the oldest save is alone on the second.
+    Post::factory()->count(13)->published()->create()
+        ->each(fn (Post $post, int $order) => PostSave::factory()->create([
+            'user_id' => $owner->id,
+            'post_id' => $post->id,
+            'created_at' => now()->subMinutes(13 - $order),
+        ]));
+    $last = PostSave::query()->oldest()->first()->post;
+
+    Livewire::actingAs($owner)
+        ->withQueryParams(['tab' => 'saved', 'page' => 9])
+        ->test(ProfilePage::class, ['username' => 'saving_owner'])
+        ->assertSet('paginators.page', 2)
+        ->assertSee($last->title);
+});

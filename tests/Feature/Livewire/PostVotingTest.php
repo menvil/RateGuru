@@ -231,7 +231,8 @@ it('calls vote action when up button is clicked', function () {
     Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id])
         ->call('vote', VoteType::Up->value)
-        ->assertDispatched('post-voted');
+        // Named by its post, which is how the post's card knows the vote is its own and clears its error.
+        ->assertDispatched('post-voted', postId: $post->id);
 
     $this->assertDatabaseHas('post_votes', [
         'user_id' => $user->id,

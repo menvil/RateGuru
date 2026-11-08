@@ -281,7 +281,8 @@ it('keeps the focus in the open panel', function () {
 });
 
 it('scrolls the detail to the comments from its comments button without the feed jumping to the card', function () {
-    Post::factory()->count(8)->published()->create();
+    // Long enough that the comments start below the detail column's fold.
+    Post::factory()->count(8)->published()->create(['description' => str_repeat('A description long enough to push the comments down. ', 60)]);
     $page = visit(route('feed'))->resize(1440, 900);
 
     // The top card, so the page scrolled down has somewhere to jump back to.
@@ -294,10 +295,38 @@ it('scrolls the detail to the comments from its comments button without the feed
     waitForScript($page, 'window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1');
     $scrolled = $page->script('window.scrollY');
 
+    $commentsInView = <<<'JS'
+        (() => {
+            const column = document.querySelector('[data-testid="post-detail-column"]');
+            const top = column.querySelector('[data-testid="drawer-comments-slot"]').getBoundingClientRect().top - column.getBoundingClientRect().top;
+
+            return top >= 0 && top < column.clientHeight;
+        })()
+    JS;
+    $page->assertScript($commentsInView, false);
+
     $page->script("document.querySelector('[data-testid=\"post-detail-column\"] [data-testid=\"post-drawer-comments\"]').click()");
+    waitForScript($page, $commentsInView);
     proveNothingHappensFor($page, 0.6, 'the feed scrolling back to the card');
 
     expect($page->script('window.scrollY'))->toBe($scrolled);
+});
+
+it('closes on a phone from a post that is gone, its close button the only way out', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post deleted while the feed was open']);
+    $page = visit(route('feed'))->resize(...MobileViewports::MOBILE);
+    waitForPostDetailOverlay($page);
+    $post->delete();
+
+    $page->click('[data-testid="post-card"][data-post-id="'.$post->id.'"]');
+    $close = '[data-testid="post-detail-overlay"] [data-testid="post-detail-close"]';
+    waitForScript($page, "!! document.querySelector('{$close}')?.checkVisibility()");
+
+    $page->click($close);
+
+    waitForScript($page, OVERLAY_OPEN, false);
+    waitForScript($page, "document.documentElement.classList.contains('overflow-hidden')", false);
+    waitForScript($page, "document.querySelector('[data-testid=\"post-card\"][data-post-id=\"{$post->id}\"]').classList.contains('border-rg-accent')", false);
 });
 
 it('gives the page its scroll back when the window widens past the phone\'s panel', function () {
@@ -332,4 +361,53 @@ it('closes only its open menu on Escape, wherever the focus is, as Safari leaves
 
     waitForScript($page, $menuShown, false);
     $page->assertScript(OVERLAY_OPEN, true);
+});
+
+it('lets the report dialog opened from its menu take Escape, leaving the menu open', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['post_detail_overlay_mode' => true]]);
+    $post = Post::factory()->published()->create(['title' => 'A post to report']);
+    actingAs(User::factory()->create());
+    $page = visit(route('feed'))->resize(1440, 900);
+
+    openPostInOverlay($page, $post);
+    $page->click('[data-testid="post-detail-overlay"] button[aria-label="'.__('ui.a11y.post_actions').'"]');
+    $menuShown = "document.querySelector('[data-testid=\"post-detail-overlay\"] [data-testid=\"post-drawer-menu\"]').checkVisibility()";
+    waitForScript($page, $menuShown);
+
+    $page->click('[data-testid="post-detail-overlay"] [data-testid="post-drawer-menu"] [data-testid="report-button"]');
+    $reportShown = "document.querySelector('[data-testid=\"post-detail-overlay\"] [data-testid=\"report-modal\"]').checkVisibility()";
+    waitForScript($page, $reportShown);
+
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, $reportShown, false);
+    $page->assertScript($menuShown, true);
+    $page->assertScript(OVERLAY_OPEN, true);
+
+    // The next Escape is the menu's, and the panel stays.
+    $page->keys(':focus', 'Escape');
+    waitForScript($page, $menuShown, false);
+    $page->assertScript(OVERLAY_OPEN, true);
+});
+
+it('keeps the post open beside the feed when a card\'s menu is closed with Escape', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['post_detail_overlay_mode' => false]]);
+    $open = Post::factory()->published()->create(['title' => 'The post open beside the feed', 'published_at' => now()]);
+    $other = Post::factory()->published()->create(['title' => 'Another post with a menu', 'published_at' => now()->subHour()]);
+    actingAs(User::factory()->create());
+    $page = visit(route('feed'))->resize(1440, 900);
+
+    $page->click('[data-testid="post-card"][data-post-id="'.$open->id.'"]');
+    $shownBeside = "(document.querySelector('[data-testid=\"post-detail-column\"]')?.textContent ?? '').includes('The post open beside the feed')";
+    waitForScript($page, $shownBeside);
+
+    $menu = '[data-testid="post-actions-menu-'.$other->id.'"]';
+    $menuShown = "getComputedStyle(document.querySelector('{$menu}').nextElementSibling).display !== 'none'";
+    $page->click($menu);
+    waitForScript($page, $menuShown);
+    $page->keys($menu, 'Escape');
+    waitForScript($page, $menuShown, false);
+
+    proveNothingHappensFor($page, 0.5, 'the Escape closing the post beside the feed');
+    $page->assertScript($shownBeside, true);
+    $page->assertScript("document.querySelector('[data-testid=\"post-card\"][data-post-id=\"{$open->id}\"]').getAttribute('aria-current')", 'true');
 });

@@ -197,6 +197,17 @@ it('renders feed card vote error placeholder below footer actions', function () 
         ->toContain('postVoteError');
 });
 
+it('says which card is the post open in the drawer, not only shows it', function (bool $selected) {
+    $post = Post::factory()->published()->create();
+
+    $card = livewireDom(Blade::render('<x-feed.post-card :post="$post" :selected="$selected" />', ['post' => $post, 'selected' => $selected]))
+        ->query("//*[@data-testid='post-card']")->item(0);
+
+    expect($card->getAttribute('aria-current'))->toBe($selected ? 'true' : '')
+        // Kept true to the selection as it changes, without the list being drawn again.
+        ->and($card->getAttribute('x-bind:aria-current'))->toBe("selected ? 'true' : null");
+})->with(['the open post' => true, 'another post' => false]);
+
 it('clears its vote error once a vote on its post goes through', function () {
     $post = Post::factory()->published()->create();
 

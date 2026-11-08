@@ -98,6 +98,8 @@
                         previewUrl = null;
                         fileName = null;
                         $refs.image.value = '';
+                        {{-- A file still on its way is stopped too: arriving after the switch, it would be posted instead of the link's. --}}
+                        $wire.cancelUpload('image');
                         $wire.set('image', null);
                     "
                     data-testid="image-tab-url"

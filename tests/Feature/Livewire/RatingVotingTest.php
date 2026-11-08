@@ -89,6 +89,23 @@ it('marks the answer a member gave in a two-answer group, whichever side it is o
         ->and($marked->item(0)->getElementsByTagName('svg')->length)->toBe(1);
 })->with(['first', 'second']);
 
+it('marks the answer a member gave among three or more by more than its colour', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    $options = collect(['First answer', 'Second answer', 'Third answer'])
+        ->map(fn (string $label, int $order) => RatingOption::factory()->for($group, 'group')->create(['label' => $label, 'sort_order' => $order]));
+
+    RatingVote::factory()->for($user)->for($post)->for($group, 'group')->for($options[1], 'option')->create();
+
+    $marked = livewireDom(Livewire::actingAs($user)->test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type']))
+        ->query('//*[@aria-current="true"]');
+
+    expect($marked->length)->toBe(1)
+        ->and(trim($marked->item(0)->textContent))->toBe('Second answer')
+        ->and($marked->item(0)->getElementsByTagName('svg')->length)->toBe(1);
+});
+
 it('renders nothing for a missing or inactive rating group', function (string $groupKey) {
     $post = Post::factory()->published()->create();
 

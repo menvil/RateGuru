@@ -95,11 +95,15 @@
                     class="flex flex-col gap-1"
                 >
                     <div class="flex items-center justify-between gap-2">
+                        {{-- The answer this person gave is marked as in a two-answer group, not by its colour alone. --}}
                         <span @class([
-                            'truncate text-sm font-medium',
+                            'inline-flex min-w-0 items-center gap-1 text-sm font-medium',
                             'text-rg-accent' => $active,
                             'text-rg-text2'  => ! $active,
-                        ])>{{ $option->translatedLabel() }}</span>
+                        ]) @if($active) aria-current="true" @endif>
+                            <span class="truncate">{{ $option->translatedLabel() }}</span>
+                            @if($active)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                        </span>
                         <span class="shrink-0 text-xs text-rg-muted">{{ $pct }}% &middot; {{ trans_choice('ui.voting.votes_count', $cnt) }}</span>
                     </div>
                     <div class="h-1.5 w-full overflow-hidden rounded-rgPill bg-rg-card2">
