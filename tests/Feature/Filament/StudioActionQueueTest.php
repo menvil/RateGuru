@@ -86,7 +86,8 @@ it('says what a finished action wrote is gone only for an action that writes som
 
 it('marks as late only an action that ran more than an hour after its time', function (StudioActionStatus $status, string $finished, bool $late) {
     StudioAction::factory()->create([
-        'studio_plan_id' => StudioPlan::factory()->status(StudioPlanStatus::Running)->create()->id,
+        // Approved before its time, so the time is what it is measured from.
+        'studio_plan_id' => StudioPlan::factory()->status(StudioPlanStatus::Running)->create(['approved_at' => '2026-10-19 12:00:00'])->id,
         'status' => $status,
         'occurs_at' => '2026-10-20 12:00:00',
         'run_after' => '2026-10-20 12:00:00',
