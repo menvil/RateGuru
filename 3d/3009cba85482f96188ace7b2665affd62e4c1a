@@ -1,0 +1,48 @@
+app/Actions/Games/ApplyGameTrafficAction.php
+  s_4b9dc6ab6b25d3::t_c49164b1031a1e 1-79
+app/Models/GameVersion.php
+  s_4b9dc6ab6b25d3::t_2f46bf15c5d383 13,121-124
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_3fe673b8a17709 11706-11768
+app/Actions/Games/PublishGameVersionAction.php
+  s_4b9dc6ab6b25d3::t_c49164b1031a1e 1-125
+resources/views/filament/pages/game-traffic.blade.php
+  s_4b9dc6ab6b25d3::t_3fe673b8a17709 1-86
+app/Actions/Games/Concerns/AppliesTrafficShares.php
+  s_4b9dc6ab6b25d3::t_c987613e787764 34,36-37,39
+  s_4b9dc6ab6b25d3::t_c49164b1031a1e 1-33,35,38,40-62
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_e4bdb06dc63d37 83
+  s_4b9dc6ab6b25d3::t_8472c5a870f265 1-82,84-191
+resources/views/filament/pages/game-versions.blade.php
+  s_4b9dc6ab6b25d3::t_3fe673b8a17709 1-85,87-148
+  s_4b9dc6ab6b25d3::t_39d8b19b21539c 86
+tests/Feature/Games/Admin/GameVersionsTrafficPageTest.php
+  s_4b9dc6ab6b25d3::t_39d8b19b21539c 1-70
+app/Actions/Games/ChangeGameVersionAction.php
+  s_4b9dc6ab6b25d3::t_c49164b1031a1e 1-72
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_8472c5a870f265 9-10,58-59,106-107
+app/Filament/Resources/Games/Pages/GameVersions.php
+  s_4b9dc6ab6b25d3::t_56ce0c48320c29 20,89,91,177,180-181
+  s_4b9dc6ab6b25d3::t_2f46bf15c5d383 1-19,21-88,90,92-176,178-179,182-203
+tests/Feature/Games/PublishGameVersionActionTest.php
+  s_4b9dc6ab6b25d3::t_eca499927a2861 1-104,106-158
+  s_4b9dc6ab6b25d3::t_06a351b5936f56 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3d3009cba85482f96188ace7b2665affd62e4c1a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
