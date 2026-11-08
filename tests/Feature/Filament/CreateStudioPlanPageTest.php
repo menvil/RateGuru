@@ -1,11 +1,13 @@
 <?php
 
+use App\Actions\Studio\CreateStudioPlanAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Data\Studio\StudioPlanData;
 use App\Enums\MediaKind;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPlanStatus;
 use App\Enums\UserStatus;
+use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Filament\Resources\StudioPlans\Pages\CreateStudioPlan;
 use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanResource;
@@ -139,6 +141,52 @@ it('makes one empty draft for the first photo, stores the photo on it and analys
     Queue::assertPushed(AnalyzeStudioPlanImageJob::class, 1);
 
     $page->assertViewHas('analysisPlanId', $plan->id)->assertViewHas('analysisImageId', $plan->image_asset_id);
+});
+
+it('keeps the first photo on a draft with no author when the persona the page started with can no longer be chosen', function () {
+    Queue::fake();
+    Http::preventStrayRequests();
+
+    $persona = User::factory()->persona()->create();
+    $page = Livewire::test(CreateStudioPlan::class)->assertSet('startAuthorId', $persona->id);
+    $persona->forceFill(['status' => UserStatus::Deleted])->save();
+    // Another one chosen on the page, as the editor asks.
+    $other = studioPersonaWithProfile();
+
+    $page->call('chooseAuthor', $other->id)->assertHasNoErrors()
+        ->upload('photo', [UploadedFile::fake()->image('harbour.jpg', 64, 64)])
+        ->assertHasNoErrors()
+        ->assertSet('startAuthorId', null)
+        ->assertSet('authorUserId', (string) $other->id);
+
+    expect(StudioPlan::query()->sole())
+        ->author_user_id->toBeNull()
+        ->image_asset_id->not->toBeNull();
+});
+
+it('starts from where it did when the authorless draft for a first photo is refused too', function () {
+    $persona = studioPersonaWithProfile();
+    $page = Livewire::test(CreateStudioPlan::class)->assertSet('startAuthorId', $persona->id);
+    $saved = $page->get('saved');
+    // The persona refused first, and then the authorless retry as well.
+    app()->instance(CreateStudioPlanAction::class, new class
+    {
+        public int $calls = 0;
+
+        public function handle(): never
+        {
+            throw $this->calls++ === 0
+                ? CannotManageStudioPlanException::becauseAuthorIsUnavailable()
+                : CannotManageStudioPlanException::becauseUserIsNotAllowed();
+        }
+    });
+
+    $page->upload('photo', [UploadedFile::fake()->image('harbour.jpg', 64, 64)])
+        ->assertSet('startAuthorId', $persona->id)
+        ->assertSet('saved', $saved)
+        ->assertSet('authorUserId', (string) $persona->id);
+
+    expect(StudioPlan::query()->exists())->toBeFalse();
 });
 
 it('goes on with the draft the first photo made: the next photo replaces its photo, and Save draft writes what was typed to it', function () {

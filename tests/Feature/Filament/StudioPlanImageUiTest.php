@@ -351,6 +351,35 @@ it('imports a photo from a direct link without Save, through the safe importer, 
         ->and(MediaAsset::query()->count())->toBe(1);
 });
 
+it('imports a link again after Reload when a draft saved meanwhile refused its photo', function () {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/png'], jpegMarkerBytes(300, 200)),
+        new ImportTransportResponse(200, ['content-type' => 'image/png'], jpegMarkerBytes(300, 200)),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create(['title' => 'Before']);
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id]);
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $plan, new StudioPlanData(title: 'Theirs'), 1);
+
+    // Refused: the browser and the page both forget the address it came from.
+    $page->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertDispatched('rg-studio-import-failed', source: 'link')
+        ->assertSet('importedFrom', '');
+
+    expect($plan->fresh()->image_asset_id)->toBeNull();
+
+    // So after Reload the same address is fetched again, and kept.
+    $page->call('reload')
+        ->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasNoErrors();
+
+    expect($transport->calls)->toHaveCount(2)
+        ->and($plan->fresh()->imageAsset)->width->toBe(300);
+});
+
 it('imports nothing from a link that is no web address', function () {
     $importer = $this->mock(StoreImportedImageAction::class);
     $importer->shouldNotReceive('download');
@@ -384,6 +413,24 @@ it('cleans the imported file up even when the image is refused, says so by the l
     Queue::assertNotPushed(AnalyzeStudioPlanImageJob::class);
 });
 
+it('tries an address that failed again when it is given again, after the source was switched away and back', function () {
+    $importer = $this->mock(StoreImportedImageAction::class);
+    $importer->shouldReceive('download')->twice()->with('https://example.com/photo.jpg')->andThrow(new RuntimeException('Nothing there'));
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageUrl', 'https://example.com/photo.jpg')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl')
+        ->assertDispatched('rg-studio-import-failed', source: 'link')
+        // Switching away and back clears the error, and Try again with it.
+        ->set('imageSource', 'upload')
+        ->set('imageSource', 'link')
+        ->assertHasNoErrors()
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+});
+
 it('says by the link when nothing can be downloaded from it, and tries the same address again on Try again', function () {
     bindFakeHostResolver();
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
@@ -400,8 +447,10 @@ it('says by the link when nothing can be downloaded from it, and tries the same 
 
     expect($plan->fresh()->image_asset_id)->toBeNull();
 
-    // Sent again unchanged, it is not fetched again; Try again fetches it.
-    $page->call('importImage', 'link')->assertHasNoErrors();
+    // Sent again unchanged after it failed, it is tried again, and says so again
+    // rather than clearing the error for nothing; Try again fetches it too.
+    $page->call('importImage', 'link')
+        ->assertHasErrors(['imageUrl' => 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.']);
     $page->set('imageUrl', 'https://example.com/photo.jpg')->call('retryImport')->assertHasNoErrors();
 
     expect($plan->fresh()->imageAsset)->width->toBe(120);
@@ -521,10 +570,10 @@ it('imports a link it kept once more after the photo was removed or replaced by 
 it('forgets in the browser what it sent once a photo is kept or removed, and learns whether there is one', function () {
     expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->create()->id])->html())
         ->toContain('x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: \'\', post: \'\' }; saved = $event.detail.saved"')
-        ->toContain('x-init="saved = false"');
+        ->toMatch('/x-init="\\s*saved = false\\n/');
 
     expect(Livewire::test(EditStudioPlan::class, ['record' => StudioPlan::factory()->withImage()->create()->id])->html())
-        ->toContain('x-init="saved = true"');
+        ->toMatch('/x-init="\\s*saved = true\\n/');
 });
 
 it('keeps the choice of a new photo out of the way while a chosen file is on its way, showing it in place of the photo', function () {
@@ -536,4 +585,26 @@ it('keeps the choice of a new photo out of the way while a chosen file is on its
         // The chosen file's image is the browser's alone, so a redraw never takes its address away.
         ->and($saved)->toMatch('/<img alt="The chosen photo"[^>]*wire:ignore[^>]*x-show="previewing"/')
         ->and($saved)->toMatch('/<img src="[^"]+" alt="Photo for the publication"[^>]*x-ref="kept" x-show="! previewing"/');
+});
+
+it('fetches an address that failed again when it is given again, keeping its error rather than clearing it for nothing', function () {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(404, ['content-type' => 'text/html'], 'gone'),
+        new ImportTransportResponse(404, ['content-type' => 'text/html'], 'gone'),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create();
+
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->set('imageSource', 'link')
+        ->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+
+    $page->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasErrors('imageUrl');
+
+    expect($transport->calls)->toHaveCount(2);
 });

@@ -48,6 +48,8 @@
         const picked = $store.adminEditor?.authorUserId
         if (picked !== undefined && picked !== author) { author = picked; $wire.followAuthor(picked) }
     "
+    {{-- A change that could not be saved is lost on leaving the page, as in the comment votes: asked first. --}}
+    x-on:beforeunload.window="if ($wire.unsaved && ! $store.adminEditor?.leaving) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @if ($gone)
         <x-admin.ui.inline-notice tone="warning">This draft was deleted, so its votes can’t be changed any more.</x-admin.ui.inline-notice>
@@ -81,7 +83,7 @@
                         @endif
                     </div>
 
-                    <x-admin.ui.segmented label="How voters are chosen" :options="['random' => 'Random', 'manual' => 'Choose']" :value="$voterMode" wire:model.live="voterMode" class="rg-admin-studio__discussion-mode" />
+                    <x-admin.ui.segmented label="How voters are chosen" :options="['random' => 'Random', 'manual' => 'Choose']" :value="$voterMode" wire:model.live="voterMode" class="rg-admin-studio__discussion-mode" :disabled="! $editable" />
 
                     @if ($voterMode === 'random')
                         <div class="rg-admin-studio__votes-random">
@@ -93,6 +95,7 @@
                                 :max="$cap"
                                 :unit="'of '.$cap"
                                 :error="$errors->first('voterCount') ?: null"
+                                :disabled="! $editable"
                                 wire:model.live.debounce.250ms="voterCount"
                             />
                             <x-admin.ui.button size="sm" icon="shuffle" :disabled="! $editable" wire:click="redraw">Pick others</x-admin.ui.button>
@@ -286,8 +289,8 @@
                             </div>
                             @if ($postOn)
                                 <div class="rg-admin-studio__votes-steppers">
-                                    <x-admin.ui.number-stepper label="Up votes" id="rg-admin-votes-up" :value="$up" :min="0" :max="$cap" :error="$errors->first('up') ?: null" wire:model.live.debounce.250ms="up" />
-                                    <x-admin.ui.number-stepper label="Down votes" id="rg-admin-votes-down" :value="$down" :min="0" :max="$cap" :error="$errors->first('down') ?: null" wire:model.live.debounce.250ms="down" />
+                                    <x-admin.ui.number-stepper label="Up votes" id="rg-admin-votes-up" :value="$up" :min="0" :max="$cap" :error="$errors->first('up') ?: null" :disabled="! $editable" wire:model.live.debounce.250ms="up" />
+                                    <x-admin.ui.number-stepper label="Down votes" id="rg-admin-votes-down" :value="$down" :min="0" :max="$cap" :error="$errors->first('down') ?: null" :disabled="! $editable" wire:model.live.debounce.250ms="down" />
                                     <div class="rg-admin-studio__votes-score">
                                         <span class="rg-admin-studio__persona-name">Score {{ $score >= 0 ? '+' : '' }}{{ $score }} · {{ $postTotal > 0 ? (int) round($up / $postTotal * 100) : 0 }}% up</span>
                                         <span class="rg-admin-studio__muted">{{ $postTotal }} of {{ $voters }} post voters · {{ $postTotal }} different personas</span>
@@ -328,7 +331,9 @@
                                             <x-admin.ui.badge :tone="$total > 0 ? 'outline' : 'neutral'">{{ $total > 0 ? $total.' '.($total === 1 ? 'answer' : 'answers') : 'No answers' }}</x-admin.ui.badge>
                                         @endif
                                     </div>
-                                    @if (isset($ratings[$question['id']]))
+                                    {{-- An open question made active after the editor was drawn has no entry yet:
+                                         drawn from the zero defaults above, so it can still be answered. --}}
+                                    @if (isset($ratings[$question['id']]) || $question['open'])
                                         <div class="rg-admin-studio__votes-answers">
                                             <x-admin.ui.number-stepper
                                                 label="Answers"
@@ -337,6 +342,7 @@
                                                 :min="0"
                                                 :max="$cap"
                                                 :unit="'of '.$voters"
+                                                :disabled="! $editable || ! $question['open']"
                                                 x-on:change="$wire.setRatingTotal({{ $question['id'] }}, $event.target.value)"
                                             />
                                             <x-admin.ui.button size="sm" wire:click="evenSplit({{ $question['id'] }})" :disabled="! $editable || ! $question['open']">Even split</x-admin.ui.button>

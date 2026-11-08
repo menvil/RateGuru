@@ -92,10 +92,8 @@ final class RequestStudioPostTextGenerationAction
                 throw CannotManageStudioPlanException::becausePlanIsNotDraft();
             }
 
-            if ($locked->image_asset_id === null) {
-                throw CannotRequestStudioPostTextGenerationException::becauseAnalysisIsMissing();
-            }
-
+            // A photo removed since the editor was drawn is a changed photo —
+            // the editor is told to reload, not that the analysis is missing.
             if ($locked->image_asset_id !== $imageAssetId) {
                 throw CannotRequestStudioPostTextGenerationException::becauseImageChanged();
             }

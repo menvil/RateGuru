@@ -8,6 +8,8 @@
     'error' => null,
     'range' => null,
     'unit' => null,
+    // Read-only where nothing may be changed: the field and both buttons.
+    'disabled' => false,
 ])
 
 @php
@@ -75,11 +77,12 @@
                 },
             }"
         >
-            <button type="button" class="rg-admin-stepper__button" aria-label="Decrease {{ $name }}" title="Decrease {{ $name }}" x-on:click="step(-1)">
+            <button type="button" class="rg-admin-stepper__button" aria-label="Decrease {{ $name }}" title="Decrease {{ $name }}" x-on:click="step(-1)" @disabled($disabled)>
                 <x-admin.ui.icon name="minus" :size="14" />
             </button>
             <input
                 id="{{ $id }}"
+                @disabled($disabled)
                 type="text"
                 inputmode="numeric"
                 value="{{ $value }}"
@@ -100,7 +103,7 @@
                 @if ($describedBy !== null) aria-describedby="{{ $describedBy }}" @endif
                 {{ $attributes }}
             />
-            <button type="button" class="rg-admin-stepper__button" aria-label="Increase {{ $name }}" title="Increase {{ $name }}" x-on:click="step(1)">
+            <button type="button" class="rg-admin-stepper__button" aria-label="Increase {{ $name }}" title="Increase {{ $name }}" x-on:click="step(1)" @disabled($disabled)>
                 <x-admin.ui.icon name="plus" :size="14" />
             </button>
         </div>

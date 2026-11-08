@@ -157,6 +157,16 @@ it('deletes a draft from its editor, then shows the list with no link to it', fu
     $this->get(EditStudioPlan::getUrl(['record' => $plan->id]))->assertNotFound();
 });
 
+it('deletes nothing from its editor that was not asked first', function () {
+    $plan = StudioPlan::factory()->create();
+
+    Livewire::test(EditStudioPlan::class, ['record' => $plan->id])
+        ->call('delete')
+        ->assertNoRedirect();
+
+    expect(StudioPlan::query()->find($plan->id))->not->toBeNull();
+});
+
 it('deletes nothing from an editor drawn before somebody else\'s save, and from one whose draft is gone', function () {
     $plan = StudioPlan::factory()->create(['title' => 'Harbour']);
     $stale = Livewire::test(EditStudioPlan::class, ['record' => $plan->id]);

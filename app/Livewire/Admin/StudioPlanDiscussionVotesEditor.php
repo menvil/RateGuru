@@ -336,6 +336,19 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
     }
 
+    /**
+     * One step up or down from the count as it is now — not as the button
+     * last drew it, so two clicks sent before the page redraws make two.
+     */
+    public function stepVotes(mixed $node, mixed $way, mixed $by): void
+    {
+        $node = (int) $node;
+
+        if (isset($this->targets[$node]) && in_array($way, ['up', 'down'], true) && in_array($by, [-1, 1], true)) {
+            $this->setVotes($node, $way, $this->targets[$node][$way] + $by);
+        }
+    }
+
     /** A comment's priority for the automatic share: low, normal or high. */
     public function setPriority(mixed $node, mixed $priority): void
     {
@@ -464,7 +477,11 @@ final class StudioPlanDiscussionVotesEditor extends Component
     /** Chooses every Persona the search shows, or takes them away when all are chosen. */
     public function selectShown(): void
     {
-        $shown = $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->values()->all();
+        // Select all, with no search, is every active Persona — not the
+        // first page of them the list happens to show.
+        $shown = trim($this->voterSearch) === ''
+            ? app(PersonasQuery::class)->activeIds()
+            : $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->values()->all();
 
         $this->voterIds = array_diff($shown, $this->voterIds) === []
             ? array_values(array_diff($this->voterIds, $shown))
@@ -967,7 +984,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
             $this->targets[$node][$way] = $shares[$node] ?? 0;
         }
 
-        $this->tally();
+        $this->tallyWay($way);
     }
 
     /**
@@ -1006,7 +1023,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
             $left -= $step;
         }
 
-        $this->tally();
+        $this->tallyWay($way);
     }
 
     /**
@@ -1025,6 +1042,24 @@ final class StudioPlanDiscussionVotesEditor extends Component
         }
 
         return $priorities;
+    }
+
+    /**
+     * One way's total as the comments' votes add up, the other left alone: a
+     * request can carry both totals, and the other may not have been taken
+     * in yet when this one is.
+     *
+     * @param  'up'|'down'  $way
+     */
+    private function tallyWay(string $way): void
+    {
+        if ($way === 'up') {
+            $this->totalUp = array_sum(array_column($this->targets, 'up'));
+
+            return;
+        }
+
+        $this->totalDown = array_sum(array_column($this->targets, 'down'));
     }
 
     /** The totals as the comments' votes add up. */
@@ -1282,7 +1317,11 @@ final class StudioPlanDiscussionVotesEditor extends Component
         $this->resetErrorBag();
         $this->preview = null;
         $this->drawn = [];
-        $this->previewFor = $this->previewKey();
+        // A refused preview is marked as one, never as made: it is tried
+        // again on the next request, since what it was short of — a Persona
+        // able to vote, say — can come back without the settings changing,
+        // and settings back at the saved votes still clear what it said.
+        $this->previewFor = 'refused '.$this->previewKey();
 
         try {
             $built = app(BuildStudioDiscussionVotesData::class)->handle($plan, $this->settings());
@@ -1296,6 +1335,7 @@ final class StudioPlanDiscussionVotesEditor extends Component
 
         $this->preview = array_map(fn (StudioVoteData $vote): array => $vote->toArray(), $built->votes->votes);
         $this->drawn = $built->voters;
+        $this->previewFor = $this->previewKey();
     }
 
     /** The settings as BuildStudioDiscussionVotesData takes them. */

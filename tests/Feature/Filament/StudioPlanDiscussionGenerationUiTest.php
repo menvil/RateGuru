@@ -14,6 +14,7 @@ use App\Models\Post;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
 use App\Models\StudioPlanDiscussionGeneration;
+use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
 use App\Support\StudioAi\StudioDiscussionContext;
 use Illuminate\Support\Arr;
@@ -256,6 +257,19 @@ it('saves the post first when Generate tree is clicked with it changed, and gene
     Queue::assertPushed(GenerateStudioDiscussionJob::class, 1);
 });
 
+it('generates nothing from a version somebody else saved after the editor was drawn, and shows that version', function () {
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $this->plan->id]);
+
+    // Saved elsewhere meanwhile; this editor has nothing of its own to save.
+    $this->plan->forceFill(['title' => 'Renamed elsewhere', 'lock_version' => $this->plan->lock_version + 1])->save();
+
+    $page->dispatch('save-studio-plan', then: 'generate')
+        ->assertNotDispatched(StudioPlanDiscussionEditor::GENERATE_EVENT)
+        ->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id)
+        ->assertDispatched('rg-admin-toast', message: 'This draft was saved elsewhere meanwhile. It now shows that version; nothing was generated.')
+        ->assertSet('postTitle', 'Renamed elsewhere');
+});
+
 it('asks before a new tree replaces a discussion with comments, and asks for nothing until confirmed', function () {
     savedStudioBranchFixture($this->admin, $this->plan, $this->anna, $this->boris);
 
@@ -354,7 +368,9 @@ it('takes in nothing another page of the plan took in already', function () {
     runStudioDiscussionJob($generation);
     applyStudioDiscussion($this->admin, $this->plan, $generation->fresh());
 
-    $editor->call('check')->assertSet('awaiting', null)->assertSet('lockVersion', 2)->assertSet('conflict', false);
+    $editor->call('check')->assertSet('awaiting', null)->assertSet('lockVersion', 2)->assertSet('conflict', false)
+        // The page's other editors are told the version it took.
+        ->assertDispatched(StudioPlanDiscussionEditor::RELOAD_EVENT, planId: $this->plan->id, current: 2, source: 'discussion');
 
     expect(StudioDiscussionNode::query()->count())->toBe(3);
 });
@@ -744,6 +760,15 @@ it('offers no generation without a saved title, a finished analysis or a configu
     config(['content_studio.image_analysis.enabled' => true]);
     $this->plan->forceFill(['title' => null])->save();
     discussionEditor($this->plan)->assertSee('Save the post’s final title first: the discussion is written from it.');
+});
+
+it('stops waiting for a photo analysis whose worker died, and says to run it again', function () {
+    $this->plan->imageAnalysis()->delete();
+    StudioPlanImageAnalysis::factory()->forPlan($this->plan)->running()->create(['requested_at' => now()->subDay(), 'started_at' => now()->subDay()]);
+
+    discussionEditor($this->plan->fresh())
+        ->assertSee('The photo analysis did not finish. Run it again on the Image step; the discussion is written from it.')
+        ->assertDontSeeHtml('wire:poll');
 });
 
 it('empties the discussion when none is planned, with no request at all', function () {

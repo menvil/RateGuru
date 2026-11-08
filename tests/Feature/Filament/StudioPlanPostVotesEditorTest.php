@@ -9,6 +9,7 @@ use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\CommentVote;
 use App\Models\PostVote;
+use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\StudioAction;
 use App\Models\StudioDiscussionNode;
@@ -216,6 +217,17 @@ it('never chooses the post\'s author, and says why it is listed', function () {
         ->call('selectShown')->assertSet('voterIds', fn (array $ids): bool => ! in_array($this->author->id, $ids, true) && count($ids) === 4);
 });
 
+it('selects every active Persona with Select all, not only the first page the list shows', function () {
+    User::factory()->persona()->count(55)->create();
+    $everyone = array_values(array_diff(app(PersonasQuery::class)->activeIds(), [$this->author->id]));
+
+    expect(count($everyone))->toBeGreaterThan(50);
+
+    postVotesEditor($this->plan)->set('voterMode', 'manual')->call('clearVoters')
+        ->call('selectShown')
+        ->assertSet('voterIds', fn (array $ids): bool => collect($ids)->sort()->values()->all() === collect($everyone)->sort()->values()->all());
+});
+
 it('starts choosing by hand from the voters drawn, so switching changes no vote', function () {
     $editor = votePostUpTwiceDownOnce($this->plan);
     $drawn = $editor->get('drawn');
@@ -301,6 +313,58 @@ it('sets a vote\'s moment by hand, saved at once, the other votes keeping theirs
         ->call('setTiming', 'spread', 21_600)->assertHasNoErrors()->assertSet('postMoments', []);
 
     expect(collect(postVoteMoments($this->plan))->sort()->values()->all())->toBe([300, 7500, 14_700, 21_900]);
+});
+
+it('keeps a moment changed and not saved yet when another vote\'s moment is set', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 3)->assertHasNoErrors();
+    [$first, $second] = array_keys(postVoteMoments($this->plan));
+
+    // More votes than there are Personas: nothing can be saved for now, and
+    // a moment set meanwhile waits on the page with the rest.
+    $editor->set('up', 9)
+        ->call('setMoment', 'post', $first, 9000)
+        ->call('setMoment', 'post', $second, 7200)
+        ->assertSet("postMoments.{$first}", 9000)
+        ->assertSet("postMoments.{$second}", 7200);
+});
+
+it('lays the votes out by a new timing not saved yet, a moment set meanwhile kept alone, not the saved ones back', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 3)->assertHasNoErrors();
+    $first = array_key_first(postVoteMoments($this->plan));
+
+    // A new spread that can't be saved for now: more votes than there are Personas.
+    $editor->set('up', 9)
+        ->call('setTiming', 'spread', 21_600)
+        ->assertSet('postMoments', [])
+        ->call('setMoment', 'post', $first, 9000)
+        ->assertSet('postMoments', [$first => 9000]);
+
+    // Once it can be saved, the votes are spread anew, the one set by hand with them.
+    $editor->set('up', 3)->assertHasNoErrors();
+    $now = postVoteMoments($this->plan);
+
+    expect($now[$first])->toBe(9000)
+        ->and(max(array_diff_key($now, [$first => true])))->toBeLessThanOrEqual(300 + 21_600);
+});
+
+it('says the draft is gone when a moment is set on one deleted meanwhile', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 3)->assertHasNoErrors();
+    $persona = array_key_first(postVoteMoments($this->plan));
+    app(DeleteStudioPlanDraftAction::class)->handle($this->admin, $this->plan->fresh(), $this->plan->fresh()->lock_version);
+
+    $editor->call('setMoment', 'post', $persona, 7200)
+        ->assertSet('gone', true)
+        ->assertDispatched('rg-admin-toast', message: 'This draft was deleted, so its votes can’t be changed any more.', tone: 'error');
+});
+
+it('leaves the answers alone when asked to split them over a question with no option open', function () {
+    postVotesEditor($this->plan)->call('setRatingTotal', $this->group->id, 2)->assertHasNoErrors();
+    $kept = StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->sort()->values()->all();
+    $this->answers->each->update(['is_active' => false, 'archived_at' => now()]);
+
+    postVotesEditor($this->plan)->call('evenSplit', $this->group->id)->assertHasNoErrors();
+
+    expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->sort()->values()->all())->toBe($kept);
 });
 
 it('brings each voter\'s vote and answers in one visit, read back as laid out when opened again', function () {
@@ -492,6 +556,32 @@ it('shows an answer no longer open as such, keeps it as it was, and replaces it 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->pluck('rating_option_id')->unique()->values()->all())->toBe([$this->answers[1]->id]);
 });
 
+it('takes answers for a question or option made active after the editor was drawn', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4);
+    [$newGroup, [$newAnswer]] = votableRatingQuestion(1);
+    $addedOption = RatingOption::factory()->create(['rating_group_id' => $this->group->id]);
+
+    // Drawn again, the new question has its controls: it can be answered from the page.
+    $editor->call('$refresh')->assertSeeHtml('id="rg-admin-votes-answers-'.$newGroup->id.'"');
+
+    $editor->call('setAnswerCount', $newGroup->id, $newAnswer->id, 2)
+        ->call('setAnswerCount', $this->group->id, $addedOption->id, 1)
+        ->assertHasNoErrors();
+
+    expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->where('rating_option_id', $newAnswer->id)->count())->toBe(2)
+        ->and(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->where('rating_option_id', $addedOption->id)->count())->toBe(1);
+});
+
+it('says nothing is unsaved when an option made active after the editor was drawn is only taken in', function (mixed $typed) {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->assertSet('unsaved', false);
+    $addedOption = RatingOption::factory()->create(['rating_group_id' => $this->group->id]);
+
+    $editor->call('$refresh')
+        ->call('setAnswerCount', $this->group->id, $addedOption->id, $typed)
+        ->assertSet("ratings.{$this->group->id}.counts.{$addedOption->id}", 0)
+        ->assertSet('unsaved', false);
+})->with(['not a number' => ['many'], 'none' => [0]]);
+
 it('lets an option no longer open give answers up when typed, never take new ones', function () {
     postVotesEditor($this->plan)->call('setRatingTotal', $this->group->id, 2)
         ->call('moveAnswer', $this->group->id, $this->answers[1]->id, 'down')->assertHasNoErrors();
@@ -551,6 +641,20 @@ it('never puts back the votes of a comment the discussion deleted meanwhile', fu
 
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteComment)->exists())->toBeFalse()
         ->and(savedPostVotes($this->plan))->toHaveCount(3);
+});
+
+it('offers no setting that could be changed on a plan past its Draft', function () {
+    $this->plan->forceFill(['status' => StudioPlanStatus::Approved])->save();
+
+    $html = postVotesEditor($this->plan)->set('postOn', true)->html();
+
+    foreach (['rg-admin-votes-up', 'rg-admin-votes-down', 'rg-admin-votes-voter-count'] as $id) {
+        expect($html)->toMatch('/<input(?=[^>]*\sid="'.$id.'")(?=[^>]*\sdisabled[\s>])/');
+    }
+
+    // The stepper's buttons and the voter mode's options too.
+    expect(preg_match_all('/<button[^>]*aria-label="(?:Increase|Decrease) (?:up votes|down votes|number of personas)"[^>]*\sdisabled[\s>]/i', $html))->toBe(6)
+        ->and(preg_match_all('/<button(?=[^>]*role="radio")(?=[^>]*class="rg-admin-segmented__option")(?=[^>]*\sdisabled[\s>])/', $html))->toBe(2);
 });
 
 it('changes nothing of a plan past its Draft, or deleted', function () {

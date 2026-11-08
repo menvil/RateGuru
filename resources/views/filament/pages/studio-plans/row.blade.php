@@ -36,9 +36,10 @@
                     @endif
                 </span>
                 <div class="rg-admin-table__stack">
-                    <span @class(['rg-admin-table__name', 'rg-admin-table__ellipsis', 'rg-admin-table__none' => $author['problem'] === 'deleted'])>{{ $author['name'] }}</span>
+                    <span @class(['rg-admin-table__name', 'rg-admin-table__ellipsis', 'rg-admin-table__none' => in_array($author['problem'], ['deleted', 'not_persona'], true)])>{{ $author['name'] }}</span>
                     @if ($author['username'] !== null)
-                        <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ '@'.$author['username'] }}@if ($author['problem'] === 'restricted') · {{ $author['status']['label'] }}@endif</span>
+                        {{-- What keeps the plan from approval, as its editor says: a restricted persona, or an account that is no persona now. --}}
+                        <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ '@'.$author['username'] }}@if ($author['problem'] === 'restricted') · {{ $author['status']['label'] }}@elseif ($author['problem'] === 'not_persona') · Not a persona @endif</span>
                     @endif
                 </div>
             </div>
