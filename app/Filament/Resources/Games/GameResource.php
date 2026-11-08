@@ -6,6 +6,8 @@ use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
 use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
+use App\Filament\Resources\Games\Pages\GameTraffic;
+use App\Filament\Resources\Games\Pages\GameVersions;
 use App\Filament\Resources\Games\Pages\ListGames;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Game;
@@ -53,6 +55,8 @@ class GameResource extends Resource
         'general' => ['label' => 'General', 'page' => 'edit'],
         'content' => ['label' => 'Content', 'page' => 'content'],
         'flow' => ['label' => 'Flow', 'page' => 'flow'],
+        'versions' => ['label' => 'Versions', 'page' => 'versions'],
+        'traffic' => ['label' => 'Traffic', 'page' => 'traffic'],
     ];
 
     public static function getNavigationGroup(): ?string
@@ -99,6 +103,8 @@ class GameResource extends Resource
             'edit' => EditGameGeneral::route('/{record}'),
             'content' => EditGameContent::route('/{record}/content'),
             'flow' => EditGameFlow::route('/{record}/flow'),
+            'versions' => GameVersions::route('/{record}/versions'),
+            'traffic' => GameTraffic::route('/{record}/traffic'),
         ];
     }
 

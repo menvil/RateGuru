@@ -11735,4 +11735,67 @@
         border-radius: var(--rg-admin-radius-lg);
         background: var(--rg-admin-surface-sunken);
     }
+
+    /* Growth → Games · Versions and Traffic. */
+    .rg-admin-games__publish {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--rg-admin-space-5);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) var(--rg-admin-space-5);
+    }
+
+    @media (max-width: 1279.98px) {
+        .rg-admin-games__publish {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-games__checks {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-games__check-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__check {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-2);
+        color: var(--rg-admin-red-500);
+    }
+
+    .rg-admin-games__check > span {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-games__check--ok {
+        color: var(--rg-admin-green-500);
+    }
+
+    .rg-admin-games__traffic {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--rg-admin-card-gap);
+    }
+
+    @media (max-width: 1023.98px) {
+        .rg-admin-games__traffic {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-games__share {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 160px auto;
+        align-items: end;
+        gap: var(--rg-admin-space-3);
+    }
 }

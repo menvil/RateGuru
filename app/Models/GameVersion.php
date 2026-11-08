@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
 /**
@@ -115,6 +116,12 @@ class GameVersion extends Model
     public function publishedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'published_by_user_id');
+    }
+
+    /** @return HasMany<GameAttempt, $this> */
+    public function attempts(): HasMany
+    {
+        return $this->hasMany(GameAttempt::class, 'version_id');
     }
 
     /**
