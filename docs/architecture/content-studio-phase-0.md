@@ -2047,18 +2047,18 @@ Personas справочником не блокируется. Поля `City`/`
   Gate (`moderate-content`, `manage-project-settings`, `view-media-diagnostics`). Для
   Content Studio нужны собственные abilities/Gate (администратор; доступ модераторов —
   продуктовое решение).
-- **Макет** — `docs/design/admin/reference/original/RateGuru-Admin.html` (самораспаковывающийся
+- **Макет** — `docs/design/admin/reference/original/RateGuru-Admin-v3.html` (самораспаковывающийся
   бандл, редактировать запрещено, контрольная сумма закреплена
   `tests/Feature/Docs/AdminDesignDocsTest.php`) содержит секцию Content Studio:
   Publications & plans с редактором публикации, Personas с редактором персоны, Reply
-  rules, Reply log, Action queue (`docs/design/admin/design-contract.md:18`). В плане
+  rules, Reply log, Action queue (`docs/design/admin/design-contract.md`, Source of truth). В плане
   миграции (`docs/design/admin/migration-plan.md`) Content Studio не упомянут. Детали
   полей макета, подтверждённые из бандла, перечислены ниже в П10а; что не найдено, не
   домысливается.
 
 ### П10а. Содержимое макета Content Studio
 
-Источник: распакованные ресурсы бандла `RateGuru-Admin.html` (манифест `__bundler/manifest`,
+Источник: распакованные ресурсы бандла `RateGuru-Admin-v3.html` (манифест `__bundler/manifest`,
 gzip+base64). Экраны: `StudioPublications`, `StudioEditor`, `StudioImage`, `StudioTexts`,
 `StudioPostVotes`, `StudioVotes`, `StudioDiscussion`, `StudioPublish`, `StudioPersonas`,
 `PersonaEditor`, `StudioReplyRules`, `StudioReplyLog`, `StudioQueue`; вспомогательные
