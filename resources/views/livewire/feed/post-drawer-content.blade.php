@@ -1,37 +1,30 @@
 @inject('postImagePresenter', \App\Support\Media\PostImagePresenter::class)
 <div data-testid="post-drawer">
     <div wire:loading data-testid="post-drawer-loading" class="space-y-4 transition-opacity duration-200">
-        <x-ui.skeleton shape="block" height="16rem" />
-        <x-ui.skeleton shape="line" width="70%" />
-        <x-ui.skeleton shape="line" width="45%" />
+        {{-- Sizes are classes: the skeleton takes them as such. --}}
+        <x-ui.skeleton shape="block" height="h-64" />
+        <x-ui.skeleton shape="line" width="w-[70%]" />
+        <x-ui.skeleton shape="line" width="w-[45%]" />
     </div>
 
     <div wire:loading.remove class="overflow-y-auto transition-opacity duration-200">
     @if($post)
         <article
             x-data="{ shareOpen: false, menuOpen: false, deleteOpen: false, imageOpen: false, menuId: $id('post-drawer-menu') }"
-            x-on:keydown.escape.window="menuOpen = false"
+            {{-- The open menu takes Escape before the panel, wherever the focus is — Safari leaves
+                 it on the panel after a click — and the panel stays open: as a dialog over it does.
+                 Heard on the document, after the window: a dialog opened from the menu (Report)
+                 takes that Escape on the window first and stops it there, leaving the menu open. --}}
+            x-on:keydown.escape.document.capture="if (menuOpen) { menuOpen = false; $event.stopPropagation() }"
             x-on:dropdown-opened.window="if ($event.detail !== menuId) menuOpen = false"
             class="relative rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5"
         >
-            <button
-                type="button"
-                aria-label="{{ __('ui.a11y.close') }}"
-                data-testid="post-detail-close"
-                @if($asOverlay)
-                    x-on:click="$dispatch('request-close-overlay')"
-                @else
-                    wire:click="$dispatch('clear-selected-post')"
-                @endif
-                class="absolute right-3.5 top-3.5 grid size-8 cursor-pointer place-items-center rounded-rgSm border border-rg-border2 bg-rg-card2 text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
-            >
-                <x-ui.icon name="x" class="size-4" />
-            </button>
+            @include('livewire.feed.post-drawer-close')
 
             <section class="flex min-w-0 items-start gap-3 pr-10" data-testid="post-drawer-meta">
                 @if($post->user?->public_username)
                     <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
+                        <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="lg" />
                     </a>
                 @else
                     <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
@@ -39,7 +32,7 @@
 
                 <div class="min-w-0">
                     @if($post->user?->public_username)
-                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->name }}</a>
+                        <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="block truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none">{{ $post->user->resolved_display_name }}</a>
                     @else
                         <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                     @endif
@@ -55,7 +48,7 @@
                 </div>
 
                 @if($canSeeFollowButton)
-                    <div class="ml-auto shrink-0" data-testid="post-drawer-follow" wire:click.stop wire:keydown.stop>
+                    <div class="ml-auto shrink-0" data-testid="post-drawer-follow" wire:click.stop>
                         <livewire:follows.follow-button :author="$post->user" variant="compact" :key="'post-drawer-follow-'.$post->id" />
                     </div>
                 @endif
@@ -97,7 +90,7 @@
 
             <footer class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rg-border pt-3">
                 <div class="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
-                    <div data-testid="post-drawer-voting" wire:click.stop wire:keydown.stop>
+                    <div data-testid="post-drawer-voting" wire:click.stop>
                         <livewire:posts.post-voting
                             :post-id="$post->id"
                             variant="pill"
@@ -107,13 +100,16 @@
                     @if($projectSettings->featureEnabled('show_comments'))
                     <x-ui.action-button
                         icon="comment"
-                        x-on:click="$dispatch('post-selected', { postId: {{ $post->id }}, focus: 'comments' })"
+                        data-testid="post-drawer-comments"
+                        {{-- Only a scroll to the comments: post-selected would select the post
+                             again, and the feed would scroll back to its card. --}}
+                        x-on:click="$dispatch('post-comments-requested', { postId: {{ $post->id }} })"
                     >
                         {{ $post->comments_count ?? 0 }}
                     </x-ui.action-button>
                     @endif
                     @if($projectSettings->featureEnabled('show_share_buttons'))
-                    <x-ui.action-button icon="share" x-on:click="shareOpen = true">{{ __('ui.share.title') }}</x-ui.action-button>
+                    <x-ui.action-button icon="share" x-on:click="shareOpen = true" data-testid="post-drawer-share">{{ __('ui.share.title') }}</x-ui.action-button>
                     @endif
                     @if($projectSettings->featureEnabled('show_saved_posts'))
                     @auth
@@ -125,7 +121,7 @@
                     @endif
                 </div>
                 @if($canReportPost || $canDeletePost || $canModeratePost)
-                <div class="relative" wire:click.stop wire:keydown.stop>
+                <div class="relative" wire:click.stop>
                     <button
                         type="button"
                         x-on:click="menuOpen = ! menuOpen; if (menuOpen) $dispatch('dropdown-opened', menuId)"
@@ -139,6 +135,7 @@
                         x-cloak
                         x-show="menuOpen"
                         x-on:click.outside="menuOpen = false"
+                        data-testid="post-drawer-menu"
                         class="absolute right-0 top-full z-20 mt-2 w-44 rounded-rgControl border border-rg-border bg-rg-card2 p-1 shadow-rgDropdown"
                     >
                         @if($canReportPost)
@@ -148,7 +145,6 @@
                                     :reportable-id="$post->id"
                                     variant="menu"
                                     :key="'post-drawer-menu-report-'.$post->id"
-                                    wire:lazy
                                 />
                             </div>
                         @endif
@@ -175,7 +171,7 @@
             </footer>
 
             @if($projectSettings->featureEnabled('show_share_buttons'))
-            <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+            <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg" close-on-escape>
                 <x-sharing.share-buttons :post="$post" />
             </x-ui.modal>
             @endif
@@ -184,7 +180,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"
@@ -199,7 +195,7 @@
                 </x-ui.modal>
             @endif
 
-            <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+            <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm" close-on-escape>
                 <div class="space-y-4">
                     <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
@@ -226,7 +222,7 @@
         @if($activeRatingGroups->isNotEmpty())
         <section data-testid="post-detail-results" class="mt-4 min-w-0 space-y-5 rounded-rgCard border border-rg-border bg-rg-card p-3 sm:p-4 lg:p-5">
             @foreach($activeRatingGroups as $ratingGroup)
-                <div class="{{ $loop->first ? '' : 'border-t border-rg-border pt-4' }}" wire:click.stop wire:keydown.stop>
+                <div class="{{ $loop->first ? '' : 'border-t border-rg-border pt-4' }}" wire:click.stop>
                     <livewire:voting.rating-voting
                         :post="$post"
                         :group-key="$ratingGroup->key"
@@ -245,10 +241,14 @@
         </section>
         @endif
     @elseif($postId)
-        <x-ui.error-message
-            :title="__('ui.post.not_found_title')"
-            :message="__('ui.post.not_found_description')"
-        />
+        <div class="relative pt-12">
+            @include('livewire.feed.post-drawer-close')
+
+            <x-ui.error-message
+                :title="__('ui.post.not_found_title')"
+                :message="__('ui.post.not_found_description')"
+            />
+        </div>
     @else
         <x-ui.empty-state
             :title="__('ui.post.select_title')"

@@ -3,8 +3,11 @@
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
+    {{-- novalidate: a hidden address field the browser found wrong would stop the form without
+         a word; the server checks every field and says what is wrong. --}}
     <form
         wire:submit.prevent="submit"
+        novalidate
         data-testid="upload-form"
         class="space-y-4"
         x-data="{
@@ -70,10 +73,17 @@
             <x-input-label :value="__('ui.upload.image')" />
 
             @if($uploadSettings->featureFlag('allow_url_imports'))
+            {{-- Each tab's picture is the only one: changing tabs lets the other tab's go, here and
+                 on the server, so what is shown is what is posted. --}}
             <div class="mt-1 flex gap-1 border-b border-rg-border pb-2">
                 <button
                     type="button"
-                    x-on:click="imageTab = 'file'"
+                    x-on:click="
+                        if (imageTab === 'file') return;
+                        imageTab = 'file';
+                        previewUrl = null;
+                        $wire.importedImageUrl = null;
+                    "
                     data-testid="image-tab-file"
                     :class="imageTab === 'file'
                         ? 'bg-rg-accent text-rg-onAccent'
@@ -82,8 +92,16 @@
                 >{{ __('ui.upload.image_tab_file') }}</button>
                 <button
                     type="button"
-                    x-on:click="imageTab = 'url'"
-                    wire:click="$set('image', null)"
+                    x-on:click="
+                        if (imageTab === 'url') return;
+                        imageTab = 'url';
+                        previewUrl = null;
+                        fileName = null;
+                        $refs.image.value = '';
+                        {{-- A file still on its way is stopped too: arriving after the switch, it would be posted instead of the link's. --}}
+                        $wire.cancelUpload('image');
+                        $wire.set('image', null);
+                    "
                     data-testid="image-tab-url"
                     :class="imageTab === 'url'
                         ? 'bg-rg-accent text-rg-onAccent'
@@ -157,6 +175,9 @@
                     data-testid="upload-image-url-input"
                     x-on:input="previewUrl = $event.target.value || null"
                 />
+                <div data-testid="field-error-image-url">
+                    <x-input-error :messages="$errors->get('importedImageUrl')" />
+                </div>
                 <template x-if="previewUrl && imageTab === 'url'">
                     <img :src="previewUrl" alt="{{ __('ui.upload.url_image_alt') }}" decoding="async" class="max-h-48 w-full rounded-rgMedia object-contain" />
                 </template>
@@ -228,7 +249,12 @@
 
         {{-- Source URL — hidden when image loaded from URL (already captured above) --}}
         @if($uploadSettings->featureFlag('allow_url_imports'))
-        <div x-show="imageTab !== 'url'">
+        {{-- Out of the link tab's way, unless the server found it wrong: then it is shown with what is
+             wrong. Keyed by that, so the answer draws it afresh — a redraw keeps an x-show as it was. --}}
+        <div
+            wire:key="upload-source-{{ $errors->has('sourceUrl') ? 'invalid' : 'valid' }}"
+            x-show="imageTab !== 'url' || @js($errors->has('sourceUrl'))"
+        >
         @endif
             <x-input-label for="source_url" :value="__('ui.upload.source_url')" />
             <x-ui.input

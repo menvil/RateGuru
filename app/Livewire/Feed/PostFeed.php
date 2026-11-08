@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Feed;
 
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Queries\Feed\FeedQuery;
 use App\Support\Feed\PostCardViewerState;
 use App\Support\Rating\RatingConfigurationManager;
@@ -14,6 +15,7 @@ use Livewire\WithPagination;
 
 class PostFeed extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     public ?string $search = null;
@@ -49,14 +51,14 @@ class PostFeed extends Component
         RatingVotingStateLoader $ratingVotingStateLoader,
         PostCardViewerState $viewerState,
     ): View {
-        $paginator = $feedQuery->paginate(
+        $paginator = $this->pageThatExists(fn () => $feedQuery->paginate(
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
             category: $this->category,
             ratingFilters: $this->ratings,
             followedByUserId: $this->followingOnly ? auth()->id() : null,
-        )->onEachSide(1);
+        ))->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();
         $canModerate = Gate::allows('moderate-content');

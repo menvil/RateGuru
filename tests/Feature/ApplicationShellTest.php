@@ -53,6 +53,8 @@ it('renders the PlateRate reference sidebar shell', function () {
 
     expect($html)
         ->toContain('data-testid="app-sidebar"')
+        // As tall as the window below the header, so it scrolls when its categories and tags do not fit.
+        ->toMatch('/<aside data-testid="app-sidebar" class="[^"]*lg:h-\[calc\(100vh-60px\)\] lg:overflow-y-auto/')
         ->toContain('lg:grid-cols-[240px_minmax(0,1fr)]')
         ->toContain('CATEGORIES')
         ->toContain('TOP TAGS')

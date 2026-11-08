@@ -54,7 +54,7 @@
                 <div class="flex min-w-0 items-start gap-3">
                     @if($post->user?->public_username)
                         <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
+                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="lg" />
                         </a>
                     @else
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
@@ -62,7 +62,7 @@
 
                     <div class="min-w-0">
                         @if($post->user?->public_username)
-                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
+                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->resolved_display_name }}</a>
                         @else
                             <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
@@ -163,7 +163,8 @@
                 </div>
 
                 @if($canReportPost || $canDeletePost || $canModeratePost)
-                    <div class="relative" wire:click.stop wire:keydown.stop>
+                    {{-- Its keys stop here, so the menu hears Escape here. --}}
+                    <div class="relative" wire:click.stop wire:keydown.stop x-on:keydown.escape="menuOpen = false">
                         <button
                             type="button"
                             x-on:click="menuOpen = ! menuOpen"
@@ -187,7 +188,6 @@
                                         :reportable-id="$post->id"
                                         variant="menu"
                                         :key="'post-show-report-'.$post->id"
-                                        wire:lazy
                                     />
                                 </div>
                             @endif
@@ -206,7 +206,6 @@
                                 :post-id="$post->id"
                                 variant="menu"
                                 :key="'post-show-moderation-'.$post->id"
-                                wire:lazy
                             />
                         </div>
                     </div>
@@ -237,7 +236,7 @@
             @endif
 
             @if($projectSettings->featureEnabled('show_share_buttons'))
-                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg" close-on-escape>
                     <x-sharing.share-buttons :post="$post" />
                 </x-ui.modal>
             @endif
@@ -246,7 +245,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"
@@ -262,7 +261,7 @@
             @endif
 
             @if($canDeletePost)
-                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm" close-on-escape>
                     <div class="space-y-4">
                         <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 

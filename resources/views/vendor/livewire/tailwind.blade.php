@@ -54,8 +54,10 @@
 @endonce
 
 @php
+// The page goes back to its top for the next one, as Livewire's own pager does;
+// a list that must not scroll passes scrollTo: false.
 if (! isset($scrollTo)) {
-    $scrollTo = false;
+    $scrollTo = 'body';
 }
 $scrollIntoViewJsSnippet = $scrollTo
     ? "(\$el.closest('{$scrollTo}') || document.querySelector('{$scrollTo}')).scrollIntoView()"

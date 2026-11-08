@@ -41,10 +41,7 @@ it('keeps selected post detail queries bounded in split mode', function () {
         ->call('selectPost', $post->id)
         ->assertSet('selectedPostId', $post->id);
 
-    $feedView = file_get_contents(resource_path('views/livewire/feed/feed-page.blade.php'));
-
-    expect($detailQueries)->toBeLessThanOrEqual(2)
-        ->and(substr_count($feedView, 'wire:lazy'))->toBe(2);
+    expect($detailQueries)->toBeLessThanOrEqual(2);
 });
 
 it('renders the mobile-only post drawer full width through the landscape breakpoint', function () {

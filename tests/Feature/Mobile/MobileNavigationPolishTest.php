@@ -2,6 +2,7 @@
 
 use App\Models\Post;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 
 it('lays out the guest mobile header, navigation, search and feed gutters', function () {
     $html = $this->get(route('feed'))
@@ -57,7 +58,9 @@ it('keeps the authenticated upload action and mobile search beside the header ac
 
     expect($html)
         ->toContain('data-testid="header-auth-actions"')
-        ->not->toMatch('/<div(?=[^>]*data-testid="header-auth-actions")(?=[^>]*class="[^"]*ml-auto[^"]*")[^>]*>/s');
+        ->not->toMatch('/<div(?=[^>]*data-testid="header-auth-actions")(?=[^>]*class="[^"]*ml-auto[^"]*")[^>]*>/s')
+        // Its words are hidden on a phone; its name is not.
+        ->toMatch('/<button(?=[^>]*data-testid="open-upload-button")(?=[^>]*aria-label="'.preg_quote(e(app(ProjectSettingsManager::class)->current()->uploadCtaLabel()), '/').'")[^>]*>/s');
 });
 
 it('renders a mobile search submit button and clear controls for active search', function () {

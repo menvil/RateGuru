@@ -58,10 +58,21 @@
         @php($pctA = $total > 0 ? (int) round($cntA / $total * 100) : 0)
         @php($pctB = $total > 0 ? 100 - $pctA : 0)
 
+        {{-- The split keeps its colours, the first answer's share filling the
+             bar; the answer this person gave is marked on its own side. --}}
+        @php($chosenA = (int) $selectedOptionId === (int) $optionA->id)
+        @php($chosenB = (int) $selectedOptionId === (int) $optionB->id)
+
         <div data-testid="{{ $testIdPrefix }}-results">
             <div class="mb-1 flex justify-between">
-                <span class="text-sm font-semibold text-rg-good">{{ $optionA->translatedLabel() }}</span>
-                <span class="text-sm font-semibold text-rg-text2">{{ $optionB->translatedLabel() }}</span>
+                <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-good" @if($chosenA) aria-current="true" @endif>
+                    {{ $optionA->translatedLabel() }}
+                    @if($chosenA)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                </span>
+                <span class="inline-flex items-center gap-1 text-sm font-semibold text-rg-text2" @if($chosenB) aria-current="true" @endif>
+                    @if($chosenB)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                    {{ $optionB->translatedLabel() }}
+                </span>
             </div>
             <div class="mb-1.5 flex justify-between">
                 <span class="whitespace-nowrap text-[18px] font-bold text-rg-good">{{ $pctA }}% ({{ $cntA }})</span>
@@ -84,11 +95,15 @@
                     class="flex flex-col gap-1"
                 >
                     <div class="flex items-center justify-between gap-2">
+                        {{-- The answer this person gave is marked as in a two-answer group, not by its colour alone. --}}
                         <span @class([
-                            'truncate text-sm font-medium',
+                            'inline-flex min-w-0 items-center gap-1 text-sm font-medium',
                             'text-rg-accent' => $active,
                             'text-rg-text2'  => ! $active,
-                        ])>{{ $option->translatedLabel() }}</span>
+                        ]) @if($active) aria-current="true" @endif>
+                            <span class="truncate">{{ $option->translatedLabel() }}</span>
+                            @if($active)<x-ui.icon name="check" class="size-3.5 shrink-0" />@endif
+                        </span>
                         <span class="shrink-0 text-xs text-rg-muted">{{ $pct }}% &middot; {{ trans_choice('ui.voting.votes_count', $cnt) }}</span>
                     </div>
                     <div class="h-1.5 w-full overflow-hidden rounded-rgPill bg-rg-card2">

@@ -94,7 +94,8 @@ final class UploadPostForm extends Component
         // either way.
         $importedTempFile = null;
 
-        if ($this->importedImageUrl !== null && $this->image === null) {
+        // A link field emptied is no link: the picture is then simply missing.
+        if (filled($this->importedImageUrl) && $this->image === null) {
             // The link is the client's to set: nothing is fetched for an
             // account that may not post, whatever it sends.
             if (! auth()->user()?->can('create', Post::class)) {
@@ -102,6 +103,10 @@ final class UploadPostForm extends Component
 
                 return;
             }
+
+            // A link that is no web address is said to be one, not tried and
+            // answered with "could not fetch".
+            $this->validateOnly('importedImageUrl');
 
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
@@ -204,6 +209,7 @@ final class UploadPostForm extends Component
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
+            'importedImageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
             'tagIds' => ['array', 'max:'.PostContentRules::MOST_TAGS],
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryId' => [

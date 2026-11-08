@@ -74,8 +74,10 @@
                             data-testid="header-auth-actions"
                         >
                             @if($projectSettings->featureFlag('allow_user_uploads'))
+                            {{-- Its words are hidden on a phone: the name is said either way. --}}
                             <x-ui.button
                                 data-testid="open-upload-button"
+                                aria-label="{{ $projectSettings->uploadCtaLabel() }}"
                                 x-on:click="open = true; $dispatch('upload-modal-opened')"
                                 elevated
                             >
@@ -288,9 +290,12 @@
                     x-transition:leave-end="opacity-0"
                 ></div>
 
+                {{-- A modal dialog: the focus stays in it while it is open, the page under
+                     it does not scroll, and the focus goes back to the menu button after. --}}
                 <div
                     class="fixed inset-y-0 left-0 flex w-[85vw] flex-col overflow-y-auto border-r border-rg-border bg-rg-sidebar px-4 py-4"
                     data-testid="mobile-nav-panel"
+                    x-trap.noscroll="mobileNavOpen"
                     x-transition:enter="transition ease-out duration-200"
                     x-transition:enter-start="-translate-x-full"
                     x-transition:enter-end="translate-x-0"
@@ -339,7 +344,10 @@
                 </div>
             </div>
 
-            @if($projectSettings->featureFlag('post_detail_overlay_mode', false))
+            {{-- The feed in its split view draws a selected post itself (its detail column, and
+                 its own overlay on a phone); every other page with post cards — a profile, the
+                 saved posts — has only this one, whatever the view mode. --}}
+            @if($projectSettings->featureFlag('post_detail_overlay_mode', false) || ! request()->routeIs('feed'))
                 {{-- Global post detail overlay: shared across the feed, profile, and saved-posts
                      pages so clicking a post always opens the same sliding panel. The backdrop
                      has no Livewire-driven content, so plain window-event Alpine state is safe

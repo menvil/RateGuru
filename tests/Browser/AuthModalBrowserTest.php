@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
@@ -181,6 +182,55 @@ it('closes with the close button, with Escape and with the backdrop', function (
     $page->script('document.elementFromPoint(4, 300).click()');
 
     waitForScript($page, AUTH_MODAL_SHOWN, false);
+});
+
+it('closes with a press on the dimmed page beside the panel, not with one inside it', function () {
+    $page = visit(route('feed'))
+        ->click('[data-testid="header-login-link"]')
+        ->assertVisible(AUTH_MODAL);
+
+    // The box that centres the panel covers the backdrop everywhere but the
+    // dialog's own padding, so it is what a pointer beside the panel meets.
+    $beside = AUTH_MODAL.' div:has(> [data-modal-panel])';
+
+    $page->page()->locator(AUTH_MODAL.' [data-modal-panel] h2')->click();
+
+    $page->assertScript(AUTH_MODAL_SHOWN, true);
+
+    $page->page()->locator($beside)->click(['position' => ['x' => 24, 'y' => 200]]);
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+});
+
+it('takes Escape for itself, leaving the post open under it', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => ['post_detail_overlay_mode' => true],
+    ]);
+    Post::factory()->published()->create(['title' => 'A post under the dialog']);
+
+    $page = visit(route('feed'))
+        ->resize(1440, 900)
+        ->click('[data-testid="post-card"]')
+        ->waitForText('A post under the dialog');
+
+    waitForPostDetailOverlayOpen($page);
+
+    $page->click('[data-testid="header-login-link"]')->assertVisible(AUTH_MODAL);
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+
+    $page->keys('#modal-login-email', 'Escape');
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+
+    $panelOpen = 'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'translate-x-0\')';
+
+    $page->assertScript($panelOpen, true);
+
+    // With the dialog closed, Escape is the post's again.
+    $page->keys('[data-testid="post-detail-overlay"]', 'Escape');
+
+    waitForScript($page, $panelOpen, false);
 });
 
 it('locks the page scroll while it is open and gives it back afterwards', function () {

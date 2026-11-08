@@ -27,7 +27,46 @@
      closed. --}}
     <div class="relative mx-auto h-full w-full max-w-[1440px] overflow-hidden">
         <aside
-            x-data
+            {{-- open: whether the panel is out — every listener below answers only an open
+                 panel, so an Escape or a close meant for another panel changes nothing here.
+                 close() slides it away, gives the page its scroll back, and the focus to
+                 what opened it. --}}
+            x-data="{
+                open: @js((bool) $isOpen),
+                close() {
+                    this.open = false
+                    this.$el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover')
+                    this.$el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none')
+                    this.$el.setAttribute('inert', '')
+                    document.documentElement.classList.remove('overflow-hidden')
+                    this.returnFocusEl?.focus()
+                    this.returnFocusEl = null
+                },
+                {{-- The phone's panel is hidden from the desktop breakpoint up: a window widened
+                     with it open must not keep the page from scrolling. Heard while the panel is
+                     in the page only: a page left with it open does not answer for it later. --}}
+                stopHearingTheWidth: null,
+                init() {
+                    if (! @js($mobileOnly)) return
+
+                    const desktop = window.matchMedia('(min-width: 1024px)')
+                    const widened = (event) => {
+                        if (event.matches && this.open) {
+                            this.close()
+                            this.$wire.closeOverlay()
+                            this.$dispatch('clear-selected-post')
+                        }
+                    }
+
+                    desktop.addEventListener('change', widened)
+                    this.stopHearingTheWidth = () => desktop.removeEventListener('change', widened)
+                },
+                destroy() {
+                    this.stopHearingTheWidth?.()
+                },
+            }"
+            {{-- A dialog, so the focus stays in it while it is out. --}}
+            x-trap.noautofocus="open"
             {{-- Open is flipped client-side the moment the (browser-level) select-post
                  event fires, without waiting for the server round trip. When the open
                  class only arrived with the Livewire morph, the same rendering update
@@ -42,6 +81,7 @@
                 $el.classList.remove('translate-x-full', 'pointer-events-none', 'shadow-none');
                 $el.classList.add('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
                 $el.removeAttribute('inert');
+                open = true;
                 {{-- The mobile overlay hears no selection from the server (PostDrawer::getListeners()):
                      it is told here, so a desktop never loads the post into it. --}}
                 if (@js($mobileOnly)) $wire.setSelectedPost($event.detail.postId, $event.detail.focus ?? null);
@@ -49,7 +89,11 @@
             x-on:post-selected.window="
                 if (@js($mobileOnly) && window.innerWidth >= 1024) return;
                 document.documentElement.classList.add('overflow-hidden');
-                returnFocusEl = document.activeElement;
+                {{-- In the feed both the page and this drawer answer a selection
+                     with post-selected; the second may come in a response of its
+                     own, after the panel took the focus, and must not make the
+                     panel what the focus goes back to. --}}
+                if (! $el.contains(document.activeElement)) returnFocusEl = document.activeElement;
                 $nextTick(() => $el.focus());
                 if (! $event.detail.focus) return;
                 $nextTick(() => {
@@ -65,28 +109,24 @@
                 });
             "
             x-on:request-close-overlay.window="
-                if (@js($mobileOnly) && window.innerWidth >= 1024) return;
-                $el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
-                $el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none');
-                $el.setAttribute('inert', '');
-                document.documentElement.classList.remove('overflow-hidden');
+                if (! open) return;
+                close();
                 $wire.closeOverlay();
                 $dispatch('clear-selected-post');
-                returnFocusEl?.focus();
             "
             {{-- Deletion closes via clear-selected-post directly (no request-close-overlay),
                  since the post is already gone server-side — this still shares the same
                  close styling/transition. Without this listener, deleting a post left the
                  scroll lock stuck, because request-close-overlay (the only other place that
                  removed 'overflow-hidden') never fired. --}}
-            x-on:clear-selected-post.window="
-                $el.classList.remove('translate-x-0', 'pointer-events-auto', 'shadow-rgPopover');
-                $el.classList.add('translate-x-full', 'pointer-events-none', 'shadow-none');
-                $el.setAttribute('inert', '');
-                document.documentElement.classList.remove('overflow-hidden');
-                returnFocusEl?.focus();
+            x-on:clear-selected-post.window="if (open) close()"
+            x-on:post-comments-requested.window="
+                if (! open) return;
+                const comments = $el.querySelector('[data-testid=\'drawer-comments-slot\']');
+                if (comments) $el.scrollTo({ top: comments.offsetTop - 12, behavior: 'smooth' });
             "
-            x-on:keydown.escape.window="$dispatch('request-close-overlay')"
+            {{-- A dialog over the panel takes Escape first (ui/modal close-on-escape). --}}
+            x-on:keydown.escape.window="if (open) $dispatch('request-close-overlay')"
             role="dialog"
             aria-modal="true"
             tabindex="-1"

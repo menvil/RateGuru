@@ -140,3 +140,35 @@ it('says a failed deletion about the post it was for, not the next one opened', 
         ->call('setSelectedPost', $next->id)
         ->assertSet('deleteError', null);
 });
+
+it('sizes the loading skeleton with classes the skeleton takes', function () {
+    $post = Post::factory()->published()->create();
+
+    $shapes = collect(livewireDom(Livewire::test(PostDrawer::class, ['postId' => $post->id]))->query("//*[@data-testid='post-drawer-loading']/*"))
+        ->map(fn (DOMElement $shape): array => explode(' ', $shape->getAttribute('class')));
+
+    // The picture's block, then two lines: each the size it is given, none the full width a lost size falls back to.
+    expect($shapes)->toHaveCount(3)
+        ->and($shapes[0])->toContain('h-64')
+        ->and($shapes[1])->toContain('w-[70%]')->not->toContain('w-full')
+        ->and($shapes[2])->toContain('w-[45%]')->not->toContain('w-full');
+});
+
+it('stops hearing the window\'s width once the phone\'s panel leaves the page', function () {
+    $html = Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])->html();
+
+    // Heard from init() and let go in destroy(): a page left with the panel open does not close it later.
+    expect($html)->toContain("desktop.addEventListener('change', widened)")
+        ->toContain("this.stopHearingTheWidth = () => desktop.removeEventListener('change', widened)")
+        ->toMatch('/destroy\(\) \{\s*this\.stopHearingTheWidth\?\.\(\)/');
+});
+
+it('offers its close button on a post that is gone, the only way out on a phone', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post deleted meanwhile']);
+    $post->delete();
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])
+        ->call('setSelectedPost', $post->id)
+        ->assertSee(__('ui.post.not_found_title'))
+        ->assertSee('data-testid="post-detail-close"', false);
+});
