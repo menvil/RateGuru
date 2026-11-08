@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MediaVariantName;
+use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 
 /*
@@ -37,3 +38,20 @@ it('makes a fitted variant in its asset\'s shape, no wider than the asset', func
     expect(round($variant->width / $variant->height, 2))->toBe(round((float) $asset->aspect_ratio, 2))
         ->and($variant->width)->toBeLessThanOrEqual($asset->width);
 })->with([MediaVariantName::PostFeed640, MediaVariantName::PostFeed1280, MediaVariantName::PostDetail1920]);
+
+it('fits a variant to the asset it is made for, as the processor does', function (int $width, int $height, MediaVariantName $name, array $fitted) {
+    $asset = MediaAsset::factory()->dimensions($width, $height)->create();
+
+    $variant = MediaVariant::factory()->for($asset, 'asset')->named($name)->create();
+
+    expect([$variant->width, $variant->height])->toBe($fitted);
+})->with([
+    'a portrait photo, bounded by the width' => [1080, 1920, MediaVariantName::PostFeed640, [640, 1138]],
+    'a photo smaller than the box, kept as it is' => [800, 600, MediaVariantName::PostDetail1920, [800, 600]],
+]);
+
+it('keeps a size given to it', function () {
+    $variant = MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['width' => 10, 'height' => 20]);
+
+    expect([$variant->width, $variant->height])->toBe([10, 20]);
+});

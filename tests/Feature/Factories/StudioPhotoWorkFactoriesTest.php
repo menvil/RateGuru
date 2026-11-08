@@ -22,6 +22,16 @@ it('refuses photo work for a plan without a photo', function (string $model) {
     'a discussion generation' => [StudioPlanDiscussionGeneration::class],
 ]);
 
+it('refuses photo work for a plan without a photo when asked for that plan', function (string $model) {
+    $plan = StudioPlan::factory()->create(['image_asset_id' => null]);
+
+    expect(fn () => $model::factory()->forPlan($plan)->make())
+        ->toThrow(LogicException::class, 'A plan without a photo has nothing to');
+})->with([
+    'an analysis' => [StudioPlanImageAnalysis::class],
+    'a text generation' => [StudioPlanTextGeneration::class],
+]);
+
 it('still makes photo work for a plan with a photo', function (string $model) {
     $plan = StudioPlan::factory()->withImage()->create();
 
