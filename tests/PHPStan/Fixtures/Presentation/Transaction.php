@@ -19,4 +19,9 @@ final class Transaction
         DB::commit();
         DB::rollBack();
     }
+
+    public function saveInMixedCase(): void
+    {
+        DB::BeginTransaction();
+    }
 }

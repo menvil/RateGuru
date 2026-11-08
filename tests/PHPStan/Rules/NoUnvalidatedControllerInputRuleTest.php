@@ -53,6 +53,19 @@ final class NoUnvalidatedControllerInputRuleTest extends RuleTestCase
                 'HTTP controllers must read input from Form Request::validated() or safe(); do not call request() with a key.',
                 28,
             ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::cookie().',
+                29,
+            ],
+            // Laravel's global alias of the facade.
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::input().',
+                30,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::cookie().',
+                31,
+            ],
         ]);
     }
 }

@@ -11,6 +11,7 @@ final class ApprovedDatabaseAccess
     public function read(): void
     {
         DB::table('legacy_records')->count();
+        DB::Table('legacy_records')->count();
     }
 }
 

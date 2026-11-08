@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Request as RequestFacade;
 final class UnvalidatedInputController
 {
     /**
-     * @return array{mixed, mixed, mixed, mixed, mixed, mixed, mixed, mixed}
+     * @return array{mixed, mixed, mixed, mixed, mixed, mixed, mixed, mixed, mixed, mixed, mixed}
      */
     public function __invoke(Request $payload, Builder $query): array
     {
@@ -26,6 +26,9 @@ final class UnvalidatedInputController
             $payload->filled('search'),
             RequestFacade::input('status'),
             request('status'),
+            RequestFacade::cookie('remember'),
+            \Request::input('status'),
+            $payload->cookie('remember'),
         ];
     }
 }

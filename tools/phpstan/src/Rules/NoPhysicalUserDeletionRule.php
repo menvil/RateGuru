@@ -16,6 +16,7 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use PHPStan\Type\ObjectType;
 use PHPStan\Type\Type;
+use PHPStan\Type\UnionType;
 use RateGuru\PHPStan\Support\EloquentCallInspector;
 
 use function in_array;
@@ -73,12 +74,16 @@ final class NoPhysicalUserDeletionRule implements Rule
         $method = $node->name->toString();
         $receiver = EloquentCallInspector::receiverType($scope, $node->var);
 
-        if (in_array($method, self::INSTANCE_METHODS, true) && $this->isUser($receiver)) {
-            return [$this->error($method)];
-        }
+        // Each type a receiver may be, one by one: a User|Builder<User> deletes
+        // users whichever it turns out to be.
+        foreach ($receiver instanceof UnionType ? $receiver->getTypes() : [$receiver] as $type) {
+            if (in_array($method, self::INSTANCE_METHODS, true) && $this->isUser($type)) {
+                return [$this->error($method)];
+            }
 
-        if (in_array($method, self::QUERY_METHODS, true) && $this->isQueryOfUsers($receiver)) {
-            return [$this->error($method)];
+            if (in_array($method, self::QUERY_METHODS, true) && $this->isQueryOfUsers($type)) {
+                return [$this->error($method)];
+            }
         }
 
         return [];

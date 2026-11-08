@@ -14,8 +14,10 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 
+use function array_map;
 use function in_array;
 use function sprintf;
+use function strtolower;
 
 /** @implements Rule<StaticCall> */
 final class RestrictedDatabaseFacadeRule implements Rule
@@ -26,6 +28,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
         'connection',
         'cursor',
         'delete',
+        'getConnections',
         'getPdo',
         'getReadPdo',
         'insert',
@@ -64,8 +67,9 @@ final class RestrictedDatabaseFacadeRule implements Rule
 
         $method = $node->name->toString();
 
-        // A transaction opened, committed or rolled back by hand is managed all the same.
-        if (in_array($method, ArchitectureScope::TRANSACTION_METHODS, true)) {
+        // A transaction opened, committed or rolled back by hand is managed all
+        // the same, and a method is the same in any case.
+        if (ArchitectureScope::isTransactionMethod($method)) {
             if (! ArchitectureScope::isPresentationLayer($scope)) {
                 return [];
             }
@@ -78,7 +82,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
             ];
         }
 
-        if (! in_array($method, self::RESTRICTED_METHODS, true)
+        if (! in_array(strtolower($method), array_map(strtolower(...), self::RESTRICTED_METHODS), true)
             || $this->isApprovedException($scope, $method)) {
             return [];
         }
@@ -100,7 +104,7 @@ final class RestrictedDatabaseFacadeRule implements Rule
 
         foreach ($this->exceptions as $exception) {
             if ($exception['class'] === $class
-                && in_array($method, $exception['methods'], true)) {
+                && in_array(strtolower($method), array_map(strtolower(...), $exception['methods']), true)) {
                 return true;
             }
         }

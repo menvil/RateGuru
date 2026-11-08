@@ -33,4 +33,17 @@ final class DatabaseAccessController
     {
         DB::transaction(static fn (): null => null);
     }
+
+    public function connections(): void
+    {
+        DB::getPdo();
+        DB::getReadPdo();
+        DB::selectFromWriteConnection('select 1');
+        DB::getConnections();
+    }
+
+    public function mixedCase(): void
+    {
+        DB::Cursor('select 1');
+    }
 }

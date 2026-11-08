@@ -7,6 +7,7 @@ namespace App\Actions\Fixtures;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
 final class PhysicalUserDeletionAction
@@ -77,5 +78,17 @@ final class PhysicalUserDeletionAction
     {
         Post::query()->where('user_id', $user->id)->delete();
         $user->posts()->delete();
+    }
+
+    /** @param User|Builder<User> $target */
+    public function forbiddenUnionDelete(User|Builder $target): void
+    {
+        $target->delete();
+    }
+
+    /** @param Post|Builder<Post> $target */
+    public function allowedUnionDelete(Post|Builder $target): void
+    {
+        $target->delete();
     }
 }

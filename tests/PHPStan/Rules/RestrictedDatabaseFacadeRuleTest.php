@@ -35,10 +35,17 @@ final class RestrictedDatabaseFacadeRuleTest extends RuleTestCase
             ['Direct DB::raw() access is restricted to approved infrastructure classes.', 23],
             ['Direct DB::cursor() access is restricted to approved infrastructure classes.', 28],
             ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 34],
+            ['Direct DB::getPdo() access is restricted to approved infrastructure classes.', 39],
+            ['Direct DB::getReadPdo() access is restricted to approved infrastructure classes.', 40],
+            ['Direct DB::selectFromWriteConnection() access is restricted to approved infrastructure classes.', 41],
+            ['Direct DB::getConnections() access is restricted to approved infrastructure classes.', 42],
+            // A method is the same in any case.
+            ['Direct DB::Cursor() access is restricted to approved infrastructure classes.', 47],
             ['Presentation classes must not manage transactions; move DB::transaction() to an Action.', 13],
             ['Presentation classes must not manage transactions; move DB::beginTransaction() to an Action.', 18],
             ['Presentation classes must not manage transactions; move DB::commit() to an Action.', 19],
             ['Presentation classes must not manage transactions; move DB::rollBack() to an Action.', 20],
+            ['Presentation classes must not manage transactions; move DB::BeginTransaction() to an Action.', 25],
         ]);
     }
 

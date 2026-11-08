@@ -35,6 +35,7 @@ final class NoUnvalidatedControllerInputRule implements Rule
         'array',
         'boolean',
         'collect',
+        'cookie',
         'date',
         'enum',
         'enums',
@@ -94,11 +95,11 @@ final class NoUnvalidatedControllerInputRule implements Rule
             return [$this->error('HTTP controllers must read input from Form Request::validated() or safe(); do not call request() with a key.')];
         }
 
-        // So does the Request facade.
+        // So does the Request facade, by its name or by Laravel's global alias.
         if ($node instanceof StaticCall
             && $node->class instanceof Name
             && $node->name instanceof Node\Identifier
-            && $scope->resolveName($node->class) === RequestFacade::class
+            && in_array($scope->resolveName($node->class), [RequestFacade::class, 'Request'], true)
             && in_array($node->name->toString(), self::RESTRICTED_METHODS, true)
         ) {
             return [$this->error(sprintf(

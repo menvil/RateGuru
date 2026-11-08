@@ -6,12 +6,21 @@ namespace RateGuru\PHPStan\Support;
 
 use PHPStan\Analyser\Scope;
 
+use function array_map;
+use function in_array;
 use function str_starts_with;
+use function strtolower;
 
 final class ArchitectureScope
 {
     /** The DB facade's ways to manage a transaction: as a whole, or by hand. */
     public const TRANSACTION_METHODS = ['transaction', 'beginTransaction', 'commit', 'rollBack'];
+
+    /** Whether $method is one, in any case: PHP method names are. */
+    public static function isTransactionMethod(string $method): bool
+    {
+        return in_array(strtolower($method), array_map(strtolower(...), self::TRANSACTION_METHODS), true);
+    }
 
     public static function isHttpController(Scope $scope): bool
     {

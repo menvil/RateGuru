@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RateGuru\PHPStan\Rules;
 
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 use PhpParser\Node;
 use PhpParser\Node\Expr\CallLike;
@@ -14,6 +15,7 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
+use PHPStan\Type\ObjectType;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 use RateGuru\PHPStan\Support\EloquentCallInspector;
 use RateGuru\PHPStan\Support\EloquentMutationDetector;
@@ -42,11 +44,10 @@ final class NoReadOnlyLayerMutationRule implements Rule
             return [$this->error("{$layer} are read-only; database transactions are not allowed.")];
         }
 
+        // A lock taken on a model as on a query: the model passes it on.
         if ($node->name instanceof Node\Identifier
-            && in_array($node->name->toString(), ['lockForUpdate', 'sharedLock'], true)
-            && ($node instanceof StaticCall
-                ? EloquentCallInspector::hasModelOrQueryReceiver($scope, $node)
-                : EloquentCallInspector::hasQueryReceiver($scope, $node))
+            && in_array($node->name->toLowerString(), ['lockforupdate', 'sharedlock'], true)
+            && EloquentCallInspector::hasModelOrQueryReceiver($scope, $node)
         ) {
             return [$this->error(sprintf(
                 '%s are read-only; %s() belongs in an Action transaction.',
@@ -68,13 +69,20 @@ final class NoReadOnlyLayerMutationRule implements Rule
         ))];
     }
 
+    /** On the facade, or on a connection handed in: a transaction either way. */
     private function isTransaction(MethodCall|StaticCall $node, Scope $scope): bool
     {
-        return $node instanceof StaticCall
-            && $node->class instanceof Name
-            && $node->name instanceof Node\Identifier
-            && $scope->resolveName($node->class) === DB::class
-            && in_array($node->name->toString(), ArchitectureScope::TRANSACTION_METHODS, true);
+        if (! $node->name instanceof Node\Identifier || ! ArchitectureScope::isTransactionMethod($node->name->toString())) {
+            return false;
+        }
+
+        if ($node instanceof StaticCall) {
+            return $node->class instanceof Name && $scope->resolveName($node->class) === DB::class;
+        }
+
+        return (new ObjectType(ConnectionInterface::class))
+            ->isSuperTypeOf(EloquentCallInspector::receiverType($scope, $node->var))
+            ->yes();
     }
 
     private function error(string $message): IdentifierRuleError

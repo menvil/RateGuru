@@ -59,6 +59,15 @@ final class BaselineInventoryTest extends TestCase
         ], $duplicated->growthComparedTo($base));
     }
 
+    public function test_it_reads_a_suppression_entered_twice_in_the_base_as_its_total(): void
+    {
+        $duplicated = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/duplicated.neon');
+        $merged = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/merged.neon');
+
+        // Two entries of 2 in the base, one of 4 now: no more than there was.
+        self::assertSame([], $merged->growthComparedTo($duplicated));
+    }
+
     public function test_a_missing_baseline_is_an_empty_inventory(): void
     {
         $inventory = BaselineInventory::fromFile(__DIR__.'/../Fixtures/Baseline/missing.neon');
