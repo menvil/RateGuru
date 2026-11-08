@@ -258,6 +258,7 @@ it('holds the comment dialog\'s Save while its moment is no number, rather than 
     $type('');
     waitForScript($page, "{$save}.disabled");
     waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display !== 'none'");
+    waitForScript($page, "document.getElementById('rg-admin-discussion-dialog-offset-invalid').innerText.trim()", 'Enter how long after the post it appears, as a number.');
 
     expect($page->script("document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-invalid')"))->toBe('true')
         ->and($page->script($describedBy))->toBe('rg-admin-discussion-dialog-offset-invalid');
@@ -265,9 +266,10 @@ it('holds the comment dialog\'s Save while its moment is no number, rather than 
     $type('15');
     waitForScript($page, "{$save}.disabled", false);
 
-    // A number past any count of seconds: held as no number is, not sent as null.
+    // A number past any count of seconds: held as no number is, not sent as null, and said as the range it is past.
     $type('1e307');
     waitForScript($page, "{$save}.disabled");
+    waitForScript($page, "document.getElementById('rg-admin-discussion-dialog-offset-invalid').innerText.trim()", 'Set when it comes: from the post’s own moment to 30 days after it.');
     $type('15');
     waitForScript($page, "{$save}.disabled", false);
 

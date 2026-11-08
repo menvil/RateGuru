@@ -341,7 +341,7 @@
         <x-admin.ui.overlay class="rg-admin-dialog-layer" x-on:dismiss="$wire.closeDialog()" x-on:mousedown.self="if ($event.offsetX < $el.clientWidth) dismiss()">
             {{-- offsetInvalid: the moment field holds no number, so Save would keep the last one — it waits.
                  A field drawn afresh, for another parent, starts with a number, so the flag goes with it. --}}
-            <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing" x-data="{ offsetInvalid: false }">
+            <div class="rg-admin-dialog rg-admin-studio__comment-dialog" role="dialog" aria-modal="true" aria-labelledby="rg-admin-discussion-dialog-title" tabindex="-1" x-trap.inert.noscroll="! closing" x-data="{ offsetInvalid: false, offsetTooLate: false }">
                 <div class="rg-admin-studio__dialog-header">
                     <h2 id="rg-admin-discussion-dialog-title" class="rg-admin-dialog__title">{{ $dialogData['title'] }}</h2>
                     <x-admin.ui.icon-button icon="x" label="Close" variant="ghost" size="sm" x-on:click="dismiss()" />
@@ -415,6 +415,7 @@
                             pick(unit) {
                                 $wire.$set('dialogUnit', unit, false)
                                 this.offsetInvalid = false
+                                this.offsetTooLate = false
                                 this.$nextTick(() => { this.$refs.offset.value = this.shown() })
                             },
                             set(input) {
@@ -422,8 +423,10 @@
                                 const n = text === '' ? Number.NaN : Number(text)
                                 const seconds = Math.round(n * this.units[this.unit])
 
-                                // A number too large to count in seconds would reach the server as no number at all.
-                                this.offsetInvalid = ! Number.isFinite(n) || n < 0 || ! Number.isSafeInteger(seconds)
+                                // A number too large to count in seconds would reach the server as no number at
+                                // all: held too, and said as the range it is past rather than as no number.
+                                this.offsetTooLate = Number.isFinite(n) && n >= 0 && ! Number.isSafeInteger(seconds)
+                                this.offsetInvalid = ! Number.isFinite(n) || n < 0 || this.offsetTooLate
 
                                 if (this.offsetInvalid) return
 
@@ -447,7 +450,7 @@
                     >
                         <label for="rg-admin-discussion-dialog-offset" class="rg-admin-label">Appears after the post</label>
                         <div class="rg-admin-studio__offset rg-admin-studio__offset--large">
-                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown(); offsetInvalid = false" x-on:input="set($event.target)" x-bind:aria-invalid="offsetInvalid ? 'true' : null" x-bind:aria-describedby="offsetInvalid ? 'rg-admin-discussion-dialog-offset-invalid' : null" />
+                            <input id="rg-admin-discussion-dialog-offset" type="text" inputmode="decimal" class="rg-admin-studio__offset-input" x-ref="offset" x-init="$el.value = shown(); offsetInvalid = false; offsetTooLate = false" x-on:input="set($event.target)" x-bind:aria-invalid="offsetInvalid ? 'true' : null" x-bind:aria-describedby="offsetInvalid ? 'rg-admin-discussion-dialog-offset-invalid' : null" />
                             <div class="rg-admin-studio__units" role="radiogroup" aria-label="Unit">
                                 @foreach (array_keys($units) as $unit)
                                     <button type="button" role="radio" class="rg-admin-studio__unit" x-bind:aria-checked="unit === @js($unit)" x-on:click="pick(@js($unit))">{{ $unit }}</button>
@@ -455,7 +458,7 @@
                             </div>
                         </div>
                         <p class="rg-admin-hint" x-bind:class="early && 'rg-admin-studio__generate-hint--danger'" x-text="hint" x-show="! offsetInvalid"></p>
-                        <p id="rg-admin-discussion-dialog-offset-invalid" class="rg-admin-error" x-show="offsetInvalid" x-cloak><x-admin.ui.icon name="circle-alert" :size="12" /> Enter how long after the post it appears, as a number.</p>
+                        <p id="rg-admin-discussion-dialog-offset-invalid" class="rg-admin-error" x-show="offsetInvalid" x-cloak><x-admin.ui.icon name="circle-alert" :size="12" /> <span x-show="! offsetTooLate">Enter how long after the post it appears, as a number.</span><span x-show="offsetTooLate">Set when it comes: from the post’s own moment to 30 days after it.</span></p>
                         @error('dialogSeconds')
                             <p class="rg-admin-error"><x-admin.ui.icon name="circle-alert" :size="12" /> {{ $message }}</p>
                         @enderror
