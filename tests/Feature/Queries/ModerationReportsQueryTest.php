@@ -52,9 +52,11 @@ it('narrows a list to a kind of target, and searches the content, the reporter, 
     $post = Post::factory()->published()->create(['title' => 'Free kittens, DM for price']);
     $comment = Comment::factory()->create(['body' => 'Visit pet-deals24.top']);
     $person = User::factory()->create(['username' => 'spam_pawz']);
+    // Every reporter named, as the search reads their usernames: a generated
+    // one can hold any of the words searched for.
     $onPost = reportOn($post, ['reason' => ReportReason::Spam, 'reporter_id' => User::factory()->create(['username' => 'georgi.d'])->id]);
-    $onComment = reportOn($comment, ['reason' => ReportReason::WrongCategory, 'message' => 'Same link under five posts']);
-    $onPerson = reportOn($person, ['reason' => ReportReason::Offensive]);
+    $onComment = reportOn($comment, ['reason' => ReportReason::WrongCategory, 'message' => 'Same link under five posts', 'reporter_id' => User::factory()->create(['username' => 'elena_p'])->id]);
+    $onPerson = reportOn($person, ['reason' => ReportReason::Offensive, 'reporter_id' => User::factory()->create(['username' => 'desk_member'])->id]);
 
     expect(moderationReportsPage(type: 'post'))->toBe([$onPost->id])
         ->and(moderationReportsPage(type: 'comment'))->toBe([$onComment->id])

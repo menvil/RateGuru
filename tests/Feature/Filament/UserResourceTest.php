@@ -121,9 +121,11 @@ it('counts every tab, and reads each row: role, status, trust, posts and the rep
 });
 
 it('narrows the list to a tab, a role and the suspicious, and searches it on the server', function () {
-    $this->actingAs(User::factory()->admin()->create());
-    $moderator = User::factory()->moderator()->create(['username' => 'georgi_d']);
-    $shadowbanned = User::factory()->shadowbanned()->create();
+    // Every searched field set, so no generated name, username or email
+    // matches the search by chance: Faker's names include Georgiana.
+    $this->actingAs(User::factory()->admin()->create(['username' => 'desk_admin', 'name' => 'Desk Admin', 'email' => 'admin@example.com']));
+    $moderator = User::factory()->moderator()->create(['username' => 'georgi_d', 'name' => 'Desk Moderator', 'email' => 'moderator@example.com']);
+    $shadowbanned = User::factory()->shadowbanned()->create(['username' => 'elena_p', 'name' => 'Elena Popova', 'email' => 'elena@example.com']);
 
     $page = Livewire::test(ListUsers::class);
 

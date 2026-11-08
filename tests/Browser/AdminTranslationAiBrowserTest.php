@@ -98,6 +98,10 @@ beforeEach(function () {
     config(['translation.providers.openai.api_key' => 'test-key', 'translation.providers.openai.model' => 'gpt-6-luna']);
     $this->admin = User::factory()->admin()->create();
     $this->actingAs($this->admin);
+    // The 24 h figures cover whole hours up to the current one. Stopped, the
+    // clock cannot turn an hour between seeding and a read, or between two
+    // reads, and move a seeded call out of the window.
+    $this->freezeTime();
     $this->now = CarbonImmutable::now('UTC');
     seedTranslationAiWeek($this->now);
 });
