@@ -35,6 +35,7 @@ it('renders the dev ui kit in local and testing environments', function () {
         ->assertSee('data-ui="search-form"', false)
         ->assertSee('Validation error example')
         ->assertSee('Disabled input')
+        ->assertSee('Checked checkbox')
         // The PlateRate reference composition and its regions.
         ->assertSee('Home')
         ->assertSee('CATEGORIES')

@@ -205,16 +205,12 @@
                 x-data="{ knowsAnswer: $wire.entangle('knowsCorrectAnswer') }"
             >
                 <div class="flex items-start gap-3">
-                    <input
-                        type="checkbox"
+                    <x-ui.checkbox
                         id="knows_correct_answer"
                         x-model="knowsAnswer"
                         data-testid="upload-knows-answer-toggle"
-                        {{-- checked:bg-* is required: bg-rg-card (utilities layer) overrides the
-                             forms plugin's base-layer checked background, leaving the plugin's
-                             white checkmark invisible on the card background. --}}
-                        class="mt-0.5 size-4 rounded border-rg-border2 bg-rg-card text-rg-accent checked:border-rg-accent checked:bg-rg-accent focus:ring-2 focus:ring-rg-accent/25"
-                    >
+                        class="mt-0.5"
+                    />
                     <div>
                         <label for="knows_correct_answer" class="cursor-pointer text-sm font-medium text-rg-text">
                             {{ __('ui.upload.knows_answer') }}

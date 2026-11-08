@@ -65,12 +65,7 @@
 
     <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
         <label for="{{ $idPrefix }}-remember" class="inline-flex items-center">
-            <input
-                id="{{ $idPrefix }}-remember"
-                type="checkbox"
-                name="remember"
-                class="rounded border-rg-border2 bg-rg-card2 text-rg-accent shadow-sm focus:ring-rg-accent"
-            >
+            <x-ui.checkbox id="{{ $idPrefix }}-remember" name="remember" />
             <span class="ms-2 text-sm text-rg-text2">{{ __('auth.login.remember') }}</span>
         </label>
 

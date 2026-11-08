@@ -161,6 +161,17 @@
                             <x-ui.input id="ui-kit-error-input" name="error_input" value="Missing rating context" error />
                         </div>
 
+                        <div class="flex flex-wrap items-center gap-6">
+                            <label class="inline-flex items-center gap-2 text-sm text-rg-text">
+                                <x-ui.checkbox name="ui_kit_checkbox" />
+                                Unchecked checkbox
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-sm text-rg-text">
+                                <x-ui.checkbox name="ui_kit_checkbox_checked" checked />
+                                Checked checkbox
+                            </label>
+                        </div>
+
                         <x-ui.search-form
                             action="#"
                             value="sample search"
