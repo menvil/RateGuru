@@ -34,6 +34,9 @@ final class CommentVoting extends Component
     #[Locked]
     public bool $preloadedOwn = false;
 
+    #[Locked]
+    public bool $preloadedMayVote = false;
+
     public function vote(string $type, CommentVotingService $commentVotingService, GuestVoteAttemptLog $guestVoteAttempts): void
     {
         // No vote on a comment while comments are switched off, from a thread
@@ -83,7 +86,7 @@ final class CommentVoting extends Component
     public function render(CommentVotingService $commentVotingService): View
     {
         if ($this->hasPreloadedState) {
-            return $this->voting(true, $this->preloadedScore, $this->preloadedVote, $this->preloadedOwn);
+            return $this->voting(true, $this->preloadedScore, $this->preloadedVote, $this->preloadedOwn, $this->preloadedMayVote);
         }
 
         $comment = $commentVotingService->comment($this->commentId);
@@ -93,10 +96,11 @@ final class CommentVoting extends Component
             (int) $comment?->score,
             $comment !== null ? $commentVotingService->currentVote(auth()->user(), $comment->id)?->value : null,
             $comment !== null && auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+            $comment !== null && (auth()->user()?->can('vote', $comment) ?? false),
         );
     }
 
-    private function voting(bool $available, int $score, ?string $currentVote, bool $own): View
+    private function voting(bool $available, int $score, ?string $currentVote, bool $own, bool $mayVote): View
     {
         return view('livewire.comments.comment-voting', [
             'available' => $available,
@@ -104,11 +108,10 @@ final class CommentVoting extends Component
             'isOwnComment' => $own,
             'upActive' => $currentVote === VoteType::Up->value,
             'downActive' => $currentVote === VoteType::Down->value,
-            // Off for one's own comment and for an account that has lost
-            // voting, whose every vote would be refused: CommentPolicy::vote
-            // read from what was handed over, with no query. A guest is asked
-            // to sign in instead.
-            'votingDisabled' => $available && auth()->check() && ($own || ! (auth()->user()?->canVote() ?? false)),
+            // Off where CommentPolicy::vote refuses: one's own comment, or an
+            // account that has lost voting, whose every vote would be refused.
+            // A guest is asked to sign in instead.
+            'votingDisabled' => $available && auth()->check() && ! $mayVote,
             'score' => $score,
         ]);
     }
