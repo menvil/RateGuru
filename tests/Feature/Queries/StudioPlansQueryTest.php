@@ -34,11 +34,12 @@ it('lists every plan, the most recently saved first and the newest first among t
 it('narrows by state and by whether there is a photo', function () {
     $withImage = StudioPlan::factory()->withImage()->create();
     $withoutImage = StudioPlan::factory()->create();
+    // Approved, so with the photo approval asked for.
     $approved = StudioPlan::factory()->status(StudioPlanStatus::Approved)->create();
 
     expect(studioPlansPage(status: StudioPlanStatus::Draft))->toEqualCanonicalizing([$withImage->id, $withoutImage->id])
-        ->and(studioPlansPage(withImage: true))->toBe([$withImage->id])
-        ->and(studioPlansPage(withImage: false))->toEqualCanonicalizing([$withoutImage->id, $approved->id])
+        ->and(studioPlansPage(withImage: true))->toEqualCanonicalizing([$withImage->id, $approved->id])
+        ->and(studioPlansPage(withImage: false))->toBe([$withoutImage->id])
         ->and(studioPlansPage(status: StudioPlanStatus::Draft, withImage: true))->toBe([$withImage->id]);
 });
 
@@ -97,9 +98,10 @@ it('reads 25 plans a page, each with its author, the avatar and its photo loaded
 it('counts every plan, the drafts, and those with a photo and with an author', function () {
     StudioPlan::factory()->withImage()->authoredBy(User::factory()->persona()->create())->create();
     StudioPlan::factory()->withImage()->create();
+    // Approved, so with the author and the photo approval asked for.
     StudioPlan::factory()->status(StudioPlanStatus::Approved)->create();
 
-    expect(app(StudioPlansQuery::class)->stats())->toBe(['total' => 3, 'drafts' => 2, 'withImage' => 2, 'withAuthor' => 1]);
+    expect(app(StudioPlansQuery::class)->stats())->toBe(['total' => 3, 'drafts' => 2, 'withImage' => 3, 'withAuthor' => 2]);
 });
 
 it('keeps plans saved at the same moment in one place across pages, none twice and none left out', function () {

@@ -13,6 +13,7 @@ use App\Support\StudioAi\StudioPostTextAuthor;
 use App\Support\StudioAi\StudioPostTextContext;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
+use LogicException;
 
 /**
  * @extends Factory<StudioPlanTextGeneration>
@@ -26,7 +27,8 @@ class StudioPlanTextGenerationFactory extends Factory
     {
         return [
             'studio_plan_id' => StudioPlan::factory()->withImage(),
-            'source_image_asset_id' => fn (array $attributes): int => (int) StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id'),
+            'source_image_asset_id' => fn (array $attributes): int => (int) (StudioPlan::query()->whereKey($attributes['studio_plan_id'])->value('image_asset_id')
+                ?? throw new LogicException('A plan without a photo has nothing to write texts from: make it withImage().')),
             'source_analysis_hash' => (string) StudioImageDescription::from(StudioPlanImageAnalysisFactory::description())?->hash(),
             'tone' => StudioPostTextTone::Cheeky,
             'status' => StudioPostTextGenerationStatus::Queued,
@@ -40,7 +42,8 @@ class StudioPlanTextGenerationFactory extends Factory
     {
         return $this->state(fn (): array => [
             'studio_plan_id' => $plan->id,
-            'source_image_asset_id' => $plan->image_asset_id,
+            'source_image_asset_id' => $plan->image_asset_id
+                ?? throw new LogicException('A plan without a photo has nothing to write texts from: make it withImage().'),
             // Written from that analysis in the voice of the author the plan has now.
             'source_analysis_hash' => StudioPostTextContext::sourceHashOf(
                 (string) StudioImageDescription::from($analysis ?? StudioPlanImageAnalysisFactory::description())?->hash(),

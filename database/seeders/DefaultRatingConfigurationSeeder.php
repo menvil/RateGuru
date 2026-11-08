@@ -6,6 +6,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Services\Rating\LegacyDefaultRatingConfigurationSynchronizer;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class DefaultRatingConfigurationSeeder extends Seeder
 {
@@ -17,22 +18,26 @@ class DefaultRatingConfigurationSeeder extends Seeder
             return;
         }
 
-        foreach ($this->configuration() as $groupData) {
-            $options = $groupData['options'];
-            unset($groupData['options']);
+        // All of it or none: a question without its answers, or with only some,
+        // would be on the site until the seeder ran again.
+        DB::transaction(function (): void {
+            foreach ($this->configuration() as $groupData) {
+                $options = $groupData['options'];
+                unset($groupData['options']);
 
-            $group = RatingGroup::query()->updateOrCreate(
-                ['key' => $groupData['key']],
-                $groupData,
-            );
-
-            foreach ($options as $optionData) {
-                $group->options()->updateOrCreate(
-                    ['key' => $optionData['key']],
-                    $optionData,
+                $group = RatingGroup::query()->updateOrCreate(
+                    ['key' => $groupData['key']],
+                    $groupData,
                 );
+
+                foreach ($options as $optionData) {
+                    $group->options()->updateOrCreate(
+                        ['key' => $optionData['key']],
+                        $optionData,
+                    );
+                }
             }
-        }
+        });
     }
 
     /**
