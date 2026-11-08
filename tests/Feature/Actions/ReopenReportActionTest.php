@@ -38,7 +38,7 @@ it('leaves an open report as it is', function () {
         ->and($report->fresh()->updated_at?->equalTo($before))->toBeTrue();
 });
 
-it('says it opened nothing for a report purged while it waited', function () {
+it('says it opened nothing for a report already purged', function () {
     $moderator = User::factory()->moderator()->create();
     $report = Report::factory()->create(['status' => ReportStatus::Resolved]);
     Report::query()->whereKey($report->id)->delete();

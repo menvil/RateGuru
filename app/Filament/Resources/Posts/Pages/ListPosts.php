@@ -315,14 +315,12 @@ final class ListPosts extends Page
     #[On('restore-posts')]
     public function restorePosts(array $ids): void
     {
-        // Counted as the posts they name, each once: an address no post has
-        // was nothing to undo, and is not said to have changed.
         $ids = self::ids($ids);
         $posts = app(ModerationPostsQuery::class)->among($ids)->get();
         $restored = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
         match ($restored->count()) {
-            0 => $ids === [] ? null : $this->nothingDone(count($ids)),
+            0 => $this->nothingUndone($ids, $posts->count()),
             1 => $this->toast('“'.self::shortTitle($restored->first()).'” is visible again'),
             default => $this->toast($restored->count().' posts are visible again'),
         };
@@ -341,7 +339,7 @@ final class ListPosts extends Page
         $hidden = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
         match ($hidden->count()) {
-            0 => $ids === [] ? null : $this->nothingDone(count($ids)),
+            0 => $this->nothingUndone($ids, $posts->count()),
             1 => $this->toast('“'.self::shortTitle($hidden->first()).'” is hidden again'),
             default => $this->toast($hidden->count().' posts are hidden again'),
         };
@@ -636,6 +634,27 @@ final class ListPosts extends Page
             }
 
             return false;
+        }
+    }
+
+    /**
+     * An Undo that changed nothing, said by what its ids found, each counted
+     * once: posts there but no longer as left changed meanwhile; none there
+     * at all are gone since the toast went up; no id a post can have is
+     * nothing to say.
+     *
+     * @param  list<int>  $ids
+     */
+    private function nothingUndone(array $ids, int $found): void
+    {
+        if ($found > 0) {
+            $this->nothingDone($found);
+
+            return;
+        }
+
+        if ($ids !== []) {
+            $this->toast((count($ids) === 1 ? 'This post no longer exists' : 'These posts no longer exist').', so nothing was done.', tone: 'error');
         }
     }
 

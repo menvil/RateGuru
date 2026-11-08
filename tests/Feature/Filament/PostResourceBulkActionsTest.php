@@ -122,9 +122,17 @@ it('names the post Undo actually brought back, and says when it brought back non
     $page->dispatch($event, ids: [$kept->id])
         ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
 
-    // Named twice it is still one post; an address of no post is nothing to undo.
+    // Named twice it is still one post.
     $page->dispatch($event, ids: [$kept->id, (string) $kept->id])
         ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+
+    // A post gone since is said to be gone; an id no post can have, nothing.
+    $gone = Post::factory()->create(['status' => $from]);
+    $gone->forceDelete();
+
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
+        ->dispatch($event, ids: [$gone->id])
+        ->assertDispatched('rg-admin-toast', message: 'This post no longer exists, so nothing was done.', tone: 'error');
 
     Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
         ->dispatch($event, ids: ['not-a-post', '-1'])

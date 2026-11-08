@@ -231,18 +231,18 @@ it('holds the reason to its limit on the server, not only in the field, and says
     expect($post->fresh()->status)->toBe(PostStatus::Published);
 })->with(['inline', 'menu']);
 
-it('measures the reason as the action receives it, trimmed', function () {
+it('measures the reason as the moderation log stores it, its invisible edges taken off', function (string $edge) {
     $moderator = User::factory()->moderator()->create();
     $post = Post::factory()->published()->create();
 
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
-        ->set('reason', str_repeat('a', InlinePostModeration::REASON_LIMIT).' ')
+        ->set('reason', str_repeat('a', InlinePostModeration::REASON_LIMIT).$edge)
         ->call('hide')
         ->assertDontSee('data-testid="moderation-error"', false);
 
     expect($post->fresh()->status)->toBe(PostStatus::Hidden);
-});
+})->with(['a space' => ' ', 'a zero-width space' => "\u{200B}"]);
 
 it('says in the post menu what a refused hide is about', function () {
     $moderator = User::factory()->moderator()->create();

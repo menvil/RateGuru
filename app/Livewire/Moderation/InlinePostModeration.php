@@ -7,6 +7,7 @@ use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
+use App\Support\Moderation\ModerationReason;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -104,9 +105,10 @@ final class InlinePostModeration extends Component
         return $this->cachedPost ??= Post::query()->findOrFail($this->postId);
     }
 
+    /** As the moderation log stores it, invisible edges taken off too. */
     private function normalizedReason(): ?string
     {
-        $reason = trim((string) $this->reason);
+        $reason = ModerationReason::normalize((string) $this->reason);
 
         return $reason === '' ? null : $reason;
     }
