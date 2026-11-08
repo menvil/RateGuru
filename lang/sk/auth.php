@@ -65,7 +65,7 @@ return [
         'failed' => 'Nepodarilo sa ťa prihlásiť cez :provider. Skús to znova.',
         'expired' => 'Platnosť prihlásenia cez :provider vypršala skôr, než sa dokončilo. Začni znova.',
         'email_missing' => 'Tvoj účet :provider nesprístupnil e-mailovú adresu, preto ho nemožno použiť na prihlásenie.',
-        'email_taken' => 'E-mailová adresa tohto účtu :provider patrí inému účtu RateGuru. Prihlás sa do toho účtu a prepoj :provider tam.',
+        'email_taken' => 'E-mailová adresa tohto účtu :provider patrí inému účtu :site. Prihlás sa do toho účtu a prepoj :provider tam.',
         'link_expired' => 'Relácia prepojenia účtu vypršala alebo sa zmenila. Začni prepájať účet znova.',
         'already_signed_in' => 'Už si prihlásený. Ak sa chceš prihlasovať aj cez :provider, prepoj ho v sekcii Prepojené účty.',
         'already_linked' => 'Tento účet :provider je už prepojený s iným účtom.',

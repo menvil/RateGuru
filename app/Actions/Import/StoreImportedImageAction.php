@@ -3,8 +3,10 @@
 namespace App\Actions\Import;
 
 use App\Exceptions\Import\ImportFetchException;
-use App\Services\Media\ImageIngestPolicy;
+use App\Exceptions\Import\UrlImportDisabledException;
+use App\Support\Import\ImportedImageLimit;
 use App\Support\Import\SafeImportHttpClient;
+use App\Support\Settings\ProjectSettingsManager;
 use Closure;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -20,22 +22,23 @@ class StoreImportedImageAction
      */
     private const WRITE_CHUNK_BYTES = 65536;
 
-    public function __construct(private readonly SafeImportHttpClient $client) {}
+    public function __construct(
+        private readonly SafeImportHttpClient $client,
+        private readonly ProjectSettingsManager $settings,
+    ) {}
 
     public function download(string $imageUrl): UploadedFile
     {
+        // The project's switch for fetching anything from a link holds here,
+        // where every direct-image download passes — the upload form and
+        // Content Studio alike — not only in the link preview.
+        if (! $this->settings->featureEnabled('allow_url_imports')) {
+            throw new UrlImportDisabledException;
+        }
+
         $allowedMimes = (array) config('import.allowed_image_mimes', ['image/jpeg', 'image/png', 'image/webp']);
 
-        // Never fetch more than ImageIngestor would accept anyway — a
-        // separate, larger import-layer limit would let this download a
-        // payload ImageIngestor immediately rejects, wasting the bandwidth
-        // and time the cap exists to save in the first place.
-        $maxBytes = min(
-            (int) config('import.max_image_bytes', 8 * 1024 * 1024),
-            ImageIngestPolicy::fromConfig()->maxBytes,
-        );
-
-        $response = $this->client->get($imageUrl, $maxBytes);
+        $response = $this->client->get($imageUrl, ImportedImageLimit::bytes());
 
         $rawContentType = $response->header('Content-Type') ?? '';
         $host = parse_url($imageUrl, PHP_URL_HOST) ?? 'unknown';
@@ -85,16 +88,7 @@ class StoreImportedImageAction
             throw new ImportFetchException('Failed to secure temporary file permissions for imported image.');
         }
 
-        try {
-            $this->writeAll($handle, $body);
-        } catch (RuntimeException) {
-            fclose($handle);
-            $this->deleteQuietly($tmpPath);
-
-            throw new ImportFetchException('Failed to write temporary file for imported image.');
-        }
-
-        fclose($handle);
+        $this->writeTemporaryFile($handle, $tmpPath, $body);
 
         return new UploadedFile(
             path: $tmpPath,
@@ -109,6 +103,28 @@ class StoreImportedImageAction
             error: UPLOAD_ERR_OK,
             test: true,
         );
+    }
+
+    /**
+     * Writes the body and closes the file — or, when the write fails, removes
+     * the partial file and says the import failed. Any throw is a failed
+     * write: fwrite() reports one (a full disk) as a notice, which Laravel
+     * raises as an ErrorException rather than a RuntimeException.
+     *
+     * @param  resource  $handle
+     */
+    private function writeTemporaryFile($handle, string $tmpPath, string $body, ?Closure $writer = null): void
+    {
+        try {
+            $this->writeAll($handle, $body, $writer);
+        } catch (Throwable) {
+            fclose($handle);
+            $this->deleteQuietly($tmpPath);
+
+            throw new ImportFetchException('Failed to write temporary file for imported image.');
+        }
+
+        fclose($handle);
     }
 
     /**

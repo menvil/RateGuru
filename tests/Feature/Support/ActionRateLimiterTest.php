@@ -33,6 +33,27 @@ it('throws when action limit is exceeded', function () {
     RateLimiter::clear($key);
 });
 
+it('admits no more than the limit when requests arrive together and all read the count before any counted', function () {
+    $key = 'rate-limit:test:user:2';
+    RateLimiter::clear($key);
+    $limiter = app(ActionRateLimiter::class);
+    $limiter->hitOrFail($key, 1, 60);
+
+    // The second request read the count before the first one's hit landed.
+    RateLimiter::swap(new class(app('cache')->store()) extends Illuminate\Cache\RateLimiter
+    {
+        public function tooManyAttempts($key, $maxAttempts)
+        {
+            return false;
+        }
+    });
+
+    expect(fn () => $limiter->hitOrFail($key, 1, 60, 'Slow down.'))
+        ->toThrow(RateLimitExceededException::class, 'Slow down.');
+
+    RateLimiter::clear($key);
+});
+
 it('builds user-scoped rate limit keys', function () {
     $user = User::factory()->create();
 

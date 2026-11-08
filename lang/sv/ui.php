@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Alla',
         'latest' => 'Senaste',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Sök taggar, användare, inlägg',
         'search_button' => 'Sök',
         'clear_search' => 'Rensa sökning',
+        'tag_filter' => 'Inlägg taggade',
+        'clear_tag_filter' => 'Ta bort filtret :tag',
         'no_posts_title' => 'Inga inlägg ännu',
         'no_posts_description' => 'Publicerade inlägg visas här.',
         'users_heading' => 'Användare',

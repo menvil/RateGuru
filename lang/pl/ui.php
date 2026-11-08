@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Wszystkie',
         'latest' => 'Najnowsze',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Szukaj tagów, użytkowników, postów',
         'search_button' => 'Szukaj',
         'clear_search' => 'Wyczyść wyszukiwanie',
+        'tag_filter' => 'Posty z tagiem',
+        'clear_tag_filter' => 'Usuń filtr :tag',
         'no_posts_title' => 'Brak postów',
         'no_posts_description' => 'Tutaj pojawią się opublikowane posty.',
         'users_heading' => 'Użytkownicy',

@@ -137,6 +137,23 @@ A healthy release is never rolled back because Nightwatch was unreachable, and
 a host that has not installed the marker primitive at all simply records
 nothing.
 
+Only a target `target_nightwatch_program()` names a program for is asked for a
+marker at all. `.github/actions/record-rateguru-deployment` keeps the same
+allowlist — a GitHub runner cannot source the server's scripts, so
+`RecordRateGuruDeploymentActionTest` holds the two copies to each other — and a
+deploy or rollback of any other target (`tits-guru` today) records its Sentry
+marker as before, writes no SSH material for Nightwatch, opens no connection and
+asks for no `sudo`. Its summary reads
+`Nightwatch: skipped (not enabled for this target)`.
+
+The three reasons for no marker are reported apart, never as one:
+
+| Situation | Summary line |
+|---|---|
+| Target without Nightwatch — policy | `Nightwatch: skipped (not enabled for this target)` |
+| Supported target without deployment SSH material — configuration | `Nightwatch: skipped (no deployment SSH material)` |
+| Supported target, marker attempted and failed — an observability gap | `Nightwatch: failed (observability gap only)` |
+
 ### Installing the marker primitive
 
 It is installed by `install-nightwatch-agent`, which owns all three marker

@@ -528,8 +528,13 @@ final class StudioPlanDiscussionEditor extends Component
         }
 
         if ($generation->applied_at !== null) {
-            // Taken in already, from another page of this plan.
+            // Taken in already, from another page of this plan: drawn again
+            // here, and the page's other editors told, as Reload does.
             $this->load();
+
+            if (! $this->gone) {
+                $this->dispatch(self::RELOAD_EVENT, planId: $this->planId, current: $this->lockVersion, source: 'discussion');
+            }
 
             return;
         }
@@ -901,7 +906,10 @@ final class StudioPlanDiscussionEditor extends Component
             'hasTitle' => $plan !== null && trim((string) $plan->title) !== '',
             'analysed' => $context !== null && $context->complete,
             // The photo's analysis on its way: read again until it is there.
-            'analysing' => $plan?->imageAnalysis !== null && $plan->imageAnalysis->isFor($plan->image_asset_id) && $plan->imageAnalysis->status->isInProgress(),
+            // On its way, not merely marked so: one whose worker died is not
+            // waited for, and is said to have stopped.
+            'analysing' => $plan?->imageAnalysis !== null && $plan->imageAnalysis->isFor($plan->image_asset_id) && $plan->imageAnalysis->isUnderway(CarbonImmutable::now()),
+            'analysisStalled' => $plan?->imageAnalysis !== null && $plan->imageAnalysis->isFor($plan->image_asset_id) && $plan->imageAnalysis->status->isInProgress() && $plan->imageAnalysis->isStale(CarbonImmutable::now()),
             'mostNodes' => $this->mostNodes(),
             'mostRandom' => $this->mostRandom(),
             'tones' => array_map(fn (StudioPostTextTone $tone): array => ['value' => $tone->value, 'label' => $tone->label(), 'hint' => $tone->hint()], StudioPostTextTone::cases()),

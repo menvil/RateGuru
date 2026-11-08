@@ -1,4 +1,4 @@
-<div class="inline-flex items-center gap-2" wire:click.stop wire:keydown.stop>
+<div class="inline-flex items-center gap-2" wire:click.stop>
     @if($saved)
         <button
             type="button"

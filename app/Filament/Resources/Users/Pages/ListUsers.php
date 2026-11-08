@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Filament\Resources\Posts\Pages\ListPosts;
 use App\Filament\Resources\Users\Concerns\ModeratesUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Livewire\Admin\UserEditor;
 use App\Models\User;
@@ -93,7 +94,7 @@ final class ListUsers extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     public function editUser(mixed $id): void
@@ -162,6 +163,13 @@ final class ListUsers extends Page
         $counts = $query->counts();
         $paginator = $query->paginate((string) $this->status, (string) $this->q, UserRole::tryFrom((string) $this->role), (bool) $this->suspicious, (int) $this->pageNumber);
 
+        // The last page emptied while earlier ones still have rows: show the
+        // last one there is, not an empty list, and say so in the address.
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $query->paginate((string) $this->status, (string) $this->q, UserRole::tryFrom((string) $this->role), (bool) $this->suspicious, $this->pageNumber);
+        }
+
         return [
             'tabs' => collect(self::TABS)->map(fn (string $label, string $id): array => [
                 'id' => $id,
@@ -219,11 +227,11 @@ final class ListUsers extends Page
     /** Whatever a link or a forged update put here, read as something the page offers. */
     private function normalize(): void
     {
-        $this->status = array_key_exists((string) $this->status, self::TABS) ? (string) $this->status : 'all';
-        $this->role = UserRole::tryFrom((string) $this->role) !== null ? (string) $this->role : '';
+        $this->status = is_string($this->status) && array_key_exists($this->status, self::TABS) ? $this->status : 'all';
+        $this->role = is_string($this->role) && UserRole::tryFrom($this->role) !== null ? $this->role : '';
         $this->suspicious = filter_var($this->suspicious, FILTER_VALIDATE_BOOL);
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
 
         $person = is_numeric($this->editing) ? User::query()->find((int) $this->editing) : null;
         $this->editing = $person !== null && UserResource::canEdit($person) ? (string) $person->id : '';

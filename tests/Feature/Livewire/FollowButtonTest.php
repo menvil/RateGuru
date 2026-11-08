@@ -81,3 +81,38 @@ it('mounts with following state true when already following', function () {
         ->test(FollowButton::class, ['author' => $author])
         ->assertSet('isFollowing', true);
 });
+
+it('tells a viewer whose own account may not follow so, neutrally, without blaming the author', function (string $state) {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    Livewire::actingAs(User::factory()->{$state}()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->create()])
+        ->call('toggle')
+        ->assertSet('isFollowing', false)
+        ->assertSet('message', __('follows.cannot_follow'))
+        // In English, as it is said: about the viewer, not the author.
+        ->assertSeeHtml('<span class="text-xs text-rg-muted empty:sr-only" role="status" data-testid="follow-button-message">You cannot follow authors right now.</span>');
+})->with(['limited', 'banned', 'shadowbanned']);
+
+it('still says the author cannot be followed when it is the author', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->banned()->create()])
+        ->call('toggle')
+        ->assertSet('message', __('follows.cannot_follow_author'))
+        ->assertSeeHtml('<span class="text-xs text-rg-muted empty:sr-only" role="status" data-testid="follow-button-message">This author cannot be followed.</span>');
+});
+
+it('keeps its status region in the page before there is anything to say, so what comes is heard', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_follow_buttons' => true]]);
+
+    $html = Livewire::actingAs(User::factory()->create())
+        ->test(FollowButton::class, ['author' => User::factory()->create()])
+        ->html();
+
+    expect($html)->toMatch('/<span[^>]*role="status"[^>]*data-testid="follow-button-message"><\/span>/')
+        // Out of the layout while empty, but still in the accessibility tree: not display:none.
+        ->toMatch('/class="[^"]*\bempty:sr-only\b[^"]*"[^>]*role="status"/')
+        ->not->toContain('empty:hidden');
+});

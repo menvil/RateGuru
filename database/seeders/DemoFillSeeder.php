@@ -700,7 +700,6 @@ class DemoFillSeeder extends Seeder
                 $allComments->push((object) ['id' => $id, 'user_id' => $user->id]);
             }
 
-            $level2 = collect();
             foreach ($topLevel as $parent) {
                 $replyUsers = $users
                     ->where('id', '!=', $post->user_id)
@@ -716,17 +715,18 @@ class DemoFillSeeder extends Seeder
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
-                    $level2->push((object) ['id' => $id, 'user_id' => $user->id]);
                     $allComments->push((object) ['id' => $id, 'user_id' => $user->id]);
                 }
             }
 
-            $deepCount = min($level2->count(), $this->deepReplyParentCount());
-            foreach ($level2->random($deepCount) as $parent) {
+            // A few threads draw more replies. Still to a top-level comment: a
+            // reply is never answered in its own right, as the product has it.
+            $busyCount = min($topLevel->count(), $this->busyThreadCount());
+            foreach ($topLevel->random($busyCount) as $parent) {
                 $replyUsers = $users
                     ->where('id', '!=', $post->user_id)
                     ->shuffle()
-                    ->take($this->deepReplyCount());
+                    ->take($this->busyThreadReplyCount());
                 foreach ($replyUsers as $user) {
                     $id = DB::table('comments')->insertGetId([
                         'post_id' => $post->id,
@@ -827,7 +827,7 @@ class DemoFillSeeder extends Seeder
         $userIds = $users->modelKeys();
         $postIds = $posts->modelKeys();
 
-        // Community FKs restrict instead of cascading (PR-C), so this
+        // Community FKs restrict instead of cascading, so this
         // dev-only reseed cleanup must delete the child graph explicitly
         // and in dependency order: votes on the generated comments first,
         // then the comments themselves leaves-first — reply chains can be
@@ -924,12 +924,12 @@ class DemoFillSeeder extends Seeder
         return fake()->numberBetween(2, 5);
     }
 
-    protected function deepReplyParentCount(): int
+    protected function busyThreadCount(): int
     {
         return fake()->numberBetween(3, 8);
     }
 
-    protected function deepReplyCount(): int
+    protected function busyThreadReplyCount(): int
     {
         return fake()->numberBetween(1, 3);
     }

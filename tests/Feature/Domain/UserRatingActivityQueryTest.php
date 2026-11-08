@@ -59,3 +59,12 @@ it('excludes activity on hidden posts', function () {
 
     expect($activity)->toHaveCount(0);
 });
+
+it('keeps votes cast in the same second in one order, newest first', function () {
+    $user = User::factory()->create(['rating_activity_visibility' => 'public']);
+    $at = now()->startOfSecond();
+    $votes = collect(range(1, 3))->map(fn () => RatingVote::factory()->create(['user_id' => $user->id, 'created_at' => $at]));
+
+    expect(app(UserRatingActivityQuery::class)->forProfile($user, $user)->pluck('id')->all())
+        ->toBe($votes->pluck('id')->sortDesc()->values()->all());
+});

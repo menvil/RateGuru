@@ -2,6 +2,7 @@
 
 namespace App\Actions\Comments\Concerns;
 
+use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
 use App\Models\Comment;
 use App\Models\Post;
@@ -26,6 +27,12 @@ trait RefreshesPostCommentsCount
             ->where('status', CommentStatus::Visible)
             ->count();
 
-        $lockedPost->forceFill(['comments_count' => $count])->save();
+        $lockedPost->forceFill(['comments_count' => $count]);
+
+        // The hot score counts comments, so it moves with the count — when a
+        // comment is added, deleted, hidden or restored alike, under the
+        // same post lock, and saved with it in one update of the post, which
+        // never locks its author after it.
+        app(RecalculatePostScoreAction::class)->saveWithCounts($lockedPost);
     }
 }

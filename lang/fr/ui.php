@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Tout',
         'latest' => 'Récentes',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Rechercher des tags, utilisateurs, publications',
         'search_button' => 'Rechercher',
         'clear_search' => 'Effacer la recherche',
+        'tag_filter' => 'Publications avec le tag',
+        'clear_tag_filter' => 'Retirer le filtre :tag',
         'no_posts_title' => 'Aucune publication pour le moment',
         'no_posts_description' => 'Les publications mises en ligne apparaîtront ici.',
         'users_heading' => 'Utilisateurs',

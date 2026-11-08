@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Kõik',
         'latest' => 'Viimased',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Otsi silte, kasutajaid, postitusi',
         'search_button' => 'Otsi',
         'clear_search' => 'Tühjenda otsing',
+        'tag_filter' => 'Postitused sildiga',
+        'clear_tag_filter' => 'Eemalda filter :tag',
         'no_posts_title' => 'Postitusi veel pole',
         'no_posts_description' => 'Avaldatud postitused ilmuvad siia.',
         'users_heading' => 'Kasutajad',

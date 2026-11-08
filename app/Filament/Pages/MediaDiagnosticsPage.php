@@ -8,6 +8,7 @@ use App\Enums\MediaAuditRunStatus;
 use App\Enums\MediaHealthStatus;
 use App\Enums\MediaPurgeOutcome;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Jobs\GenerateMediaVariantsJob;
 use App\Jobs\RunMediaAuditJob;
@@ -157,7 +158,7 @@ final class MediaDiagnosticsPage extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     /** A figure in the overview narrows the issues to what it counts. */
@@ -351,9 +352,11 @@ final class MediaDiagnosticsPage extends Page
     public function lastAuditRun(): ?MediaAuditRun
     {
         if (! $this->lastAuditRunResolved) {
+            // The id breaks a tie between runs started in the same second.
             $this->lastAuditRun = MediaAuditRun::query()
                 ->withCount('issues')
                 ->latest('started_at')
+                ->latest('id')
                 ->first();
             $this->lastAuditRunResolved = true;
         }
@@ -378,9 +381,12 @@ final class MediaDiagnosticsPage extends Page
      */
     public function auditCurrentlyRunning(): bool
     {
+        // The lock's real lifetime, not the configured one: the job never
+        // holds it for less than its own timeout, so a short configured TTL
+        // must not make a run that still holds it look abandoned.
         return MediaAuditRun::query()
             ->where('status', MediaAuditRunStatus::Running)
-            ->where('started_at', '>=', now()->subSeconds((int) config('media.diagnostics.audit_lock.ttl_seconds')))
+            ->where('started_at', '>=', now()->subSeconds((new RunMediaAuditJob)->lockTtlSeconds()))
             ->exists();
     }
 
@@ -420,7 +426,7 @@ final class MediaDiagnosticsPage extends Page
         // The retention policy (RunMediaAuditJob::pruneOldRuns()) already
         // keeps at most config('media.diagnostics.audit_run_retention') rows —
         // this limit is just how many of those the history card shows.
-        return MediaAuditRun::query()->orderByDesc('started_at')->limit(5)->get();
+        return MediaAuditRun::query()->orderByDesc('started_at')->orderByDesc('id')->limit(5)->get();
     }
 
     /** @return list<FailedMediaJobRecord> */
@@ -439,6 +445,14 @@ final class MediaDiagnosticsPage extends Page
         $issues = app(MediaAuditIssuesQuery::class);
         $counts = $issues->counts($run);
         $paginator = $issues->paginate($run, MediaAuditIssueSeverity::tryFrom((string) $this->severity), MediaAuditIssueType::tryFrom((string) $this->type), (string) $this->q, (int) $this->pageNumber);
+
+        // Past the last page — an old link, or a new audit with fewer issues:
+        // the last page there is, not "the last audit found nothing to fix".
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $issues->paginate($run, MediaAuditIssueSeverity::tryFrom((string) $this->severity), MediaAuditIssueType::tryFrom((string) $this->type), (string) $this->q, $this->pageNumber);
+        }
+
         $totals = $this->totals();
         $jobs = $this->failedMediaJobs();
 
@@ -475,8 +489,10 @@ final class MediaDiagnosticsPage extends Page
             'history' => $this->recentRuns()->map(fn (MediaAuditRun $past): array => [
                 'started' => ModerationListFormat::when($past->started_at),
                 'status' => self::runStatus($past->status),
+                // A failed run counted nothing it could keep: saying how many
+                // assets it got through would always say zero.
                 'meta' => $past->status === MediaAuditRunStatus::Failed
-                    ? 'Stopped after '.number_format((int) $past->assets_checked).' assets'
+                    ? 'Stopped before it finished'
                     : number_format((int) $past->assets_checked).' assets · '.number_format((int) $past->missing_masters).' missing masters · '.number_format((int) $past->purgeable_assets).' purgeable'.($past->completed_at !== null ? ' · '.self::duration($past->started_at, $past->completed_at) : ''),
             ])->all(),
             'jobs' => array_map(fn (FailedMediaJobRecord $job): array => [
@@ -570,14 +586,10 @@ final class MediaDiagnosticsPage extends Page
             'typeLabel' => self::typeLabel($issue->issue_type),
             'detected' => $issue->created_at !== null ? ModerationListFormat::when($issue->created_at) : null,
             'severity' => self::severityBadge($issue->severity),
-            'explain' => match ($issue->issue_type) {
-                MediaAuditIssueType::MissingMasterFile => 'The original upload is gone from its disk. Existing variants still render, but nothing can be regenerated from it: a new upload or a backup restore is needed.',
-                MediaAuditIssueType::MissingVariantFile => 'Some of its variants are missing. The master is intact, so they can be regenerated.',
-                MediaAuditIssueType::ActiveUnreferencedAsset => 'Still marked active, but nothing references it. Release it to start the media lifecycle.',
-                MediaAuditIssueType::PurgeableAsset => 'Released and past its grace period. Purging deletes the files for good.',
-                default => 'Found by the last audit.',
-            },
+            'explain' => self::explain($issue->issue_type, $inspection, $missing),
             'exists' => $inspection !== null,
+            // Only a lost master leaves nothing to do here but upload again or restore.
+            'needsRestore' => $inspection !== null && ! $inspection->masterExists,
             'path' => $asset?->path,
             'details' => $asset === null ? [] : [
                 ['icon' => 'image', 'label' => 'Kind', 'value' => Str::headline($asset->kind->value), 'mono' => false],
@@ -603,8 +615,9 @@ final class MediaDiagnosticsPage extends Page
             'canRegenerate' => $inspection !== null && $inspection->masterExists && ! $inspection->asset->trashed(),
             // An issue found by an older audit may no longer hold: an asset
             // something references now is not offered for release.
-            'canRelease' => $issue->issue_type === MediaAuditIssueType::ActiveUnreferencedAsset && $inspection !== null && ! $inspection->referenced,
-            'canPurge' => $issue->issue_type === MediaAuditIssueType::PurgeableAsset && $inspection !== null,
+            'canRelease' => $issue->issue_type === MediaAuditIssueType::ActiveUnreferencedAsset && $inspection !== null && ! $inspection->referenced && ! $inspection->asset->trashed(),
+            // As for release: what the audit found may no longer hold.
+            'canPurge' => $issue->issue_type === MediaAuditIssueType::PurgeableAsset && $inspection !== null && $inspection->purgeable,
         ];
     }
 
@@ -728,6 +741,47 @@ final class MediaDiagnosticsPage extends Page
         return $started->diffForHumans($completed, ['syntax' => CarbonInterface::DIFF_ABSOLUTE, 'parts' => 2, 'short' => true]);
     }
 
+    /**
+     * What the inspector says of an issue. The issue is the last audit's
+     * finding, and the files beside it are the disk now: once they no longer
+     * bear the finding out, it says so instead of stating it as fact.
+     */
+    private static function explain(MediaAuditIssueType $type, ?MediaAssetInspection $inspection, int $missingVariants): string
+    {
+        if ($inspection !== null && $type === MediaAuditIssueType::MissingMasterFile && $inspection->masterExists) {
+            return 'The last audit found the original upload gone from its disk; it is there again now. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::MissingVariantFile && $missingVariants === 0) {
+            return 'The last audit found variants missing; they are all there now. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::MissingVariantFile && ! $inspection->masterExists) {
+            return 'Some of its variants are missing, and so is the original upload: nothing can regenerate them. A new upload or a backup restore is needed.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::ActiveUnreferencedAsset && ($inspection->referenced || $inspection->asset->trashed())) {
+            return 'The last audit found it active with nothing referencing it; it is referenced or released now. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::ReleasedButReferenced && (! $inspection->referenced || ! $inspection->asset->trashed())) {
+            return 'The last audit found it released while something still showed it; nothing does now, or it is active again. The next audit clears this issue.';
+        }
+
+        if ($inspection !== null && $type === MediaAuditIssueType::PurgeableAsset && ! $inspection->purgeable) {
+            return 'The last audit found it released and past its grace period; it is not purgeable now. The next audit clears this issue.';
+        }
+
+        return match ($type) {
+            MediaAuditIssueType::MissingMasterFile => 'The original upload is gone from its disk. Existing variants still render, but nothing can be regenerated from it: a new upload or a backup restore is needed.',
+            MediaAuditIssueType::MissingVariantFile => 'Some of its variants are missing. The master is intact, so they can be regenerated.',
+            MediaAuditIssueType::ActiveUnreferencedAsset => 'Still marked active, but nothing references it. Release it to start the media lifecycle.',
+            MediaAuditIssueType::PurgeableAsset => 'Released and past its grace period. Purging deletes the files for good.',
+            MediaAuditIssueType::ReleasedButReferenced => 'Released, but something still shows it. It is never purged while that lasts; find what references it below.',
+            default => 'Found by the last audit.',
+        };
+    }
+
     private static function typeLabel(MediaAuditIssueType $type): string
     {
         return Str::ucfirst(Str::lower(Str::headline($type->value)));
@@ -765,6 +819,6 @@ final class MediaDiagnosticsPage extends Page
         $this->severity = is_string($this->severity) && MediaAuditIssueSeverity::tryFrom($this->severity) !== null ? $this->severity : '';
         $this->type = is_string($this->type) && MediaAuditIssueType::tryFrom($this->type) !== null ? $this->type : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 200) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
     }
 }

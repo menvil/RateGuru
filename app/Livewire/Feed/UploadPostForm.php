@@ -8,12 +8,15 @@ use App\Data\Posts\CreatePostData;
 use App\Enums\ImageInputSource;
 use App\Enums\PostStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
+use App\Exceptions\Import\UrlImportDisabledException;
+use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\Tag;
 use App\Queries\Categories\ActiveCategoriesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Posts\PostContentRules;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\Rule;
@@ -59,6 +62,7 @@ final class UploadPostForm extends Component
     public function mount(): void
     {
         abort_unless(auth()->check(), 403);
+        $this->refuseWhileUploadsArePaused();
 
         $this->loadTags();
     }
@@ -75,6 +79,9 @@ final class UploadPostForm extends Component
     public function submit(): void
     {
         abort_unless(auth()->check(), 403);
+        // Checked again here: a page drawn before uploads were paused still
+        // has this form, and pausing them must stop every new post.
+        $this->refuseWhileUploadsArePaused();
 
         $createPostAction = app(CreatePostAction::class);
 
@@ -87,11 +94,28 @@ final class UploadPostForm extends Component
         // either way.
         $importedTempFile = null;
 
-        if ($this->importedImageUrl !== null && $this->image === null) {
+        // A link field emptied is no link: the picture is then simply missing.
+        if (filled($this->importedImageUrl) && $this->image === null) {
+            // The link is the client's to set: nothing is fetched for an
+            // account that may not post, whatever it sends.
+            if (! auth()->user()?->can('create', Post::class)) {
+                $this->submitError = __('ui.upload.error_generic');
+
+                return;
+            }
+
+            // A link that is no web address is said to be one, not tried and
+            // answered with "could not fetch".
+            $this->validateOnly('importedImageUrl');
+
             try {
                 $this->image = app(StoreImportedImageAction::class)->download($this->importedImageUrl);
                 $importedTempFile = $this->image;
                 $imageSource = ImageInputSource::UrlImport;
+            } catch (UrlImportDisabledException) {
+                $this->submitError = __('import.errors.feature_disabled');
+
+                return;
             } catch (\Throwable $e) {
                 report($e);
                 $this->submitError = __('import.errors.fetch_failed');
@@ -157,6 +181,16 @@ final class UploadPostForm extends Component
         }
     }
 
+    /**
+     * Pausing uploads in Project settings stops members creating posts, not
+     * only the button that opens this form. Content Studio publishes through
+     * CreatePostAction on its own and is not paused by it.
+     */
+    private function refuseWhileUploadsArePaused(): void
+    {
+        abort_unless(app(ProjectSettingsManager::class)->featureEnabled('allow_user_uploads'), 403);
+    }
+
     protected function rules(): array
     {
         $imageMimes = implode(',', config('uploads.images.mimes', ['jpg', 'jpeg', 'png', 'webp']));
@@ -175,6 +209,7 @@ final class UploadPostForm extends Component
                     ->maxHeight((int) config('uploads.images.max_height', 6000)),
             ],
             'sourceUrl' => ['nullable', 'url', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
+            'importedImageUrl' => ['nullable', 'url:http,https', 'max:'.PostContentRules::SOURCE_URL_LIMIT],
             'tagIds' => ['array', 'max:'.PostContentRules::MOST_TAGS],
             'tagIds.*' => ['integer', 'exists:tags,id'],
             'categoryId' => [

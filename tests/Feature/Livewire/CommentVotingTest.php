@@ -1,11 +1,14 @@
 <?php
 
+use App\Enums\CommentStatus;
 use App\Enums\VoteType;
 use App\Livewire\Comments\CommentVoting;
 use App\Models\Comment;
 use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 it('renders comment voting controls', function () {
@@ -33,6 +36,30 @@ it('records an upvote from the comment voting component', function () {
         'comment_id' => $comment->id,
         'type' => VoteType::Up->value,
     ]);
+});
+
+it('asks a guest who votes on a comment to sign in, in the authentication modal too', function () {
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
+
+    Livewire::test(CommentVoting::class, ['commentId' => $comment->id])
+        ->assertNotDispatched('open-auth-modal')
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.errors.guest_comment'))
+        ->assertSee(__('ui.voting.errors.guest_comment'))
+        ->assertDispatched('open-auth-modal', mode: 'login');
+
+    expect(CommentVote::query()->count())->toBe(0);
+});
+
+it('leaves the authentication modal closed when a member\'s comment vote is refused', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->for($user, 'user')->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentVoting::class, ['commentId' => $comment->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.errors.own_comment'))
+        ->assertNotDispatched('open-auth-modal');
 });
 
 it('toggles an active comment vote off when clicked again in the UI', function () {
@@ -93,3 +120,77 @@ it('renders selected comment voting state', function () {
         ->assertSee('data-state="active"', false)
         ->assertSee('text-rg-good', false);
 });
+
+it('draws the comment as it is once a vote on it is refused, not as the page had it', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+
+    $voting = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+    ]);
+
+    // Deleted after the page was drawn.
+    $comment->delete();
+
+    $voting->call('vote', VoteType::Up->value)
+        ->assertSee('data-testid="comment-voting-unavailable"', false);
+});
+
+it('draws the score, vote and ownership the thread handed it, reading none of them', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+    $reads = 0;
+    DB::listen(function (QueryExecuted $query) use (&$reads): void {
+        $sql = str_replace(['"', '`'], '', $query->sql);
+
+        if (str_contains($sql, 'from comment_votes') || str_contains($sql, 'from comments')) {
+            $reads++;
+        }
+    });
+
+    $html = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+        'preloadedScore' => 7,
+        'preloadedVote' => VoteType::Up->value,
+        'preloadedOwn' => true,
+    ])->html();
+
+    expect($reads)->toBe(0)
+        ->and(preg_match('/font-semibold">\s*7\s*</', $html))->toBe(1)
+        ->and(preg_match('/aria-pressed="true"\s+data-state="active"/', $html))->toBe(1)
+        // Its own comment: the buttons are held.
+        ->and(preg_match_all('/wire:loading\.attr="disabled"\s+disabled/', $html))->toBe(2);
+});
+
+it('draws the comment as it is after a vote cast from what the thread handed it', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['status' => CommentStatus::Visible]);
+
+    $html = Livewire::actingAs($user)->test(CommentVoting::class, [
+        'commentId' => $comment->id,
+        'hasPreloadedState' => true,
+        'preloadedScore' => 0,
+        'preloadedVote' => null,
+        'preloadedOwn' => false,
+    ])->call('vote', VoteType::Up->value)->html();
+
+    expect(CommentVote::query()->where('user_id', $user->id)->where('comment_id', $comment->id)->value('type'))->toBe(VoteType::Up)
+        ->and(preg_match('/font-semibold">\s*1\s*</', $html))->toBe(1)
+        ->and(preg_match('/aria-pressed="true"\s+data-state="active"/', $html))->toBe(1);
+});
+
+it('offers no vote to an account that has lost voting, whose every vote would be refused', function (string $status) {
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
+    $restricted = User::factory()->{$status}()->create();
+
+    $html = Livewire::actingAs($restricted)->test(CommentVoting::class, ['commentId' => $comment->id])->html();
+
+    expect(preg_match_all('/<button[^>]*\sdisabled[\s>]/', $html))->toBe(2);
+
+    // An account in good standing votes on it.
+    $html = Livewire::actingAs(User::factory()->create())->test(CommentVoting::class, ['commentId' => $comment->id])->html();
+
+    expect(preg_match('/<button[^>]*\sdisabled[\s>]/', $html))->toBe(0);
+})->with(['limited', 'banned', 'shadowbanned']);

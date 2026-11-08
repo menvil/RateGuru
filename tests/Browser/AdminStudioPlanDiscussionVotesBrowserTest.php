@@ -241,3 +241,76 @@ it('picks the discussion’s tone among its settings, saying it in the Generate 
     waitForScript($page, $chosen, 'Spicy / Adult humour');
     waitForScript($page, "document.querySelector('.rg-admin-studio__discussion .rg-admin-studio__generate-summary').textContent.includes('· Spicy / Adult humour')");
 })->with([1440, 390]);
+
+it('holds the comment dialog\'s Save while its moment is no number, rather than keep the last one', function () {
+    $page = visitDiscussionVotes($this->plan);
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__node[data-node=\"C2\"] .rg-admin-studio__node-action')].find((button) => button.textContent.trim() === 'Edit').click()");
+    waitForScript($page, "!! document.getElementById('rg-admin-discussion-dialog-offset')");
+
+    $save = "[...document.querySelectorAll('.rg-admin-studio__comment-dialog .rg-admin-dialog__footer button')].find((button) => button.textContent.trim() === 'Save')";
+    $type = fn (string $text) => $page->script("(() => { const input = document.getElementById('rg-admin-discussion-dialog-offset'); input.value = '{$text}'; input.dispatchEvent(new Event('input', { bubbles: true })) })()");
+
+    $describedBy = "document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-describedby')";
+    // A number: no error to describe it with.
+    expect($page->script($describedBy))->toBeNull();
+
+    $type('');
+    waitForScript($page, "{$save}.disabled");
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display !== 'none'");
+    waitForScript($page, "document.getElementById('rg-admin-discussion-dialog-offset-invalid').innerText.trim()", 'Enter how long after the post it appears, as a number.');
+
+    expect($page->script("document.getElementById('rg-admin-discussion-dialog-offset').getAttribute('aria-invalid')"))->toBe('true')
+        ->and($page->script($describedBy))->toBe('rg-admin-discussion-dialog-offset-invalid');
+
+    $type('15');
+    waitForScript($page, "{$save}.disabled", false);
+
+    // A number past any count of seconds: held as no number is, not sent as null, and said as the range it is past.
+    $type('1e307');
+    waitForScript($page, "{$save}.disabled");
+    waitForScript($page, "document.getElementById('rg-admin-discussion-dialog-offset-invalid').innerText.trim()", 'Set when it comes: from the post’s own moment to 30 days after it.');
+    $type('15');
+    waitForScript($page, "{$save}.disabled", false);
+
+    // No number again, then another parent: the field drawn for it holds one, and Save goes with it.
+    $type('x');
+    waitForScript($page, "{$save}.disabled");
+    $page->script("document.querySelector('.rg-admin-studio__comment-dialog .rg-admin-studio__parent-trigger').click()");
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__comment-dialog .rg-admin-studio__parent-option')].find((option) => option.getAttribute('aria-selected') !== 'true').click()");
+    waitForScript($page, "{$save}.disabled", false);
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-discussion-dialog-offset-invalid')).display === 'none'");
+});
+
+it('chooses a comment\'s priority from the keyboard, one tab stop for the group', function () {
+    $page = visitDiscussionVotes($this->plan);
+    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
+
+    $group = '.rg-admin-studio__votes-chips[role=radiogroup][aria-label="Priority of C1"]';
+    $checked = "{$group} [role=radio][aria-checked=true]";
+    waitForScript($page, "!! document.querySelector('{$checked}')");
+    $before = $page->script("document.querySelector('{$checked}').textContent.trim()");
+
+    expect($page->script("[...document.querySelectorAll('{$group} [role=radio]')].filter((radio) => radio.tabIndex === 0).length"))->toBe(1);
+
+    $page->keys($checked, 'ArrowRight');
+
+    waitForScript($page, "document.querySelector('{$checked}').textContent.trim() !== '{$before}' && document.activeElement === document.querySelector('{$checked}')");
+});
+
+it('leaves the priority as it was, and no error behind, when the request for another fails', function () {
+    $page = visitDiscussionVotes($this->plan);
+    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
+
+    $checked = '.rg-admin-studio__votes-chips[role=radiogroup][aria-label="Priority of C1"] [role=radio][aria-checked=true]';
+    waitForScript($page, "!! document.querySelector('{$checked}')");
+    $before = $page->script("document.querySelector('{$checked}').textContent.trim()");
+
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.fail = true');
+    $page->keys($checked, 'ArrowRight');
+    proveNothingHappensFor($page, 0.5, 'a priority chosen though its request failed');
+
+    expect($page->script("document.querySelector('{$checked}').textContent.trim()"))->toBe($before);
+    $page->assertNoJavaScriptErrors();
+});

@@ -37,12 +37,12 @@ return [
         'action' => 'Skontrolovať prepojené účty',
         'connected' => [
             'subject' => 'Účet :provider bol prepojený s tvojím účtom',
-            'line' => 'Účet :provider bol prepojený s tvojím účtom RateGuru. Odteraz ho môžeš použiť na prihlásenie.',
+            'line' => 'Účet :provider bol prepojený s tvojím účtom :site. Odteraz ho môžeš použiť na prihlásenie.',
             'not_you' => 'Ak o tom nevieš, otvor svoj profil a ihneď ho odpoj.',
         ],
         'disconnected' => [
             'subject' => 'Účet :provider bol odpojený od tvojho účtu',
-            'line' => 'Účet :provider bol odpojený od tvojho účtu RateGuru. Odteraz ho už nemožno použiť na prihlásenie.',
+            'line' => 'Účet :provider bol odpojený od tvojho účtu :site. Odteraz ho už nemožno použiť na prihlásenie.',
             'not_you' => 'Ak o tom nevieš, prihlás sa a skontroluj svoje prepojené účty a heslo.',
         ],
     ],

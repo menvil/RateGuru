@@ -24,6 +24,7 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\StudioPlan;
 use App\Models\User;
+use App\Support\Auth\SessionGeneration;
 use Filament\Facades\Filament;
 use Filament\Livewire\Sidebar as FilamentSidebar;
 use Filament\Livewire\Topbar as FilamentTopbar;
@@ -90,9 +91,9 @@ it('draws every admin page inside the Admin v2 shell', function () {
 });
 
 it('gives every admin page, sign-in included, the site\'s own icon', function () {
-    // Without a declared icon the browser falls back to /favicon.ico, which is
-    // empty, and asks for it again on every address change the admin makes —
-    // each keystroke in a search that keeps its query in the URL.
+    // Without a declared icon the browser asks for /favicon.ico again on every
+    // address change the admin makes — each keystroke in a search that keeps
+    // its query in the URL.
     $icon = '<link rel="icon" href="'.asset('favicon.svg').'" />';
 
     expect(filesize(public_path('favicon.svg')))->toBeGreaterThan(0);
@@ -384,4 +385,15 @@ it('puts the admin search under the workspace in the sidebar, not in the top bar
         ->toContain('x-on:keydown.ctrl.k.window="focusSearch($event)"')
         ->and($topbar)->not->toContain('rg-admin-search')
         ->not->toContain('fi-global-search');
+});
+
+it('ends an admin session of an older generation, as the site does', function () {
+    $admin = User::factory()->admin()->create(['session_generation' => 'current-generation']);
+
+    $this->actingAs($admin)
+        ->withSession([SessionGeneration::SESSION_KEY => 'older-generation'])
+        ->get('/admin')
+        ->assertRedirect(route('login'));
+
+    $this->assertGuest();
 });

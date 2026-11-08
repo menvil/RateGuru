@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RateGuru\PHPStan\Rules;
 
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 use PhpParser\Node;
 use PhpParser\Node\Expr\CallLike;
@@ -14,6 +15,8 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
+use PHPStan\Type\ObjectType;
+use PHPStan\Type\UnionType;
 use RateGuru\PHPStan\Support\ArchitectureScope;
 use RateGuru\PHPStan\Support\EloquentCallInspector;
 use RateGuru\PHPStan\Support\EloquentMutationDetector;
@@ -42,10 +45,10 @@ final class NoReadOnlyLayerMutationRule implements Rule
             return [$this->error("{$layer} are read-only; database transactions are not allowed.")];
         }
 
-        if ($node instanceof MethodCall
-            && $node->name instanceof Node\Identifier
-            && in_array($node->name->toString(), ['lockForUpdate', 'sharedLock'], true)
-            && EloquentCallInspector::hasQueryReceiver($scope, $node)
+        // A lock taken on a model as on a query: the model passes it on.
+        if ($node->name instanceof Node\Identifier
+            && in_array($node->name->toLowerString(), ['lockforupdate', 'sharedlock'], true)
+            && EloquentCallInspector::hasModelOrQueryReceiver($scope, $node)
         ) {
             return [$this->error(sprintf(
                 '%s are read-only; %s() belongs in an Action transaction.',
@@ -67,19 +70,34 @@ final class NoReadOnlyLayerMutationRule implements Rule
         ))];
     }
 
+    /** On the facade, or on a connection handed in: a transaction either way. */
     private function isTransaction(MethodCall|StaticCall $node, Scope $scope): bool
     {
-        return $node instanceof StaticCall
-            && $node->class instanceof Name
-            && $node->name instanceof Node\Identifier
-            && $scope->resolveName($node->class) === DB::class
-            && $node->name->toString() === 'transaction';
+        if (! $node->name instanceof Node\Identifier || ! ArchitectureScope::isTransactionMethod($node->name->toString())) {
+            return false;
+        }
+
+        if ($node instanceof StaticCall) {
+            return $node->class instanceof Name && $scope->resolveName($node->class) === DB::class;
+        }
+
+        $receiver = EloquentCallInspector::receiverType($scope, $node->var);
+
+        // A union may hold a connection beside something else: any connection arm counts.
+        foreach ($receiver instanceof UnionType ? $receiver->getTypes() : [$receiver] as $type) {
+            if ((new ObjectType(ConnectionInterface::class))->isSuperTypeOf($type)->yes()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function error(string $message): IdentifierRuleError
     {
         return RuleErrorBuilder::message($message)
             ->identifier('rateguru.readOnlyLayer.mutation')
+            ->nonIgnorable()
             ->build();
     }
 }

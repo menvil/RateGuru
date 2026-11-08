@@ -315,11 +315,16 @@ trait EditsStudioPlan
         $this->keepPhoto('photo', $photo, ImageInputSource::Upload);
     }
 
-    /** Switching the source keeps nothing of the other one's, and no error of it. */
+    /**
+     * Switching the source keeps nothing of the other one's, and no error of
+     * it — and starts afresh: an address that failed before, whose Try again
+     * went with its error, can be given again.
+     */
     public function updatedImageSource(): void
     {
         $this->imageSource = in_array($this->imageSource, ['link', 'post'], true) ? $this->imageSource : 'upload';
         $this->resetErrorBag(['photo', 'imageUrl', 'postUrl']);
+        $this->importedFrom = '';
     }
 
     /**
@@ -345,30 +350,45 @@ trait EditsStudioPlan
 
         $this->validateOnly($field, $this->imageRules(), $this->imageMessages());
         $this->importedFrom = "{$source} {$url}";
-
-        $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
-
-        if ($imageUrl === null) {
-            return;
-        }
-
-        $importer = app(StoreImportedImageAction::class);
+        $kept = false;
 
         try {
-            $file = $importer->download($imageUrl);
-        } catch (Throwable $exception) {
-            report($exception);
-            $this->addError($field, $source === 'post'
-                ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
-                : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+            $imageUrl = $source === 'post' ? $this->postImageUrl($url) : $url;
 
-            return;
-        }
+            if ($imageUrl === null) {
+                return;
+            }
 
-        try {
-            $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+            $importer = app(StoreImportedImageAction::class);
+
+            try {
+                $file = $importer->download($imageUrl);
+            } catch (UrlImportDisabledException) {
+                $this->addError($field, 'Importing from links is switched off in Project settings.');
+
+                return;
+            } catch (Throwable $exception) {
+                report($exception);
+                $this->addError($field, $source === 'post'
+                    ? 'The post’s image couldn’t be downloaded. Try again, or upload the file.'
+                    : 'No image could be downloaded from this link. Use a direct link to a JPEG, PNG or WebP file.');
+
+                return;
+            }
+
+            try {
+                $kept = $this->keepPhoto($field, $file, ImageInputSource::UrlImport);
+            } finally {
+                $importer->cleanup($file);
+            }
         } finally {
-            $importer->cleanup($file);
+            // A try that kept nothing — failed, or refused by a draft changed
+            // meanwhile — is forgotten here as in the browser, so the same
+            // address given again is fetched again, not answered with nothing.
+            if (! $kept) {
+                $this->importedFrom = '';
+                $this->dispatch('rg-studio-import-failed', source: $source);
+            }
         }
     }
 
@@ -629,14 +649,15 @@ trait EditsStudioPlan
     /**
      * Stores a photo on the plan through the plan's own action, against the
      * version this editor last read or wrote, and asks for its analysis. A
-     * file the site can't use is said by the field it came from.
+     * file the site can't use is said by the field it came from. Whether the
+     * photo was kept.
      */
-    private function keepPhoto(string $field, UploadedFile $file, ImageInputSource $source): void
+    private function keepPhoto(string $field, UploadedFile $file, ImageInputSource $source): bool
     {
         $plan = $this->photoPlan();
 
         if ($plan === null) {
-            return;
+            return false;
         }
 
         $previous = $plan->image_asset_id !== null ? MediaAsset::query()->find($plan->image_asset_id)?->original_filename : null;
@@ -646,14 +667,14 @@ trait EditsStudioPlan
         } catch (CannotManageStudioPlanException $exception) {
             $this->refusePhoto($exception);
 
-            return;
+            return false;
         } catch (ImageIngestException $exception) {
             report($exception);
             $this->addError($field, $field === 'photo'
                 ? 'This image can’t be used. Choose another JPEG, PNG or WebP image.'
                 : 'The file at this link isn’t an image the site takes. Use a JPEG, PNG or WebP image.');
 
-            return;
+            return false;
         }
 
         // The action keeps the copy it was handed in step with the row it
@@ -669,6 +690,8 @@ trait EditsStudioPlan
         $this->replacedPhoto = $previous;
         $this->dispatch('rg-studio-photo-kept', saved: true);
         $this->analysePhoto($plan);
+
+        return true;
     }
 
     /**

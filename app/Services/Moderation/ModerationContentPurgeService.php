@@ -5,13 +5,12 @@ namespace App\Services\Moderation;
 use App\Enums\CommentStatus;
 use App\Enums\ModerationPurgeOutcome;
 use App\Enums\PostStatus;
-use App\Enums\ReportStatus;
 use App\Models\Comment;
 use App\Models\Post;
-use App\Models\Report;
 use App\Services\Comments\CommentPhysicalDeletionService;
 use App\Services\Posts\PostGraphDeletionService;
 use App\Support\ContentLifecycle\ModerationContentRetention;
+use App\Support\Moderation\OpenReportHold;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +30,7 @@ final class ModerationContentPurgeService
     public function __construct(
         private readonly PostGraphDeletionService $graphDeletion,
         private readonly CommentPhysicalDeletionService $commentDeletion,
+        private readonly OpenReportHold $openReports,
     ) {}
 
     public function postCandidates(int $olderThanDays): Builder
@@ -79,7 +79,10 @@ final class ModerationContentPurgeService
                 return ModerationPurgeOutcome::NotExpired;
             }
 
-            if ($this->hasModerationHold($post)) {
+            // Active moderation evidence holds the purge: a review flag, or
+            // an open report on the post or any of its comments. Closed
+            // reports never hold it forever.
+            if ($post->needs_review || $this->openReports->onPostGraph($post->id, lock: ! $dryRun)) {
                 return ModerationPurgeOutcome::ModerationHold;
             }
 
@@ -150,13 +153,7 @@ final class ModerationContentPurgeService
                 return ModerationPurgeOutcome::StructuralAnchor;
             }
 
-            $hasOpenReport = Report::query()
-                ->where('status', ReportStatus::Open)
-                ->where('target_type', Comment::class)
-                ->where('target_id', $comment->id)
-                ->exists();
-
-            if ($hasOpenReport) {
+            if ($this->openReports->onComment($comment->id, lock: ! $dryRun)) {
                 return ModerationPurgeOutcome::ModerationHold;
             }
 
@@ -168,36 +165,6 @@ final class ModerationContentPurgeService
 
             return ModerationPurgeOutcome::Purged;
         });
-    }
-
-    /**
-     * Active moderation evidence blocks the purge: a review flag, an open
-     * report against the post, or an open report against any comment in
-     * its graph. Resolved/ignored reports never hold forever.
-     */
-    private function hasModerationHold(Post $post): bool
-    {
-        if ($post->needs_review) {
-            return true;
-        }
-
-        $openPostReport = Report::query()
-            ->where('status', ReportStatus::Open)
-            ->where('target_type', Post::class)
-            ->where('target_id', $post->id)
-            ->exists();
-
-        if ($openPostReport) {
-            return true;
-        }
-
-        return Report::query()
-            ->where('status', ReportStatus::Open)
-            ->where('target_type', Comment::class)
-            ->whereIn('target_id', Comment::withTrashed()
-                ->where('post_id', $post->id)
-                ->select('id'))
-            ->exists();
     }
 
     /**

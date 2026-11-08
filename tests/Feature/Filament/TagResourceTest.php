@@ -74,6 +74,18 @@ it('lists every tag, the most used first, with its posts', function () {
     $page->assertSeeHtml('data-search="pasta pasta"')->assertSeeHtml('Sorted by number of posts.');
 });
 
+it('counts a post its author deleted among a tag\'s posts, so the tag is not unused', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $tag = Tag::factory()->create();
+    $post = Post::factory()->authorDeleted()->create();
+    $post->tags()->attach($tag);
+
+    $page = Livewire::test(ManageTags::class);
+
+    expect($page->viewData('rows')[$tag->id]['posts'])->toBe(1)
+        ->and($page->viewData('stats'))->toMatchArray(['tags' => 1, 'unused' => 0]);
+});
+
 it('shows Merge into… unavailable, with the reason', function () {
     $this->actingAs(User::factory()->admin()->create());
     $tag = Tag::factory()->create();

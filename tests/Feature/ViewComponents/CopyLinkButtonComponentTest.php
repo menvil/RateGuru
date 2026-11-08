@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Js;
 
 it('renders copy link button with url', function () {
     $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" />');
@@ -59,4 +60,18 @@ it('renders copy button hover affordance', function () {
         ->toContain('hover:bg-rg-cardHover')
         ->toContain('hover:text-rg-text')
         ->toContain('focus-visible:ring-rg-accent');
+});
+
+it('hands its labels to Alpine as JavaScript strings, so an apostrophe in a translation stays text', function () {
+    $html = Blade::render('<x-share.copy-link-button url="https://rateguru.test/posts/1" label="Copier l\'URL" copied-label="C\'est copié" />');
+
+    $copier = Js::from("Copier l'URL");
+    $copied = Js::from("C'est copié");
+
+    expect($html)
+        ->toContain(':aria-label="copied ? '.$copied.' : '.$copier.'"')
+        ->toContain(':aria-label="'.$copied.'"')
+        // A label written into a quoted literal by hand: the browser decodes
+        // the entity back to an apostrophe that ends the string early.
+        ->not->toContain("'Copier l&#039;URL'");
 });

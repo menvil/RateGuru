@@ -105,7 +105,7 @@ final class UpdatePersonaAction
         }
 
         $this->logger->info('persona.updated', [
-            'user_id' => $persona->id,
+            'persona_id' => $persona->id,
             'admin_id' => $admin->id,
         ]);
     }

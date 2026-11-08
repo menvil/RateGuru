@@ -23,10 +23,10 @@
 >
     @if($comment->user?->public_username)
         <a href="{{ route('profile.show', $comment->user->public_username) }}" wire:navigate class="shrink-0 self-start rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-            <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user->name" size="md" />
+            <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user->resolved_display_name" size="md" />
         </a>
     @else
-        <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user?->name ?? __('ui.user.unknown')" size="md" />
+        <x-ui.avatar :src="$comment->user?->resolved_avatar_url" :srcset="$comment->user?->resolved_avatar_srcset" :name="$comment->user?->resolved_display_name ?? __('ui.user.unknown')" size="md" />
     @endif
 
     <div class="min-w-0">
@@ -37,7 +37,8 @@
                         {{ '@'.$comment->user->public_username }}
                     </a>
                 @else
-                    <span class="font-semibold text-rg-text">{{ $comment->user?->name ?? __('ui.user.unknown') }}</span>
+                    {{-- The deleted author's label in the page's language, as on post cards. --}}
+                    <span class="font-semibold text-rg-text">{{ $comment->user?->resolved_display_name ?? __('ui.user.unknown') }}</span>
                 @endif
 
                 @if ($comment->created_at)
@@ -48,7 +49,9 @@
             </p>
 
             @if($hasMenuActions)
-                <div class="relative -mt-1 inline-flex shrink-0" wire:click.stop wire:keydown.stop>
+                {{-- Escape closes the open menu and goes no further: the drawer
+                     the comments may sit in closes on Escape too. --}}
+                <div class="relative -mt-1 inline-flex shrink-0" x-on:keydown.escape="if (actionsOpen) { actionsOpen = false; $event.stopPropagation() }">
                     <button
                         type="button"
                         aria-label="{{ __('ui.a11y.comment_actions') }}"
@@ -74,7 +77,6 @@
                                     :reportable-id="$comment->id"
                                     variant="menu"
                                     :key="'comment-report-'.$comment->id"
-                                    wire:lazy
                                 />
                             </div>
                         @endif
@@ -109,10 +111,15 @@
 
         <p class="mt-1 break-words leading-5 text-rg-text2">{{ $comment->body }}</p>
 
-        <div class="mt-2 flex items-center gap-3.5 text-[12.5px] text-rg-muted" wire:click.stop wire:keydown.stop>
+        <div class="mt-2 flex items-center gap-3.5 text-[12.5px] text-rg-muted">
             @if($comment->exists)
                 <livewire:comments.comment-voting
                     :comment-id="$comment->id"
+                    :has-preloaded-state="$votingState !== null"
+                    :preloaded-score="$votingState['score'] ?? 0"
+                    :preloaded-vote="$votingState['vote'] ?? null"
+                    :preloaded-own="$votingState['own'] ?? false"
+                    :preloaded-may-vote="$votingState['mayVote'] ?? false"
                     :key="'comment-voting-'.$comment->id"
                 />
             @else

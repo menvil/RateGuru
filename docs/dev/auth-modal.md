@@ -24,7 +24,30 @@ Anything that wants a guest to authenticate only names a mode:
 and buttons that must keep working where the dialog is absent: a modified
 click is left to the browser, and a page without a dialog navigates to the
 standalone page instead. The header links and the guest upload button use
-it; later guest actions (votes, comments, follows) can do the same.
+it; later guest actions (comments, follows) can do the same.
+
+A Livewire component whose server refuses a guest opens it from that
+answer instead, with `App\Livewire\Concerns\OpensAuthModal`:
+`$this->openAuthModal()` sends the same event, in login mode unless it
+names another. Post, comment and rating votes do: the refusal is still
+shown next to the buttons, and the dialog opens over the page, so the
+attempt reaches the server and is still recorded in the security log.
+
+The dialog opens only when signing in could let the vote through. A guest's
+vote gets the answer a member would get instead, with no dialog, when:
+
+- the post is no longer published (post votes, rating votes);
+- the post still exists but no longer takes rating votes (rating votes);
+- the rating option is switched off or archived (rating votes);
+- the comment is hidden or deleted, or its post no longer takes votes
+  (comment votes).
+
+The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
+best-effort and normally limited: one visitor address writes at most 30
+attempts a minute, then one line saying it was cut off, and nothing more
+until the minute is over. The limit is counted in the cache, and fails open:
+while the cache cannot be reached, every attempt is written. A failure to
+write the log never changes the refusal.
 
 ## Three states, no tabs
 

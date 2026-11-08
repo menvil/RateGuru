@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Studio\StartStudioPostTextGenerationAction;
 use App\Enums\PersonaEmojiFrequency;
 use App\Enums\PersonaEngagement;
 use App\Enums\StudioImageAnalysisStatus;
@@ -17,10 +18,12 @@ use App\Models\StudioPlanTextGeneration;
 use App\Models\User;
 use Database\Factories\StudioPlanImageAnalysisFactory;
 use Database\Factories\StudioPlanTextGenerationFactory;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 /**
  * The queued job behind a batch of post text suggestions: it claims its
@@ -255,6 +258,9 @@ it('sends nothing, and ends the batch with the reason, when the plan changed bef
     'past its Draft' => [fn (StudioPlan $plan) => $plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), StudioPostTextGenerationError::PlanClosed],
     'a new photo' => [fn (StudioPlan $plan) => $plan->forceFill(['image_asset_id' => MediaAsset::factory()->postImage()->create()->id])->save(), StudioPostTextGenerationError::StaleAnalysis],
     'an analysis with another result' => [fn (StudioPlan $plan) => StudioPlanImageAnalysis::query()->update(['result' => json_encode(StudioPlanImageAnalysisFactory::description(['summary' => 'Something else entirely.']))]), StudioPostTextGenerationError::StaleAnalysis],
+    // Run again: the old result is still there, and still matches, but it is
+    // being replaced — nothing is paid for from it.
+    'an analysis being run again' => [fn () => StudioPlanImageAnalysis::query()->update(['status' => StudioImageAnalysisStatus::Queued->value]), StudioPostTextGenerationError::StaleAnalysis],
     'not configured any more' => [fn () => configureStudioImageAnalysis(['enabled' => false]), StudioPostTextGenerationError::NotConfigured],
 ]);
 
@@ -428,3 +434,25 @@ it('logs texts dropped for a changed photo as discarded', function () {
         && $context['reason'] === 'analysis_changed'
         && $context['error_code'] === 'stale_analysis');
 });
+
+it('claims nothing when the batch is no longer this running attempt between the claim and the read', function (Closure $meanwhile) {
+    $generation = requestStudioPostTexts($this->admin, studioPlanWithFinishedAnalysis());
+    $changed = false;
+
+    // The batch changes the moment this attempt is claimed, before the claim
+    // reads it back: each half of the read on its own.
+    DB::listen(function (QueryExecuted $query) use (&$changed, $generation, $meanwhile): void {
+        if ($changed || ! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, 'studio_plan_text_generations')) {
+            return;
+        }
+
+        $changed = true;
+        DB::table('studio_plan_text_generations')->where('id', $generation->id)->update($meanwhile());
+    });
+
+    expect(app(StartStudioPostTextGenerationAction::class)->handle($generation->id, $generation->attempt_id))->toBeNull()
+        ->and($changed)->toBeTrue();
+})->with([
+    'another attempt, running' => [fn (): array => ['attempt_id' => (string) Str::uuid()]],
+    'this attempt, no longer running' => [fn (): array => ['status' => StudioPostTextGenerationStatus::Failed->value]],
+]);

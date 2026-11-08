@@ -37,6 +37,7 @@ final class MediaAuditCommand extends Command
         $this->line("  Healthy, referenced: {$summary->healthyAssets}");
         $this->line("  Active, but unreferenced (unexpected — investigate): {$summary->activeUnreferencedAssets}");
         $this->line("  Soft-deleted, within grace period: {$summary->softDeletedWithinGrace}");
+        $this->line("  Soft-deleted, but still referenced (unexpected — investigate): {$summary->releasedButReferenced}");
         $this->line("  Soft-deleted, purgeable now: {$summary->purgeableAssets}");
         $this->newLine();
         $this->info('DB/filesystem divergence:');

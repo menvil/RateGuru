@@ -13,6 +13,7 @@ use App\Models\StudioPlan;
 use App\Queries\Personas\PersonasQuery;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 
@@ -172,7 +173,7 @@ final class CreateStudioPlan extends Page
         }
 
         try {
-            $plan = app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData(authorUserId: $this->startAuthorId));
+            $plan = $this->createPhotoDraft();
         } catch (CannotManageStudioPlanException $exception) {
             $this->refusePhoto($exception);
 
@@ -181,6 +182,38 @@ final class CreateStudioPlan extends Page
 
         $this->planId = $plan->id;
         $this->lockVersion = $plan->lock_version;
+
+        return $plan;
+    }
+
+    /**
+     * The empty Draft a first photo is kept on, made with the author the page
+     * started with — or with none, once that Persona can't be chosen any
+     * more: the photo is no reason to refuse, and an author picked on the
+     * page could not help, since the Draft is made from the one it started
+     * with. The author left to choose is said when the draft is saved.
+     */
+    private function createPhotoDraft(): StudioPlan
+    {
+        try {
+            return app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData(authorUserId: $this->startAuthorId));
+        } catch (CannotManageStudioPlanException $exception) {
+            if (! $exception->isAuthorUnavailable() || $this->startAuthorId === null) {
+                throw $exception;
+            }
+        } catch (ValidationException $exception) {
+            // Checked before the lock: the same refusal, said as a field error.
+            if (! array_key_exists('authorUserId', $exception->errors()) || $this->startAuthorId === null) {
+                throw $exception;
+            }
+        }
+
+        $plan = app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData);
+
+        // The page starts from the authorless Draft only once there is one: a
+        // retry refused too leaves it where it started.
+        $this->startAuthorId = null;
+        $this->saved = self::savedValuesOf(new StudioPlanData);
 
         return $plan;
     }

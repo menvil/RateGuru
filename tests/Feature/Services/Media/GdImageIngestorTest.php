@@ -72,6 +72,21 @@ function exifOrientationSegment(int $orientation): string
     return "\xFF\xE1".pack('n', strlen($app1Payload) + 2).$app1Payload;
 }
 
+/**
+ * The same EXIF with a second IFD0 entry exif_read_data() warns about — an
+ * illegal format code — while still reading the Orientation after it.
+ */
+function exifOrientationSegmentWithBrokenEntry(int $orientation): string
+{
+    $tiffHeader = "II\x2A\x00".pack('V', 8);
+    $broken = pack('vvV', 0x010D, 0, 1).pack('V', 0);
+    $entry = pack('vvV', 0x0112, 3, 1).pack('v', $orientation)."\x00\x00";
+    $ifd0 = pack('v', 2).$broken.$entry.pack('V', 0);
+    $app1Payload = "Exif\x00\x00".$tiffHeader.$ifd0;
+
+    return "\xFF\xE1".pack('n', strlen($app1Payload) + 2).$app1Payload;
+}
+
 function jpegWithExifOrientation(int $orientation, int $width = 20, int $height = 10): string
 {
     $plain = jpegMarkerBytes($width, $height);
@@ -235,6 +250,19 @@ it('accepts an image exactly at the height limit', function () {
     $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy(['maxHeight' => 100]));
 
     expect($result->height)->toBe(100);
+});
+
+it('still turns a photo upright when its EXIF carries a recoverable quirk beside the orientation', function () {
+    $plain = jpegMarkerBytes(20, 10);
+    $bytes = substr($plain, 0, 2).exifOrientationSegmentWithBrokenEntry(6).substr($plain, 2);
+
+    $result = (new GdImageIngestor)->ingest(ingestInput($bytes), ingestPolicy());
+
+    // Orientation 6 rotates 90° clockwise: stored 20x10, upright 10x20. The
+    // corners tell it from orientation 8, which gives the same size.
+    expect($result->width)->toBe(10)
+        ->and($result->height)->toBe(20)
+        ->and(markerCorners($result->bytes))->toMatchArray(['tl' => 'BLUE', 'tr' => 'RED', 'bl' => 'WHITE', 'br' => 'GREEN', 'width' => 10, 'height' => 20]);
 });
 
 it('rejects an image whose EXIF-corrected dimensions exceed asymmetric limits even though the as-stored dimensions do not', function () {

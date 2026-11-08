@@ -13,6 +13,8 @@ use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\Report;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 /**
@@ -89,6 +91,18 @@ it('reopens a closed report from its chain', function () {
     expect($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
+it('says a report already reopened by someone else changed meanwhile, not that it is open again', function () {
+    $report = reportOn(Post::factory()->published()->create(), ['status' => ReportStatus::Ignored]);
+    $page = Livewire::withQueryParams(['status' => 'ignored'])->test(ListReports::class)->call('select', $report->id);
+
+    // Reopened from another tab meanwhile.
+    Report::query()->whereKey($report->id)->update(['status' => ReportStatus::Open]);
+
+    $page->call('reopen', $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', message: 'Report #'.$report->id.' is open again');
+});
+
 it('says so, and changes nothing, when someone closed the report meanwhile', function () {
     $report = reportOn(Post::factory()->published()->create());
     $page = Livewire::test(ListReports::class);
@@ -99,6 +113,32 @@ it('says so, and changes nothing, when someone closed the report meanwhile', fun
 
     expect($report->fresh())->status->toBe(ReportStatus::Resolved)->resolution_note->toBe('Elsewhere.');
 });
+
+it('says so, rather than offering Undo, when the report is closed between the page\'s check and the write', function (string $method) {
+    $report = reportOn(Post::factory()->published()->create());
+    $page = Livewire::test(ListReports::class);
+    $elsewhere = User::factory()->moderator()->create();
+
+    // Another moderator's close commits right after this one has read the
+    // report as open and locked its own row, just before it writes.
+    $closedElsewhere = false;
+    DB::listen(function (QueryExecuted $query) use (&$closedElsewhere, $report, $elsewhere): void {
+        if (! $closedElsewhere && str_contains($query->sql, 'for update')) {
+            $closedElsewhere = true;
+            Report::query()->whereKey($report->id)->update(['status' => ReportStatus::Resolved->value, 'resolved_by' => $elsewhere->id, 'resolved_at' => now()]);
+        }
+    });
+
+    $page->call($method, $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', action: ['label' => 'Undo', 'event' => 'reopen-report', 'params' => ['id' => $report->id]]);
+
+    expect($closedElsewhere)->toBeTrue()
+        ->and($report->fresh())->status->toBe(ReportStatus::Resolved)->resolved_by->toBe($elsewhere->id);
+})->with(['resolve', 'ignore'])->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
 
 it('hides a reported post only with a reason, the report\'s own filled in, and leaves the report open', function () {
     $post = Post::factory()->published()->create();
@@ -138,6 +178,23 @@ it('hides a reported comment with an optional reason', function () {
     expect($comment->fresh()->status)->toBe(CommentStatus::Hidden)
         ->and($report->fresh()->status)->toBe(ReportStatus::Open);
 });
+
+it('says so when the reported comment is hidden by someone else after the page checked it', function () {
+    $comment = Comment::factory()->create();
+    $report = reportOn($comment);
+    $page = Livewire::test(ListReports::class)->call('select', $report->id)->call('askToHideTarget')->set('reason', '');
+
+    $landed = hideCommentOnceTheModeratorIsLocked($comment);
+
+    $page->call('confirm')
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+
+    expect($landed())->toBeTrue()
+        ->and(ModerationLog::query()->where('action', ModerationActionType::HideComment)->count())->toBe(0);
+})->skip(
+    fn (): bool => config('database.default') === 'sqlite',
+    'SQLite takes no row locks — `lockForUpdate()` adds nothing to its SQL — so there is no moment in between to change anything in.',
+);
 
 it('lets an administrator ban the author of the reported content, leaving the report open', function () {
     $this->actingAs(User::factory()->admin()->create());
@@ -185,3 +242,21 @@ it('offers no Hide when the target is gone', function () {
         ->call('askToHideTarget')
         ->assertSet('confirming', null);
 });
+
+it('holds a hiding reason to its limits as it is stored, without what renders as nothing at its ends', function (string $reason, string $rule) {
+    $post = Post::factory()->published()->create();
+    $report = reportOn($post);
+
+    Livewire::test(ListReports::class)
+        ->call('select', $report->id)
+        ->call('askToHideTarget')
+        ->set('reason', $reason)
+        ->call('confirm')
+        ->assertHasErrors(['reason' => $rule]);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+})->with([
+    'spaces around too little' => ['   a   ', 'min'],
+    'no-break spaces around too little' => ["\u{00A0}ab\u{00A0}", 'min'],
+    'zero-width spaces only' => ["\u{200B}\u{200B}\u{200B}", 'required'],
+]);

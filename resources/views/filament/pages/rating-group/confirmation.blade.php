@@ -53,8 +53,12 @@
         </x-slot:actions>
     </x-admin.ui.confirm-dialog>
 @elseif ($confirming === 'voted')
-    <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" icon="archive" :title="$label.' has vote history'" wire:key="confirm-voted-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
-        <p>{{ $votesText }} {{ $votes === 1 ? 'references' : 'reference' }} this option. Deleting it would rewrite past results, so it can only be archived.</p>
+    <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" icon="archive" :title="$votes > 0 ? $label.' has vote history' : $label.' is an author’s answer'" wire:key="confirm-voted-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
+        @if ($votes > 0)
+            <p>{{ $votesText }} {{ $votes === 1 ? 'references' : 'reference' }} this option. Deleting it would rewrite past results, so it can only be archived.</p>
+        @else
+            <p>Authors chose this option as the answer to their own posts. Deleting it would take those answers away, so it can only be archived.</p>
+        @endif
         @if ($row['archived'] !== null)
             <p>It is already archived.</p>
         @endif
@@ -78,7 +82,12 @@
     </x-admin.ui.confirm-dialog>
 @elseif ($confirming === 'above-max')
     <x-admin.ui.confirm-dialog id="rg-admin-rating-group-confirm" tone="warning" :title="$label.' can’t be activated'" wire:key="confirm-above-max-option-{{ $row['id'] }}" x-on:dismiss="$wire.closeConfirmation()">
-        <p>{{ $group->label }} already has {{ $active }} active options, the maximum allowed.</p>
+        {{-- An inactive group's maximum may have been lowered below its active options. --}}
+        @if ($active > $group->max_options)
+            <p>{{ $group->label }} already has {{ $active }} active options, more than its maximum of {{ $group->max_options }}.</p>
+        @else
+            <p>{{ $group->label }} already has {{ $active }} active options, the maximum allowed.</p>
+        @endif
 
         <x-slot:details>
             <div>
@@ -86,7 +95,9 @@
                     <h3 class="rg-admin-section-label__text">To activate it</h3>
                 </div>
                 <ul class="rg-admin-dialog-facts">
-                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="minus" :size="16" />Deactivate or archive another option first{{ $canRaise ? ', or' : '.' }}</li>
+                    {{-- As many as it takes to leave room for one more: one at the maximum, more above it. --}}
+                    @php($toFree = $active - $group->max_options + 1)
+                    <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="minus" :size="16" />Deactivate or archive {{ $toFree === 1 ? 'another option' : $toFree.' other options' }} first{{ $canRaise ? ', or' : '.' }}</li>
                     @if ($canRaise)
                         <li class="rg-admin-dialog-facts__item"><x-admin.ui.icon name="plus" :size="16" />raise the maximum to {{ $active + 1 }}. Voters will see one more choice.</li>
                     @endif

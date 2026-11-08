@@ -64,12 +64,12 @@ class SmallDemoFillSeeder extends DemoFillSeeder
         return 1;
     }
 
-    protected function deepReplyParentCount(): int
+    protected function busyThreadCount(): int
     {
         return 1;
     }
 
-    protected function deepReplyCount(): int
+    protected function busyThreadReplyCount(): int
     {
         return 1;
     }
@@ -139,6 +139,15 @@ it('creates a mix of categorized and uncategorized large demo posts with media',
         expect($post->image_asset_id)->not->toBeNull();
         Storage::disk('public')->assertExists($post->imageAsset->path);
     }
+});
+
+it('answers only top-level comments, as a reader can', function () {
+    $this->seed(SmallDemoFillSeeder::class);
+
+    $replies = Comment::query()->whereNotNull('parent_id')->with('parent')->get();
+
+    expect($replies)->not->toBeEmpty()
+        ->and($replies->filter(fn (Comment $reply): bool => $reply->parent->parent_id !== null))->toBeEmpty();
 });
 
 it('rebuilds generated interactions and media without accumulating rows', function () {

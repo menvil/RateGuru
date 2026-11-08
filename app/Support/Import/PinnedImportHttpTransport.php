@@ -5,6 +5,7 @@ namespace App\Support\Import;
 use App\Exceptions\Import\ImportFetchException;
 use App\Support\Observability\DomainLogger;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -138,6 +139,15 @@ final class PinnedImportHttpTransport implements ImportHttpTransport
                 ->connectTimeout($policy->connectTimeoutSeconds)
                 ->withoutRedirecting()
                 ->get($target->url);
+        } catch (RequestException $e) {
+            // A cap can also end a transfer whose response already said 4xx
+            // or 5xx: Laravel then raises the response's own error instead of
+            // a connection failure. The flags still say which it was.
+            if ($contentLengthExceeded || $bodyCapExceeded) {
+                throw ImportFetchException::responseTooLarge($target->url, $policy->maxBytes);
+            }
+
+            throw ImportFetchException::requestFailed($target->url, $e->response->status());
         } catch (ConnectionException $e) {
             if ($contentLengthExceeded || $bodyCapExceeded) {
                 // Both caps end the transfer the way a network failure does:

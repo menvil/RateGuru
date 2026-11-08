@@ -66,6 +66,20 @@ The reviewed boundaries are:
 - `CommentListQuery` for arithmetic comment ranking.
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
 - `MatchedUsersQuery` for literal LIKE searches.
+- `MediaAuditIssuesQuery` for a literal LIKE search over issue paths, and the
+  most severe issues first, ranked with a `CASE` over their severity.
+- `ModerationCommentsQuery` for literal LIKE searches over comment text, author
+  usernames and post titles.
+- `ModerationPostsQuery` for literal LIKE searches over post titles and author
+  usernames.
+- `ModerationReportsQuery` for literal LIKE searches over reported content,
+  reporters, reasons and messages, and for how many open reports point to each
+  listed report's target: a correlated `COUNT` subquery.
+- `ModerationUsersQuery` for literal LIKE searches over usernames, names and
+  email addresses, and for the reports on each listed person's posts and
+  comments: a correlated `COUNT` subquery.
+- `PersonasQuery` for literal LIKE searches over Persona usernames, names, short
+  descriptions and characters.
 - `RatingVoteCountsQuery` for grouped rating counts.
 - `StudioPlansQuery` for literal LIKE searches over publication plan titles and
   over their authors' usernames, display names and names.

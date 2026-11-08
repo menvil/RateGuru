@@ -91,3 +91,16 @@ it('replaces only known active legacy default groups on an upgraded installation
         ->and($source->options()->active()->exists())->toBeFalse()
         ->and($category->options()->active()->exists())->toBeFalse();
 });
+
+it('seeds all of the default questions and answers or none of them', function () {
+    RatingOption::creating(function (RatingOption $option): void {
+        if (RatingOption::query()->count() >= 3) {
+            throw new RuntimeException('The database went away.');
+        }
+    });
+
+    expect(fn () => $this->seed(DefaultRatingConfigurationSeeder::class))->toThrow(RuntimeException::class);
+
+    expect(RatingGroup::query()->count())->toBe(0)
+        ->and(RatingOption::query()->count())->toBe(0);
+});

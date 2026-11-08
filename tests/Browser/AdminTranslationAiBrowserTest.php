@@ -98,6 +98,10 @@ beforeEach(function () {
     config(['translation.providers.openai.api_key' => 'test-key', 'translation.providers.openai.model' => 'gpt-6-luna']);
     $this->admin = User::factory()->admin()->create();
     $this->actingAs($this->admin);
+    // The 24 h figures cover whole hours up to the current one. Stopped, the
+    // clock cannot turn an hour between seeding and a read, or between two
+    // reads, and move a seeded call out of the window.
+    $this->freezeTime();
     $this->now = CarbonImmutable::now('UTC');
     seedTranslationAiWeek($this->now);
 });
@@ -256,6 +260,24 @@ it('reads everything again on Refresh, and says so in a toast', function () {
 
     waitForScript($page, "document.querySelector('.rg-admin-translation-ai__figure-value')?.textContent.trim()", (string) ($before + 1));
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast')].some((toast) => toast.textContent.includes('Translation AI refreshed'))");
+});
+
+it('finds a model Refresh brought in the model search, and narrows to it', function () {
+    $page = visitTranslationAi('/admin/translation-ai?period=24h', 1440);
+
+    TranslationAiProviderCall::factory()->create(['model' => 'gpt-7-sol', 'completed_at' => CarbonImmutable::now('UTC')]);
+    $page->click('Refresh');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast')].some((toast) => toast.textContent.includes('Translation AI refreshed'))");
+
+    $page->click('#rg-admin-translation-ai-model-trigger');
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-translation-ai-model-popover')).display !== 'none'");
+    $page->type('#rg-admin-translation-ai-model-search', 'gpt-7');
+
+    $shown = "JSON.stringify([...document.querySelectorAll('#rg-admin-translation-ai-model-listbox [role=\"option\"]')].filter((option) => option.checkVisibility()).map((option) => option.dataset.value))";
+    waitForScript($page, $shown, '["gpt-7-sol"]');
+
+    $page->click('#rg-admin-translation-ai-model-listbox [role="option"][data-value="gpt-7-sol"]');
+    waitForScript($page, "new URLSearchParams(location.search).get('model')", 'gpt-7-sol');
 });
 
 it('folds the configuration away until it is asked for', function () {

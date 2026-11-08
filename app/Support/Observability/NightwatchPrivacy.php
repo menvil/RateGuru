@@ -106,7 +106,7 @@ final class NightwatchPrivacy
     private const ALLOWED_CACHE_KEYS = [
         // App\Providers\AppServiceProvider — constant keys, no interpolation.
         '/^sidebar-nav-categories$/',
-        '/^sidebar-nav-top-tags$/',
+        '/^sidebar-nav-top-tag-slugs$/',
 
         // App\Jobs\RunMediaAuditJob — one global lock, constant key.
         '/^media-audit:full$/',
@@ -148,7 +148,7 @@ final class NightwatchPrivacy
     public function redactRequest(Request $record): void
     {
         // Not hashed, not truncated to a /24, not replaced with a stable
-        // pseudonym: Phase 6B has no question that a client address answers,
+        // pseudonym: nothing the evaluation asks is answered by a client address,
         // and a reversible-by-lookup stand-in is not anonymity. Sentry runs
         // with send_default_pii off for the same reason.
         $record->ip = '';
@@ -220,29 +220,10 @@ final class NightwatchPrivacy
         );
     }
 
-    /**
-     * Removes the offending value from a unique-constraint violation message.
-     *
-     * Almost every exception message RateGuru produces is static text, but a
-     * driver-level unique-violation is not: PostgreSQL appends
-     * `DETAIL: Key (email)=(someone@example.com) already exists.` and MySQL
-     * `Duplicate entry 'someone@example.com' for key '...'`. Registration and
-     * profile updates can both raise one, so the column name is kept — that is
-     * the diagnosis — and the value is not.
-     */
+    /** The offending value of a unique-constraint violation, out of the message (UniqueViolationValue). */
     public function redactException(Exception $record): void
     {
-        $message = (string) preg_replace(
-            '/(Key \([^)]*\)=\()[^)]*(\))/',
-            '$1'.self::REDACTED.'$2',
-            $record->message,
-        );
-
-        $record->message = (string) preg_replace(
-            "/(Duplicate entry )'[^']*'/",
-            "$1'".self::REDACTED."'",
-            $message,
-        );
+        $record->message = UniqueViolationValue::redact($record->message, self::REDACTED);
     }
 
     /**

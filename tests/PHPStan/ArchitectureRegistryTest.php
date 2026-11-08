@@ -61,6 +61,18 @@ final class ArchitectureRegistryTest extends PHPStanTestCase
         }
     }
 
+    public function test_every_raw_sql_class_is_in_the_documented_reviewed_boundaries(): void
+    {
+        $doc = file_get_contents(dirname(__DIR__, 2).'/docs/architecture/http-and-database-boundaries.md');
+        $this->assertIsString($doc);
+
+        foreach ($this->entries('rawSqlExceptions') as $entry) {
+            $class = (new ReflectionClass((string) $entry['class']))->getShortName();
+
+            $this->assertStringContainsString("- `{$class}` for", $doc, "{$class} is approved for raw SQL but not among the documented reviewed boundaries.");
+        }
+    }
+
     public function test_there_are_no_low_level_database_exceptions(): void
     {
         $this->assertSame([], self::$architecture['lowLevelDatabaseExceptions'] ?? null);

@@ -29,6 +29,7 @@ class MediaAuditRunFactory extends Factory
             'purgeable_assets' => 0,
             'missing_masters' => 0,
             'missing_variant_files' => 0,
+            'released_but_referenced' => 0,
             'physical_orphan_candidates' => 0,
             'failed_media_jobs' => 0,
         ];

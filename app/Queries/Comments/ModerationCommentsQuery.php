@@ -54,10 +54,19 @@ final class ModerationCommentsQuery implements RawSqlPersistenceBoundary, Stable
         $counts = [];
 
         foreach (self::TABS as $tab) {
-            $counts[$tab] = $this->onTab($this->listed(), $tab)->count();
+            $counts[$tab] = $this->count($tab);
         }
 
         return $counts;
+    }
+
+    /**
+     * How many comments one tab lists, before any search — what a dashboard card
+     * linking to that tab shows, so the card and the list cannot disagree.
+     */
+    public function count(string $tab): int
+    {
+        return $this->onTab($this->listed(), $tab)->count();
     }
 
     /** The listed comment with this id, or null when there is none. */

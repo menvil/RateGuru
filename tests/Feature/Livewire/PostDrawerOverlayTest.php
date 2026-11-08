@@ -2,6 +2,7 @@
 
 use App\Livewire\Feed\PostDrawer;
 use App\Models\Post;
+use App\Models\User;
 use Livewire\Livewire;
 
 it('does not render overlay chrome by default', function () {
@@ -97,4 +98,77 @@ it('keeps the panel chrome static across renders so only the class attribute ani
     preg_match('/data-testid="post-detail-overlay"[^>]*class="([^"]*)"/', $test->html(), $switchMatch);
     expect($switchMatch[1] ?? '')->not->toContain('translate-x-full');
     expect($openMatch[1] ?? '')->toBe($switchMatch[1] ?? '');
+});
+
+it('drops the deleted post\'s card from the list behind the drawer', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $post->id)
+        ->call('deleteSelectedPost')
+        ->assertDispatched('post-deleted', postId: $post->id)
+        ->assertDispatched('clear-selected-post');
+});
+
+it('drops the card of a post purged while the drawer was open', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+
+    $test = Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $post->id);
+
+    $post->forceDelete();
+
+    $test->call('deleteSelectedPost')
+        ->assertDispatched('post-deleted', postId: $post->id)
+        ->assertDispatched('clear-selected-post');
+});
+
+it('says a failed deletion about the post it was for, not the next one opened', function () {
+    $user = User::factory()->create();
+    $someoneElses = Post::factory()->published()->create();
+    $next = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(PostDrawer::class, ['asOverlay' => true])
+        ->call('setSelectedPost', $someoneElses->id)
+        ->call('deleteSelectedPost')
+        ->assertSet('deleteError', __('ui.post.delete_errors.not_allowed'))
+        ->call('setSelectedPost', $next->id)
+        ->assertSet('deleteError', null);
+});
+
+it('sizes the loading skeleton with classes the skeleton takes', function () {
+    $post = Post::factory()->published()->create();
+
+    $shapes = collect(livewireDom(Livewire::test(PostDrawer::class, ['postId' => $post->id]))->query("//*[@data-testid='post-drawer-loading']/*"))
+        ->map(fn (DOMElement $shape): array => explode(' ', $shape->getAttribute('class')));
+
+    // The picture's block, then two lines: each the size it is given, none the full width a lost size falls back to.
+    expect($shapes)->toHaveCount(3)
+        ->and($shapes[0])->toContain('h-64')
+        ->and($shapes[1])->toContain('w-[70%]')->not->toContain('w-full')
+        ->and($shapes[2])->toContain('w-[45%]')->not->toContain('w-full');
+});
+
+it('stops hearing the window\'s width once the phone\'s panel leaves the page', function () {
+    $html = Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])->html();
+
+    // Heard from init() and let go in destroy(): a page left with the panel open does not close it later.
+    expect($html)->toContain("desktop.addEventListener('change', widened)")
+        ->toContain("this.stopHearingTheWidth = () => desktop.removeEventListener('change', widened)")
+        ->toMatch('/destroy\(\) \{\s*this\.stopHearingTheWidth\?\.\(\)/');
+});
+
+it('offers its close button on a post that is gone, the only way out on a phone', function () {
+    $post = Post::factory()->published()->create(['title' => 'A post deleted meanwhile']);
+    $post->delete();
+
+    Livewire::test(PostDrawer::class, ['asOverlay' => true, 'mobileOnly' => true])
+        ->call('setSelectedPost', $post->id)
+        ->assertSee(__('ui.post.not_found_title'))
+        ->assertSee('data-testid="post-detail-close"', false);
 });

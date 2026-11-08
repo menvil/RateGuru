@@ -57,7 +57,22 @@ it('warns instead of guessing when the release metadata is unusable', function (
     expect($output)
         ->toContain('release.json: malformed')
         ->toContain('Release metadata is malformed')
+        ->toContain('Sentry events will carry no release.')
         ->toContain('(unknown)');
+});
+
+it('says only what is missing when damaged metadata still holds a valid release', function () {
+    config([
+        'deployment.target' => 'staging-main',
+        'deployment.release' => 'v0.0.0-20260826-120211-ca7d1c7',
+        'deployment.commit' => null,
+        'deployment.metadata_state' => 'malformed',
+    ]);
+
+    expect(observabilityHealthOutput())
+        ->toContain('Release metadata is malformed')
+        ->toContain('Events will carry no commit.')
+        ->not->toContain('carry no release');
 });
 
 it('reports the Sentry posture an operator needs to verify after a deploy', function () {

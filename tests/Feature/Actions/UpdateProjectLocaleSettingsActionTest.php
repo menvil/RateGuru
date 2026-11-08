@@ -93,6 +93,39 @@ it('leaves an offered language with broken catalogs alone, so the rest can still
         ->not->toContain($offered);
 });
 
+it('changes one language against what the locked row offers, in config order, under the same rules', function () {
+    [$offered, $other] = twoTranslatedLocales();
+    updateProjectLocales(['en', $offered]);
+    // Read into the settings memo, then written behind it, as another request
+    // would: only the locked row knows the third language.
+    app(ProjectSettingsManager::class)->current();
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(['en', $offered, $other])]);
+
+    app(UpdateProjectLocaleSettingsAction::class)->change($offered, false);
+
+    expect(ProjectSettings::findOrFail(1)->enabled_locales)->toBe(array_values(array_intersect(supportedLocales(), ['en', $other])));
+
+    expect(fn () => app(UpdateProjectLocaleSettingsAction::class)->change('xx', true))->toThrow(InvalidArgumentException::class, 'not installed')
+        ->and(fn () => app(UpdateProjectLocaleSettingsAction::class)->change('en', false))->toThrow(InvalidArgumentException::class, 'always offered');
+
+    breakCatalogsOf($offered);
+
+    expect(fn () => app(UpdateProjectLocaleSettingsAction::class)->change($offered, true))->toThrow(IncompleteLocaleCatalogException::class, $offered)
+        ->and(ProjectSettings::findOrFail(1)->enabled_locales)->not->toContain($offered);
+});
+
+it('checks the catalogs of a language withdrawn behind its memo before offering it again', function () {
+    [$withdrawn] = twoTranslatedLocales();
+    updateProjectLocales(['en', $withdrawn]);
+    // Read as offered, then withdrawn behind the memo by another administrator.
+    expect(app(LocaleManager::class)->isEnabled($withdrawn))->toBeTrue();
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(['en'])]);
+    breakCatalogsOf($withdrawn);
+
+    expect(fn () => app(UpdateProjectLocaleSettingsAction::class)->change($withdrawn, true))->toThrow(IncompleteLocaleCatalogException::class, $withdrawn)
+        ->and(ProjectSettings::findOrFail(1)->enabled_locales)->toBe(['en']);
+});
+
 it('creates the settings row on an installation that has none, from the bootstrap', function () {
     ProjectSettings::query()->delete();
     app(ProjectSettingsManager::class)->flush();

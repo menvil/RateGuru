@@ -8,14 +8,15 @@
         </p>
     </header>
 
-    <form wire:submit="save" class="mt-6 space-y-5">
+    {{-- Edited since the last save: its Saved goes at once, a field being sent only with the next save. --}}
+    <form wire:submit="save" x-data="{ edited: false }" x-on:input="edited = true" x-on:submit="edited = false" class="mt-6 space-y-5">
         <div>
             <x-input-label for="edit-avatar" :value="__('profile.avatar')" />
             <input
                 id="edit-avatar"
                 wire:model="avatar"
                 type="file"
-                accept="image/*"
+                accept="{{ $avatarAccept }}"
                 class="mt-1 block w-full text-sm text-rg-muted file:mr-3 file:rounded-rgControl file:border-0 file:bg-rg-card2 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-rg-text2 hover:file:bg-rg-card"
             >
             <x-input-error class="mt-2" :messages="$errors->get('avatar')" />
@@ -82,10 +83,13 @@
         @endif
 
         <div class="flex items-center gap-4">
-            <x-ui.button type="submit">{{ __('ui.actions.save') }}</x-ui.button>
+            {{-- Held while a chosen avatar is still on its way: saved before it arrives, it would be left out. --}}
+            <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="avatar">{{ __('ui.actions.save') }}</x-ui.button>
 
-            @if(session('status') === 'profile-updated')
-                <p class="text-sm text-rg-muted">{{ __('ui.actions.saved') }}</p>
+            {{-- This form's own save; the identity form above says its own. --}}
+            @if($saved)
+                {{-- Not while another save is on its way: only its answer says whether it was. --}}
+                <p class="text-sm text-rg-muted" data-testid="edit-profile-saved" x-show="! edited" wire:loading.remove wire:target="save">{{ __('ui.actions.saved') }}</p>
             @endif
         </div>
     </form>

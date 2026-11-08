@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Connected accounts',
-        'description' => 'Connect Google or Facebook to sign in with them. A connected account may use a different email address than your RateGuru account.',
+        'description' => 'Connect Google or Facebook to sign in with them. A connected account may use a different email address than your :site account.',
         'connect' => 'Connect',
         'disconnect' => 'Disconnect',
         'not_connected' => 'Not connected',

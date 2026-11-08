@@ -95,9 +95,9 @@
     >
         <div class="rg-admin-sidebar__header">
             <div class="rg-admin-workspace">
-                <span class="rg-admin-workspace__mark" aria-hidden="true">R</span>
+                <span class="rg-admin-workspace__mark" aria-hidden="true">{{ $workspaceMark }}</span>
                 <span class="rg-admin-workspace__text">
-                    <span class="rg-admin-workspace__name">RateGuru</span>
+                    <span class="rg-admin-workspace__name">{{ $workspace }}</span>
                     <span class="rg-admin-workspace__subtitle">Admin</span>
                 </span>
             </div>

@@ -37,12 +37,12 @@ return [
         'action' => 'Preglej povezane račune',
         'connected' => [
             'subject' => 'Storitev :provider je bila povezana s tvojim računom',
-            'line' => 'Račun :provider je bil povezan s tvojim računom RateGuru. Zdaj ga lahko uporabljaš za prijavo.',
+            'line' => 'Račun :provider je bil povezan s tvojim računom :site. Zdaj ga lahko uporabljaš za prijavo.',
             'not_you' => 'Če za to ne veš, odpri svoj profil in povezavo takoj prekini.',
         ],
         'disconnected' => [
             'subject' => 'Povezava tvojega računa s storitvijo :provider je bila prekinjena',
-            'line' => 'Račun :provider ni več povezan s tvojim računom RateGuru in ga ni več mogoče uporabiti za prijavo.',
+            'line' => 'Račun :provider ni več povezan s tvojim računom :site in ga ni več mogoče uporabiti za prijavo.',
             'not_you' => 'Če za to ne veš, se prijavi ter preveri povezane račune in svoje geslo.',
         ],
     ],

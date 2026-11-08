@@ -65,7 +65,7 @@ return [
         'failed' => 'Neizdevās jūs pieteikt ar :provider. Lūdzu, mēģiniet vēlreiz.',
         'expired' => 'Pieteikšanās ar :provider beidzās, pirms tika pabeigta. Lūdzu, sāciet no jauna.',
         'email_missing' => 'Jūsu :provider konts nekopīgoja e-pasta adresi, tāpēc to nevar izmantot pieteikšanās vajadzībām.',
-        'email_taken' => 'Šī :provider konta e-pasta adrese pieder citam RateGuru kontam. Piesakieties tajā kontā, lai tur savienotu :provider.',
+        'email_taken' => 'Šī :provider konta e-pasta adrese pieder citam :site kontam. Piesakieties tajā kontā, lai tur savienotu :provider.',
         'link_expired' => 'Konta savienošanas sesija ir beigusies vai mainījusies. Lūdzu, sāciet konta savienošanu no jauna.',
         'already_signed_in' => 'Pieteikšanās jau ir veikta. Lai pieteiktos arī ar :provider, savienojiet to sadaļā „Savienotie konti”.',
         'already_linked' => 'Šis :provider konts jau ir savienots ar citu kontu.',

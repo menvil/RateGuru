@@ -5,6 +5,7 @@ use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Support\TranslationSourceEditor;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Studio\StudioVerifiedAdults;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -71,6 +72,65 @@ it('saves every tab together, and has nothing unsaved after', function () {
         ->and($settings->static_pages['about']['en']['title'])->toBe('About Pawrank');
 });
 
+it('keeps a sign-in provider switched off when this page switches another on', function () {
+    $settings = ProjectSettings::factory()->create(['sign_in_providers' => ['google' => false, 'facebook' => false]]);
+
+    Livewire::test(ProjectSettingsPage::class)
+        ->set('data.sign_in_providers.facebook', true)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($settings->fresh()->sign_in_providers)->toMatchArray(['google' => false, 'facebook' => true]);
+});
+
+it('writes only what this page changed, never putting back what another administrator saved since', function () {
+    $settings = ProjectSettings::factory()->create([
+        'sign_in_providers' => ['google' => true, 'facebook' => true],
+        'feature_flags' => ['allow_user_uploads' => true],
+    ]);
+
+    $page = Livewire::test(ProjectSettingsPage::class);
+
+    // Saved from another tab after this one was read.
+    $static = $settings->static_pages;
+    $static['privacy']['en']['content'] = 'Changed meanwhile.';
+    $settings->forceFill([
+        'sign_in_providers' => ['google' => false, 'facebook' => true],
+        'feature_flags' => [...$settings->feature_flags, 'allow_user_uploads' => false],
+        'static_pages' => $static,
+    ])->save();
+
+    $page->set('data.site_tagline', 'Rate every dog')
+        ->set('data.static_pages.privacy.en.title', 'Privacy, retitled')
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors()
+        // And the page shows what is saved now, the other tab's values included.
+        ->assertSet('data.sign_in_providers.google', false)
+        ->assertSet('saved.feature_flags.allow_user_uploads', false)
+        ->assertSet('data.site_tagline', 'Rate every dog');
+
+    $fresh = $settings->fresh();
+
+    expect($fresh->site_tagline)->toBe('Rate every dog')
+        ->and($fresh->sign_in_providers['google'])->toBeFalse()
+        ->and($fresh->feature_flags['allow_user_uploads'])->toBeFalse()
+        ->and($fresh->static_pages['privacy']['en']['title'])->toBe('Privacy, retitled')
+        ->and($fresh->static_pages['privacy']['en']['content'])->toBe('Changed meanwhile.');
+});
+
+it('switches imports from a link off, the one switch they have', function () {
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['allow_url_imports' => true]]);
+
+    Livewire::withQueryParams(['tab' => 'features'])->test(ProjectSettingsPage::class)
+        ->assertSeeHtml(__('admin.fields.allow_url_imports'))
+        ->set('data.feature_flags.allow_url_imports', false)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($settings->fresh()->feature_flags['allow_url_imports'])->toBeFalse()
+        ->and(app(ProjectSettingsManager::class)->featureEnabled('allow_url_imports'))->toBeFalse();
+});
+
 it('saves only the flags and providers the project has, leaving out whatever a request adds', function () {
     ProjectSettings::factory()->create();
 
@@ -83,7 +143,10 @@ it('saves only the flags and providers the project has, leaving out whatever a r
 
     $settings = ProjectSettings::query()->sole();
 
-    expect($settings->feature_flags)->toHaveKeys(array_keys(ProjectSettingsPage::FLAGS))->not->toHaveKey('forged_flag')
+    // Only the flags the page shows are ever written — and of those only the
+    // ones it changed; a flag left alone keeps its stored or default value.
+    expect(array_diff(array_keys($settings->feature_flags), array_keys(ProjectSettingsPage::FLAGS), ['content_studio_execution_enabled']))->toBe([])
+        ->and($settings->feature_flags)->not->toHaveKey('forged_flag')
         ->and($settings->sign_in_providers)->not->toHaveKey('forged_provider')
         ->and($page->get('saved'))->not->toHaveKey('forged_setting')
         ->and($page->get('saved.feature_flags'))->not->toHaveKey('forged_flag')

@@ -23,6 +23,20 @@ it('renders report button in comment item for persisted comment', function () {
         ->toContain('Report');
 });
 
+it('offers no report button to an account whose sanction took reporting away, nor on one\'s own comment', function (Closure $viewer) {
+    $comment = Comment::factory()->create(['status' => CommentStatus::Visible]);
+
+    $this->actingAs($viewer($comment));
+
+    expect(Blade::render('<x-comments.comment-item :comment="$comment" />', ['comment' => $comment]))
+        ->not->toContain('data-testid="comment-report"');
+})->with([
+    'limited' => [fn (Comment $comment) => User::factory()->limited()->create()],
+    'banned' => [fn (Comment $comment) => User::factory()->banned()->create()],
+    'shadowbanned' => [fn (Comment $comment) => User::factory()->shadowbanned()->create()],
+    'its author' => [fn (Comment $comment) => $comment->user],
+]);
+
 it('resolves comment author avatar via the resolved avatar accessor', function () {
     Storage::fake('public');
 

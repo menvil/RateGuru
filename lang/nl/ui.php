@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Alles',
         'latest' => 'Nieuwste',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Zoek tags, gebruikers, berichten',
         'search_button' => 'Zoeken',
         'clear_search' => 'Zoekopdracht wissen',
+        'tag_filter' => 'Berichten met de tag',
+        'clear_tag_filter' => 'Filter :tag verwijderen',
         'no_posts_title' => 'Nog geen berichten',
         'no_posts_description' => 'Gepubliceerde berichten verschijnen hier.',
         'users_heading' => 'Gebruikers',

@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Tengdir aðgangar',
-        'description' => 'Tengdu Google eða Facebook til að skrá þig inn með þeim. Tengdur aðgangur getur notað annað netfang en aðgangurinn þinn á RateGuru.',
+        'description' => 'Tengdu Google eða Facebook til að skrá þig inn með þeim. Tengdur aðgangur getur notað annað netfang en aðgangurinn þinn á :site.',
         'connect' => 'Tengja',
         'disconnect' => 'Aftengja',
         'not_connected' => 'Ekki tengt',

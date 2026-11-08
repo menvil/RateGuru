@@ -4,12 +4,38 @@ namespace App\Actions\Profile;
 
 use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Models\User;
+use App\Support\Database\UniqueColumnViolation;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class UpdateUserIdentityAction
 {
-    /** @param array{name: string, username: string, email: string} $validated */
+    /**
+     * @param  array{name: string, username: string, email: string}  $validated
+     *
+     * @throws ValidationException when another account claimed the username or address after the form checked it
+     * @throws CannotUpdateProfileException when the account may not change its profile
+     */
     public function execute(User $user, array $validated): void
+    {
+        try {
+            $this->write($user, $validated);
+        } catch (QueryException $exception) {
+            $taken = UniqueColumnViolation::among($exception, 'users', ['username', 'email']);
+
+            if ($taken === null) {
+                throw $exception;
+            }
+
+            throw ValidationException::withMessages([
+                $taken => __('validation.unique', ['attribute' => __("validation.attributes.{$taken}")]),
+            ]);
+        }
+    }
+
+    /** @param array{name: string, username: string, email: string} $validated */
+    private function write(User $user, array $validated): void
     {
         // Re-read under lock and check the *current* lifecycle state: a
         // stale session's in-flight update racing account anonymization

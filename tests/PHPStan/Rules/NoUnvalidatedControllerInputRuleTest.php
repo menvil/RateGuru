@@ -23,19 +23,48 @@ final class NoUnvalidatedControllerInputRuleTest extends RuleTestCase
         ], [
             [
                 'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::input().',
-                20,
-            ],
-            [
-                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::string().',
                 21,
             ],
             [
-                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request array access.',
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::string().',
                 22,
             ],
             [
-                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request magic properties.',
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request array access.',
                 23,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not use Request magic properties.',
+                24,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::except().',
+                25,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::filled().',
+                26,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::input().',
+                27,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call request() with a key.',
+                28,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::cookie().',
+                29,
+            ],
+            // Laravel's global alias of the facade.
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::input().',
+                30,
+            ],
+            [
+                'HTTP controllers must read input from Form Request::validated() or safe(); do not call Request::cookie().',
+                31,
             ],
         ]);
     }

@@ -115,7 +115,24 @@ final class StudioPlanTextSuggestionsCard extends Component
         }
 
         try {
-            app(RequestStudioPostTextGenerationAction::class)->handle($this->admin(), $plan, $this->imageAssetId, $authorId, $this->chosenTone());
+            $generation = app(RequestStudioPostTextGenerationAction::class)->handle($this->admin(), $plan, $this->imageAssetId, $authorId, $this->chosenTone());
+            $fresh = $plan->fresh();
+
+            // Deleted the moment the batch was asked for: it may be on its way, but has no draft to arrive in.
+            if ($fresh === null) {
+                $this->toast('This draft was deleted meanwhile, so its texts won’t arrive.');
+
+                return;
+            }
+
+            $context = StudioPostTextContext::ofPlan($fresh, $plan->imageAnalysis()->first());
+
+            // The batch on its way was asked for another photo or author: the
+            // action waits for it rather than queueing a second, and this card
+            // would otherwise show nothing at all.
+            if (! $generation->isFor($this->imageAssetId, $context?->sourceHash())) {
+                $this->toast('A batch asked for before the author or photo changed is still on its way, so nothing new was asked for. Try again once it has finished.');
+            }
         } catch (CannotManageStudioPlanException $exception) {
             $this->toast(match (true) {
                 $exception->isGone() => 'This draft was deleted, so nothing was sent.',
@@ -206,10 +223,11 @@ final class StudioPlanTextSuggestionsCard extends Component
             $latest->status === StudioPostTextGenerationStatus::Running => 'running',
             default => 'failed',
         };
-        // The photo's analysis on its way: read again until it is there.
-        $analysisOnItsWay = $plan?->imageAnalysis !== null
-            && $plan->imageAnalysis->isFor($plan->image_asset_id)
-            && $plan->imageAnalysis->status->isInProgress();
+        // The photo's analysis on its way: read again until it is there. One
+        // whose worker died is not on its way, and is said to have stopped.
+        $analysis = $plan?->imageAnalysis !== null && $plan->imageAnalysis->isFor($plan->image_asset_id) ? $plan->imageAnalysis : null;
+        $analysisOnItsWay = $analysis?->isUnderway($now) === true;
+        $analysisStalled = $analysis !== null && $analysis->status->isInProgress() && $analysis->isStale($now);
 
         return view('livewire.admin.studio-plan-text-suggestions-card', [
             'state' => $state,
@@ -231,6 +249,7 @@ final class StudioPlanTextSuggestionsCard extends Component
                 'descriptions' => array_values(array_filter((array) $batch->descriptions, is_string(...))),
             ],
             'polling' => $phase === 'queued' || $phase === 'running' || ($state === 'analysis_pending' && $analysisOnItsWay),
+            'analysisStalled' => $state === 'analysis_pending' && $analysisStalled,
         ]);
     }
 

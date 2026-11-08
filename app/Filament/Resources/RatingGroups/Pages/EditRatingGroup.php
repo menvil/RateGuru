@@ -11,6 +11,7 @@ use App\Actions\Rating\UpdateRatingGroupAction;
 use App\Actions\Rating\UpdateRatingOptionAction;
 use App\Exceptions\Rating\CannotDeleteVotedRatingOptionException;
 use App\Exceptions\Rating\InvalidRatingGroupConfigurationException;
+use App\Exceptions\Rating\RatingOptionIsArchivedException;
 use App\Filament\Resources\Concerns\EditsRatingGroupSettings;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Support\ContentTranslationStatus;
@@ -270,6 +271,11 @@ final class EditRatingGroup extends Page
                 app(UpdateRatingOptionAction::class)->handle($this->actor(), $option, $data);
                 $this->toast("{$data['label']} saved");
             }
+        } catch (RatingOptionIsArchivedException) {
+            $this->loaded = null;
+            $this->addError('draftOptionActive', 'This option was archived meanwhile. Unarchive it before making it active.');
+
+            return;
         } catch (InvalidRatingGroupConfigurationException) {
             $this->loaded = null;
             $this->addError('draftOptionActive', $this->draftOptionActive ? $this->fullMessage() : $this->minimumMessage());
@@ -380,8 +386,21 @@ final class EditRatingGroup extends Page
             return;
         }
 
-        app(UnarchiveRatingOptionAction::class)->handle($this->actor(), $option);
         $this->loaded = null;
+
+        if (! app(UnarchiveRatingOptionAction::class)->handle($this->actor(), $option)) {
+            // Deleted since it was found here: said as for any option gone.
+            if (! RatingOption::query()->whereKey($option->getKey())->exists()) {
+                $this->refuseMissing();
+
+                return;
+            }
+
+            $this->toast("{$option->label} is not archived.", 'info');
+
+            return;
+        }
+
         $this->toast("{$option->label} unarchived · inactive");
     }
 
@@ -398,7 +417,7 @@ final class EditRatingGroup extends Page
         }
 
         $this->confirm($option, match (true) {
-            $option->votes()->exists() => 'voted',
+            $option->isInUse() => 'voted',
             $this->cannotSpare($option) => 'below-min',
             default => 'delete',
         }, 'deleted');
@@ -449,6 +468,14 @@ final class EditRatingGroup extends Page
     {
         $group = $this->group();
         $active = $this->activeCount();
+
+        // A limit's explanation another administrator has made untrue — the
+        // maximum raised, the minimum lowered — is not drawn again.
+        if (($this->confirming === 'above-max' && $group->hasRoomForActiveOption($active))
+            || ($this->confirming === 'below-min' && $group->canSpareActiveOption($active))) {
+            $this->closeConfirmation();
+        }
+
         $options = $this->options();
         $problems = $this->rangeProblems($active);
         $this->settingsBlocked = $problems !== [];
@@ -516,6 +543,11 @@ final class EditRatingGroup extends Page
 
         try {
             app(UpdateRatingOptionAction::class)->handle($this->actor(), $option, ['is_active' => $active]);
+        } catch (RatingOptionIsArchivedException) {
+            $this->loaded = null;
+            $this->toast("{$option->label} is archived. Unarchive it first.", 'info');
+
+            return;
         } catch (InvalidRatingGroupConfigurationException) {
             $this->loaded = null;
             $this->confirm($option, $active ? 'above-max' : 'below-min', 'deactivated');

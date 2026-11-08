@@ -6,6 +6,8 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Models\User;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 
@@ -171,6 +173,7 @@ it('raises the maximum and activates an option in one step, while one more is al
         ->call('activateOption', $inactive->id)
         ->assertSet('confirming', 'above-max')
         ->assertSeeHtml('Vibe already has 4 active options, the maximum allowed.')
+        ->assertSeeHtml('Deactivate or archive another option first')
         ->assertSeeHtml('Raise maximum to 5 and activate')
         ->call('raiseMaximumAndActivate', $inactive->id)
         ->assertDispatched('rg-admin-toast', message: "Maximum raised to 5 · {$inactive->label} activated")
@@ -180,6 +183,37 @@ it('raises the maximum and activates an option in one step, while one more is al
     expect($group->fresh()->max_options)->toBe(5)
         ->and($inactive->fresh()->is_active)->toBeTrue();
 });
+
+it('names both the active options and the maximum when the group already has more than it allows', function () {
+    // An inactive group's maximum can be saved below its active options.
+    [$group, $options] = optionsGroup(5, max: 3, inactive: 1);
+    $group->update(['is_active' => false]);
+
+    optionsEditor($group)
+        ->call('activateOption', end($options)->id)
+        ->assertSet('confirming', 'above-max')
+        ->assertSeeHtml('Vibe already has 5 active options, more than its maximum of 3.')
+        ->assertDontSeeHtml('the maximum allowed')
+        // Room for one more takes three fewer, not one.
+        ->assertSeeHtml('Deactivate or archive 3 other options first')
+        ->assertDontSeeHtml('another option first');
+});
+
+it('drops a limit\'s explanation once another administrator has moved the limit', function (string $confirming) {
+    [$group, $options] = $confirming === 'above-max' ? optionsGroup(3, max: 3, inactive: 1) : optionsGroup(2, min: 2);
+
+    $page = $confirming === 'above-max'
+        ? optionsEditor($group)->call('activateOption', end($options)->id)
+        : optionsEditor($group)->call('deactivateOption', $options[0]->id);
+
+    $page->assertSet('confirming', $confirming);
+
+    $group->update($confirming === 'above-max' ? ['max_options' => 5] : ['min_options' => 1]);
+
+    $page->call('$refresh')
+        ->assertSet('confirming', null)
+        ->assertDontSeeHtml('id="rg-admin-rating-group-confirm"');
+})->with(['above-max', 'below-min']);
 
 it('offers no higher maximum past the most a group allows', function () {
     [$group, $options] = optionsGroup(RatingGroup::MOST_OPTIONS, max: RatingGroup::MOST_OPTIONS, inactive: 1);
@@ -209,6 +243,36 @@ it('archives an option after asking, keeping its votes, and unarchives it inacti
         ->assertDispatched('rg-admin-toast', message: "{$option->label} unarchived · inactive");
 
     expect($option->fresh())->is_active->toBeFalse()->archived_at->toBeNull();
+});
+
+it('says an option is not archived rather than switching it off past the minimum', function () {
+    [$group, [$option]] = optionsGroup(2, min: 2);
+
+    optionsEditor($group)
+        ->call('unarchiveOption', $option->id)
+        ->assertDispatched('rg-admin-toast', message: "{$option->label} is not archived.", tone: 'info');
+
+    expect($option->fresh())->is_active->toBeTrue()->archived_at->toBeNull();
+});
+
+it('says an option deleted since it was found no longer exists, not that it is not archived', function () {
+    [$group, [$option]] = optionsGroup(3);
+    $option->update(['archived_at' => now(), 'is_active' => false]);
+    $page = optionsEditor($group);
+
+    // Deleted by another administrator right after this page found it.
+    $deleted = false;
+    DB::listen(function (QueryExecuted $query) use (&$deleted, $option): void {
+        if (! $deleted && str_contains(str_replace(['"', '`'], '', $query->sql), 'from rating_options') && in_array($option->id, $query->bindings, false)) {
+            $deleted = true;
+            DB::table('rating_options')->where('id', $option->id)->delete();
+        }
+    });
+
+    $page->call('unarchiveOption', $option->id)
+        ->assertDispatched('rg-admin-toast', message: 'That option no longer exists.', tone: 'error');
+
+    expect($deleted)->toBeTrue();
 });
 
 it('deletes an unused option after asking', function () {

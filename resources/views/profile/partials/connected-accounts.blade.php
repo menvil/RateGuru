@@ -6,6 +6,7 @@
     connected, so the person can see it and remove it.
 --}}
 @use('App\Support\Profile\ConnectedAccountsResponse')
+@use('App\Support\Settings\ProjectSettingsManager')
 
 <section id="{{ ConnectedAccountsResponse::FRAGMENT }}" class="scroll-mt-24" data-testid="connected-accounts">
     <header>
@@ -14,7 +15,7 @@
         </h2>
 
         <p class="mt-1 text-sm text-rg-muted">
-            {{ __('profile.connected.description') }}
+            {{ __('profile.connected.description', ['site' => app(ProjectSettingsManager::class)->current()->siteName()]) }}
         </p>
     </header>
 
@@ -31,6 +32,8 @@
         data-testid="connected-accounts-error"
     />
 
+    {{-- Nothing to list once the last switched-off sign-in is removed: the card is shown then only for its message. --}}
+    @if ($connectedAccounts->providers() !== [])
     <ul class="mt-6 divide-y divide-rg-border rounded-rgControl border border-rg-border">
         @foreach ($connectedAccounts->providers() as $provider)
             @php
@@ -128,4 +131,5 @@
             </li>
         @endforeach
     </ul>
+    @endif
 </section>

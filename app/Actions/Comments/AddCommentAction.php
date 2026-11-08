@@ -3,7 +3,6 @@
 namespace App\Actions\Comments;
 
 use App\Actions\Comments\Concerns\RefreshesPostCommentsCount;
-use App\Actions\Ranking\RecalculatePostScoreAction;
 use App\Enums\CommentStatus;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Comments\CannotCommentException;
@@ -15,6 +14,7 @@ use App\Notifications\PostCommentedNotification;
 use App\Services\Notifications\LifecycleSafeDatabaseNotifier;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
+use App\Support\Text\InvisibleEdges;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +29,6 @@ final class AddCommentAction
     public const MAX_BODY_LENGTH = 1000;
 
     public function __construct(
-        private readonly RecalculatePostScoreAction $recalculatePostScore,
         private readonly ActionRateLimiter $rateLimiter,
         private readonly LifecycleSafeDatabaseNotifier $safeNotifier,
     ) {}
@@ -67,7 +66,9 @@ final class AddCommentAction
             throw CannotCommentException::becauseRateLimited($e->getMessage(), $e->retryAfterSeconds());
         }
 
-        $body = trim($body);
+        // Not trim(): a comment of only a no-break or zero-width space would
+        // pass the empty check below and show as a blank comment.
+        $body = InvisibleEdges::strip($body);
 
         if ($body === '') {
             throw CannotCommentException::becauseBodyIsInvalid(__('ui.comments.errors.body_required'));
@@ -139,7 +140,6 @@ final class AddCommentAction
             ]);
 
             $this->refreshCommentsCount($lockedPost);
-            $this->recalculatePostScore->handle($post->refresh());
 
             return $comment;
         });

@@ -68,6 +68,12 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
         return User::query()->whereIn('status', [UserStatus::Limited, UserStatus::Banned, UserStatus::Shadowbanned])->count();
     }
 
+    /** The people the Suspicious filter lists, as the dashboard card counts them. */
+    public function suspicious(): int
+    {
+        return $this->narrowed('all', '', null, true)->count();
+    }
+
     /** Moderators and administrators. */
     public function staff(): int
     {
@@ -110,10 +116,12 @@ final class ModerationUsersQuery implements RawSqlPersistenceBoundary, StablePag
         }
 
         if ($suspicious) {
+            // Reported content counts once its author has deleted it, too:
+            // deleting what was reported is no way off this list.
             $query->where(fn (Builder $suspect) => $suspect
                 ->where('users.status', UserStatus::Shadowbanned)
-                ->orWhereHas('posts', fn (Builder $posts) => $posts->where('reports_count', '>', 0))
-                ->orWhereHas('comments', fn (Builder $comments) => $comments->where('reports_count', '>', 0)));
+                ->orWhereHas('posts', fn (Builder $posts) => $posts->withoutGlobalScope(SoftDeletingScope::class)->where('reports_count', '>', 0))
+                ->orWhereHas('comments', fn (Builder $comments) => $comments->withoutGlobalScope(SoftDeletingScope::class)->where('reports_count', '>', 0)));
         }
 
         if ($search !== '') {

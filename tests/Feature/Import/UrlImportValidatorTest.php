@@ -101,6 +101,34 @@ it('rejects a bracketed host whose contents are not a valid IPv6 address', funct
     expect(fn () => validate('https://[not-an-ipv6]/path'))->toThrow(UnsafeImportUrlException::class);
 });
 
+it('rejects a percent-encoded host, which the transport would decode and resolve itself', function (string $host) {
+    // The fake resolver answers the literal encoded name with a public
+    // address, the way an attacker's nameserver would; it must not matter.
+    bindFakeHostResolver([$host => ['93.184.216.34']]);
+
+    expect(fn () => validate("https://{$host}/image.jpg"))->toThrow(UnsafeImportUrlException::class);
+})->with([
+    'encoded dot' => 'a%2eb.example.com',
+    'encoded letter' => '%6cocalhost',
+    'encoded whole label' => '%31%32%37.example.com',
+]);
+
+it('rejects a raw non-ASCII host rather than letting the transport convert it', function () {
+    bindFakeHostResolver(['пример.example' => ['93.184.216.34']]);
+
+    expect(fn () => validate('https://пример.example/image.jpg'))->toThrow(UnsafeImportUrlException::class);
+});
+
+it('still allows ordinary hostnames with digits, hyphens, underscores and punycode labels', function (string $host) {
+    bindFakeHostResolver([$host => ['93.184.216.34']]);
+
+    expect(validate("https://{$host}/image.jpg")->host)->toBe($host);
+})->with([
+    'cdn-01.images.example',
+    'img_cache.example.com',
+    'xn--e1afmkfd.example',
+]);
+
 it('rejects an entirely invalid url', function () {
     expect(fn () => validate('not-a-url'))->toThrow(UnsafeImportUrlException::class);
 });
@@ -193,6 +221,8 @@ $blockedIpv6 = [
     '::ffff:127.0.0.1', '::ffff:10.0.0.1', '::ffff:169.254.169.254',
     '::127.0.0.1', '::169.254.169.254',
     '64:ff9b::127.0.0.1', '64:ff9b::169.254.169.254',
+    // Tunnels into IPv4 space, local-use NAT64, site-local and discard-only.
+    '2002:7f00:1::', '2001::1', '64:ff9b:1::a00:5', 'fec0::1', '100::1',
 ];
 
 foreach ($blockedIpv6 as $ip) {

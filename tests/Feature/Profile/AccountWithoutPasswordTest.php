@@ -169,6 +169,17 @@ it('lets a social-only account delete itself by confirming its email', function 
     expect($user->fresh()->status)->toBe(UserStatus::Deleted);
 })->with(['ivan@example.com', '  Ivan@Example.com ']);
 
+it('refuses a confirmation that is not text, as a field error rather than a failure', function () {
+    $user = User::factory()->withoutPassword()->create(['email' => 'ivan@example.com']);
+
+    $this->actingAs($user)->from('/profile')
+        ->delete('/profile', ['email' => ['ivan@example.com']])
+        ->assertRedirect('/profile')
+        ->assertSessionHasErrorsIn('userDeletion', 'email');
+
+    expect($user->fresh()->status)->not->toBe(UserStatus::Deleted);
+});
+
 it('refuses to delete a social-only account confirmed with another email', function () {
     $user = User::factory()->withoutPassword()->create(['email' => 'ivan@example.com']);
 
@@ -223,7 +234,7 @@ it('renders the deletion dialog with the shared modal and its dialog behaviours'
     expect($html)
         ->toContain('data-testid="delete-account-modal"')
         ->toContain('x-trap.noscroll="deleteOpen"')
-        ->toContain('x-on:keydown.escape.window="deleteOpen = false"')
+        ->toContain('x-on:keydown.escape.window.capture="if (deleteOpen) { deleteOpen = false; $event.stopPropagation() }"')
         ->toContain('data-modal-below-header')
         ->not->toContain('open-modal');
 });

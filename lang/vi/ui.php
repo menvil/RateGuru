@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Tất cả',
         'latest' => 'Mới nhất',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Tìm thẻ, người dùng, bài đăng',
         'search_button' => 'Tìm kiếm',
         'clear_search' => 'Xóa tìm kiếm',
+        'tag_filter' => 'Bài đăng có thẻ',
+        'clear_tag_filter' => 'Bỏ lọc :tag',
         'no_posts_title' => 'Chưa có bài đăng nào',
         'no_posts_description' => 'Các bài đăng đã xuất bản sẽ hiển thị tại đây.',
         'users_heading' => 'Người dùng',

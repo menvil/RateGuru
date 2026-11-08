@@ -22,9 +22,11 @@ use App\Filament\Resources\StudioPlans\StudioPlanResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Filament\Resources\Tags\TagResource;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\SetAdminLocale;
 use App\Livewire\Admin\Sidebar;
 use App\Livewire\Admin\Topbar;
+use App\Support\Settings\ProjectSettingsManager;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -51,11 +53,15 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            ->brandName('RateGuru')
-            // The site's own icon. Without one the browser falls back to
-            // /favicon.ico, which is empty, and asks for it again on every
-            // address change — each keystroke in a search that keeps its
-            // query in the URL, each tab or page switch.
+            // The project's own name from its settings, as the public site shows
+            // it — the browser tab, the sign-in page and the sidebar all read it
+            // from here.
+            ->brandName(fn (): string => app(ProjectSettingsManager::class)->current()->siteName())
+            // The site's own icon, the SVG the public layouts declare too
+            // (layouts/partials/favicons). Without a declared icon the browser
+            // asks for /favicon.ico again on every address change — each
+            // keystroke in a search that keeps its query in the URL, each tab
+            // or page switch.
             ->favicon(fn (): string => asset('favicon.svg'))
             ->colors([
                 'primary' => Color::Purple,
@@ -154,6 +160,10 @@ class AdminPanelProvider extends PanelProvider
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
                 AuthenticateSession::class,
+                // The panel shares the site's sessions, so a session of an
+                // older generation — after a password change, a reset or an
+                // account claim — ends here too, whatever the session driver.
+                EnsureSessionGenerationIsCurrent::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,
                 SubstituteBindings::class,

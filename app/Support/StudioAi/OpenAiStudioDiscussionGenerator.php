@@ -5,6 +5,7 @@ namespace App\Support\StudioAi;
 use App\Enums\StudioDiscussionGenerationError;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Support\Studio\StudioVerifiedAdults;
+use App\Support\Urls\ApiBaseUrl;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Support\Facades\Http;
@@ -55,7 +56,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
     private const SCHEMA_NAME = 'studio_discussion';
 
     private const INSTRUCTIONS = <<<'TEXT'
-        You write the comments people leave under one photo post on RateGuru, a community where people post photos, rate them and banter about them in the comments. The comments read like a real thread on an internet forum: regulars who know each other, typing fast and casually — jokes, teasing, roasting each other, arguing about the rating — and flirtatious, horny or crude when the tone and the personas are. The comments are written by personas: each has a name, a character, a way of speaking, topics and jokes it likes, things it never writes about, and how often it uses emoji. An editor reviews what you write before anything is used.
+        You write the comments people leave under one photo post on a community site where people post photos, rate them and banter about them in the comments. The comments read like a real thread on an internet forum: regulars who know each other, typing fast and casually — jokes, teasing, roasting each other, arguing about the rating — and flirtatious, horny or crude when the tone and the personas are. The comments are written by personas: each has a name, a character, a way of speaking, topics and jokes it likes, things it never writes about, and how often it uses emoji. An editor reviews what you write before anything is used.
 
         You are given, as JSON data: the post (its title, description, category and tags), an analysis of the photo — all you know about the photo — the personas taking part, and the discussion as it is, if there is one.
 
@@ -440,8 +441,7 @@ final class OpenAiStudioDiscussionGenerator implements StudioDiscussionGenerator
     {
         $baseUrl = $this->stringOrNull(config('content_studio.image_analysis.base_url'));
 
-        if ($baseUrl === null || filter_var($baseUrl, FILTER_VALIDATE_URL) === false
-            || ! in_array(parse_url($baseUrl, PHP_URL_SCHEME), ['http', 'https'], true)) {
+        if ($baseUrl === null || ! ApiBaseUrl::carriesKeySafely($baseUrl)) {
             return null;
         }
 

@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Kopplade konton',
-        'description' => 'Koppla Google eller Facebook för att logga in med dem. Ett kopplat konto kan ha en annan e-postadress än ditt RateGuru-konto.',
+        'description' => 'Koppla Google eller Facebook för att logga in med dem. Ett kopplat konto kan ha en annan e-postadress än ditt :site-konto.',
         'connect' => 'Koppla',
         'disconnect' => 'Koppla bort',
         'not_connected' => 'Inte kopplat',

@@ -37,12 +37,12 @@ return [
         'action' => 'Sprawdź połączone konta',
         'connected' => [
             'subject' => 'Z Twoim kontem połączono :provider',
-            'line' => 'Z Twoim kontem RateGuru połączono konto :provider. Można go teraz używać do logowania.',
+            'line' => 'Z Twoim kontem :site połączono konto :provider. Można go teraz używać do logowania.',
             'not_you' => 'Jeśli to nie Ty, otwórz swój profil i natychmiast je odłącz.',
         ],
         'disconnected' => [
             'subject' => 'Od Twojego konta odłączono :provider',
-            'line' => 'Od Twojego konta RateGuru odłączono konto :provider. Nie można go już używać do logowania.',
+            'line' => 'Od Twojego konta :site odłączono konto :provider. Nie można go już używać do logowania.',
             'not_you' => 'Jeśli to nie Ty, zaloguj się i sprawdź połączone konta oraz swoje hasło.',
         ],
     ],

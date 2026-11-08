@@ -3,6 +3,7 @@
 namespace App\Support\StudioAi;
 
 use App\Enums\StudioImageAnalysisError;
+use App\Support\Urls\ApiBaseUrl;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response;
@@ -308,8 +309,7 @@ final class OpenAiStudioImageAnalyzer implements StudioImageAnalyzer
     {
         $baseUrl = $this->stringOrNull(config('content_studio.image_analysis.base_url'));
 
-        if ($baseUrl === null || filter_var($baseUrl, FILTER_VALIDATE_URL) === false
-            || ! in_array(parse_url($baseUrl, PHP_URL_SCHEME), ['http', 'https'], true)) {
+        if ($baseUrl === null || ! ApiBaseUrl::carriesKeySafely($baseUrl)) {
             return null;
         }
 

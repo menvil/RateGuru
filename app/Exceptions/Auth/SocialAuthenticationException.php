@@ -3,6 +3,7 @@
 namespace App\Exceptions\Auth;
 
 use App\Enums\SocialProvider;
+use App\Support\Settings\ProjectSettingsManager;
 use RuntimeException;
 
 /**
@@ -92,6 +93,9 @@ class SocialAuthenticationException extends RuntimeException
     /** The translated, generic message that is safe to show on the login page. */
     public function userMessage(): string
     {
-        return trans($this->translationKey, ['provider' => $this->provider->label()]);
+        return trans($this->translationKey, [
+            'provider' => $this->provider->label(),
+            'site' => app(ProjectSettingsManager::class)->current()->siteName(),
+        ]);
     }
 }

@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'All',
         'latest' => 'Latest',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Search tags, users, posts',
         'search_button' => 'Search',
         'clear_search' => 'Clear search',
+        'tag_filter' => 'Posts tagged',
+        'clear_tag_filter' => 'Remove the :tag filter',
         'no_posts_title' => 'No posts yet',
         'no_posts_description' => 'Published posts will appear here.',
         'users_heading' => 'Users',

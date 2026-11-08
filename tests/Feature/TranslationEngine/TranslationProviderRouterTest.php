@@ -116,6 +116,7 @@ it('refuses OpenAI without a model or a usable endpoint, naming the setting and 
     'no base URL' => ['base_url', ''],
     'a base URL that is not one' => ['base_url', 'api.openai.com/v1'],
     'a base URL that is not HTTP' => ['base_url', 'ftp://api.openai.com/v1'],
+    'a plain http base URL off this machine' => ['base_url', 'http://api.openai.com/v1'],
     'no timeout' => ['timeout', 0],
     'no item limit' => ['max_items', 0],
 ]);

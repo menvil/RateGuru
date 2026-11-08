@@ -8,6 +8,8 @@
     'clearTestId' => null,
     'submitTestId' => null,
 ])
+{{-- The search as typed, or nothing: an address can carry ?search[]=…, and a list is no text to show. --}}
+@php($value = is_string($value) ? $value : null)
 
 <form
     {{ $attributes->merge([

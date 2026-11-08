@@ -40,6 +40,7 @@ class MediaAuditRun extends Model
             'missing_variant_files' => 'integer',
             'physical_orphan_candidates' => 'integer',
             'failed_media_jobs' => 'integer',
+            'released_but_referenced' => 'integer',
         ];
     }
 

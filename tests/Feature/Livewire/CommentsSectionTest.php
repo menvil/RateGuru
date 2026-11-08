@@ -1,10 +1,17 @@
 <?php
 
 use App\Enums\CommentStatus;
+use App\Enums\UserStatus;
+use App\Enums\VoteType;
 use App\Livewire\Comments\CommentsSection;
 use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\User;
+use App\Queries\Comments\CommentListQuery;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 it('can render comments section component', function () {
@@ -75,6 +82,42 @@ it('allows owner to delete own comment from comments section', function () {
 
     $this->assertSoftDeleted('comments', ['id' => $comment->id]);
 });
+
+it('says so, rather than failing, when a delete or hide is refused for what changed meanwhile', function (string $method, Closure $actor) {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Still here', 'status' => CommentStatus::Visible]);
+    $user = $actor($comment);
+    $page = Livewire::actingAs($user)->test(CommentsSection::class, ['postId' => $post->id]);
+
+    // The account loses the right to act after the thread was drawn.
+    $user->forceFill(['status' => UserStatus::Banned])->save();
+
+    $page->call($method, $comment->id)
+        ->assertOk()
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'))
+        ->assertNotDispatched('comment-deleted')
+        ->assertNotDispatched('comment-hidden');
+
+    expect($comment->fresh())->status->toBe(CommentStatus::Visible)->deleted_at->toBeNull();
+})->with([
+    'its author deleting it' => ['deleteComment', fn (Comment $comment) => $comment->user],
+    'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
+]);
+
+it('says so, rather than answering 404, when the comment was deleted in another tab', function (string $method, Closure $actor) {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['body' => 'Soon gone', 'status' => CommentStatus::Visible]);
+    $page = Livewire::actingAs($actor($comment))->test(CommentsSection::class, ['postId' => $post->id]);
+
+    $comment->delete();
+
+    $page->call($method, $comment->id)
+        ->assertOk()
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'));
+})->with([
+    'its author deleting it' => ['deleteComment', fn (Comment $comment) => $comment->user],
+    'a moderator hiding it' => ['hideComment', fn (Comment $comment) => User::factory()->moderator()->create()],
+]);
 
 it('does not render delete button for non owner', function () {
     $owner = User::factory()->create();
@@ -350,6 +393,14 @@ it('shows view more comments for longer threads', function () {
         ->assertDontSee('data-testid="view-more-comments"', false);
 });
 
+it('stops offering more comments once it shows as many as it ever lists', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->count(CommentListQuery::MOST_ROOTS + 1)->for($post)->create(['status' => CommentStatus::Visible]);
+
+    Livewire::test(CommentsSection::class, ['postId' => $post->id, 'visibleCount' => CommentListQuery::MOST_ROOTS])
+        ->assertDontSee('data-testid="view-more-comments"', false);
+});
+
 it('does not 500 when a guest invokes deleteComment', function () {
     $owner = User::factory()->create();
     $post = Post::factory()->published()->create();
@@ -386,4 +437,109 @@ it('targets refreshComments in the loading state', function () {
 
     Livewire::test(CommentsSection::class, ['postId' => $post->id])
         ->assertSee('wire:target="deleteComment,hideComment,refreshComments,submitReply,loadMore"', false);
+});
+
+it('does not let a client point the thread at another post', function () {
+    $published = Post::factory()->published()->create();
+    $hidden = Post::factory()->hidden()->create();
+
+    Livewire::test(CommentsSection::class, ['postId' => $published->id])
+        ->set('postId', $hidden->id);
+})->throws(CannotUpdateLockedPropertyException::class);
+
+it('does not let a client ask for more of the thread than load more gives', function () {
+    Livewire::test(CommentsSection::class, ['postId' => Post::factory()->published()->create()->id])
+        ->set('visibleCount', 100000);
+})->throws(CannotUpdateLockedPropertyException::class);
+
+it('reads the viewer\'s comment votes for the whole thread at once', function () {
+    $viewer = User::factory()->create();
+
+    /** @return array{votes: int, comments: int, shown: int} */
+    $queriesOn = function (int $comments) use ($viewer): array {
+        // A thread of its own each time, each root with a reply, so replies
+        // are read with the thread too; the viewer voted on one root and its reply.
+        $post = Post::factory()->published()->create();
+        $roots = Comment::factory()->count($comments)->for($post)->create(['status' => CommentStatus::Visible]);
+        $replies = $roots->map(fn (Comment $root): Comment => Comment::factory()->for($post)->create(['status' => CommentStatus::Visible, 'parent_id' => $root->id]));
+        foreach ([$roots->first(), $replies->first()] as $voted) {
+            CommentVote::factory()->create(['user_id' => $viewer->id, 'comment_id' => $voted->id, 'type' => VoteType::Up]);
+        }
+        $queries = ['votes' => 0, 'comments' => 0];
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            $sql = str_replace(['"', '`'], '', $query->sql);
+
+            match (true) {
+                str_contains($sql, 'from comment_votes') => $queries['votes']++,
+                str_contains($sql, 'from comments') => $queries['comments']++,
+                default => null,
+            };
+        });
+
+        // Shown in full the way a reader gets there: the count is locked. A
+        // voting button is drawn once, by the response that first shows its
+        // comment; later ones keep it as it is. In the long thread the voted,
+        // oldest root first appears with Load more.
+        $thread = Livewire::actingAs($viewer)->test(CommentsSection::class, ['postId' => $post->id]);
+        $shown = preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->html());
+
+        foreach (range(1, 2) as $more) {
+            $shown += preg_match_all('/aria-pressed="true"\s+data-state="active"/', $thread->call('loadMore')->html());
+        }
+
+        return [...$queries, 'shown' => $shown];
+    };
+
+    $two = $queriesOn(2);
+
+    // Both votes drawn, read in one go per render, however long the thread.
+    expect($two['shown'])->toBe(2)
+        ->and($two['votes'])->toBeGreaterThan(0)
+        ->and($queriesOn(8))->toBe($two);
+});
+
+it('says a comment another moderator hid meanwhile is unavailable, and closes its reply', function () {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['status' => CommentStatus::Visible]);
+    $section = Livewire::actingAs(User::factory()->moderator()->create())
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id);
+
+    Comment::query()->whereKey($comment->id)->update(['status' => CommentStatus::Hidden]);
+
+    $section->call('hideComment', $comment->id)
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'))
+        ->assertNotDispatched('comment-hidden')
+        ->assertSet('replyingTo', null);
+});
+
+it('closes the reply form under a comment hidden or deleted meanwhile', function () {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create();
+    $section = Livewire::actingAs(User::factory()->moderator()->create())
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id)
+        ->assertSee('data-testid="reply-form"', false);
+
+    $section->call('hideComment', $comment->id)
+        ->assertSet('replyingTo', null)
+        ->assertDontSee('data-testid="reply-form"', false);
+
+    // Hidden or deleted in another tab or by someone else: told by the event.
+    $other = Comment::factory()->for($post)->create();
+    $section->call('startReply', $other->id)
+        ->dispatch('comment-deleted', postId: $post->id, commentId: $other->id)
+        ->assertSet('replyingTo', null);
+});
+
+it('holds the voting of an account that has lost voting, from what the thread hands over', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->for($post)->create(['status' => CommentStatus::Visible]);
+    $held = '/wire:click\.stop="vote\(\'(up|down)\'\)"\s+wire:target="vote"\s+wire:loading\.attr="disabled"\s+disabled/';
+
+    $banned = Livewire::actingAs(User::factory()->banned()->create())->test(CommentsSection::class, ['postId' => $post->id])->html();
+    $member = Livewire::actingAs(User::factory()->create())->test(CommentsSection::class, ['postId' => $post->id])->html();
+
+    expect(preg_match_all($held, $banned))->toBe(2)
+        ->and(preg_match_all($held, $member))->toBe(0);
 });

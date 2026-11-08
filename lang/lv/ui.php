@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Visi',
         'latest' => 'Jaunākie',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Meklēt birkas, lietotājus, ierakstus',
         'search_button' => 'Meklēt',
         'clear_search' => 'Notīrīt meklēšanu',
+        'tag_filter' => 'Ieraksti ar birku',
+        'clear_tag_filter' => 'Noņemt filtru :tag',
         'no_posts_title' => 'Vēl nav ierakstu',
         'no_posts_description' => 'Šeit būs redzami publicētie ieraksti.',
         'users_heading' => 'Lietotāji',

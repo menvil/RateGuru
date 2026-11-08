@@ -41,6 +41,15 @@ final class PublicIpClassifier
         ['fe80::', 10],     // link-local
         ['ff00::', 8],      // multicast
         ['2001:db8::', 32], // documentation (RFC3849)
+        // Tunnels that carry, or reach, IPv4 space this host never checks
+        // as an IPv4 address — 6to4, Teredo and local-use NAT64 — and two
+        // reserved ranges no public host is in: the deprecated site-local
+        // range some networks still route, and discard-only.
+        ['2002::', 16],     // 6to4 (RFC3056)
+        ['2001::', 32],     // Teredo (RFC4380)
+        ['64:ff9b:1::', 48], // local-use NAT64 (RFC8215)
+        ['fec0::', 10],     // site-local, deprecated (RFC3879)
+        ['100::', 64],      // discard-only (RFC6666)
     ];
 
     public function isPublic(string $ip): bool

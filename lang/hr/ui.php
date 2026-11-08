@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Sve',
         'latest' => 'Najnovije',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Pretraži oznake, korisnike, objave',
         'search_button' => 'Pretraži',
         'clear_search' => 'Očisti pretragu',
+        'tag_filter' => 'Objave s oznakom',
+        'clear_tag_filter' => 'Ukloni filtar :tag',
         'no_posts_title' => 'Još nema objava',
         'no_posts_description' => 'Objavljene objave pojavit će se ovdje.',
         'users_heading' => 'Korisnici',

@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Ühendatud kontod',
-        'description' => 'Ühenda Google või Facebook, et nendega sisse logida. Ühendatud konto e-posti aadress võib erineda sinu RateGuru konto omast.',
+        'description' => 'Ühenda Google või Facebook, et nendega sisse logida. Ühendatud konto e-posti aadress võib erineda sinu :site konto omast.',
         'connect' => 'Ühenda',
         'disconnect' => 'Katkesta ühendus',
         'not_connected' => 'Pole ühendatud',

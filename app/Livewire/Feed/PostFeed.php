@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Feed;
 
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Queries\Feed\FeedQuery;
+use App\Support\Feed\PostCardViewerState;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
 use Illuminate\Contracts\View\View;
@@ -13,6 +15,7 @@ use Livewire\WithPagination;
 
 class PostFeed extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
 
     public ?string $search = null;
@@ -46,15 +49,16 @@ class PostFeed extends Component
         FeedQuery $feedQuery,
         RatingConfigurationManager $ratingConfiguration,
         RatingVotingStateLoader $ratingVotingStateLoader,
+        PostCardViewerState $viewerState,
     ): View {
-        $paginator = $feedQuery->paginate(
+        $paginator = $this->pageThatExists(fn () => $feedQuery->paginate(
             search: $this->search !== '' ? $this->search : null,
             tag: $this->tag !== '' ? $this->tag : null,
             sort: $this->sort,
             category: $this->category,
             ratingFilters: $this->ratings,
             followedByUserId: $this->followingOnly ? auth()->id() : null,
-        )->onEachSide(1);
+        ))->onEachSide(1);
         $posts = $paginator->getCollection();
         $user = auth()->user();
         $canModerate = Gate::allows('moderate-content');
@@ -66,6 +70,7 @@ class PostFeed extends Component
             'selectedPostId' => $this->selectedPostId,
             'ratingGroups' => $ratingGroups,
             'ratingVotingStates' => $ratingVotingStateLoader->forPosts($posts, $user, $ratingGroups),
+            'viewerStates' => $viewerState->forPosts($posts, $user),
             'deletePermissions' => $posts
                 ->mapWithKeys(fn ($post): array => [(int) $post->id => $user?->can('deleteFromFeed', $post) ?? false])
                 ->all(),

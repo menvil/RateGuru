@@ -2,7 +2,7 @@
     The root element must have the exact same shape on every render regardless of
     $variant. An earlier version branched the ROOT element itself
     (@if($variant === 'inline') @include(...) @else <div>...</div> @endif), and
-    that alone broke Livewire's wire:lazy nested-child tracking for the 'menu'
+    that alone broke Livewire's nested-child tracking for the 'menu'
     variant used in comment-item.blade.php ("Invalid Livewire child tag name"),
     even though that variant's own rendered output never changed — merely the
     possibility of a differently-shaped root was enough to confuse it. Keeping
@@ -11,7 +11,6 @@
 <div
     class="leading-none"
     x-data="{ reportOpen: {{ $variant === 'inline' ? 'true' : 'false' }} }"
-    @keydown.escape.window="reportOpen = false"
 >
     @unless($variant === 'inline')
         <button
@@ -33,7 +32,7 @@
              trigger button and the modal wrapper (see profile-page.blade.php). --}}
         @include('livewire.reports._report-modal-content')
     @else
-        <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" data-testid="report-modal">
+        <x-ui.modal title="{{ __('ui.report.modal_title') }}" state="reportOpen" close-on-escape data-testid="report-modal">
             @include('livewire.reports._report-modal-content')
         </x-ui.modal>
     @endif

@@ -65,7 +65,7 @@ return [
         'failed' => 'Vi kunde inte logga in dig med :provider. Försök igen.',
         'expired' => 'Din inloggning med :provider gick ut innan den slutfördes. Börja om från början.',
         'email_missing' => 'Ditt :provider-konto delade ingen e-postadress, så det kan inte användas för att logga in.',
-        'email_taken' => 'E-postadressen för det här :provider-kontot tillhör ett annat RateGuru-konto. Logga in på det kontot för att koppla :provider där.',
+        'email_taken' => 'E-postadressen för det här :provider-kontot tillhör ett annat :site-konto. Logga in på det kontot för att koppla :provider där.',
         'link_expired' => 'Sessionen för att koppla kontot har gått ut eller ändrats. Börja koppla kontot igen.',
         'already_signed_in' => 'Du är redan inloggad. Om du även vill logga in med :provider kopplar du det under ”Kopplade konton”.',
         'already_linked' => 'Det här :provider-kontot är redan kopplat till ett annat konto.',

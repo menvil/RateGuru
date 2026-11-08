@@ -209,17 +209,19 @@ it('can render post voting component', function () {
         ->assertSee('Down');
 });
 
-it('asks a guest to sign in only after a vote attempt', function () {
+it('asks a guest to sign in, in the authentication modal too, only after a vote attempt', function () {
     $post = Post::factory()->published()->create();
 
     Livewire::test(PostVoting::class, ['postId' => $post->id])
         ->assertDontSee('Sign in to vote.')
+        ->assertNotDispatched('open-auth-modal')
         ->assertSee('wire:click.stop="vote(\'up\')"', false)
         ->assertSee('wire:click.stop="vote(\'down\')"', false)
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', 'Sign in to vote.')
         ->assertSee('Sign in to vote.')
-        ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.');
+        ->assertDispatched('post-vote-error', postId: $post->id, message: 'Sign in to vote.')
+        ->assertDispatched('open-auth-modal', mode: 'login');
 
     $this->assertDatabaseCount('post_votes', 0);
 });
@@ -231,7 +233,8 @@ it('calls vote action when up button is clicked', function () {
     Livewire::actingAs($user)
         ->test(PostVoting::class, ['postId' => $post->id])
         ->call('vote', VoteType::Up->value)
-        ->assertDispatched('post-voted');
+        // Named by its post, which is how the post's card knows the vote is its own and clears its error.
+        ->assertDispatched('post-voted', postId: $post->id);
 
     $this->assertDatabaseHas('post_votes', [
         'user_id' => $user->id,
@@ -257,7 +260,9 @@ it('shows vote rate limit error without mutating counters', function () {
         ->test(PostVoting::class, ['postId' => $second->id])
         ->call('vote', VoteType::Up->value)
         ->assertSet('error', 'You are voting too quickly. Please try again later.')
-        ->assertNotDispatched('post-voted');
+        ->assertNotDispatched('post-voted')
+        // Signed in already: the refusal is the member's, not a reason to sign in.
+        ->assertNotDispatched('open-auth-modal');
 
     expect($first->fresh()->upvotes_count)->toBe(1);
     expect($second->fresh()->upvotes_count)->toBe(0);
@@ -332,4 +337,21 @@ it('calls vote action when down button is clicked', function () {
         'post_id' => $post->id,
         'type' => VoteType::Down->value,
     ]);
+});
+
+it('draws the post as it is once a vote on it is refused, not as the page had it', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    $voting = Livewire::actingAs($user)->test(PostVoting::class, [
+        'postId' => $post->id,
+        'hasPreloadedState' => true,
+        'preloadedCanVote' => true,
+    ]);
+
+    // Taken down after the page was drawn.
+    $post->update(['status' => PostStatus::Hidden]);
+
+    $voting->call('vote', VoteType::Up->value)
+        ->assertSee('data-testid="post-voting-unavailable"', false);
 });

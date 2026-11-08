@@ -51,6 +51,8 @@ final class AttachRequestId
     {
         return strlen($id) >= 1
             && strlen($id) <= 128
-            && preg_match('/^[A-Za-z0-9\-]+$/', $id) === 1;
+            // \z, not $: a dollar sign also accepts a trailing newline, which
+            // would be echoed back as a response header and into every log line.
+            && preg_match('/\A[A-Za-z0-9.\-]+\z/', $id) === 1;
     }
 }

@@ -20,5 +20,6 @@ final readonly class MediaAuditSummary
         public int $missingVariantFiles,
         public int $physicalOrphanCandidates,
         public int $failedMediaJobs,
+        public int $releasedButReferenced = 0,
     ) {}
 }

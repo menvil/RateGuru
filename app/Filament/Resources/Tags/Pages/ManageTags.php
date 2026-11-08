@@ -15,6 +15,8 @@ use App\Support\Translations\ProjectContentSection;
 use App\Support\Translations\ProjectTranslationCatalog;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Str;
 use Livewire\Attributes\On;
 
@@ -128,11 +130,11 @@ final class ManageTags extends Page
             'draftName' => ['required', 'string', 'max:'.self::nameLimit()],
             // Optional: left blank, the slug is made from the name. Unique as it
             // will be saved, the made one included.
-            'draftSlug' => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', new UniqueEffectiveTagSlug($this->draftName, $tag?->id)],
+            'draftSlug' => ['nullable', 'string', 'max:'.UniqueEffectiveTagSlug::MOST_CHARACTERS, 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', new UniqueEffectiveTagSlug($this->draftName, $tag?->id)],
         ], [
             'draftName.required' => 'Enter a name.',
             'draftName.max' => 'Keep the name to '.self::nameLimit().' characters or fewer.',
-            'draftSlug.max' => 'Keep the slug to 100 characters or fewer.',
+            'draftSlug.max' => 'Keep the slug to '.UniqueEffectiveTagSlug::MOST_CHARACTERS.' characters or fewer.',
             'draftSlug.regex' => 'Use lowercase letters and numbers, with single hyphens between words: best-friends.',
         ]);
 
@@ -264,7 +266,9 @@ final class ManageTags extends Page
         $translate = $status->canTranslate();
 
         return $this->rows = Tag::query()
-            ->withCount('posts')
+            // Counted as DeleteTagAction counts them: a post its author
+            // deleted still holds the tag until it is purged.
+            ->withCount(['posts' => fn (Builder $posts): Builder => $posts->withoutGlobalScope(SoftDeletingScope::class)])
             ->orderByDesc('posts_count')
             ->orderBy('name')
             ->orderBy('id')

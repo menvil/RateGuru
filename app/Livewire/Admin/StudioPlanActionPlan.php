@@ -106,9 +106,13 @@ final class StudioPlanActionPlan extends Component
         $this->confirmingStop = false;
     }
 
-    /** Stop remaining actions, as confirmed: nothing published is taken back. */
+    /** Stop remaining actions, as confirmed — and only then: nothing published is taken back. */
     public function stop(): void
     {
+        if (! $this->confirmingStop) {
+            return;
+        }
+
         $this->confirmingStop = false;
 
         try {

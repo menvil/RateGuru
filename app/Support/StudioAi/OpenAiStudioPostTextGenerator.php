@@ -5,6 +5,7 @@ namespace App\Support\StudioAi;
 use App\Enums\StudioPostTextGenerationError;
 use App\Enums\StudioPostTextTone;
 use App\Support\Studio\StudioVerifiedAdults;
+use App\Support\Urls\ApiBaseUrl;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Http\Client\Response;
@@ -55,7 +56,7 @@ final class OpenAiStudioPostTextGenerator implements StudioPostTextGenerator
     private const SCHEMA_NAME = 'studio_post_texts';
 
     private const INSTRUCTIONS = <<<'TEXT'
-        You write title and description options for one photo post on RateGuru, a community where people post photos, rate them and joke about them. An editor picks one title and one description from your options, and may still edit them.
+        You write title and description options for one photo post on a community site where people post photos, rate them and joke about them. An editor picks one title and one description from your options, and may still edit them.
 
         You are given an analysis of the photo, as JSON data — all you know about the photo — and, when the post has one, its author: the persona the post is published under, with its name, character, way of speaking, favourite topics and jokes, what it never writes about and how often it uses emoji.
 
@@ -357,8 +358,7 @@ final class OpenAiStudioPostTextGenerator implements StudioPostTextGenerator
     {
         $baseUrl = $this->stringOrNull(config('content_studio.image_analysis.base_url'));
 
-        if ($baseUrl === null || filter_var($baseUrl, FILTER_VALIDATE_URL) === false
-            || ! in_array(parse_url($baseUrl, PHP_URL_SCHEME), ['http', 'https'], true)) {
+        if ($baseUrl === null || ! ApiBaseUrl::carriesKeySafely($baseUrl)) {
             return null;
         }
 

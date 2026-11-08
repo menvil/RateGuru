@@ -170,6 +170,14 @@ final class StudioPlanPostVotesEditor extends Component
     public array $postMoments = [];
 
     /**
+     * Whether the moments were let go — a new timing or draw lays every vote
+     * out again — and not saved so yet: a moment set by hand meanwhile does
+     * not bring the saved ones back.
+     */
+    #[Locked]
+    public bool $momentsLetGo = false;
+
+    /**
      * Each rating question: how many answers each option gets, and the
      * answers given a moment of their own, by Persona. An active question is
      * always one to answer, as it is under every post on the site.
@@ -302,6 +310,7 @@ final class StudioPlanPostVotesEditor extends Component
     public function setRatingTotal(mixed $group, mixed $total): void
     {
         $group = (int) $group;
+        $this->takeInQuestion($group);
 
         if (! isset($this->ratings[$group]) || ! is_numeric($total)) {
             return;
@@ -328,12 +337,20 @@ final class StudioPlanPostVotesEditor extends Component
     public function evenSplit(mixed $group): void
     {
         $group = (int) $group;
+        $this->takeInQuestion($group);
 
         if (! isset($this->ratings[$group])) {
             return;
         }
 
         $open = $this->openOptions($group);
+
+        // With no option open there is nothing to split over, and spreading
+        // over none would only erase the answers kept on the closed ones.
+        if ($open === []) {
+            return;
+        }
+
         $total = array_sum($this->ratings[$group]['counts']);
         $even = [];
 
@@ -353,6 +370,7 @@ final class StudioPlanPostVotesEditor extends Component
     public function moveAnswer(mixed $group, mixed $option, mixed $direction): void
     {
         [$group, $option] = [(int) $group, (int) $option];
+        $this->takeInQuestion($group);
 
         if (! isset($this->ratings[$group]['counts'][$option])) {
             return;
@@ -396,6 +414,7 @@ final class StudioPlanPostVotesEditor extends Component
     public function setAnswerCount(mixed $group, mixed $option, mixed $count): void
     {
         [$group, $option] = [(int) $group, (int) $option];
+        $this->takeInQuestion($group);
 
         if (! isset($this->ratings[$group]['counts'][$option]) || ! is_numeric($count)) {
             return;
@@ -446,10 +465,16 @@ final class StudioPlanPostVotesEditor extends Component
      */
     public function setMoment(mixed $target, mixed $persona, mixed $seconds): void
     {
-        $plan = $this->planId !== 0 ? StudioPlan::query()->find($this->planId) : null;
         $group = $target === 'post' ? null : (is_numeric($target) ? (int) $target : -1);
 
-        if ($plan === null || ! $this->writable() || ! is_numeric($persona) || ! is_numeric($seconds) || ($group !== null && ! isset($this->ratings[$group]))) {
+        if (! is_numeric($persona) || ! is_numeric($seconds) || ($group !== null && ! isset($this->ratings[$group]))) {
+            return;
+        }
+
+        // A plan deleted meanwhile marks the editor gone and says so.
+        $plan = $this->writablePlan();
+
+        if ($plan === null) {
             return;
         }
 
@@ -466,10 +491,15 @@ final class StudioPlanPostVotesEditor extends Component
             return;
         }
 
-        $this->postMoments = self::offsetsOn($saved, null);
+        // Moments exist for the saved votes. The ones already changed here
+        // stay as changed; the rest are taken from what is saved — unless
+        // they were let go, and the votes wait to be laid out again.
+        if (! $this->momentsLetGo) {
+            $this->postMoments = self::keptMoments($this->postMoments, self::offsetsOn($saved, null));
 
-        foreach (array_keys($this->ratings) as $question) {
-            $this->ratings[$question]['moments'] = self::offsetsOn($saved, $question);
+            foreach (array_keys($this->ratings) as $question) {
+                $this->ratings[$question]['moments'] = self::keptMoments($this->ratings[$question]['moments'], self::offsetsOn($saved, $question));
+            }
         }
 
         $group === null ? $this->postMoments[$persona] = $seconds : $this->ratings[$group]['moments'][$persona] = $seconds;
@@ -507,7 +537,12 @@ final class StudioPlanPostVotesEditor extends Component
     /** Chooses every Persona the search shows that may vote, or takes them away when all are chosen. */
     public function selectShown(): void
     {
-        $shown = $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->reject(fn (int $id): bool => in_array($id, $this->authors(), true))->values()->all();
+        // Select all, with no search, is every active Persona — not the
+        // first page of them the list happens to show.
+        $shown = array_values(array_filter(
+            trim($this->voterSearch) === '' ? app(PersonasQuery::class)->activeIds() : $this->personaList()->map(fn (User $persona): int => (int) $persona->id)->all(),
+            fn (int $id): bool => ! in_array($id, $this->authors(), true),
+        ));
 
         $this->voterIds = array_diff($shown, $this->voterIds) === []
             ? array_values(array_diff($this->voterIds, $shown))
@@ -818,6 +853,7 @@ final class StudioPlanPostVotesEditor extends Component
         $this->drawn = [];
         $this->seed = null;
         $this->keepSaved = true;
+        $this->momentsLetGo = false;
 
         if ($plan === null) {
             $this->gone = true;
@@ -996,6 +1032,7 @@ final class StudioPlanPostVotesEditor extends Component
         $plan = StudioPlan::query()->find($this->planId);
         $saved = $plan !== null ? self::postVotesOf($plan) : [];
         $this->keepSaved = true;
+        $this->momentsLetGo = false;
         $this->postMoments = array_intersect_key($this->postMoments, self::offsetsOn($saved, null));
 
         foreach (array_keys($this->ratings) as $group) {
@@ -1123,7 +1160,12 @@ final class StudioPlanPostVotesEditor extends Component
         return hash('xxh3', json_encode([
             $this->voterMode, $this->voterMode === 'manual' ? $this->voterIds : $this->voterCount,
             $this->postOn ? [$this->up, $this->down, $this->postMoments] : null,
-            $this->ratings, $this->firstAfter, $this->spreadOver, $this->seed,
+            // An option with no answers is as good as none: taking a question in, with none yet, changes nothing.
+            array_filter(
+                array_map(fn (array $rating): array => [...$rating, 'counts' => array_filter($rating['counts'])], $this->ratings),
+                fn (array $rating): bool => $rating['counts'] !== [] || $rating['moments'] !== [],
+            ),
+            $this->firstAfter, $this->spreadOver, $this->seed,
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -1455,6 +1497,7 @@ final class StudioPlanPostVotesEditor extends Component
     /** No vote at a moment of its own: each in its voter's visit again. */
     private function clearMoments(): void
     {
+        $this->momentsLetGo = true;
         $this->postMoments = [];
 
         foreach (array_keys($this->ratings) as $group) {
@@ -1545,6 +1588,41 @@ final class StudioPlanPostVotesEditor extends Component
     private static function count(int $value): int
     {
         return max(0, min(StudioVoteValidationRules::MOST_VOTES, $value));
+    }
+
+    /**
+     * A rating question, or an option of one, made active after this editor
+     * was drawn is shown with the others; it is taken in here, with no
+     * answers yet, the first time one of its inputs is used, so they act on
+     * it as on the rest. What is there already is left as it is.
+     */
+    private function takeInQuestion(int $group): void
+    {
+        foreach ($this->questions() as $question) {
+            if ($question['id'] !== $group || ! $question['open']) {
+                continue;
+            }
+
+            $this->ratings[$group] ??= ['counts' => [], 'moments' => []];
+
+            foreach ($question['options'] as $option) {
+                if ($option['open']) {
+                    $this->ratings[$group]['counts'][$option['id']] ??= 0;
+                }
+            }
+
+            return;
+        }
+    }
+
+    /**
+     * @param  array<int, int>  $shown
+     * @param  array<int, int>  $saved
+     * @return array<int, int>
+     */
+    private static function keptMoments(array $shown, array $saved): array
+    {
+        return array_intersect_key($shown, $saved) + $saved;
     }
 
     private function writablePlan(): ?StudioPlan

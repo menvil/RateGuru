@@ -73,6 +73,7 @@ final class ProjectSettingsPage extends Page
         'post_detail_overlay_mode' => 'Posts open in an overlay above the feed instead of a page of their own.',
         'show_saved_posts' => 'People can save posts to a private list.',
         'allow_user_uploads' => 'Turn off to pause all new posts across the site. Existing posts stay visible.',
+        'allow_url_imports' => 'A post can start from a link: the server fetches the page and its picture. Off, pictures are uploaded only.',
         'allow_guest_viewing' => 'Visitors can browse without an account. Off means every page asks to sign in.',
         'content_studio_verified_adults' => 'Everyone shown in the photos Content Studio uses is a verified adult (18+) who agreed to their publication. On, the texts and discussions it writes may flirt with and compliment the people shown — never graphic. Off, they keep to the situation. Applying a preset switches it off.',
     ];
@@ -131,15 +132,24 @@ final class ProjectSettingsPage extends Page
 
     public function mount(): void
     {
-        $this->tab = array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity';
+        $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity';
         $this->page = in_array($this->page, self::pageKeys(), true) ? $this->page : 'about';
 
+        $this->data = $this->saved = self::draftOf(ProjectSettings::query()->find(1));
+    }
+
+    /**
+     * The draft of the row as it is stored.
+     *
+     * @return array<string, mixed>
+     */
+    private static function draftOf(?ProjectSettings $settings): array
+    {
         // What the project stores, as it stores it: a page with no text shows
         // empty, not filled in from config. An installation without a row
         // shows the bootstrap it would be created from. English only: the
         // translations are Translation Center's to edit, so they are never
         // in this draft, and saving it cannot write back a stale copy of them.
-        $settings = ProjectSettings::query()->find(1);
         $stored = $settings ? $settings->toArray() : app(ProjectSettingsManager::class)->defaults();
         $defaults = app(ProjectSettingsManager::class)->defaults();
         $data = [];
@@ -166,14 +176,13 @@ final class ProjectSettingsPage extends Page
             $data['static_pages'][$key][TranslatableField::REFERENCE_LOCALE] = ['title' => $english['title'] ?? null, 'content' => $english['content'] ?? null];
         }
 
-        $this->data = $data;
-        $this->saved = $data;
+        return $data;
     }
 
     /** A tab or a page that does not exist opens the first. */
     public function updatedTab(): void
     {
-        $this->tab = array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity';
+        $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity';
     }
 
     public function updatedPage(): void
@@ -280,13 +289,48 @@ final class ProjectSettingsPage extends Page
             $validated[$field] = is_string($validated[$field] ?? null) ? trim($validated[$field]) : null;
         }
 
-        app(SaveProjectSettingsAction::class)->handle($validated);
+        // Only what this draft changed is written. Another administrator may
+        // have saved since the page was read, and a setting left as it was
+        // read here — a sign-in provider, a flag, a page — keeps their value.
+        app(SaveProjectSettingsAction::class)->handle(self::changedFrom($this->saved, $validated));
 
-        // The draft becomes what was saved, trimmed, so the page shows what is
-        // saved and keeps nothing a request added beside the settings.
-        $this->data = $validated;
-        $this->saved = $validated;
+        // The draft becomes the row as it is stored now — this save, and what
+        // anyone else saved since the page was read — so the page shows what
+        // is saved and keeps nothing a request added beside the settings.
+        $this->data = $this->saved = self::draftOf(ProjectSettings::query()->find(1));
         $this->dispatch('rg-admin-toast', message: 'Project settings saved. Visitors see the changes on their next page load.', tone: 'success');
+    }
+
+    /**
+     * The settings that differ from what the page was read with, nested the
+     * way the action takes them: the flags, providers and page fields that
+     * changed, never the ones that did not.
+     *
+     * @param  array<string, mixed>  $saved
+     * @param  array<string, mixed>  $draft
+     * @return array<string, mixed>
+     */
+    private static function changedFrom(array $saved, array $draft): array
+    {
+        $changed = [];
+
+        foreach ($draft as $key => $value) {
+            if (! is_array($value)) {
+                if (($saved[$key] ?? null) !== $value) {
+                    $changed[$key] = $value;
+                }
+
+                continue;
+            }
+
+            $nested = self::changedFrom(is_array($saved[$key] ?? null) ? $saved[$key] : [], $value);
+
+            if ($nested !== []) {
+                $changed[$key] = $nested;
+            }
+        }
+
+        return $changed;
     }
 
     /**
@@ -298,7 +342,7 @@ final class ProjectSettingsPage extends Page
         $status = app(ContentTranslationStatus::class);
 
         return [
-            'tab' => array_key_exists((string) $this->tab, self::TABS) ? $this->tab : 'identity',
+            'tab' => is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'identity',
             'page' => in_array($this->page, self::pageKeys(), true) ? $this->page : 'about',
             'pages' => $this->staticPages($settings, $status),
             'preset' => $this->preset($settings),

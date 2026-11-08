@@ -8,6 +8,9 @@ use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -263,6 +266,14 @@ it('shows report user placeholder to authenticated non owner', function () {
         ->assertSee('data-testid="report-user-button"', false);
 });
 
+it('does not show report user placeholder to an account whose sanction took reporting away', function (string $state) {
+    User::factory()->create(['username' => 'chef_ivan']);
+
+    Livewire::actingAs(User::factory()->{$state}()->create())
+        ->test(ProfilePage::class, ['username' => 'chef_ivan'])
+        ->assertDontSee('data-testid="report-user-button"', false);
+})->with(['limited', 'banned', 'shadowbanned']);
+
 it('does not show report user placeholder to profile owner', function () {
     $owner = User::factory()->create(['username' => 'chef_ivan']);
 
@@ -336,4 +347,27 @@ it('shows a persona without an avatar by its initials, as anyone', function () {
     expect(Livewire::test(ProfilePage::class, ['username' => 'night_owl'])->html())
         ->toContain('data-testid="profile-avatar"')
         ->not->toContain('<img');
+});
+
+it('reads every card\'s ratings at once, however many posts the profile shows', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+    $author = User::factory()->create(['username' => 'night_owl']);
+    $viewer = User::factory()->create();
+
+    $queriesOn = function (int $cards) use ($author, $viewer): int {
+        Post::query()->forceDelete();
+        Post::factory()->count($cards)->published()->for($author)->create();
+        $queries = 0;
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            if (str_contains(str_replace(['"', '`'], '', $query->sql), 'from rating_votes')) {
+                $queries++;
+            }
+        });
+
+        Livewire::actingAs($viewer)->test(ProfilePage::class, ['username' => 'night_owl']);
+
+        return $queries;
+    };
+
+    expect($queriesOn(2))->toBe($queriesOn(6));
 });

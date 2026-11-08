@@ -61,7 +61,7 @@ return [
 
     'connected' => [
         'title' => 'Povezani računi',
-        'description' => 'Poveži Google ili Facebook i prijavljuj se putem njih. Povezani račun može koristiti drugu e-mail adresu od tvog RateGuru računa.',
+        'description' => 'Poveži Google ili Facebook i prijavljuj se putem njih. Povezani račun može koristiti drugu e-mail adresu od tvog :site računa.',
         'connect' => 'Poveži',
         'disconnect' => 'Odspoji',
         'not_connected' => 'Nije povezano',

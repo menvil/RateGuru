@@ -23,8 +23,27 @@ final class DatabaseAccessController
         DB::raw('1');
     }
 
+    public function cursor(): void
+    {
+        foreach (DB::cursor('select 1') as $row) {
+        }
+    }
+
     public function transaction(): void
     {
         DB::transaction(static fn (): null => null);
+    }
+
+    public function connections(): void
+    {
+        DB::getPdo();
+        DB::getReadPdo();
+        DB::selectFromWriteConnection('select 1');
+        DB::getConnections();
+    }
+
+    public function mixedCase(): void
+    {
+        DB::Cursor('select 1');
     }
 }

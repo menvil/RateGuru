@@ -64,7 +64,7 @@
                         >
                             {{ __('ui.user.report') }}
                         </x-ui.button>
-                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md">
+                        <x-ui.modal :title="__('ui.user.report_title')" state="reportOpen" size="md" close-on-escape>
                             <livewire:reports.report-modal
                                 reportable-type="user"
                                 :reportable-id="$profileUser->id"
@@ -122,7 +122,7 @@
             </button>
             @endif
 
-            @if($this->isOwner)
+            @if($this->offersSavedTab)
                 <button
                     wire:click="setTab('saved')"
                     data-testid="profile-tab-saved"
@@ -149,6 +149,8 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :viewer-state="$viewerStates[$post->id] ?? []"
+                                    :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                                     :eager-image="$loop->first"
                                     wire:key="profile-post-{{ $post->id }}"
                                 />
@@ -207,6 +209,8 @@
                                 <x-feed.post-card
                                     :post="$post"
                                     :rating-groups="$ratingGroups"
+                                    :viewer-state="$viewerStates[$post->id] ?? []"
+                                    :rating-voting-state="$ratingVotingStates[$post->id] ?? []"
                                     :eager-image="$loop->first"
                                     wire:key="profile-saved-post-{{ $post->id }}"
                                 />

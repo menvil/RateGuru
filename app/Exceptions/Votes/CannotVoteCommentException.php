@@ -36,6 +36,11 @@ final class CannotVoteCommentException extends DomainException
         return new self(__('ui.voting.errors.guest_comment'), self::REASON_GUEST);
     }
 
+    public function isGuest(): bool
+    {
+        return $this->reason === self::REASON_GUEST;
+    }
+
     public static function becauseUserIsNotAllowed(): self
     {
         return new self(__('ui.voting.errors.not_allowed_comment'), self::REASON_NOT_ALLOWED);

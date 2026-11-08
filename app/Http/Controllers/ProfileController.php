@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Actions\Profile\DeleteUserAccountAction;
 use App\Actions\Profile\UpdateUserIdentityAction;
+use App\Exceptions\Profile\CannotUpdateProfileException;
 use App\Http\Requests\DeleteUserRequest;
 use App\Http\Requests\ProfileUpdateRequest;
 use App\Models\User;
 use App\Queries\UserConnectedAccountsQuery;
 use App\Support\Auth\SocialProviderAvailability;
+use App\View\Components\AccountRestrictionNotice;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -47,7 +49,15 @@ class ProfileController extends Controller
 
         assert($user instanceof User);
 
-        $updateIdentity->execute($user, $validated);
+        try {
+            $updateIdentity->execute($user, $validated);
+        } catch (CannotUpdateProfileException) {
+            // A sanctioned account still sees the form; it is told why the
+            // change was refused instead of getting an error page.
+            return Redirect::route('profile.edit')->withErrors([
+                'name' => __(AccountRestrictionNotice::messageKeyFor($user->status) ?? 'ui.account_restriction.shadowbanned'),
+            ]);
+        }
 
         return Redirect::route('profile.edit')->with('status', 'profile-updated');
     }

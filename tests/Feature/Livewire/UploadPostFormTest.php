@@ -1,10 +1,14 @@
 <?php
 
+use App\Actions\Import\StoreImportedImageAction;
 use App\Enums\PostStatus;
 use App\Livewire\Feed\UploadPostForm;
 use App\Models\Post;
+use App\Models\ProjectSettings;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Posts\PostContentRules;
+use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -43,8 +47,10 @@ it('renders the upload form fields, loading state and image preview for an authe
     expect($html)
         ->toContain('wire:loading')
         ->toContain('Uploading')
-        // Switching to the image url tab clears the selected file.
-        ->toContain('wire:click="$set(\'image\', null)"')
+        // Switching to the image url tab clears the selected file, here and on the server,
+        // and stops one still uploading from arriving after the switch.
+        ->toContain("\$wire.cancelUpload('image')")
+        ->toContain("\$wire.set('image', null)")
         ->toContain('x-data')
         ->toContain('previewUrl')
         ->toContain('FileReader');
@@ -74,6 +80,26 @@ it('renders error message when submitError is set', function () {
         ->test(UploadPostForm::class)
         ->set('submitError', 'Something went wrong while creating your post.')
         ->assertSee('Something went wrong');
+});
+
+it('creates no post once uploads are paused, from a form drawn before the pause too', function () {
+    Storage::fake('public');
+    $settings = ProjectSettings::factory()->create(['feature_flags' => ['allow_user_uploads' => true]]);
+    $user = User::factory()->create();
+
+    $form = Livewire::actingAs($user)
+        ->test(UploadPostForm::class)
+        ->set('title', 'Sample Entry')
+        ->set('image', UploadedFile::fake()->image('dish.jpg'));
+
+    $settings->update(['feature_flags' => ['allow_user_uploads' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $form->call('submit')->assertForbidden();
+
+    expect(Post::query()->count())->toBe(0);
+
+    Livewire::actingAs($user)->test(UploadPostForm::class)->assertForbidden();
 });
 
 it('tells a trusted author their post is published', function () {
@@ -424,4 +450,52 @@ it('allows uploaded images within configured max dimensions', function () {
         ->assertDispatched('post-uploaded');
 
     expect(Post::query()->where('title', 'Valid Dimensions Test')->exists())->toBeTrue();
+});
+
+it('says a picture link is no web address before trying to fetch it', function (string $link) {
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldNotReceive('download');
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', $link)
+        ->call('submit')
+        ->assertHasErrors(['importedImageUrl'])
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->exists())->toBeFalse();
+})->with([
+    'a typo' => ['not a url'],
+    'another scheme' => ['ftp://example.com/dish.jpg'],
+    'a link too long' => [fn (): string => 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 19)],
+]);
+
+it('tries a picture link as long as a link may be', function () {
+    $link = 'https://example.com/'.str_repeat('a', PostContentRules::SOURCE_URL_LIMIT - 20);
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldReceive('download')->once()->with($link)->andThrow(new RuntimeException('unreachable'));
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', $link)
+        ->call('submit')
+        ->assertHasNoErrors(['importedImageUrl'])
+        ->assertSet('submitError', __('import.errors.fetch_failed'));
+});
+
+it('asks for a picture, not a fetch, when the link field was emptied', function () {
+    $import = $this->mock(StoreImportedImageAction::class);
+    $import->shouldNotReceive('download');
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(UploadPostForm::class)
+        ->set('title', 'A dish')
+        ->set('importedImageUrl', '')
+        ->call('submit')
+        ->assertHasErrors(['image' => 'required'])
+        ->assertSet('submitError', null);
+
+    expect(Post::query()->exists())->toBeFalse();
 });

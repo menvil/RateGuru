@@ -90,6 +90,12 @@ final class StopStudioPlanAction
                 throw CannotManageStudioActionException::becausePlanIsGone();
             }
 
+            // Kept, for a run still under way: if the rate limit sends it back
+            // to wait, it is cancelled then instead of queued again.
+            if (! $plan->forceFill(['stopped_at' => now()])->save()) {
+                throw new RuntimeException('The stopped plan was not saved.');
+            }
+
             $this->settlePlan($plan);
 
             return $cancelled;

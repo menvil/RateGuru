@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\StudioPlanStatus;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\StudioPlan;
 use App\Models\User;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Features\SupportTesting\Testable;
@@ -235,6 +237,18 @@ it('deletes an unused category after asking', function () {
         ->assertDispatched('rg-admin-toast', message: 'Exotic deleted');
 
     expect(Category::query()->find($category->id))->toBeNull();
+});
+
+it('says why a category an approved Content Studio plan will publish under is kept', function () {
+    $category = Category::factory()->create(['name' => 'Exotic']);
+    StudioPlan::factory()->status(StudioPlanStatus::Approved)->create(['category_id' => $category->id]);
+
+    Livewire::test(ManageCategories::class)
+        ->call('askToDelete', $category->id)
+        ->call('delete', $category->id)
+        ->assertDispatched('rg-admin-toast', message: 'An approved Content Studio plan will publish under Exotic. Deactivate it instead, or cancel the plan first.');
+
+    expect(Category::query()->find($category->id))->not->toBeNull();
 });
 
 it('offers to deactivate a category posts are filed under instead of deleting it', function () {

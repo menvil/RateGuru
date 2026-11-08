@@ -7,11 +7,6 @@ use Throwable;
 
 final class MediaStorageException extends RuntimeException
 {
-    public static function couldNotReadUploadedFile(string $originalFilename, ?Throwable $previous = null): self
-    {
-        return new self("Could not read uploaded file [{$originalFilename}].", previous: $previous);
-    }
-
     public static function couldNotStore(string $disk, string $path, ?Throwable $previous = null): self
     {
         return new self("Could not store media at [{$disk}:{$path}].", previous: $previous);

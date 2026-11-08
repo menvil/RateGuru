@@ -21,7 +21,7 @@ use Laravel\Nightwatch\Facades\Nightwatch;
  *
  * @return array<string, mixed>
  */
-function nightwatchConfigWithoutEnvironment(): array
+function nightwatchConfigWithoutEnvironment(array $set = []): array
 {
     $keys = [
         'NIGHTWATCH_ENABLED', 'NIGHTWATCH_TOKEN', 'NIGHTWATCH_SERVER',
@@ -44,9 +44,17 @@ function nightwatchConfigWithoutEnvironment(): array
         putenv($key);
     }
 
+    foreach ($set as $key => $value) {
+        $_SERVER[$key] = $_ENV[$key] = $value;
+    }
+
     try {
         return require base_path('config/nightwatch.php');
     } finally {
+        foreach (array_keys($set) as $key) {
+            unset($_SERVER[$key], $_ENV[$key]);
+        }
+
         foreach ($saved as $key => [$server, $env, $put]) {
             if ($server !== null) {
                 $_SERVER[$key] = $server;
@@ -157,6 +165,20 @@ it('leaves mail and notifications off, because both records identify a recipient
     $published = nightwatchConfigWithoutEnvironment();
     expect($published['filtering']['ignore_mail'])->toBeTrue();
     expect($published['filtering']['ignore_notifications'])->toBeTrue();
+});
+
+it('keeps a privacy default when its switch holds no boolean, a typo included', function () {
+    expect(nightwatchConfigWithoutEnvironment(['NIGHTWATCH_IGNORE_MAIL' => 'ture', 'NIGHTWATCH_IGNORE_NOTIFICATIONS' => 'yes please'])['filtering'])
+        ->toMatchArray(['ignore_mail' => true, 'ignore_notifications' => true])
+        // A value that says something is still taken.
+        ->and(nightwatchConfigWithoutEnvironment(['NIGHTWATCH_IGNORE_MAIL' => 'false'])['filtering']['ignore_mail'])->toBeFalse();
+});
+
+it('only adds to the redacted headers from the environment, never takes the defaults away', function () {
+    $defaults = ['Authorization', 'Cookie', 'Proxy-Authorization', 'X-XSRF-TOKEN', 'X-CSRF-TOKEN', 'X-Forwarded-For', 'X-Real-IP', 'Forwarded', 'CF-Connecting-IP', 'True-Client-IP', 'Referer'];
+
+    expect(nightwatchConfigWithoutEnvironment(['NIGHTWATCH_REDACT_HEADERS' => ''])['redact_headers'])->toBe($defaults)
+        ->and(nightwatchConfigWithoutEnvironment(['NIGHTWATCH_REDACT_HEADERS' => ' X-Custom , '])['redact_headers'])->toBe([...$defaults, 'X-Custom']);
 });
 
 it('keeps the Nightwatch log channel out of the log stack', function () {

@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     /**
-     * Phase 27 renamed ReportStatus::Dismissed ('dismissed') to
+     * ReportStatus::Dismissed ('dismissed') was renamed to
      * ReportStatus::Ignored ('ignored'). No code path in this codebase ever
      * wrote 'dismissed', so this is a no-op on a clean database — but it
      * guards any already-deployed environment where a stray row would

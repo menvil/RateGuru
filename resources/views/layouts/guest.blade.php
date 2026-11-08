@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $appliedTheme }}" data-theme-preference="{{ $themePreference }}" data-theme-source="{{ $themeSource }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +7,7 @@
 
         <title>{{ $projectSettings->siteName() }}</title>
 
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        @include('layouts.partials.favicons')
 
         <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
 

@@ -77,13 +77,14 @@
             @foreach ($this->comments as $comment)
                 <x-comments.comment-item
                     :comment="$comment"
+                    :voting-state="$this->votingStateFor($comment)"
                     :can-delete="$this->canDeleteComment($comment)"
                     :can-hide="$this->userCanHideComments()"
                     can-reply
                     wire:key="comment-{{ $comment->id }}"
                 />
 
-                @if($replyingTo === $comment->id)
+                @if($replyingTo === $comment->id && ! $comment->isStructuralTombstone())
                     <form
                         wire:submit.prevent="submitReply"
                         class="ml-4 flex min-h-[50px] items-center gap-2.5 rounded-[10px] border border-rg-border2 bg-rg-card2 py-2 pl-3.5 pr-2"
@@ -132,6 +133,7 @@
                         @foreach($comment->replies as $reply)
                             <x-comments.comment-item
                                 :comment="$reply"
+                                :voting-state="$this->votingStateFor($reply)"
                                 :can-delete="$this->canDeleteComment($reply)"
                                 :can-hide="$this->userCanHideComments()"
                                 wire:key="comment-reply-{{ $reply->id }}"

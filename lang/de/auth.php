@@ -65,7 +65,7 @@ return [
         'failed' => 'Wir konnten dich nicht mit :provider anmelden. Bitte versuche es erneut.',
         'expired' => 'Deine Anmeldung mit :provider ist abgelaufen, bevor sie abgeschlossen war. Bitte beginne von vorn.',
         'email_missing' => 'Dein :provider-Konto hat keine E-Mail-Adresse freigegeben und kann daher nicht zur Anmeldung verwendet werden.',
-        'email_taken' => 'Die E-Mail-Adresse dieses :provider-Kontos gehört zu einem anderen RateGuru-Konto. Melde dich bei diesem Konto an, um :provider dort zu verbinden.',
+        'email_taken' => 'Die E-Mail-Adresse dieses :provider-Kontos gehört zu einem anderen :site-Konto. Melde dich bei diesem Konto an, um :provider dort zu verbinden.',
         'link_expired' => 'Deine Sitzung zum Verbinden des Kontos ist abgelaufen oder hat sich geändert. Bitte starte die Verbindung erneut.',
         'already_signed_in' => 'Du bist bereits angemeldet. Um dich auch mit :provider anzumelden, verbinde es unter „Verbundene Konten“.',
         'already_linked' => 'Dieses :provider-Konto ist bereits mit einem anderen Konto verbunden.',

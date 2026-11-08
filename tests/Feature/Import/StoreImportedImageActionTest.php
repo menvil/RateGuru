@@ -223,3 +223,24 @@ it('names the downloaded file using the canonical Content-Type extension, not wh
 
     expect($file->getClientOriginalName())->toBe('photo.jpg');
 });
+
+it('removes the partial file and fails the import when the write raises a notice, as a full disk does', function () {
+    $action = app(StoreImportedImageAction::class);
+    $method = new ReflectionMethod($action, 'writeTemporaryFile');
+    $path = tempnam(sys_get_temp_dir(), 'import-write-');
+    $handle = fopen($path, 'w');
+
+    // What fwrite() does on a full disk: a notice, which Laravel raises as
+    // an ErrorException.
+    $writer = function ($h, string $chunk): int {
+        fwrite($h, substr($chunk, 0, 3));
+        trigger_error('fwrite(): Write of 4 bytes failed with errno=28 No space left on device', E_USER_NOTICE);
+
+        return 0;
+    };
+
+    expect(fn () => $method->invoke($action, $handle, $path, 'partial body', Closure::fromCallable($writer)))
+        ->toThrow(ImportFetchException::class, 'Failed to write temporary file for imported image.');
+
+    expect(file_exists($path))->toBeFalse();
+});

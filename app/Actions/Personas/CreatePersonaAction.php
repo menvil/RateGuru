@@ -78,7 +78,7 @@ final class CreatePersonaAction
         }
 
         $this->logger->info('persona.created', [
-            'user_id' => $persona->id,
+            'persona_id' => $persona->id,
             'admin_id' => $admin->id,
         ]);
 

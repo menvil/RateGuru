@@ -43,6 +43,7 @@ final class MediaAuditService
         $healthyAssets = 0;
         $activeUnreferencedAssets = 0;
         $softDeletedWithinGrace = 0;
+        $releasedButReferenced = 0;
         $purgeableAssets = 0;
         $missingMasters = 0;
         $missingVariantFiles = 0;
@@ -50,7 +51,7 @@ final class MediaAuditService
         MediaAsset::withTrashed()->with('variants')->orderBy('id')
             ->chunkById(max(1, $chunkSize), function ($assets) use (
                 &$assetsChecked, &$variantsChecked, &$healthyAssets, &$activeUnreferencedAssets,
-                &$softDeletedWithinGrace, &$purgeableAssets, &$missingMasters, &$missingVariantFiles,
+                &$softDeletedWithinGrace, &$releasedButReferenced, &$purgeableAssets, &$missingMasters, &$missingVariantFiles,
                 $onIssue,
             ): void {
                 // Three queries per chunk (via referencedAssetIds()), not
@@ -65,7 +66,16 @@ final class MediaAuditService
                     $isReferenced = $referencedIds->has($asset->id);
 
                     if ($asset->trashed()) {
-                        if ($this->lifecycle->isGraceExpired($asset) && ! $isReferenced) {
+                        if ($isReferenced) {
+                            // Released while something still shows it —
+                            // never purged, whatever its grace, and not the
+                            // normal state the within-grace count describes.
+                            $releasedButReferenced++;
+                            $onIssue(new MediaAuditIssueData(
+                                issueType: MediaAuditIssueType::ReleasedButReferenced,
+                                mediaAssetId: $asset->id,
+                            ));
+                        } elseif ($this->lifecycle->isGraceExpired($asset)) {
                             $purgeableAssets++;
                             $onIssue(new MediaAuditIssueData(
                                 issueType: MediaAuditIssueType::PurgeableAsset,
@@ -152,6 +162,7 @@ final class MediaAuditService
             missingVariantFiles: $missingVariantFiles,
             physicalOrphanCandidates: count($orphans),
             failedMediaJobs: $this->failedJobReader->countMediaJobFailures(),
+            releasedButReferenced: $releasedButReferenced,
         );
     }
 }

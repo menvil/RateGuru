@@ -230,3 +230,16 @@ it('treats an uppercase HTTP disk URL as insecure rather than relative', functio
         ->assertSee('HTTP://cdn.rateguru.test/storage/posts/insecure.jpg', false)
         ->assertDontSee('<meta property="og:image:secure_url"', false);
 });
+
+it('leaves the image size out, rather than failing, for an image stored before its size was recorded', function () {
+    Storage::fake('public', ['url' => 'https://rateguru.test/storage']);
+    $post = Post::factory()->published()->withImage(path: 'posts/sizeless.jpg')->create();
+    Storage::disk('public')->put('posts/sizeless.jpg', 'test-bytes');
+    MediaAsset::query()->whereKey($post->image_asset_id)->update(['width' => null, 'height' => null]);
+
+    $this->get(route('posts.show', $post))
+        ->assertOk()
+        ->assertSee('<meta property="og:image" content="https://rateguru.test/storage/posts/sizeless.jpg">', false)
+        ->assertDontSee('og:image:width', false)
+        ->assertDontSee('og:image:height', false);
+});

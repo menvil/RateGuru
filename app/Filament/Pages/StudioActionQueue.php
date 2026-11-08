@@ -14,6 +14,7 @@ use App\Filament\Resources\StudioPlans\Pages\EditStudioPlan;
 use App\Filament\Resources\StudioPlans\StudioActionPlan;
 use App\Filament\Resources\StudioPlans\StudioPlanFormat;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\StudioAction;
 use App\Models\StudioPlan;
@@ -127,7 +128,7 @@ final class StudioActionQueue extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, is_numeric($page) ? (int) $page : 1);
+        $this->pageNumber = ListPageNumber::from($page);
     }
 
     public function clearFilters(): void
@@ -304,7 +305,13 @@ final class StudioActionQueue extends Page
             'overdue' => $action->status === StudioActionStatus::Pending && $action->occurs_at->lessThan($now),
             'runAfter' => StudioActionPlan::at($action->run_after),
             'finished' => $action->finished_at !== null ? StudioActionPlan::at($action->finished_at) : null,
-            'late' => $action->finished_at !== null && $action->finished_at->diffInSeconds($action->occurs_at, true) > 3600,
+            // Ran, and more than an hour after it could: its time, or its plan's
+            // approval when that came later — a plan dated in the past runs at
+            // approval. A cancelled action never ran, and one finished early
+            // was not late.
+            'late' => in_array($action->status, [StudioActionStatus::Done, StudioActionStatus::Failed], true)
+                && $action->finished_at !== null
+                && $action->finished_at->greaterThan(self::couldRunFrom($action)->addHour()),
             ...StudioActionPlan::runs($action, $now),
             'state' => StudioActionPlan::state($action->status),
             'reason' => $failure !== null && $action->status !== StudioActionStatus::Done ? $failure->description() : null,
@@ -313,6 +320,7 @@ final class StudioActionQueue extends Page
             'deferrals' => $action->deferrals,
             'dispatched' => $action->dispatched_at !== null ? StudioActionPlan::at($action->dispatched_at) : null,
             'links' => StudioActionPlan::links($action),
+            'writes' => StudioActionPlan::writes($action->type),
             'canRetry' => $action->status === StudioActionStatus::Failed,
             'canResume' => $action->status === StudioActionStatus::Held,
             'canCancel' => in_array($action->status, [StudioActionStatus::Pending, StudioActionStatus::Held, StudioActionStatus::Failed, StudioActionStatus::Dispatched], true),
@@ -413,6 +421,14 @@ final class StudioActionQueue extends Page
         $this->plan = is_numeric($this->plan) && preg_match('/\A[0-9]{1,18}\z/', (string) $this->plan) === 1 ? (string) (int) $this->plan : '';
         $this->order = $this->order === 'oldest' ? 'oldest' : '';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
+    }
+
+    /** The first moment an action could run: its time, or its plan's approval if that came later. */
+    private static function couldRunFrom(StudioAction $action): CarbonImmutable
+    {
+        $approvedAt = $action->plan?->approved_at;
+
+        return $approvedAt !== null && $approvedAt->greaterThan($action->occurs_at) ? $approvedAt : $action->occurs_at;
     }
 }

@@ -98,7 +98,18 @@ it('says what to do when a tag cannot be saved', function (Closure $draft, strin
     'a blank slug whose name is taken' => [fn (): Testable => newTagDraft('Street Food', ''), 'draftSlug', 'The slug has already been taken.'],
     'a slug in use' => [fn (): Testable => newTagDraft('Other', 'street-food'), 'draftSlug', 'The slug has already been taken.'],
     'a slug that is not URL-safe' => [fn (): Testable => newTagDraft('Bad Slug', 'Bad Slug!'), 'draftSlug', 'Use lowercase letters and numbers, with single hyphens between words: best-friends.'],
+    // Forty letters that each transliterate to three.
+    'a blank slug the name would make too long' => [fn (): Testable => newTagDraft(str_repeat('щ', 40), ''), 'draftSlug', 'The slug made from this name would be longer than 100 characters. Type a shorter slug.'],
 ]);
+
+it('saves a tag whose slug, made from its name, is exactly 100 characters', function () {
+    // Thirty-three letters that each transliterate to three, and one more.
+    $name = str_repeat('щ', 33).'a';
+
+    newTagDraft($name, '')->call('save')->assertHasNoErrors();
+
+    expect(Tag::query()->where('name', $name)->sole()->slug)->toHaveLength(100);
+});
 
 it('allows admin to edit tag from tag resource', function () {
     $tag = Tag::factory()->create(['name' => 'Old Name', 'slug' => 'old-name']);
@@ -155,4 +166,25 @@ it('refuses a user who may not curate tags', function () {
     $this->actingAs(User::factory()->moderator()->banned()->create());
 
     Livewire::test(ManageTags::class)->call('edit', $tag->id)->assertForbidden();
+});
+
+it('warns that links break only when the slug a save stores differs, a blank one made from the name again', function () {
+    $tag = Tag::factory()->create(['name' => 'Street Food', 'slug' => 'street-food']);
+
+    // Blank, and the name unchanged: the save makes the same slug again.
+    editedTagDraft($tag, 'Street Food', '')
+        ->assertDontSee('stop working once you save')
+        ->assertSee('Changing the slug breaks existing links to this tag.');
+
+    // Blank with a new name, or typed anew: the slug changes.
+    editedTagDraft($tag, 'Night Market', '')->assertSee('Feed links filtered by “street-food” stop working once you save.');
+    editedTagDraft($tag, 'Street Food', 'street-eats')->assertSee('Feed links filtered by “street-food” stop working once you save.');
+
+    // The same slug with spaces around it: the save trims them, so nothing breaks.
+    editedTagDraft($tag, 'Street Food', ' street-food ')
+        ->assertDontSee('stop working once you save')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($tag->fresh()->slug)->toBe('street-food');
 });

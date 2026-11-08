@@ -15,12 +15,14 @@ use App\Exceptions\Moderation\CannotFinalizeRemovalException;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Posts\ModerationPostsQuery;
 use App\Support\Media\PostImagePresenter;
+use App\Support\Moderation\ModerationReason;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Facades\Auth;
@@ -131,7 +133,7 @@ final class ListPosts extends Page
 
     public function goToPage(mixed $page): void
     {
-        $this->pageNumber = max(1, (int) $page);
+        $this->pageNumber = ListPageNumber::from($page);
         $this->selected = [];
     }
 
@@ -232,6 +234,10 @@ final class ListPosts extends Page
 
         ['action' => $action, 'ids' => $ids] = $this->confirming;
 
+        // Held to its limits as it is stored: without the spaces at its ends.
+        // As it is stored (ModerationReason): what renders as nothing at either end, not only ASCII blanks.
+        $this->reason = ModerationReason::normalize($this->reason);
+
         $this->validate(
             [
                 'reason' => [$action === 'reject' ? 'nullable' : 'required', 'string', 'min:3', 'max:'.self::REASON_LIMIT],
@@ -245,7 +251,7 @@ final class ListPosts extends Page
             ],
         );
 
-        $reason = trim($this->reason) !== '' ? trim($this->reason) : null;
+        $reason = $this->reason !== '' ? $this->reason : null;
         $posts = app(ModerationPostsQuery::class)->among($ids)->get();
         $done = [];
 
@@ -265,6 +271,12 @@ final class ListPosts extends Page
         $this->selected = [];
 
         if ($done === []) {
+            // A single post that failed has said so already; several that all
+            // failed, or posts no longer there at all, have not.
+            if (count($ids) > 1 || $posts->isEmpty()) {
+                $this->nothingDone(count($ids));
+            }
+
             return;
         }
 
@@ -303,16 +315,15 @@ final class ListPosts extends Page
     #[On('restore-posts')]
     public function restorePosts(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
-        $restored = 0;
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
+        $restored = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
-        foreach ($posts as $post) {
-            $restored += $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true) ? 1 : 0;
-        }
-
-        if ($restored > 0) {
-            $this->toast($restored === 1 ? '“'.self::shortTitle($posts->first()).'” is visible again' : $restored.' posts are visible again');
-        }
+        match ($restored->count()) {
+            0 => $this->nothingUndone($ids, $posts->count()),
+            1 => $this->toast('“'.self::shortTitle($restored->first()).'” is visible again'),
+            default => $this->toast($restored->count().' posts are visible again'),
+        };
     }
 
     /**
@@ -323,16 +334,15 @@ final class ListPosts extends Page
     #[On('hide-posts-again')]
     public function hidePostsAgain(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
-        $hidden = 0;
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
+        $hidden = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
-        foreach ($posts as $post) {
-            $hidden += $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true) ? 1 : 0;
-        }
-
-        if ($hidden > 0) {
-            $this->toast($hidden === 1 ? '“'.self::shortTitle($posts->first()).'” is hidden again' : $hidden.' posts are hidden again');
-        }
+        match ($hidden->count()) {
+            0 => $this->nothingUndone($ids, $posts->count()),
+            1 => $this->toast('“'.self::shortTitle($hidden->first()).'” is hidden again'),
+            default => $this->toast($hidden->count().' posts are hidden again'),
+        };
     }
 
     public function view(int $id): void
@@ -356,6 +366,15 @@ final class ListPosts extends Page
         $counts = $query->counts();
         $categories = Category::query()->orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'slug']);
         $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->categoryId(), $this->order(), (int) $this->pageNumber);
+
+        // The last page emptied — its posts approved or rejected — while
+        // earlier ones still have some: show the last one there is, not an
+        // empty queue, and say so in the address.
+        if ($paginator->total() > 0 && $paginator->currentPage() > $paginator->lastPage()) {
+            $this->pageNumber = $paginator->lastPage();
+            $paginator = $query->paginate((string) $this->status, (string) $this->q, $this->categoryId(), $this->order(), $this->pageNumber);
+        }
+
         $oldest = $query->oldestPendingAt();
 
         return [
@@ -618,6 +637,32 @@ final class ListPosts extends Page
         }
     }
 
+    /**
+     * An Undo that changed nothing, said by what its ids found, each counted
+     * once: posts there but no longer as left changed meanwhile; none there
+     * at all are gone since the toast went up; no id a post can have is
+     * nothing to say.
+     *
+     * @param  list<int>  $ids
+     */
+    private function nothingUndone(array $ids, int $found): void
+    {
+        if ($found > 0) {
+            $this->nothingDone($found);
+
+            return;
+        }
+
+        if ($ids !== []) {
+            $this->toast((count($ids) === 1 ? 'This post no longer exists' : 'These posts no longer exist').', so nothing was done.', tone: 'error');
+        }
+    }
+
+    private function nothingDone(int $asked): void
+    {
+        $this->toast(($asked === 1 ? 'This post' : 'These posts').' changed meanwhile, so nothing was done. The list now shows '.($asked === 1 ? 'it' : 'them').' as '.($asked === 1 ? 'it is' : 'they are').'.', tone: 'error');
+    }
+
     /** @param array{label: string, event: string, params: array<string, mixed>}|null $action */
     private function toast(string $message, ?array $action = null, string $tone = 'success'): void
     {
@@ -635,7 +680,7 @@ final class ListPosts extends Page
 
     private function order(): string
     {
-        return array_key_exists((string) $this->sort, self::SORTS) ? (string) $this->sort : ($this->status === 'pending' ? 'oldest' : 'newest');
+        return is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : ($this->status === 'pending' ? 'oldest' : 'newest');
     }
 
     private function categoryId(): ?int
@@ -652,11 +697,13 @@ final class ListPosts extends Page
     /** Whatever a link or a forged update put here, read as something the page offers. */
     private function normalize(): void
     {
-        $this->status = array_key_exists((string) $this->status, self::TABS) ? (string) $this->status : 'pending';
+        // A string the page offers, never cast: an array from the address
+        // would only break the page.
+        $this->status = is_string($this->status) && array_key_exists($this->status, self::TABS) ? $this->status : 'pending';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 100) : '';
         $this->category = is_string($this->category) && Category::query()->where('slug', $this->category)->exists() ? $this->category : '';
-        $this->sort = array_key_exists((string) $this->sort, self::SORTS) ? (string) $this->sort : '';
-        $this->pageNumber = max(1, is_numeric($this->pageNumber) ? (int) $this->pageNumber : 1);
+        $this->sort = is_string($this->sort) && array_key_exists($this->sort, self::SORTS) ? $this->sort : '';
+        $this->pageNumber = ListPageNumber::from($this->pageNumber);
         $this->selected = array_map(strval(...), $this->selectedIds());
     }
 }

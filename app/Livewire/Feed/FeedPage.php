@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Queries\Categories\ActiveCategorySlugsQuery;
 use App\Queries\Feed\MatchedUsersQuery;
 use App\Services\Feed\FeedPostDeletionService;
+use App\Support\Feed\FeedAddress;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
@@ -137,6 +138,8 @@ class FeedPage extends Component
 
         if ($result->error !== null) {
             $this->deleteError = $result->error;
+            // Nothing on the feed shows deleteError: the toast says it.
+            $this->dispatch('toast', message: $result->error);
 
             return;
         }
@@ -257,11 +260,28 @@ class FeedPage extends Component
         return $this->normalizeFilterValues($values, $allowed);
     }
 
+    /**
+     * The feed as it is now, without its tag: where removing the tag filter
+     * leads. The sort stays only when it is not the default one, as the
+     * address carries it.
+     */
+    public function urlWithoutTag(): string
+    {
+        return (new FeedAddress([
+            'search' => $this->search,
+            'category' => $this->category,
+            'ratings' => $this->ratings,
+            'sort' => $this->sort === 'newest' ? null : $this->sort,
+            'feed' => $this->feed,
+        ]))->with(['tag' => null]);
+    }
+
     public function effectiveSearch(): ?string
     {
         $search = trim($this->search);
 
-        return strlen($search) >= 3 ? $search : null;
+        // Characters, not bytes: "ко" is two letters and four bytes.
+        return mb_strlen($search) >= 3 ? $search : null;
     }
 
     /** @return \Illuminate\Database\Eloquent\Collection<int, User> */

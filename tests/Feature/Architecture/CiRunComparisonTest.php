@@ -141,6 +141,16 @@ it('groups JUnit test time by test directory, slowest first', function () {
         ->toMatch('/all tests \\(summed\\).*\\n.*tests\\/Feature\\/Auth .*\\n.*tests\\/Feature\\/Services .*\\n.*tests\\/Feature .*\\n.*tests\\/Unit\\/Enums /');
 });
 
+it('measures the jobs that ran, beside one that never started', function () {
+    $result = compareRunsTool(['jobs', '11', '--from={dir}'], [
+        '11.json' => '{"jobs":[{"name":"Tests","created_at":"2026-11-07T10:00:00Z","started_at":"2026-11-07T10:00:05Z","completed_at":"2026-11-07T10:01:35Z","steps":[]},{"name":"Skipped deploy","created_at":"2026-11-07T10:00:00Z","started_at":null,"completed_at":"2026-11-07T10:00:01Z","steps":[]}]}',
+    ]);
+
+    expect($result['status'])->toBe(0, $result['output'])
+        ->and($result['output'])->toContain('| Tests | 1:30 |')
+        ->not->toContain('Skipped deploy');
+});
+
 it('refuses input it cannot measure', function (array $arguments, array $files, int $status, string $message) {
     $result = compareRunsTool($arguments, $files);
 
@@ -151,6 +161,9 @@ it('refuses input it cannot measure', function (array $arguments, array $files, 
     'unknown mode' => [['steps', '1'], [], 2, 'usage:'],
     'a run id that is not a number' => [['jobs', '1;rm', '--from={dir}'], [], 1, 'not a run id: 1;rm'],
     'a run with no jobs' => [['jobs', '7', '--from={dir}'], ['7.json' => '{"jobs":[]}'], 1, 'no jobs found for run 7'],
+    'a run still going' => [['jobs', '8', '--from={dir}'], ['8.json' => '{"jobs":[{"name":"Tests","created_at":"2026-11-07T10:00:00Z","started_at":"2026-11-07T10:00:05Z","completed_at":null,"steps":[]}]}'], 1, 'run 8 has unfinished jobs'],
+    'an unfinished job after a finished one' => [['jobs', '10', '--from={dir}'], ['10.json' => '{"jobs":[{"name":"Lint","created_at":"2026-11-07T10:00:00Z","started_at":"2026-11-07T10:00:05Z","completed_at":"2026-11-07T10:01:05Z","steps":[]},{"name":"Tests","created_at":"2026-11-07T10:00:00Z","started_at":"2026-11-07T10:00:05Z","completed_at":null,"steps":[]}]}'], 1, 'run 10 has unfinished jobs'],
+    'a run none of whose jobs ran' => [['jobs', '9', '--from={dir}'], ['9.json' => '{"jobs":[{"name":"Tests","created_at":"2026-11-07T10:00:00Z","started_at":null,"completed_at":"2026-11-07T10:00:01Z","steps":[]}]}'], 1, 'no job of run 9 ran'],
     'an unreadable report' => [['junit', '{dir}/missing.xml'], [], 1, 'not a readable JUnit report'],
     'a report with no test cases' => [['junit', '{dir}/empty.xml'], ['empty.xml' => '<testsuites/>'], 1, 'no test cases in'],
 ]);

@@ -1,6 +1,6 @@
 <section data-testid="user-locale-settings">
     <header>
-        <h2 class="text-base font-semibold text-rg-text">{{ __('ui.settings.language') }}</h2>
+        <h2 id="user-locale-settings-title" class="text-base font-semibold text-rg-text">{{ __('ui.settings.language') }}</h2>
         <p class="mt-1 text-sm text-rg-muted">{{ __('ui.settings.language_description') }}</p>
     </header>
 
@@ -10,6 +10,7 @@
                 wire:model="locale"
                 id="locale"
                 name="locale"
+                aria-labelledby="user-locale-settings-title"
                 class="block w-full max-w-xs rounded-rgControl border border-rg-border2 bg-rg-card px-3 py-2 text-sm text-rg-text focus:border-rg-accent focus:outline-none focus:ring-2 focus:ring-rg-accent/25"
             >
                 @foreach($enabled as $code => $info)

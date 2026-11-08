@@ -7,6 +7,7 @@ use App\Models\MediaAsset;
 use App\Services\Media\MediaLifecycleService;
 use App\Services\Media\MediaLocation;
 use App\Services\Media\MediaOrphanScanner;
+use App\Support\ContentLifecycle\RetentionDays;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
@@ -47,6 +48,17 @@ final class MediaPurgeCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $force = (bool) $this->option('force');
 
+        // Given without its value, a narrowing option reads as not given at
+        // all: a run meant for one asset or one grace would take every one,
+        // and with --orphans --force delete every orphan.
+        foreach (['asset', 'older-than'] as $narrowing) {
+            if ($this->input->hasParameterOption("--{$narrowing}") && $this->option($narrowing) === null) {
+                $this->error("--{$narrowing} needs a value.");
+
+                return self::FAILURE;
+            }
+        }
+
         $graceDays = $this->graceDaysOverride();
 
         if ($graceDays === false) {
@@ -54,15 +66,30 @@ final class MediaPurgeCommand extends Command
         }
 
         if ((bool) $this->option('orphans')) {
+            // The orphan scan takes neither: a run meant to be narrowed must
+            // not delete every orphan instead.
+            if ($this->option('asset') !== null || $this->option('older-than') !== null) {
+                $this->error('--orphans scans every file: it cannot be combined with --asset or --older-than.');
+
+                return self::FAILURE;
+            }
+
             return $this->purgeOrphans($orphanScanner, $lifecycle, $dryRun, $force);
+        }
+
+        // The configured grace is the assets' alone: an orphan scan never reads it.
+        $graceDays ??= $this->configuredGraceDays();
+
+        if ($graceDays === false) {
+            return self::FAILURE;
         }
 
         return $this->purgeAssets($lifecycle, $dryRun, $graceDays);
     }
 
-    private function purgeAssets(MediaLifecycleService $lifecycle, bool $dryRun, ?int $graceDays): int
+    private function purgeAssets(MediaLifecycleService $lifecycle, bool $dryRun, int $graceDays): int
     {
-        $cutoff = now()->subDays($graceDays ?? (int) config('media.lifecycle.purge_grace_days'));
+        $cutoff = now()->subDays($graceDays);
 
         $query = MediaAsset::onlyTrashed()->where('deleted_at', '<=', $cutoff);
 
@@ -228,10 +255,31 @@ final class MediaPurgeCommand extends Command
             return null;
         }
 
-        $days = filter_var($raw, FILTER_VALIDATE_INT);
+        // Bounded as retention is everywhere: no grace reaches back past a
+        // century, and a number near PHP_INT_MAX — where (int) saturates any
+        // longer one — would wrap the cutoff round to the present.
+        $days = RetentionDays::tryParse((string) $raw);
 
-        if ($days === false || $days < 0) {
+        if ($days === null) {
             $this->error("Invalid --older-than value: [{$raw}].");
+
+            return false;
+        }
+
+        return $days;
+    }
+
+    /**
+     * The configured grace, held to the bounds --older-than is: a value the
+     * environment saturated would otherwise wrap the cutoff and purge all.
+     */
+    private function configuredGraceDays(): int|false
+    {
+        $configured = config('media.lifecycle.purge_grace_days');
+        $days = RetentionDays::tryParse($configured);
+
+        if ($days === null) {
+            $this->error('Invalid media.lifecycle.purge_grace_days: ['.(is_scalar($configured) ? $configured : gettype($configured)).'].');
 
             return false;
         }

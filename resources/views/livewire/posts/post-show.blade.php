@@ -54,7 +54,7 @@
                 <div class="flex min-w-0 items-start gap-3">
                     @if($post->user?->public_username)
                         <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent">
-                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->name" size="lg" />
+                            <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user->resolved_display_name" size="lg" />
                         </a>
                     @else
                         <x-ui.avatar :src="$post->user?->resolved_avatar_url" :srcset="$post->user?->resolved_avatar_srcset" :name="$post->user?->resolved_display_name ?? __('ui.user.unknown')" size="lg" />
@@ -62,7 +62,7 @@
 
                     <div class="min-w-0">
                         @if($post->user?->public_username)
-                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->name }}</a>
+                            <a href="{{ route('profile.show', $post->user->public_username) }}" wire:navigate class="truncate text-sm font-semibold text-rg-text hover:underline focus-visible:outline-none block">{{ $post->user->resolved_display_name }}</a>
                         @else
                             <div class="truncate text-sm font-semibold text-rg-text">{{ $post->user?->resolved_display_name ?? __('ui.user.unknown') }}</div>
                         @endif
@@ -116,6 +116,12 @@
             @endif
             </div>
 
+            @if($post->tags->isNotEmpty())
+                <div class="mt-3">
+                    <x-posts.tag-links :tags="$post->tags" test-id="post-show-tags" />
+                </div>
+            @endif
+
             @if($activeRatingGroups->isNotEmpty())
             <section class="mt-5 space-y-5" data-testid="post-show-rating-controls">
                 @foreach($activeRatingGroups as $ratingGroup)
@@ -123,6 +129,7 @@
                         <livewire:voting.rating-voting
                             :post="$post"
                             :group-key="$ratingGroup->key"
+                            :group="$ratingGroup"
                             :variant="$ratingGroup->options->count() <= 2 ? 'default' : 'compact'"
                             :key="'post-show-rating-'.$ratingGroup->key.'-'.$post->id"
                         />
@@ -162,7 +169,8 @@
                 </div>
 
                 @if($canReportPost || $canDeletePost || $canModeratePost)
-                    <div class="relative" wire:click.stop wire:keydown.stop>
+                    {{-- Its keys stop here, so the menu hears Escape here. --}}
+                    <div class="relative" wire:click.stop wire:keydown.stop x-on:keydown.escape="menuOpen = false">
                         <button
                             type="button"
                             x-on:click="menuOpen = ! menuOpen"
@@ -186,7 +194,6 @@
                                         :reportable-id="$post->id"
                                         variant="menu"
                                         :key="'post-show-report-'.$post->id"
-                                        wire:lazy
                                     />
                                 </div>
                             @endif
@@ -205,22 +212,17 @@
                                 :post-id="$post->id"
                                 variant="menu"
                                 :key="'post-show-moderation-'.$post->id"
-                                wire:lazy
                             />
                         </div>
                     </div>
                 @endif
             </footer>
 
-            @if($post->category || $post->tags->isNotEmpty() || $post->source_url)
+            @if($post->category || $post->source_url)
                 <section class="mt-4 flex flex-wrap items-center gap-2">
                     @if($post->category)
                         <x-posts.category-link :category="$post->category" test-id="post-show-category" />
                     @endif
-
-                    @foreach($post->tags as $tag)
-                        <x-ui.badge>{{ $tag->name }}</x-ui.badge>
-                    @endforeach
 
                     @if($post->source_url)
                         <a
@@ -236,7 +238,7 @@
             @endif
 
             @if($projectSettings->featureEnabled('show_share_buttons'))
-                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg">
+                <x-ui.modal title="{{ __('sharing.share_this_post') }}" state="shareOpen" size="lg" close-on-escape>
                     <x-sharing.share-buttons :post="$post" />
                 </x-ui.modal>
             @endif
@@ -245,7 +247,7 @@
                 @php
                     $fullscreenImage = $postImagePresenter->responsive($post, \App\Enums\PostImageContext::Fullscreen);
                 @endphp
-                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header>
+                <x-ui.modal title="{{ $post->title }}" state="imageOpen" size="fullscreen" below-header close-on-escape>
                     <x-media.post-image
                         :post="$post"
                         :src="$fullscreenImage?->src"
@@ -261,7 +263,7 @@
             @endif
 
             @if($canDeletePost)
-                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm">
+                <x-ui.modal title="{{ __('ui.post.delete_confirm_title') }}" state="deleteOpen" size="sm" close-on-escape>
                     <div class="space-y-4">
                         <p class="text-sm leading-6 text-rg-muted">{{ __('ui.post.delete_confirm_description', ['days' => \App\Support\Posts\PostRetention::days()]) }}</p>
 
@@ -286,12 +288,15 @@
             @endif
         </article>
 
-        <section class="mt-8 scroll-mt-24" data-testid="post-show-comments" x-ref="postComments">
-            <livewire:comments.comments-section
-                :post-id="$post->id"
-                :show-header="true"
-                :key="'comments-'.$post->id"
-            />
-        </section>
+        {{-- Comments switched off hide the thread here too, as on the feed and in the drawer. --}}
+        @if($projectSettings->featureEnabled('show_comments'))
+            <section class="mt-8 scroll-mt-24" data-testid="post-show-comments" x-ref="postComments">
+                <livewire:comments.comments-section
+                    :post-id="$post->id"
+                    :show-header="true"
+                    :key="'comments-'.$post->id"
+                />
+            </section>
+        @endif
     </main>
 </div>

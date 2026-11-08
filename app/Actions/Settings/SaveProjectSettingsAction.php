@@ -55,9 +55,16 @@ final class SaveProjectSettingsAction
 
             if (is_array($settings['feature_flags'] ?? null)) {
                 // A flag the settings do not name keeps what is stored: the
-                // page sets the flags it shows, never the others — such as
+                // page sets the flags it changed, never the others — such as
                 // Content Studio's executor switch, which it does not show.
                 $settings['feature_flags'] = array_merge(is_array($row->feature_flags) ? $row->feature_flags : [], $settings['feature_flags']);
+            }
+
+            if (is_array($settings['sign_in_providers'] ?? null)) {
+                // Likewise a provider: one switched by someone else since the
+                // page was read is never switched back by a save that did not
+                // touch it.
+                $settings['sign_in_providers'] = array_merge(is_array($row->sign_in_providers) ? $row->sign_in_providers : [], $settings['sign_in_providers']);
             }
 
             $row->fill($settings)->save();
@@ -100,7 +107,8 @@ final class SaveProjectSettingsAction
     }
 
     /**
-     * The stored pages with the English of the given ones replaced.
+     * The stored pages with the given English fields written over them: a
+     * title or a text the settings do not give keeps what is stored.
      *
      * @param  array<string, array<string, mixed>>  $english
      * @return array<string, mixed>
@@ -111,7 +119,8 @@ final class SaveProjectSettingsAction
 
         foreach ($english as $page => $texts) {
             $languages = is_array($pages[$page] ?? null) ? $pages[$page] : [];
-            $languages[TranslatableField::REFERENCE_LOCALE] = $texts;
+            $current = is_array($languages[TranslatableField::REFERENCE_LOCALE] ?? null) ? $languages[TranslatableField::REFERENCE_LOCALE] : [];
+            $languages[TranslatableField::REFERENCE_LOCALE] = array_merge($current, $texts);
             $pages[$page] = $languages;
         }
 

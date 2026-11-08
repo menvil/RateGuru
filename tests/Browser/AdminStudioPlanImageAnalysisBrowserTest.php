@@ -150,3 +150,101 @@ it('makes the draft for the first photo on a new publication, and goes on with i
 
     expect(StudioPlan::query()->sole())->id->toBe($plan->id)->title->toBe('Harbour at dawn')->image_asset_id->toBe($plan->image_asset_id);
 });
+
+it('sends a link with a port on to be imported, rather than call it incomplete', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+
+    pasteImageLink($page, 'https://images.rateguru.test:8443/harbour.jpg');
+
+    // The server has it: imported, or refused by its own rules — not held back in the browser.
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis === 'queued' || !! document.querySelector('#rg-admin-studio-image-url[aria-invalid=\"true\"]')", true, 10.0);
+
+    expect($page->script("[...document.querySelectorAll('.rg-admin-hint')].some((hint) => hint.textContent.includes('Paste the full link') && hint.offsetParent !== null)"))->toBeFalse();
+});
+
+it('tries a link that failed again when it is pasted again after switching the source away and back', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+    $refused = "!! document.querySelector('#rg-admin-studio-image-url[aria-invalid=\"true\"]')";
+
+    // A host nothing resolves: refused by the server.
+    pasteImageLink($page, 'https://nowhere.invalid/harbour.jpg');
+    waitForScript($page, $refused, true, 10.0);
+
+    $page->script("[...document.querySelectorAll('.rg-admin-studio__segmented [role=\"radio\"]')].find((option) => option.textContent.trim() === 'Upload').click()");
+    waitForScript($page, "! document.getElementById('rg-admin-studio-image-url')");
+
+    pasteImageLink($page, 'https://nowhere.invalid/harbour.jpg');
+    waitForScript($page, "!! document.getElementById('rg-admin-studio-image-url') && ! document.querySelector('#rg-admin-studio-image-url[aria-invalid=\"true\"]')");
+
+    // Tried again, and refused again.
+    waitForScript($page, $refused, true, 10.0);
+});
+
+it('lets the photo go when the server never answers the start of its upload', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+    $photo = "Alpine.\$data(document.querySelector('.rg-admin-studio__columns--photo'))";
+
+    // A dropped connection: the request asking for the upload's address fails.
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.fail = true');
+    $page->script("{$photo}.send(new File([new Uint8Array([255, 216, 255])], 'harbour.jpg', { type: 'image/jpeg' }))");
+
+    waitForScript($page, "{$photo}.phase", '');
+
+    expect($page->script("{$photo}.busy"))->toBeFalse();
+
+    // The next photo is not left waiting behind the one that never started: its start is asked for.
+    $page->script(<<<'JS'
+        (() => {
+            const fetch = window.fetch
+            window.startsAsked = 0
+            window.fetch = function (input, init, ...rest) {
+                if (String(init?.body ?? '').includes('_startUpload')) {
+                    window.startsAsked++
+                }
+
+                return fetch.call(this, input, init, ...rest)
+            }
+        })()
+    JS);
+    $page->script('window.livewireGate.fail = false');
+    $page->script("{$photo}.send(new File([new Uint8Array([255, 216, 255])], 'harbour.jpg', { type: 'image/jpeg' }))");
+
+    waitForScript($page, 'window.startsAsked', 1);
+});
+
+it('sends the same link again once the request importing it failed', function () {
+    $plan = StudioPlan::factory()->create(['title' => 'A harbour']);
+    $page = visitAdminEditor("/admin/studio-plans/{$plan->id}/edit");
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+
+    // The first import request never reaches the server: the connection drops.
+    $page->script(<<<'JS'
+        (() => {
+            const fetch = window.fetch
+            window.importRequestsFailed = 0
+            window.fetch = function (input, init, ...rest) {
+                if (window.importRequestsFailed === 0 && String(init?.body ?? '').includes('importImage')) {
+                    window.importRequestsFailed++
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+                return fetch.call(this, input, init, ...rest)
+            }
+        })()
+    JS);
+
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+    waitForScript($page, 'window.importRequestsFailed', 1);
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'no_image');
+
+    // The same address once more: sent, and imported this time.
+    pasteImageLink($page, 'https://images.rateguru.test/harbour.jpg');
+
+    waitForScript($page, "document.querySelector('[data-analysis]')?.dataset.analysis", 'queued', 10.0);
+});

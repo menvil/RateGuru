@@ -32,27 +32,6 @@ function adminThemeTokenColour(string $token): string
     return strtolower($value);
 }
 
-/** WCAG 2 relative luminance of a #rrggbb colour. */
-function wcagRelativeLuminance(string $hex): float
-{
-    $channels = array_map(function (string $pair): float {
-        $channel = hexdec($pair) / 255;
-
-        return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
-    }, str_split(ltrim($hex, '#'), 2));
-
-    return 0.2126 * $channels[0] + 0.7152 * $channels[1] + 0.0722 * $channels[2];
-}
-
-/** WCAG 2 contrast ratio between two #rrggbb colours. */
-function wcagContrastRatio(string $foreground, string $background): float
-{
-    $lighter = max(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
-    $darker = min(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
-
-    return ($lighter + 0.05) / ($darker + 0.05);
-}
-
 it('gives the admin panel its own Vite theme', function () {
     expect(filament()->getPanel('admin')->getViteTheme())->toBe(ADMIN_THEME_ENTRY);
 });

@@ -20,6 +20,7 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
+use App\Enums\CommentStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -39,6 +40,7 @@ use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
+use App\Models\Comment;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
@@ -88,6 +90,7 @@ use Database\Factories\StudioPlanTextGenerationFactory;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -291,6 +294,27 @@ function requiredCliManifestNames(): array
     $lines = preg_split('/\R/', $contents);
 
     return array_values(array_filter(array_map('trim', $lines), fn (string $line): bool => $line !== ''));
+}
+
+/** WCAG 2 relative luminance of a #rrggbb colour. */
+function wcagRelativeLuminance(string $hex): float
+{
+    $channels = array_map(function (string $pair): float {
+        $channel = hexdec($pair) / 255;
+
+        return $channel <= 0.04045 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+    }, str_split(ltrim($hex, '#'), 2));
+
+    return 0.2126 * $channels[0] + 0.7152 * $channels[1] + 0.0722 * $channels[2];
+}
+
+/** WCAG 2 contrast ratio between two #rrggbb colours. */
+function wcagContrastRatio(string $foreground, string $background): float
+{
+    $lighter = max(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
+    $darker = min(wcagRelativeLuminance($foreground), wcagRelativeLuminance($background));
+
+    return ($lighter + 0.05) / ($darker + 0.05);
 }
 
 /*
@@ -8465,6 +8489,23 @@ function representativeTranslatedLocales(): array
 }
 
 /**
+ * A notification's email as the recipient reads it: the subject, and the body
+ * rendered through the application's mail templates.
+ *
+ * @return array{subject: string, body: string}
+ */
+function renderedMail(object $notification, User $user): array
+{
+    $mail = $notification->toMail($user);
+    $rendered = $mail->render();
+
+    return [
+        'subject' => (string) $mail->subject,
+        'body' => is_string($rendered) ? $rendered : (string) $rendered->toHtml(),
+    ];
+}
+
+/**
  * The built-in static pages as a project that has translated them stores
  * them: the English the repository ships, and a made-up translation of every
  * field in each of these languages — "[ru] About RateGuru". The repository
@@ -12152,6 +12193,20 @@ function pageAsksBeforeLeaving(mixed $page): bool
     return $page->script("(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented })()");
 }
 
+/**
+ * Whether a click with a modifier key on $link — a script expression for the
+ * element — is left to the browser, to open the address in a new tab. What
+ * the page did with the click is read after its own handlers; the browser is
+ * then stopped from following the link itself.
+ */
+function modifiedClickLeftToBrowser(mixed $page, string $link): bool
+{
+    $page->script("document.addEventListener('click', (event) => { window.rgPrevented = event.defaultPrevented; event.preventDefault() }, { once: true })");
+    $page->script("{$link}.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }))");
+
+    return $page->script('window.rgPrevented') === false;
+}
+
 /** What the screen shows right now. */
 function translationScreen(mixed $page): array
 {
@@ -13183,10 +13238,59 @@ function racingEnvironment(): array
 }
 
 /**
- * A connection outside the test's own transaction, for state that was committed
- * by another process and therefore has to be read and removed for real.
+ * A component's snapshot from a rendered page, as the browser would send it
+ * back in a Livewire update.
  */
-function committedConnection(): ConnectionInterface
+function pageComponentSnapshot(string $html, string $componentName): string
+{
+    preg_match_all('/wire:snapshot="([^"]*)"/', $html, $matches);
+
+    foreach ($matches[1] as $attribute) {
+        $snapshot = html_entity_decode($attribute, ENT_QUOTES | ENT_HTML5);
+
+        if ((json_decode($snapshot, true)['memo']['name'] ?? null) === $componentName) {
+            return $snapshot;
+        }
+    }
+
+    throw new RuntimeException("the page rendered no [{$componentName}] component");
+}
+
+/**
+ * Hides the comment as another moderator would, at the moment the action under
+ * test locks its moderator's row: after the page's own check that the comment
+ * is visible, before the action locks the comment. The returned closure says
+ * whether that has happened.
+ *
+ * @return Closure(): bool
+ */
+function hideCommentOnceTheModeratorIsLocked(Comment $comment): Closure
+{
+    $landed = false;
+
+    DB::listen(function (QueryExecuted $query) use ($comment, &$landed): void {
+        // Identifier quoting is stripped rather than matched: PostgreSQL quotes
+        // "users", MariaDB `users`.
+        $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
+
+        if (! $landed && preg_match('/\bfrom users\b/', $sql) === 1 && str_contains($sql, 'for update')) {
+            $landed = true;
+            DB::table('comments')->where('id', $comment->id)->update(['status' => CommentStatus::Hidden->value]);
+        }
+    });
+
+    return function () use (&$landed): bool {
+        return $landed;
+    };
+}
+
+/**
+ * A connection outside the test's own transaction, for state that was committed
+ * by another process and therefore has to be read and removed for real. A
+ * second name gives a second, independent session — a competitor that has to
+ * wait on the first one's locks.
+ */
+function committedConnection(string $name = 'committed_peer'): ConnectionInterface
 {
     $default = (string) config('database.default');
     $peer = config("database.connections.{$default}");
@@ -13198,10 +13302,10 @@ function committedConnection(): ConnectionInterface
     // transaction, and freeing it would roll that transaction back mid-test.
     $peer['options'] = [PDO::ATTR_PERSISTENT => false] + ($peer['options'] ?? []);
 
-    config(['database.connections.committed_peer' => $peer]);
-    DB::purge('committed_peer');
+    config(["database.connections.{$name}" => $peer]);
+    DB::purge($name);
 
-    return DB::connection('committed_peer');
+    return DB::connection($name);
 }
 
 /**
@@ -13263,9 +13367,11 @@ function forgetStudioPlanRace(ConnectionInterface $db, array $userIds, string $d
  * - `hold` says what the leader holds: its first `studio_plans` lock (`plan`,
  *   the default), its first `studio_plan_actions` lock (`action`), its release
  *   of a photo (`release`), a vote cast (`vote`), a rating option written
- *   (`option`), a user's row written (`user`), a Persona's
- *   profile written (`profile`), a discussion generation claimed by its job
- *   (`claim`) or a post written with its transaction still open (`post`), or — for an executor — the moment
+ *   (`option`), a user's row written (`user`), a Persona's profile written
+ *   (`profile`), a discussion generation claimed by its job (`claim`), a post
+ *   or a comment written (`post`, `comment`), a comment deleted, hidden or
+ *   restored (`comment-change`) or a report filed (`report`) with its
+ *   transaction still open, or — for an executor — the moment
  *   between its committed claim and its run, holding nothing (`run`).
  *   With `die` set, the leader is killed right there instead, as a worker
  *   dies, and its transaction rolled back.
@@ -13373,8 +13479,12 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 'post' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?posts"?\s/i', $sql) === 1,
                 // A comment written, its transaction still open.
                 'comment' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?comments"?\s/i', $sql) === 1,
+                // A comment deleted, hidden or restored, its transaction still open.
+                'comment-change' => static fn (string $sql): bool => preg_match('/^\s*update\s+"?comments"?\s/i', $sql) === 1,
                 // A vote cast — on a post, on a comment, or for a rating option — its transaction still open.
                 'vote' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?(post|comment|rating)_votes"?\s/i', $sql) === 1,
+                // A report filed, its transaction still open.
+                'report' => static fn (string $sql): bool => preg_match('/^\s*insert\s+into\s+"?reports"?\s/i', $sql) === 1,
                 // A rating option written — archived or deleted, say — its transaction still open.
                 'option' => static fn (string $sql): bool => preg_match('/^\s*(update|delete\s+from)\s+"?rating_options"?\s/i', $sql) === 1,
                 'action' => static fn (string $sql): bool => $locks('studio_plan_actions', $sql),
@@ -13510,7 +13620,14 @@ function lockRaceCompetitor(string $barrierDir, string $label, array $job): arra
                 // A member's own comment on a post, or a moderator hiding a comment.
                 'comment' => app(App\Actions\Comments\AddCommentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), 'Raced'),
                 'hide-comment' => app(App\Actions\Comments\HideCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
+                // A moderator restoring a hidden comment, or a member deleting their own.
+                'restore-comment' => app(App\Actions\Comments\RestoreCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), 'Raced'),
+                'delete-comment' => app(App\Actions\Comments\DeleteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment'])),
                 'vote-post' => app(App\Actions\Votes\VotePostAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\VoteType::Up),
+                // A member's report of a post.
+                'report-post' => app(App\Actions\Reports\ReportContentAction::class)->handle($admin, App\Models\Post::query()->findOrFail($job['post']), App\Enums\ReportReason::Spam),
+                // One user following another.
+                'follow' => app(App\Actions\Follows\FollowAuthorAction::class)->handle($admin, App\Models\User::query()->findOrFail($job['target'])),
                 // A member's own vote on a comment.
                 'vote-comment' => app(App\Actions\Votes\VoteCommentAction::class)->handle($admin, App\Models\Comment::query()->findOrFail($job['comment']), App\Enums\VoteType::Up),
                 // An administrator archiving a rating option.

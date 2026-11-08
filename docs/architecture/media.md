@@ -281,7 +281,9 @@ capped against the same byte limit after re-encoding (no quality-reduction
 retry loop if it doesn't fit).
 
 **EXIF orientation**: read via `exif_read_data()` for JPEG (the only format
-that function understands). All 8 standard values are handled — not just the
+that function understands). Its warnings are ignored — an illegal format code
+in one IFD entry, a non-Exif APP1 segment before the Exif one — and the tags
+it returns decide. All 8 standard values are handled — not just the
 axis-aligned 3/6/8, but the mirrored 2/4/5/7 too — via `imageflip()`/
 `imagerotate()`. No EXIF data, or no `Orientation` tag, is the common, valid
 case for an image with no EXIF at all and is treated as orientation 1

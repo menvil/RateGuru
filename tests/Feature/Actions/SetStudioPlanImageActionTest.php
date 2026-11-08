@@ -255,12 +255,14 @@ it('gives no photo to a draft deleted while the photo was being stored, and keep
 it('stores nothing for a plan that is gone, past its draft or changed, nor for anyone but an active administrator', function (Closure $admin, Closure $plan, int $version) {
     $ingestor = recordingStudioImageIngestor();
     $plan = $plan();
+    // An approved plan has its photo already; none is added.
+    $assets = MediaAsset::withTrashed()->count();
 
     expect(fn () => app(SetStudioPlanImageAction::class)->handle($admin(), $plan, UploadedFile::fake()->image('photo.jpg', 64, 64), $version))
         ->toThrow(CannotManageStudioPlanException::class);
 
     expect($ingestor->calls)->toBe(0)
-        ->and(MediaAsset::withTrashed()->exists())->toBeFalse()
+        ->and(MediaAsset::withTrashed()->count())->toBe($assets)
         ->and(Storage::disk('public')->allFiles())->toBe([]);
 })->with([
     'a deleted plan' => [fn () => User::factory()->admin()->create(), fn () => tap(StudioPlan::factory()->create(), fn (StudioPlan $plan) => StudioPlan::query()->whereKey($plan->id)->delete()), 1],

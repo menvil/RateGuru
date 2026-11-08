@@ -1,7 +1,14 @@
 <?php
 
+use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
+use App\Models\PostVote;
+use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
 use Tests\Browser\Support\MobileViewports;
@@ -10,9 +17,9 @@ use function Pest\Laravel\assertAuthenticated;
 use function Pest\Laravel\assertGuest;
 
 /*
- * The authentication modal as a person meets it: opened from the header or
- * the guest upload button, switched between its states, closed again,
- * and brought back by the server after a failed submission.
+ * The authentication modal as a person meets it: opened from the header, the
+ * guest upload button or a guest's vote, switched between its states, closed
+ * again, and brought back by the server after a failed submission.
  */
 
 const AUTH_MODAL = '[data-testid="auth-modal"]';
@@ -183,6 +190,55 @@ it('closes with the close button, with Escape and with the backdrop', function (
     waitForScript($page, AUTH_MODAL_SHOWN, false);
 });
 
+it('closes with a press on the dimmed page beside the panel, not with one inside it', function () {
+    $page = visit(route('feed'))
+        ->click('[data-testid="header-login-link"]')
+        ->assertVisible(AUTH_MODAL);
+
+    // The box that centres the panel covers the backdrop everywhere but the
+    // dialog's own padding, so it is what a pointer beside the panel meets.
+    $beside = AUTH_MODAL.' div:has(> [data-modal-panel])';
+
+    $page->page()->locator(AUTH_MODAL.' [data-modal-panel] h2')->click();
+
+    $page->assertScript(AUTH_MODAL_SHOWN, true);
+
+    $page->page()->locator($beside)->click(['position' => ['x' => 24, 'y' => 200]]);
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+});
+
+it('takes Escape for itself, leaving the post open under it', function () {
+    ProjectSettings::factory()->create([
+        'feature_flags' => ['post_detail_overlay_mode' => true],
+    ]);
+    Post::factory()->published()->create(['title' => 'A post under the dialog']);
+
+    $page = visit(route('feed'))
+        ->resize(1440, 900)
+        ->click('[data-testid="post-card"]')
+        ->waitForText('A post under the dialog');
+
+    waitForPostDetailOverlayOpen($page);
+
+    $page->click('[data-testid="header-login-link"]')->assertVisible(AUTH_MODAL);
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+
+    $page->keys('#modal-login-email', 'Escape');
+
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+
+    $panelOpen = 'document.querySelector(\'[data-testid="post-detail-overlay"]\').classList.contains(\'translate-x-0\')';
+
+    $page->assertScript($panelOpen, true);
+
+    // With the dialog closed, Escape is the post's again.
+    $page->keys('[data-testid="post-detail-overlay"]', 'Escape');
+
+    waitForScript($page, $panelOpen, false);
+});
+
 it('locks the page scroll while it is open and gives it back afterwards', function () {
     Post::factory()->published()->count(12)->create();
 
@@ -196,6 +252,32 @@ it('locks the page scroll while it is open and gives it back afterwards', functi
     $page->click(AUTH_MODAL.' [data-testid="modal-close"]');
 
     waitForScript($page, 'document.documentElement.style.overflow', '');
+});
+
+it('shows Remember me only as checked or not: the white check on the accent, and no focus ring', function () {
+    $page = visit(route('feed'))
+        ->click('[data-testid="header-login-link"]')
+        ->assertVisible(AUTH_MODAL)
+        ->click('#modal-login-remember');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-remember');
+
+    $box = "getComputedStyle(document.querySelector('#modal-login-remember'))";
+
+    // Filled with the accent it is coloured in, not left on the dark card
+    // under a white check; every focus shadow is zero-sized, and no outline.
+    waitForScript($page, "document.querySelector('#modal-login-remember').checked");
+    waitForScript($page, "{$box}.backgroundColor === {$box}.color");
+    waitForScript($page, "{$box}.backgroundImage.includes('data:image/svg+xml')");
+    waitForScript($page, "{$box}.boxShadow === 'none' || {$box}.boxShadow.split(/,(?![^(]*\\))/).every(shadow => shadow.includes('0px 0px 0px 0px'))");
+    waitForScript($page, "{$box}.outlineStyle", 'none');
+
+    // Unchecked again, and still focused: no ring there either.
+    $page->click('#modal-login-remember');
+    waitForScript($page, "document.querySelector('#modal-login-remember').checked", false);
+    waitForScript($page, 'document.activeElement.id', 'modal-login-remember');
+    waitForScript($page, "{$box}.boxShadow === 'none' || {$box}.boxShadow.split(/,(?![^(]*\\))/).every(shadow => shadow.includes('0px 0px 0px 0px'))");
+    waitForScript($page, "{$box}.outlineStyle", 'none');
 });
 
 it('sits above the header and the page', function () {
@@ -217,6 +299,74 @@ it('opens in registration mode when a guest presses upload, without the old toas
         ->assertScript('document.querySelectorAll(\'[data-testid="toast-container"] > div\').length', 0)
         ->assertDontSee('Create an account or sign in to upload a post.')
         ->assertPathIs('/');
+});
+
+it('opens in login mode over the same page when a guest votes on a post or answers its rating', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+    $post = Post::factory()->published()->create(['title' => 'Guest Vote Post']);
+    $option = RatingGroup::query()->where('key', 'type')->firstOrFail()->options()->active()->firstOrFail();
+
+    $page = visit(route('feed', ['sort' => 'top']))
+        ->assertSee('Guest Vote Post')
+        ->assertMissing(AUTH_MODAL);
+
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
+    // The server refuses the vote, and its answer opens the dialog: there is
+    // a round trip to wait for.
+    $page->click("[data-testid=\"post-upvote-button-{$post->id}\"]");
+    waitForScript($page, AUTH_MODAL_SHOWN);
+
+    $page->assertVisible('[data-testid="auth-modal-login-form"]')
+        ->assertMissing('[data-testid="auth-modal-register-form"]')
+        // The reason stays on the card, for when the dialog is closed.
+        ->assertSeeIn('[data-testid="post-card-vote-error"]', 'Sign in to vote.')
+        ->assertPathIs('/')
+        ->assertQueryStringHas('sort', 'top')
+        ->assertScript('window.__rgSameDocument', 'yes')
+        ->assertScript('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value', '/?sort=top');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+    $page->keys('#modal-login-email', 'Escape');
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+
+    $page->click("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]");
+    waitForScript($page, AUTH_MODAL_SHOWN);
+
+    $page->assertVisible('[data-testid="auth-modal-login-form"]')
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    expect(PostVote::query()->count())->toBe(0)
+        ->and(RatingVote::query()->count())->toBe(0);
+});
+
+it('opens in login mode over the post\'s page when a guest votes on one of its comments', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->create(['post_id' => $post->id, 'body' => 'Lovely plating']);
+
+    $page = visit(route('posts.show', $post))
+        ->assertSee('Lovely plating')
+        ->assertMissing(AUTH_MODAL);
+
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
+    // From the rendered comment thread to the dialog: the refusal travels as
+    // the comment's own answer, and the dialog opens over the same page.
+    $page->click('[data-testid="comment-voting"]:visible button[aria-label="'.__('ui.a11y.vote_up').'"]');
+
+    waitForScript($page, AUTH_MODAL_SHOWN);
+    $page->assertVisible(LOGIN_PANEL)
+        ->assertSeeIn('@comment-voting-error', __('ui.voting.errors.guest_comment'))
+        ->assertPathIs(route('posts.show', $post, absolute: false))
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    // Signing in comes back to this post.
+    expect($page->script('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value'))
+        ->toBe(route('posts.show', $post, absolute: false));
+
+    expect(CommentVote::query()->count())->toBe(0);
 });
 
 it('returns to the post the person was reading after signing in', function () {

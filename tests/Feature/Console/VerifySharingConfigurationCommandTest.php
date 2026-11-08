@@ -1,5 +1,10 @@
 <?php
 
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
+
 it('accepts an https app url matching the deployment hostname', function () {
     config([
         'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
@@ -86,4 +91,89 @@ it('accepts an uppercase HTTPS scheme on the public image URL', function () {
     $this->artisan('rateguru:sharing:verify', [
         '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
     ])->assertSuccessful();
+});
+
+it('checks the disk media is stored on, not the one named public', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), 'url' => 'http://cdn.example.com/media'],
+        // Correct, but not where the images are.
+        'filesystems.disks.public.url' => 'https://rateguru.staging.myprojects.pp.ua/storage',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URL host must match')
+        ->expectsOutputToContain('Public image URL must use HTTPS')
+        ->assertFailed();
+});
+
+it('reads a media disk with no url of its own as serving from APP_URL, as Open Graph does', function (array $disk) {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), ...$disk],
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])->assertSuccessful();
+})->with([
+    'no url' => [[]],
+    'a path' => [['url' => '/storage']],
+]);
+
+it('leaves a disk media is not stored on unchecked', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'local', 'root' => storage_path('app/media'), 'url' => 'https://rateguru.staging.myprojects.pp.ua/media'],
+        // Wrong, but no image is served from it.
+        'filesystems.disks.public.url' => 'http://cdn.example.com/storage',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])->assertSuccessful();
+});
+
+it('checks the host a disk builds its own urls on, as a bucket does with no url configured', function () {
+    // A driver that names its own host for every file, as a bucket's does.
+    Storage::extend('bucket', function ($app, array $config): FilesystemAdapter {
+        $adapter = new class(storage_path('framework/testing/bucket')) extends LocalFilesystemAdapter
+        {
+            public function getUrl(string $path): string
+            {
+                return 'https://rg-media.s3.eu-central-1.amazonaws.com/'.$path;
+            }
+        };
+
+        return new FilesystemAdapter(new Filesystem($adapter, $config), $adapter, $config);
+    });
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'media',
+        'filesystems.disks.media' => ['driver' => 'bucket'],
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URL host must match')
+        ->assertFailed();
+});
+
+it('says why image URLs cannot be built from the media disk', function () {
+    config([
+        'app.url' => 'https://rateguru.staging.myprojects.pp.ua',
+        'media.disks.public' => 'nowhere',
+    ]);
+
+    $this->artisan('rateguru:sharing:verify', [
+        '--expected-host' => 'rateguru.staging.myprojects.pp.ua',
+    ])
+        ->expectsOutputToContain('Public image URLs cannot be built from the [nowhere] disk: Disk [nowhere] does not have a configured driver.')
+        ->assertFailed();
 });

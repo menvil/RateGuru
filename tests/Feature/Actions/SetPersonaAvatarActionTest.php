@@ -18,6 +18,9 @@ use App\Services\Media\ImageInput;
 use App\Services\Media\NormalizedImage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
@@ -253,4 +256,37 @@ it('takes the photo when the persona is as the editor was drawn, even from an ol
     app(SetPersonaAvatarAction::class)->handle($admin, $copy, UploadedFile::fake()->image('face.jpg', 300, 300), $fingerprint, null);
 
     expect($persona->fresh()->avatar_asset_id)->not->toBeNull();
+});
+
+it('logs the persona under its own key, leaving user_id to the signed-in administrator', function () {
+    Log::spy();
+    Queue::fake();
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create();
+    $this->actingAs($admin);
+
+    setPersonaAvatar($admin, $persona);
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $message, array $context): bool => $message === 'persona.avatar.updated'
+        && $context['persona_id'] === $persona->id
+        && $context['admin_id'] === $admin->id
+        && $context['user_id'] === $admin->id);
+});
+
+it('logs the persona under its own key when its variants cannot be generated, keeping the avatar', function () {
+    Log::spy();
+    Exceptions::fake();
+    Bus::shouldReceive('dispatch')->andThrow(new RuntimeException('The queue is down.'));
+    $admin = User::factory()->admin()->create();
+    $persona = User::factory()->persona()->create();
+    $this->actingAs($admin);
+
+    setPersonaAvatar($admin, $persona);
+
+    expect($persona->fresh()->avatar_asset_id)->not->toBeNull();
+    Exceptions::assertReported(RuntimeException::class);
+    Log::shouldHaveReceived('error')->withArgs(fn (string $message, array $context): bool => $message === 'Failed to dispatch or run media variant generation.'
+        && $context['persona_id'] === $persona->id
+        && $context['media_asset_id'] === $persona->fresh()->avatar_asset_id
+        && ! array_key_exists('user_id', $context));
 });

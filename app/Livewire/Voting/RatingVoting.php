@@ -4,8 +4,12 @@ namespace App\Livewire\Voting;
 
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
+use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
+use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\RatingVote;
+use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVoteDistribution;
 use Illuminate\Contracts\View\View;
@@ -14,6 +18,8 @@ use Livewire\Component;
 
 class RatingVoting extends Component
 {
+    use OpensAuthModal;
+
     protected string $viewName = 'livewire.voting.rating-voting';
 
     protected string $votedEventName = 'rating-voted';
@@ -31,6 +37,18 @@ class RatingVoting extends Component
     public array $preloadedDistribution = [];
 
     public ?int $preloadedSelectedOptionId = null;
+
+    /**
+     * The group as the list that drew this card loaded it, active options
+     * and all. Protected, so it lives for the first render only: every later
+     * request reads the group as it is then.
+     */
+    protected ?RatingGroup $drawnGroup = null;
+
+    public function mount(?RatingGroup $group = null): void
+    {
+        $this->drawnGroup = $group;
+    }
 
     /**
      * Re-sync this component whenever any rating vote happens for the same
@@ -52,13 +70,35 @@ class RatingVoting extends Component
         int $optionId,
         RatingConfigurationManager $configuration,
         VoteRatingOptionAction $voteRatingOption,
+        GuestVoteAttemptLog $guestVoteAttempts,
     ): void {
         $this->error = '';
 
         $user = auth()->user();
 
         if ($user === null) {
+            $guestVoteAttempts->record('rating', [
+                'post_id' => $this->post?->id,
+                'rating_group' => $this->groupKey,
+                'rating_option_id' => $optionId,
+            ]);
+
+            // Signing in cannot bring back a post or an option that is gone:
+            // that is the answer then, as a member gets it, not the dialog.
+            if ($this->post === null || ! $this->post->canReceiveRatingVotes()) {
+                $this->error = __('ui.post.unavailable');
+
+                return;
+            }
+
+            if ($this->activeOption($configuration, $optionId) === null) {
+                $this->error = __('ui.voting.option_unavailable');
+
+                return;
+            }
+
             $this->error = __('ui.voting.sign_in_to_vote');
+            $this->openAuthModal();
 
             return;
         }
@@ -73,8 +113,7 @@ class RatingVoting extends Component
             return;
         }
 
-        $group = $configuration->activeGroupByKey($this->groupKey);
-        $option = $group?->options->firstWhere('id', $optionId);
+        $option = $this->activeOption($configuration, $optionId);
 
         if ($option === null) {
             $this->error = __('ui.voting.option_unavailable');
@@ -94,11 +133,25 @@ class RatingVoting extends Component
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 
+    /**
+     * The option asked for, while it is still one of this group's active
+     * options; archived counts as inactive whatever its flag says, as
+     * VoteRatingOptionAction counts it.
+     */
+    private function activeOption(RatingConfigurationManager $configuration, int $optionId): ?RatingOption
+    {
+        return $configuration->activeGroupByKey($this->groupKey)?->options
+            ->whereNull('archived_at')
+            ->firstWhere('id', $optionId);
+    }
+
     public function render(
         RatingConfigurationManager $configuration,
         RatingVoteDistribution $voteDistribution,
     ): View {
-        $group = $configuration->activeGroupByKey($this->groupKey);
+        $group = $this->drawnGroup?->key === $this->groupKey
+            ? $this->drawnGroup
+            : $configuration->activeGroupByKey($this->groupKey);
         $selectedOptionId = $this->hasPreloadedState ? $this->preloadedSelectedOptionId : null;
         $user = auth()->user();
         $canVote = $this->post !== null && ($user === null || $user->can('vote', $this->post));

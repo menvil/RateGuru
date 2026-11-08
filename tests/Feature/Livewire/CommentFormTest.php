@@ -146,3 +146,17 @@ it('keeps comment body after validation failure', function () {
         ->call('submit')
         ->assertSet('body', str_repeat('a', 1001));
 });
+
+it('clears the error an earlier attempt left once a comment is posted', function () {
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs(User::factory()->create())
+        ->test(CommentForm::class, ['postId' => $post->id])
+        ->set('body', '   ')
+        ->call('submit')
+        ->assertHasErrors('body')
+        ->set('body', 'Now with something to say')
+        ->call('submit')
+        ->assertHasNoErrors()
+        ->assertDispatched('comment-created');
+});

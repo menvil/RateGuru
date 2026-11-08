@@ -105,6 +105,27 @@ it('rejects a negative --older-than value', function () {
     $this->artisan('media:purge --older-than=-1')->assertExitCode(1);
 });
 
+it('refuses a grace past a century, from the option or the configuration, and purges nothing', function (string $option, mixed $configured) {
+    config(['media.lifecycle.purge_grace_days' => $configured]);
+    $asset = MediaAsset::factory()->create(['owner_user_id' => null]);
+    $asset->delete();
+    MediaAsset::withTrashed()->whereKey($asset->id)->update(['deleted_at' => now()->subDay()]);
+
+    $this->artisan(trim('media:purge '.$option))->assertExitCode(1);
+
+    expect(MediaAsset::withTrashed()->find($asset->id))->not->toBeNull();
+})->with([
+    'the largest number as the option' => ['--older-than='.PHP_INT_MAX, 7],
+    'a day past a century as the option' => ['--older-than=36501', 7],
+    'the largest number configured' => ['', PHP_INT_MAX],
+]);
+
+it('scans for orphans whatever the configured grace says, which only the assets\' purge reads', function () {
+    config(['media.lifecycle.purge_grace_days' => PHP_INT_MAX]);
+
+    $this->artisan('media:purge --orphans --dry-run')->assertExitCode(0);
+});
+
 it('clamps an out-of-range --chunk to the minimum and still succeeds', function () {
     $this->artisan('media:purge --chunk=0')
         ->expectsOutputToContain('Invalid chunk size provided; using 1.')
@@ -195,3 +216,23 @@ it('purges every applicable variant along with the master', function () {
     }
     expect(MediaVariant::query()->where('media_asset_id', $asset->id)->count())->toBe(0);
 });
+
+it('refuses an orphan purge narrowed by an asset or a grace it cannot apply, deleting nothing', function (string $narrowing) {
+    // In a directory the scan reads, old enough to be an orphan it would purge.
+    Storage::disk('public')->put('media/post-images/orphan.jpg', 'orphan');
+    Carbon::setTestNow(now()->addDays(10));
+
+    $this->artisan("media:purge --orphans --force {$narrowing}")->assertFailed();
+
+    Storage::disk('public')->assertExists('media/post-images/orphan.jpg');
+})->with(['--asset=1', '--older-than=30', '--asset', '--older-than']);
+
+it('refuses a narrowing option given without its value, purging nothing', function (string $narrowing) {
+    $asset = createPurgeableAsset();
+
+    $this->artisan("media:purge {$narrowing}")
+        ->expectsOutputToContain('needs a value')
+        ->assertFailed();
+
+    expect(MediaAsset::withTrashed()->find($asset->id))->not->toBeNull();
+})->with(['--asset', '--older-than']);

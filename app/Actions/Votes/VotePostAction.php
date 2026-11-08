@@ -103,9 +103,11 @@ final class VotePostAction
             }
 
             // Recalculate inside the transaction so a recalc failure rolls
-            // back the vote and counters never diverge from post_votes.
-            $this->recalculatePostCounters->handle($post->refresh());
-            $this->recalculatePostScore->handle($post);
+            // back the vote and counters never diverge from post_votes —
+            // the counts and the score in one update of the post, which
+            // never locks its author after it.
+            $this->recalculatePostCounters->fill($post->refresh());
+            $this->recalculatePostScore->saveWithCounts($post);
         });
 
         $this->postListCache->invalidateForPost($post);

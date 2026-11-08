@@ -55,9 +55,12 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // Ownership is immutable on posts, so the policy check (which
-        // denies reporting your own post) needs no locked re-read.
-        if ($content instanceof Post && ! $user->can('report', $content)) {
+        // The policy denies reporting what you wrote, or yourself. It reads the
+        // caller's instance; the rows read under lock below are checked again.
+        // An account is held to it too: the modal's target is set by the
+        // client, so its hidden button alone did not keep one from reporting
+        // itself.
+        if (! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 
@@ -125,11 +128,11 @@ final class ReportContentAction
                 }
 
                 if ($content instanceof Comment) {
-                    $this->assertCommentIsReportableUnderLock($content);
+                    $this->assertCommentIsReportableUnderLock($content, $user);
                 }
 
                 if ($content instanceof Post) {
-                    $this->assertPostIsReportableUnderLock($content);
+                    $this->assertPostIsReportableUnderLock($content, $user);
                 }
 
                 $report = Report::create([
@@ -143,14 +146,6 @@ final class ReportContentAction
 
                 if ($content instanceof Post) {
                     $this->refreshPostReportsCount($content);
-
-                    // Re-read post-recount state; may be null if the post was
-                    // deleted concurrently, in which case there is nothing to flag.
-                    $freshPost = $content->fresh();
-
-                    if ($freshPost !== null) {
-                        $this->flagPostForReviewIfThresholdReached($freshPost);
-                    }
                 }
 
                 if ($content instanceof Comment) {
@@ -186,7 +181,7 @@ final class ReportContentAction
      * status in storage but are publicly unreachable, so they must not
      * accept new reports.
      */
-    private function assertCommentIsReportableUnderLock(Comment $comment): void
+    private function assertCommentIsReportableUnderLock(Comment $comment, User $reporter): void
     {
         $lockedPost = Post::withTrashed()
             ->whereKey($comment->post_id)
@@ -206,14 +201,19 @@ final class ReportContentAction
         if ($lockedComment === null || ! $lockedComment->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
+
+        if ((int) $lockedComment->user_id === (int) $reporter->id) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
+        }
     }
 
     /**
      * Same stale-instance rule for posts: an author-deleted or
      * moderation-hidden post is no longer publicly reportable — existing
-     * reports remain, new ones are refused.
+     * reports remain, new ones are refused. Its owner is checked on the
+     * locked row too, as a comment's author is.
      */
-    private function assertPostIsReportableUnderLock(Post $post): void
+    private function assertPostIsReportableUnderLock(Post $post, User $reporter): void
     {
         $lockedPost = Post::withTrashed()
             ->whereKey($post->id)
@@ -222,6 +222,10 @@ final class ReportContentAction
 
         if ($lockedPost === null || ! $lockedPost->canReceiveReports()) {
             throw CannotReportContentException::becauseContentIsNotReportable();
+        }
+
+        if ((int) $lockedPost->user_id === (int) $reporter->id) {
+            throw CannotReportContentException::becauseUserIsNotAllowed();
         }
     }
 
@@ -245,7 +249,7 @@ final class ReportContentAction
     private function recountReports(Model $content): void
     {
         DB::transaction(function () use ($content) {
-            $content->newQueryWithoutScopes()
+            $locked = $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
                 ->lockForUpdate()
                 ->first();
@@ -257,24 +261,34 @@ final class ReportContentAction
 
             $content->newQueryWithoutScopes()
                 ->whereKey($content->getKey())
-                ->update(['reports_count' => $count]);
+                ->update([
+                    'reports_count' => $count,
+                    // A post's flag for review in the same update: a second
+                    // update of the post in this transaction would have
+                    // PostgreSQL check its foreign keys, locking its author's
+                    // `users` row after the post, out of the lock order
+                    // (docs/architecture/user-lifecycle.md).
+                    ...($locked instanceof Post ? $this->reviewFlag($locked, $count) : []),
+                ]);
         });
     }
 
-    private function flagPostForReviewIfThresholdReached(Post $post): void
+    /**
+     * The flag for review a post's reports raise: once they reach the
+     * threshold, on a post not flagged already.
+     *
+     * @return array<string, mixed>
+     */
+    private function reviewFlag(Post $post, int $reports): array
     {
-        if ($post->reports_count < self::POST_REVIEW_REPORT_THRESHOLD) {
-            return;
+        if ($reports < self::POST_REVIEW_REPORT_THRESHOLD || $post->needs_review) {
+            return [];
         }
 
-        if ($post->needs_review) {
-            return;
-        }
-
-        $post->forceFill([
+        return [
             'needs_review' => true,
             'flagged_at' => now(),
             'flagged_reason' => 'reports_threshold',
-        ])->save();
+        ];
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AttachRequestId;
 use App\Http\Middleware\AttachStructuredLogContext;
+use App\Http\Middleware\AttachVisitorLogContext;
 use App\Http\Middleware\EnsureAccountIsNotTombstoned;
 use App\Http\Middleware\EnsureSessionGenerationIsCurrent;
 use App\Http\Middleware\SetLocale;
@@ -33,6 +34,9 @@ return Application::configure(basePath: dirname(__DIR__))
             SetLocale::class,
             EnsureAccountIsNotTombstoned::class,
             EnsureSessionGenerationIsCurrent::class,
+            // Last, so the user and the locale it adds to the log context
+            // are the ones the guards above have settled.
+            AttachVisitorLogContext::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

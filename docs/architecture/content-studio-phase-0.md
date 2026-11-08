@@ -1327,9 +1327,10 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   доверенной датой `$createdAt` (только исполнитель — `StudioTrustedParametersTest`)
   под `Post::withoutTimestamps()`/`Comment::withoutTimestamps()`; порядок блокировок —
   действие → комментатор и автор поста по возрастанию id → план → пост → родительский
-  комментарий; на PostgreSQL строка автора поста берётся `FOR NO KEY UPDATE`, потому
-  что двойное обновление поста в публичном комментарии или голосе проверяет
-  внешний ключ через `FOR KEY SHARE` на авторе. Зависимость перепроверяется при
+  комментарий; автор поста блокируется ради `PostCommentedNotification`. Публичный
+  комментарий или голос обновляет пост одним UPDATE (счётчик и рейтинг вместе), и
+  PostgreSQL не проверяет внешний ключ через `FOR KEY SHARE` на авторе: такая проверка
+  бывает только при втором обновлении строки в транзакции. Зависимость перепроверяется при
   захвате и перед записью; окончательная отмена родителя каскадно отменяет ветку
   (`CancelsDependentStudioActions`, `parent_cancelled`); скрытый или удалённый пост и
   родительский комментарий — `post_unavailable`/`reply_target_unavailable`;
@@ -1543,9 +1544,9 @@ MediaKind::PostImage, $uploaderAdmin)` → `GenerateMediaVariantsJob::dispatch($
   max(approved_at, occurs_at)`, порядок записи — момент, `sort_order`, ID голоса. Голоса
   исполняет тот же `ExecuteStudioAction` (`RUNNABLE` — все виды): цель берётся из
   результата родителя (пост — из `create_post`, комментарий — из `create_comment`/
-  `create_reply` поста этого же плана); блокировки — действие, Persona (для голоса за
-  пост — и автор поста, `FOR NO KEY UPDATE` на PostgreSQL), план, пост, комментарий; только
-  после них читается фактический голос: нет — `VotePostAction`/`VoteCommentAction`/
+  `create_reply` поста этого же плана); блокировки — действие, Persona, план, пост,
+  комментарий; только после них читается фактический голос: нет —
+  `VotePostAction`/`VoteCommentAction`/
   `VoteRatingOptionAction` ставит его с датой `occurs_at`; такой же — `done` без вызова
   Action и без расхода лимита, его даты остаются его; противоположный или другой вариант —
   не снимается и не меняется, действие `failed`, `vote_conflict`. Голос и `done`

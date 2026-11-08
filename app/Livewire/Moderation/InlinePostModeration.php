@@ -7,6 +7,7 @@ use App\Actions\Moderation\RestorePostAction;
 use App\Enums\PostStatus;
 use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Models\Post;
+use App\Support\Moderation\ModerationReason;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -16,6 +17,9 @@ use Livewire\Component;
 
 final class InlinePostModeration extends Component
 {
+    /** The longest reason kept, as the admin's moderation dialogs take. */
+    public const REASON_LIMIT = 1000;
+
     public int $postId;
 
     public ?string $reason = null;
@@ -54,8 +58,8 @@ final class InlinePostModeration extends Component
     #[Computed]
     public function canRestore(): bool
     {
-        return $this->canModerate()
-            && $this->post()->status === PostStatus::Hidden;
+        // No Restore the action would refuse: the same rule, on this copy.
+        return $this->canModerate() && $this->post()->canBeRestoredByModeration();
     }
 
     public function hide(HidePostAction $hidePostAction): void
@@ -101,9 +105,10 @@ final class InlinePostModeration extends Component
         return $this->cachedPost ??= Post::query()->findOrFail($this->postId);
     }
 
+    /** As the moderation log stores it, invisible edges taken off too. */
     private function normalizedReason(): ?string
     {
-        $reason = trim((string) $this->reason);
+        $reason = ModerationReason::normalize((string) $this->reason);
 
         return $reason === '' ? null : $reason;
     }
@@ -115,6 +120,17 @@ final class InlinePostModeration extends Component
 
         if (! $this->canModerate()) {
             $this->error = __('ui.moderation.not_allowed');
+
+            return;
+        }
+
+        // Held to its limit here too, not by the field's maxlength alone, and
+        // as the action receives it, trimmed. Said where either form shows
+        // what went wrong: the menu has no field to show it beside.
+        $reason = $this->normalizedReason();
+
+        if ($reason !== null && mb_strlen($reason) > self::REASON_LIMIT) {
+            $this->error = __('validation.max.string', ['attribute' => __('ui.moderation.reason'), 'max' => self::REASON_LIMIT]);
 
             return;
         }

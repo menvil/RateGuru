@@ -96,3 +96,15 @@ it('requires sufficiently long password', function () {
 
     expect(User::where('email', 'admin@example.test')->exists())->toBeFalse();
 });
+
+it('stores the admin address in lowercase, as every account keeps it', function () {
+    putenv('ADMIN_PASSWORD=secret-password');
+
+    $this->artisan('rateguru:admin:create', [
+        '--email' => 'Admin@Example.TEST',
+        '--username' => 'admin',
+        '--name' => 'Admin User',
+    ])->assertExitCode(0);
+
+    expect(User::query()->where('email', 'admin@example.test')->exists())->toBeTrue();
+});

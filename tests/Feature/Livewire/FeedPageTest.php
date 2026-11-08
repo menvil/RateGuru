@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Posts\DeletePostAction;
 use App\Enums\PostStatus;
 use App\Livewire\Feed\FeedPage;
 use App\Models\Category;
@@ -169,6 +170,43 @@ it('filters feed by a generic author answer', function () {
         ->call('toggleRatingOption', 'attribute', 'attribute_a')
         ->assertSee('Matching answer')
         ->assertDontSee('Other answer');
+});
+
+it('says why a post could not be deleted from the feed', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('deletePost', $post->id)
+        ->assertDispatched('toast', message: __('ui.post.delete_errors.not_allowed'));
+});
+
+it('drops the card of a post already deleted elsewhere instead of keeping it', function () {
+    $user = User::factory()->create();
+    $post = Post::factory()->published()->for($user)->create();
+    // Deleted from another tab after this list was drawn.
+    app(DeletePostAction::class)->handle($user, $post);
+
+    Livewire::actingAs($user)
+        ->test(FeedPage::class)
+        ->call('deletePost', $post->id)
+        ->assertDispatched('post-deleted', postId: $post->id);
+});
+
+it('counts the three-character search minimum in letters, not bytes', function () {
+    // Lowercase on both sides: what is measured here is the length, not how
+    // a database lowercases Cyrillic.
+    Post::factory()->published()->create(['title' => 'котлета']);
+    Post::factory()->published()->create(['title' => 'Cake']);
+
+    Livewire::test(FeedPage::class)
+        ->set('search', 'ко')
+        ->assertSee('котлета')
+        ->assertSee('Cake')
+        ->set('search', 'кот')
+        ->assertSee('котлета')
+        ->assertDontSee('Cake');
 });
 
 it('does not search feed until at least three characters are entered', function () {

@@ -1,7 +1,7 @@
 <section class="space-y-4">
     <div>
         <h2 class="text-xl font-bold text-rg-text">PlateRate Reference Composition</h2>
-        <p class="mt-1 text-sm text-rg-muted">Static visual contract for the Phase 1 product direction.</p>
+        <p class="mt-1 text-sm text-rg-muted">Static visual contract for the PlateRate product direction.</p>
     </div>
 
     <div data-ui="platerate-shell" class="mx-auto h-[820px] max-w-[1440px] overflow-hidden rounded-2xl border border-rg-border bg-rg-bg shadow-rgPopover">

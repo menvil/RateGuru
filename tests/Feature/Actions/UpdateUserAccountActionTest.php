@@ -18,6 +18,12 @@ function accountChanges(User $user, array $changes = []): array
     return ['name' => $user->name, 'username' => $user->username, 'email' => $user->email, 'role' => $user->role, 'trusted' => null, ...$changes];
 }
 
+/** The account as an editor read it. */
+function drawnFrom(User $user): array
+{
+    return ['name' => (string) $user->name, 'username' => (string) $user->username, 'email' => (string) $user->email, 'role' => $user->role->value];
+}
+
 it('saves the identity, the role, the trust and a new password, and leaves the status alone', function () {
     $admin = User::factory()->admin()->create();
     $user = User::factory()->create(['status' => UserStatus::Limited, 'trust_level' => 10]);
@@ -25,7 +31,7 @@ it('saves the identity, the role, the trust and a new password, and leaves the s
 
     app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, [
         'name' => 'New Name', 'username' => 'new_name', 'role' => UserRole::Moderator, 'trusted' => false, 'password' => 'a-new-long-password',
-    ]));
+    ]), drawnFrom($user));
 
     $fresh = $user->fresh();
 
@@ -40,7 +46,7 @@ it('keeps the password without a new one, and asks for a new email address to be
     $user = User::factory()->create(['email' => 'old@example.com']);
     $password = $user->password;
 
-    app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, ['email' => 'new@example.com', 'password' => null]));
+    app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, ['email' => 'new@example.com', 'password' => null]), drawnFrom($user));
 
     expect($user->fresh())->email->toBe('new@example.com')->email_verified_at->toBeNull()->password->toBe($password);
 });
@@ -54,7 +60,7 @@ it('refuses anyone who may not manage the account', function (string $case) {
         default => [$admin, User::factory()->tombstoned()->create()],
     };
 
-    app(UpdateUserAccountAction::class)->handle($actor, $target, accountChanges($target, ['name' => 'Forged']));
+    app(UpdateUserAccountAction::class)->handle($actor, $target, accountChanges($target, ['name' => 'Forged']), drawnFrom($target));
 })->throws(CannotUpdateUserAccountException::class)->with(['a moderator', 'another administrator', 'their own account', 'a deleted account']);
 
 /*
@@ -66,7 +72,7 @@ it('never makes anyone a persona', function (UserRole $role) {
     $admin = User::factory()->admin()->create();
     $target = User::factory()->create(['role' => $role]);
 
-    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $target, accountChanges($target, ['role' => UserRole::Persona])))
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $target, accountChanges($target, ['role' => UserRole::Persona]), drawnFrom($target)))
         ->toThrow(CannotUpdateUserAccountException::class);
 
     expect($target->fresh()->role)->toBe($role);
@@ -76,7 +82,7 @@ it('never turns a persona back into a member, a moderator or an administrator', 
     $admin = User::factory()->admin()->create();
     $persona = User::factory()->persona()->create();
 
-    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, ['role' => $role])))
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, ['role' => $role]), drawnFrom($persona)))
         ->toThrow(CannotUpdateUserAccountException::class);
 
     expect($persona->fresh()->role)->toBe(UserRole::Persona);
@@ -87,7 +93,7 @@ it('gives a persona no password, no new address and no other change', function (
     $persona = User::factory()->persona()->create(['name' => 'Kept Name', 'trust_level' => 10]);
     $email = $persona->email;
 
-    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, $changes)))
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $persona, accountChanges($persona, $changes), drawnFrom($persona)))
         ->toThrow(CannotUpdateUserAccountException::class);
 
     expect($persona->fresh())
@@ -110,7 +116,7 @@ it('decides on the locked row: an account made a persona since the page was draw
     $stale = User::query()->findOrFail($user->id);
     User::query()->whereKey($user->id)->update(['role' => UserRole::Persona->value, 'password' => null]);
 
-    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $stale, accountChanges($stale, ['role' => UserRole::User, 'password' => 'a-new-long-password'])))
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $stale, accountChanges($stale, ['role' => UserRole::User, 'password' => 'a-new-long-password']), drawnFrom($stale)))
         ->toThrow(CannotUpdateUserAccountException::class);
 
     expect($user->fresh())->role->toBe(UserRole::Persona)->password->toBeNull();
@@ -120,7 +126,7 @@ it('reads trust on the locked row, moving the level only across the trusted thre
     $admin = User::factory()->admin()->create();
     $user = User::factory()->create(['trust_level' => $current]);
 
-    app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, ['trusted' => $trusted]));
+    app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, ['trusted' => $trusted]), drawnFrom($user));
 
     expect($user->fresh()->trust_level)->toBe($expected);
 })->with([
@@ -139,7 +145,47 @@ it('never puts back a trust level set since the editor read the account', functi
     // Marked trusted by someone else after the editor was drawn.
     User::query()->whereKey($user->id)->update(['trust_level' => 10]);
 
-    app(UpdateUserAccountAction::class)->handle($admin, $drawn, accountChanges($drawn, ['name' => 'Renamed']));
+    app(UpdateUserAccountAction::class)->handle($admin, $drawn, accountChanges($drawn, ['name' => 'Renamed']), drawnFrom($drawn));
 
     expect($user->fresh())->name->toBe('Renamed')->trust_level->toBe(10);
 });
+
+it('saves nothing over a name, username, address or role changed since the editor read the account', function (array $meanwhile) {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->moderator()->create(['name' => 'Drawn Name', 'email' => 'drawn@example.com']);
+    $drawn = User::query()->findOrFail($user->id);
+
+    User::query()->whereKey($user->id)->update($meanwhile);
+
+    expect(fn () => app(UpdateUserAccountAction::class)->handle($admin, $drawn, accountChanges($drawn, ['name' => 'Renamed']), drawnFrom($drawn)))
+        ->toThrow(CannotUpdateUserAccountException::class);
+
+    expect($user->fresh()->name)->not->toBe('Renamed');
+    foreach ($meanwhile as $column => $value) {
+        expect($user->fresh()->getRawOriginal($column))->toBe($value);
+    }
+})->with([
+    'the role taken away by another administrator' => [['role' => 'user']],
+    'the address changed by its owner' => [['email' => 'changed@example.com']],
+    'the name changed by its owner' => [['name' => 'Their Own Name']],
+    'the username changed by its owner' => [['username' => 'their_own_handle']],
+]);
+
+it('refuses a username or address another account took after the editor checked it, naming the field', function (string $field, string $value) {
+    $admin = User::factory()->admin()->create();
+    $user = User::factory()->create();
+    User::factory()->create([$field => $value]);
+
+    try {
+        app(UpdateUserAccountAction::class)->handle($admin, $user, accountChanges($user, [$field => $value]), drawnFrom($user));
+        $this->fail('The save was not refused.');
+    } catch (CannotUpdateUserAccountException $exception) {
+        expect($exception->isAboutTakenValue())->toBeTrue()
+            ->and($exception->field)->toBe($field);
+    }
+
+    expect($user->fresh()->{$field})->not->toBe($value);
+})->with([
+    'username' => ['username', 'taken_name'],
+    'email' => ['email', 'taken@example.com'],
+]);

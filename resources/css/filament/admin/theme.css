@@ -24,6 +24,28 @@ input[type='file']:not(:disabled)::file-selector-button {
 }
 
 /*
+ * A checkbox reads as checked or not checked and nothing else, as on the
+ * public site: focus keeps the outline the box has without it instead of
+ * Filament's 2px focus ring. Filament draws that outline as a ring too — a
+ * 1px hairline around an empty box, none around a filled one — so focus
+ * restates it rather than dropping every ring.
+ */
+input[type='checkbox'].fi-checkbox-input:focus {
+    --tw-ring-offset-shadow: 0 0 #0000;
+    --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 1px var(--tw-ring-color, currentcolor);
+    --tw-ring-color: color-mix(in oklab, var(--gray-950) 10%, transparent);
+}
+
+input[type='checkbox'].fi-checkbox-input.fi-invalid:focus {
+    --tw-ring-color: var(--danger-600);
+}
+
+input[type='checkbox'].fi-checkbox-input:checked:focus,
+input[type='checkbox'].fi-checkbox-input:indeterminate:focus {
+    --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 0 var(--tw-ring-color, currentcolor);
+}
+
+/*
  * Filament's own sidebar overlay. The Admin v2 shell replaces Filament's
  * sidebar and draws its own scrim; Filament's overlay would otherwise darken
  * narrow screens whenever its persisted sidebar state still says "open".

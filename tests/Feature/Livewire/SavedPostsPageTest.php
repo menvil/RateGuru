@@ -7,7 +7,16 @@ use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\User;
+use App\Support\Settings\ProjectSettingsManager;
 use Livewire\Livewire;
+
+/*
+ * Saved posts are a feature the project switches on; these are about the
+ * feature, so it is on.
+ */
+beforeEach(function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
+});
 
 it('shows saved posts page to owner', function () {
     $user = User::factory()->create();
@@ -77,9 +86,10 @@ it('renders active rating groups on saved post cards', function () {
         ->assertSee('data-testid="post-card-rating-confidence"', false);
 });
 
-it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function () {
-    ProjectSettings::factory()->create([
-        'feature_flags' => ['post_detail_overlay_mode' => true],
+it('mounts the global sliding overlay so clicking a saved post opens the same panel as the feed', function (bool $overlayMode) {
+    // The page has no detail column of its own, so it needs the overlay in either view mode.
+    ProjectSettings::query()->sole()->update([
+        'feature_flags' => ['show_saved_posts' => true, 'post_detail_overlay_mode' => $overlayMode],
     ]);
 
     $user = User::factory()->create();
@@ -95,4 +105,54 @@ it('mounts the global sliding overlay so clicking a saved post opens the same pa
         ->assertOk()
         ->assertSee('data-testid="post-detail-overlay-backdrop-root"', false)
         ->assertSee('data-testid="post-detail-overlay-host"', false);
+})->with(['overlay mode' => true, 'split view' => false]);
+
+it('keys each saved card by its post, on the card itself, so a new page never hands one post\'s card to another', function () {
+    $user = User::factory()->create();
+    $posts = Post::factory()->count(2)->published()->create();
+    $posts->each(fn (Post $post) => PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]));
+
+    $html = Livewire::actingAs($user)->test(SavedPostsPage::class)->html();
+
+    foreach ($posts as $post) {
+        expect($html)->toMatch('/<div(?=[^>]*\swire:key="saved-post-'.$post->id.'")(?=[^>]*data-testid="post-card")/');
+    }
+});
+
+it('is not there while saved posts are switched off', function () {
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('saved-posts.index'))
+        ->assertNotFound();
+});
+
+it('shows the last page there is for a page past the end, not the empty state', function () {
+    // Two pages of twelve, so the last page is not also the first.
+    $user = User::factory()->create();
+    foreach (Post::factory()->count(13)->published()->create() as $post) {
+        PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
+    }
+    $last = PostSave::query()->where('user_id', $user->id)->orderBy('created_at')->orderBy('id')->first()->post_id;
+
+    Livewire::withQueryParams(['page' => 5])
+        ->actingAs($user)
+        ->test(SavedPostsPage::class)
+        ->assertDontSee('data-testid="saved-posts-empty-state"', false)
+        ->assertViewHas('savedPosts', fn ($paginator): bool => $paginator->currentPage() === 2
+            && $paginator->getCollection()->pluck('id')->all() === [$last]);
+});
+
+it('turns no further page once saved posts are switched off under it', function () {
+    $user = User::factory()->create();
+    foreach (Post::factory()->count(13)->published()->create() as $post) {
+        PostSave::factory()->create(['user_id' => $user->id, 'post_id' => $post->id]);
+    }
+    $page = Livewire::actingAs($user)->test(SavedPostsPage::class)->assertOk();
+
+    ProjectSettings::query()->sole()->update(['feature_flags' => ['show_saved_posts' => false]]);
+    app(ProjectSettingsManager::class)->flush();
+
+    $page->call('nextPage')->assertNotFound();
 });

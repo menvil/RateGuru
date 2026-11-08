@@ -197,6 +197,27 @@ it('renders feed card vote error placeholder below footer actions', function () 
         ->toContain('postVoteError');
 });
 
+it('says which card is the post open in the drawer, not only shows it', function (bool $selected) {
+    $post = Post::factory()->published()->create();
+
+    $card = livewireDom(Blade::render('<x-feed.post-card :post="$post" :selected="$selected" />', ['post' => $post, 'selected' => $selected]))
+        ->query("//*[@data-testid='post-card']")->item(0);
+
+    // Left out, not empty, on a card that is not the open post.
+    expect($card->hasAttribute('aria-current'))->toBe($selected)
+        ->and($card->getAttribute('aria-current'))->toBe($selected ? 'true' : '')
+        // Kept true to the selection as it changes, without the list being drawn again.
+        ->and($card->getAttribute('x-bind:aria-current'))->toBe("selected ? 'true' : null");
+})->with(['the open post' => true, 'another post' => false]);
+
+it('clears its vote error once a vote on its post goes through', function () {
+    $post = Post::factory()->published()->create();
+
+    $html = Blade::render('<x-feed.post-card :post="$post" />', ['post' => $post]);
+
+    expect($html)->toContain('x-on:post-voted.window="if ($event.detail.postId === '.$post->id.') postVoteError = \'\'"');
+});
+
 it('does not render report button for unsaved post preview', function () {
     $this->actingAs(User::factory()->create());
 

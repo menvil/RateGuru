@@ -3,7 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\Comments\CommentResource;
-use App\Models\Comment;
+use App\Queries\Comments\ModerationCommentsQuery;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -21,9 +21,7 @@ class ReportedCommentsWidget extends StatsOverviewWidget
         return [
             Stat::make(
                 'Reported comments',
-                Comment::query()
-                    ->where('reports_count', '>', 0)
-                    ->count(),
+                app(ModerationCommentsQuery::class)->count('reported'),
             )
                 ->description('Comments requiring moderation attention')
                 ->url(CommentResource::getUrl('index', ['status' => 'reported'])),

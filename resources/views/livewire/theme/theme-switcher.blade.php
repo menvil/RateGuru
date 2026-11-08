@@ -6,9 +6,16 @@
     ];
 @endphp
 
+{{-- A guest's choice lives in the browser, out of the server's sight: once the
+     page has applied it, a switcher drawn with another one takes it up. Taken
+     up on livewire:navigated, which Livewire fires once a page is in — on the
+     first load as after a navigate link, where the choice is applied again
+     only then — so once a page, and after the theme scripts have run. --}}
+@php($follow = "if (document.documentElement.dataset.themePreference && document.documentElement.dataset.themePreference !== ".\Illuminate\Support\Js::from($preference).") \$wire.followPreference(document.documentElement.dataset.themePreference)")
+
 @if($layout === 'dropdown')
     {{-- Icon-only buttons for inside the user dropdown --}}
-    <div data-testid="theme-switcher" class="flex gap-1">
+    <div data-testid="theme-switcher" class="flex gap-1" x-data x-on:livewire:navigated.document="{{ $follow }}">
         @foreach($options as $option)
             <button
                 type="button"
@@ -34,6 +41,8 @@
     <div
         data-testid="theme-switcher"
         class="flex items-center gap-0.5 rounded-rgControl border border-rg-border bg-rg-card p-0.5"
+        x-data
+        x-on:livewire:navigated.document="{{ $follow }}"
     >
         @foreach($options as $option)
             <button

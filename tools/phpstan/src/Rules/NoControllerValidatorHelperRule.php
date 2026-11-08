@@ -34,6 +34,7 @@ final class NoControllerValidatorHelperRule implements Rule
         return [
             RuleErrorBuilder::message('HTTP controllers must validate input through a dedicated Form Request; do not use validator().')
                 ->identifier('rateguru.controller.validatorHelper')
+                ->nonIgnorable()
                 ->build(),
         ];
     }

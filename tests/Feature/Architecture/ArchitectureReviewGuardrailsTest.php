@@ -28,7 +28,12 @@ it('configures coderabbit to review the enforced architecture boundaries', funct
         ->toContain('app/Http/{Controllers,Requests}/**/*.php')
         ->toContain('app/{Livewire,Filament}/**/*.php')
         ->toContain('app/Queries/**/*.php')
-        ->toContain('docs/architecture/http-and-database-boundaries.md');
+        ->toContain('docs/architecture/http-and-database-boundaries.md')
+        // Migrations are reviewed against the supported engines as
+        // docs/architecture/database-support.md states them: PostgreSQL first.
+        ->toContain('docs/architecture/database-support.md')
+        ->toContain('PostgreSQL is the primary runtime database')
+        ->not->toContain('SQLite is the only supported runtime database');
 
     expect(data_get($parsedConfiguration, 'reviews.auto_review.base_branches'))
         ->toBeArray()

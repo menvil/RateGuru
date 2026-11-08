@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Vše',
         'latest' => 'Nejnovější',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Hledat štítky, uživatele, příspěvky',
         'search_button' => 'Hledat',
         'clear_search' => 'Vymazat hledání',
+        'tag_filter' => 'Příspěvky se štítkem',
+        'clear_tag_filter' => 'Zrušit filtr :tag',
         'no_posts_title' => 'Zatím žádné příspěvky',
         'no_posts_description' => 'Zveřejněné příspěvky se zobrazí tady.',
         'users_heading' => 'Uživatelé',

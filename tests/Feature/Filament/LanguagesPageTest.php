@@ -783,6 +783,28 @@ it('shows an enabled language as enabled, with Disable, in the same response', f
         ->not->toContain("askToEnable('{$other}')");
 });
 
+it('keeps a language another administrator offered or withdrew meanwhile', function () {
+    [$mine, $theirs] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($mine, $theirs);
+
+    $page = languagesPage();
+    expect(languageRow($page, $theirs))->toContain('Disabled');
+
+    // Another administrator offers a language, in a request of their own.
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode([...offeredLocales(), $theirs])]);
+
+    $page->call('enableLanguage', $mine);
+
+    expect(offeredLocales())->toContain($mine)->toContain($theirs);
+
+    // And withdraws it again while this page still shows it offered.
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(array_values(array_diff(offeredLocales(), [$theirs])))]);
+
+    $page->call('disableLanguage', $mine);
+
+    expect(offeredLocales())->not->toContain($mine)->not->toContain($theirs);
+});
+
 it('keeps the header and the tab counts in step with a change in the same response', function () {
     [$other] = twoTranslatedLocales();
     offerEveryInstalledLocale();
@@ -867,6 +889,38 @@ it('lists what is missing, by section, with a link to the editor that manages it
         ->toMatch('/<a href="'.preg_quote(e(ManageCategories::getUrl(['edit' => $category->id])), '/').'" class="rg-admin-languages__edit-source">Edit source/')
         ->toContain(e(ProjectSettingsPage::getUrl()))
         ->toContain('Visitors see the English text wherever a translation is missing.');
+});
+
+it('says a language whose catalogs a release broke stays offered while it is, and cannot be enabled while it is not', function () {
+    [$offered, $withheld] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($withheld);
+
+    // Each breaks one language's catalogs, in a copy of the release.
+    breakCatalogsOf($offered);
+
+    expect(languagesDrawer(languagesPage()->call('showMissing', $offered)))
+        ->toContain('It stays offered to visitors as it is')
+        ->not->toContain('so it cannot be enabled');
+
+    // The first copy goes before the second is made: afterEach removes only the last.
+    removeCatalogScratchDirectory($this);
+    breakCatalogsOf($withheld);
+
+    expect(languagesDrawer(languagesPage()->call('showMissing', $withheld)))
+        ->toContain('so it cannot be enabled')
+        ->not->toContain('It stays offered');
+});
+
+it('says the default language whose catalogs a release broke stays offered, never that it could be disabled', function () {
+    // A JSON catalog for English, which English never has: an issue of the default language.
+    $root = catalogScratchDirectory();
+    File::copyDirectory(lang_path(), $root);
+    File::put("{$root}/en.json", '{"Hello": "Hello"}');
+    app()->instance(TranslationCatalogInspector::class, new TranslationCatalogInspector($root));
+
+    expect(languagesDrawer(languagesPage()->call('showMissing', 'en')))
+        ->toContain('It is the default language and stays offered as it is')
+        ->not->toContain('once disabled');
 });
 
 it('opens Translation Center from each missing item, on its language, section and unit, in Missing only', function () {
@@ -969,6 +1023,7 @@ it('lists a static page field the project stores no text for in that language', 
 
 it('lists the catalog issues of a broken release, the first fifty of them', function () {
     [$target] = twoTranslatedLocales();
+    offerEveryInstalledLocaleExcept($target);
     emptyUiCatalogOf($target);
     $issues = app(TranslationCatalogInspector::class)->inspect($target)->issues;
 

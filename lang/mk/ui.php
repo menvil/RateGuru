@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Сите',
         'latest' => 'Најнови',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Пребарај ознаки, корисници, објави',
         'search_button' => 'Пребарај',
         'clear_search' => 'Исчисти пребарување',
+        'tag_filter' => 'Објави со ознака',
+        'clear_tag_filter' => 'Отстрани го филтерот :tag',
         'no_posts_title' => 'Сè уште нема објави',
         'no_posts_description' => 'Објавите ќе се појават тука откако ќе бидат објавени.',
         'users_heading' => 'Корисници',

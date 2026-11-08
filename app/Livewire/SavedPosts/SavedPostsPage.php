@@ -2,9 +2,12 @@
 
 namespace App\Livewire\SavedPosts;
 
+use App\Livewire\Concerns\ShowsAPageThatExists;
 use App\Queries\SavedPosts\SavedPostsQuery;
+use App\Support\Feed\PostCardViewerState;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVotingStateLoader;
+use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
@@ -12,14 +15,26 @@ use Livewire\WithPagination;
 
 final class SavedPostsPage extends Component
 {
+    use ShowsAPageThatExists;
     use WithPagination;
+
+    /**
+     * Saved posts are a feature the project can switch off; the page goes
+     * with it, on every request: a page open when they were switched off
+     * turns no further page of them.
+     */
+    public function boot(ProjectSettingsManager $settings): void
+    {
+        abort_unless($settings->featureEnabled('show_saved_posts'), 404);
+    }
 
     public function render(
         SavedPostsQuery $query,
         RatingConfigurationManager $ratingConfiguration,
         RatingVotingStateLoader $ratingVotingStateLoader,
+        PostCardViewerState $viewerState,
     ): View {
-        $savedPosts = $query->forUser(auth()->user());
+        $savedPosts = $this->pageThatExists(fn () => $query->forUser(auth()->user()));
         $ratingGroups = $ratingConfiguration->activeGroups();
 
         return view('livewire.saved-posts.saved-posts-page', [
@@ -30,6 +45,7 @@ final class SavedPostsPage extends Component
                 auth()->user(),
                 $ratingGroups,
             ),
+            'viewerStates' => $viewerState->forPosts($savedPosts->getCollection(), auth()->user()),
         ])->layout('layouts.app', app(AppLayoutData::class)->toArray());
     }
 }

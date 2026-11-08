@@ -133,6 +133,14 @@ Local logging is unchanged and remains authoritative: `storage/logs`, the
 operational logs, the deployment history and the backup logs all stay exactly
 where they were. Sentry complements them; it does not replace them.
 
+The security log, `storage/logs/security-YYYY-MM-DD.log` (a file a day, kept 30
+days), records each guest's attempt to vote with the visitor's IP address,
+browser and page, for tracing spam and abuse. It is written past Laravel's log
+event, so none of it becomes a Sentry breadcrumb: an IP address stays on the
+server. One address writes at most 30 lines a minute; past that a single
+`security.guest_vote_attempts_throttled` line says so, and nothing more is
+written for that address until the minute is over.
+
 ---
 
 ## Privacy posture
@@ -228,7 +236,9 @@ succeeded.
 
 The Nightwatch half of the same transition is documented in
 [`nightwatch-evaluation.md`](nightwatch-evaluation.md); the two markers describe
-one event and carry the same release identity.
+one event and carry the same release identity. A target Nightwatch is not
+enabled for — `tits-guru` today — records the Sentry marker alone, and its
+summary reports the Nightwatch half as skipped rather than failed.
 
 ### Sentry outages never roll anything back
 

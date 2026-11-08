@@ -5,9 +5,11 @@ use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sharing\SharePostController;
+use App\Http\Controllers\SiteManifestController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
+use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
@@ -21,12 +23,17 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
 
-Route::get('/', FeedPage::class)->name('feed');
+// Named from the project's settings, so not a static file in public/.
+Route::get('/site.webmanifest', SiteManifestController::class)->name('site-manifest');
 
-Route::get('/posts/{post}', PostShow::class)->name('posts.show');
-Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
+Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function () {
+    Route::get('/', FeedPage::class)->name('feed');
 
-Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+    Route::get('/posts/{post}', PostShow::class)->name('posts.show');
+    Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
+
+    Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+});
 
 Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');
 Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');
@@ -68,7 +75,8 @@ Route::get('/dev/ui-kit', function () {
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    // Limited, as it checks the current password when the email changes.
+    Route::patch('/profile', [ProfileController::class, 'update'])->middleware('throttle:6,1,profile-update')->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::post('/profile/connected-accounts/{provider}', [ConnectedAccountController::class, 'store'])

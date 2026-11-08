@@ -141,3 +141,20 @@ it('respects a small --chunk size while still processing every eligible asset', 
 
     expect(MediaVariant::query()->count())->toBe(12);
 });
+
+it('fails an asset whose variants cannot be looked up, generates the next one and counts both', function () {
+    bindRecordingImageVariantProcessor();
+    $broken = createReadyPostAsset(path: 'posts/2026/08/broken.jpg');
+    $this->artisan('media:generate-variants')->assertExitCode(0);
+    // Its variants are recorded on a disk no longer configured: looking them
+    // up fails for this asset alone.
+    MediaVariant::query()->where('media_asset_id', $broken->id)->update(['disk' => 'retired']);
+    $later = createReadyPostAsset(path: 'posts/2026/08/later.jpg');
+
+    $this->artisan('media:generate-variants')
+        ->expectsOutputToContain("Failed to generate variants for media asset {$broken->id}")
+        ->expectsOutputToContain('Generated variants for 1 of 2 candidate media assets.')
+        ->assertFailed();
+
+    expect($later->variants()->count())->toBe(4);
+});

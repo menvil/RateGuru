@@ -118,7 +118,9 @@ it('takes a batch on its way far longer than any live one could as lost, and sta
     $next = requestStudioPostTexts($this->admin, $plan);
 
     expect($next->id)->not->toBe($lost->id)
-        ->and($lost->fresh())->status->toBe(StudioPostTextGenerationStatus::Failed)->error_code->toBe(StudioPostTextGenerationError::UnexpectedFailure);
+        ->and($lost->fresh())->status->toBe(StudioPostTextGenerationStatus::Failed)->error_code->toBe(StudioPostTextGenerationError::UnexpectedFailure)
+        // Ended when it was taken as lost, as every other way a batch ends records.
+        ->and($lost->fresh()->finished_at)->not->toBeNull();
 });
 
 it('asks for nothing until the photo\'s analysis has finished with a valid description of it', function (Closure $arrange) {
@@ -237,4 +239,15 @@ it('deletes every batch with its Draft', function () {
     StudioPlan::query()->whereKey($plan->id)->delete();
 
     expect(StudioPlanTextGeneration::query()->exists())->toBeFalse();
+});
+
+it('says the photo changed, not that its analysis is missing, when the photo was taken off meanwhile', function () {
+    $plan = studioPlanWithFinishedAnalysis();
+    $shown = $plan->image_asset_id;
+    $plan->forceFill(['image_asset_id' => null])->save();
+
+    expect(fn () => requestStudioPostTexts($this->admin, $plan, imageAssetId: $shown))
+        ->toThrow(fn (CannotRequestStudioPostTextGenerationException $exception) => expect($exception->error)->toBe(StudioPostTextGenerationError::StaleAnalysis));
+
+    Queue::assertNothingPushed();
 });

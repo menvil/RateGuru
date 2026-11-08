@@ -6,10 +6,13 @@
             class="relative inline-flex items-center"
             @keydown.escape.window="open = false"
             @close-notification-menu.window="open = false"
+            @click.outside="open = false"
         >
             <button
                 type="button"
                 aria-label="{{ __('ui.notifications.title') }}"
+                aria-controls="notifications-dropdown"
+                :aria-expanded="open"
                 @click="$dispatch('close-header-user-menu'); open = ! open"
                 class="relative grid size-9 cursor-pointer place-items-center rounded-rgControl border border-rg-border bg-rg-card text-rg-text2 transition hover:bg-rg-card2 hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
             >
@@ -28,6 +31,7 @@
             <div
                 x-show="open"
                 x-cloak
+                id="notifications-dropdown"
                 data-testid="notifications-dropdown"
                 class="fixed inset-x-4 top-[68px] z-40 overflow-hidden rounded-rgCard border border-rg-border bg-rg-card shadow-rgPopover sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-72 sm:max-w-[calc(100vw-2rem)]"
             >

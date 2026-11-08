@@ -56,6 +56,8 @@ final class PostDrawer extends Component
     {
         $this->postId = $postId;
         $this->isOpen = true;
+        // A failed deletion is said about the post it was for, not the next.
+        $this->deleteError = null;
 
         // Mirrors FeedPage::selectPost's forwarding of the same event/payload for the
         // split-grid path, so the drawer's own scroll-to-target listener (see
@@ -70,6 +72,7 @@ final class PostDrawer extends Component
     {
         $this->isOpen = false;
         $this->postId = null;
+        $this->deleteError = null;
     }
 
     public function deleteSelectedPost(DeletePostAction $deletePostAction): void
@@ -80,10 +83,15 @@ final class PostDrawer extends Component
             return;
         }
 
-        $post = Post::query()->find($this->postId);
+        $postId = $this->postId;
+        // An already deleted post too: deleting it again is the action's
+        // idempotent case, and its card still has to leave the list.
+        $post = Post::withTrashed()->find($postId);
 
         if ($post === null) {
+            // Purged meanwhile: its card leaves the list all the same.
             $this->deleteError = null;
+            $this->dispatch('post-deleted', postId: $postId);
             $this->dispatch('clear-selected-post');
 
             return;
@@ -99,6 +107,8 @@ final class PostDrawer extends Component
 
         $this->postId = null;
         $this->deleteError = null;
+        // The list behind the drawer drops the card, as for a delete from it.
+        $this->dispatch('post-deleted', postId: $postId);
         $this->dispatch('clear-selected-post');
     }
 
@@ -113,7 +123,12 @@ final class PostDrawer extends Component
     ): View {
         $post = null;
 
-        if ($this->postId !== null) {
+        // The layout draws this panel on every page, the static ones too, which
+        // the guest-viewing gate does not cover: with guest viewing off, it shows
+        // a guest no post, whatever was selected into it.
+        $mayRead = auth()->check() || app(ProjectSettingsManager::class)->featureEnabled('allow_guest_viewing');
+
+        if ($this->postId !== null && $mayRead) {
             $post = $publishedPostDetails->find($this->postId);
         }
 

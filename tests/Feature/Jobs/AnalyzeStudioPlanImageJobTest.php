@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Studio\StartStudioImageAnalysisAction;
 use App\Enums\StudioImageAnalysisError;
 use App\Enums\StudioImageAnalysisStatus;
 use App\Enums\StudioPlanStatus;
@@ -10,6 +11,7 @@ use App\Models\StudioPlan;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\User;
 use Database\Factories\StudioPlanImageAnalysisFactory;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request as HttpClientRequest;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +19,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * The queued job behind a photo's analysis: it claims its attempt before
@@ -87,6 +90,30 @@ it('sends nothing when the job is delivered again, or after its attempt was repl
     Http::assertSentCount(1);
     expect($second->refresh()->status)->toBe(StudioImageAnalysisStatus::Queued);
 });
+
+it('claims nothing when the row is no longer this running attempt between the claim and the read', function (Closure $meanwhile) {
+    $plan = studioPlanWithStoredPhoto();
+    $analysis = requestStudioImageAnalysis($this->admin, $plan);
+    $changed = false;
+
+    // The row changes the moment this attempt is claimed, before the claim
+    // reads it back.
+    DB::listen(function (QueryExecuted $query) use (&$changed, $analysis, $meanwhile): void {
+        if ($changed || ! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, 'studio_plan_image_analyses')) {
+            return;
+        }
+
+        $changed = true;
+        DB::table('studio_plan_image_analyses')->where('id', $analysis->id)->update($meanwhile());
+    });
+
+    expect(app(StartStudioImageAnalysisAction::class)->handle($analysis->id, $analysis->attempt_id))->toBeNull()
+        ->and($changed)->toBeTrue();
+})->with([
+    // Each on its own, so neither half of the read can go unnoticed.
+    'another attempt, running' => [fn (): array => ['attempt_id' => (string) Str::uuid()]],
+    'this attempt, no longer running' => [fn (): array => ['status' => StudioImageAnalysisStatus::Failed->value]],
+]);
 
 it('sends nothing for a plan deleted before the job ran', function () {
     Http::fake();

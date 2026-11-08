@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'brand' => 'RateGuru',
     'feed' => [
         'all' => 'Všetko',
         'latest' => 'Najnovšie',
@@ -11,6 +10,8 @@ return [
         'search_label' => 'Hľadať štítky, používateľov, príspevky',
         'search_button' => 'Hľadať',
         'clear_search' => 'Vymazať vyhľadávanie',
+        'tag_filter' => 'Príspevky so štítkom',
+        'clear_tag_filter' => 'Zrušiť filter :tag',
         'no_posts_title' => 'Zatiaľ žiadne príspevky',
         'no_posts_description' => 'Zverejnené príspevky sa zobrazia tu.',
         'users_heading' => 'Používatelia',

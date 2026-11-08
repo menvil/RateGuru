@@ -25,7 +25,12 @@
                 </div>
             </div>
 
-            @if ($connectedAccounts->providers() !== [])
+            {{-- Shown when it has a provider to offer, and also when it has
+                 something to say: a connect refused because the provider was
+                 just turned off lands here with no provider left to list. --}}
+            @if ($connectedAccounts->providers() !== []
+                || session()->has(\App\Support\Profile\ConnectedAccountsResponse::STATUS_KEY)
+                || $errors->getBag(\App\Support\Profile\ConnectedAccountsResponse::ERROR_BAG)->isNotEmpty())
                 <div class="rounded-rgCard border border-rg-border bg-rg-card p-5 sm:p-6">
                     <div class="max-w-xl">
                         @include('profile.partials.connected-accounts')
