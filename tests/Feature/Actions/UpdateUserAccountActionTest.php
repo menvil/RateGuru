@@ -150,7 +150,7 @@ it('never puts back a trust level set since the editor read the account', functi
     expect($user->fresh())->name->toBe('Renamed')->trust_level->toBe(10);
 });
 
-it('saves nothing over a name, address or role changed since the editor read the account', function (array $meanwhile) {
+it('saves nothing over a name, username, address or role changed since the editor read the account', function (array $meanwhile) {
     $admin = User::factory()->admin()->create();
     $user = User::factory()->moderator()->create(['name' => 'Drawn Name', 'email' => 'drawn@example.com']);
     $drawn = User::query()->findOrFail($user->id);
@@ -168,6 +168,7 @@ it('saves nothing over a name, address or role changed since the editor read the
     'the role taken away by another administrator' => [['role' => 'user']],
     'the address changed by its owner' => [['email' => 'changed@example.com']],
     'the name changed by its owner' => [['name' => 'Their Own Name']],
+    'the username changed by its owner' => [['username' => 'their_own_handle']],
 ]);
 
 it('refuses a username or address another account took after the editor checked it, naming the field', function (string $field, string $value) {

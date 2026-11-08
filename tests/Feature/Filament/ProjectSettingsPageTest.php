@@ -71,6 +71,17 @@ it('saves every tab together, and has nothing unsaved after', function () {
         ->and($settings->static_pages['about']['en']['title'])->toBe('About Pawrank');
 });
 
+it('keeps a sign-in provider switched off when this page switches another on', function () {
+    $settings = ProjectSettings::factory()->create(['sign_in_providers' => ['google' => false, 'facebook' => false]]);
+
+    Livewire::test(ProjectSettingsPage::class)
+        ->set('data.sign_in_providers.facebook', true)
+        ->dispatch('save-project-settings')
+        ->assertHasNoErrors();
+
+    expect($settings->fresh()->sign_in_providers)->toMatchArray(['google' => false, 'facebook' => true]);
+});
+
 it('writes only what this page changed, never putting back what another administrator saved since', function () {
     $settings = ProjectSettings::factory()->create([
         'sign_in_providers' => ['google' => true, 'facebook' => true],

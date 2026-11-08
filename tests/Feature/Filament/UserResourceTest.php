@@ -161,6 +161,25 @@ it('saves nothing from a drawer opened before the account changed, and shows it 
     expect($person->fresh())->role->toBe(UserRole::User)->name->toBe('Old Name');
 });
 
+it('says an account changed meanwhile, not that its old address is taken, when another account took the address it left', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['name' => 'Old Name', 'email' => 'old@example.com']);
+
+    $page = Livewire::test(UserEditor::class, ['userId' => $person->id]);
+
+    // The owner moves to a new address, and another account takes the old one.
+    User::query()->whereKey($person->id)->update(['email' => 'new@example.com']);
+    User::factory()->create(['email' => 'old@example.com']);
+
+    $page->set('name', 'New Name')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('rg-admin-toast', message: 'This account was changed while you were editing it, so nothing was saved. Its current details are shown.', tone: 'error')
+        ->assertSet('email', 'new@example.com');
+
+    expect($person->fresh())->name->toBe('Old Name')->email->toBe('new@example.com');
+});
+
 it('shows a username or address taken by another account between the check and the save as that field\'s error', function (string $field, string $value, string $message) {
     $this->actingAs(User::factory()->admin()->create());
     $person = User::factory()->create();
@@ -519,6 +538,18 @@ it('never offers to mark a persona trusted', function (int $trustLevel) {
 
     expect($persona->fresh()->trust_level)->toBe($trustLevel);
 })->with(['not trusted' => 0, 'trusted' => 10]);
+
+it('keeps a trust choice not yet saved when the drawer is drawn again', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $person = User::factory()->create(['trust_level' => 10]);
+
+    Livewire::test(UserEditor::class, ['userId' => $person->id])
+        ->assertSet('trust', 'trusted')
+        ->set('trust', 'reviewed')
+        ->dispatch('user-changed')
+        ->assertSet('trust', 'reviewed')
+        ->assertSet('saved.trust', 'trusted');
+});
 
 it('shows the person trusted in the drawer once marked trusted from it, with nothing left to save', function () {
     $this->actingAs(User::factory()->admin()->create());

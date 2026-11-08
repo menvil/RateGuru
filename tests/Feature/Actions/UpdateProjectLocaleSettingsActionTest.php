@@ -114,6 +114,18 @@ it('changes one language against what the locked row offers, in config order, un
         ->and(ProjectSettings::findOrFail(1)->enabled_locales)->not->toContain($offered);
 });
 
+it('checks the catalogs of a language withdrawn behind its memo before offering it again', function () {
+    [$withdrawn] = twoTranslatedLocales();
+    updateProjectLocales(['en', $withdrawn]);
+    // Read as offered, then withdrawn behind the memo by another administrator.
+    expect(app(LocaleManager::class)->isEnabled($withdrawn))->toBeTrue();
+    ProjectSettings::query()->whereKey(1)->update(['enabled_locales' => json_encode(['en'])]);
+    breakCatalogsOf($withdrawn);
+
+    expect(fn () => app(UpdateProjectLocaleSettingsAction::class)->change($withdrawn, true))->toThrow(IncompleteLocaleCatalogException::class, $withdrawn)
+        ->and(ProjectSettings::findOrFail(1)->enabled_locales)->toBe(['en']);
+});
+
 it('creates the settings row on an installation that has none, from the bootstrap', function () {
     ProjectSettings::query()->delete();
     app(ProjectSettingsManager::class)->flush();

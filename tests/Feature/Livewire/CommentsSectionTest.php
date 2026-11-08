@@ -498,6 +498,21 @@ it('reads the viewer\'s comment votes for the whole thread at once', function ()
         ->and($queriesOn(8))->toBe($two);
 });
 
+it('says a comment another moderator hid meanwhile is unavailable, and closes its reply', function () {
+    $post = Post::factory()->published()->create();
+    $comment = Comment::factory()->for($post)->create(['status' => CommentStatus::Visible]);
+    $section = Livewire::actingAs(User::factory()->moderator()->create())
+        ->test(CommentsSection::class, ['postId' => $post->id])
+        ->call('startReply', $comment->id);
+
+    Comment::query()->whereKey($comment->id)->update(['status' => CommentStatus::Hidden]);
+
+    $section->call('hideComment', $comment->id)
+        ->assertDispatched('toast', message: __('ui.comments.unavailable'))
+        ->assertNotDispatched('comment-hidden')
+        ->assertSet('replyingTo', null);
+});
+
 it('closes the reply form under a comment hidden or deleted meanwhile', function () {
     $post = Post::factory()->published()->create();
     $comment = Comment::factory()->for($post)->create();

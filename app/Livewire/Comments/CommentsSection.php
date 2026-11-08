@@ -278,7 +278,14 @@ final class CommentsSection extends Component
         }
 
         try {
-            $hideCommentAction->handle(auth()->user(), $comment);
+            // False: hidden by someone else since this thread was drawn. Said
+            // as the moderation list says it, the thread drawn as it is now.
+            if (! $hideCommentAction->handle(auth()->user(), $comment)) {
+                $this->forgetReplyTo($commentId);
+                $this->refusedMeanwhile();
+
+                return;
+            }
         } catch (CannotHideCommentException) {
             $this->refusedMeanwhile();
 

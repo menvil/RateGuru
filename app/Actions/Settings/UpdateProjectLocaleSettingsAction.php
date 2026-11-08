@@ -88,20 +88,23 @@ final class UpdateProjectLocaleSettingsAction
             throw new InvalidArgumentException("The default locale [{$locale}] is always offered and cannot be left out.");
         }
 
-        if ($offered && ! $this->locales->isEnabled($locale)) {
-            $catalog = $this->catalogs->inspect($locale);
+        // Read before the lock, as it reads files; whether it decides is
+        // known only under the lock, from what the project offers then.
+        $catalog = $offered ? $this->catalogs->inspect($locale) : null;
 
-            if (! $catalog->isComplete()) {
-                throw new IncompleteLocaleCatalogException($locale, count($catalog->issues));
-            }
-        }
-
-        $settings = DB::transaction(function () use ($locale, $offered): ProjectSettings {
+        $settings = DB::transaction(function () use ($locale, $offered, $catalog): ProjectSettings {
             $settings = $this->manager->lockedRow();
             // Read as defensively as LocaleManager reads it: a damaged row
             // offers what it can, and this write repairs it.
             $stored = $settings->getAttribute('enabled_locales');
             $now = array_keys($this->locales->offeredBy($stored === null || is_array($stored) ? $stored : []));
+
+            // A language newly offered needs a whole catalog; one offered
+            // already keeps being offered, whatever a release broke.
+            if ($catalog !== null && ! in_array($locale, $now, true) && ! $catalog->isComplete()) {
+                throw new IncompleteLocaleCatalogException($locale, count($catalog->issues));
+            }
+
             $wanted = $offered ? [...$now, $locale] : array_diff($now, [$locale]);
 
             // Config order, as handle() stores it.

@@ -299,7 +299,12 @@ final class UserEditor extends Component
             'username' => $this->username === $this->saved['username']
                 ? ['required', 'string']
                 : ['required', 'string', 'regex:/\A[a-z0-9_]+\z/', 'max:32', Rule::unique(User::class)->ignore($person->id)],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class)->ignore($person->id)],
+            // Nor an address kept as it is: one the account left meanwhile, and
+            // another took since, is a change meanwhile for the action to say,
+            // not a clash with what this administrator typed.
+            'email' => $this->email === $this->saved['email']
+                ? ['required', 'string']
+                : ['required', 'string', 'email', 'max:255', Rule::unique(User::class)->ignore($person->id)],
             // A role kept as it is is not held to the roles this editor gives:
             // whether the account may be saved at all is the action's to say.
             'role' => $this->role === $this->saved['role']
