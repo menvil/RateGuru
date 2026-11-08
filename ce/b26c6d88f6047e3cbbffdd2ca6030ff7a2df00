@@ -1,0 +1,49 @@
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_dd694944c2f682 1-54
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_2982114370e021 1-391
+app/Actions/Games/SaveGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_cbc849801f9f8c 1-70,72-104
+  s_4b9dc6ab6b25d3::t_dd694944c2f682 71
+resources/views/filament/pages/game-flow.blade.php
+  s_4b9dc6ab6b25d3::t_47b1a682d8d311 1-82
+resources/views/filament/pages/games/flow/settings.blade.php
+  s_4b9dc6ab6b25d3::t_a205c14a6c5e21 1-113
+tests/Feature/Games/GameFlowActionsTest.php
+  s_4b9dc6ab6b25d3::t_dd694944c2f682 1-29,31-100
+  s_4b9dc6ab6b25d3::t_9eed235272af20 30
+resources/views/filament/pages/games/flow/insert.blade.php
+  s_4b9dc6ab6b25d3::t_47b1a682d8d311 1-16
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_2982114370e021 7,55,101
+app/Providers/Filament/AdminPanelProvider.php
+  s_4b9dc6ab6b25d3::t_2982114370e021 13,154-157
+app/Data/Games/GameFlowDraft.php
+  s_4b9dc6ab6b25d3::t_cbc849801f9f8c 1-89
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_a205c14a6c5e21 11587-11705
+resources/views/filament/pages/games/flow/canvas.blade.php
+  s_4b9dc6ab6b25d3::t_47b1a682d8d311 1-31
+app/Actions/Games/ChangeGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_cbc849801f9f8c 1-146
+resources/views/filament/pages/games/flow/flows.blade.php
+  s_4b9dc6ab6b25d3::t_47b1a682d8d311 1-51
+resources/views/filament/pages/games/flow/library.blade.php
+  s_4b9dc6ab6b25d3::t_47b1a682d8d311 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ceb26c6d88f6047e3cbbffdd2ca6030ff7a2df00",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
