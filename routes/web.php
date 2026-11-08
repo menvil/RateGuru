@@ -5,6 +5,7 @@ use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sharing\SharePostController;
+use App\Http\Controllers\SiteManifestController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
@@ -21,6 +22,9 @@ use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
+
+// Named from the project's settings, so not a static file in public/.
+Route::get('/site.webmanifest', SiteManifestController::class)->name('site-manifest');
 
 Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function () {
     Route::get('/', FeedPage::class)->name('feed');

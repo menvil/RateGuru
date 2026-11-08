@@ -1,8 +1,11 @@
 <?php
 
+use App\Models\ProjectSettings;
+
 /*
  * The site's icons: declared in the head of every layout, shipped in public/,
- * and each image the size its declaration says it is.
+ * each image the size its declaration says it is, and the web manifest named
+ * after the project.
  */
 
 it('declares the site icons in the head of the app and the guest layout', function (string $url) {
@@ -16,7 +19,7 @@ it('declares the site icons in the head of the app and the guest layout', functi
         'icon '.asset('favicon.svg'),
         'icon '.asset('favicon-32x32.png'),
         'apple-touch-icon '.asset('apple-touch-icon.png'),
-        'manifest '.asset('site.webmanifest'),
+        'manifest '.route('site-manifest'),
     ]);
 })->with([
     'the feed, on the app layout' => ['/'],
@@ -30,13 +33,30 @@ it('ships each declared icon at the size it is declared at', function () {
         ->and(array_slice(getimagesize(public_path('apple-touch-icon.png')), 0, 2))->toBe([180, 180]);
 });
 
-it('lists only icons the manifest really has, at the sizes it gives', function () {
-    $manifest = json_decode(file_get_contents(public_path('site.webmanifest')), true, flags: JSON_THROW_ON_ERROR);
+it('names the web manifest after the project in its settings', function () {
+    ProjectSettings::factory()->create(['site_name' => 'Crown Club']);
 
-    expect($manifest['icons'])->not->toBeEmpty();
+    $this->get('/site.webmanifest')
+        ->assertOk()
+        ->assertHeader('Content-Type', 'application/manifest+json')
+        ->assertJson([
+            'name' => 'Crown Club',
+            'short_name' => 'Crown Club',
+            'start_url' => '/',
+            'display' => 'standalone',
+        ]);
 
-    foreach ($manifest['icons'] as $icon) {
-        [$width, $height] = getimagesize(public_path(ltrim($icon['src'], '/')));
+    // Served by the application, never shadowed by a file of the same name.
+    expect(file_exists(public_path('site.webmanifest')))->toBeFalse();
+});
+
+it('lists only icons the site really has, at the sizes the manifest gives', function () {
+    $icons = $this->get(route('site-manifest'))->assertOk()->json('icons');
+
+    expect($icons)->not->toBeEmpty();
+
+    foreach ($icons as $icon) {
+        [$width, $height] = getimagesize(public_path(ltrim((string) parse_url($icon['src'], PHP_URL_PATH), '/')));
 
         expect("{$width}x{$height}")->toBe($icon['sizes'], $icon['src']);
     }
