@@ -136,6 +136,17 @@ it('counts every step of a count\'s buttons, two sent before the page redraws in
         ->toContain("wire:click=\"stepVotes({{ \$node }}, '{{ \$way }}', -1)\"");
 });
 
+it('offers no fewer at none in a comment\'s breakdown, and a fewer again once there is one', function () {
+    $editor = discussionVotesEditor($this->plan)->set('voterCount', 4)->call('select', $this->c1);
+    $fewer = fn (): ?DOMElement => livewireDom($editor)->query("//button[@aria-label='Fewer up votes on C1']")->item(0);
+
+    expect($fewer()?->hasAttribute('disabled'))->toBeTrue();
+
+    $editor->call('stepVotes', $this->c1, 'up', 1)->assertSet("targets.{$this->c1}.up", 1);
+
+    expect($fewer()?->hasAttribute('disabled'))->toBeFalse();
+});
+
 it('clears what a refused preview said once the votes are back at the saved ones', function () {
     // Saved: two up votes on C1.
     $editor = discussionVotesEditor($this->plan)->call('setVotes', $this->c1, 'up', 2)->assertHasNoErrors()->assertSet('unsaved', false);

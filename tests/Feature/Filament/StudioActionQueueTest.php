@@ -101,6 +101,8 @@ it('marks as late only an action that ran more than an hour after its time', fun
     'done two hours late' => [StudioActionStatus::Done, '2026-10-20 14:00:00', true],
     'failed two hours late' => [StudioActionStatus::Failed, '2026-10-20 14:00:00', true],
     'done on time' => [StudioActionStatus::Done, '2026-10-20 12:20:00', false],
+    // An hour is not more than an hour.
+    'done exactly an hour after' => [StudioActionStatus::Done, '2026-10-20 13:00:00', false],
     'cancelled days before its time' => [StudioActionStatus::Cancelled, '2026-10-17 12:00:00', false],
     'cancelled hours after its time' => [StudioActionStatus::Cancelled, '2026-10-20 15:00:00', false],
 ]);

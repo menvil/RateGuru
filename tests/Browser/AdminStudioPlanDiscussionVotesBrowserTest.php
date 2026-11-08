@@ -265,6 +265,12 @@ it('holds the comment dialog\'s Save while its moment is no number, rather than 
     $type('15');
     waitForScript($page, "{$save}.disabled", false);
 
+    // A number past any count of seconds: held as no number is, not sent as null.
+    $type('1e307');
+    waitForScript($page, "{$save}.disabled");
+    $type('15');
+    waitForScript($page, "{$save}.disabled", false);
+
     // No number again, then another parent: the field drawn for it holds one, and Save goes with it.
     $type('x');
     waitForScript($page, "{$save}.disabled");
@@ -288,4 +294,21 @@ it('chooses a comment\'s priority from the keyboard, one tab stop for the group'
     $page->keys($checked, 'ArrowRight');
 
     waitForScript($page, "document.querySelector('{$checked}').textContent.trim() !== '{$before}' && document.activeElement === document.querySelector('{$checked}')");
+});
+
+it('leaves the priority as it was, and no error behind, when the request for another fails', function () {
+    $page = visitDiscussionVotes($this->plan);
+    $page->script("document.querySelector('.rg-admin-studio__node[data-node=\"C1\"] .rg-admin-studio__node-breakdown').click()");
+
+    $checked = '.rg-admin-studio__votes-chips[role=radiogroup][aria-label="Priority of C1"] [role=radio][aria-checked=true]';
+    waitForScript($page, "!! document.querySelector('{$checked}')");
+    $before = $page->script("document.querySelector('{$checked}').textContent.trim()");
+
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.fail = true');
+    $page->keys($checked, 'ArrowRight');
+    proveNothingHappensFor($page, 0.5, 'a priority chosen though its request failed');
+
+    expect($page->script("document.querySelector('{$checked}').textContent.trim()"))->toBe($before);
+    $page->assertNoJavaScriptErrors();
 });

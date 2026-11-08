@@ -116,7 +116,16 @@ final class StudioPlanTextSuggestionsCard extends Component
 
         try {
             $generation = app(RequestStudioPostTextGenerationAction::class)->handle($this->admin(), $plan, $this->imageAssetId, $authorId, $this->chosenTone());
-            $context = StudioPostTextContext::ofPlan($plan->fresh(), $plan->imageAnalysis()->first());
+            $fresh = $plan->fresh();
+
+            // Deleted the moment the batch was asked for: it may be on its way, but has no draft to arrive in.
+            if ($fresh === null) {
+                $this->toast('This draft was deleted meanwhile, so its texts won’t arrive.');
+
+                return;
+            }
+
+            $context = StudioPostTextContext::ofPlan($fresh, $plan->imageAnalysis()->first());
 
             // The batch on its way was asked for another photo or author: the
             // action waits for it rather than queueing a second, and this card

@@ -170,6 +170,14 @@ final class StudioPlanPostVotesEditor extends Component
     public array $postMoments = [];
 
     /**
+     * Whether the moments were let go — a new timing or draw lays every vote
+     * out again — and not saved so yet: a moment set by hand meanwhile does
+     * not bring the saved ones back.
+     */
+    #[Locked]
+    public bool $momentsLetGo = false;
+
+    /**
      * Each rating question: how many answers each option gets, and the
      * answers given a moment of their own, by Persona. An active question is
      * always one to answer, as it is under every post on the site.
@@ -484,11 +492,14 @@ final class StudioPlanPostVotesEditor extends Component
         }
 
         // Moments exist for the saved votes. The ones already changed here
-        // stay as changed; the rest are taken from what is saved.
-        $this->postMoments = self::keptMoments($this->postMoments, self::offsetsOn($saved, null));
+        // stay as changed; the rest are taken from what is saved — unless
+        // they were let go, and the votes wait to be laid out again.
+        if (! $this->momentsLetGo) {
+            $this->postMoments = self::keptMoments($this->postMoments, self::offsetsOn($saved, null));
 
-        foreach (array_keys($this->ratings) as $question) {
-            $this->ratings[$question]['moments'] = self::keptMoments($this->ratings[$question]['moments'], self::offsetsOn($saved, $question));
+            foreach (array_keys($this->ratings) as $question) {
+                $this->ratings[$question]['moments'] = self::keptMoments($this->ratings[$question]['moments'], self::offsetsOn($saved, $question));
+            }
         }
 
         $group === null ? $this->postMoments[$persona] = $seconds : $this->ratings[$group]['moments'][$persona] = $seconds;
@@ -842,6 +853,7 @@ final class StudioPlanPostVotesEditor extends Component
         $this->drawn = [];
         $this->seed = null;
         $this->keepSaved = true;
+        $this->momentsLetGo = false;
 
         if ($plan === null) {
             $this->gone = true;
@@ -1020,6 +1032,7 @@ final class StudioPlanPostVotesEditor extends Component
         $plan = StudioPlan::query()->find($this->planId);
         $saved = $plan !== null ? self::postVotesOf($plan) : [];
         $this->keepSaved = true;
+        $this->momentsLetGo = false;
         $this->postMoments = array_intersect_key($this->postMoments, self::offsetsOn($saved, null));
 
         foreach (array_keys($this->ratings) as $group) {
@@ -1147,7 +1160,12 @@ final class StudioPlanPostVotesEditor extends Component
         return hash('xxh3', json_encode([
             $this->voterMode, $this->voterMode === 'manual' ? $this->voterIds : $this->voterCount,
             $this->postOn ? [$this->up, $this->down, $this->postMoments] : null,
-            $this->ratings, $this->firstAfter, $this->spreadOver, $this->seed,
+            // An option with no answers is as good as none: taking a question in, with none yet, changes nothing.
+            array_filter(
+                array_map(fn (array $rating): array => [...$rating, 'counts' => array_filter($rating['counts'])], $this->ratings),
+                fn (array $rating): bool => $rating['counts'] !== [] || $rating['moments'] !== [],
+            ),
+            $this->firstAfter, $this->spreadOver, $this->seed,
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -1479,6 +1497,7 @@ final class StudioPlanPostVotesEditor extends Component
     /** No vote at a moment of its own: each in its voter's visit again. */
     private function clearMoments(): void
     {
+        $this->momentsLetGo = true;
         $this->postMoments = [];
 
         foreach (array_keys($this->ratings) as $group) {

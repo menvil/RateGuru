@@ -194,7 +194,13 @@
 
                                     if (next.disabled || next.getAttribute('aria-checked') === 'true') return
 
-                                    $wire.setPriority({{ $breakdown['id'] }}, next.dataset.value).then(() => $el.querySelector('[role=radio][aria-checked=true]')?.focus())
+                                    // The focus follows the choice once it is drawn — unless it went elsewhere
+                                    // meanwhile; a request that failed leaves it where it is, and the choice as it was.
+                                    $wire.setPriority({{ $breakdown['id'] }}, next.dataset.value).then(() => {
+                                        if ($el.contains(document.activeElement) || document.activeElement === document.body) {
+                                            $el.querySelector('[role=radio][aria-checked=true]')?.focus()
+                                        }
+                                    }, () => {})
                                 },
                             }"
                             x-on:keydown.arrow-right.prevent="move(1)"

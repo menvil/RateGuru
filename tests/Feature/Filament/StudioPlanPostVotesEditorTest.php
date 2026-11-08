@@ -328,6 +328,25 @@ it('keeps a moment changed and not saved yet when another vote\'s moment is set'
         ->assertSet("postMoments.{$second}", 7200);
 });
 
+it('lays the votes out by a new timing not saved yet, a moment set meanwhile kept alone, not the saved ones back', function () {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 3)->assertHasNoErrors();
+    $first = array_key_first(postVoteMoments($this->plan));
+
+    // A new spread that can't be saved for now: more votes than there are Personas.
+    $editor->set('up', 9)
+        ->call('setTiming', 'spread', 21_600)
+        ->assertSet('postMoments', [])
+        ->call('setMoment', 'post', $first, 9000)
+        ->assertSet('postMoments', [$first => 9000]);
+
+    // Once it can be saved, the votes are spread anew, the one set by hand with them.
+    $editor->set('up', 3)->assertHasNoErrors();
+    $now = postVoteMoments($this->plan);
+
+    expect($now[$first])->toBe(9000)
+        ->and(max(array_diff_key($now, [$first => true])))->toBeLessThanOrEqual(300 + 21_600);
+});
+
 it('says the draft is gone when a moment is set on one deleted meanwhile', function () {
     $editor = postVotesEditor($this->plan)->set('voterCount', 4)->set('postOn', true)->set('up', 3)->assertHasNoErrors();
     $persona = array_key_first(postVoteMoments($this->plan));
@@ -552,6 +571,16 @@ it('takes answers for a question or option made active after the editor was draw
     expect(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->where('rating_option_id', $newAnswer->id)->count())->toBe(2)
         ->and(StudioPlanVote::query()->where('type', StudioActionType::VoteRating)->where('rating_option_id', $addedOption->id)->count())->toBe(1);
 });
+
+it('says nothing is unsaved when an option made active after the editor was drawn is only taken in', function (mixed $typed) {
+    $editor = postVotesEditor($this->plan)->set('voterCount', 4)->assertSet('unsaved', false);
+    $addedOption = RatingOption::factory()->create(['rating_group_id' => $this->group->id]);
+
+    $editor->call('$refresh')
+        ->call('setAnswerCount', $this->group->id, $addedOption->id, $typed)
+        ->assertSet("ratings.{$this->group->id}.counts.{$addedOption->id}", 0)
+        ->assertSet('unsaved', false);
+})->with(['not a number' => ['many'], 'none' => [0]]);
 
 it('lets an option no longer open give answers up when typed, never take new ones', function () {
     postVotesEditor($this->plan)->call('setRatingTotal', $this->group->id, 2)

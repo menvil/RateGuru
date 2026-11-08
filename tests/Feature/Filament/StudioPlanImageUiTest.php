@@ -351,6 +351,35 @@ it('imports a photo from a direct link without Save, through the safe importer, 
         ->and(MediaAsset::query()->count())->toBe(1);
 });
 
+it('imports a link again after Reload when a draft saved meanwhile refused its photo', function () {
+    bindFakeHostResolver();
+    $transport = new ScriptedImportHttpTransport([
+        new ImportTransportResponse(200, ['content-type' => 'image/png'], jpegMarkerBytes(300, 200)),
+        new ImportTransportResponse(200, ['content-type' => 'image/png'], jpegMarkerBytes(300, 200)),
+    ]);
+    app()->instance(ImportHttpTransport::class, $transport);
+    $plan = StudioPlan::factory()->create(['title' => 'Before']);
+    $page = Livewire::test(EditStudioPlan::class, ['record' => $plan->id]);
+    app(UpdateStudioPlanAction::class)->handle(User::factory()->admin()->create(), $plan, new StudioPlanData(title: 'Theirs'), 1);
+
+    // Refused: the browser and the page both forget the address it came from.
+    $page->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertDispatched('rg-studio-import-failed', source: 'link')
+        ->assertSet('importedFrom', '');
+
+    expect($plan->fresh()->image_asset_id)->toBeNull();
+
+    // So after Reload the same address is fetched again, and kept.
+    $page->call('reload')
+        ->set('imageUrl', 'https://example.com/photo.png')
+        ->call('importImage', 'link')
+        ->assertHasNoErrors();
+
+    expect($transport->calls)->toHaveCount(2)
+        ->and($plan->fresh()->imageAsset)->width->toBe(300);
+});
+
 it('imports nothing from a link that is no web address', function () {
     $importer = $this->mock(StoreImportedImageAction::class);
     $importer->shouldNotReceive('download');

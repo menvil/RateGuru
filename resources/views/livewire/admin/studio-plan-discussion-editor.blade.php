@@ -420,12 +420,14 @@
                             set(input) {
                                 const text = String(input.value).trim().replace(',', '.')
                                 const n = text === '' ? Number.NaN : Number(text)
+                                const seconds = Math.round(n * this.units[this.unit])
 
-                                this.offsetInvalid = ! Number.isFinite(n) || n < 0
+                                // A number too large to count in seconds would reach the server as no number at all.
+                                this.offsetInvalid = ! Number.isFinite(n) || n < 0 || ! Number.isSafeInteger(seconds)
 
                                 if (this.offsetInvalid) return
 
-                                $wire.$set('dialogSeconds', Math.round(n * this.units[this.unit]), false)
+                                $wire.$set('dialogSeconds', seconds, false)
                             },
                             rel(seconds) {
                                 const m = Math.round(seconds / 60)

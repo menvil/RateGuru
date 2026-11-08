@@ -208,10 +208,14 @@ final class CreateStudioPlan extends Page
             }
         }
 
+        $plan = app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData);
+
+        // The page starts from the authorless Draft only once there is one: a
+        // retry refused too leaves it where it started.
         $this->startAuthorId = null;
         $this->saved = self::savedValuesOf(new StudioPlanData);
 
-        return app(CreateStudioPlanAction::class)->handle($this->admin(), new StudioPlanData);
+        return $plan;
     }
 
     protected function refusePhoto(CannotManageStudioPlanException $exception, string $what = 'saved'): void

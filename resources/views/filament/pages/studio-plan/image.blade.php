@@ -116,12 +116,13 @@
         },
     }"
     {{-- An upload whose start the server never answered — a dropped connection — calls back
-         nothing of $wire.upload's: without this the photo would stay "uploading" for good. --}}
+         nothing of $wire.upload's: without this the photo would stay "uploading" for good.
+         It is taken out of Livewire's queue too, or the next one would wait behind it. --}}
     x-init="
         saved = {{ $hasPhoto ? 'true' : 'false' }}
         stopWatchingStart = $wire.$intercept('_startUpload', ({ onFailure, onError }) => {
-            onFailure(() => finish())
-            onError(() => finish())
+            onFailure(() => { $wire.cancelUpload('photo'); finish() })
+            onError(() => { $wire.cancelUpload('photo'); finish() })
         })
     "
     x-on:rg-studio-photo-kept.window="replacing = false; imported = { link: '', post: '' }; saved = $event.detail.saved"

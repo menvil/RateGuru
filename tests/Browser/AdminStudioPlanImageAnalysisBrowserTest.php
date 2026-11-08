@@ -198,6 +198,25 @@ it('lets the photo go when the server never answers the start of its upload', fu
     waitForScript($page, "{$photo}.phase", '');
 
     expect($page->script("{$photo}.busy"))->toBeFalse();
+
+    // The next photo is not left waiting behind the one that never started: its start is asked for.
+    $page->script(<<<'JS'
+        (() => {
+            const fetch = window.fetch
+            window.startsAsked = 0
+            window.fetch = function (input, init, ...rest) {
+                if (String(init?.body ?? '').includes('_startUpload')) {
+                    window.startsAsked++
+                }
+
+                return fetch.call(this, input, init, ...rest)
+            }
+        })()
+    JS);
+    $page->script('window.livewireGate.fail = false');
+    $page->script("{$photo}.send(new File([new Uint8Array([255, 216, 255])], 'harbour.jpg', { type: 'image/jpeg' }))");
+
+    waitForScript($page, 'window.startsAsked', 1);
 });
 
 it('sends the same link again once the request importing it failed', function () {

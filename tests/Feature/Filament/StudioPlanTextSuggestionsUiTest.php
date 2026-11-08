@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Studio\RequestStudioPostTextGenerationAction;
 use App\Enums\StudioPlanStatus;
 use App\Enums\StudioPostTextGenerationError;
 use App\Enums\StudioPostTextGenerationStatus;
@@ -368,6 +369,27 @@ it('sends nothing for a draft deleted or a photo changed after the card was draw
     'closed' => [fn (StudioPlan $plan) => $plan->forceFill(['status' => StudioPlanStatus::Approved])->save(), 'This plan is no longer a draft, so nothing was sent.'],
     'a new photo' => [fn (StudioPlan $plan) => $plan->forceFill(['image_asset_id' => MediaAsset::factory()->postImage()->create()->id])->save(), 'The photo was changed meanwhile, so nothing was sent. Reload the draft to write texts for the photo it has now.'],
 ]);
+
+it('says the texts won\'t arrive for a draft deleted just as its batch was asked for', function () {
+    $plan = studioPlanWithFinishedAnalysis();
+    $card = suggestionsCard($plan);
+    // The batch is asked for, and then the draft is deleted before the card reads it again.
+    $request = app(RequestStudioPostTextGenerationAction::class);
+    app()->instance(RequestStudioPostTextGenerationAction::class, new class($request)
+    {
+        public function __construct(private RequestStudioPostTextGenerationAction $request) {}
+
+        public function handle(mixed ...$arguments): StudioPlanTextGeneration
+        {
+            $generation = $this->request->handle(...$arguments);
+            StudioPlan::query()->whereKey($arguments[1]->id)->delete();
+
+            return $generation;
+        }
+    });
+
+    $card->call('generate')->assertDispatched('rg-admin-toast', message: 'This draft was deleted meanwhile, so its texts won’t arrive.', tone: 'error');
+});
 
 it('draws the card on a new publication too, with nothing to write from yet', function () {
     Livewire::test(CreateStudioPlan::class)
