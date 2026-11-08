@@ -53,7 +53,13 @@ it('names the web manifest after the project in its settings', function () {
 it('lists only icons the site really has, at the sizes the manifest gives', function () {
     $icons = $this->get(route('site-manifest'))->assertOk()->json('icons');
 
-    expect($icons)->not->toBeEmpty();
+    expect(array_column($icons, 'src'))->toBe([
+        asset('android-chrome-192x192.png'),
+        asset('android-chrome-512x512.png'),
+        asset('android-chrome-maskable-512x512.png'),
+    ])
+        // Only the maskable one says so, or Android would crop the others.
+        ->and(array_column($icons, 'purpose', 'src'))->toBe([asset('android-chrome-maskable-512x512.png') => 'maskable']);
 
     foreach ($icons as $icon) {
         [$width, $height] = getimagesize(public_path(ltrim((string) parse_url($icon['src'], PHP_URL_PATH), '/')));

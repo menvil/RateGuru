@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
 use App\Models\PostVote;
 use App\Models\ProjectSettings;
@@ -337,6 +339,26 @@ it('opens in login mode over the same page when a guest votes on a post or answe
 
     expect(PostVote::query()->count())->toBe(0)
         ->and(RatingVote::query()->count())->toBe(0);
+});
+
+it('opens in login mode over the post\'s page when a guest votes on one of its comments', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->create(['post_id' => $post->id, 'body' => 'Lovely plating']);
+
+    $page = visit(route('posts.show', $post))
+        ->assertSee('Lovely plating')
+        ->assertMissing(AUTH_MODAL);
+
+    // From the rendered comment thread to the dialog: the refusal travels as
+    // the comment's own answer, and the dialog opens over the same page.
+    $page->click('[data-testid="comment-voting"]:visible button[aria-label="'.__('ui.a11y.vote_up').'"]');
+
+    waitForScript($page, AUTH_MODAL_SHOWN);
+    $page->assertVisible(LOGIN_PANEL)
+        ->assertSeeIn('@comment-voting-error', __('ui.voting.errors.guest_comment'))
+        ->assertPathIs(route('posts.show', $post, absolute: false));
+
+    expect(CommentVote::query()->count())->toBe(0);
 });
 
 it('returns to the post the person was reading after signing in', function () {

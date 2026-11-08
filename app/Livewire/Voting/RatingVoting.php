@@ -7,6 +7,7 @@ use App\Exceptions\Rating\CannotVoteForRatingOptionException;
 use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
 use App\Models\RatingGroup;
+use App\Models\RatingOption;
 use App\Models\RatingVote;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
@@ -81,6 +82,21 @@ class RatingVoting extends Component
                 'rating_group' => $this->groupKey,
                 'rating_option_id' => $optionId,
             ]);
+
+            // Signing in cannot bring back a post or an option that is gone:
+            // that is the answer then, as a member gets it, not the dialog.
+            if ($this->post === null) {
+                $this->error = __('ui.post.unavailable');
+
+                return;
+            }
+
+            if ($this->activeOption($configuration, $optionId) === null) {
+                $this->error = __('ui.voting.option_unavailable');
+
+                return;
+            }
+
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->openAuthModal();
 
@@ -97,8 +113,7 @@ class RatingVoting extends Component
             return;
         }
 
-        $group = $configuration->activeGroupByKey($this->groupKey);
-        $option = $group?->options->firstWhere('id', $optionId);
+        $option = $this->activeOption($configuration, $optionId);
 
         if ($option === null) {
             $this->error = __('ui.voting.option_unavailable');
@@ -116,6 +131,12 @@ class RatingVoting extends Component
 
         $this->hasPreloadedState = false;
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
+    }
+
+    /** The option asked for, while it is still one of this group's active options. */
+    private function activeOption(RatingConfigurationManager $configuration, int $optionId): ?RatingOption
+    {
+        return $configuration->activeGroupByKey($this->groupKey)?->options->firstWhere('id', $optionId);
     }
 
     public function render(

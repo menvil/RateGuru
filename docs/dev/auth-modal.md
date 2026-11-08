@@ -31,7 +31,14 @@ answer instead, with `App\Livewire\Concerns\OpensAuthModal`:
 `$this->openAuthModal()` sends the same event, in login mode unless it
 names another. Post, comment and rating votes do: the refusal is still
 shown next to the buttons, and the dialog opens over the page, so the
-attempt reaches the server and is still recorded in the security log.
+attempt reaches the server and is still recorded in the security log. A
+vote for a post or a rating option that is no longer there gets that answer
+instead of the dialog, since signing in cannot bring it back.
+
+The security log (`App\Support\Observability\GuestVoteAttemptLog`) is
+best-effort and limited: one visitor address writes at most 30 attempts a
+minute, then one line saying it was cut off, and nothing more until the
+minute is over. A failure to write it never changes the refusal.
 
 ## Three states, no tabs
 

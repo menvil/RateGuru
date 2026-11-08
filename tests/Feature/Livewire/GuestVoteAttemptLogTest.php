@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PostStatus;
 use App\Enums\VoteType;
 use App\Exceptions\Observability\SecurityLogUnavailableException;
 use App\Livewire\Comments\CommentVoting;
@@ -115,6 +116,35 @@ it('records a guest\'s rating vote, and still refuses it', function () {
             'rating_option_id' => $option->id,
             'ip' => '127.0.0.1',
         ]);
+});
+
+it('answers a guest\'s vote for a post that is gone with that, not the sign-in dialog, and still records it', function () {
+    $log = fakeSecurityLog();
+    $post = Post::factory()->published()->create();
+    $voting = Livewire::test(PostVoting::class, ['postId' => $post->id]);
+    $post->update(['status' => PostStatus::Hidden]);
+
+    $voting->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.post.unavailable'))
+        ->assertNotDispatched('open-auth-modal');
+
+    expect(guestVoteAttempts($log))->toHaveCount(1);
+});
+
+it('answers a guest\'s vote for a rating option that is gone with that, not the sign-in dialog, and still records it', function () {
+    $log = fakeSecurityLog();
+    $post = Post::factory()->published()->create();
+    $group = RatingGroup::factory()->create(['key' => 'type']);
+    RatingOption::factory()->for($group, 'group')->create();
+    // Switched off while the guest's page still shows its button.
+    $stale = RatingOption::factory()->for($group, 'group')->create(['is_active' => false]);
+
+    Livewire::test(RatingVoting::class, ['post' => $post, 'groupKey' => 'type'])
+        ->call('vote', $stale->id)
+        ->assertSet('error', __('ui.voting.option_unavailable'))
+        ->assertNotDispatched('open-auth-modal');
+
+    expect(guestVoteAttempts($log))->toHaveCount(1);
 });
 
 it('records nothing when a signed-in account votes', function () {
