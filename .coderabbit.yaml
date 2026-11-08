@@ -6,6 +6,10 @@ reviews:
   poem: false
   review_status: true
   review_progress: true
+  # An audit's report and its verdict journal are the review's own output:
+  # reviewing them again only spends the hourly review allowance.
+  path_filters:
+    - "!docs/audits/**"
   auto_review:
     enabled: true
     drafts: false
