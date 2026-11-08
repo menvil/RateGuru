@@ -23,9 +23,10 @@ final class IgnoreReportAction
         $note = trim((string) $note);
         $note = $note === '' ? null : $note;
 
-        // Atomic, idempotent ignore: only the first writer whose row still
-        // matches `status = open` wins. Concurrent or repeated calls match
-        // zero rows and never overwrite the original processor metadata.
+        // Atomic ignore: only the first writer whose row still matches
+        // `status = open` wins. Concurrent or repeated calls match zero rows,
+        // never overwrite the original processor metadata, and are refused
+        // rather than reported as done.
         // The reports table has no dedicated ignored_* columns, so the
         // resolved_by/resolved_at/resolution_note triplet is reused as
         // generic "processor" metadata across resolve and ignore — same
@@ -50,8 +51,10 @@ final class IgnoreReportAction
                 ]);
         });
 
-        if ($updated > 0) {
-            $report->refresh();
+        if ($updated === 0) {
+            throw CannotIgnoreReportException::becauseItIsNoLongerOpen();
         }
+
+        $report->refresh();
     }
 }

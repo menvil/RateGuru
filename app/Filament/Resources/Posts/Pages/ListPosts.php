@@ -271,6 +271,12 @@ final class ListPosts extends Page
         $this->selected = [];
 
         if ($done === []) {
+            // A single post that failed has said so already; several that all
+            // failed, or posts no longer there at all, have not.
+            if (count($ids) > 1 || $posts->isEmpty()) {
+                $this->nothingDone(count($ids));
+            }
+
             return;
         }
 
@@ -309,16 +315,15 @@ final class ListPosts extends Page
     #[On('restore-posts')]
     public function restorePosts(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
-        $restored = 0;
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
+        $restored = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
-        foreach ($posts as $post) {
-            $restored += $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true) ? 1 : 0;
-        }
-
-        if ($restored > 0) {
-            $this->toast($restored === 1 ? '“'.self::shortTitle($posts->first()).'” is visible again' : $restored.' posts are visible again');
-        }
+        match ($restored->count()) {
+            0 => $this->nothingUndone($ids, $posts->count()),
+            1 => $this->toast('“'.self::shortTitle($restored->first()).'” is visible again'),
+            default => $this->toast($restored->count().' posts are visible again'),
+        };
     }
 
     /**
@@ -329,16 +334,15 @@ final class ListPosts extends Page
     #[On('hide-posts-again')]
     public function hidePostsAgain(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
-        $hidden = 0;
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
+        $hidden = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
-        foreach ($posts as $post) {
-            $hidden += $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true) ? 1 : 0;
-        }
-
-        if ($hidden > 0) {
-            $this->toast($hidden === 1 ? '“'.self::shortTitle($posts->first()).'” is hidden again' : $hidden.' posts are hidden again');
-        }
+        match ($hidden->count()) {
+            0 => $this->nothingUndone($ids, $posts->count()),
+            1 => $this->toast('“'.self::shortTitle($hidden->first()).'” is hidden again'),
+            default => $this->toast($hidden->count().' posts are hidden again'),
+        };
     }
 
     public function view(int $id): void
@@ -631,6 +635,32 @@ final class ListPosts extends Page
 
             return false;
         }
+    }
+
+    /**
+     * An Undo that changed nothing, said by what its ids found, each counted
+     * once: posts there but no longer as left changed meanwhile; none there
+     * at all are gone since the toast went up; no id a post can have is
+     * nothing to say.
+     *
+     * @param  list<int>  $ids
+     */
+    private function nothingUndone(array $ids, int $found): void
+    {
+        if ($found > 0) {
+            $this->nothingDone($found);
+
+            return;
+        }
+
+        if ($ids !== []) {
+            $this->toast((count($ids) === 1 ? 'This post no longer exists' : 'These posts no longer exist').', so nothing was done.', tone: 'error');
+        }
+    }
+
+    private function nothingDone(int $asked): void
+    {
+        $this->toast(($asked === 1 ? 'This post' : 'These posts').' changed meanwhile, so nothing was done. The list now shows '.($asked === 1 ? 'it' : 'them').' as '.($asked === 1 ? 'it is' : 'they are').'.', tone: 'error');
     }
 
     /** @param array{label: string, event: string, params: array<string, mixed>}|null $action */

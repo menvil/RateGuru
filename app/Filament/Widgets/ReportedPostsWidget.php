@@ -3,10 +3,9 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\Posts\PostResource;
-use App\Models\Post;
+use App\Queries\Posts\ModerationPostsQuery;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
-use Illuminate\Database\Eloquent\Builder;
 
 class ReportedPostsWidget extends StatsOverviewWidget
 {
@@ -22,11 +21,7 @@ class ReportedPostsWidget extends StatsOverviewWidget
         return [
             Stat::make(
                 'Reported posts',
-                Post::query()
-                    ->where(fn (Builder $query) => $query
-                        ->where('reports_count', '>', 0)
-                        ->orWhere('needs_review', true))
-                    ->count(),
+                app(ModerationPostsQuery::class)->count('reported'),
             )
                 ->description('Posts requiring moderation attention')
                 ->url(PostResource::getUrl('index', ['status' => 'reported'])),

@@ -55,19 +55,12 @@ final class ReportContentAction
             throw CannotReportContentException::becauseContentIsNotReportable();
         }
 
-        // The policy denies reporting your own post. It reads the caller's
-        // instance; the row read under lock below is checked again.
-        if ($content instanceof Post && ! $user->can('report', $content)) {
-            throw CannotReportContentException::becauseUserIsNotAllowed();
-        }
-
-        // Nobody reports their own comment or their own account either. The
-        // interface never offers it; a crafted request is refused here, where
-        // it holds for every caller. A comment's authorship is checked again
-        // on the row read under lock: an instance loaded without its user_id
-        // would pass this.
-        if (($content instanceof Comment && (int) $content->user_id === (int) $user->id)
-            || ($content instanceof User && (int) $content->id === (int) $user->id)) {
+        // The policy denies reporting what you wrote, or yourself. It reads the
+        // caller's instance; the rows read under lock below are checked again.
+        // An account is held to it too: the modal's target is set by the
+        // client, so its hidden button alone did not keep one from reporting
+        // itself.
+        if (! $user->can('report', $content)) {
             throw CannotReportContentException::becauseUserIsNotAllowed();
         }
 

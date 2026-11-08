@@ -117,6 +117,7 @@
                     :preloaded-score="$votingState['score'] ?? 0"
                     :preloaded-vote="$votingState['vote'] ?? null"
                     :preloaded-own="$votingState['own'] ?? false"
+                    :preloaded-may-vote="$votingState['mayVote'] ?? false"
                     :key="'comment-voting-'.$comment->id"
                 />
             @else

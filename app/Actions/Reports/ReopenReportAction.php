@@ -20,7 +20,11 @@ final class ReopenReportAction
 {
     use LocksActorForWrite;
 
-    public function handle(User $moderator, Report $report): void
+    /**
+     * @return bool whether this call opened it: false when the report was
+     *              open already, or is gone — purged while this waited
+     */
+    public function handle(User $moderator, Report $report): bool
     {
         if (! $moderator->can('reopen', $report)) {
             throw CannotReopenReportException::becauseUserIsNotAllowed();
@@ -48,8 +52,12 @@ final class ReopenReportAction
                 ]);
         });
 
-        if ($updated > 0) {
-            $report->refresh();
+        if ($updated === 0) {
+            return false;
         }
+
+        $report->refresh();
+
+        return true;
     }
 }

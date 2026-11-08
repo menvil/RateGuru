@@ -23,12 +23,13 @@ final class ResolveReportAction
         $note = trim((string) $note);
         $note = $note === '' ? null : $note;
 
-        // Atomic, idempotent resolution: only the first writer whose row still
-        // matches `status != resolved` wins. Concurrent or repeated calls match
-        // zero rows and never overwrite the original resolver metadata. The
-        // moderator is re-read under lock first (Actor User -> Report): a
-        // stale request from a just-sanctioned moderator must not process
-        // reports.
+        // Atomic resolution: only the first writer whose row is still open
+        // wins, as with ignoring. Concurrent or repeated calls match zero rows
+        // and never overwrite the metadata of whoever closed it first — an
+        // ignored report included: turning it into a resolved one is a reopen
+        // and a new decision, not a second close. The moderator is re-read
+        // under lock first (Actor User -> Report): a stale request from a
+        // just-sanctioned moderator must not process reports.
         $updated = DB::transaction(function () use ($moderator, $report, $note): int {
             $lockedActor = $this->lockActor($moderator);
 
@@ -38,7 +39,7 @@ final class ResolveReportAction
 
             return Report::query()
                 ->whereKey($report->getKey())
-                ->where('status', '!=', ReportStatus::Resolved->value)
+                ->where('status', ReportStatus::Open->value)
                 ->update([
                     'status' => ReportStatus::Resolved->value,
                     'resolved_by' => $lockedActor->id,
@@ -47,8 +48,10 @@ final class ResolveReportAction
                 ]);
         });
 
-        if ($updated > 0) {
-            $report->refresh();
+        if ($updated === 0) {
+            throw CannotResolveReportException::becauseItIsNoLongerOpen();
         }
+
+        $report->refresh();
     }
 }

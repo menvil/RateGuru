@@ -99,13 +99,15 @@ final class CommentsSection extends Component
             ->all();
     }
 
-    /** @return array{score: int, vote: ?string, own: bool} */
+    /** @return array{score: int, vote: ?string, own: bool, mayVote: bool} */
     public function votingStateFor(Comment $comment): array
     {
         return [
             'score' => (int) $comment->score,
             'vote' => $this->viewerVotes[$comment->id] ?? null,
             'own' => auth()->check() && (int) $comment->user_id === (int) auth()->id(),
+            // The policy's answer, from the account and the comment in hand.
+            'mayVote' => auth()->user()?->can('vote', $comment) ?? false,
         ];
     }
 

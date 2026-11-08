@@ -107,6 +107,16 @@ class Post extends Model
         return ! $this->trashed() && $this->status === PostStatus::Published;
     }
 
+    /**
+     * Hidden by moderation and not yet finalized: a finalized removal never
+     * returns through the normal lifecycle
+     * (docs/architecture/moderation-content-lifecycle.md).
+     */
+    public function canBeRestoredByModeration(): bool
+    {
+        return $this->status === PostStatus::Hidden && $this->moderation_removed_at === null;
+    }
+
     public function canBeSaved(): bool
     {
         return ! $this->trashed() && $this->status === PostStatus::Published;

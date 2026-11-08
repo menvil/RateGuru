@@ -2,8 +2,10 @@
 
 use App\Enums\ModerationActionType;
 use App\Enums\PostStatus;
+use App\Exceptions\Moderation\CannotModeratePostException;
 use App\Livewire\Feed\PostFeed;
 use App\Livewire\Moderation\InlinePostModeration;
+use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
@@ -199,4 +201,64 @@ it('links the admin entry to the post edit page once the panel has one', functio
     Livewire::actingAs($moderator)
         ->test(InlinePostModeration::class, ['postId' => $post->id])
         ->assertSee('href="'.route('filament.admin.resources.posts.edit', ['record' => $post->id]).'"', false);
+});
+
+it('offers Restore for a hidden post, and none for a removal finalized since, which the action would refuse', function () {
+    $moderator = User::factory()->moderator()->create();
+    $hidden = Post::factory()->hidden()->create();
+    $finalized = Post::factory()->hidden()->create(['moderation_removed_at' => now()]);
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $hidden->id, 'variant' => 'menu'])
+        ->assertSee('data-testid="moderation-restore"', false);
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $finalized->id, 'variant' => 'menu'])
+        ->assertDontSee('data-testid="moderation-restore"', false);
+});
+
+it('holds the reason to its limit on the server, not only in the field, and says so in either form', function (string $variant) {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id, 'variant' => $variant])
+        ->set('reason', str_repeat('a', InlinePostModeration::REASON_LIMIT + 1))
+        ->call('hide')
+        ->assertSee('data-testid="moderation-error"', false)
+        ->assertSee(__('validation.max.string', ['attribute' => __('ui.moderation.reason'), 'max' => InlinePostModeration::REASON_LIMIT]));
+
+    expect($post->fresh()->status)->toBe(PostStatus::Published);
+})->with(['inline', 'menu']);
+
+it('measures the reason as the moderation log stores it, its invisible edges taken off', function (string $edge) {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+
+    Livewire::actingAs($moderator)
+        ->test(InlinePostModeration::class, ['postId' => $post->id])
+        ->set('reason', str_repeat('a', InlinePostModeration::REASON_LIMIT).$edge)
+        ->call('hide')
+        ->assertDontSee('data-testid="moderation-error"', false);
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden);
+})->with(['a space' => ' ', 'a zero-width space' => "\u{200B}"]);
+
+it('says in the post menu what a refused hide is about', function () {
+    $moderator = User::factory()->moderator()->create();
+    $post = Post::factory()->published()->create();
+    $menu = Livewire::actingAs($moderator)->test(InlinePostModeration::class, ['postId' => $post->id, 'variant' => 'menu']);
+
+    // Hidden by someone else since the menu was drawn.
+    $post->forceFill(['status' => PostStatus::Hidden])->save();
+
+    $logs = ModerationLog::query()->count();
+
+    $menu->call('hide')
+        ->assertSee('data-testid="moderation-error"', false)
+        ->assertSee(CannotModeratePostException::becausePostStatusIsInvalid()->getMessage())
+        ->assertNotDispatched('post-moderated');
+
+    expect($post->fresh()->status)->toBe(PostStatus::Hidden)
+        ->and(ModerationLog::query()->count())->toBe($logs);
 });

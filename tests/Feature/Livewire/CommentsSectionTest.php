@@ -531,3 +531,15 @@ it('closes the reply form under a comment hidden or deleted meanwhile', function
         ->dispatch('comment-deleted', postId: $post->id, commentId: $other->id)
         ->assertSet('replyingTo', null);
 });
+
+it('holds the voting of an account that has lost voting, from what the thread hands over', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->for($post)->create(['status' => CommentStatus::Visible]);
+    $held = '/wire:click\.stop="vote\(\'(up|down)\'\)"\s+wire:target="vote"\s+wire:loading\.attr="disabled"\s+disabled/';
+
+    $banned = Livewire::actingAs(User::factory()->banned()->create())->test(CommentsSection::class, ['postId' => $post->id])->html();
+    $member = Livewire::actingAs(User::factory()->create())->test(CommentsSection::class, ['postId' => $post->id])->html();
+
+    expect(preg_match_all($held, $banned))->toBe(2)
+        ->and(preg_match_all($held, $member))->toBe(0);
+});

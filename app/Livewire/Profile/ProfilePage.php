@@ -121,8 +121,9 @@ final class ProfilePage extends Component
 
     public function getCanSeeReportUserPlaceholderProperty(): bool
     {
-        return auth()->check()
-            && auth()->id() !== $this->profileUser->id;
+        // Offered only to someone who could send it: a sanctioned account has
+        // lost reporting, and the action would refuse every attempt.
+        return auth()->user()?->can('report', $this->profileUser) ?? false;
     }
 
     #[On('follow-state-changed')]
