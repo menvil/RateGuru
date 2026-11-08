@@ -1,0 +1,43 @@
+resources/js/feed-links.js
+  s_e673602b49c9b2::t_81fd649acfc950 1-35
+app/Providers/AppServiceProvider.php
+  s_e673602b49c9b2::t_5715eb1ea7f262 27
+  s_e673602b49c9b2::t_70801578d5353a 156-163,184-185,196,201-202,209,213-218,222-223,225-228,232
+tests/Feature/SidebarTaxonomyTest.php
+  s_e673602b49c9b2::t_5715eb1ea7f262 36
+  s_e673602b49c9b2::t_2c84fcfc06c8da 10-32,59,62,79,81-84,87-117
+resources/js/app.js
+  s_e673602b49c9b2::t_1cb91547d84660 5
+resources/views/components/posts/category-link.blade.php
+  s_e673602b49c9b2::t_1cb91547d84660 11-12
+resources/views/components/posts/tag-links.blade.php
+  s_e673602b49c9b2::t_1cb91547d84660 6-9,17
+tests/Browser/FeedFiltersBrowserTest.php
+  s_e673602b49c9b2::t_1bd7ec0f5c763d 3,8-9,12-17,41-86
+app/Support/Feed/FeedAddress.php
+  s_e673602b49c9b2::t_44c00c6e7043bb 1-45
+tests/Feature/Observability/NightwatchPrivacyTest.php
+  s_e673602b49c9b2::t_5715eb1ea7f262 264
+resources/views/layouts/partials/app-sidebar-content.blade.php
+  s_e673602b49c9b2::t_4b432191c9d81e 46-50
+app/Livewire/Feed/FeedPage.php
+  s_e673602b49c9b2::t_4b432191c9d81e 10,270,276
+app/Support/Observability/NightwatchPrivacy.php
+  s_e673602b49c9b2::t_5715eb1ea7f262 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "57b4e716dfa36e1c2d992697b3ad2bbbf04e4512",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}

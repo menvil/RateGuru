@@ -1,0 +1,21 @@
+tests/Browser/AdminAccessBrowserTest.php
+  s_e673602b49c9b2::t_784186bae09be1 16-38
+resources/css/filament/admin/theme.css
+  s_e673602b49c9b2::t_54ddd923f653b2 27-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "900243a199eddbc561f16756b1a25a612ca3a5c9",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
