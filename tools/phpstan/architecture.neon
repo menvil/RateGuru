@@ -90,6 +90,13 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/StudioPlansQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Games\GamesQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over game titles, internal names and slugs requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/GamesQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Studio\StudioActionsQuery
                 methods: [whereRaw, orWhereRaw]
                 reason: 'Literal search over the Action queue by publication title and by the username and names of its Persona requires an explicit ESCAPE clause and separately bound patterns.'
@@ -165,6 +172,12 @@ parameters:
                 method: paginate
                 uniqueOrder: [studio_plans.id]
                 behaviorTests: [tests/Feature/Queries/StudioPlansQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Games\GamesQuery
+                method: paginate
+                uniqueOrder: [games.id]
+                behaviorTests: [tests/Feature/Queries/GamesQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Studio\StudioActionsQuery

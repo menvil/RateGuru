@@ -19,6 +19,8 @@ final class AdminNavigationGroup
 
     public const CONTENT_STUDIO = 'Content Studio';
 
+    public const GROWTH = 'Growth';
+
     public const LOCALIZATION = 'Localization';
 
     public const CONFIGURATION = 'Configuration';
@@ -35,6 +37,7 @@ final class AdminNavigationGroup
             self::MODERATION,
             self::CONTENT,
             self::CONTENT_STUDIO,
+            self::GROWTH,
             self::LOCALIZATION,
             self::CONFIGURATION,
             self::SYSTEM,

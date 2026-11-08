@@ -189,6 +189,7 @@ This section is the target design from the prototype. Production builds it as de
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
   | Content Studio | Publications & plans · Action queue · Personas |
+  | Growth | Games |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |

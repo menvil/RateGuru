@@ -8,6 +8,7 @@ use App\Enums\ThemePreference;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
+use App\Policies\GamePolicy;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\PersonaPolicy;
@@ -102,6 +103,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
         Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
         Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
+        Gate::define('manage-games', [GamePolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);
