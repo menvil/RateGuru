@@ -1,0 +1,19 @@
+resources/views/livewire/feed/feed-page.blade.php
+  s_e673602b49c9b2::t_46303f4f3aca2c 87,95,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3462748613233c10f7d98fd2ee6913c51c22b2fb",
+  "prompts": {},
+  "sessions": {
+    "s_e673602b49c9b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf977737-b21a-4e2b-89bc-b6dba172d7fd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
