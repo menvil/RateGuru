@@ -10,6 +10,7 @@ use App\Filament\Resources\Categories\Pages\ManageCategories;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
+use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
 use App\Filament\Resources\Games\Pages\ListGames;
 use App\Filament\Resources\Personas\Pages\ListPersonas;
@@ -149,6 +150,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::editorActions('Save content', null, 'discard-game-content', 'save-game-content'),
                 scopes: EditGameContent::class,
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => self::editorActions('Save flow', null, 'discard-game-flow', 'save-game-flow'),
+                scopes: EditGameFlow::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,

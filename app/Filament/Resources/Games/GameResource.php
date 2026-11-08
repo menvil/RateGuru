@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Games;
 
 use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
+use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
 use App\Filament\Resources\Games\Pages\ListGames;
 use App\Filament\Support\AdminNavigationGroup;
@@ -51,6 +52,7 @@ class GameResource extends Resource
     public const EDITOR_TABS = [
         'general' => ['label' => 'General', 'page' => 'edit'],
         'content' => ['label' => 'Content', 'page' => 'content'],
+        'flow' => ['label' => 'Flow', 'page' => 'flow'],
     ];
 
     public static function getNavigationGroup(): ?string
@@ -96,6 +98,7 @@ class GameResource extends Resource
             'create' => CreateGame::route('/create'),
             'edit' => EditGameGeneral::route('/{record}'),
             'content' => EditGameContent::route('/{record}/content'),
+            'flow' => EditGameFlow::route('/{record}/flow'),
         ];
     }
 

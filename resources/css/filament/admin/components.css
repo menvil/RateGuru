@@ -11584,4 +11584,155 @@
         object-fit: cover;
         border-radius: inherit;
     }
+
+    /* Growth → Games: a plain choice from a short list, framed like a text field (FRM-02) with its chevron. */
+    .rg-admin-games__select {
+        width: 100%;
+        min-width: 0;
+        height: var(--rg-admin-input-md);
+        padding: 0 36px 0 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2368707D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 16px 16px;
+        appearance: none;
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-sans);
+        font-size: var(--rg-admin-text-body);
+        letter-spacing: var(--rg-admin-tracking-ui);
+        cursor: pointer;
+        transition:
+            border-color var(--rg-admin-transition-fast),
+            box-shadow var(--rg-admin-transition-fast);
+    }
+
+    .rg-admin-games__select:focus-visible {
+        border-color: var(--rg-admin-focus-ring);
+        outline: none;
+        box-shadow: var(--rg-admin-focus-halo);
+    }
+
+    .rg-admin-games__select:disabled {
+        background-color: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-tertiary);
+        cursor: not-allowed;
+    }
+
+    /* Growth → Games · Flow: flows and the step library, the steps in order, the step's settings. */
+    .rg-admin-games__flow {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr) 400px;
+        gap: var(--rg-admin-space-6);
+        align-items: start;
+    }
+
+    @media (max-width: 1359.98px) {
+        .rg-admin-games__flow {
+            grid-template-columns: minmax(0, 1fr) 400px;
+        }
+
+        .rg-admin-games__flow > .rg-admin-games__rail {
+            grid-column: 1 / -1;
+        }
+    }
+
+    @media (max-width: 1023.98px) {
+        .rg-admin-games__flow {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-games__panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+        min-width: 0;
+    }
+
+    .rg-admin-games__issues {
+        margin: var(--rg-admin-space-2) 0 0;
+        padding-left: 18px;
+    }
+
+    .rg-admin-games__library {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: var(--rg-admin-space-2) var(--rg-admin-space-4) var(--rg-admin-space-4);
+        list-style: none;
+    }
+
+    .rg-admin-games__library-item {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 8px 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-games__library-item:last-child {
+        border-bottom: 0;
+    }
+
+    .rg-admin-games__library-item > .rg-admin-games__mechanic-text {
+        flex: 1;
+    }
+
+    .rg-admin-games__canvas {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .rg-admin-games__step {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        padding: 4px 8px 4px 4px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-games__step--current {
+        border-color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-games__step--issue {
+        border-color: var(--rg-admin-red-300);
+    }
+
+    .rg-admin-games__step-select {
+        display: flex;
+        flex: 1;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-3);
+        min-width: 0;
+        padding: 8px;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+    }
+
+    .rg-admin-games__step-tools {
+        display: flex;
+        gap: 2px;
+    }
+
+    .rg-admin-games__insert {
+        display: flex;
+        justify-content: center;
+        padding: 4px 0;
+    }
+
+    .rg-admin-games__insert-panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        width: 100%;
+        padding: var(--rg-admin-space-3);
+        border: 1px dashed var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+    }
 }
