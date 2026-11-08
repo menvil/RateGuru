@@ -7,6 +7,7 @@ use App\Livewire\Profile\ProfilePage;
 use App\Livewire\SavedPosts\SavedPostsPage;
 use App\Models\Post;
 use App\Models\PostSave;
+use App\Models\ProjectSettings;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -27,6 +28,7 @@ it('shows the last page of a list asked for a page past it', function (string $l
     };
 
     if ($list === 'saved') {
+        ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
         PostSave::factory()->create(['user_id' => $owner->id, 'post_id' => $post->id]);
     }
 
@@ -42,6 +44,7 @@ it('shows the last page of a list asked for a page past it', function (string $l
 })->with(['feed', 'saved', 'deleted', 'profile']);
 
 it('shows the last of several pages, not the first', function () {
+    ProjectSettings::factory()->create(['feature_flags' => ['show_saved_posts' => true]]);
     $owner = User::factory()->create();
     // A page more than the twelve the saved posts show at once.
     Post::factory()->count(13)->published()->create()

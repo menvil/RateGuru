@@ -91,7 +91,7 @@ it('tells a viewer whose own account may not follow so, neutrally, without blami
         ->assertSet('isFollowing', false)
         ->assertSet('message', __('follows.cannot_follow'))
         // In English, as it is said: about the viewer, not the author.
-        ->assertSeeHtml('<span class="text-xs text-rg-muted" role="status" data-testid="follow-button-message">You cannot follow authors right now.</span>');
+        ->assertSeeHtml('<span class="text-xs text-rg-muted empty:sr-only" role="status" data-testid="follow-button-message">You cannot follow authors right now.</span>');
 })->with(['limited', 'banned', 'shadowbanned']);
 
 it('still says the author cannot be followed when it is the author', function () {
@@ -101,7 +101,7 @@ it('still says the author cannot be followed when it is the author', function ()
         ->test(FollowButton::class, ['author' => User::factory()->banned()->create()])
         ->call('toggle')
         ->assertSet('message', __('follows.cannot_follow_author'))
-        ->assertSeeHtml('<span class="text-xs text-rg-muted" role="status" data-testid="follow-button-message">This author cannot be followed.</span>');
+        ->assertSeeHtml('<span class="text-xs text-rg-muted empty:sr-only" role="status" data-testid="follow-button-message">This author cannot be followed.</span>');
 });
 
 it('keeps its status region in the page before there is anything to say, so what comes is heard', function () {
