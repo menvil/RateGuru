@@ -235,9 +235,8 @@ it('asks before switching languages with unsaved drafts, keeps them on Keep edit
         ->toContain('1 '.config("locales.supported.{$this->target}.label").' edit is not saved.')
         ->toContain('Discard and switch');
 
-    // Keep editing changes nothing, so nothing is left to wait out once the dialog has
-    // handed focus back: a switch started by mistake drops the draft read below at once,
-    // before the server answers.
+    // Keep editing changes nothing: no switch starts, the address keeps its language
+    // and the draft stays.
     $page->click('.rg-admin-dialog .rg-admin-dialog__footer button:first-of-type');
     waitForScript($page, 'document.activeElement?.id', 'rg-admin-translation-target-trigger');
 
@@ -262,6 +261,74 @@ it('asks before switching languages with unsaved drafts, keeps them on Keep edit
     expect(translationScreen($page))->toMatchArray(['dialog' => false, 'search' => "?locale={$this->target}"]);
 
     $page->assertNoJavaScriptErrors();
+});
+
+it('keeps the drafts a switch was to drop when the switch then fails', function () {
+    $dogs = ($this->unit)($this->dogs);
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    typeTranslation($page, $dogs, 'Собаки');
+
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.fail = true');
+
+    openTranslationTargetList($page);
+    $page->click("[role=option][data-value=\"{$this->other}\"]");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Keep editing');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+
+    eventually(fn () => expect(translationScreen($page)['toasts'])->toContain('The language was not switched: the server did not answer. Try again.'));
+
+    expect(translationRowState($page, $dogs))->toMatchArray(['value' => 'Собаки', 'state' => ['Edited · not saved']])
+        ->and(translationScreen($page))->toMatchArray(['search' => "?locale={$this->target}"]);
+});
+
+it('takes no typing while it switches language, which the new language would drop', function () {
+    [$dogs, $cats] = [($this->unit)($this->dogs), ($this->unit)($this->cats)];
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    typeTranslation($page, $dogs, 'Собаки');
+
+    // The switch's answer held: the screen is still this language's until it comes.
+    gateLivewireRequests($page);
+    $page->script('window.livewireGate.hold = true');
+
+    openTranslationTargetList($page);
+    $page->click("[role=option][data-value=\"{$this->other}\"]");
+    waitForScript($page, 'document.activeElement?.innerText.trim()', 'Keep editing');
+    $page->click('.rg-admin-dialog .rg-admin-button--primary');
+    waitForScript($page, "document.querySelector('.rg-admin-translation-center').getAttribute('aria-busy')", 'true');
+
+    $readOnly = fn (string $unit): mixed => $page->script("document.querySelector('[data-unit=\"{$unit}\"] input, [data-unit=\"{$unit}\"] textarea').readOnly");
+
+    expect($readOnly($cats))->toBeTrue()
+        ->and($readOnly($dogs))->toBeTrue()
+        // Nor is the draft discarded or saved meanwhile: a switch that then fails keeps it.
+        ->and($page->script("[...document.querySelectorAll('[data-unit=\"{$dogs}\"] button')].filter((button) => /^(Discard|Save)/.test(button.textContent.trim())).map((button) => [button.textContent.trim().split(/\\s+/)[0], button.disabled])"))
+        ->toBe([['Discard', true], ['Save', true], ['Save', true]]);
+
+    $page->script('window.releaseLivewire()');
+    waitForTranslationTarget($page, $this->other);
+});
+
+it('arms no further reading of the progress once the screen is gone', function () {
+    $page = visitTranslationCenter('/admin/translation-center', 1440, 900);
+
+    // A read that answers after the screen was replaced — a language switch, say.
+    $page->script(<<<'JS'
+        (() => {
+            const data = Alpine.$data(document.querySelector('.rg-admin-translation-center'))
+            window.rgReads = 0
+            data.server = () => ({ generationStatus: () => { window.rgReads++; return Promise.resolve({ read: true, generation: data.generation }) } })
+            data.destroy()
+            data.generation = { status: 'running', counts: { ready: 0, failed: 0, pending: 1, saved: 0, skipped: 0, discarded: 0 }, version: 1, batch: 'b', items: [] }
+            data.schedulePoll(0)
+        })()
+    JS);
+
+    proveNothingHappensFor($page, 0.5, 'a timer reading the progress for a screen that is gone');
+
+    expect($page->script('window.rgReads'))->toBe(0);
 });
 
 it('stays usable on its language when switching fails, and switches once the server answers again', function () {

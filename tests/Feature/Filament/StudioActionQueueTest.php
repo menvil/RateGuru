@@ -66,6 +66,24 @@ it('draws each action: its publication, what it does, its persona, when it is pl
         ->assertDontSeeHtml('wire:click="resume('.$failed->id.')"');
 });
 
+it('says what a finished action wrote is gone only for an action that writes something', function (StudioActionType $writer) {
+    $plan = StudioPlan::factory()->status(StudioPlanStatus::Running)->create();
+    $done = ['studio_plan_id' => $plan->id, 'status' => StudioActionStatus::Done, 'finished_at' => now()];
+
+    StudioAction::factory()->create([...$done, 'type' => StudioActionType::VotePost, 'payload' => ['vote_type' => 'up']]);
+
+    Livewire::test(StudioActionQueue::class)->assertDontSee('What it wrote isn’t on the site now.');
+
+    // A post, a comment or a reply it wrote that is no longer there: each on its own.
+    StudioAction::factory()->create([...$done, 'type' => $writer, 'result_id' => 999_999]);
+
+    Livewire::test(StudioActionQueue::class)->assertSeeText('What it wrote isn’t on the site now.');
+})->with([
+    'a post' => [StudioActionType::CreatePost],
+    'a comment' => [StudioActionType::CreateComment],
+    'a reply' => [StudioActionType::CreateReply],
+]);
+
 it('narrows by state, kind and publication from the address, dropping what it does not offer', function () {
     $post = StudioAction::factory()->create();
     $comment = StudioAction::factory()->childOf($post)->create(['status' => StudioActionStatus::Held, 'failure_code' => 'author_restricted']);

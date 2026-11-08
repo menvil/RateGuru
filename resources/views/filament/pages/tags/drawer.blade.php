@@ -12,9 +12,12 @@
     $drawerId = 'rg-admin-tag-drawer';
     $original = $row['slug'] ?? '';
 
+    // The slug a save stores: a blank one is made from the name again.
+    $savedSlug = \App\Actions\Tags\CreateTagAction::slug($draftName, trim($draftSlug));
+
     $slugWarning = match (true) {
         $creating || ! $slugUnlocked => null,
-        $draftSlug !== $original => "Feed links filtered by “{$original}” stop working once you save. Bookmarks and shared links to them break.",
+        $savedSlug !== $original => "Feed links filtered by “{$original}” stop working once you save. Bookmarks and shared links to them break.",
         default => 'Changing the slug breaks existing links to this tag. Only do this to fix a mistake.',
     };
 @endphp

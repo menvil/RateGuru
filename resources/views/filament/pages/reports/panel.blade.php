@@ -23,7 +23,11 @@
     class="rg-admin-reports__panel"
     aria-labelledby="rg-admin-report-panel-title"
     wire:key="report-panel-{{ $detail['id'] }}"
-    x-on:keydown.escape="if (! wide) $wire.closePanel()"
+    {{-- Heard wherever the focus is — opening a report leaves it on the row —
+         unless a confirmation over the panel takes Escape for itself. One
+         already dismissed is hidden at once but stays in the page until the
+         answer comes: it takes nothing. --}}
+    x-on:keydown.escape.window="if (! wide && ! [...document.querySelectorAll('.rg-admin-dialog')].some((dialog) => dialog.checkVisibility())) $wire.closePanel()"
 >
     <div class="rg-admin-card rg-admin-reports__card">
         <div class="rg-admin-reports__head">

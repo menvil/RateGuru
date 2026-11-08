@@ -309,6 +309,12 @@ final class StudioActionPlan
         };
     }
 
+    /** Whether an action of this kind writes something of its own onto the site, which links() can lead to. */
+    public static function writes(StudioActionType $type): bool
+    {
+        return in_array($type, [StudioActionType::CreatePost, StudioActionType::CreateComment, StudioActionType::CreateReply], true);
+    }
+
     /**
      * Where what an action wrote can be seen on the site: the post, or the
      * comment on it — while the site shows it.

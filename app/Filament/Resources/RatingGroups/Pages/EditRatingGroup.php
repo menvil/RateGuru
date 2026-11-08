@@ -468,6 +468,14 @@ final class EditRatingGroup extends Page
     {
         $group = $this->group();
         $active = $this->activeCount();
+
+        // A limit's explanation another administrator has made untrue — the
+        // maximum raised, the minimum lowered — is not drawn again.
+        if (($this->confirming === 'above-max' && $group->hasRoomForActiveOption($active))
+            || ($this->confirming === 'below-min' && $group->canSpareActiveOption($active))) {
+            $this->closeConfirmation();
+        }
+
         $options = $this->options();
         $problems = $this->rangeProblems($active);
         $this->settingsBlocked = $problems !== [];

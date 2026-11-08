@@ -56,6 +56,7 @@
             // through it, every later call — a poll's included — would reach no component and answer
             // nothing, and a toast would be raised where no one listens.
             server: null,
+            destroyed: false,
             notify: null,
 
             init() {
@@ -70,8 +71,10 @@
                     // attempt tells a suggestion that arrives after its row was discarded from one that is awaited.
                     // persisted marks the untouched background suggestion the server holds; bulk, the batch a
                     // row's draft came from, kept after an edit so the server's copy can be let go later.
+                    // saving counts the saves of the row on their way: its own and a Save all can overlap,
+                    // and the row stays read-only until the last of them answers.
                     this.units[unit.id] = {
-                        ...unit, value: unit.stored, error: null, saving: false, ai: false, generating: false, generatedAt: null, attempt: 0,
+                        ...unit, value: unit.stored, error: null, saving: 0, ai: false, generating: false, generatedAt: null, attempt: 0,
                         persisted: false, bulk: null, bulkPending: false, bulkIssue: null,
                     }
                     this.order.push(unit.id)
@@ -105,6 +108,8 @@
                 })
             },
             destroy() {
+                // A read already on its way answers a screen that is gone: it must arm no timer.
+                this.destroyed = true
                 clearTimeout(this.pollTimer)
                 document.removeEventListener('visibilitychange', this.onVisibility)
             },
@@ -199,7 +204,7 @@
             canSave(id) {
                 const unit = this.units[id]
 
-                return this.isDirty(id) && ! unit.saving && ! unit.generating && ! unit.bulkPending && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
+                return this.isDirty(id) && ! this.held(id) && this.check(id) === null && ! (unit.value.trim() === '' && unit.stored === '')
             },
             // AI translate fills a missing translation, Suggest alternative offers another version of a
             // saved one, Regenerate replaces an AI suggestion. None is offered for a draft someone typed,
@@ -211,13 +216,17 @@
                 return { missing: 'AI translate', saved: 'Suggest alternative', ai: 'Regenerate' }[this.state(id)] ?? 'AI translate'
             },
             canSuggest(id) {
-                const unit = this.units[id]
-
-                return this.offersAi(id) && ! unit.generating && ! unit.saving && ! unit.bulkPending
+                return this.offersAi(id) && ! this.held(id)
             },
             // A row waiting for its background suggestion, or for its own.
             waiting(id) {
                 return this.units[id].generating || this.units[id].bulkPending
+            },
+            // A row that takes nothing now: a suggestion or a save of it on its way, or the language
+            // switching, whose answer draws the screen afresh — what was typed or discarded meanwhile
+            // would be lost with it, or gone if the switch then failed.
+            held(id) {
+                return this.waiting(id) || this.units[id].saving > 0 || this.switching
             },
 
             // Filters -------------------------------------------------------------
@@ -419,7 +428,7 @@
                     return this.saveGeneratedRow(id, next, after)
                 }
 
-                unit.saving = true
+                unit.saving++
 
                 try {
                     result = await this.server().save(id, this.locale, unit.value)
@@ -427,7 +436,7 @@
                     result = null
                 }
 
-                unit.saving = false
+                unit.saving--
 
                 if (! result?.saved) {
                     unit.error = result?.error ?? 'Not saved: the server did not answer. Try again.'
@@ -645,7 +654,7 @@
             schedulePoll(delay = 1000) {
                 clearTimeout(this.pollTimer)
 
-                if (this.generationRunning) {
+                if (this.generationRunning && ! this.destroyed) {
                     this.pollTimer = setTimeout(() => this.poll(), delay)
                 }
             },
@@ -665,6 +674,10 @@
                     result = await this.server().generationStatus(this.locale, this.generation?.version ?? null)
                 } catch (failure) {
                     result = null
+                }
+
+                if (this.destroyed) {
+                    return
                 }
 
                 if (! result?.read) {
@@ -727,6 +740,8 @@
 
                 this.generationBusy = true
                 this.announce(`Saving ${this.figure(units.length)} generated ${this.label} translations…`)
+                // Read-only while they are saved: a draft typed meanwhile would be written over.
+                units.forEach((id) => this.units[id].saving++)
 
                 try {
                     result = await this.server().saveAllGenerated(this.locale, batch, units)
@@ -734,6 +749,7 @@
                     result = null
                 }
 
+                units.forEach((id) => this.units[id].saving--)
                 this.generationBusy = false
 
                 if (! result?.saved) {
@@ -746,7 +762,7 @@
                 this.applySaved(result)
 
                 const outdated = result.results.filter((item) => item.outcome === 'source_changed').length
-                const parts = [`${this.figure(result.saved)} ${result.saved === 1 ? 'translation' : 'translations'} saved`]
+                const parts = [`${this.figure(result.count)} ${result.count === 1 ? 'translation' : 'translations'} saved`]
 
                 outdated > 0 && parts.push(`${this.figure(outdated)} outdated`)
                 result.skipped - outdated > 0 && parts.push(`${this.figure(result.skipped - outdated)} skipped`)
@@ -758,7 +774,7 @@
                 const unit = this.units[id]
                 let result = null
 
-                unit.saving = true
+                unit.saving++
 
                 try {
                     result = await this.server().saveGenerated(this.locale, unit.bulk, id)
@@ -766,7 +782,7 @@
                     result = null
                 }
 
-                unit.saving = false
+                unit.saving--
 
                 if (! result?.saved) {
                     this.toast(result?.error ?? 'Not saved: the server did not answer. Try again.', 'error')
@@ -907,14 +923,14 @@
             switchTo(code) {
                 const from = this.locale
 
-                this.dropVolatile()
                 clearTimeout(this.pollTimer)
                 this.switching = true
                 window.rgAdminTranslationCenterRefocus = true
 
-                // On success the server draws the new language and this component is replaced. A request
-                // that fails changes nothing there, so the screen stays usable on the language it shows.
-                Promise.resolve(this.server().$set('locale', code)).catch(() => {
+                // On success the server draws the new language and this component is replaced, its
+                // drafts dropped with it. A request that fails changes nothing there, so the screen
+                // stays usable on the language it shows — the drafts it holds included.
+                Promise.resolve(this.server().$set('locale', code)).then(() => this.dropVolatile(), () => {
                     this.server().$set('locale', from, false)
                     this.switching = false
                     delete window.rgAdminTranslationCenterRefocus

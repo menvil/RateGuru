@@ -73,13 +73,18 @@ it('requires a reason and the acknowledgement to finalize a post or a comment', 
 
     $this->actingAs($admin);
 
-    Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class)
+    $posts = Livewire::withQueryParams(['status' => 'hidden'])->test(ListPosts::class)
         ->call('askToFinalize', $post->id)
         ->call('confirm')
         ->assertHasErrors(['reason' => 'required', 'acknowledged' => 'accepted'])
         ->set('reason', 'Internal decision.')
         ->call('confirm')
-        ->assertHasErrors(['acknowledged' => 'accepted']);
+        ->assertHasErrors(['acknowledged' => 'accepted'])
+        ->assertSeeHtml('<p id="rg-admin-moderation-acknowledge-error" class="rg-admin-error">');
+
+    // The box itself is described by its message, not only marked invalid.
+    expect(livewireDom($posts)->query("//input[@id='rg-admin-moderation-acknowledge']")->item(0)?->getAttribute('aria-describedby'))
+        ->toContain('rg-admin-moderation-acknowledge-error');
 
     Livewire::withQueryParams(['status' => 'hidden'])->test(ListComments::class)
         ->call('askToFinalize', $comment->id)

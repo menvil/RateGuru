@@ -179,6 +179,31 @@ it('takes a toast away when its time is up, and not while it is being read', fun
     expect(adminUiKitOverlays($page)['toasts'])->toBe([]);
 });
 
+it('lets the others go on time when a new toast pushes out the one that had the focus', function () {
+    $page = adminUiKitAt('FBK-01', 'Array.isArray(Alpine.$data(document.querySelector(".rg-admin-toast-stack")).toasts)');
+    $toast = fn (string $message, int $duration) => $page->script("window.dispatchEvent(new CustomEvent('rg-admin-toast', { detail: { message: '{$message}', duration: {$duration} } }))");
+
+    // Chromium tells an element that it lost the focus when it is removed;
+    // the specification and Firefox say nothing. The page is made to behave
+    // as they do, so the stack cannot lean on that message.
+    $page->script("document.addEventListener('focusout', (event) => event.relatedTarget === null && event.stopImmediatePropagation(), true)");
+
+    $toast('Focused', 60000);
+    waitForScript($page, adminUiKitToastCount(), 1);
+    $page->script("document.querySelector('.rg-admin-toast-stack .rg-admin-toast__close').focus()");
+
+    // Held while the focus is in the stack.
+    $toast('Second', 400);
+    $toast('Third', 400);
+    proveNothingHappensFor($page, 0.6, 'a toast going while the stack has the focus');
+    expect(adminUiKitOverlays($page)['toasts'])->toBe(['Focused', 'Second', 'Third']);
+
+    // A fourth pushes out the oldest, and the focus goes with it.
+    $toast('Fourth', 400);
+
+    waitForScript($page, adminUiKitToastCount(), 0);
+});
+
 it('moves a segmented control with the arrow keys, Home and End, one tab stop for the group', function () {
     $page = adminUiKitAt('FRM-08', 'Alpine.$data(document.getElementById("kit-segmented")).selected === "missing"');
     $checked = '#kit-segmented [aria-checked="true"]';

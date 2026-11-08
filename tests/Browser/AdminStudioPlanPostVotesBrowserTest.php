@@ -54,6 +54,22 @@ it('draws the Votes tab whole at every width, never scrolling the page sideways'
     ]);
 })->with([1440, 1024, 390]);
 
+it('tells a listener that hears only changes the number a field went back to', function () {
+    $page = visitPostVotes($this->plan);
+
+    $page->click('button[aria-label="Plan up and down votes"]');
+    waitForScript($page, "!! document.getElementById('rg-admin-votes-up')");
+
+    // A change-only listener, as the rating questions' Answers field has.
+    $page->script("window.rgHeard = []; document.getElementById('rg-admin-votes-up').addEventListener('change', (event) => window.rgHeard.push(event.target.value))");
+
+    // 3 typed, then an x: the x is dropped on the way out, and the 3 stays.
+    $page->keys('#rg-admin-votes-up', ['ControlOrMeta+a', '3', 'x', 'Tab']);
+
+    waitForScript($page, "document.getElementById('rg-admin-votes-up').value", '3');
+    waitForScript($page, 'window.rgHeard', ['3']);
+});
+
 it('saves the post\'s up votes as they are set, and a vote\'s moment set by hand on the Timing tab', function () {
     $page = visitPostVotes($this->plan);
     $summary = "document.querySelector('.rg-admin-studio__votes-step .rg-admin-studio__generate-summary').textContent.replace(/\\s+/g, ' ').trim()";

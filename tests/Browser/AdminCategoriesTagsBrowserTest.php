@@ -205,6 +205,21 @@ it('opens the drawer the address names, and closes it with Escape, taking it out
     waitForScript($page, "document.querySelector('.rg-admin-drawer-layer') === null && new URLSearchParams(location.search).get('edit') === null");
 });
 
+it('leaves a click with a modifier key on a category\'s name to the browser, to open its editor in a new tab', function () {
+    $page = visitTaxonomy('/admin/categories');
+    $link = "document.querySelector('#rg-admin-category-{$this->dogs->id} .rg-admin-taxonomy__name')";
+
+    expect(modifiedClickLeftToBrowser($page, $link))->toBeTrue();
+    proveNothingHappensFor($page, 0.5, 'the editor opening in this tab');
+    expect($page->script("document.querySelector('.rg-admin-drawer-layer') === null"))->toBeTrue()
+        // The address the new tab gets: the drawer that address opens is tested above.
+        ->and($page->script("new URL({$link}.href).search"))->toBe("?edit={$this->dogs->id}");
+
+    // A plain click still opens it here.
+    $page->click("#rg-admin-category-{$this->dogs->id} .rg-admin-taxonomy__name");
+    taxonomyDrawerOpen($page);
+});
+
 it('replaces the drawer with the confirmation when Delete is pressed in it', function () {
     $page = visitTaxonomy("/admin/categories?edit={$this->dogs->id}");
     taxonomyDrawerOpen($page);

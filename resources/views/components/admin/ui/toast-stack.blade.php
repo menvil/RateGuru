@@ -54,6 +54,8 @@
                 : null
             const toast = { id: ++this.count, tone, message, action, left: Number(detail?.duration) > 0 ? Number(detail.duration) : {{ (int) $duration }}, since: 0, timer: null }
 
+            const stack = this.$root
+
             this.toasts.slice(0, -2).forEach((old) => clearTimeout(old.timer))
             this.toasts = [...this.toasts.slice(-2), toast]
             this.announce(toast)
@@ -61,6 +63,11 @@
             if (! this.hovered && ! this.focused) {
                 this.start(toast)
             }
+
+            // The toast pushed out may have had the focus, and a removed
+            // element is not told it lost it: checked once the list is
+            // redrawn, as remove() does.
+            this.$nextTick(() => this.hold(this.hovered, stack.contains(document.activeElement)))
         },
         announce(toast) {
             const region = toast.tone === 'error' ? 'assertive' : 'polite'

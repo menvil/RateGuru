@@ -12193,6 +12193,20 @@ function pageAsksBeforeLeaving(mixed $page): bool
     return $page->script("(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented })()");
 }
 
+/**
+ * Whether a click with a modifier key on $link — a script expression for the
+ * element — is left to the browser, to open the address in a new tab. What
+ * the page did with the click is read after its own handlers; the browser is
+ * then stopped from following the link itself.
+ */
+function modifiedClickLeftToBrowser(mixed $page, string $link): bool
+{
+    $page->script("document.addEventListener('click', (event) => { window.rgPrevented = event.defaultPrevented; event.preventDefault() }, { once: true })");
+    $page->script("{$link}.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }))");
+
+    return $page->script('window.rgPrevented') === false;
+}
+
 /** What the screen shows right now. */
 function translationScreen(mixed $page): array
 {

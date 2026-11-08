@@ -110,6 +110,22 @@ it('creates a persona in the drawer from the top bar, its username made from its
         ->and($persona->personaProfile->character)->toBe('Complains, then helps.');
 });
 
+it('leaves a click with a modifier key on an editor link to the browser, to open it in a new tab', function () {
+    $page = visitAdminEditor('/admin/personas');
+    $link = "document.querySelector('#rg-admin-persona-{$this->persona->id} .rg-admin-table__name')";
+
+    expect(modifiedClickLeftToBrowser($page, $link))->toBeTrue();
+    proveNothingHappensFor($page, 0.5, 'the editor opening in this tab');
+    expect($page->script("document.getElementById('rg-admin-persona-editor') === null"))->toBeTrue();
+
+    $page->click("#rg-admin-persona-{$this->persona->id} .rg-admin-table__name");
+    waitForScript($page, "document.querySelector('#rg-admin-persona-editor .rg-admin-drawer__title')?.textContent.trim()", 'Edit Night Owl', 10.0);
+
+    // And the address the new tab gets opens that persona's editor.
+    $tab = visitAdminEditor((string) $page->script("{$link}.getAttribute('href')"));
+    waitForScript($tab, "document.querySelector('#rg-admin-persona-editor .rg-admin-drawer__title')?.textContent.trim()", 'Edit Night Owl', 10.0);
+});
+
 it('counts the unsaved changes in the drawer, keeps nothing on Cancel, and saves from its footer', function () {
     $page = visitAdminEditor('/admin/personas');
 

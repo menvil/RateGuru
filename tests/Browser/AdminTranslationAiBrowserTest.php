@@ -258,6 +258,24 @@ it('reads everything again on Refresh, and says so in a toast', function () {
     waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast')].some((toast) => toast.textContent.includes('Translation AI refreshed'))");
 });
 
+it('finds a model Refresh brought in the model search, and narrows to it', function () {
+    $page = visitTranslationAi('/admin/translation-ai?period=24h', 1440);
+
+    TranslationAiProviderCall::factory()->create(['model' => 'gpt-7-sol', 'completed_at' => CarbonImmutable::now('UTC')]);
+    $page->click('Refresh');
+    waitForScript($page, "[...document.querySelectorAll('.rg-admin-toast')].some((toast) => toast.textContent.includes('Translation AI refreshed'))");
+
+    $page->click('#rg-admin-translation-ai-model-trigger');
+    waitForScript($page, "getComputedStyle(document.getElementById('rg-admin-translation-ai-model-popover')).display !== 'none'");
+    $page->type('#rg-admin-translation-ai-model-search', 'gpt-7');
+
+    $shown = "JSON.stringify([...document.querySelectorAll('#rg-admin-translation-ai-model-listbox [role=\"option\"]')].filter((option) => option.checkVisibility()).map((option) => option.dataset.value))";
+    waitForScript($page, $shown, '["gpt-7-sol"]');
+
+    $page->click('#rg-admin-translation-ai-model-listbox [role="option"][data-value="gpt-7-sol"]');
+    waitForScript($page, "new URLSearchParams(location.search).get('model')", 'gpt-7-sol');
+});
+
 it('folds the configuration away until it is asked for', function () {
     $page = visitTranslationAi('/admin/translation-ai', 1440);
     $toggle = '.rg-admin-translation-ai__configuration-toggle';

@@ -312,7 +312,10 @@ it('shows each placeholder the translation has to keep', function () {
     ProjectSettings::query()->update(['static_pages' => json_encode($pages)]);
 
     expect(translationRow(translationCenter($target), 'static_pages:contact:content'))
-        ->toContain('<li class="rg-admin-constraint-chip rg-admin-constraint-chip--placeholder">{contact_email}</li>');
+        ->toContain('<li class="rg-admin-constraint-chip rg-admin-constraint-chip--placeholder">{contact_email}</li>')
+        // The field's own hint stays the instruction, not the last placeholder listed.
+        ->toContain('placeholder="Missing · type a translation or use AI translate"')
+        ->not->toContain('placeholder="{contact_email}"');
 });
 
 it('links each unit to the editor of its English text', function () {

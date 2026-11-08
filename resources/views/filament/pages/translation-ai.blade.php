@@ -32,7 +32,9 @@
                 :value="$selectedModel"
                 :search-placeholder="'Search '.$modelCount.' '.\Illuminate\Support\Str::plural('model', $modelCount)"
                 empty="No model matches."
-                wire:key="rg-admin-translation-ai-model-{{ $selectedPeriod }}-{{ md5($selectedModel) }}"
+                {{-- Drawn afresh for new options as for a new choice — a model Refresh found, or a
+                     model's badge or providers changed — since its labels and search live in its state. --}}
+                wire:key="rg-admin-translation-ai-model-{{ $selectedPeriod }}-{{ md5($selectedModel) }}-{{ md5(json_encode($modelOptions)) }}"
                 x-on:choose="$event.preventDefault(); $wire.set('model', $event.detail.value)"
             />
 
