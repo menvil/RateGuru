@@ -38,6 +38,30 @@ it('records an upvote from the comment voting component', function () {
     ]);
 });
 
+it('asks a guest who votes on a comment to sign in, in the authentication modal too', function () {
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create();
+
+    Livewire::test(CommentVoting::class, ['commentId' => $comment->id])
+        ->assertNotDispatched('open-auth-modal')
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.errors.guest_comment'))
+        ->assertSee(__('ui.voting.errors.guest_comment'))
+        ->assertDispatched('open-auth-modal', mode: 'login');
+
+    expect(CommentVote::query()->count())->toBe(0);
+});
+
+it('leaves the authentication modal closed when a member\'s comment vote is refused', function () {
+    $user = User::factory()->create();
+    $comment = Comment::factory()->for(Post::factory()->published(), 'post')->for($user, 'user')->create();
+
+    Livewire::actingAs($user)
+        ->test(CommentVoting::class, ['commentId' => $comment->id])
+        ->call('vote', VoteType::Up->value)
+        ->assertSet('error', __('ui.voting.errors.own_comment'))
+        ->assertNotDispatched('open-auth-modal');
+});
+
 it('toggles an active comment vote off when clicked again in the UI', function () {
     $user = User::factory()->create();
     $comment = Comment::factory()->for(Post::factory()->published(), 'post')->create(['upvotes_count' => 0, 'downvotes_count' => 0]);

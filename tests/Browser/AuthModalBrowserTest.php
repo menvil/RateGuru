@@ -1,8 +1,14 @@
 <?php
 
+use App\Models\Comment;
+use App\Models\CommentVote;
 use App\Models\Post;
+use App\Models\PostVote;
 use App\Models\ProjectSettings;
+use App\Models\RatingGroup;
+use App\Models\RatingVote;
 use App\Models\User;
+use Database\Seeders\DefaultRatingConfigurationSeeder;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Event;
 use Tests\Browser\Support\MobileViewports;
@@ -11,9 +17,9 @@ use function Pest\Laravel\assertAuthenticated;
 use function Pest\Laravel\assertGuest;
 
 /*
- * The authentication modal as a person meets it: opened from the header or
- * the guest upload button, switched between its states, closed again,
- * and brought back by the server after a failed submission.
+ * The authentication modal as a person meets it: opened from the header, the
+ * guest upload button or a guest's vote, switched between its states, closed
+ * again, and brought back by the server after a failed submission.
  */
 
 const AUTH_MODAL = '[data-testid="auth-modal"]';
@@ -293,6 +299,74 @@ it('opens in registration mode when a guest presses upload, without the old toas
         ->assertScript('document.querySelectorAll(\'[data-testid="toast-container"] > div\').length', 0)
         ->assertDontSee('Create an account or sign in to upload a post.')
         ->assertPathIs('/');
+});
+
+it('opens in login mode over the same page when a guest votes on a post or answers its rating', function () {
+    $this->seed(DefaultRatingConfigurationSeeder::class);
+    $post = Post::factory()->published()->create(['title' => 'Guest Vote Post']);
+    $option = RatingGroup::query()->where('key', 'type')->firstOrFail()->options()->active()->firstOrFail();
+
+    $page = visit(route('feed', ['sort' => 'top']))
+        ->assertSee('Guest Vote Post')
+        ->assertMissing(AUTH_MODAL);
+
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
+    // The server refuses the vote, and its answer opens the dialog: there is
+    // a round trip to wait for.
+    $page->click("[data-testid=\"post-upvote-button-{$post->id}\"]");
+    waitForScript($page, AUTH_MODAL_SHOWN);
+
+    $page->assertVisible('[data-testid="auth-modal-login-form"]')
+        ->assertMissing('[data-testid="auth-modal-register-form"]')
+        // The reason stays on the card, for when the dialog is closed.
+        ->assertSeeIn('[data-testid="post-card-vote-error"]', 'Sign in to vote.')
+        ->assertPathIs('/')
+        ->assertQueryStringHas('sort', 'top')
+        ->assertScript('window.__rgSameDocument', 'yes')
+        ->assertScript('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value', '/?sort=top');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-email');
+    $page->keys('#modal-login-email', 'Escape');
+    waitForScript($page, AUTH_MODAL_SHOWN, false);
+
+    $page->click("[data-testid=\"rating-option-{$post->id}-{$option->id}\"]");
+    waitForScript($page, AUTH_MODAL_SHOWN);
+
+    $page->assertVisible('[data-testid="auth-modal-login-form"]')
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    expect(PostVote::query()->count())->toBe(0)
+        ->and(RatingVote::query()->count())->toBe(0);
+});
+
+it('opens in login mode over the post\'s page when a guest votes on one of its comments', function () {
+    $post = Post::factory()->published()->create();
+    Comment::factory()->create(['post_id' => $post->id, 'body' => 'Lovely plating']);
+
+    $page = visit(route('posts.show', $post))
+        ->assertSee('Lovely plating')
+        ->assertMissing(AUTH_MODAL);
+
+    // A value on window survives only as long as the document does.
+    $page->script('window.__rgSameDocument = "yes"');
+
+    // From the rendered comment thread to the dialog: the refusal travels as
+    // the comment's own answer, and the dialog opens over the same page.
+    $page->click('[data-testid="comment-voting"]:visible button[aria-label="'.__('ui.a11y.vote_up').'"]');
+
+    waitForScript($page, AUTH_MODAL_SHOWN);
+    $page->assertVisible(LOGIN_PANEL)
+        ->assertSeeIn('@comment-voting-error', __('ui.voting.errors.guest_comment'))
+        ->assertPathIs(route('posts.show', $post, absolute: false))
+        ->assertScript('window.__rgSameDocument', 'yes');
+
+    // Signing in comes back to this post.
+    expect($page->script('document.querySelector(\''.LOGIN_PANEL.' [data-auth-return-input]\').value'))
+        ->toBe(route('posts.show', $post, absolute: false));
+
+    expect(CommentVote::query()->count())->toBe(0);
 });
 
 it('returns to the post the person was reading after signing in', function () {

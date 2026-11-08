@@ -4,6 +4,7 @@ namespace App\Livewire\Comments;
 
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteCommentException;
+use App\Livewire\Concerns\OpensAuthModal;
 use App\Services\Comments\CommentVotingService;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Settings\ProjectSettingsManager;
@@ -13,6 +14,8 @@ use Livewire\Component;
 
 final class CommentVoting extends Component
 {
+    use OpensAuthModal;
+
     public int $commentId;
 
     public string $error = '';
@@ -76,6 +79,18 @@ final class CommentVoting extends Component
             $commentVotingService->vote(auth()->user(), $comment->id, $voteToApply);
         } catch (CannotVoteCommentException $e) {
             $this->error = $e->getMessage();
+
+            if ($e->isGuest()) {
+                // The guest refusal comes before the comment's own checks.
+                // Signing in cannot make a hidden comment, or one on a post
+                // that is gone, votable again: that is the answer then, as a
+                // member gets it, not the sign-in dialog.
+                if ($comment->canReceiveVotes() && $comment->post?->canReceiveVotes() === true) {
+                    $this->openAuthModal();
+                } else {
+                    $this->error = CannotVoteCommentException::becauseCommentIsNotVisible()->getMessage();
+                }
+            }
 
             return;
         }

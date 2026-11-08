@@ -7,7 +7,7 @@
 
         <title>{{ $projectSettings->siteName() }}</title>
 
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        @include('layouts.partials.favicons')
 
         <script>{!! file_get_contents(resource_path('js/theme-bootstrap.js')) !!}</script>
 

@@ -5,6 +5,7 @@ namespace App\Livewire\Posts;
 use App\Actions\Votes\VotePostAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
+use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
 use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
@@ -15,6 +16,8 @@ use Livewire\Component;
 /** @property-read Post|null $post */
 final class PostVoting extends Component
 {
+    use OpensAuthModal;
+
     public int $postId;
 
     public string $variant = 'buttons';
@@ -65,8 +68,18 @@ final class PostVoting extends Component
 
         if ($user === null) {
             $guestVoteAttempts->record('post', ['post_id' => $this->postId, 'vote' => $voteType->value]);
+
+            // Signing in cannot bring back a post that is gone: that is the
+            // answer then, as a member gets it, not the sign-in dialog.
+            if ($this->post === null) {
+                $this->error = __('ui.post.unavailable');
+
+                return;
+            }
+
             $this->error = __('ui.voting.sign_in_to_vote');
             $this->dispatch('post-vote-error', postId: $this->postId, message: $this->error);
+            $this->openAuthModal();
 
             return;
         }

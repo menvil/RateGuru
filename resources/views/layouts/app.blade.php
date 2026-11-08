@@ -7,7 +7,7 @@
 
         <title>{{ strip_tags($__env->yieldContent('title', $projectSettings->siteName())) }}</title>
 
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        @include('layouts.partials.favicons')
 
         @stack('meta')
 

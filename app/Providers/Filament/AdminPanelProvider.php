@@ -57,10 +57,11 @@ class AdminPanelProvider extends PanelProvider
             // it — the browser tab, the sign-in page and the sidebar all read it
             // from here.
             ->brandName(fn (): string => app(ProjectSettingsManager::class)->current()->siteName())
-            // The site's own icon. Without one the browser falls back to
-            // /favicon.ico, which is empty, and asks for it again on every
-            // address change — each keystroke in a search that keeps its
-            // query in the URL, each tab or page switch.
+            // The site's own icon, the SVG the public layouts declare too
+            // (layouts/partials/favicons). Without a declared icon the browser
+            // asks for /favicon.ico again on every address change — each
+            // keystroke in a search that keeps its query in the URL, each tab
+            // or page switch.
             ->favicon(fn (): string => asset('favicon.svg'))
             ->colors([
                 'primary' => Color::Purple,
