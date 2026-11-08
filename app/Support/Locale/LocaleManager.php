@@ -97,8 +97,19 @@ class LocaleManager
      */
     public function enabled(): array
     {
-        $stored = $this->settings->current()->enabledLocales();
+        return $this->offeredBy($this->settings->current()->enabledLocales());
+    }
 
+    /**
+     * What a stored list of languages offers, read as enabled() reads the
+     * project's: also for a row locked for writing, so a change is made to
+     * what it offers then.
+     *
+     * @param  array<mixed>|null  $stored
+     * @return array<string, array{label: string, native: string, flag: string, enabled_by_default: bool}>
+     */
+    public function offeredBy(?array $stored): array
+    {
         // Never chosen: whatever the installed languages offer by default — so
         // a language a release adds as not enabled by default stays withheld.
         $codes = $stored === null ? $this->enabledByDefault() : array_filter($stored, is_string(...));

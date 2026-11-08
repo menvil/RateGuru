@@ -7,7 +7,11 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use Filament\Facades\Filament;
+use Filament\GlobalSearch\GlobalSearchResult;
+use Filament\GlobalSearch\GlobalSearchResults;
+use Filament\GlobalSearch\Providers\Contracts\GlobalSearchProvider;
 use Filament\Livewire\GlobalSearch as FilamentGlobalSearch;
+use Illuminate\Support\HtmlString;
 use Livewire\Livewire;
 
 /**
@@ -51,6 +55,33 @@ it('lists matching records with their kind and a link to each', function () {
         ->assertSeeHtml('<p class="rg-admin-sr-only" role="status" aria-live="polite">')
         ->assertSeeHtmlInOrder(['role="status"', '1 result', '</p>'])
         ->assertSeeHtml('href="'.e(PostResource::getGlobalSearchResultUrl($post)).'"');
+});
+
+it('shows a title as it was written, tags in it included, escaped rather than stripped', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    Post::factory()->published()->create(['title' => 'Why <b> tags are fine']);
+
+    Livewire::test(GlobalSearch::class)
+        ->set('search', 'tags are fine')
+        ->assertSeeHtml('<span class="rg-admin-search-result__title">Why &lt;b&gt; tags are fine</span>');
+});
+
+it('shows a title already HTML as its text, its tags taken off', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $provider = new class implements GlobalSearchProvider
+    {
+        public function getResults(string $query): GlobalSearchResults
+        {
+            return GlobalSearchResults::make()->category('Posts', [
+                new GlobalSearchResult(title: new HtmlString('<mark>Sunset</mark> over the bay'), url: '/admin/posts/1'),
+            ]);
+        }
+    };
+    Filament::getCurrentOrDefaultPanel()->globalSearch($provider::class);
+
+    Livewire::test(GlobalSearch::class)
+        ->set('search', 'sunset')
+        ->assertSeeHtml('<span class="rg-admin-search-result__title">Sunset over the bay</span>');
 });
 
 it('says so when nothing matches', function () {

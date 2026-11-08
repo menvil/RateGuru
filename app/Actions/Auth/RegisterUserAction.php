@@ -6,8 +6,10 @@ use App\Actions\Auth\Concerns\CreatesUserWithUniqueUsername;
 use App\Actions\Users\GenerateUniqueUsernameAction;
 use App\Exceptions\Auth\CannotGenerateUsernameException;
 use App\Models\User;
+use App\Support\Database\UniqueColumnViolation;
 use App\Support\Locale\LocaleManager;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -49,6 +51,17 @@ final class RegisterUserAction
         } catch (CannotGenerateUsernameException $exception) {
             throw ValidationException::withMessages([
                 'name' => __('auth.username_unavailable'),
+            ]);
+        } catch (QueryException $exception) {
+            // The form checked the address before this write, but a second
+            // registration with it — or the same form sent twice — can still
+            // claim it first. That one is told the address is taken.
+            if (! UniqueColumnViolation::on($exception, 'users', 'email')) {
+                throw $exception;
+            }
+
+            throw ValidationException::withMessages([
+                'email' => __('validation.unique', ['attribute' => __('validation.attributes.email')]),
             ]);
         }
 

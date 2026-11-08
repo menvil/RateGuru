@@ -373,7 +373,13 @@ final class ListComments extends Page
     private function attempt(callable $action): bool
     {
         try {
-            $action();
+            // An action that answers false found the comment already as it
+            // would have left it — changed by someone else since the check.
+            if ($action() === false) {
+                $this->changedMeanwhile();
+
+                return false;
+            }
 
             return true;
         } catch (CannotHideCommentException|CannotRestoreCommentException|CannotFinalizeRemovalException) {
