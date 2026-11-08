@@ -84,7 +84,7 @@
             @if(filled($tag))
                 <div class="mb-4 flex flex-wrap items-center gap-2" data-testid="feed-tag-filter">
                     <span class="text-[13px] text-rg-muted">{{ __('ui.feed.tag_filter') }}</span>
-                    <span class="inline-flex items-center gap-1 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft py-1 pl-3 pr-1 text-[13px] font-semibold text-rg-text">
+                    <span class="inline-flex items-center gap-0.5 rounded-rgPill border border-rg-accentBorder bg-rg-accentSoft pl-2.5 pr-0.5 text-xs leading-5 font-semibold text-rg-text">
                         <span data-testid="feed-tag-filter-name">#{{ $tag }}</span>
                         <a
                             href="{{ $this->urlWithoutTag() }}"
@@ -92,9 +92,9 @@
                             aria-label="{{ __('ui.feed.clear_tag_filter', ['tag' => '#'.$tag]) }}"
                             title="{{ __('ui.feed.clear_tag_filter', ['tag' => '#'.$tag]) }}"
                             data-testid="feed-tag-filter-clear"
-                            class="grid size-6 place-items-center rounded-full text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
+                            class="grid size-5 place-items-center rounded-full text-rg-text2 transition hover:bg-rg-card hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent"
                         >
-                            <x-ui.icon name="x" class="size-3.5" />
+                            <x-ui.icon name="x" class="size-3" />
                         </a>
                     </span>
                 </div>
