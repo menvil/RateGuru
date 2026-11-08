@@ -315,7 +315,10 @@ final class ListPosts extends Page
     #[On('restore-posts')]
     public function restorePosts(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
+        // Counted as the posts they name, each once: an address no post has
+        // was nothing to undo, and is not said to have changed.
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
         $restored = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(RestorePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
         match ($restored->count()) {
@@ -333,7 +336,8 @@ final class ListPosts extends Page
     #[On('hide-posts-again')]
     public function hidePostsAgain(array $ids): void
     {
-        $posts = app(ModerationPostsQuery::class)->among(self::ids($ids))->get();
+        $ids = self::ids($ids);
+        $posts = app(ModerationPostsQuery::class)->among($ids)->get();
         $hidden = $posts->filter(fn (Post $post): bool => $this->attempt(fn () => app(HidePostAction::class)->handle($this->moderator(), $post), quietly: true))->values();
 
         match ($hidden->count()) {

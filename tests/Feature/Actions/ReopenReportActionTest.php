@@ -33,10 +33,17 @@ it('leaves an open report as it is', function () {
     $report = Report::factory()->create(['status' => ReportStatus::Open]);
     $before = $report->updated_at;
 
-    app(ReopenReportAction::class)->handle(User::factory()->moderator()->create(), $report);
-
-    expect($report->fresh()->status)->toBe(ReportStatus::Open)
+    expect(app(ReopenReportAction::class)->handle(User::factory()->moderator()->create(), $report))->toBeFalse()
+        ->and($report->fresh()->status)->toBe(ReportStatus::Open)
         ->and($report->fresh()->updated_at?->equalTo($before))->toBeTrue();
+});
+
+it('says it opened nothing for a report purged while it waited', function () {
+    $moderator = User::factory()->moderator()->create();
+    $report = Report::factory()->create(['status' => ReportStatus::Resolved]);
+    Report::query()->whereKey($report->id)->delete();
+
+    expect(app(ReopenReportAction::class)->handle($moderator, $report))->toBeFalse();
 });
 
 it('refuses anyone who may not process reports', function (string $who) {

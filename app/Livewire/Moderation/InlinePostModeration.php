@@ -57,11 +57,8 @@ final class InlinePostModeration extends Component
     #[Computed]
     public function canRestore(): bool
     {
-        // A removal finalized since can no longer be taken back: no Restore
-        // the action would refuse.
-        return $this->canModerate()
-            && $this->post()->status === PostStatus::Hidden
-            && $this->post()->moderation_removed_at === null;
+        // No Restore the action would refuse: the same rule, on this copy.
+        return $this->canModerate() && $this->post()->canBeRestoredByModeration();
     }
 
     public function hide(HidePostAction $hidePostAction): void
@@ -125,8 +122,16 @@ final class InlinePostModeration extends Component
             return;
         }
 
-        // Held to its limit here too, not by the field's maxlength alone.
-        $this->validate(['reason' => ['nullable', 'string', 'max:'.self::REASON_LIMIT]]);
+        // Held to its limit here too, not by the field's maxlength alone, and
+        // as the action receives it, trimmed. Said where either form shows
+        // what went wrong: the menu has no field to show it beside.
+        $reason = $this->normalizedReason();
+
+        if ($reason !== null && mb_strlen($reason) > self::REASON_LIMIT) {
+            $this->error = __('validation.max.string', ['attribute' => __('ui.moderation.reason'), 'max' => self::REASON_LIMIT]);
+
+            return;
+        }
 
         try {
             $callback();

@@ -60,8 +60,14 @@ function purgeWhileTheReportIsReopened(int $reportId, Closure $purge): array
                 ->where('id', $reportId)
                 ->where('status', '!=', ReportStatus::Open->value)
                 ->update(['status' => ReportStatus::Open->value, 'resolved_by' => null, 'resolved_at' => null, 'resolution_note' => null]) > 0;
-        } catch (QueryException) {
-            // It waited on the purge's lock and gave up.
+        } catch (QueryException $exception) {
+            // It waited on the purge's lock and gave up: PostgreSQL's lock
+            // timeout, or MySQL's and MariaDB's. Any other failure is not the
+            // race this shows, and fails the test.
+            if ($exception->getCode() !== '55P03' && ($exception->errorInfo[1] ?? null) !== 1205) {
+                throw $exception;
+            }
+
             $reopened = false;
         }
     });

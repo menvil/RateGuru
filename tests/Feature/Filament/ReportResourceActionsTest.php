@@ -91,6 +91,18 @@ it('reopens a closed report from its chain', function () {
     expect($report->fresh()->status)->toBe(ReportStatus::Open);
 });
 
+it('says a report already reopened by someone else changed meanwhile, not that it is open again', function () {
+    $report = reportOn(Post::factory()->published()->create(), ['status' => ReportStatus::Ignored]);
+    $page = Livewire::withQueryParams(['status' => 'ignored'])->test(ListReports::class)->call('select', $report->id);
+
+    // Reopened from another tab meanwhile.
+    Report::query()->whereKey($report->id)->update(['status' => ReportStatus::Open]);
+
+    $page->call('reopen', $report->id)
+        ->assertDispatched('rg-admin-toast', message: 'This changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error')
+        ->assertNotDispatched('rg-admin-toast', message: 'Report #'.$report->id.' is open again');
+});
+
 it('says so, and changes nothing, when someone closed the report meanwhile', function () {
     $report = reportOn(Post::factory()->published()->create());
     $page = Livewire::test(ListReports::class);

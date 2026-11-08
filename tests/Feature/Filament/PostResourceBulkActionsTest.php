@@ -121,6 +121,14 @@ it('names the post Undo actually brought back, and says when it brought back non
 
     $page->dispatch($event, ids: [$kept->id])
         ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+
+    // Named twice it is still one post; an address of no post is nothing to undo.
+    $page->dispatch($event, ids: [$kept->id, (string) $kept->id])
+        ->assertDispatched('rg-admin-toast', message: 'This post changed meanwhile, so nothing was done. The list now shows it as it is.', tone: 'error');
+
+    Livewire::withQueryParams(['status' => 'all'])->test(ListPosts::class)
+        ->dispatch($event, ids: ['not-a-post', '-1'])
+        ->assertNotDispatched('rg-admin-toast');
 })->with([
     'undoing a hide' => ['restore-posts', PostStatus::Hidden, PostStatus::Published, 'is visible again'],
     'undoing a restore' => ['hide-posts-again', PostStatus::Published, PostStatus::Hidden, 'is hidden again'],
