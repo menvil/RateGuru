@@ -1,8 +1,20 @@
 # App audit, November 2026
 
 An audit of the application code as it was on `develop` at `85553ca2`. Once
-its fixes are merged, `develop` is tagged `audit-2026-11` there, and the next
-audit reviews what changed since that tag.
+its fixes, and the pull requests reviewed alongside them, are merged, `develop`
+is tagged `audit-2026-11` there, and the next audit reviews what changed since
+that tag.
+
+Every verdict is kept beside this report:
+
+- [2026-11-findings.json](2026-11-findings.json) holds all 956 findings and the
+  200 bot threads on the fix pull requests that were answered without a change.
+  Each finding has its verdict, the reasoning, and what became of it: the pull
+  request that fixed it, or why it was left. The next audit matches its own
+  findings against this file. A finding on code unchanged since the tag keeps
+  its verdict; one on changed code is triaged again.
+- [2026-11-rejected.md](2026-11-rejected.md) lists the ones turned down, in
+  Russian, one line each: what the bot claimed and why nothing changed.
 
 ## Scope
 
