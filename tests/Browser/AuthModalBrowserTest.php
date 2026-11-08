@@ -248,6 +248,32 @@ it('locks the page scroll while it is open and gives it back afterwards', functi
     waitForScript($page, 'document.documentElement.style.overflow', '');
 });
 
+it('shows Remember me only as checked or not: the white check on the accent, and no focus ring', function () {
+    $page = visit(route('feed'))
+        ->click('[data-testid="header-login-link"]')
+        ->assertVisible(AUTH_MODAL)
+        ->click('#modal-login-remember');
+
+    waitForScript($page, 'document.activeElement.id', 'modal-login-remember');
+
+    $box = "getComputedStyle(document.querySelector('#modal-login-remember'))";
+
+    // Filled with the accent it is coloured in, not left on the dark card
+    // under a white check; every focus shadow is zero-sized, and no outline.
+    waitForScript($page, "document.querySelector('#modal-login-remember').checked");
+    waitForScript($page, "{$box}.backgroundColor === {$box}.color");
+    waitForScript($page, "{$box}.backgroundImage.includes('data:image/svg+xml')");
+    waitForScript($page, "{$box}.boxShadow === 'none' || {$box}.boxShadow.split(/,(?![^(]*\\))/).every(shadow => shadow.includes('0px 0px 0px 0px'))");
+    waitForScript($page, "{$box}.outlineStyle", 'none');
+
+    // Unchecked again, and still focused: no ring there either.
+    $page->click('#modal-login-remember');
+    waitForScript($page, "document.querySelector('#modal-login-remember').checked", false);
+    waitForScript($page, 'document.activeElement.id', 'modal-login-remember');
+    waitForScript($page, "{$box}.boxShadow === 'none' || {$box}.boxShadow.split(/,(?![^(]*\\))/).every(shadow => shadow.includes('0px 0px 0px 0px'))");
+    waitForScript($page, "{$box}.outlineStyle", 'none');
+});
+
 it('sits above the header and the page', function () {
     $page = visit(route('feed'))
         ->click('[data-testid="header-login-link"]')

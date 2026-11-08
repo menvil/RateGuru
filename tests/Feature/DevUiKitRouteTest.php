@@ -1,7 +1,9 @@
 <?php
 
 it('renders the dev ui kit in local and testing environments', function () {
-    $this->get('/dev/ui-kit')
+    $response = $this->get('/dev/ui-kit');
+
+    $response
         ->assertOk()
         ->assertSee('RateGuru UI Kit')
         ->assertSee('PlateRate Reference Composition')
@@ -35,6 +37,7 @@ it('renders the dev ui kit in local and testing environments', function () {
         ->assertSee('data-ui="search-form"', false)
         ->assertSee('Validation error example')
         ->assertSee('Disabled input')
+        ->assertSee('Checked checkbox')
         // The PlateRate reference composition and its regions.
         ->assertSee('Home')
         ->assertSee('CATEGORIES')
@@ -62,6 +65,11 @@ it('renders the dev ui kit in local and testing environments', function () {
         ->assertSee('data-testid="rating-option-1"', false)
         ->assertSee('Comment Item')
         ->assertSee('Great example.');
+
+    // Both checkbox states, the checked one by its attribute, not its label.
+    $dom = livewireDom($response->getContent());
+    expect($dom->query('//input[@type="checkbox"][@name="ui_kit_checkbox_checked"][@checked]')->length)->toBe(1)
+        ->and($dom->query('//input[@type="checkbox"][@name="ui_kit_checkbox"][not(@checked)]')->length)->toBe(1);
 
     $this->app->detectEnvironment(fn () => 'local');
 
