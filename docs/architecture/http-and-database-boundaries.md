@@ -65,6 +65,7 @@ The reviewed boundaries are:
 
 - `CommentListQuery` for arithmetic comment ranking.
 - `FeedQuery` for arithmetic vote ordering and literal LIKE searches.
+- `GamePostPickerQuery` for literal LIKE searches over the titles and author usernames of the posts a game round may show.
 - `GamesQuery` for literal LIKE searches over game titles, internal names and slugs.
 - `MatchedUsersQuery` for literal LIKE searches.
 - `MediaAuditIssuesQuery` for a literal LIKE search over issue paths, and the

@@ -11174,4 +11174,414 @@
         line-height: var(--rg-admin-leading-ui);
         font-weight: var(--rg-admin-weight-medium);
     }
+
+    /* Growth → Games · Content: the set and its rounds on the left, the round or Results on the right. */
+    .rg-admin-games__content {
+        display: grid;
+        grid-template-columns: 320px minmax(0, 1fr);
+        gap: var(--rg-admin-space-6);
+        align-items: start;
+    }
+
+    @media (max-width: 1023.98px) {
+        .rg-admin-games__content {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-games__rail,
+    .rg-admin-games__main,
+    .rg-admin-games__round {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+        min-width: 0;
+    }
+
+    .rg-admin-games__sets {
+        position: relative;
+    }
+
+    .rg-admin-games__set-trigger {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 2px var(--rg-admin-space-2);
+        width: 100%;
+        padding: 10px 12px;
+        text-align: left;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__set-trigger > .rg-admin-games__note {
+        grid-column: 1;
+    }
+
+    .rg-admin-games__set-trigger > svg {
+        grid-row: 1 / span 2;
+        grid-column: 2;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__set-name,
+    .rg-admin-games__set-item-name {
+        overflow: hidden;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-games__set-panel {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + 6px);
+        left: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        width: min(360px, calc(100vw - 32px));
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-popover);
+    }
+
+    .rg-admin-games__set-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__set-item {
+        display: flex;
+        flex-direction: column;
+        padding: 8px 10px;
+        border-radius: var(--rg-admin-radius-md);
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .rg-admin-games__set-item:hover,
+    .rg-admin-games__set-item--current {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__set-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-games__set-tools > .rg-admin-field {
+        flex: 1 1 160px;
+    }
+
+    .rg-admin-games__round-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 0;
+        padding: 4px;
+        list-style: none;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-games__round-list:empty {
+        display: none;
+    }
+
+    .rg-admin-games__round-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-games__round-row--current {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__round-select {
+        display: flex;
+        flex: 1;
+        align-items: flex-start;
+        gap: 10px;
+        min-width: 0;
+        padding: 8px;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+    }
+
+    .rg-admin-games__round-number {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-micro);
+        line-height: 1;
+    }
+
+    .rg-admin-games__round-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .rg-admin-games__round-name {
+        overflow: hidden;
+        font-weight: var(--rg-admin-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-games__status {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-games__status--ok {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__status--issue {
+        color: var(--rg-admin-red-500);
+    }
+
+    .rg-admin-games__round-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .rg-admin-games__round-nav {
+        display: flex;
+        gap: 4px;
+    }
+
+    .rg-admin-games__fieldset {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .rg-admin-games__choice {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__choice-title {
+        display: block;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-games__options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--rg-admin-card-gap);
+    }
+
+    @media (max-width: 767.98px) {
+        .rg-admin-games__options {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-games__option {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-games__option-image {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 4 / 3;
+        overflow: hidden;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__option-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-admin-games__option-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-games__option-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 0;
+    }
+
+    .rg-admin-games__source {
+        display: flex;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-games__crowd {
+        display: flex;
+        flex-direction: column;
+        gap: var(--rg-admin-space-2);
+        margin: 0 var(--rg-admin-space-5) var(--rg-admin-space-5);
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border-radius: var(--rg-admin-radius-lg);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__crowd-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .rg-admin-games__crowd-row {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        font-size: var(--rg-admin-text-caption);
+    }
+
+    .rg-admin-games__crowd-bar {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--rg-admin-border-default);
+    }
+
+    .rg-admin-games__crowd-bar > span {
+        display: block;
+        height: 100%;
+        background: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-games__crowd-figure {
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-games__profiles,
+    .rg-admin-games__picker {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__profile {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        padding: 10px 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-games__profile:last-child {
+        border-bottom: 0;
+    }
+
+    .rg-admin-games__profile > .rg-admin-games__mechanic-text {
+        flex: 1;
+    }
+
+    .rg-admin-games__profile-range {
+        flex: none;
+        min-width: 44px;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-games__pair {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-games__icons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-games__icon-tile {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__icon-tile--current {
+        border-color: var(--rg-admin-text-strong);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__picker-item {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-3);
+        width: 100%;
+        padding: 8px;
+        text-align: left;
+        border: 0;
+        border-radius: var(--rg-admin-radius-md);
+        background: transparent;
+        cursor: pointer;
+    }
+
+    .rg-admin-games__picker-item:hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__picker-item > .rg-admin-games__mechanic-text {
+        flex: 1;
+    }
+
+    .rg-admin-games__picker-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: inherit;
+    }
 }
