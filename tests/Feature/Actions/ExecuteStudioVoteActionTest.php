@@ -553,7 +553,7 @@ it('locks the action, then the users in ascending id order, then the plan, the p
     DB::listen(function (QueryExecuted $query) use (&$locked): void {
         $sql = strtolower(str_replace(['"', '`'], '', $query->sql));
 
-        if (str_contains($sql, 'for update') && preg_match('/\bfrom (studio_plan_actions|users|studio_plans|posts|comments|post_votes|comment_votes|rating_groups|rating_options)\b/', $sql, $table) === 1) {
+        if (preg_match('/for (no key )?update/', $sql) === 1 && preg_match('/\bfrom (studio_plan_actions|users|studio_plans|posts|comments|post_votes|comment_votes|rating_groups|rating_options)\b/', $sql, $table) === 1) {
             $locked[] = $table[1].(in_array($table[1], ['post_votes', 'comment_votes'], true) ? '' : '#'.$query->bindings[0]);
         }
     });
