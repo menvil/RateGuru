@@ -11,12 +11,13 @@ it('renders a checkbox that keeps the attributes it is given', function () {
         ->toContain('name="remember"')
         ->toContain('x-model="remember"')
         ->toContain('data-testid="remember-box"')
-        ->toContain('checked="checked"')
-        ->toContain('mt-0.5');
+        ->toContain('mt-0.5')
+        ->and(livewireDom($html)->query('//input[@checked]')->length)->toBe(1);
 });
 
 it('leaves a box it is not told to check unchecked', function () {
-    expect(Blade::render('<x-ui.checkbox name="remember" />'))->not->toContain('checked="checked"');
+    // Parsed, not searched: the checked:* classes contain the word too.
+    expect(livewireDom(Blade::render('<x-ui.checkbox name="remember" />'))->query('//input[@checked]')->length)->toBe(0);
 });
 
 it('fills a checked box with the accent so the white check shows, and draws no focus ring', function () {
