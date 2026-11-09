@@ -61,10 +61,20 @@ final class GameTrafficQuery
      */
     public function playableShares(int $gameId, GameAudience $audience): array
     {
+        return $this->allocation($gameId, $audience)['shares'];
+    }
+
+    /**
+     * The open period of an audience and its playable shares.
+     *
+     * @return array{period: ?GameTrafficPeriod, shares: array<int, int>}
+     */
+    public function allocation(int $gameId, GameAudience $audience): array
+    {
         $period = $this->currentPeriod($gameId, $audience);
 
         if ($period === null) {
-            return [];
+            return ['period' => null, 'shares' => []];
         }
 
         $active = $period->versions->filter(fn (GameVersion $version): bool => $version->status === GameVersionStatus::Active);
@@ -77,7 +87,7 @@ final class GameTrafficQuery
             }
         }
 
-        return $shares;
+        return ['period' => $period, 'shares' => $shares];
     }
 
     /**

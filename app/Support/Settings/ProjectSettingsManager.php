@@ -51,6 +51,10 @@ class ProjectSettingsManager
             // is a verified adult: off until an administrator says so in the
             // project's settings (StudioVerifiedAdults).
             'content_studio_verified_adults' => false,
+            // Growth → Games for visitors: off on every installation until an
+            // administrator switches it on, so a game can be prepared,
+            // published and previewed before anyone reaches it.
+            'allow_games' => false,
         ],
     ];
 

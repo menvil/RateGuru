@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\SocialProvider;
+use App\Http\Controllers\Games\GameResultController;
+use App\Http\Controllers\Games\ShareGameResultController;
 use App\Http\Controllers\Locale\ChangeLocaleController;
 use App\Http\Controllers\Profile\ConnectedAccountController;
 use App\Http\Controllers\ProfileController;
@@ -9,8 +11,10 @@ use App\Http\Controllers\SiteManifestController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
 use App\Http\Middleware\EnsureDevEnvironment;
+use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
+use App\Livewire\Games\PlayGame;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
 use App\Livewire\Profile\ProfilePage;
@@ -33,6 +37,19 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
     Route::get('/posts/{post}/share/{provider}', SharePostController::class)->whereNumber('post')->name('posts.share');
 
     Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
+
+    // Growth → Games: a live game, a shared result, and a share on its way
+    // to a provider. None of them exists while Project settings has games off.
+    Route::middleware(EnsureGamesAreEnabled::class)->group(function () {
+        Route::get('/games/{slug}', PlayGame::class)->where('slug', '[a-z0-9-]+')->name('games.play');
+        Route::get('/games/{slug}/v{version}/{profile}', GameResultController::class)
+            ->where(['slug' => '[a-z0-9-]+', 'version' => '[0-9]+', 'profile' => '[a-z0-9-]+'])
+            ->name('games.result');
+        Route::get('/games/{slug}/v{version}/{profile}/share/{provider}', ShareGameResultController::class)
+            ->where(['slug' => '[a-z0-9-]+', 'version' => '[0-9]+', 'profile' => '[a-z0-9-]+'])
+            ->middleware('throttle:30,1')
+            ->name('games.share');
+    });
 });
 
 Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');

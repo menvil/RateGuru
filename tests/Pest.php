@@ -1,5 +1,8 @@
 <?php
 
+use App\Actions\Games\ApplyGameTrafficAction;
+use App\Actions\Games\ChangeGameStatusAction;
+use App\Actions\Games\PublishGameVersionAction;
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
 use App\Actions\Studio\ApproveStudioPlanAction;
@@ -21,7 +24,9 @@ use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\CommentStatus;
+use App\Enums\GameAudience;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -49,6 +54,7 @@ use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
+use App\Models\GameVersion;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
@@ -14411,4 +14417,33 @@ function publishableGameDraft(int $rounds = 3, ?User $admin = null): array
     }
 
     return ['admin' => $admin, 'game' => $game->fresh(), 'set' => $set->fresh(), 'flow' => $flow->fresh()];
+}
+
+/**
+ * A live game visitors can play: the draft published as its first version,
+ * given every visitor of both audiences, the game live and games allowed in
+ * Project settings.
+ *
+ * @param  array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}  $draft
+ */
+function liveGame(array $draft): GameVersion
+{
+    $version = app(PublishGameVersionAction::class)->handle($draft['admin'], $draft['game'], $draft['set']->id, $draft['flow']->id);
+
+    foreach (GameAudience::cases() as $audience) {
+        app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game'], $audience, [$version->id => 100]);
+    }
+
+    app(ChangeGameStatusAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameStatus::Live);
+    allowGames();
+
+    return $version;
+}
+
+/** Games switched on in Project settings, as an administrator switches them on. */
+function allowGames(bool $allowed = true): void
+{
+    $settings = ProjectSettings::query()->find(1) ?? ProjectSettings::factory()->create();
+    $settings->forceFill(['feature_flags' => [...($settings->feature_flags ?? []), 'allow_games' => $allowed]])->save();
+    app(ProjectSettingsManager::class)->flush();
 }

@@ -18,6 +18,10 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         @php
             $searchClearUrl = route('feed', request()->except(['search', 'page']));
+            // A focused page — a game — keeps the header's brand and account
+            // controls, the sign-in dialog and the toasts, and leaves out the
+            // navigation and the search around it.
+            $focused = (bool) ($focused ?? false);
         @endphp
         <div
             class="min-h-screen"
@@ -28,6 +32,7 @@
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
+                    @unless ($focused)
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -37,11 +42,15 @@
                     >
                         <x-ui.icon name="menu" class="size-5" />
                     </button>
+                    @endunless
 
                     <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
                         <x-brand-wordmark class="block truncate" />
                     </a>
 
+                    @if ($focused)
+                        <span class="ml-auto"></span>
+                    @else
                     <x-ui.search-form
                         :action="route('feed')"
                         :value="request('search')"
@@ -64,6 +73,7 @@
                     >
                         <x-ui.icon name="search" class="size-4" />
                     </button>
+                    @endif
 
                     @auth
                         <div
@@ -237,6 +247,7 @@
                 </div>
 
                 {{-- Mobile search row --}}
+                @unless ($focused)
                 <div
                     x-cloak
                     x-show="mobileSearchOpen"
@@ -256,6 +267,7 @@
                         class="flex items-center gap-2"
                     />
                 </div>
+                @endunless
 
                 @guest
                     {{-- Rendered once, and inside the header like the upload modal: the
@@ -396,8 +408,10 @@
                 <livewire:feed.post-drawer wire:key="global-post-detail-overlay-drawer" :as-overlay="true" />
             @endif
 
-            <div class="mx-auto grid w-full max-w-[1440px] lg:grid-cols-[240px_minmax(0,1fr)]">
-                @include('layouts.partials.app-sidebar')
+            <div @class(['mx-auto grid w-full max-w-[1440px]', 'lg:grid-cols-[240px_minmax(0,1fr)]' => ! $focused])>
+                @unless ($focused)
+                    @include('layouts.partials.app-sidebar')
+                @endunless
 
                 <div class="min-w-0">
                     @isset($header)
@@ -411,7 +425,7 @@
                     <x-account-restriction-notice />
 
                     <main
-                        class="{{ $isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}"
+                        class="{{ $focused ? 'px-0 py-0' : ($isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8') }}"
                         data-testid="app-main"
                     >
                         {{ $slot ?? '' }}

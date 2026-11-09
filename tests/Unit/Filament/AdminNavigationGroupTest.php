@@ -18,6 +18,7 @@ it('exposes all navigation groups in the Admin v2 display order', function () {
         'Moderation',
         'Content',
         'Content Studio',
+        'Growth',
         'Localization',
         'Configuration',
         'System',

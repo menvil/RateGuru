@@ -137,4 +137,459 @@ select:disabled {
         cursor: not-allowed;
         pointer-events: none;
     }
+
+    /*
+     * Growth → Games: the game page and a shared result. One column, the
+     * width of a phone first, roomier from tablets up; a pair of pictures
+     * side by side at every width.
+     */
+    .rg-game {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 12px 12px 32px;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game {
+            padding: 20px 20px 48px;
+        }
+    }
+
+    .rg-game__preview {
+        padding: 8px 12px;
+        border: 1px dashed var(--rg-accent-border);
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+        font-size: 13px;
+        font-weight: 600;
+        text-align: center;
+    }
+
+    .rg-game__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--rg-text-2);
+        font-size: 13px;
+    }
+
+    .rg-game__bar-title {
+        overflow: hidden;
+        font-weight: 700;
+        color: var(--rg-text);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-game__frame {
+        display: flex;
+        justify-content: center;
+    }
+
+    .rg-game__card,
+    .rg-game__round {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        width: 100%;
+        max-width: 640px;
+        padding: 20px;
+        border: 1px solid var(--rg-border);
+        border-radius: var(--rg-radius-card);
+        background: var(--rg-card);
+        box-shadow: var(--rg-shadow-card);
+    }
+
+    .rg-game__round {
+        max-width: 900px;
+    }
+
+    .rg-game__card--landing,
+    .rg-game__card--result {
+        text-align: center;
+    }
+
+    .rg-game__cover,
+    .rg-game__result-image {
+        width: 100%;
+        max-height: 360px;
+        object-fit: cover;
+        border-radius: var(--rg-radius-media);
+    }
+
+    .rg-game__eyebrow {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--rg-muted);
+    }
+
+    .rg-game__title,
+    .rg-game__question {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.15;
+        font-weight: 800;
+        color: var(--rg-text);
+    }
+
+    .rg-game__question {
+        font-size: 22px;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__title {
+            font-size: 34px;
+        }
+
+        .rg-game__question {
+            font-size: 26px;
+        }
+    }
+
+    .rg-game__subtitle {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 700;
+    }
+
+    .rg-game__lead {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.5;
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__note {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--rg-muted);
+    }
+
+    .rg-game__error {
+        margin: 0;
+        font-size: 13px;
+        color: var(--rg-danger-text);
+    }
+
+    .rg-game__actions,
+    .rg-game__share-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .rg-game__button {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 44px;
+        padding: 0 16px;
+        overflow: hidden;
+        border: 1px solid var(--rg-border-2);
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-card);
+        color: var(--rg-text);
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .rg-game__button:hover {
+        background: var(--rg-card-2);
+    }
+
+    .rg-game__button--primary {
+        border-color: transparent;
+        background: var(--rg-accent);
+        color: var(--rg-on-accent);
+    }
+
+    .rg-game__button--primary:hover {
+        background: var(--rg-accent-hover);
+    }
+
+    .rg-game__button--wide {
+        width: 100%;
+    }
+
+    .rg-game__button-text {
+        position: relative;
+    }
+
+    .rg-game__timer {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    .rg-game__link {
+        align-self: center;
+        padding: 6px;
+        border: 0;
+        background: transparent;
+        color: var(--rg-text-2);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .rg-game__link:hover {
+        color: var(--rg-text);
+    }
+
+    .rg-game__progress {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .rg-game__dots {
+        display: flex;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-game__dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--rg-border-2);
+    }
+
+    .rg-game__dot--current {
+        width: 22px;
+        background: var(--rg-accent);
+    }
+
+    .rg-game__dot--correct {
+        background: var(--rg-good);
+    }
+
+    .rg-game__dot--incorrect {
+        background: var(--rg-danger);
+    }
+
+    .rg-game__dot--neutral {
+        background: var(--rg-muted-2);
+    }
+
+    .rg-game__pair {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__pair {
+            gap: 16px;
+        }
+    }
+
+    .rg-game__option {
+        position: relative;
+        display: block;
+        padding: 0;
+        overflow: hidden;
+        border: 2px solid transparent;
+        border-radius: var(--rg-radius-media);
+        background: var(--rg-surface-2);
+        cursor: pointer;
+        transition: border-color 150ms, opacity 150ms, transform 150ms;
+    }
+
+    .rg-game__option:disabled {
+        cursor: default;
+    }
+
+    .rg-game__option:not(:disabled):hover {
+        transform: translateY(-2px);
+    }
+
+    .rg-game__option--picked {
+        border-color: var(--rg-accent);
+    }
+
+    .rg-game__option--answer {
+        border-color: var(--rg-good);
+    }
+
+    .rg-game__option--dim {
+        opacity: 0.6;
+    }
+
+    .rg-game__image {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+    }
+
+    .rg-game__image--missing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--rg-muted);
+        font-size: 13px;
+    }
+
+    .rg-game__label {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+        padding: 6px 8px;
+        border-radius: var(--rg-radius-sm);
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .rg-game__badge {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        padding: 3px 8px;
+        border-radius: var(--rg-radius-pill);
+        background: var(--rg-accent);
+        color: var(--rg-on-accent);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .rg-game__badge--answer {
+        top: auto;
+        bottom: 44px;
+        background: var(--rg-good);
+    }
+
+    .rg-game__share {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 3px 8px;
+        border-radius: var(--rg-radius-pill);
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .rg-game__verdict {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 14px;
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-surface-2);
+    }
+
+    .rg-game__verdict--correct {
+        background: var(--rg-good-soft);
+    }
+
+    .rg-game__verdict--incorrect {
+        background: var(--rg-danger-soft);
+    }
+
+    .rg-game__verdict-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 800;
+    }
+
+    .rg-game__score {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+    }
+
+    .rg-game__badge-icon {
+        display: inline-flex;
+        align-self: center;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 999px;
+        background: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+    }
+
+    .rg-game__locked {
+        height: 120px;
+        border-radius: var(--rg-radius-media);
+        background: linear-gradient(135deg, var(--rg-surface-2), var(--rg-surface-3));
+    }
+
+    .rg-game__form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .rg-game__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        text-align: left;
+    }
+
+    .rg-game__field-label {
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .rg-game__input {
+        min-height: 44px;
+        padding: 0 12px;
+        border: 1px solid var(--rg-border-2);
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-surface);
+        color: var(--rg-text);
+    }
+
+    .rg-game__check {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--rg-text-2);
+        text-align: left;
+    }
+
+    .rg-game__signup {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 14px;
+        border: 1px solid var(--rg-border);
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-surface-2);
+    }
+
+    .rg-game__lines {
+        text-align: left;
+    }
 }
