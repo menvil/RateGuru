@@ -1,8 +1,9 @@
 @php
     /*
      * One game (TBL-01): its public title — a link to its editor — with its
-     * internal name and address; its mechanic; its newest version and where
-     * that version's traffic stands; its status (STS-01); when it was last
+     * internal name, mechanic and address; its newest version and where
+     * that version's traffic stands; its status (STS-01); its plays,
+     * completion and sign-ups of the last 30 days; when it was last
      * saved; Edit inline and the status moves in the row menu (TBL-04), each
      * asked first.
      */
@@ -19,12 +20,8 @@
     <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
         <div class="rg-admin-table__stack">
             <a href="{{ $row['editUrl'] }}" class="rg-admin-table__name rg-admin-table__name--link rg-admin-table__ellipsis">{{ $row['title'] }}</a>
-            <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ $row['internal'] }} · <span class="rg-admin-mono">/games/{{ $row['slug'] }}</span></span>
+            <span class="rg-admin-table__meta rg-admin-table__meta--small rg-admin-table__ellipsis">{{ $row['internal'] }} · {{ $row['mechanic'] }} · <span class="rg-admin-mono">/games/{{ $row['slug'] }}</span></span>
         </div>
-    </div>
-
-    <div class="rg-admin-table__cell" role="cell">
-        <span class="rg-admin-table__meta">{{ $row['mechanic'] }}</span>
     </div>
 
     <div class="rg-admin-table__cell" role="cell">
@@ -41,6 +38,16 @@
     <div class="rg-admin-table__cell" role="cell">
         <x-admin.ui.badge :tone="$row['status']['tone']" :dot="$row['status']['dot']">{{ $row['status']['label'] }}</x-admin.ui.badge>
     </div>
+
+    @foreach (['plays', 'completion', 'signups'] as $figure)
+        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">
+            @if ($row[$figure] === null)
+                <span class="rg-admin-table__none">—</span>
+            @else
+                {{ $row[$figure] }}
+            @endif
+        </div>
+    @endforeach
 
     <div class="rg-admin-table__cell" role="cell">
         <span class="rg-admin-table__meta">{{ $row['updated'] }}</span>

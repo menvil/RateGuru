@@ -125,6 +125,13 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/RatingVoteCountsQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Games\GameMetricsQuery
+                methods: [selectRaw, havingRaw]
+                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set — and the people with more than one attempt, without hydrating the rows; every value is bound.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Translations\TranslationAiUsageQuery
                 methods: [selectRaw]
                 reason: 'Translation AI usage needs conditional sums by status, a UTC hour or day bucket per engine, and per provider and model a call count conditional on a period beside MAX(completed_at), without hydrating call rows; every value is bound.'

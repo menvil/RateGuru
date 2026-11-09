@@ -7,7 +7,7 @@
      * narrower than the grid, the card scrolls sideways and every column
      * stays (TBL-01).
      */
-    $columns = '--rg-admin-table-columns: minmax(260px, 1.8fr) 120px minmax(170px, 1fr) 130px 140px 150px; --rg-admin-table-min-width: 1000px';
+    $columns = '--rg-admin-table-columns: minmax(240px, 1.8fr) minmax(150px, 1fr) 120px 84px 100px 96px 120px 150px; --rg-admin-table-min-width: 1100px';
     $total = $paginator->total();
 @endphp
 
@@ -76,9 +76,11 @@
                     <div class="rg-admin-table__grid" role="table" aria-label="Games" style="{{ $columns }}">
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Game</div>
-                            <div class="rg-admin-table__cell" role="columnheader">Mechanic</div>
                             <div class="rg-admin-table__cell" role="columnheader">Last version</div>
                             <div class="rg-admin-table__cell" role="columnheader">Status</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="Attempts started in the last 30 days">Plays</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="Attempts completed of those started in the last 30 days">Completion</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader" title="New accounts of anonymous visitors in the last 30 days">Sign-ups</div>
                             <div class="rg-admin-table__cell" role="columnheader">Last updated</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--end" role="columnheader">Actions</div>
                         </div>

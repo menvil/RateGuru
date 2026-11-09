@@ -3,6 +3,7 @@
 use App\Enums\GameStatus;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\ListGames;
+use App\Livewire\Games\PlayGame;
 use App\Models\Game;
 use App\Models\GameVersion;
 use App\Models\ProjectSettings;
@@ -81,4 +82,27 @@ it('lets nobody but an administrator who may manage games in', function () {
     $this->actingAs(User::factory()->moderator()->create())
         ->get(GameResource::getUrl('index'))
         ->assertForbidden();
+});
+
+it('shows each game’s plays, completion and sign-ups of the last 30 days, and a dash for none', function () {
+    $draft = publishableGameDraft(1);
+    liveGame($draft);
+    $quiet = Game::factory()->create(['title' => 'Nobody played this']);
+    $cookie = (string) config('games.visitor_cookie.name');
+    // Two guests play: nobody is signed in.
+    auth()->logout();
+
+    Livewire::withCookie($cookie, str_repeat('a', 40))->test(PlayGame::class, ['slug' => $draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next');
+    session()->flush();
+    Livewire::withCookie($cookie, str_repeat('b', 40))->test(PlayGame::class, ['slug' => $draft['game']->slug])
+        ->call('init')->call('continue');
+    session()->flush();
+    $this->actingAs($draft['admin']);
+
+    $page = $this->get(GameResource::getUrl('index'))->assertOk();
+
+    // Two started, one completed, no account made from two anonymous visitors.
+    $page->assertSeeInOrder([$draft['game']->title, '2', '50.0%', '0.0%'])
+        ->assertSeeInOrder([$quiet->title, '—', '—', '—']);
 });

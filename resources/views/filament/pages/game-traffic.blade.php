@@ -74,7 +74,7 @@
                         <li class="rg-admin-games__profile">
                             <span class="rg-admin-games__mechanic-text">
                                 <span class="rg-admin-games__mechanic-name">{{ $period['audience'] }} · {{ $period['shares'] }}</span>
-                                <span class="rg-admin-games__note">{{ $period['from'] }} — {{ $period['to'] ?? 'now' }} · {{ number_format($period['visitors']) }} {{ \Illuminate\Support\Str::plural('visitor', $period['visitors']) }} assigned</span>
+                                <span class="rg-admin-games__note">{{ $period['from'] }} — {{ $period['to'] ?? 'now' }} · {{ number_format($period['visitors']) }} {{ \Illuminate\Support\Str::plural('visitor', $period['visitors']) }} assigned · {{ number_format($period['started']) }} started · {{ number_format($period['completed']) }} completed</span>
                             </span>
                             <x-admin.ui.badge :tone="$period['to'] === null ? 'success' : 'neutral'">{{ $period['to'] === null ? 'Current' : 'Ended' }}</x-admin.ui.badge>
                         </li>

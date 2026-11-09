@@ -6,6 +6,7 @@ use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
 use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
+use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Filament\Resources\Games\Pages\GameTraffic;
 use App\Filament\Resources\Games\Pages\GameVersions;
 use App\Filament\Resources\Games\Pages\ListGames;
@@ -58,6 +59,7 @@ class GameResource extends Resource
         'flow' => ['label' => 'Flow', 'page' => 'flow'],
         'versions' => ['label' => 'Versions', 'page' => 'versions'],
         'traffic' => ['label' => 'Traffic', 'page' => 'traffic'],
+        'analytics' => ['label' => 'Analytics', 'page' => 'analytics'],
         'preview' => ['label' => 'Preview', 'page' => 'preview'],
     ];
 
@@ -107,6 +109,7 @@ class GameResource extends Resource
             'flow' => EditGameFlow::route('/{record}/flow'),
             'versions' => GameVersions::route('/{record}/versions'),
             'traffic' => GameTraffic::route('/{record}/traffic'),
+            'analytics' => GameAnalytics::route('/{record}/analytics'),
             'preview' => PreviewGame::route('/{record}/preview'),
         ];
     }

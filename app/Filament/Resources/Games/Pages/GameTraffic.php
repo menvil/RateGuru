@@ -11,6 +11,7 @@ use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Queries\Games\GameMetricsQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Support\Games\Traffic\TrafficShareValidator;
 use Filament\Resources\Pages\Page;
@@ -20,7 +21,8 @@ use Filament\Support\Enums\Width;
  * A game's Traffic tab: how each audience's visitors are shared out between
  * its active versions — anonymous visitors and logged-in players apart — each
  * applied on its own (ApplyGameTrafficAction), and every period an allocation
- * was in effect, with how many visitors it assigned.
+ * was in effect, with how many visitors it assigned and how many attempts
+ * they started and completed.
  */
 final class GameTraffic extends Page
 {
@@ -171,6 +173,7 @@ final class GameTraffic extends Page
         }
 
         $periods = GameTrafficPeriod::query()->where('game_id', $game->id)->with('versions')->withCount('assignments')->orderByDesc('started_at')->orderByDesc('id')->limit(50)->get();
+        $attempts = app(GameMetricsQuery::class)->periods((int) $game->id);
 
         return [
             'header' => $this->editorHeader($game, 'traffic'),
@@ -184,6 +187,8 @@ final class GameTraffic extends Page
                 'to' => $period->ended_at?->format('d M Y, H:i'),
                 'shares' => $period->versions->map(fn (GameVersion $version): string => $version->label().' '.((int) $version->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
                 'visitors' => (int) $period->assignments_count,
+                'started' => $attempts[(int) $period->id]['started'] ?? 0,
+                'completed' => $attempts[(int) $period->id]['completed'] ?? 0,
             ])->all(),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
         ];

@@ -13,8 +13,11 @@ use App\Filament\Support\ModerationListFormat;
 use App\Models\Game;
 use App\Models\GameVersion;
 use App\Models\User;
+use App\Queries\Games\GameMetricsQuery;
 use App\Queries\Games\GamesQuery;
 use App\Queries\Games\GameTrafficQuery;
+use App\Support\Games\Analytics\GameFunnel;
+use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Livewire\Attributes\Locked;
@@ -29,6 +32,9 @@ use Livewire\Attributes\Url;
  */
 final class ListGames extends Page
 {
+    /** The days the library's figures look back over. */
+    public const METRICS_DAYS = 30;
+
     protected static string $resource = GameResource::class;
 
     protected string $view = 'filament.pages.games';
@@ -186,16 +192,21 @@ final class ListGames extends Page
      */
     private function rows(array $games): array
     {
-        $inTraffic = app(GameTrafficQuery::class)->versionsInTraffic(array_map(fn (Game $game): int => (int) $game->id, $games));
+        $ids = array_map(fn (Game $game): int => (int) $game->id, $games);
+        $inTraffic = app(GameTrafficQuery::class)->versionsInTraffic($ids);
+        // Up to and including the current second: the database keeps whole seconds.
+        $now = CarbonImmutable::now()->startOfSecond()->addSecond();
+        $metrics = app(GameMetricsQuery::class)->library($ids, $now->subDays(self::METRICS_DAYS), $now);
 
-        return array_map(fn (Game $game): array => $this->row($game, $inTraffic[(int) $game->id] ?? []), $games);
+        return array_map(fn (Game $game): array => $this->row($game, $inTraffic[(int) $game->id] ?? [], $metrics[(int) $game->id] ?? null), $games);
     }
 
     /**
      * @param  list<int>  $inTraffic  the game's versions in traffic now
+     * @param  array{started: int, completed: int, visitors: int, registered: int}|null  $metrics  the last 30 days
      * @return array<string, mixed>
      */
-    private function row(Game $game, array $inTraffic): array
+    private function row(Game $game, array $inTraffic, ?array $metrics): array
     {
         /** @var GameVersion|null $latest */
         $latest = $game->versions->first();
@@ -216,7 +227,17 @@ final class ListGames extends Page
                 'state' => GameFormat::versionStatus($latest, in_array((int) $latest->id, $inTraffic, true)),
             ],
             'updated' => ModerationListFormat::when($game->updated_at),
+            'plays' => $metrics === null ? null : number_format($metrics['started']),
+            'completion' => $metrics === null ? null : self::percent($metrics['completed'], $metrics['started']),
+            'signups' => $metrics === null ? null : self::percent($metrics['registered'], $metrics['visitors']),
         ];
+    }
+
+    private static function percent(int $part, int $whole): ?string
+    {
+        $rate = GameFunnel::rate($part, $whole);
+
+        return $rate === null ? null : number_format($rate, 1).'%';
     }
 
     private function normalize(): void
