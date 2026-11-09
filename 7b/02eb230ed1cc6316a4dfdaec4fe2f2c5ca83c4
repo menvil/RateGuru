@@ -1,0 +1,35 @@
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_535fd603c046ce 1-182
+docs/dev/seed-data.md
+  s_4b9dc6ab6b25d3::t_e1032916e379db 53-72
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_5b8d87ec297da1 1653-1660
+  s_4b9dc6ab6b25d3::t_3b3bc169362ff5 1257-1281,1283-1294,1296-1300,1302-1314
+  s_4b9dc6ab6b25d3::t_4b6ad0f8249ba0 1282,1295,1301
+tests/Feature/Seeders/GamesDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_dfff8af8a861c7 1-37,39-59
+  s_4b9dc6ab6b25d3::t_2b2ad69046de15 38
+database/seeders/GamesDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_a3356de24be00c 1-186
+docs/design/admin/migration-plan.md
+  s_4b9dc6ab6b25d3::t_b4ae29390c4c64 307-314
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_85cf16a0f7f4b3 9
+  s_4b9dc6ab6b25d3::t_eb482ca6076e37 1-8,10-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7b02eb230ed1cc6316a4dfdaec4fe2f2c5ca83c4",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
