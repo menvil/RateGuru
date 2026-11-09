@@ -1,0 +1,219 @@
+database/migrations/2026_11_09_101000_create_game_events_table.php
+  s_4b9dc6ab6b25d3::t_f5a19391f791fe 1-44
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_9748655512ebe9 64-67
+tests/Feature/Games/GameDraftPostPurgeTest.php
+  s_4b9dc6ab6b25d3::t_9748655512ebe9 1-31
+app/Enums/GameFlowStepType.php
+  s_4b9dc6ab6b25d3::t_56866bc25a5b7c 1-170,172-252
+  s_4b9dc6ab6b25d3::t_54128321895937 171
+app/Models/GameResultProfile.php
+  s_4b9dc6ab6b25d3::t_6ed1a89d14e2ec 1-64
+app/Support/Games/Publishing/GamePublishReadiness.php
+  s_4b9dc6ab6b25d3::t_2ac3af7a6d0619 1-105
+tests/Feature/Services/Media/MediaReferenceCheckerTest.php
+  s_4b9dc6ab6b25d3::t_491fc6ea34f090 3-6,106,120-125,128,132-134,141-142,147-159
+tests/Unit/Support/Games/CrowdComparisonTest.php
+  s_4b9dc6ab6b25d3::t_777416214be591 1-80
+tests/Unit/Support/Games/VersusRoundCheckTest.php
+  s_4b9dc6ab6b25d3::t_777416214be591 1-98
+app/Enums/GameAccountOutcome.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-13
+app/Enums/GameStatus.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-39
+app/Support/Games/Snapshot/SnapshotRound.php
+  s_4b9dc6ab6b25d3::t_0330672bcd88a2 1-69
+app/Support/Games/Snapshot/LocalizedText.php
+  s_4b9dc6ab6b25d3::t_0330672bcd88a2 1-63
+app/Models/GameEmailCapture.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-44
+app/Support/Games/Versus/CrowdSide.php
+  s_4b9dc6ab6b25d3::t_f73e2b824ae2fb 1-30
+database/factories/GameFlowFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-23
+app/Enums/GameAnswerOutcome.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-11
+database/factories/GameRoundFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-38
+database/migrations/2026_11_09_100200_create_game_rounds_table.php
+  s_4b9dc6ab6b25d3::t_d5e95baca26afc 1-38
+app/Enums/GameSignupMode.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-23
+app/Support/Games/Versus/CrowdComparison.php
+  s_4b9dc6ab6b25d3::t_f73e2b824ae2fb 1-90
+tests/Unit/Support/Games/GameFlowValidatorTest.php
+  s_4b9dc6ab6b25d3::t_c7e088d9de3b18 1-159
+app/Enums/GameProfileIcon.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-16
+tests/Unit/Support/Games/GameScorerTest.php
+  s_4b9dc6ab6b25d3::t_c7e088d9de3b18 1-63
+app/Models/GameFlow.php
+  s_4b9dc6ab6b25d3::t_6ed1a89d14e2ec 1-73
+database/factories/GameTrafficPeriodFactory.php
+  s_4b9dc6ab6b25d3::t_dc69bdd12045e8 1-32
+database/factories/GameVersionFactory.php
+  s_4b9dc6ab6b25d3::t_dc69bdd12045e8 1-89
+app/Models/GameContentSet.php
+  s_4b9dc6ab6b25d3::t_5688cd55985685 1-91
+database/migrations/2026_11_09_100300_create_game_round_options_table.php
+  s_4b9dc6ab6b25d3::t_a17ae7f1fe7afd 1-10,15-16,18-45,47-78,80-83
+  s_4b9dc6ab6b25d3::t_7d9af2ae6666f5 11-14,17
+  s_4b9dc6ab6b25d3::t_97a26f744d8de4 46,79
+app/Enums/GameVersionStatus.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-21
+app/Models/GameAttempt.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-113
+app/Support/Games/Drafts/DraftImageState.php
+  s_4b9dc6ab6b25d3::t_aacec36d905e30 1-32
+app/Support/Games/Scoring/AnswerOutcome.php
+  s_4b9dc6ab6b25d3::t_f608f0355358c0 1-15
+database/migrations/2026_11_09_100500_create_game_flows_table.php
+  s_4b9dc6ab6b25d3::t_a17ae7f1fe7afd 1-54
+app/Enums/GameFlowStage.php
+  s_4b9dc6ab6b25d3::t_56866bc25a5b7c 1-25
+app/Models/GameRound.php
+  s_4b9dc6ab6b25d3::t_5688cd55985685 1-72
+app/Support/Games/Traffic/VersionAssigner.php
+  s_4b9dc6ab6b25d3::t_f608f0355358c0 1-47
+config/games.php
+  s_4b9dc6ab6b25d3::t_dc69bdd12045e8 1-50
+app/Enums/GameCrowdState.php
+  s_4b9dc6ab6b25d3::t_56866bc25a5b7c 1-23
+database/migrations/2026_11_09_100000_create_games_table.php
+  s_4b9dc6ab6b25d3::t_d5e95baca26afc 1-56
+app/Support/Games/Flow/GameFlowValidator.php
+  s_4b9dc6ab6b25d3::t_01a2bd58eb5d14 1-209
+app/Support/Games/Scoring/GameResult.php
+  s_4b9dc6ab6b25d3::t_f608f0355358c0 1-23
+app/Support/Games/Drafts/ContentSetReport.php
+  s_4b9dc6ab6b25d3::t_aacec36d905e30 1-77,80-113
+  s_4b9dc6ab6b25d3::t_ecaa3e0abe92ba 78-79
+app/Support/Games/Flow/FlowVisitor.php
+  s_4b9dc6ab6b25d3::t_a9303e2556a7b8 1-17
+app/Queries/Games/GameDraftQuery.php
+  s_4b9dc6ab6b25d3::t_aacec36d905e30 1-33,35
+app/Models/GameAssignment.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-64
+tests/Unit/Support/Games/ResultProfileCoverageTest.php
+  s_4b9dc6ab6b25d3::t_777416214be591 1-61
+app/Enums/GameAdvanceMode.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-18
+app/Models/Game.php
+  s_4b9dc6ab6b25d3::t_5688cd55985685 1-131
+app/Models/GameAnswer.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-46
+app/Models/GameFlowStep.php
+  s_4b9dc6ab6b25d3::t_6ed1a89d14e2ec 1-81
+app/Support/Games/Flow/FlowStepDraft.php
+  s_4b9dc6ab6b25d3::t_df21628f81f70e 1-66
+app/Support/Games/Flow/GameFlowStepSettings.php
+  s_4b9dc6ab6b25d3::t_df21628f81f70e 1-32,34,36-52
+  s_4b9dc6ab6b25d3::t_ecaa3e0abe92ba 33,35
+app/Models/GameEvent.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-50
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_b43dd75fc0326b 24,73
+  s_4b9dc6ab6b25d3::t_1ace312260904d 45-51,14357-14413
+tests/Feature/Games/GameDraftReportTest.php
+  s_4b9dc6ab6b25d3::t_8635658dbe6f7e 1-108
+app/Services/Media/MediaReferenceChecker.php
+  s_4b9dc6ab6b25d3::t_46628c48fd6b8c 5-7,15-22,43-47,52-54,71-74
+app/Support/Games/Versus/VersusRoundCheck.php
+  s_4b9dc6ab6b25d3::t_5a2167e8634bd2 1-93,95-131
+app/Models/GameRoundOption.php
+  s_4b9dc6ab6b25d3::t_5688cd55985685 1-76
+app/Support/Games/Results/ResultProfileCoverage.php
+  s_4b9dc6ab6b25d3::t_8a08119a7abf7b 1-173
+app/Enums/GameMechanic.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-34
+tests/Unit/Support/Games/GameTrafficTest.php
+  s_4b9dc6ab6b25d3::t_c7e088d9de3b18 1-45
+app/Support/Games/Snapshot/SnapshotStep.php
+  s_4b9dc6ab6b25d3::t_2d2eefbbd23667 1-75
+app/Support/Games/Traffic/TrafficShareValidator.php
+  s_4b9dc6ab6b25d3::t_f608f0355358c0 1-48
+app/Support/Games/Versus/ImageState.php
+  s_4b9dc6ab6b25d3::t_5a2167e8634bd2 1-14
+database/factories/GameRoundOptionFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-49
+database/migrations/2026_11_09_100400_create_game_result_profiles_table.php
+  s_4b9dc6ab6b25d3::t_a17ae7f1fe7afd 1-44
+app/Support/Games/Flow/GameFlowRunner.php
+  s_4b9dc6ab6b25d3::t_a9303e2556a7b8 1-111
+database/migrations/2026_11_09_100600_create_game_versions_table.php
+  s_4b9dc6ab6b25d3::t_db6ea0a175c4a7 1-71
+database/migrations/2026_11_09_100900_create_game_attempts_table.php
+  s_4b9dc6ab6b25d3::t_f5a19391f791fe 1-94
+app/Enums/GameEventType.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-21
+app/Models/GameTrafficPeriod.php
+  s_4b9dc6ab6b25d3::t_5dfefed8fd2d79 1-99
+app/Support/Games/Results/ResultProfileRange.php
+  s_4b9dc6ab6b25d3::t_8a08119a7abf7b 1-13
+app/Support/Games/Snapshot/SnapshotOption.php
+  s_4b9dc6ab6b25d3::t_0330672bcd88a2 1-58
+app/Models/MediaAsset.php
+  s_4b9dc6ab6b25d3::t_46628c48fd6b8c 12,59-68
+app/Support/Games/Versus/VersusOptionDraft.php
+  s_4b9dc6ab6b25d3::t_5a2167e8634bd2 1-36
+app/Models/GameVersion.php
+  s_4b9dc6ab6b25d3::t_6ed1a89d14e2ec 1-117,120-140
+app/Support/Games/Flow/FlowIssue.php
+  s_4b9dc6ab6b25d3::t_df21628f81f70e 1-12
+app/Enums/GameAttemptStatus.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-14
+app/Enums/GameAudience.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-18
+app/Enums/GameStepAudience.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-29
+app/Support/Games/Snapshot/SnapshotProfile.php
+  s_4b9dc6ab6b25d3::t_0330672bcd88a2 1-48
+database/factories/GameAttemptFactory.php
+  s_4b9dc6ab6b25d3::t_dc69bdd12045e8 1-47
+database/factories/GameContentSetFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-32
+database/factories/GameFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-49
+database/factories/GameResultProfileFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-36
+database/migrations/2026_11_09_100100_create_game_content_sets_table.php
+  s_4b9dc6ab6b25d3::t_d5e95baca26afc 1-38
+database/migrations/2026_11_09_100700_create_game_traffic_tables.php
+  s_4b9dc6ab6b25d3::t_db6ea0a175c4a7 1-64
+app/Enums/GameRoundMode.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-22
+app/Support/Games/Publishing/ReadinessLine.php
+  s_4b9dc6ab6b25d3::t_2ac3af7a6d0619 1-13
+app/Enums/GameOptionSource.php
+  s_4b9dc6ab6b25d3::t_8365b061bcf604 1-18
+app/Support/Games/Scoring/GameScorer.php
+  s_4b9dc6ab6b25d3::t_f608f0355358c0 1-45
+app/Support/Games/Snapshot/GameVersionSnapshot.php
+  s_4b9dc6ab6b25d3::t_2d2eefbbd23667 1-224
+app/Support/Games/Versus/VersusRoundDraft.php
+  s_4b9dc6ab6b25d3::t_5a2167e8634bd2 1-26,32-33,35-37,39-40
+  s_4b9dc6ab6b25d3::t_5ca9b0860371d6 27-31,34,38
+database/factories/GameFlowStepFactory.php
+  s_4b9dc6ab6b25d3::t_8b545d6b3fd695 1-39
+app/Support/Games/Publishing/VersionSnapshotBuilder.php
+  s_4b9dc6ab6b25d3::t_2ac3af7a6d0619 1-61,63-71,74-121
+  s_4b9dc6ab6b25d3::t_ecaa3e0abe92ba 72-73
+database/migrations/2026_11_09_100800_create_game_assignments_table.php
+  s_4b9dc6ab6b25d3::t_f5a19391f791fe 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "017f5aede9bd160ab943fd26a38e8ddbc82d78b7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
