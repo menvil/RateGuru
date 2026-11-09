@@ -1,0 +1,45 @@
+app/Support/Games/Publishing/VersionSnapshotBuilder.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 38-52,77
+app/Filament/Resources/Games/Pages/EditGameContent.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 719-720
+app/Support/Games/Play/PreviewAttempt.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 1-55
+app/Support/Games/Versus/VersusRoundCheck.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 29-34,100
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 11769-11807
+tests/Feature/Games/PreviewGameTest.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 1-76
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 12,61,110
+app/Livewire/Games/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 1-301
+app/Filament/Resources/Games/Pages/GameVersions.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 197
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 1-80
+routes/web.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 18,56-62
+app/Filament/Resources/Games/Pages/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 1-92
+resources/views/filament/pages/game-versions.blade.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 125
+resources/views/filament/pages/games/content/round.blade.php
+  s_4b9dc6ab6b25d3::t_c888d2f7ff1d46 19-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c393d7eb79525ca8670f863a22481eae15e6859",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
