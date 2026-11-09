@@ -26,6 +26,12 @@ final readonly class VersusRoundCheck
         public ?CrowdComparison $crowd,
         /** The option that earns the point, for a scored round that is publishable. */
         public ?int $answer,
+        /**
+         * The option that earns the point as far as the votes or the correct
+         * mark decide it, whatever else the round still lacks — what a preview
+         * of an unfinished draft plays by.
+         */
+        public ?int $decided = null,
     ) {}
 
     public static function of(VersusRoundDraft $round, int $minVotes, int $minGap): self
@@ -91,7 +97,7 @@ final readonly class VersusRoundCheck
             }
         }
 
-        return new self($issues, $mode, $scored, $crowd, $issues === [] ? $answer : null);
+        return new self($issues, $mode, $scored, $crowd, $issues === [] ? $answer : null, $scored ? $answer : null);
     }
 
     public function isPublishable(): bool

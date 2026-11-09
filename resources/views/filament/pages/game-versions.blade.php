@@ -122,6 +122,7 @@
                                 <div class="rg-admin-table__cell" role="cell"><div class="rg-admin-table__stack"><span class="rg-admin-table__meta">{{ $version['published'] }}</span>@if ($version['by'])<span class="rg-admin-table__meta rg-admin-table__meta--small">{{ $version['by'] }}</span>@endif</div></div>
                                 <div class="rg-admin-table__cell" role="cell"><span class="rg-admin-table__meta">{{ number_format($version['attempts']) }}</span></div>
                                 <div class="rg-admin-table__cell rg-admin-table__cell--end" role="cell">
+                                    <x-admin.ui.button size="sm" variant="ghost" icon="eye" :href="$version['previewUrl']">Preview</x-admin.ui.button>
                                     @if ($version['active'])
                                         <x-admin.ui.button size="sm" variant="ghost" icon="archive" :disabled="$version['inTraffic']" :title="$version['inTraffic'] ? 'Remove it from Traffic first' : null" wire:click="retire({{ $version['id'] }})">Archive</x-admin.ui.button>
                                     @else

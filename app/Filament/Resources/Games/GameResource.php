@@ -9,6 +9,7 @@ use App\Filament\Resources\Games\Pages\EditGameGeneral;
 use App\Filament\Resources\Games\Pages\GameTraffic;
 use App\Filament\Resources\Games\Pages\GameVersions;
 use App\Filament\Resources\Games\Pages\ListGames;
+use App\Filament\Resources\Games\Pages\PreviewGame;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Game;
 use BackedEnum;
@@ -57,6 +58,7 @@ class GameResource extends Resource
         'flow' => ['label' => 'Flow', 'page' => 'flow'],
         'versions' => ['label' => 'Versions', 'page' => 'versions'],
         'traffic' => ['label' => 'Traffic', 'page' => 'traffic'],
+        'preview' => ['label' => 'Preview', 'page' => 'preview'],
     ];
 
     public static function getNavigationGroup(): ?string
@@ -105,6 +107,7 @@ class GameResource extends Resource
             'flow' => EditGameFlow::route('/{record}/flow'),
             'versions' => GameVersions::route('/{record}/versions'),
             'traffic' => GameTraffic::route('/{record}/traffic'),
+            'preview' => PreviewGame::route('/{record}/preview'),
         ];
     }
 

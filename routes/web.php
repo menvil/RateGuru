@@ -15,6 +15,7 @@ use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Livewire\Feed\FeedPage;
 use App\Livewire\Games\PlayGame;
+use App\Livewire\Games\PreviewGame;
 use App\Livewire\Posts\PostShow;
 use App\Livewire\Posts\RecentlyDeletedPostsPage;
 use App\Livewire\Profile\ProfilePage;
@@ -51,6 +52,14 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
             ->name('games.share');
     });
 });
+
+// A game as an administrator checks it — a draft or a published version —
+// recording nothing. Not behind the games switch: games are prepared before
+// visitors may reach them.
+Route::get('/games/{game}/preview', PreviewGame::class)
+    ->whereNumber('game')
+    ->middleware(['auth', 'can:manage-games'])
+    ->name('games.preview');
 
 Route::get('/about', [StaticPageController::class, 'about'])->name('pages.about');
 Route::get('/privacy', [StaticPageController::class, 'privacy'])->name('pages.privacy');

@@ -16,6 +16,9 @@
     <div class="rg-admin-games__round-head">
         <span class="rg-admin-games__note">Round {{ $index + 1 }} of {{ count($rounds) }}</span>
         <div class="rg-admin-games__round-nav">
+            @if ($round['id'] !== null)
+                <x-admin.ui.button size="sm" variant="ghost" icon="eye" :href="$previewRoundUrl" target="_blank">Preview round</x-admin.ui.button>
+            @endif
             <x-admin.ui.icon-button icon="chevron-left" label="Previous round" variant="ghost" size="sm" :disabled="$index === 0" wire:click="selectRound({{ $index - 1 }})" />
             <x-admin.ui.icon-button icon="chevron-right" label="Next round" variant="ghost" size="sm" :disabled="$index >= count($rounds) - 1" wire:click="selectRound({{ $index + 1 }})" />
         </div>

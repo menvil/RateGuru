@@ -35,6 +35,21 @@ final class VersionSnapshotBuilder
             throw new LogicException('Only a publishable content set can be frozen into a version.');
         }
 
+        return self::assemble($game, $content, $flow);
+    }
+
+    /**
+     * The same snapshot of a draft that is not publishable yet, for the admin
+     * preview alone: a round whose point is not decided plays without one,
+     * and nothing of it is ever stored.
+     */
+    public static function buildForPreview(Game $game, ContentSetReport $content, GameFlow $flow): GameVersionSnapshot
+    {
+        return self::assemble($game, $content, $flow);
+    }
+
+    private static function assemble(Game $game, ContentSetReport $content, GameFlow $flow): GameVersionSnapshot
+    {
         $set = $content->set;
         $locales = [LocalizedText::REFERENCE => true];
 
@@ -59,7 +74,7 @@ final class VersionSnapshotBuilder
                 mode: $check->mode,
                 scored: $check->scored,
                 showCrowd: $round->show_crowd,
-                answer: $check->answer,
+                answer: $check->answer ?? $check->decided,
                 options: $round->options->map(function (GameRoundOption $option) use ($text): SnapshotOption {
                     $post = $option->source === GameOptionSource::Post ? $option->post : null;
 

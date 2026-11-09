@@ -194,6 +194,7 @@ final class GameVersions extends Page
                 'published' => $version->published_at->format('d M Y, H:i'),
                 'by' => $version->publishedBy->display_name ?? $version->publishedBy->username ?? null,
                 'attempts' => (int) $version->attempts_count,
+                'previewUrl' => GameResource::getUrl('preview', ['record' => $game, 'source' => (string) $version->id]),
             ])->values()->all(),
             'retiredCount' => $versions->reject(fn (GameVersion $version): bool => $version->isActive())->count(),
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),

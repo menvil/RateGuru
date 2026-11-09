@@ -716,6 +716,8 @@ final class EditGameContent extends Page
             'editingIndex' => $this->editingProfile !== null ? $this->profileIndex($this->editingProfile) : null,
             'picker' => $this->pickerView($checks),
             'siteName' => app(ProjectSettingsManager::class)->current()->siteName(),
+            // As saved: the preview plays the set from the database, so a round shows there once it is saved.
+            'previewRoundUrl' => GameResource::getUrl('preview', ['record' => $game, 'set' => $this->setId, 'start' => 'round:'.$this->selected]),
         ];
     }
 
