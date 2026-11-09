@@ -1,0 +1,21 @@
+resources/views/filament/pages/game-content.blade.php
+  s_4b9dc6ab6b25d3::t_3862d3bf753de9 17-18
+resources/views/filament/pages/editor/script.blade.php
+  s_4b9dc6ab6b25d3::t_3862d3bf753de9 11-13,45-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7fc6a4d07bccf28b0b7d6ebb50c581dcc4a722de",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
