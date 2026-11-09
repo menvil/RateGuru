@@ -1,0 +1,23 @@
+tests/Feature/Games/PlayGamePageTest.php
+  s_4b9dc6ab6b25d3::t_05165d02c914e7 38-39
+resources/views/livewire/games/play-game.blade.php
+  s_4b9dc6ab6b25d3::t_b8a092c3f7461e 7
+app/Livewire/Games/PlayGame.php
+  s_4b9dc6ab6b25d3::t_e527e0ae175bca 297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "84ad0c283d19177795b5082cd907dad074d92325",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
