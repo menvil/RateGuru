@@ -1,0 +1,67 @@
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_46196b9d28677b 1-74,77-349
+  s_4b9dc6ab6b25d3::t_389b0a30141899 75-76
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_eae10b13d817d5 1-44,46-102
+  s_4b9dc6ab6b25d3::t_5b7e651ab57990 45
+app/Support/Games/Analytics/GameFunnel.php
+  s_4b9dc6ab6b25d3::t_19ed9b4cf17c03 1-44
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_43029d9d0d21fa 128-133
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_e1e92db00ad98f 11859-11860,11867,11873
+  s_4b9dc6ab6b25d3::t_ff196ff6b1e30c 11808-11858,11861-11866,11868-11872,11874-11933
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_3b75649b662281 1-80,82-238
+  s_4b9dc6ab6b25d3::t_61c90a5686f286 81
+resources/views/filament/pages/games.blade.php
+  s_4b9dc6ab6b25d3::t_b3680b990a8c62 10,81-83
+app/Filament/Resources/Games/Pages/ListGames.php
+  s_4b9dc6ab6b25d3::t_b3680b990a8c62 16,19-20,35-37,195-199,201,206,209,230-232,236-240
+resources/views/filament/pages/game-traffic.blade.php
+  s_4b9dc6ab6b25d3::t_1ec40c8324e828 77
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_14edc0104aec4e 1-383
+tests/Feature/Games/Admin/GamesLibraryPageTest.php
+  s_4b9dc6ab6b25d3::t_4d24d62a6ff69c 6,86-91,94-107
+  s_4b9dc6ab6b25d3::t_36eb3491d90d84 92-93
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_ff196ff6b1e30c 62,112
+  s_4b9dc6ab6b25d3::t_53ebbc53443364 9
+resources/views/filament/pages/game-analytics.blade.php
+  s_4b9dc6ab6b25d3::t_e3450445a5125a 1-122,124,126-159,161,163-165,167,169-181
+  s_4b9dc6ab6b25d3::t_f9008a22bb090e 123,125,160,162,166,168
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_1ec40c8324e828 14,24-25,176,190-191
+resources/views/filament/pages/games/row.blade.php
+  s_4b9dc6ab6b25d3::t_b3680b990a8c62 4-6,23,42-50
+tests/Feature/Console/GamesPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_298a9c60c1547b 1-125
+app/Console/Commands/GamesPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_f6117fa06db485 35-39,58-71
+  s_4b9dc6ab6b25d3::t_ed14649308fa82 1-34,40-57,72-91
+routes/console.php
+  s_4b9dc6ab6b25d3::t_f6117fa06db485 48-53
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_43029d9d0d21fa 68-70
+app/Support/Games/Analytics/GameMetricsScope.php
+  s_4b9dc6ab6b25d3::t_2914a7e786b74e 1-27
+composer.json
+  s_4b9dc6ab6b25d3::t_43029d9d0d21fa 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c21fcffb0a03266e482bd38fae1fa95e3dfefa43",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
