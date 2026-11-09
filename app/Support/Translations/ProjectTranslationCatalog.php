@@ -2,7 +2,13 @@
 
 namespace App\Support\Translations;
 
+use App\Enums\GameStatus;
 use App\Models\Category;
+use App\Models\Game;
+use App\Models\GameFlowStep;
+use App\Models\GameResultProfile;
+use App\Models\GameRound;
+use App\Models\GameRoundOption;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
@@ -21,9 +27,14 @@ use InvalidArgumentException;
  *
  * Listed: the translatable project settings; every built-in static page;
  * active categories; active rating groups; active, unarchived options of
- * active groups; and every tag — what a visitor can see. Inactive and archived
- * content is left out until it is shown again; its own editor keeps its
- * translations meanwhile.
+ * active groups; every tag — what a visitor can see — and the content of every
+ * game that is not archived: its title and description, the rounds, options
+ * and results of its unarchived content sets, and the steps of its unarchived
+ * flows. A game is listed from its first draft, so it can be translated before
+ * it is published; players read a game from its published version, which
+ * keeps the translations it was published with. Inactive and archived content
+ * is left out until it is shown again; its own editor keeps its translations
+ * meanwhile.
  *
  * Everything is read from the database as it is now, static pages included:
  * repository config only names which pages are built in, and stands in for a
@@ -76,6 +87,32 @@ final class ProjectTranslationCatalog
         'tags' => [
             'name' => [80, false],
         ],
+        'games' => [
+            'title' => [120, false],
+            'description' => [240, true],
+        ],
+        'game_rounds' => [
+            'question' => [120, true],
+            'description' => [240, true],
+            'reveal_message' => [200, true],
+        ],
+        'game_round_options' => [
+            'label' => [60, false],
+        ],
+        'game_result_profiles' => [
+            'name' => [60, false],
+            'description' => [240, true],
+            'share_text' => [200, true],
+        ],
+        'game_flow_steps' => [
+            'title' => [160, false],
+            'body' => [600, true],
+            'button_label' => [60, false],
+            'secondary_label' => [80, false],
+            'field_label' => [60, false],
+            'notice' => [300, true],
+            'consent_label' => [300, true],
+        ],
     ];
 
     /** Where a visitor meets each project setting, for whoever translates it. */
@@ -89,12 +126,18 @@ final class ProjectTranslationCatalog
         'feed_title' => 'The heading above the main feed of the newest items.',
     ];
 
+    /** What every piece of a game's content adds for whoever translates it. */
+    private const GAME_PUBLISHING = ' Players see a translation once a version of the game is published after it.';
+
     public function __construct(private readonly ProjectSettingsManager $settings) {}
 
     /**
      * Every unit, section by section in the sections' own order, from one read
      * per section: the settings row once, then one query for categories, one
-     * for rating groups, one for options with their groups, and one for tags.
+     * for rating groups, one for options with their groups, one for tags, and
+     * one for each kind of game content with the set or flow and the game it
+     * belongs to. A game's content is in the order its editor shows it: game by
+     * game, set by set, round by round.
      *
      * @return list<ProjectTranslationUnit>
      */
@@ -108,6 +151,19 @@ final class ProjectTranslationCatalog
             ...$this->ratingGroups()->orderBy('id')->get()->flatMap(fn (RatingGroup $group): array => $this->ratingGroupUnits($group))->all(),
             ...$this->ratingOptions()->orderBy('id')->get()->flatMap(fn (RatingOption $option): array => $this->ratingOptionUnits($option))->all(),
             ...$this->tags()->orderBy('id')->get()->flatMap(fn (Tag $tag): array => $this->tagUnits($tag))->all(),
+            ...$this->games()->orderBy('id')->get()->flatMap(fn (Game $game): array => $this->gameUnits($game))->all(),
+            ...$this->gameRounds()->get()
+                ->sortBy(fn (GameRound $round): array => [(int) $round->contentSet->game_id, (int) $round->contentSet->position, (int) $round->content_set_id, (int) $round->position, (int) $round->id])
+                ->flatMap(fn (GameRound $round): array => $this->gameRoundUnits($round))->all(),
+            ...$this->gameRoundOptions()->get()
+                ->sortBy(fn (GameRoundOption $option): array => [(int) $option->round->contentSet->game_id, (int) $option->round->contentSet->position, (int) $option->round->content_set_id, (int) $option->round->position, (int) $option->round_id, (int) $option->position])
+                ->flatMap(fn (GameRoundOption $option): array => $this->gameRoundOptionUnits($option))->all(),
+            ...$this->gameResultProfiles()->get()
+                ->sortBy(fn (GameResultProfile $profile): array => [(int) $profile->contentSet->game_id, (int) $profile->contentSet->position, (int) $profile->content_set_id, (int) $profile->position, (int) $profile->id])
+                ->flatMap(fn (GameResultProfile $profile): array => $this->gameResultProfileUnits($profile))->all(),
+            ...$this->gameFlowSteps()->get()
+                ->sortBy(fn (GameFlowStep $step): array => [(int) $step->flow->game_id, (int) $step->flow->position, (int) $step->flow_id, (int) $step->position, (int) $step->id])
+                ->flatMap(fn (GameFlowStep $step): array => $this->gameFlowStepUnits($step))->all(),
         ];
     }
 
@@ -287,6 +343,11 @@ final class ProjectTranslationCatalog
             $row instanceof RatingGroup => $this->ratingGroupUnits($row),
             $row instanceof RatingOption => $this->ratingOptionUnits($row),
             $row instanceof Tag => $this->tagUnits($row),
+            $row instanceof Game => $this->gameUnits($row),
+            $row instanceof GameRound => $this->gameRoundUnits($row),
+            $row instanceof GameRoundOption => $this->gameRoundOptionUnits($row),
+            $row instanceof GameResultProfile => $this->gameResultProfileUnits($row),
+            $row instanceof GameFlowStep => $this->gameFlowStepUnits($row),
             default => [],
         };
 
@@ -302,7 +363,7 @@ final class ProjectTranslationCatalog
     /**
      * The records of a model section that the catalog lists.
      *
-     * @return Builder<Category>|Builder<RatingGroup>|Builder<RatingOption>|Builder<Tag>
+     * @return Builder<Category>|Builder<RatingGroup>|Builder<RatingOption>|Builder<Tag>|Builder<Game>|Builder<GameRound>|Builder<GameRoundOption>|Builder<GameResultProfile>|Builder<GameFlowStep>
      */
     private function records(ProjectContentSection $section): Builder
     {
@@ -311,6 +372,11 @@ final class ProjectTranslationCatalog
             ProjectContentSection::RatingGroups => $this->ratingGroups(),
             ProjectContentSection::RatingOptions => $this->ratingOptions(),
             ProjectContentSection::Tags => $this->tags(),
+            ProjectContentSection::Games => $this->games(),
+            ProjectContentSection::GameRounds => $this->gameRounds(),
+            ProjectContentSection::GameRoundOptions => $this->gameRoundOptions(),
+            ProjectContentSection::GameResultProfiles => $this->gameResultProfiles(),
+            ProjectContentSection::GameFlowSteps => $this->gameFlowSteps(),
             default => throw new InvalidArgumentException("[{$section->value}] is not stored on records of its own."),
         };
     }
@@ -341,6 +407,59 @@ final class ProjectTranslationCatalog
     private function tags(): Builder
     {
         return Tag::query();
+    }
+
+    /** @return Builder<Game> */
+    private function games(): Builder
+    {
+        return Game::query()->where('status', '!=', GameStatus::Archived->value);
+    }
+
+    /** @return Builder<GameRound> */
+    private function gameRounds(): Builder
+    {
+        return GameRound::query()
+            ->whereHas('contentSet', fn (Builder $set) => $this->listedGameContent($set))
+            ->with('contentSet.game');
+    }
+
+    /** @return Builder<GameRoundOption> */
+    private function gameRoundOptions(): Builder
+    {
+        return GameRoundOption::query()
+            ->whereHas('round.contentSet', fn (Builder $set) => $this->listedGameContent($set))
+            ->with('round.contentSet.game');
+    }
+
+    /** @return Builder<GameResultProfile> */
+    private function gameResultProfiles(): Builder
+    {
+        return GameResultProfile::query()
+            ->whereHas('contentSet', fn (Builder $set) => $this->listedGameContent($set))
+            ->with('contentSet.game');
+    }
+
+    /** @return Builder<GameFlowStep> */
+    private function gameFlowSteps(): Builder
+    {
+        return GameFlowStep::query()
+            ->whereHas('flow', fn (Builder $flow) => $this->listedGameContent($flow))
+            ->with('flow.game');
+    }
+
+    /**
+     * A content set or flow the catalog lists: one not archived, of a game
+     * that is not archived either.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    private function listedGameContent(Builder $query): Builder
+    {
+        return $query->whereNull('archived_at')
+            ->whereHas('game', fn (Builder $game) => $game->where('status', '!=', GameStatus::Archived->value));
     }
 
     /**
@@ -454,6 +573,99 @@ final class ProjectTranslationCatalog
         ];
     }
 
+    /** @return list<ProjectTranslationUnit> */
+    private function gameUnits(Game $game): array
+    {
+        return [
+            $this->unit(ProjectContentSection::Games, "games:{$game->id}:title", $game->id, null, (string) $game->slug, (string) $game->title, 'title', $game->title, $game->title_translations, 'The game’s title: on its first screen, in the browser tab and on a shared result.'.self::GAME_PUBLISHING),
+            $this->unit(ProjectContentSection::Games, "games:{$game->id}:description", $game->id, null, (string) $game->slug, (string) $game->title, 'description', $game->description, $game->description_translations, 'One or two lines under the game’s title on its first screen and in shared links.'.self::GAME_PUBLISHING),
+        ];
+    }
+
+    /** @return list<ProjectTranslationUnit> */
+    private function gameRoundUnits(GameRound $round): array
+    {
+        $set = $round->contentSet;
+        $game = $set->game;
+        $key = "{$game->slug}.set-{$set->id}.round-".($round->position + 1);
+        $label = "{$game->title} → {$set->name} → {$round->internal_name}";
+        $location = ['set' => (int) $set->id, 'round' => (int) $round->position];
+
+        return [
+            $this->unit(ProjectContentSection::GameRounds, "game_rounds:{$round->id}:question", $round->id, $game->id, $key, $label, 'question', $round->question, $round->question_translations, 'The question above a round’s two pictures.'.self::GAME_PUBLISHING, $location),
+            $this->unit(ProjectContentSection::GameRounds, "game_rounds:{$round->id}:description", $round->id, $game->id, $key, $label, 'description', $round->description, $round->description_translations, 'A line under the round’s question.'.self::GAME_PUBLISHING, $location),
+            $this->unit(ProjectContentSection::GameRounds, "game_rounds:{$round->id}:reveal_message", $round->id, $game->id, $key, $label, 'reveal_message', $round->reveal_message, $round->reveal_message_translations, 'Shown once the player has picked, as the round’s answer is revealed.'.self::GAME_PUBLISHING, $location),
+        ];
+    }
+
+    /** @return list<ProjectTranslationUnit> */
+    private function gameRoundOptionUnits(GameRoundOption $option): array
+    {
+        $round = $option->round;
+        $set = $round->contentSet;
+        $game = $set->game;
+        $slot = chr(ord('A') + (int) $option->position);
+        $key = "{$game->slug}.set-{$set->id}.round-".($round->position + 1).'.'.strtolower($slot);
+        $label = "{$game->title} → {$set->name} → {$round->internal_name} → {$slot}";
+        $location = ['set' => (int) $set->id, 'round' => (int) $round->position];
+
+        return [
+            $this->unit(ProjectContentSection::GameRoundOptions, "game_round_options:{$option->id}:label", $option->id, $game->id, $key, $label, 'label', $option->label, $option->label_translations, "The caption of picture {$slot} in a round.".self::GAME_PUBLISHING, $location),
+        ];
+    }
+
+    /** @return list<ProjectTranslationUnit> */
+    private function gameResultProfileUnits(GameResultProfile $profile): array
+    {
+        $set = $profile->contentSet;
+        $game = $set->game;
+        $key = "{$game->slug}.set-{$set->id}.{$profile->key}";
+        $label = "{$game->title} → {$set->name} → {$profile->name}";
+        $location = ['set' => (int) $set->id];
+
+        return [
+            $this->unit(ProjectContentSection::GameResultProfiles, "game_result_profiles:{$profile->id}:name", $profile->id, $game->id, $key, $label, 'name', $profile->name, $profile->name_translations, 'The name of a result, shown to the players whose answers earn it and on the result they share.'.self::GAME_PUBLISHING, $location),
+            $this->unit(ProjectContentSection::GameResultProfiles, "game_result_profiles:{$profile->id}:description", $profile->id, $game->id, $key, $label, 'description', $profile->description, $profile->description_translations, 'What the result says about the player, under its name.'.self::GAME_PUBLISHING, $location),
+            $this->unit(ProjectContentSection::GameResultProfiles, "game_result_profiles:{$profile->id}:share_text", $profile->id, $game->id, $key, $label, 'share_text', $profile->share_text, $profile->share_text_translations, 'The text a player shares with this result; {profile} and {game} become the result’s name and the game’s title.'.self::GAME_PUBLISHING, $location),
+        ];
+    }
+
+    /**
+     * The texts a flow step's type uses, each named as its editor names it;
+     * the columns a type leaves empty are not listed.
+     *
+     * @return list<ProjectTranslationUnit>
+     */
+    private function gameFlowStepUnits(GameFlowStep $step): array
+    {
+        $flow = $step->flow;
+        $game = $flow->game;
+        $type = $step->type;
+        $key = "{$game->slug}.flow-{$flow->id}.{$type->value}";
+        $label = "{$game->title} → {$flow->name} → {$type->label()}";
+        $location = ['flow' => (int) $flow->id, 'step' => (int) $step->position];
+        $units = [];
+
+        foreach ($type->texts() as $field => $text) {
+            $units[] = $this->unit(
+                ProjectContentSection::GameFlowSteps,
+                "game_flow_steps:{$step->id}:{$field}",
+                $step->id,
+                $game->id,
+                $key,
+                $label,
+                $field,
+                $step->getAttribute($field),
+                $step->getAttribute("{$field}_translations"),
+                'The '.lcfirst($text['label'])." of the game’s {$type->label()} screen.".self::GAME_PUBLISHING,
+                $location,
+            );
+        }
+
+        return $units;
+    }
+
+    /** @param  array<string, int>  $location */
     private function unit(
         ProjectContentSection $section,
         string $id,
@@ -465,6 +677,7 @@ final class ProjectTranslationCatalog
         mixed $reference,
         mixed $translations,
         string $usage,
+        array $location = [],
     ): ProjectTranslationUnit {
         [$maxLength, $multiline] = self::FIELDS[$section->value][$field];
 
@@ -481,6 +694,7 @@ final class ProjectTranslationCatalog
             $maxLength,
             $multiline,
             $usage,
+            $location,
         );
     }
 

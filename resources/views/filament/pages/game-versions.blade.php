@@ -55,9 +55,9 @@
                         </ul>
                     @endif
                     @if ($changedSince !== null)
-                        <p class="rg-admin-games__note">This set or flow changed after {{ $changedSince }} was published from them.</p>
+                        <p class="rg-admin-games__note">This set or flow, or a translation of it, changed after {{ $changedSince }} was published from them.</p>
                     @elseif ($duplicateOf !== null)
-                        <p class="rg-admin-games__note">{{ $duplicateOf }} already uses this set and flow, and neither changed since. Publish again only to freeze today’s votes.</p>
+                        <p class="rg-admin-games__note">{{ $duplicateOf }} already uses this set and flow, and neither changed since. Publish again to freeze today’s votes, or to take in what changed on the General tab and the translations of the game’s title and description.</p>
                     @endif
                     @if ($takeOvers !== [])
                         <label class="rg-admin-field">

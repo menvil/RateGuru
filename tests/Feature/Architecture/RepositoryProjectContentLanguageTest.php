@@ -34,7 +34,7 @@ it('reads every kind of content the presets and static pages ship', function () 
         ->values()
         ->all();
 
-    expect($sections)->toEqualCanonicalizing(ProjectContentSection::cases())
+    expect($sections)->toEqualCanonicalizing(ProjectContentSection::shippedByRepository())
         ->and(array_keys(repositoryTranslations()->presets()))->toBe(array_keys(config('project_presets')))
         ->and(count(repositoryTranslations()->staticPages()))->toBe(count(config('static-pages.defaults')) * 2);
 });

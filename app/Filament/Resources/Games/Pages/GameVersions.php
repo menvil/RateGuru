@@ -19,6 +19,7 @@ use App\Queries\Games\GameTrafficQuery;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Publishing\GamePublishReadiness;
+use Carbon\CarbonInterface;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Livewire\Attributes\Locked;
@@ -152,9 +153,7 @@ final class GameVersions extends Page
         $chosenFlow = $flows->firstWhere('id', $this->publishFlowId);
         $readiness = $chosenSet !== null && $chosenFlow !== null ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds) : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
-        $changedSince = $latestFromPair === null ? null : (
-            ($chosenSet?->set->updated_at?->greaterThan($latestFromPair->published_at) ?? false) || ($chosenFlow?->updated_at?->greaterThan($latestFromPair->published_at) ?? false)
-        );
+        $changedSince = $latestFromPair === null ? null : self::editedAfter($chosenSet, $chosenFlow, $latestFromPair->published_at);
         $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']))));
         $unplayable = $traffic->unplayableVersionIds($versions->modelKeys());
 
@@ -200,5 +199,41 @@ final class GameVersions extends Page
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'nextLabel' => 'V'.($game->last_version_number + 1),
         ];
+    }
+
+    /**
+     * Whether the set or the flow, or anything in them, was saved after a
+     * moment — a translation made in Translation Center included, which is
+     * saved on the round, option, result or step it translates.
+     */
+    private static function editedAfter(?ContentSetReport $set, ?GameFlow $flow, CarbonInterface $moment): bool
+    {
+        $saved = [];
+
+        if ($set !== null) {
+            $saved[] = $set->set->updated_at;
+
+            foreach ($set->set->rounds as $round) {
+                $saved[] = $round->updated_at;
+
+                foreach ($round->options as $option) {
+                    $saved[] = $option->updated_at;
+                }
+            }
+
+            foreach ($set->set->profiles as $profile) {
+                $saved[] = $profile->updated_at;
+            }
+        }
+
+        if ($flow !== null) {
+            $saved[] = $flow->updated_at;
+
+            foreach ($flow->steps as $step) {
+                $saved[] = $step->updated_at;
+            }
+        }
+
+        return array_filter($saved, fn (?CarbonInterface $at): bool => $at?->greaterThan($moment) ?? false) !== [];
     }
 }

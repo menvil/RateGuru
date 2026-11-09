@@ -360,6 +360,10 @@ it('reads all content with one query per section, however much of it there is', 
         Tag::factory()->count($count)->create();
         RatingGroup::factory()->count($count)->create(['is_active' => true])
             ->each(fn (RatingGroup $group) => RatingOption::factory()->count(2)->for($group, 'group')->create(['is_active' => true]));
+
+        foreach (range(1, min($count, 3)) as $game) {
+            publishableGameDraft(rounds: 2);
+        }
     };
     $queries = function (): int {
         DB::flushQueryLog();
@@ -376,8 +380,9 @@ it('reads all content with one query per section, however much of it there is', 
     $seed(12);
     $many = $queries();
 
-    // The settings row, categories, rating groups, options and their groups, tags.
+    // The settings row, categories, rating groups, options and their groups, tags;
+    // games, then rounds, options, results and flow steps with what they belong to.
     expect($few)->toBe($many)
-        ->and($many)->toBeLessThanOrEqual(6)
+        ->and($many)->toBeLessThanOrEqual(20)
         ->and(count(catalogUnits()))->toBeGreaterThan(13 * 5);
 });

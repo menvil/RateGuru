@@ -10,7 +10,7 @@ Three kinds of localized text, kept apart on purpose:
 | | runtime source | changed by | examples |
 |---|---|---|---|
 | **Application** | `lang/{locale}/*.php` | a release | UI, auth, buttons, forms, validation, errors, mail wording, password reset, email verification, notification wording |
-| **Project content** | the database | an administrator | project settings, categories, tags, rating groups and options, static pages |
+| **Project content** | the database | an administrator | project settings, categories, tags, rating groups and options, static pages, games |
 | **Bootstrap donors** | — (not read at runtime) | a release | `config/project_presets.php`, `config/static-pages.php` — English alone |
 
 **Application text** is the release's. It is never copied into the database
@@ -98,6 +98,16 @@ database as it is now (`ProjectTranslationCompleteness`):
 | rating groups | active — label and description | `label_translations` / `description_translations` |
 | rating options | active, not archived, in an active group — label and description | as groups |
 | tags | all | `name_translations[code]` |
+| games | not archived, drafts included — title and description | `title_translations` / `description_translations` |
+| game rounds and their options | in an unarchived content set of a game that is not archived — question, description, reveal message; option label | `*_translations[code]` |
+| game results | as rounds — name, description, share text | `*_translations[code]` |
+| game flow steps | in an unarchived flow of a game that is not archived — only the texts the step's type uses | `*_translations[code]` |
+
+A game is translated before and after it is published alike, but players
+read a game from its published version, which keeps the translations it was
+published with: a translation reaches them with the next version. Versions
+says when a set or flow, or a translation of it, changed after the version
+published from them.
 
 A field whose English is blank needs no translation. English is complete
 through the base columns. A translation is any non-blank string — presence
