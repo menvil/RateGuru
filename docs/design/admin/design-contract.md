@@ -1254,6 +1254,64 @@ check; global search stays with Users, whose result for a persona opens its edit
 - **Access:** an active administrator's (`manage-personas`): the navigation item, every page and every Livewire
   request ask, and so do the actions. A moderator sees no Content Studio and moderates personas in Users.
 
+## Growth
+
+```text
+Growth
+└── Games
+```
+
+Growth holds the games visitors play to discover the site. Its section holds only screens that work: the
+prototype's Experiments and Growth Analytics arrive with their own screens, never as items before them; a game's
+traffic periods are what experiments will build on.
+
+### Games
+
+The library (`ListGames`), a new game (`CreateGame`) and a game's editor — one page per tab — are drawn in Admin v2
+over `Game` (`GameResource`, group Growth, `gamepad-2`, not globally searchable). Every write goes through the
+games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin/games.md`.
+
+- **Library header band:** “Create and run interactive games.” Stats: Total (not archived), Live, Drafts and
+  Paused. New game in the top bar.
+- **Toolbar (TBL-02):** the search over the title, the internal name and the address; Status and Mechanic as filter
+  dropdowns with their chips; Sort (Last updated, Name A–Z); 25 a page (`GamesQuery`, a registered stable
+  pagination boundary).
+- **Table (TBL-01):** the title — a link to its editor — with the internal name, mechanic and address; the newest
+  version and where its traffic stands; the status (STS-01); Plays, Completion and Sign-ups of the last 30 days, a
+  dash for none; Last updated; Edit and the row menu with the status moves, each asked first (OVL-01).
+- **Editor band:** the title, status and mechanic, the status menu (Go live, Pause,
+  Resume, Archive, Restore — each asked first, Go live only with traffic) and the tabs (NAV-03): General, Content,
+  Flow, Versions, Traffic, Analytics and Preview. Save, Discard and the unsaved count sit in the top bar on the tabs
+  that edit, and the browser asks before unsaved changes are left.
+- **General:** Title, Internal name, Address (FRM-09, locked once first published), Description (FRM-03, 240),
+  Cover (an upload, kept with the draft until Save) and Mechanic (an information card: Versus is the one there is).
+- **Content:** the content sets (new, rename, archive or delete one no version used); per set Rounds or Results
+  (FRM-08). A round: Round name, Question, Description, two options — each from a post, through the picker over
+  published posts with a picture, their upvote share and votes, or an upload — the crowd or a correct answer,
+  Unscored, Show each post's upvote share, Reveal message, and the crowd check in words with Choose another post or
+  Use a correct answer; Preview round opens the saved round in Preview. Results: Points per round, Show agreement,
+  the crowd limits, and the result profiles in a drawer (OVL-02) with their match ranges (range slots), the checks
+  and Fit ranges.
+- **Flow:** the flows (Result First, Email Before Result, Direct Play, or a copy of another); the steps in order with Move up,
+  Move down, Remove and Insert where a step fits; a step's settings and texts, each with its audience; the rules
+  in words beside it.
+- **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
+  “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
+  newest version made from them; the versions with their set, flow, rounds, traffic, attempts, publisher and
+  Preview, Retire and Restore (retired versions behind Show archived).
+- **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
+  whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest
+  first, with the visitors each assigned and the attempts started and completed.
+- **Analytics:** Group (FRM-08), Period (7, 30, 90 days, all time) and Version (FRM-10); the figures; the funnel;
+  Rounds reached and Results for the chosen version or the busiest one; Side by side by version, flow or content
+  set; the traffic periods with Open Traffic. Empty states say there is nothing to measure before a version is
+  published, and nobody of a group in a period.
+- **Preview:** the source (a draft's set and flow, or a version), the visitor (anonymous, email known, logged in),
+  the language, where to start (landing, a round, a result for a number of matches) and the device (390 or desktop
+  width); the game plays in a frame and records nothing.
+- **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
+  and the preview route ask, and so do the actions.
+
 ## Moderation
 
 ### Posts
@@ -1592,6 +1650,14 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
 | Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
 | Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the editor, through the action that checks it |
+| Games library | a Site filter, Duplicate in the row menu, no New game | no Site filter, no Duplicate, New game in the top bar | one deployment is one brand; duplicating a game needs a domain action of its own |
+| Game editor Save | “Save draft” beside the tabs, status changed in one click | Save, Discard and the unsaved count in the top bar; every status move asked first | the editor shell every Admin v2 editor uses; a status move changes what visitors see |
+| Crowd rounds | one vote is enough, and the reveal says how players picked | at least 100 votes each and a 5-point gap (per content set); the reveal shows each post's share of upvotes on the site | a round needs a crowd that has decided; the site's votes are not the players' picks |
+| Result profiles | ranges in points, profiles of the game | ranges in matches, the points beside them; profiles of each content set | a range in matches cannot hold a score no player can reach, and a set's rounds decide its results |
+| Versions | Delete version | Retire and Restore | attempts and results keep their version |
+| Traffic periods | Hide a period, and a verdict on whether a period has enough data | neither | a period is the record of what visitors were given; no verdict is drawn from figures |
+| Game analytics | Device, Country and Source filters and breakdowns, Activated in 7 days, deltas against the previous period, PostHog links, figures for “playing now” and “better than X%” | Group, Period and Version; Version, Flow and Content set breakdowns; no deltas, no links out | only what playing records is shown, and nothing estimated |
+| Game preview | a theme switch | none | the preview draws the site's own theme |
 
 ### Tertiary text contrast
 
