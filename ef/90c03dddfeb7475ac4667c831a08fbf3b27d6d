@@ -1,0 +1,23 @@
+tests/Feature/Seeders/GamesDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_d8311b33850963 7,50,56-59
+database/seeders/GamesDemoSeeder.php
+  ai_agent 28
+  s_4b9dc6ab6b25d3::t_d8311b33850963 24,125
+  s_4b9dc6ab6b25d3::t_bedcb9ca042c93 20,80-89,91-92,94-96,98,100,102-107,113-115,124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ef90c03dddfeb7475ac4667c831a08fbf3b27d6d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
