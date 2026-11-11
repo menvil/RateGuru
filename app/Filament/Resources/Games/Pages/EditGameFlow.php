@@ -166,8 +166,11 @@ final class EditGameFlow extends Page
             return;
         }
 
+        // The step on screen stays on screen when another one goes.
+        $shown = $this->steps[$this->selected]['key'] ?? null;
         array_splice($this->steps, (int) $index, 1);
-        $this->selected = max(0, min($this->selected, count($this->steps) - 1));
+        $at = array_search($shown, array_column($this->steps, 'key'), true);
+        $this->selected = is_int($at) ? $at : max(0, min($this->selected, count($this->steps) - 1));
     }
 
     /** The selected Game step's delay before the next pair, half a second shorter or longer, within its limits. */
@@ -242,14 +245,16 @@ final class EditGameFlow extends Page
         }
 
         try {
-            app(ChangeGameFlowAction::class)->rename($this->admin(), $flow, $this->flowName);
+            app(ChangeGameFlowAction::class)->rename($this->admin(), $flow, $this->flowName, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
+            $this->stale = $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
 
             return;
         }
 
-        $this->lockVersion = (int) $flow->fresh()?->lock_version;
+        // The rename moved the flow on from the version on screen, and nothing else did.
+        $this->lockVersion++;
         $this->toast('Flow renamed');
     }
 
@@ -263,6 +268,11 @@ final class EditGameFlow extends Page
         $this->confirmingFlow = null;
     }
 
+    /**
+     * Archives or deletes the flow on screen, and opens the Flow tab again.
+     * The confirm told the page it is leaving, so nothing unsaved asks first;
+     * a change refused takes that back.
+     */
     public function confirmFlow(): void
     {
         $action = $this->confirmingFlow;
@@ -271,6 +281,8 @@ final class EditGameFlow extends Page
         $game = $this->game();
 
         if ($flow === null || $game === null || $action === null) {
+            $this->js('$store.adminEditor.leaving = false');
+
             return;
         }
 
@@ -279,6 +291,7 @@ final class EditGameFlow extends Page
                 ? app(ChangeGameFlowAction::class)->delete($this->admin(), $flow)
                 : app(ChangeGameFlowAction::class)->archive($this->admin(), $flow);
         } catch (CannotManageGameException $exception) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->toast($exception->getMessage(), 'error');
 
             return;
@@ -297,14 +310,16 @@ final class EditGameFlow extends Page
         }
 
         try {
-            app(ChangeGameFlowAction::class)->restore($this->admin(), $flow);
+            app(ChangeGameFlowAction::class)->restore($this->admin(), $flow, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
+            $this->stale = $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
 
             return;
         }
 
-        $this->drawFlow($flow->fresh() ?? $flow);
+        // Restoring changes no step: what is being edited stays, unsaved edits included.
+        $this->lockVersion++;
         $this->toast('Flow restored');
     }
 

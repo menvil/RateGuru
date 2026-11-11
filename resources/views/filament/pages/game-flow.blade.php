@@ -16,7 +16,7 @@
     class="rg-admin rg-admin-screen rg-admin-games"
     x-data
     x-effect="$store.adminEditor.changes = rgAdminEditorListChanges({{ $draft }}, {{ $saved }}); $store.adminEditor.blocked = $wire.stale"
-    x-on:beforeunload.window="if (rgAdminEditorListChanges({{ $draft }}, {{ $saved }}) > 0) { $event.preventDefault(); $event.returnValue = '' }"
+    x-on:beforeunload.window="if (! $store.adminEditor.leaving && rgAdminEditorListChanges({{ $draft }}, {{ $saved }}) > 0) { $event.preventDefault(); $event.returnValue = '' }"
 >
     @include('filament.pages.editor.script')
     @include('filament.pages.games.editor-header', ['header' => $header])

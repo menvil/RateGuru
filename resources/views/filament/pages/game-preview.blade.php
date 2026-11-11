@@ -160,6 +160,7 @@
                                 type="button"
                                 class="rg-admin-games__journey-step"
                                 x-bind:class="{ 'rg-admin-games__journey-step--current': step === @js($item['key']), 'rg-admin-games__journey-step--done': step !== null && keys.indexOf(step) > {{ $index }} }"
+                                x-bind:aria-current="step === @js($item['key']) ? 'step' : null"
                                 x-on:click="$wire.start === @js('step:'.$item['key']) ? restart() : $wire.set('start', @js('step:'.$item['key']))"
                             >
                                 <span class="rg-admin-games__journey-dot"><x-admin.ui.icon :name="$item['icon']" :size="12" /></span>

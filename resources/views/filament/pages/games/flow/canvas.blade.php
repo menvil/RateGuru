@@ -7,7 +7,7 @@
     between two cards, and after the last, opens the steps that fit there.
 --}}
 @php
-    $connector = fn (int $position): array => ['position' => $position, 'open' => $insertAt === $position, 'types' => $insertAt === $position ? $insertable : []];
+    $connector = fn (int $position): array => ['position' => $position, 'last' => $position === count($cards), 'open' => $insertAt === $position, 'types' => $insertAt === $position ? $insertable : []];
 @endphp
 
 @if ($stale)

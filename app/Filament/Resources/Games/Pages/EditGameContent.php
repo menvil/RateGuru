@@ -15,6 +15,7 @@ use App\Enums\PostStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
+use App\Filament\Support\ListPageNumber;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\GameVersion;
@@ -158,6 +159,7 @@ final class EditGameContent extends Page
             app(SaveContentSetAction::class)->handle($this->admin(), $set, $this->draft(), $this->lockVersion, $uploads);
         } catch (ValidationException $exception) {
             $this->setErrorBag($exception->validator->errors());
+            $this->openFirstProfileWithErrors();
             $this->toast('Some fields need fixing before the set can be saved.', 'error');
 
             return;
@@ -227,8 +229,11 @@ final class EditGameContent extends Page
 
         $key = $this->rounds[(int) $index]['key'];
         unset($this->uploads["round:{$key}:0"], $this->uploads["round:{$key}:1"]);
+        // The round on screen stays on screen when another one goes.
+        $shown = $this->rounds[$this->selected]['key'] ?? null;
         array_splice($this->rounds, (int) $index, 1);
-        $this->selected = max(0, min($this->selected, count($this->rounds) - 1));
+        $at = array_search($shown, array_column($this->rounds, 'key'), true);
+        $this->selected = is_int($at) ? $at : max(0, min($this->selected, count($this->rounds) - 1));
     }
 
     public function moveRound(mixed $index, mixed $by): void
@@ -353,7 +358,13 @@ final class EditGameContent extends Page
 
     public function pickerGoToPage(mixed $page): void
     {
-        $this->pickerPage = max(1, (int) $page);
+        $this->pickerPage = ListPageNumber::from($page);
+    }
+
+    /** The page is the browser's to set as well, so it is held to a page number either way. */
+    public function updatedPickerPage(): void
+    {
+        $this->pickerPage = ListPageNumber::from($this->pickerPage);
     }
 
     public function pickPost(mixed $postId): void
@@ -517,14 +528,16 @@ final class EditGameContent extends Page
         }
 
         try {
-            app(ChangeContentSetAction::class)->rename($this->admin(), $set, $this->setName);
+            app(ChangeContentSetAction::class)->rename($this->admin(), $set, $this->setName, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
+            $this->stale = $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
 
             return;
         }
 
-        $this->lockVersion = (int) $set->fresh()?->lock_version;
+        // The rename moved the set on from the version on screen, and nothing else did.
+        $this->lockVersion++;
         $this->toast('Content set renamed');
     }
 
@@ -538,6 +551,11 @@ final class EditGameContent extends Page
         $this->confirmingSet = null;
     }
 
+    /**
+     * Archives or deletes the set on screen, and opens the Content tab again.
+     * The confirm told the page it is leaving, so nothing unsaved asks first;
+     * a change refused takes that back.
+     */
     public function confirmSet(): void
     {
         $action = $this->confirmingSet;
@@ -546,6 +564,8 @@ final class EditGameContent extends Page
         $game = $this->game();
 
         if ($set === null || $game === null || $action === null) {
+            $this->js('$store.adminEditor.leaving = false');
+
             return;
         }
 
@@ -554,6 +574,7 @@ final class EditGameContent extends Page
                 ? app(ChangeContentSetAction::class)->delete($this->admin(), $set)
                 : app(ChangeContentSetAction::class)->archive($this->admin(), $set);
         } catch (CannotManageGameException $exception) {
+            $this->js('$store.adminEditor.leaving = false');
             $this->toast($exception->getMessage(), 'error');
 
             return;
@@ -576,8 +597,9 @@ final class EditGameContent extends Page
         }
 
         try {
-            app(ChangeContentSetAction::class)->restore($this->admin(), $set);
+            app(ChangeContentSetAction::class)->restore($this->admin(), $set, $other ? null : $this->lockVersion);
         } catch (CannotManageGameException $exception) {
+            $this->stale = ! $other && $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
 
             return;
@@ -590,7 +612,8 @@ final class EditGameContent extends Page
             return;
         }
 
-        $this->drawSet($set->fresh() ?? $set);
+        // Restoring changes no round: what is being edited stays, unsaved edits and pictures included.
+        $this->lockVersion++;
         $this->toast('Content set restored');
     }
 
@@ -633,8 +656,8 @@ final class EditGameContent extends Page
         return new ContentSetDraft(
             scoring: [
                 'points_per_round' => (int) ($this->scoring['points_per_round'] ?? 1),
-                'crowd_min_votes' => (int) ($this->scoring['crowd_min_votes'] ?? 100),
-                'crowd_min_gap' => (int) ($this->scoring['crowd_min_gap'] ?? 5),
+                'crowd_min_votes' => (int) ($this->scoring['crowd_min_votes'] ?? config('games.crowd.min_votes')),
+                'crowd_min_gap' => (int) ($this->scoring['crowd_min_gap'] ?? config('games.crowd.min_gap')),
             ],
             rounds: array_values($this->rounds),
             profiles: array_values($this->profiles),
@@ -667,6 +690,18 @@ final class EditGameContent extends Page
     private function hasOption(mixed $index, mixed $slot): bool
     {
         return is_numeric($index) && is_numeric($slot) && isset($this->rounds[(int) $index]['options'][(int) $slot]);
+    }
+
+    /** A profile's field errors show in its drawer only, so a save they refused opens the first such profile there. */
+    private function openFirstProfileWithErrors(): void
+    {
+        foreach (array_values($this->profiles) as $index => $profile) {
+            if ($this->getErrorBag()->has('profiles.'.$index.'.*')) {
+                $this->editingProfile = (string) $profile['key'];
+
+                return;
+            }
+        }
     }
 
     private function profileIndex(string $key): ?int
@@ -966,7 +1001,7 @@ final class EditGameContent extends Page
 
         $paginator = app(GamePostPickerQuery::class)->paginate($this->pickerSearch, $except, $this->pickerPage);
         $presenter = app(PostImagePresenter::class);
-        $minVotes = (int) ($this->scoring['crowd_min_votes'] ?? 100);
+        $minVotes = (int) ($this->scoring['crowd_min_votes'] ?? config('games.crowd.min_votes'));
 
         return [
             'option' => VersusRoundCheck::optionName((int) $slot),
