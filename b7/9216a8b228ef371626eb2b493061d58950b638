@@ -1,0 +1,24 @@
+tests/Feature/Database/TrustYourTasteGameMigrationTest.php
+  s_4b9dc6ab6b25d3::t_529b6ffb92f6cf 1-82
+docs/admin/games.md
+  ai_agent 53-57
+database/migrations/2026_11_11_120000_add_the_trust_your_taste_game.php
+  s_4b9dc6ab6b25d3::t_36852f6d21d0d0 1-6,10-28,30-55,57-62,66-67
+  s_4b9dc6ab6b25d3::t_2980ddc129bdf1 7-9,29,56,63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b79216a8b228ef371626eb2b493061d58950b638",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
