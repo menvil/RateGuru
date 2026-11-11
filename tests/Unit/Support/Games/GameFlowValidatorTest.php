@@ -134,8 +134,26 @@ it('offers only the steps that fit where an editor adds one', function () {
     expect(GameFlowValidator::insertableAt($steps, 0))->toContain(GameFlowStepType::Intro)
         ->not->toContain(GameFlowStepType::Share)
         ->and(GameFlowValidator::insertableAt($steps, 3))->toContain(GameFlowStepType::Share, GameFlowStepType::Feed)
-        ->not->toContain(GameFlowStepType::Intro, GameFlowStepType::Registration)
+        ->not->toContain(GameFlowStepType::Intro)
+        // Full Result invites sign-up on itself, so a Registration step would be a second invitation.
+        ->not->toContain(GameFlowStepType::Registration)
         ->and(GameFlowValidator::defaultPosition($steps, GameFlowStepType::ResultPreview))->toBe(2);
+});
+
+it('never offers a step that settles one problem by causing another', function () {
+    $gameless = flowOf([GameFlowStepType::Landing, GameFlowStepType::FullResult]);
+    $resultless = flowOf([GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::Share]);
+
+    expect(GameFlowValidator::insertableAt($gameless, 2))->not->toContain(GameFlowStepType::Game)
+        ->and(GameFlowValidator::defaultPosition($gameless, GameFlowStepType::Game))->toBe(1)
+        ->and(GameFlowValidator::insertableAt($resultless, 3))->not->toContain(GameFlowStepType::FullResult)
+        ->and(GameFlowValidator::defaultPosition($resultless, GameFlowStepType::FullResult))->toBe(2);
+});
+
+it('still offers a step before a duplicate, whose step number it only moves', function () {
+    $steps = flowOf([GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share, GameFlowStepType::Share]);
+
+    expect(GameFlowValidator::insertableAt($steps, 0))->toContain(GameFlowStepType::Intro);
 });
 
 it('keeps only the settings a type takes, within their bounds', function () {

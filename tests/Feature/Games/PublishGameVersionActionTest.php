@@ -149,6 +149,44 @@ it('keeps a live game from losing all its traffic', function () {
     app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameAudience::Anonymous, []);
 })->throws(CannotManageGameException::class, 'A live game needs traffic in at least one audience. Pause the game first.');
 
+it('keeps a live game from handing all its traffic to versions that can\'t be played', function () {
+    $draft = publishableGameDraft(1);
+    $v1 = publish($draft);
+    $option = GameRoundOption::query()->where('position', 0)->sole();
+    $option->forceFill(['post_id' => gamePost(900, 100)->id])->save();
+    $v2 = publish($draft);
+    app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game'], GameAudience::Anonymous, [$v1->id => 100]);
+    app(ChangeGameStatusAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameStatus::Live);
+    $option->post->forceFill(['status' => 'hidden'])->save();
+
+    expect(fn () => app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameAudience::Anonymous, [$v2->id => 100]))
+        ->toThrow(CannotManageGameException::class, 'None of these versions can be played, and a live game needs traffic in at least one audience. Pause the game first.');
+    expect(GameTrafficPeriod::query()->where('audience', 'anonymous')->whereNull('ended_at')->sole()->shares())->toBe([$v1->id => 100]);
+
+    // Playable traffic stays in the other audience, so this one may go anywhere.
+    app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameAudience::Authenticated, [$v1->id => 100]);
+    app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameAudience::Anonymous, [$v2->id => 100]);
+
+    expect(GameTrafficPeriod::query()->where('audience', 'anonymous')->whereNull('ended_at')->sole()->shares())->toBe([$v2->id => 100]);
+});
+
+it('applies nothing when the audience\'s shares are no longer the ones the caller drew', function () {
+    $draft = publishableGameDraft(1);
+    $v1 = publish($draft);
+    $v2 = publish($draft);
+    $apply = fn (array $shares, array $expected) => app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameAudience::Anonymous, $shares, $expected);
+
+    $apply([$v1->id => 100], []);
+
+    expect(fn () => $apply([$v2->id => 100], []))
+        ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());
+    expect(GameTrafficPeriod::query()->whereNull('ended_at')->sole()->shares())->toBe([$v1->id => 100]);
+
+    $apply([$v1->id => 50, $v2->id => 50], [$v1->id => 100]);
+
+    expect(GameTrafficPeriod::query()->whereNull('ended_at')->sole()->shares())->toBe([$v1->id => 50, $v2->id => 50]);
+});
+
 it('counts a version unplayable once a post it shows leaves the site', function () {
     $draft = publishableGameDraft(1);
     $version = publish($draft);

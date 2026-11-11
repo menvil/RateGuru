@@ -8,6 +8,9 @@ it('applies whole shares of active versions that add up to 100', function () {
         ->and(TrafficShareValidator::issues([], [1, 2]))->toBe([])
         ->and(TrafficShareValidator::issues([1 => 80, 2 => 15], [1, 2]))->toBe(['Shares add up to 95%. Make them 100% to apply.'])
         ->and(TrafficShareValidator::issues([1 => 0, 2 => 100], [1, 2]))->toBe(['Each share is a whole number from 1 to 100.'])
+        // Numbers in name only, though they add up to 100.
+        ->and(TrafficShareValidator::issues([1 => '50', 2 => '50'], [1, 2]))->toBe(['Each share is a whole number from 1 to 100.'])
+        ->and(TrafficShareValidator::issues([1 => 50.5, 2 => 49.5], [1, 2]))->toBe(['Each share is a whole number from 1 to 100.'])
         ->and(TrafficShareValidator::issues([1 => 50, 3 => 50], [1, 2]))->toBe(['Only active versions of this game can have a share.']);
 });
 

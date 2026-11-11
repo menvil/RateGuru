@@ -8,6 +8,8 @@ use App\Models\GameEvent;
 use App\Models\GameVersion;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * What playing a game recorded is kept for a while and then deleted by
@@ -80,14 +82,34 @@ it('deletes in batches of the size it is given, and finds nothing the second tim
         expiringGameEvent($this->version, 500 + $n);
     }
 
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
     $this->artisan('games:purge-expired', ['--chunk' => 2])
         ->expectsOutput('Deleted 5 game events older than 400 days.')
         ->assertSuccessful();
+
+    $deletes = array_values(array_filter(DB::getQueryLog(), fn (array $query): bool => str_starts_with(strtolower($query['query']), 'delete')
+        && str_contains($query['query'], 'game_events')));
+    DB::disableQueryLog();
+
     $this->artisan('games:purge-expired')
         ->expectsOutput('Deleted 0 game events older than 400 days.')
         ->assertSuccessful();
 
-    expect(GameEvent::query()->count())->toBe(0);
+    expect($deletes)->toHaveCount(3)
+        // Integer keys are written into the statement rather than bound.
+        ->and(array_map(fn (array $query): int => preg_match('/ in \(([^)]*)\)/i', $query['query'], $in) === 1 ? count(explode(',', $in[1])) : 0, $deletes))->toBe([2, 2, 1])
+        ->and(GameEvent::query()->count())->toBe(0);
+});
+
+it('finds what has expired by an index on its own date, however large the tables grow', function () {
+    $leading = fn (string $table): array => collect(Schema::getIndexes($table))
+        ->map(fn (array $index): string => $index['columns'][0])
+        ->all();
+
+    expect($leading('game_events'))->toContain('occurred_at')
+        ->and($leading('game_email_captures'))->toContain('captured_at');
 });
 
 it('deletes nothing when a retention is not a positive number of days', function (string $key, mixed $days) {

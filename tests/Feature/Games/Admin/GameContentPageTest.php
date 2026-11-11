@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Games\SaveContentSetAction;
+use App\Data\Games\ContentSetDraft;
 use App\Enums\PostStatus;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\EditGameContent;
@@ -7,9 +9,11 @@ use App\Livewire\Games\PreviewGame;
 use App\Models\GameContentSet;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
+use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Games\ContentSetDraftRules;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -89,7 +93,7 @@ it('shows an unsaved draft to the administrator who handed it over only', functi
 });
 
 it('names the option a replacement changes: the post short of votes, the one off the site, or either when the shares are closer than the set\'s gap', function () {
-    $this->draft['set']->forceFill(['crowd_min_gap' => 5])->save();
+    $this->draft['set']->forceFill(['crowd_min_votes' => 100, 'crowd_min_gap' => 5])->save();
     $options = $this->draft['set']->rounds()->orderBy('position')->first()->options()->orderBy('position')->get();
     $page = fn () => Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id]);
 
@@ -290,4 +294,131 @@ it('moves a dragged round into the place of the round it is dropped on, keeping 
     $page->call('moveRound', 0, 1);
 
     expect(array_column($page->get('rounds'), 'internal_name'))->toBe(['Round 1', 'Third', 'Round 2']);
+});
+
+it('keeps the round on screen when a round above it is removed', function () {
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('addRound')
+        ->call('addRound')
+        ->call('selectRound', 2);
+    $shown = $page->get('rounds.2.key');
+
+    $page->call('removeRound', 0);
+
+    expect($page->get('selected'))->toBe(1)
+        ->and($page->get('rounds.1.key'))->toBe($shown);
+});
+
+it('holds the post picker to a page number, whatever the browser asks for', function () {
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('openPicker', 0, 0)
+        ->call('pickerGoToPage', '99999999999999999999')
+        ->assertSet('pickerPage', 1)
+        ->set('pickerPage', PHP_INT_MAX)
+        ->assertSet('pickerPage', 1)
+        ->call('pickerGoToPage', 2)
+        ->assertSet('pickerPage', 2);
+});
+
+it('restores the archived set on screen keeping what is being edited, which then saves', function () {
+    $this->draft['set']->forceFill(['archived_at' => now()])->save();
+
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id, 'set' => $this->draft['set']->id])
+        ->set('rounds.0.question', 'Edited while archived?')
+        ->call('restoreSet')
+        ->assertDispatched('rg-admin-toast', message: 'Content set restored', tone: 'success')
+        ->assertSet('rounds.0.question', 'Edited while archived?');
+
+    expect($this->draft['set']->fresh()->archived_at)->toBeNull();
+
+    $page->call('save')->assertDispatched('rg-admin-toast', message: 'Content saved', tone: 'success');
+
+    expect(GameRound::query()->where('question', 'Edited while archived?')->exists())->toBeTrue();
+});
+
+it('renames the set at the version on screen, and refuses a rename over another administrator\'s save', function () {
+    $set = $this->draft['set'];
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->set('setName', 'Renamed')
+        ->call('renameSet')
+        ->assertDispatched('rg-admin-toast', message: 'Content set renamed', tone: 'success')
+        ->set('rounds.0.question', 'Mine?');
+
+    $data = ContentSetDraft::of(GameContentSet::query()->with(['rounds.options', 'profiles'])->find($set->id));
+    $rounds = $data->rounds;
+    $rounds[0]['question'] = 'Theirs?';
+    app(SaveContentSetAction::class)->handle(User::factory()->admin()->create(), $set->fresh(), new ContentSetDraft($data->scoring, $rounds, $data->profiles), $set->fresh()->lock_version);
+
+    $page->set('setName', 'Renamed again')
+        ->call('renameSet')
+        ->assertSet('stale', true)
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', tone: 'error');
+
+    expect($set->fresh()->name)->toBe('Renamed')
+        ->and(GameRound::query()->where('question', 'Theirs?')->exists())->toBeTrue()
+        ->and(GameRound::query()->where('question', 'Mine?')->exists())->toBeFalse();
+});
+
+it('opens a profile a save refused in its drawer, saying at each field what is wrong', function () {
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('showView', 'results')
+        ->set('profiles.1.min', '')
+        ->set('profiles.1.description', str_repeat('a', ContentSetDraftRules::PROFILE_DESCRIPTION_MAX + 1))
+        ->set('profiles.1.share_text', str_repeat('b', ContentSetDraftRules::SHARE_TEXT_MAX + 1))
+        ->call('save')
+        ->assertHasErrors(['profiles.1.min', 'profiles.1.description', 'profiles.1.share_text'])
+        ->assertSee('Edit profile');
+
+    expect($page->get('editingProfile'))->toBe($page->get('profiles.1.key'));
+
+    foreach (['min', 'description', 'share_text'] as $field) {
+        $page->assertSee($page->errors()->first('profiles.1.'.$field));
+    }
+});
+
+it('says under the share image upload why a file is refused', function () {
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])->call('showView', 'results');
+    $key = $page->get('profiles.0.key');
+
+    $page->call('editProfile', $key)
+        ->set('uploads.profile:'.$key, UploadedFile::fake()->create('notes.pdf', 10, 'application/pdf'))
+        ->assertHasErrors(['uploads.profile:'.$key])
+        ->assertSee($page->errors()->first('uploads.profile:'.$key));
+});
+
+it('asks before the page is left with unsaved changes, unless it goes away on purpose', function () {
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('x-on:beforeunload.window="if (! $store.adminEditor.leaving && rgAdminEditorListChanges(');
+});
+
+it('takes back the page\'s leaving when an archive is refused, so what is unsaved asks again', function () {
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('askSet', 'archive')
+        ->call('confirmSet')
+        ->assertDispatched('rg-admin-toast', message: 'A game keeps at least one content set. Add another before archiving this one.', tone: 'error')
+        ->assertNoRedirect();
+
+    expect(array_column($page->effects['xjs'] ?? [], 'expression'))->toContain('$store.adminEditor.leaving = false')
+        ->and($this->draft['set']->fresh()->isArchived())->toBeFalse();
+});
+
+it('saves the crowd settings the product asks for when the browser sends none', function () {
+    config(['games.crowd.min_votes' => 37, 'games.crowd.min_gap' => 3]);
+
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->set('scoring', ['points_per_round' => 1])
+        ->call('save')
+        ->assertDispatched('rg-admin-toast', message: 'Content saved', tone: 'success');
+
+    expect($this->draft['set']->fresh()->only(['crowd_min_votes', 'crowd_min_gap']))->toBe(['crowd_min_votes' => 37, 'crowd_min_gap' => 3]);
+});
+
+it('says an uploaded option has no photo yet, or one that can\'t be shown', function () {
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('setSource', 0, 0, 'upload')
+        ->call('setSource', 0, 1, 'upload')
+        ->set('rounds.0.options.1.asset_id', MediaAsset::factory()->failed()->create()->id)
+        ->assertSee('Option A photo missing')
+        ->assertSee('Option B image unavailable');
 });

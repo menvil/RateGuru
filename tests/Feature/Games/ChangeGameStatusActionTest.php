@@ -10,6 +10,7 @@ use App\Models\GameVersion;
 use App\Models\GameVersionPost;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
 /** A game with a published version given every visitor of the anonymous audience. */
 function gameWithTraffic(GameStatus $status = GameStatus::Draft): Game
@@ -44,6 +45,36 @@ it('refuses to go live while every version with traffic shows a post that left t
 
     app(ChangeGameStatusAction::class)->handle(User::factory()->admin()->create(), $game, GameStatus::Live);
 })->throws(CannotManageGameException::class, 'Give a version a share in Traffic first.');
+
+it('goes live while another version with traffic can still be played', function () {
+    $game = gameWithTraffic();
+    $period = GameTrafficPeriod::query()->where('game_id', $game->id)->sole();
+    $first = $game->versions()->sole();
+    $second = GameVersion::factory()->create(['game_id' => $game->id, 'number' => 2]);
+    $period->versions()->sync([$first->id => ['share_percent' => 50], $second->id => ['share_percent' => 50]]);
+    $post = Post::factory()->published()->create();
+    GameVersionPost::query()->create(['version_id' => $first->id, 'post_id' => $post->id]);
+    $post->forceFill(['status' => 'hidden'])->save();
+
+    app(ChangeGameStatusAction::class)->handle(User::factory()->admin()->create(), $game, GameStatus::Live);
+
+    expect($game->fresh()->status)->toBe(GameStatus::Live);
+});
+
+it('records a status change only when the status changed', function () {
+    Log::spy();
+    $admin = User::factory()->admin()->create();
+    $game = gameWithTraffic(GameStatus::Live);
+
+    app(ChangeGameStatusAction::class)->handle($admin, $game->fresh(), GameStatus::Live);
+    app(ChangeGameStatusAction::class)->handle($admin, $game->fresh(), GameStatus::Paused);
+
+    Log::shouldHaveReceived('info')->withArgs(fn (string $event): bool => $event === 'game.status.changed')->once();
+});
+
+it('says an archived game is restored before it goes live', function () {
+    app(ChangeGameStatusAction::class)->handle(User::factory()->admin()->create(), gameWithTraffic(GameStatus::Archived), GameStatus::Live);
+})->throws(CannotManageGameException::class, 'A game that is Archived can’t go live. Restore it first.');
 
 it('pauses, resumes, archives and restores', function () {
     $admin = User::factory()->admin()->create();

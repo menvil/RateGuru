@@ -1,5 +1,9 @@
 <?php
 
+use App\Actions\Games\ApplyGameTrafficAction;
+use App\Actions\Games\ChangeGameVersionAction;
+use App\Actions\Games\CreateContentSetAction;
+use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\GameAudience;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameTraffic;
@@ -8,6 +12,7 @@ use App\Models\GameRoundOption;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\ProjectSettings;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -67,4 +72,76 @@ it('shares an audience out between versions and applies it', function () {
         ->assertSee('Current');
 
     expect(GameTrafficPeriod::query()->where('audience', GameAudience::Anonymous)->sole()->shares())->toBe([$v1->id => 50, $v2->id => 50]);
+});
+
+it('applies whole-number shares as typed, and says before Apply that a fraction is not one', function () {
+    $publish = fn () => app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game'], $this->draft['set']->id, $this->draft['flow']->id);
+    [$v1, $v2] = [$publish(), $publish()];
+
+    $page = Livewire::test(GameTraffic::class, ['record' => $this->draft['game']->id])
+        ->call('addVersion', 'anonymous', $v1->id)
+        ->call('addVersion', 'anonymous', $v2->id)
+        ->set('shares.anonymous.'.$v1->id, '050')
+        ->set('shares.anonymous.'.$v2->id, '50')
+        ->assertSee('Shares add up to 100%.')
+        ->call('apply', 'anonymous')
+        ->assertDispatched('rg-admin-toast', message: 'Shares applied. A new period started.', tone: 'success');
+
+    expect(GameTrafficPeriod::query()->where('audience', GameAudience::Anonymous)->sole()->shares())->toBe([$v1->id => 50, $v2->id => 50]);
+
+    $page->set('shares.anonymous.'.$v1->id, '12.5')
+        ->assertSee('Each share is a whole number from 1 to 100.');
+});
+
+it('applies nothing over shares changed since the page was drawn, and draws them again', function () {
+    $publish = fn (?int $takeOver = null) => app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id, $takeOver);
+    [$v1, $v2] = [$publish(), $publish()];
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Anonymous, [$v1->id => 100]);
+
+    $page = Livewire::test(GameTraffic::class, ['record' => $this->draft['game']->id]);
+
+    // In another tab: V3 is published, taking over V1's share.
+    $v3 = $publish($v1->id);
+
+    $page->call('addVersion', 'anonymous', $v2->id)
+        ->set('shares.anonymous.'.$v1->id, 50)
+        ->set('shares.anonymous.'.$v2->id, 50)
+        ->call('apply', 'anonymous')
+        ->assertDispatched('rg-admin-toast', message: 'These shares changed after you opened the page, so nothing was applied. They now show as they are.', tone: 'error')
+        ->assertSet('shares.anonymous', [$v3->id => 100]);
+
+    expect(GameTrafficPeriod::query()->where('audience', GameAudience::Anonymous)->whereNull('ended_at')->sole()->shares())->toBe([$v3->id => 100]);
+});
+
+it('reads every content set of the Versions tab in the same few queries, however many there are', function () {
+    $queries = function (): int {
+        $count = 0;
+        DB::listen(function () use (&$count): void {
+            $count++;
+        });
+        Livewire::test(GameVersions::class, ['record' => $this->draft['game']->id]);
+
+        return $count;
+    };
+
+    $one = $queries();
+
+    foreach (range(1, 3) as $copy) {
+        app(CreateContentSetAction::class)->handle($this->draft['admin'], $this->draft['game'], 'Copy '.$copy, $this->draft['set']->id);
+    }
+
+    expect($queries() - $one)->toBe(0);
+});
+
+it('says the versions are all archived, rather than that there are none', function () {
+    $version = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game'], $this->draft['set']->id, $this->draft['flow']->id);
+    app(ChangeGameVersionAction::class)->retire($this->draft['admin'], $version);
+
+    Livewire::test(GameVersions::class, ['record' => $this->draft['game']->id])
+        ->assertSee('No active versions')
+        ->assertSee('1 archived. Turn on Show archived to see it.')
+        ->assertDontSee('No versions yet')
+        ->set('showRetired', true)
+        ->assertDontSee('No active versions')
+        ->assertSee('wire:key="version-'.$version->id.'"', false);
 });

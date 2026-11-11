@@ -105,4 +105,4 @@ it('refuses to freeze a set that is not publishable', function () {
     $draft['set']->profiles()->delete();
 
     VersionSnapshotBuilder::build($draft['game'], draftReport($draft), $draft['flow']);
-})->throws(LogicException::class);
+})->throws(LogicException::class, 'Only a publishable content set can be frozen into a version.');
