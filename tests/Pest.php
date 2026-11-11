@@ -1,5 +1,8 @@
 <?php
 
+use App\Actions\Games\ApplyGameTrafficAction;
+use App\Actions\Games\ChangeGameStatusAction;
+use App\Actions\Games\PublishGameVersionAction;
 use App\Actions\Settings\UpdateProjectLocaleSettingsAction;
 use App\Actions\Studio\ApplyStudioDiscussionGenerationAction;
 use App\Actions\Studio\ApproveStudioPlanAction;
@@ -21,6 +24,9 @@ use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\CommentStatus;
+use App\Enums\GameAudience;
+use App\Enums\GameFlowStepType;
+use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
 use App\Enums\MediaVariantName;
 use App\Enums\ReportStatus;
@@ -41,6 +47,14 @@ use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Models\Category;
 use App\Models\Comment;
+use App\Models\Game;
+use App\Models\GameContentSet;
+use App\Models\GameFlow;
+use App\Models\GameFlowStep;
+use App\Models\GameResultProfile;
+use App\Models\GameRound;
+use App\Models\GameRoundOption;
+use App\Models\GameVersion;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
@@ -62,6 +76,7 @@ use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Support\Games\Results\ResultProfileCoverage;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
@@ -14344,4 +14359,91 @@ function recordQueuedJobClasses(): ArrayObject
     });
 
     return $queued;
+}
+
+/**
+ * A published post whose picture players can be shown — stored, ready, with
+ * its feed-sized web variant — and these site votes.
+ */
+function gamePost(int $upvotes, int $downvotes): Post
+{
+    $post = Post::factory()->published()->withImage()->create(['upvotes_count' => $upvotes, 'downvotes_count' => $downvotes]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed640)->create(['media_asset_id' => $post->image_asset_id]);
+    MediaVariant::factory()->named(MediaVariantName::PostFeed1280)->create(['media_asset_id' => $post->image_asset_id]);
+
+    return $post->fresh();
+}
+
+/**
+ * A Draft game whose content set and flow can be published as they are:
+ * `$rounds` crowd rounds of published posts the crowd plainly decided (90 %
+ * against 60 % of 1 000 votes, option A the pick), the suggested result
+ * profiles for them, and the Result First flow — Landing, Game, Full Result.
+ *
+ * @return array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}
+ */
+function publishableGameDraft(int $rounds = 3, ?User $admin = null): array
+{
+    $admin ??= User::factory()->admin()->create();
+    $game = Game::factory()->create(['created_by_user_id' => $admin->id, 'updated_by_user_id' => $admin->id]);
+    $set = GameContentSet::factory()->create(['game_id' => $game->id]);
+
+    for ($position = 0; $position < $rounds; $position++) {
+        $round = GameRound::factory()->create(['content_set_id' => $set->id, 'position' => $position, 'internal_name' => 'Round '.($position + 1)]);
+        GameRoundOption::factory()->create(['round_id' => $round->id, 'position' => 0, 'post_id' => gamePost(900, 100)->id]);
+        GameRoundOption::factory()->create(['round_id' => $round->id, 'position' => 1, 'post_id' => gamePost(600, 400)->id]);
+    }
+
+    $names = ResultProfileCoverage::suggestedNames($rounds);
+
+    foreach (ResultProfileCoverage::suggestedRanges($rounds) as $index => $range) {
+        $suggested = ResultProfileCoverage::SUGGESTED[$names[$index]];
+        GameResultProfile::factory()->create([
+            'content_set_id' => $set->id,
+            'position' => $index,
+            'key' => Str::slug($suggested['name']),
+            'name' => $suggested['name'],
+            'description' => $suggested['description'],
+            'icon' => $suggested['icon'],
+            'min_matches' => $range['min'],
+            'max_matches' => $range['max'],
+        ]);
+    }
+
+    $flow = GameFlow::factory()->create(['game_id' => $game->id]);
+
+    foreach ([GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult] as $position => $type) {
+        GameFlowStep::factory()->type($type)->create(['flow_id' => $flow->id, 'position' => $position]);
+    }
+
+    return ['admin' => $admin, 'game' => $game->fresh(), 'set' => $set->fresh(), 'flow' => $flow->fresh()];
+}
+
+/**
+ * A live game visitors can play: the draft published as its first version,
+ * given every visitor of both audiences, the game live and games allowed in
+ * Project settings.
+ *
+ * @param  array{admin: User, game: Game, set: GameContentSet, flow: GameFlow}  $draft
+ */
+function liveGame(array $draft): GameVersion
+{
+    $version = app(PublishGameVersionAction::class)->handle($draft['admin'], $draft['game'], $draft['set']->id, $draft['flow']->id);
+
+    foreach (GameAudience::cases() as $audience) {
+        app(ApplyGameTrafficAction::class)->handle($draft['admin'], $draft['game'], $audience, [$version->id => 100]);
+    }
+
+    app(ChangeGameStatusAction::class)->handle($draft['admin'], $draft['game']->fresh(), GameStatus::Live);
+    allowGames();
+
+    return $version;
+}
+
+/** Games switched on in Project settings, as an administrator switches them on. */
+function allowGames(bool $allowed = true): void
+{
+    $settings = ProjectSettings::query()->find(1) ?? ProjectSettings::factory()->create();
+    $settings->forceFill(['feature_flags' => [...($settings->feature_flags ?? []), 'allow_games' => $allowed]])->save();
+    app(ProjectSettingsManager::class)->flush();
 }
