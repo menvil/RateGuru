@@ -11,11 +11,15 @@ use Illuminate\Validation\ValidationException;
 /**
  * Where an authentication attempt started, and therefore where it ends.
  *
- * There are two surfaces. The standalone pages (/login, /register,
- * /forgot-password) behave exactly as they always have. The modal marks its
- * requests explicitly — surface, mode and the page the person was on — and
- * everything started there comes back to that page: a success lands on it,
- * a failure lands on it with the modal open again.
+ * The standalone pages (/login, /register, /forgot-password) behave exactly
+ * as they always have. The modal marks its requests explicitly — surface,
+ * mode and the page the person was on — and everything started there comes
+ * back to that page: a success lands on it, a failure lands on it with the
+ * modal open again. A form set into a page itself — the sign-up on a game's
+ * result — marks itself embedded and comes back the same way, except that a
+ * failed form post lands with the modal shut, the errors shown in the form
+ * on the page. A provider round trip started there that fails still opens
+ * the modal: only the modal shows those notices.
  *
  * This class only decides where responses go. It authenticates nobody,
  * links nothing and never looks at credentials; the actions it wraps are
@@ -31,9 +35,11 @@ final readonly class AuthSurfaceContext
 
     public const string MODAL = 'modal';
 
+    public const string EMBEDDED = 'embedded';
+
     /**
-     * Modal failures get their own error bag so the forms of the page
-     * underneath (a contact form with its own `email` field) never render
+     * Modal and embedded failures get their own error bag so the other forms
+     * of the page (a contact form with its own `email` field) never render
      * an authentication error as theirs.
      */
     public const string ERROR_BAG = 'authModal';
@@ -61,7 +67,7 @@ final readonly class AuthSurfaceContext
      */
     public static function fromInput(array $input, ?AuthModalMode $mode = null): self
     {
-        if (($input[self::SURFACE_FIELD] ?? null) !== self::MODAL) {
+        if (! in_array($input[self::SURFACE_FIELD] ?? null, [self::MODAL, self::EMBEDDED], true)) {
             return self::page();
         }
 
