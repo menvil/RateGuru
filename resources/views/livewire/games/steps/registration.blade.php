@@ -19,5 +19,5 @@
             'loginLabel' => $texts['secondary_label'] ?? '',
         ])
     @endif
-    <button type="button" class="rg-game__link" wire:click="continue" data-testid="game-continue">{{ __('games.play.continue') }} →</button>
+    <button type="button" class="rg-game__link" wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue">{{ __('games.play.continue') }} →</button>
 </section>

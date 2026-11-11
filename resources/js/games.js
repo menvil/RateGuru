@@ -1,11 +1,11 @@
 // The game page's own behaviour (resources/views/livewire/games/steps).
 //
 // A game round on the page (game.blade.php).
-// A pick is marked the moment it is made and sent to the server, which judges
-// it; once revealed, the Next button fills like a timer and moves on by itself
-// when the round is set to, or waits to be pressed.
+// A pick is marked the moment it is made and sent to the server with the round
+// on screen, which judges it; once revealed, the Next button fills like a timer
+// and moves on by itself when the round is set to, or waits to be pressed.
 document.addEventListener('alpine:init', () => {
-    window.Alpine.data('rgGameRound', ({ revealed, auto, seconds }) => ({
+    window.Alpine.data('rgGameRound', ({ round, revealed, auto, seconds }) => ({
         picked: null,
         progress: 0,
         frame: null,
@@ -44,7 +44,18 @@ document.addEventListener('alpine:init', () => {
             }
 
             this.picked = position;
-            this.$wire.choose(position);
+
+            // A pick that brings no reveal back — refused, held by the rate
+            // limit, or failed — leaves the round open to another tap. A reveal
+            // draws the round anew under another key, so this one is gone.
+            const wire = this.$wire;
+            const reopen = () => {
+                if (wire.reveal === null) {
+                    this.picked = null;
+                }
+            };
+
+            wire.choose(position, round).then(reopen, reopen);
         },
 
         next() {

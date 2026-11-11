@@ -2,7 +2,8 @@
     /*
      * Full Result: the profile's description large above the card that goes
      * out when the result is shared — the profile's own picture, or the
-     * game's cover, or its sign in the accent's light; the game, the profile,
+     * game's cover, or its sign in the accent's light, though a profile the
+     * step hides shows neither its picture nor its sign; the game, the profile,
      * the score and the player's @name on it, or the site's address while they
      * have no account. Beside it, for an anonymous visitor, sign-up first when
      * the step asks for it here — the quickest way to an account is the point
@@ -13,7 +14,7 @@
     $settings = $data['settings'];
     $profile = $result['profile'] ?? null;
     $showProfile = $profile !== null && (bool) ($settings['show_profile'] ?? true);
-    $picture = ($profile['image'] ?? null) ?: $game['cover'];
+    $picture = ($showProfile ? ($profile['image'] ?? null) : null) ?: $game['cover'];
     $score = $result['byCrowd']
         ? __('games.play.matched_crowd', ['matches' => $result['matches'], 'total' => $result['scored']])
         : __('games.play.matched_right', ['matches' => $result['matches'], 'total' => $result['scored']]);
@@ -29,7 +30,7 @@
             @if ($picture)
                 <img class="rg-game__share-card-image" src="{{ $picture->src }}" @if ($picture->srcset) srcset="{{ $picture->srcset }}" sizes="{{ $picture->sizes }}" @endif alt="">
             @else
-                <span class="rg-game__share-card-glow" aria-hidden="true"><x-ui.icon :name="$profile['icon'] ?? 'award'" class="size-16" /></span>
+                <span class="rg-game__share-card-glow" aria-hidden="true"><x-ui.icon :name="$showProfile ? ($profile['icon'] ?? 'award') : 'award'" class="size-16" /></span>
             @endif
             <span class="rg-game__share-card-shade" aria-hidden="true"></span>
             <div class="rg-game__share-card-text">

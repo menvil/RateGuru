@@ -5,11 +5,11 @@ namespace App\Livewire\Games;
 use App\Enums\GameAnswerOutcome;
 use App\Enums\GameAudience;
 use App\Enums\GameFlowStepType;
-use App\Enums\GameStatus;
 use App\Enums\ImageOrientation;
 use App\Models\Game;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
+use App\Queries\Games\GameFlowVisitorQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\FlowStepDraft;
@@ -358,17 +358,9 @@ final class PreviewGame extends Component
     {
         $visitor = $this->visitor();
 
-        return new FlowVisitor($visitor->audience, $this->visitorMode === 'authenticated' || $this->emailLeft, $this->nextGameLive());
-    }
+        // Next Game as the game decides it: live, and giving this audience a version.
+        $nextGame = app(GameFlowVisitorQuery::class)->nextGame($this->snapshot(), $visitor->audience);
 
-    private function nextGameLive(): bool
-    {
-        foreach ($this->snapshot()->steps as $step) {
-            if ($step->type === GameFlowStepType::NextGame && is_numeric($step->setting('next_game_id'))) {
-                return Game::query()->whereKey((int) $step->setting('next_game_id'))->where('status', GameStatus::Live)->exists();
-            }
-        }
-
-        return false;
+        return new FlowVisitor($visitor->audience, $this->visitorMode === 'authenticated' || $this->emailLeft, $nextGame !== null);
     }
 }

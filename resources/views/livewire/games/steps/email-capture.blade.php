@@ -27,7 +27,7 @@
     @if ($required)
         <p class="rg-game__note rg-game__note--center">{{ __('games.play.email_required') }}</p>
     @elseif (($texts['secondary_label'] ?? '') !== '')
-        <button type="button" class="rg-game__link" wire:click="continue" data-testid="game-email-skip">{{ $texts['secondary_label'] }}</button>
+        <button type="button" class="rg-game__link" wire:click="continue" wire:loading.attr="disabled" data-testid="game-email-skip">{{ $texts['secondary_label'] }}</button>
     @endif
     @if (($texts['notice'] ?? '') !== '')
         <p class="rg-game__note">{{ $texts['notice'] }}</p>
