@@ -58,10 +58,4 @@ final class GameGeneralRules
 
         return new GameGeneralData(...$values);
     }
-
-    /** A slug made from a title, as the editor suggests it until the slug is typed. */
-    public static function slugFrom(string $title): string
-    {
-        return Str::limit(Str::slug($title), self::SLUG_MAX, '');
-    }
 }

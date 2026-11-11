@@ -273,6 +273,9 @@ final readonly class GamePlayView
         $userId = $attempt->user_id ?? $visitor->userId;
         $player = PlayerHandle::of($userId !== null ? User::query()->find($userId) : null);
         $own = $player !== null && $attempt->exists && $profile !== null;
+        // A share to a provider goes by the attempt, so it is counted on it;
+        // the attempt's address shares the profile's page while it names nobody.
+        $played = $attempt->exists && $profile !== null;
         $shareUrl = match (true) {
             $own => route('games.player-result', ['slug' => $game->slug, 'attempt' => $attempt->public_id]),
             $profile !== null && $versionNumber > 0 => route('games.result', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profile->key]),
@@ -302,7 +305,7 @@ final readonly class GamePlayView
                 // What the card names after the score: the player, or the site.
                 'byline' => $player ?? DisplayHost::of($shareUrl),
                 'text' => $shareText,
-                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $own ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site),
+                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $played ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site),
             ],
             // Signed up or in from this attempt: the name is on the card now.
             'named' => $player !== null && $attempt->account_outcome !== null ? $player : null,

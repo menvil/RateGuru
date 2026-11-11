@@ -7,7 +7,8 @@ use App\Enums\GameFlowStepType;
 /**
  * Which steps of a flow a visitor sees, and in what order. A step is skipped
  * when its audience is not theirs; an Email Capture when their email is known
- * and the step skips known emails; a Next Game step when its game is not live.
+ * and the step skips known emails; a Next Game step when its game is not live,
+ * or gives the visitor's audience no version.
  * A skipped step is passed over, never shown empty.
  */
 final class GameFlowRunner
