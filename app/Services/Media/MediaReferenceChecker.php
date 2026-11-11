@@ -2,6 +2,9 @@
 
 namespace App\Services\Media;
 
+use App\Models\Game;
+use App\Models\GameResultProfile;
+use App\Models\GameRoundOption;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioPlan;
@@ -9,10 +12,14 @@ use App\Models\User;
 use Illuminate\Support\Collection;
 
 /**
- * Whether a MediaAsset is still owned by anything, checked against the only
- * three real foreign-key usages that exist in this app — posts.image_asset_id,
- * users.avatar_asset_id and studio_plans.image_asset_id (a Content Studio
- * plan's photo, before any post has it). Deliberately not
+ * Whether a MediaAsset is still owned by anything, checked against the real
+ * foreign-key usages that exist in this app — posts.image_asset_id,
+ * users.avatar_asset_id, studio_plans.image_asset_id (a Content Studio
+ * plan's photo, before any post has it), and the pictures of Growth → Games:
+ * a game's cover, a round option's upload, a result profile's share image,
+ * and the uploads a published game version keeps (game_version_assets). A
+ * post's picture shown in a game is not a game's reference: the post owns it.
+ * Deliberately not
  * reflection/schema-driven: a hardcoded, explicit check of the actual
  * references that exist, not a generic "scan every table for this column
  * name" mechanism.
@@ -33,14 +40,18 @@ class MediaReferenceChecker
         // though the post (and its image) may still be restored.
         return Post::withTrashed()->where('image_asset_id', $asset->id)->exists()
             || User::where('avatar_asset_id', $asset->id)->exists()
-            || StudioPlan::query()->where('image_asset_id', $asset->id)->exists();
+            || StudioPlan::query()->where('image_asset_id', $asset->id)->exists()
+            || Game::query()->where('cover_asset_id', $asset->id)->exists()
+            || GameRoundOption::query()->where('asset_id', $asset->id)->exists()
+            || GameResultProfile::query()->where('share_asset_id', $asset->id)->exists()
+            || $asset->gameVersions()->exists();
     }
 
     /**
      * Batched form of isReferenced(), for chunked reporting callers
-     * (media:audit) that would otherwise issue three queries per asset. Three
-     * queries total, regardless of how many ids are passed — and none for no
-     * ids at all.
+     * (media:audit) that would otherwise issue a query per source and asset.
+     * One query per source, regardless of how many ids are passed — and none
+     * for no ids at all.
      *
      * @param  Collection<int, int>  $assetIds
      * @return Collection<int, int> the subset of $assetIds that are
@@ -57,6 +68,10 @@ class MediaReferenceChecker
         return Post::withTrashed()->whereIn('image_asset_id', $assetIds)->pluck('image_asset_id')
             ->merge(User::whereIn('avatar_asset_id', $assetIds)->pluck('avatar_asset_id'))
             ->merge(StudioPlan::query()->whereIn('image_asset_id', $assetIds)->pluck('image_asset_id'))
+            ->merge(Game::query()->whereIn('cover_asset_id', $assetIds)->pluck('cover_asset_id'))
+            ->merge(GameRoundOption::query()->whereIn('asset_id', $assetIds)->pluck('asset_id'))
+            ->merge(GameResultProfile::query()->whereIn('share_asset_id', $assetIds)->pluck('share_asset_id'))
+            ->merge(MediaAsset::withTrashed()->whereIn('id', $assetIds)->whereHas('gameVersions')->pluck('id'))
             ->unique()
             ->flip();
     }

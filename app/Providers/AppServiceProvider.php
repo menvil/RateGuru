@@ -5,9 +5,11 @@ namespace App\Providers;
 use App\Enums\AuthModalMode;
 use App\Enums\PostStatus;
 use App\Enums\ThemePreference;
+use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
+use App\Policies\GamePolicy;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
 use App\Policies\PersonaPolicy;
@@ -25,6 +27,7 @@ use App\Services\Media\MediaUrlResolver;
 use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
+use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
@@ -43,6 +46,7 @@ use App\Support\View\AppLayoutData;
 use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -91,10 +95,11 @@ class AppServiceProvider extends ServiceProvider
         // Stamps every signed-in session with its account's session
         // generation; EnsureSessionGenerationIsCurrent ends older ones.
         Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
+        Event::listen([Registered::class, Login::class], ClaimGameAttemptsOnSignIn::class);
 
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
-        Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class]);
+        Livewire::addPersistentMiddleware([RequireSignInWhileGuestViewingIsOff::class, EnsureGamesAreEnabled::class]);
 
         Gate::define('moderate-content', [ModerationPolicy::class, 'moderateContent']);
         Gate::define('ban-user', [ModerationPolicy::class, 'banUser']);
@@ -102,6 +107,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('view-media-diagnostics', [MediaDiagnosticsPolicy::class, 'view']);
         Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
         Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
+        Gate::define('manage-games', [GamePolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);
