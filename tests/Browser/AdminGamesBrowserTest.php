@@ -201,8 +201,9 @@ it('plays the draft in the preview’s phone, marks the step on screen in Journe
         })()
     JS, true, 15.0);
 
-    expect($page->script("document.querySelector('.rg-admin-games__preview-chip')?.textContent.trim()"))->toBe('Preview mode')
-        ->and($page->script("document.querySelector('.rg-admin-games__journey-step--current')?.textContent.trim()"))->toBe('Landing');
+    expect($page->script("document.querySelector('.rg-admin-games__preview-chip')?.textContent.trim()"))->toBe('Preview mode');
+    // Journey marks the step once the frame has told the page which one it shows — waited for, as on every later step.
+    waitForScript($page, "document.querySelector('.rg-admin-games__journey-step--current')?.textContent.trim()", 'Landing', 10.0);
 
     $page->script("document.querySelector('[data-testid=\"game-preview-frame\"]').contentDocument.querySelector('[data-testid=\"game-start\"]').click()");
     waitForScript($page, "!! document.querySelector('[data-testid=\"game-preview-frame\"]').contentDocument.querySelector('[data-testid=\"game-option-0\"]')", true, 10.0);
