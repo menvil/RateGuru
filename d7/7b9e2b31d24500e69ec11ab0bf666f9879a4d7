@@ -1,0 +1,610 @@
+tests/Feature/Auth/EmbeddedRegistrationTest.php
+  s_4b9dc6ab6b25d3::t_56ff05729fc5d7 1-56
+resources/views/components/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_c1eb0ad353e9cd 43-45
+tests/Browser/AdminGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_4dd96c5767e072 19,77-79,82,84,86
+  s_4b9dc6ab6b25d3::t_91d7cf53fa2ef2 22-23,192,195,198,200,204-206,209
+  s_4b9dc6ab6b25d3::t_1c3bdd27bb0fa2 207-208
+  s_4b9dc6ab6b25d3::t_0916fe7dbbf3b9 21,117-147
+  s_4b9dc6ab6b25d3::t_c3eaebd7956b7f 20,102-103,107-108
+tests/Feature/Games/Admin/GameUnpublishedChangesTest.php
+  s_4b9dc6ab6b25d3::t_cd821e1342146d 1-71,75-94,96,101-112,114-115
+  s_4b9dc6ab6b25d3::t_e99701e88603b3 72-74,95,97-100,113
+tests/Feature/Games/Admin/GamePreviewPageTest.php
+  s_4b9dc6ab6b25d3::t_5f0730cc22020c 45-50
+  s_4b9dc6ab6b25d3::t_a7a6f4308e8f8e 4-5,7,9-13,15-19,21,23,25-27,29-32,34-37,39-40,42-43,52,57
+  s_4b9dc6ab6b25d3::t_36e3116951c044 53,55-56
+resources/views/livewire/games/steps/intro.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1
+tests/Unit/Support/Urls/DisplayHostTest.php
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 1-13
+lang/en/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Filament/Resources/Games/Pages/ListGames.php
+  s_4b9dc6ab6b25d3::t_a5faa54ca0b780 26-27,161-166,168
+lang/pl/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+lang/sl/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+resources/views/filament/pages/games/flow/canvas.blade.php
+  s_4b9dc6ab6b25d3::t_a4bf4a88f23c40 2-7,9-58,60-63,65-79,83-84,86,89,91-92
+lang/zh/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Support/Games/Play/PlayerHandle.php
+  s_4b9dc6ab6b25d3::t_320525ba0aeba1 1-4,6-9,14-18,20-25
+  s_4b9dc6ab6b25d3::t_fd90cf02dc384b 5,10-13,19
+resources/views/filament/pages/games/browser.blade.php
+  s_4b9dc6ab6b25d3::t_9d63f33401447f 1-30
+resources/views/filament/pages/game-preview.blade.php
+  s_4b9dc6ab6b25d3::t_ba2ebd470936be 48-49,51-56,63-64
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 118
+  s_4b9dc6ab6b25d3::t_1a953c18e7d8c3 3-10,12-13,16-47,50,57-60,62,65-67,71-113,115-117,119-127,129-132,137-186
+  s_4b9dc6ab6b25d3::t_1cbc3efb4ce346 61,70,136
+tests/Feature/Games/PreviewGameTest.php
+  s_4b9dc6ab6b25d3::t_a63f9920df9179 16,117
+  s_4b9dc6ab6b25d3::t_3c441e40f71a95 118,120-123
+  s_4b9dc6ab6b25d3::t_215b9327eabe85 146
+  s_4b9dc6ab6b25d3::t_763e965ce594bc 119
+  s_4b9dc6ab6b25d3::t_5f0730cc22020c 109-114,140-141
+  s_4b9dc6ab6b25d3::t_260339a9e8d5c1 3,11,115-116,124-139
+  s_4b9dc6ab6b25d3::t_f547af72fac533 13,81-108,142-145,147
+app/Queries/Games/GameDraftQuery.php
+  s_4b9dc6ab6b25d3::t_c03c8d3c795c8f 11,37-38,48
+  s_4b9dc6ab6b25d3::t_d65d1cb4ac5681 6,12,49-56
+  s_4b9dc6ab6b25d3::t_c128e5f9a26511 5,35-36,39-47,57-58
+lang/bs/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+lang/ro/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+resources/views/filament/pages/games/row.blade.php
+  s_4b9dc6ab6b25d3::t_3d563ece65c972 3-8,14-15,53-54
+lang/ru/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+resources/views/filament/pages/games/content/live-preview.blade.php
+  s_4b9dc6ab6b25d3::t_1a7ee030b43e2a 6-7
+  s_4b9dc6ab6b25d3::t_11b549de1de694 8-9,47-50
+  s_4b9dc6ab6b25d3::t_ff1cf9dd776aa4 10-13
+  s_4b9dc6ab6b25d3::t_0fbcf28e10134a 1,14-18,33-36,38-39,43,51-52,54-55
+  s_4b9dc6ab6b25d3::t_9d63f33401447f 22,37,42
+  s_4b9dc6ab6b25d3::t_4ad9b9a9a049b6 2-4,19-21,23-32,40-41,44-46
+  s_4b9dc6ab6b25d3::t_6737bf3c36d5f1 5,53
+lang/is/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+resources/views/filament/pages/games/content/option.blade.php
+  s_4b9dc6ab6b25d3::t_3f0a3ecf7e706b 51-52
+  s_4b9dc6ab6b25d3::t_1dcf150d9316a3 9
+  s_4b9dc6ab6b25d3::t_b51660bbcbd5d4 2-5,7-8,10-16,21,26,29-49,53-54,56-62,64-79,81-85,87
+app/Livewire/Games/PlayGame.php
+  s_4b9dc6ab6b25d3::t_1f5678cb409f2a 35,254-255,257,259-260,262,265
+  s_4b9dc6ab6b25d3::t_f9d6efe4090237 16,243,246,250,253,256,258,261,263-264
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_471c8b61d29ade 83,107-108,151-157,161-163,174-175,181-186,188-190,192,195,199-203,207-225,231-234,334-336,341-344
+resources/views/games/result.blade.php
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 2-3,6-8,44
+  s_4b9dc6ab6b25d3::t_8c0e360ccedcb3 4-5,56
+  s_4b9dc6ab6b25d3::t_91a73564224b18 37-40,42,46-49,51-55,57-58,62
+  s_4b9dc6ab6b25d3::t_519816b60971ce 50
+lang/fi/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+resources/views/filament/pages/games/example-round.blade.php
+  s_4b9dc6ab6b25d3::t_bc704139ccde53 1-19,21-46
+  s_4b9dc6ab6b25d3::t_02018d2462628b 20
+resources/views/filament/pages/games/content/results.blade.php
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 27
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 3-4
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 23-25
+  s_4b9dc6ab6b25d3::t_27dad6db88e921 12,14-20
+  s_4b9dc6ab6b25d3::t_3b7215995ba56a 32-34
+  s_4b9dc6ab6b25d3::t_ecb497ea638242 41-44
+  s_4b9dc6ab6b25d3::t_80179854106f3d 85-90
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 45-47
+  s_4b9dc6ab6b25d3::t_61d3f89eb880f9 29-31
+resources/views/filament/pages/games/flow/flows.blade.php
+  s_4b9dc6ab6b25d3::t_c4ba2281da790e 2-6,8-25,28-30,32-80,82-85,92
+lang/vi/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+resources/views/livewire/games/steps/game.blade.php
+  s_4b9dc6ab6b25d3::t_b6e84c876c94ef 4-9,37,62-72,83-88,90-95
+  s_4b9dc6ab6b25d3::t_31a7c417a4c4b4 47
+  s_4b9dc6ab6b25d3::t_d58c7bf9cea41d 80-82,96-97
+  s_4b9dc6ab6b25d3::t_91a73564224b18 89
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_810e3dba969e65 21
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 356-357
+  s_4b9dc6ab6b25d3::t_56c7a07bf6e4ea 389
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 459
+  s_4b9dc6ab6b25d3::t_1b40a5be697060 45-47
+  s_4b9dc6ab6b25d3::t_1dc6363c6e41ea 363
+  s_4b9dc6ab6b25d3::t_a0f78a1e9b0a77 9,13,18,20,22-23,25-26,84-89,223,349,355,358-360,368,373-374,377-388,390,403-408,423-435
+  s_4b9dc6ab6b25d3::t_35b90e8ac2cffb 173-185
+resources/views/livewire/games/steps/signup.blade.php
+  s_4b9dc6ab6b25d3::t_041e745f205e90 31-37,44-45
+  s_4b9dc6ab6b25d3::t_2b4646b87561fa 11-13,19-22,39,53-57,73-82,110
+  s_4b9dc6ab6b25d3::t_0b0fa0c5079ca3 1,14-16,18,23,26-30,38,43,46,51,83-84
+  s_4b9dc6ab6b25d3::t_0dae379533c8fb 2-10,17,24-25,40-42,47-50,52,58-72,85-109,111-112
+resources/views/livewire/games/steps/result-preview.blade.php
+  s_4b9dc6ab6b25d3::t_8aaefe1f98ab0a 2-3,6
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1,7,20-24
+  s_4b9dc6ab6b25d3::t_8724d73b5b6978 4-5,17
+  s_4b9dc6ab6b25d3::t_ce539f912a5085 15-16,18
+lang/ja/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Filament/Resources/Games/Concerns/InteractsWithGameEditor.php
+  s_4b9dc6ab6b25d3::t_f7570e803859bf 6,14,115-118,123,156-161
+  s_4b9dc6ab6b25d3::t_d4398c8f9635d8 149
+resources/views/livewire/games/steps/share-buttons.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1-4,6,10-12,15
+tests/Unit/Support/Games/GameScorerTest.php
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 19
+lang/de/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+app/Livewire/Games/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_c452c3633d304d 13,32-33,37-38,58-61,67,113,328-329
+  s_4b9dc6ab6b25d3::t_f7fe8c112444be 66,68-69,71,117,222
+  s_4b9dc6ab6b25d3::t_f9d6efe4090237 194
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 35-36,119,361
+  s_4b9dc6ab6b25d3::t_8113e381392d04 219,337-347
+  s_4b9dc6ab6b25d3::t_b2babb4a521621 9,70,72-73
+  s_4b9dc6ab6b25d3::t_d65d1cb4ac5681 34,62-65,114,280-283,330-331
+  s_4b9dc6ab6b25d3::t_e4cfb27784935a 118
+  s_4b9dc6ab6b25d3::t_1f5678cb409f2a 195
+  s_4b9dc6ab6b25d3::t_8fc60981165553 228-230,238-243,262-279
+resources/views/filament/pages/game-general.blade.php
+  s_4b9dc6ab6b25d3::t_44d5a439fd1c24 44,85-86,117-119
+  s_4b9dc6ab6b25d3::t_019733e506e84c 3-8,16,43,70,88-110,114,120-122
+  s_4b9dc6ab6b25d3::t_61db7b9c964423 84
+resources/views/livewire/games/steps/email-capture.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 7,28
+resources/views/livewire/games/steps/next-game.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 3-5,7-8
+lang/cs/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+resources/views/filament/pages/games/content/rounds.blade.php
+  s_4b9dc6ab6b25d3::t_f3d37587634500 4-6,55
+  s_4b9dc6ab6b25d3::t_5296b37330cae7 2-3,9-13,51-53,56
+  s_4b9dc6ab6b25d3::t_dce5c9ece88f8c 17-50
+  s_4b9dc6ab6b25d3::t_0d4a606722dbde 54
+  s_4b9dc6ab6b25d3::t_8cb090d7650356 14-16
+resources/views/livewire/games/steps/share.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1,3-4
+app/Enums/GameMechanic.php
+  s_4b9dc6ab6b25d3::t_b2a2e7532f87b0 27-34
+lang/fr/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+app/Filament/Resources/Games/Pages/PreviewGame.php
+  s_4b9dc6ab6b25d3::t_c1ffbdbb842d0d 5,10,13,19-21,24-25,57,76-78,80-81,84-88,95-101,103-104
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 22-23,47,64
+resources/views/filament/pages/games/content/round.blade.php
+  s_4b9dc6ab6b25d3::t_fd37dd43975772 114-125,130-145,149,151-156
+  s_4b9dc6ab6b25d3::t_10cb85486bfcd3 82-84
+  s_4b9dc6ab6b25d3::t_4021f54410e822 13-25,31,33-34,36-37,42,45,47-49,52-63,65-66,76,78,81,85-88,90-110,113,126-129,146-148,150,157-164
+  s_4b9dc6ab6b25d3::t_415d068fae3e92 28-29
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 111
+resources/views/filament/pages/games.blade.php
+  s_4b9dc6ab6b25d3::t_2169a3c20137a0 10,97
+  s_4b9dc6ab6b25d3::t_4aab7e1a153920 18
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_fdc964ac531b5c 27-32
+  s_4b9dc6ab6b25d3::t_5f0730cc22020c 58-63,65,67-68
+  s_4b9dc6ab6b25d3::t_59cf7fc1fefd04 5,16,19-22,33-57,69-80
+  s_4b9dc6ab6b25d3::t_2cca292be503f4 64,66
+app/Http/Controllers/Games/GameResultController.php
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 14
+  s_4b9dc6ab6b25d3::t_8c0e360ccedcb3 16,22,33-47,49-50,70-71
+  s_4b9dc6ab6b25d3::t_8fe5cdaf4d1649 23-24
+  s_4b9dc6ab6b25d3::t_ba9f06fed4a15c 7-9,11,48
+lang/lv/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+resources/views/livewire/games/steps/instructions.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1
+app/Http/Controllers/Games/ShareGameResultController.php
+  s_4b9dc6ab6b25d3::t_ba9f06fed4a15c 9-11,14,48
+  s_4b9dc6ab6b25d3::t_8c0e360ccedcb3 23-24,33-47,49-52,54
+resources/views/livewire/games/steps/full-result.blade.php
+  s_4b9dc6ab6b25d3::t_c8f53083cf4afa 42,50-53
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 6-10
+  s_4b9dc6ab6b25d3::t_d8e471065e97b1 15,17-20,23-24,28-32,34,36-41,45-47,54-55,58,61,63,66
+  s_4b9dc6ab6b25d3::t_d58c7bf9cea41d 16,35
+  s_4b9dc6ab6b25d3::t_41394a07fb8591 48-49,56-57
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 5
+  s_4b9dc6ab6b25d3::t_f5c35e6c9808ff 3-4,21,25-26
+tests/Feature/Games/PlayGameSignupTest.php
+  s_4b9dc6ab6b25d3::t_dd2355ab64a7a9 10,17,180-200,202-203,205-210
+  s_4b9dc6ab6b25d3::t_bf9ab3d00d3a65 1-2,6-9,11-14,18-40,43-46,48,50-63,65-70,72-76,78,107-108,110-139,163,166-172,174-179
+  s_4b9dc6ab6b25d3::t_75780678a515b8 162
+  s_4b9dc6ab6b25d3::t_6a8073ce74a291 4-5,16,201,204
+  s_4b9dc6ab6b25d3::t_6f01b96c69b701 47,64,77
+  s_4b9dc6ab6b25d3::t_52aeb0a0ffc4ac 3,15,79-106
+  s_4b9dc6ab6b25d3::t_770833943f49b0 49,71,141-161,164-165
+  s_4b9dc6ab6b25d3::t_53c6bc0c72b1f0 140
+  s_4b9dc6ab6b25d3::t_27e36cb3601557 41-42
+  s_4b9dc6ab6b25d3::t_56ff05729fc5d7 109
+  s_4b9dc6ab6b25d3::t_eeb352e777fa9e 173
+tests/Feature/Games/Admin/GameContentPageTest.php
+  s_4b9dc6ab6b25d3::t_8113e381392d04 3
+  s_4b9dc6ab6b25d3::t_dfa596c452ab95 91-92
+  s_4b9dc6ab6b25d3::t_0e4c860b9989e2 6,12,35-41,43,45-46,49-52,65-88
+  s_4b9dc6ab6b25d3::t_2a67c9a4dc2fc4 42,44,47-48
+  s_4b9dc6ab6b25d3::t_1380ca2650e2d8 166
+  s_4b9dc6ab6b25d3::t_4f5a4b0e6f01a6 226-279,281-290,292
+  s_4b9dc6ab6b25d3::t_3f0a3ecf7e706b 171-184
+  s_4b9dc6ab6b25d3::t_f547af72fac533 53-64
+  s_4b9dc6ab6b25d3::t_1a7ee030b43e2a 9,156-165,167-168
+  s_4b9dc6ab6b25d3::t_14d501ba6a48d1 10,89-90,93-111
+resources/views/filament/pages/games/flow/insert.blade.php
+  s_4b9dc6ab6b25d3::t_003650c074bbb7 1-19,22
+lang/nl/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+resources/views/filament/pages/game-content.blade.php
+  s_4b9dc6ab6b25d3::t_b05fe14b3bad76 3-11,18,23-24,31-35,38,41,43-44,46-49,51-60,62-69,85-90
+  s_4b9dc6ab6b25d3::t_f23a27cd0b898a 13-17
+  s_4b9dc6ab6b25d3::t_3b612abd9180c0 36-37,39-40,42,45
+app/Filament/Resources/Games/Pages/EditGameGeneral.php
+  s_4b9dc6ab6b25d3::t_b1081f9c7d374a 236-240
+  s_4b9dc6ab6b25d3::t_edfbf1a9d379f8 14,27-29,31,44-54,183-193,199-218,225
+  s_4b9dc6ab6b25d3::t_1dc6363c6e41ea 232
+  s_4b9dc6ab6b25d3::t_a872f7a7a8e95b 229
+  s_4b9dc6ab6b25d3::t_810e3dba969e65 12
+app/Data/Games/ContentSetDraft.php
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 25
+resources/views/livewire/games/play-game.blade.php
+  s_4b9dc6ab6b25d3::t_f7fe8c112444be 36
+  s_4b9dc6ab6b25d3::t_23fc48643ccd47 40-41,43
+  s_4b9dc6ab6b25d3::t_0bc4f849cc22f7 2-6
+  s_4b9dc6ab6b25d3::t_d58c7bf9cea41d 9,47-48,53-55
+resources/views/filament/pages/games/content/sets.blade.php
+  s_4b9dc6ab6b25d3::t_3b612abd9180c0 41
+  s_4b9dc6ab6b25d3::t_1ec398cd836e54 2-7,9-27,30-32,35-40,42-43,49-83
+tests/Feature/Games/GameResultPageTest.php
+  s_4b9dc6ab6b25d3::t_a63f9920df9179 14
+  s_4b9dc6ab6b25d3::t_8fe5cdaf4d1649 89
+  s_4b9dc6ab6b25d3::t_64016c0b21d655 27
+  s_4b9dc6ab6b25d3::t_05be915d2d8bca 3-4,7-8,11,13,15,62-88,90-112
+lang/sq/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+app/Support/Games/Analytics/GameFunnel.php
+  s_4b9dc6ab6b25d3::t_87e0d7ac136e30 12-16,35-44
+lang/uk/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_eed3841c6ed9f2 21,80,83
+  s_4b9dc6ab6b25d3::t_cb8d5db5697377 22-25
+tests/Browser/GamePlayBrowserTest.php
+  s_4b9dc6ab6b25d3::t_8e1858b4e48f2d 14-15,128-131
+  s_4b9dc6ab6b25d3::t_d67f3e8d2b6277 4-5,9,12,20-22,134-160,164-167,177,179,182
+  s_4b9dc6ab6b25d3::t_dfdd9a1a804a99 127,161-163
+app/Filament/Resources/Games/Pages/GameVersions.php
+  s_4b9dc6ab6b25d3::t_1360c5698642de 19,56-61,65-73,169-170
+resources/views/filament/pages/game-flow.blade.php
+  s_4b9dc6ab6b25d3::t_ad965488d267df 3-7,9,24-25,27-35,37-44,46-47,49-50,52-53,74,76-77
+  s_4b9dc6ab6b25d3::t_702f8337dd1b58 8,55-66,68-73
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_87e0d7ac136e30 24-27,71,75,77-78,80-81,86,93-100,104,123-127,281-315,324
+lang/sk/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_d360c037759073 80-96
+  s_4b9dc6ab6b25d3::t_2efaefee415a95 47,104
+lang/bg/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_d0341fa25b85fb 11157,11160,11166-11171
+  s_4b9dc6ab6b25d3::t_cf04d0aac4c5bb 11353-11354,11372,11431
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 13153,13155-13158
+  s_4b9dc6ab6b25d3::t_643dc24563c652 11053-11057
+  s_4b9dc6ab6b25d3::t_cc9e707f86d47b 11136,11139,11235-11240,11243,11245,11247-11323
+  s_4b9dc6ab6b25d3::t_c56db09516774e 11511-11514
+  s_4b9dc6ab6b25d3::t_58bbb92fb78778 13433-13435
+  s_4b9dc6ab6b25d3::t_6693326f3bacbc 11230-11234
+  s_4b9dc6ab6b25d3::t_0d4a606722dbde 12041-12044
+  s_4b9dc6ab6b25d3::t_7899d63a9edbdd 11520-11521,11524-11528,11533-11543,11545-11547,11549-11584,11587-11603,11605-11606,11608,11611-11629,11631-11633,11639-11642,12103-12148,12152-12153
+  s_4b9dc6ab6b25d3::t_4aab7e1a153920 11058-11089,11091-11095
+  s_4b9dc6ab6b25d3::t_8cb090d7650356 11883,11885-11890,12210,12231,12235
+  s_4b9dc6ab6b25d3::t_dc40464abf0442 11111-11124,11158-11159,11161-11165,11172-11173,11183-11198,11201-11203,11206-11210,11219-11220,11226
+  s_4b9dc6ab6b25d3::t_3da14568da26de 11352,11355-11362,11364,11366-11367,11370-11371,11376,11378,11381-11382,11385-11391,11400,11410,11422-11424,11427,11429-11430,11432,11435-11510,11515-11519,11529,11532,11544,11585-11586,11604,11607,11609-11610,11634,11643-11644
+  s_4b9dc6ab6b25d3::t_f6f88b842185f0 11847-11864,11874,11884,11891-11894,11900,11902,11921-11937,11951-11997,12002-12003,12019-12037,12045-12100,12149-12151,12154-12209,12211-12228,12232,12236-12396
+  s_4b9dc6ab6b25d3::t_290fc2f0913ff5 11630,11635-11638
+  s_4b9dc6ab6b25d3::t_32954f1571344e 11394-11397,11401-11402,11405,11408-11409,11413,11415,11418-11419,11659-11835,11869-11872,11875,11897-11899,11901,11904-11920,11939,11998-12001,12004-12007,12038
+  s_4b9dc6ab6b25d3::t_53577cede4428d 11090
+  s_4b9dc6ab6b25d3::t_d24a02249f9a18 12520-12813,12817,12819-12825,12831-12832,12835-12854,12856,12858-12864,12867-12873,12875,12878-12887,12890-12939,12941-13015,13017-13019,13021,13023-13025,13029-13030,13033-13034,13037-13044,13047-13052,13055-13058,13061-13062,13065,13067-13069,13072-13074,13077-13078,13084-13089,13091,13093-13094,13096-13099,13103-13104,13107-13114,13117-13118,13121-13123,13126,13129,13132-13138,13141,13144,13146,13149,13161,13165,13168-13170
+  s_4b9dc6ab6b25d3::t_f1b295f7b67660 11522-11523,11530-11531,11548,13236-13241,13243,13246-13251,13254-13257,13260,13262,13264-13267,13270-13276,13278-13281,13284-13287,13290-13291,13294-13297,13300-13304,13307-13310,13313-13320,13323-13324,13327-13333,13336,13339-13342,13345-13349,13352,13355,13357,13361,13364-13372,13375-13376,13379-13381,13384-13391,13393,13396-13399,13402-13404,13407,13410,13414-13417,13420-13422,13425,13429-13430,13436-13437,13440-13448,13451,13454-13461,13464,13466-13470,13473,13475-13477,13480-13484,13487-13488,13491-13492,13495-13508,13511-13516,13519-13522,13525-13532,13535-13542,13545-13566,13569-13571,13574
+lang/hu/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+lang/sv/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+config/games.php
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 12-13,16
+app/Support/Urls/DisplayHost.php
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 1-25
+app/Support/Auth/AuthSurfaceContext.php
+  s_4b9dc6ab6b25d3::t_3b904163d66aa1 14-22,38-39,41-42,70
+lang/it/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_86d157d369eba9 42-43,53,114,125,133-137,148-154
+app/Filament/Resources/Games/Pages/EditGameContent.php
+  s_4b9dc6ab6b25d3::t_c9a2bfb76021d4 58-61
+  s_4b9dc6ab6b25d3::t_3f0a3ecf7e706b 613,619
+  s_4b9dc6ab6b25d3::t_9100b6fcd030fa 14,29,32,882,886-907,921
+  s_4b9dc6ab6b25d3::t_6d85935acc60f8 498-499,507
+  s_4b9dc6ab6b25d3::t_1dc6363c6e41ea 718
+  s_4b9dc6ab6b25d3::t_94b1ccdf266f52 755-759,763-764
+  s_4b9dc6ab6b25d3::t_f7fe8c112444be 760
+  s_4b9dc6ab6b25d3::t_fad83edb0c5138 762,807-837
+  s_4b9dc6ab6b25d3::t_38a13dd7fb9757 922
+  s_4b9dc6ab6b25d3::t_7a0d12bc743d41 238-245,251-255,500,566-567,569-572,586-588
+  s_4b9dc6ab6b25d3::t_810e3dba969e65 24
+  s_4b9dc6ab6b25d3::t_a8c2135fd0aa5c 12,20,707,722,728-729,765-803
+  s_4b9dc6ab6b25d3::t_11b549de1de694 13,117-119,761
+  s_4b9dc6ab6b25d3::t_a11bdf2348c225 25
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_8292fcc479b43a 701,713-715,720-722,724
+  s_4b9dc6ab6b25d3::t_745b6b8d023c31 896-897,899-900,914-922
+  s_4b9dc6ab6b25d3::t_3552ec89e0cb77 874-881
+  s_4b9dc6ab6b25d3::t_f8b931df030e40 679,684-687,709,717,723
+  s_4b9dc6ab6b25d3::t_34bb464c67a76e 925-929
+  s_4b9dc6ab6b25d3::t_a6f12ce0cbaa94 673-674,676-677,692,694-695,698-699,702-704,731-753,755-756,759-764
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 882-888,891-894
+  s_4b9dc6ab6b25d3::t_67482315459767 990-1006
+  s_4b9dc6ab6b25d3::t_c0b6660e33f338 142-146,196,201-202,204-206,208,238,275,277,307-310,315,461-462,485,488,492-495,497-500,527-528,530-533,537,539,549-550,553-555,557,565-566,569-570,574-575,582-585,589,591,604-613,615-652,657-659,661-662,665
+  s_4b9dc6ab6b25d3::t_7bc585e8c33b41 1068,1071,1073-1075
+  s_4b9dc6ab6b25d3::t_890dfa05724252 889-890
+  s_4b9dc6ab6b25d3::t_72973511e2598d 166-167,213,217,243
+  s_4b9dc6ab6b25d3::t_ce539f912a5085 295-303
+  s_4b9dc6ab6b25d3::t_1ebcbd9fafaa19 966
+  s_4b9dc6ab6b25d3::t_6dbe968dd3237b 154,156,161,165,168-179,216,226,228-233,237,241-242,244,247-263,265,267-268,283-284,286,288-294,327-328,330,335,340-343,358,364-366,368-373,376,380-381,385,388,390-391,395,397-403,423-424,428,433-438,486-487,491,496,501,506-526,529,534-536,538,541-542,669-672,675,678,680-681,700,705-706,710-712,716,727-728
+  s_4b9dc6ab6b25d3::t_ab6e4803e96cad 895,898,901-912,923-924
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 913
+  s_4b9dc6ab6b25d3::t_7a724ea5b35cbe 767-773,778,780-801,807,819,823-824,826-827,829-834,840-842,844-852,855,859-860,862-871,935-965,967-989,1007-1067,1069-1070,1072,1076
+resources/views/filament/pages/games/editor-header.blade.php
+  s_4b9dc6ab6b25d3::t_4aab7e1a153920 3,15-22,26
+  s_4b9dc6ab6b25d3::t_643dc24563c652 61
+  s_4b9dc6ab6b25d3::t_f7570e803859bf 7-9,59-60,62-68
+  s_4b9dc6ab6b25d3::t_10dd50affbb939 4,23-25
+  s_4b9dc6ab6b25d3::t_8d7c50e19c182d 5-6
+lang/th/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+lang/da/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+lang/tr/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Queries/Games/GameUnpublishedChangesQuery.php
+  s_4b9dc6ab6b25d3::t_d6769290f9ea0a 1-135
+tests/Feature/Games/Admin/GamesLibraryPageTest.php
+  s_4b9dc6ab6b25d3::t_4dd96c5767e072 29
+  s_4b9dc6ab6b25d3::t_8536ca07ad3702 18,23,26-28,32,35-36,61-62,64,66-68,70-72
+lang/et/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+resources/views/livewire/games/steps/registration.blade.php
+  s_4b9dc6ab6b25d3::t_2b4646b87561fa 2-4,12-20
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1,5,7-8
+resources/views/livewire/games/steps/landing.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 1-5,14,16
+routes/web.php
+  s_4b9dc6ab6b25d3::t_35017455679940 43-44
+  s_4b9dc6ab6b25d3::t_8c0e360ccedcb3 42,54-61
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_6861f56ad3437a 1308
+  s_4b9dc6ab6b25d3::t_e441a74f61a085 1340-1341,1343-1347
+  s_4b9dc6ab6b25d3::t_2bfa220f01d7ef 1294,1301,1310-1311,1314-1315
+  s_4b9dc6ab6b25d3::t_ab5b4e3f636151 1303
+  s_4b9dc6ab6b25d3::t_22fe40eb0d7e42 1283-1284
+  s_4b9dc6ab6b25d3::t_140b6a9d498f2c 1697,1700
+  s_4b9dc6ab6b25d3::t_27dad6db88e921 1270,1288-1292,1690
+  s_4b9dc6ab6b25d3::t_1b40a5be697060 1316-1326
+  s_4b9dc6ab6b25d3::t_2f5eb626600fe7 1274-1275,1279-1282,1689
+  s_4b9dc6ab6b25d3::t_f1e81d61eb9a28 1696
+  s_4b9dc6ab6b25d3::t_b9650e89a25ac6 1307,1312
+  s_4b9dc6ab6b25d3::t_da6b06df5599b3 1313,1701
+  s_4b9dc6ab6b25d3::t_7f9675cc53d5dc 1295-1300,1702
+  s_4b9dc6ab6b25d3::t_3b7215995ba56a 1293,1302,1304-1306,1309
+  s_4b9dc6ab6b25d3::t_089aeb947f2db5 1327-1328,1342
+  s_4b9dc6ab6b25d3::t_54d2ff2aa341c0 1698-1699
+app/Support/Games/Drafts/DraftContentSet.php
+  s_4b9dc6ab6b25d3::t_be349b9922eecf 1-164
+resources/views/filament/pages/games/phone.blade.php
+  s_4b9dc6ab6b25d3::t_9d63f33401447f 1-32
+lang/nb/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+tests/Feature/Games/Admin/GameGeneralPageTest.php
+  s_4b9dc6ab6b25d3::t_8e80e11197404c 72-75,87-95
+  s_4b9dc6ab6b25d3::t_816dc5d188bc1f 21-23,25,28-29,31,37,96-97,101-102
+  s_4b9dc6ab6b25d3::t_8536ca07ad3702 3,98-100,103-125
+lang/mk/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+lang/ka/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+lang/el/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_f3d37587634500 35
+  s_4b9dc6ab6b25d3::t_8b1a9d58ea94e5 32-34
+app/Actions/Games/RecordGameInteractionAction.php
+  s_4b9dc6ab6b25d3::t_f9d6efe4090237 13-16,37
+app/Services/Games/GamePreviewDrafts.php
+  s_4b9dc6ab6b25d3::t_c5312512c57ebd 81,84-90,114-119
+  s_4b9dc6ab6b25d3::t_d65d1cb4ac5681 6,11-12,92-113
+  s_4b9dc6ab6b25d3::t_66451d909c1b9b 1-5,7-9,15-21,29-30,32,34-35,65-80,82-83,91,120-126
+  s_4b9dc6ab6b25d3::t_fad83edb0c5138 10,13-14,22-28,31,33,36-64
+tests/Unit/Support/Games/GameFlowValidatorTest.php
+  s_4b9dc6ab6b25d3::t_260339a9e8d5c1 110-121
+database/factories/GameVersionFactory.php
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 65
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 84
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_a95f264d1ad71a 161-165,167,170-172
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 45-48
+  s_4b9dc6ab6b25d3::t_e441a74f61a085 191-199
+  s_4b9dc6ab6b25d3::t_aefd62759bb906 152-154
+  s_4b9dc6ab6b25d3::t_ecb497ea638242 127-133
+  s_4b9dc6ab6b25d3::t_54f7f71dd39b2a 200-204
+  s_4b9dc6ab6b25d3::t_54d2ff2aa341c0 206-213
+  s_4b9dc6ab6b25d3::t_3b7215995ba56a 214-218,223
+  s_4b9dc6ab6b25d3::t_1b40a5be697060 220-222
+  s_4b9dc6ab6b25d3::t_b9650e89a25ac6 219
+app/Queries/Games/GameResultQuery.php
+  s_4b9dc6ab6b25d3::t_763e965ce594bc 68-74
+  s_4b9dc6ab6b25d3::t_320525ba0aeba1 5,8,11,13,18-19,49-52,55-67
+  s_4b9dc6ab6b25d3::t_8fe5cdaf4d1649 20,53-54
+resources/views/filament/pages/games/flow/settings.blade.php
+  s_4b9dc6ab6b25d3::t_2cca292be503f4 13-14,58,67
+  s_4b9dc6ab6b25d3::t_702f8337dd1b58 7-8,12,46-55,118
+  s_4b9dc6ab6b25d3::t_863021a7ca1a17 19-22,24-27,114,152-153
+  s_4b9dc6ab6b25d3::t_4e1a9ecb108eca 3-6,11,31,33-45,56-57,59-66,68-73,75,77-79,90-97,99,101-102,104-109,126-133,135,162-164,167-168
+  s_4b9dc6ab6b25d3::t_56c7a07bf6e4ea 155,157
+  s_4b9dc6ab6b25d3::t_8aaefe1f98ab0a 23
+resources/views/livewire/games/steps/feed.blade.php
+  s_4b9dc6ab6b25d3::t_f9680e139910b7 3-4
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_2d26f6472bed6c 25,64,338-341,343,345-353,362-373
+  s_4b9dc6ab6b25d3::t_f33a5c6a4d47c1 31
+  s_4b9dc6ab6b25d3::t_ea20685eab623f 14,20,94-95,104,109-113,121-127
+  s_4b9dc6ab6b25d3::t_c8f53083cf4afa 18,85,263,271-280,302-303,305,307-308,313,326-331
+  s_4b9dc6ab6b25d3::t_8113e381392d04 65,67,92,177,180,209,213-215,342,344,354-361
+  s_4b9dc6ab6b25d3::t_2b4646b87561fa 105-108,114-120
+  s_4b9dc6ab6b25d3::t_b2babb4a521621 11
+lang/hr/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Data/Games/UnpublishedChanges.php
+  s_4b9dc6ab6b25d3::t_d6769290f9ea0a 1-20
+lang/es/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+lang/pt/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_25ab6da320d01c 22-23,283,361,366
+  s_4b9dc6ab6b25d3::t_aeef504fbcb6c1 21,30-38,281
+lang/lt/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+resources/views/filament/pages/games/flow/library.blade.php
+  s_4b9dc6ab6b25d3::t_630fc3d01e2dd2 2-5,7-21,24-26,28,30-33
+lang/sr/games.php
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+app/Support/Games/Flow/DraftFlow.php
+  s_4b9dc6ab6b25d3::t_d65d1cb4ac5681 3,5-10,13-18,20,22-25,28,30-32,34-45,47-49,51-52,55-56,58,67,69
+  s_4b9dc6ab6b25d3::t_9be3433960b396 27,61-66
+resources/js/games.js
+  s_4b9dc6ab6b25d3::t_ce539f912a5085 1-3,59-90
+app/Models/GameContentSet.php
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 30
+app/Support/Games/Flow/FlowStepDraft.php
+  s_4b9dc6ab6b25d3::t_56c7a07bf6e4ea 44-47,51,53,56,59-60,64-77
+  s_4b9dc6ab6b25d3::t_ce539f912a5085 58
+tests/Feature/Games/PlayGameStepsTest.php
+  s_4b9dc6ab6b25d3::t_56ff05729fc5d7 96
+  s_4b9dc6ab6b25d3::t_2efaefee415a95 55,77,95
+lang/cnr/games.php
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+tests/Feature/Games/GameGeneralActionsTest.php
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 34
+app/Enums/GameFlowStepType.php
+  s_4b9dc6ab6b25d3::t_2b4646b87561fa 144-145
+database/seeders/GamesDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_76eb2f31400b17 37-39
+  s_4b9dc6ab6b25d3::t_cf766f1fb26882 192
+tests/Feature/Games/PlayGamePageTest.php
+  s_4b9dc6ab6b25d3::t_2efaefee415a95 89,138
+  s_4b9dc6ab6b25d3::t_f547af72fac533 201-210
+lang/ms/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+lang/fil/games.php
+  s_4b9dc6ab6b25d3::t_f4bd00881b9e2b 47
+  s_4b9dc6ab6b25d3::t_8f1c527ab6072e 41-46
+  s_4b9dc6ab6b25d3::t_05d608ef5eb1b1 48
+database/factories/GameContentSetFactory.php
+  s_4b9dc6ab6b25d3::t_0a15acfb4dd000 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d77b9e2b31d24500e69ec11ab0bf666f9879a4d7",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
