@@ -9,7 +9,7 @@ use Illuminate\View\View;
 class AppLayout extends Component
 {
     /**
-     * @param  bool  $focused  a page that keeps the header and leaves out the navigation around it, such as a game's
+     * @param  bool  $focused  a page that draws its own bar, such as a game's: the site's header, navigation and search are left out, the sign-in dialog and the toasts stay
      */
     public function __construct(public bool $focused = false) {}
 

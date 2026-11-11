@@ -18,7 +18,9 @@ use Illuminate\Support\Str;
  * Keeps the email a guest left on an Email Capture step, with whether they
  * ticked the separate marketing consent and the wording they were shown.
  * Nothing is sent to it, nothing subscribes it, and it is no account. One
- * email per attempt: leaving another replaces it.
+ * email per attempt: leaving another replaces it. An attempt an account owns
+ * takes none — the step is a guest's — so an email never lands on an attempt
+ * claimed meanwhile, whose account may be on its way out.
  */
 final class CaptureGameEmailAction
 {
@@ -43,7 +45,7 @@ final class CaptureGameEmailAction
             $locked = GameAttempt::query()->whereKey($attempt->id)->lockForUpdate()->firstOrFail();
             $step = $locked->current_step_key !== null ? GameFlowRunner::find($locked->version->read()->flowSteps(), $locked->current_step_key) : null;
 
-            if (! $locked->isCompleted() || $step?->type !== GameFlowStepType::EmailCapture) {
+            if (! $locked->isCompleted() || $locked->user_id !== null || $step?->type !== GameFlowStepType::EmailCapture) {
                 throw CannotPlayGameException::becauseAttemptIsOver();
             }
 

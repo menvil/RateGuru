@@ -196,13 +196,15 @@ final class SaveContentSetAction
 
         // Keys are unique within a set: profiles that go are deleted first, and
         // the rest move through a temporary key, so two profiles can swap keys.
+        // An underscore keeps it from ever being a profile's own key: those are
+        // slugs, which never hold one.
         $keptIds = array_filter(array_map(fn (GameResultProfile $profile): ?int => $profile->exists ? (int) $profile->id : null, $keptProfiles));
         $locked->profiles->reject(fn (GameResultProfile $profile): bool => in_array((int) $profile->id, $keptIds, true))
             ->each(fn (GameResultProfile $profile) => $profile->delete());
 
         foreach ($keptProfiles as $profile) {
             if ($profile->exists && $profile->isDirty('key')) {
-                GameResultProfile::query()->whereKey($profile->id)->update(['key' => 'moving-'.$profile->id]);
+                GameResultProfile::query()->whereKey($profile->id)->update(['key' => '_moving_'.$profile->id]);
             }
         }
 

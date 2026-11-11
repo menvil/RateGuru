@@ -17,6 +17,11 @@ use Illuminate\Support\Facades\DB;
  * flows, texts and translations included — and renames, archives, restores
  * or deletes one. A game always keeps a flow it can edit; a flow a published
  * version was made from is archived, never deleted.
+ *
+ * A rename or a restore from the flow's editor names the version the editor
+ * was drawn from, as its Save does: either moves the flow's version on, so
+ * one made over another administrator's save would hide that save from the
+ * editor's next Save.
  */
 final class ChangeGameFlowAction
 {
@@ -58,11 +63,11 @@ final class ChangeGameFlowAction
     }
 
     /** @throws CannotManageGameException */
-    public function rename(User $admin, GameFlow $flow, string $name): void
+    public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): void
     {
         $name = $this->name($name);
 
-        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save());
+        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save(), $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -78,9 +83,9 @@ final class ChangeGameFlowAction
     }
 
     /** @throws CannotManageGameException */
-    public function restore(User $admin, GameFlow $flow): void
+    public function restore(User $admin, GameFlow $flow, ?int $expectedLockVersion = null): void
     {
-        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['archived_at' => null, 'lock_version' => $locked->lock_version + 1])->save());
+        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['archived_at' => null, 'lock_version' => $locked->lock_version + 1])->save(), $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -130,14 +135,14 @@ final class ChangeGameFlowAction
      *
      * @throws CannotManageGameException
      */
-    private function change(User $admin, GameFlow $flow, callable $change): void
+    private function change(User $admin, GameFlow $flow, callable $change, ?int $expectedLockVersion = null): void
     {
         $this->allowed($admin);
 
-        DB::transaction(function () use ($admin, $flow, $change): void {
+        DB::transaction(function () use ($admin, $flow, $change, $expectedLockVersion): void {
             $lockedAdmin = $this->lockAdministrator($admin);
             $game = $this->lockGame((int) $flow->game_id);
-            $locked = $this->lockFlow($game, (int) $flow->id);
+            $locked = $this->lockFlow($game, (int) $flow->id, $expectedLockVersion);
 
             $change($locked);
             $this->touchGame($game, $lockedAdmin);

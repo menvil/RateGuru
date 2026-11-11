@@ -16,6 +16,11 @@ use Illuminate\Support\Facades\DB;
  * is archived, never deleted: the version names it; a set no version used is
  * deleted with its rounds and profiles, and the pictures only it showed are
  * released.
+ *
+ * A rename or a restore from the set's editor names the version the editor
+ * was drawn from, as its Save does: either moves the set's version on, so one
+ * made over another administrator's save would hide that save from the
+ * editor's next Save.
  */
 final class ChangeContentSetAction
 {
@@ -24,7 +29,7 @@ final class ChangeContentSetAction
     public function __construct(private readonly MediaLifecycleService $lifecycleService) {}
 
     /** @throws CannotManageGameException */
-    public function rename(User $admin, GameContentSet $set, string $name): void
+    public function rename(User $admin, GameContentSet $set, string $name, ?int $expectedLockVersion = null): void
     {
         $name = mb_substr(trim($name), 0, CreateContentSetAction::NAME_MAX);
 
@@ -34,7 +39,7 @@ final class ChangeContentSetAction
 
         $this->change($admin, $set, function (GameContentSet $locked) use ($name): void {
             $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
-        });
+        }, $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -50,11 +55,11 @@ final class ChangeContentSetAction
     }
 
     /** @throws CannotManageGameException */
-    public function restore(User $admin, GameContentSet $set): void
+    public function restore(User $admin, GameContentSet $set, ?int $expectedLockVersion = null): void
     {
         $this->change($admin, $set, function (GameContentSet $locked): void {
             $locked->forceFill(['archived_at' => null, 'lock_version' => $locked->lock_version + 1])->save();
-        });
+        }, $expectedLockVersion);
     }
 
     /** @throws CannotManageGameException */
@@ -98,16 +103,16 @@ final class ChangeContentSetAction
      *
      * @throws CannotManageGameException
      */
-    private function change(User $admin, GameContentSet $set, callable $change): void
+    private function change(User $admin, GameContentSet $set, callable $change, ?int $expectedLockVersion = null): void
     {
         if (! $admin->can('manage-games')) {
             throw CannotManageGameException::becauseUserIsNotAllowed();
         }
 
-        DB::transaction(function () use ($admin, $set, $change): void {
+        DB::transaction(function () use ($admin, $set, $change, $expectedLockVersion): void {
             $lockedAdmin = $this->lockAdministrator($admin);
             $game = $this->lockGame((int) $set->game_id);
-            $locked = $this->lockContentSet($game, (int) $set->id);
+            $locked = $this->lockContentSet($game, (int) $set->id, $expectedLockVersion);
 
             $change($locked);
             $this->touchGame($game, $lockedAdmin);

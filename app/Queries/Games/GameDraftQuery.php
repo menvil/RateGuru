@@ -20,16 +20,35 @@ use Illuminate\Database\Eloquent\Collection;
  */
 final class GameDraftQuery
 {
+    private const CONTENT_SET_RELATIONS = [
+        'rounds.options.post.imageAsset.variants',
+        'rounds.options.asset.variants',
+        'profiles.shareAsset.variants',
+    ];
+
     public function contentSet(int $gameId, int $contentSetId): ?GameContentSet
     {
         return GameContentSet::query()
             ->where('game_id', $gameId)
-            ->with([
-                'rounds.options.post.imageAsset.variants',
-                'rounds.options.asset.variants',
-                'profiles.shareAsset.variants',
-            ])
+            ->with(self::CONTENT_SET_RELATIONS)
             ->find($contentSetId);
+    }
+
+    /**
+     * Every content set of a game not archived, in order, each loaded as
+     * contentSet() loads one — in one go however many there are.
+     *
+     * @return Collection<int, GameContentSet>
+     */
+    public function contentSets(int $gameId): Collection
+    {
+        return GameContentSet::query()
+            ->where('game_id', $gameId)
+            ->whereNull('archived_at')
+            ->with(self::CONTENT_SET_RELATIONS)
+            ->orderBy('position')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
