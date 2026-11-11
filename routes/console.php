@@ -45,6 +45,12 @@ Schedule::command('moderation:purge-content')->daily()->withoutOverlapping();
 // (90) are deleted in small batches. Nothing else is touched.
 Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 
+// What playing games recorded (docs/architecture/games.md): game events older
+// than games.retention_days.events (400) and emails left in games older than
+// games.retention_days.email_captures (365) are deleted in small batches.
+// Attempts, answers and results are kept.
+Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
+
 // Content Studio's dispatcher (docs/architecture/studio-plans.md, "Running a
 // plan"): sends the approved plans' actions that are due and sends again
 // those lost on their way. The schedule and the recovery: an approval, a run

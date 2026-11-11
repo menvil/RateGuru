@@ -90,6 +90,20 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/StudioPlansQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Games\GamesQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over game titles, internal names and slugs requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/GamesQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Games\GamePostPickerQuery
+                methods: [whereRaw, orWhereRaw]
+                reason: 'Literal search over post titles and author usernames for a game round requires an explicit ESCAPE clause and separately bound patterns.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/GamePostPickerQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Studio\StudioActionsQuery
                 methods: [whereRaw, orWhereRaw]
                 reason: 'Literal search over the Action queue by publication title and by the username and names of its Persona requires an explicit ESCAPE clause and separately bound patterns.'
@@ -109,6 +123,13 @@ parameters:
                 reason: 'Grouped vote totals require an efficient COUNT aggregate without hydrating vote rows.'
                 bindings: literal_only
                 behaviorTests: [tests/Feature/Queries/RatingVoteCountsQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Games\GameMetricsQuery
+                methods: [selectRaw, havingRaw]
+                reason: 'A game''s figures need conditional and distinct counts of its attempts, answers, emails and events — per version, flow or content set — and the people with more than one attempt, without hydrating the rows; every value is bound.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Translations\TranslationAiUsageQuery
@@ -165,6 +186,18 @@ parameters:
                 method: paginate
                 uniqueOrder: [studio_plans.id]
                 behaviorTests: [tests/Feature/Queries/StudioPlansQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Games\GamesQuery
+                method: paginate
+                uniqueOrder: [games.id]
+                behaviorTests: [tests/Feature/Queries/GamesQueryTest.php]
+                status: approved
+            -
+                class: App\Queries\Games\GamePostPickerQuery
+                method: paginate
+                uniqueOrder: [posts.id]
+                behaviorTests: [tests/Feature/Queries/GamePostPickerQueryTest.php]
                 status: approved
             -
                 class: App\Queries\Studio\StudioActionsQuery
