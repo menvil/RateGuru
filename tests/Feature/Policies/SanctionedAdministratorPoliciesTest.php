@@ -18,6 +18,7 @@ function administratorOnlyAbilities(): array
     return [
         'manage project settings' => fn (User $user): bool => Gate::forUser($user)->allows('manage-project-settings'),
         'view media diagnostics' => fn (User $user): bool => Gate::forUser($user)->allows('view-media-diagnostics'),
+        'manage games' => fn (User $user): bool => Gate::forUser($user)->allows('manage-games'),
         'list rating groups' => fn (User $user): bool => $user->can('viewAny', RatingGroup::class),
         'view a rating group' => fn (User $user): bool => $user->can('view', RatingGroup::factory()->create()),
         'create a rating group' => fn (User $user): bool => $user->can('create', RatingGroup::class),

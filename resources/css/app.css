@@ -137,4 +137,947 @@ select:disabled {
         cursor: not-allowed;
         pointer-events: none;
     }
+
+    /*
+     * Growth → Games: the game page and a shared result, drawn as the
+     * reference's Versus player: the game's own bar (the site's name and the
+     * way out) over the step, one column the width of a phone first. A pair's
+     * frames follow its pictures — 4:3 wide, 1:1 square, 3:4 upright — side
+     * by side, a wide pair stacked on a phone.
+     */
+    .rg-game {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+        max-width: 960px;
+        min-height: 100svh;
+        margin: 0 auto;
+        padding: 12px 16px 32px;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game {
+            padding: 20px 32px 48px;
+        }
+    }
+
+    /*
+     * The round fills the screen from the top and never scrolls: the question and the space kept for the verdict and
+     * the way on take what they need, and the pair's pictures shrink, keeping their shape, into what is left.
+     */
+    .rg-game--fit {
+        height: 100svh;
+        padding-bottom: 16px;
+    }
+
+    .rg-game--fit > .rg-game__frame {
+        flex: 1 1 0;
+        align-items: stretch;
+        min-height: 0;
+    }
+
+    .rg-game__preview {
+        padding: 8px 12px;
+        border: 1px dashed var(--rg-accent-border);
+        border-radius: var(--rg-radius-control);
+        background: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+        font-size: 13px;
+        font-weight: 600;
+        text-align: center;
+    }
+
+    .rg-game__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 44px;
+        color: var(--rg-text-2);
+        font-size: 13px;
+    }
+
+    .rg-game__brand {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--rg-text);
+        text-decoration: none;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Every step sits on the page itself, at the top of what the bar leaves however tall it is: one column up to 480 wide. */
+    .rg-game__frame {
+        display: flex;
+        flex: 1;
+        align-items: flex-start;
+        justify-content: center;
+    }
+
+    .rg-game__card,
+    .rg-game__round {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+        width: 100%;
+        max-width: 480px;
+    }
+
+    .rg-game__card--center {
+        align-items: center;
+        text-align: center;
+    }
+
+    .rg-game__round {
+        gap: 0;
+        max-width: 880px;
+    }
+
+    .rg-game--fit .rg-game__round {
+        container: rg-game-round / size;
+        justify-content: flex-start;
+        height: 100%;
+    }
+
+    .rg-game__round > .rg-game__progress {
+        margin-bottom: clamp(8px, 1.6vh, 14px);
+    }
+
+    .rg-game__round > .rg-game__question {
+        margin-bottom: clamp(10px, 2.4vh, 22px);
+    }
+
+    .rg-game__round > .rg-game__lead {
+        display: -webkit-box;
+        margin: -4px 0 clamp(10px, 2.2vh, 20px);
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    .rg-game__cover {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        object-fit: cover;
+        border-radius: 18px;
+        transform: rotate(-2deg);
+    }
+
+    .rg-game__eyebrow {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--rg-accent-2);
+    }
+
+    .rg-game__title,
+    .rg-game__question {
+        margin: 0;
+        font-size: clamp(30px, 8vw, 46px);
+        line-height: 1.02;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--rg-text);
+        text-wrap: balance;
+    }
+
+    .rg-game__title--sm {
+        font-size: clamp(26px, 6.5vw, 38px);
+    }
+
+    /* One line as large as the title where it fits: games.js (rgGameLine) measures it; until then its length gives a first guess. */
+    .rg-game__line {
+        container-type: inline-size;
+    }
+
+    .rg-game__title--line {
+        --rg-game-line-max: clamp(30px, 8vw, 46px);
+        font-size: max(18px, min(var(--rg-game-line-max), calc(100cqi / (var(--rg-game-line-chars, 20) * 0.5))));
+        overflow-x: clip;
+    }
+
+    .rg-game__question {
+        font-size: clamp(24px, 6.4vw, 44px);
+        line-height: 1.04;
+        letter-spacing: -0.03em;
+        text-wrap: balance;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__question {
+            font-size: clamp(28px, 4.4vw, 48px);
+        }
+    }
+
+    .rg-game__subtitle {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 700;
+    }
+
+    .rg-game__lead {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.45;
+        color: var(--rg-text-2);
+        text-wrap: pretty;
+    }
+
+    .rg-game__note {
+        margin: 0;
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: var(--rg-muted);
+    }
+
+    .rg-game__note--center {
+        text-align: center;
+    }
+
+    .rg-game__error {
+        margin: 0;
+        font-size: 13px;
+        color: var(--rg-danger-text);
+    }
+
+    .rg-game__actions,
+    .rg-game__share-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    /* The reference's buttons: 52 high, radius 12 — the primary in the accent with its glow, the other an outline. */
+    .rg-game__button {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 52px;
+        padding: 0 22px;
+        overflow: hidden;
+        border: 1px solid var(--rg-border);
+        border-radius: 12px;
+        background: transparent;
+        color: var(--rg-text-2);
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: border-color 150ms, color 150ms;
+    }
+
+    .rg-game__button:hover {
+        border-color: var(--rg-border-2);
+        color: var(--rg-text);
+    }
+
+    .rg-game__button--primary {
+        padding: 0 26px;
+        border-color: transparent;
+        background: var(--rg-accent);
+        box-shadow: 0 8px 28px color-mix(in srgb, var(--rg-accent) 35%, transparent);
+        color: var(--rg-on-accent);
+        font-size: 15.5px;
+        font-weight: 700;
+    }
+
+    .rg-game__button--primary:hover {
+        border-color: transparent;
+        background: var(--rg-accent-hover);
+        color: var(--rg-on-accent);
+    }
+
+    .rg-game__button--small {
+        min-height: 40px;
+        padding: 0 10px;
+        font-size: 12.5px;
+    }
+
+    .rg-game__button--wide {
+        width: 100%;
+    }
+
+    .rg-game__button-text {
+        position: relative;
+    }
+
+    .rg-game__timer {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    .rg-game__link {
+        align-self: center;
+        min-height: 40px;
+        padding: 0 6px;
+        border: 0;
+        background: transparent;
+        color: var(--rg-text-2);
+        font-size: 14.5px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .rg-game__bar > .rg-game__link {
+        min-height: 0;
+        padding: 0;
+        color: var(--rg-muted);
+        font-size: 13.5px;
+        font-weight: 400;
+    }
+
+    .rg-game__link:hover {
+        color: var(--rg-text);
+    }
+
+    .rg-game__progress {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .rg-game__dots {
+        display: flex;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-game__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--rg-border-2);
+    }
+
+    .rg-game__dot--current {
+        width: 22px;
+        background: var(--rg-accent);
+    }
+
+    .rg-game__dot--correct {
+        background: var(--rg-good);
+    }
+
+    .rg-game__dot--incorrect {
+        background: var(--rg-danger);
+    }
+
+    .rg-game__dot--neutral {
+        background: var(--rg-muted-2);
+    }
+
+    .rg-game__pair {
+        --rg-game-frame: 1 / 1;
+        --rg-game-ratio: 1;
+        --rg-game-gap: 10px;
+
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--rg-game-gap);
+    }
+
+    .rg-game__pair--landscape {
+        --rg-game-frame: 4 / 3;
+        --rg-game-ratio: 1.3333;
+    }
+
+    .rg-game__pair--portrait {
+        --rg-game-frame: 3 / 4;
+        --rg-game-ratio: 0.75;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__pair {
+            --rg-game-gap: 14px;
+        }
+    }
+
+    /*
+     * Fitted to the round: the pair asks for the height its pictures want at the round's width and gives way when
+     * the screen is shorter; each picture is then as large as the pair allows, keeping its shape.
+     */
+    .rg-game--fit .rg-game__pair {
+        --rg-game-pair-h: calc((100cqw - var(--rg-game-gap)) / 2 / var(--rg-game-ratio));
+
+        container: rg-game-pair / size;
+        flex: 0 1 var(--rg-game-pair-h);
+        grid-template-rows: minmax(0, 1fr);
+        min-height: 0;
+    }
+
+    .rg-game--fit .rg-game__pair > .rg-game__option {
+        align-self: center;
+        justify-self: center;
+        width: min((100cqw - var(--rg-game-gap)) / 2, 100cqh * var(--rg-game-ratio));
+    }
+
+    /* A wide pair on a phone: one above the other. */
+    @media (max-width: 639.98px) {
+        .rg-game__pair--landscape {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .rg-game--fit .rg-game__pair--landscape {
+            --rg-game-pair-h: calc(100cqw / var(--rg-game-ratio) * 2 + var(--rg-game-gap));
+
+            grid-template-rows: repeat(2, minmax(0, 1fr));
+        }
+
+        .rg-game--fit .rg-game__pair--landscape > .rg-game__option {
+            width: min(100cqw, (100cqh - var(--rg-game-gap)) / 2 * var(--rg-game-ratio));
+        }
+    }
+
+    .rg-game__option {
+        position: relative;
+        display: block;
+        width: 100%;
+        aspect-ratio: var(--rg-game-frame);
+        padding: 0;
+        overflow: hidden;
+        border: 2px solid var(--rg-border);
+        border-radius: 20px;
+        background: var(--rg-card);
+        cursor: pointer;
+        transition: border-color 250ms, opacity 300ms, transform 200ms;
+    }
+
+    .rg-game__option:disabled {
+        cursor: default;
+    }
+
+    .rg-game__option:not(:disabled):hover {
+        border-color: var(--rg-accent);
+        transform: translateY(-3px);
+    }
+
+    .rg-game__option--picked,
+    .rg-game__option--answer {
+        border-color: var(--rg-accent);
+    }
+
+    .rg-game__option--miss {
+        border-color: var(--rg-danger);
+    }
+
+    .rg-game__option--dim {
+        opacity: 0.6;
+    }
+
+    .rg-game__option--dim .rg-game__image {
+        filter: saturate(0.7) brightness(0.85);
+    }
+
+    .rg-game__image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: filter 300ms;
+    }
+
+    .rg-game__image--missing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--rg-muted);
+        font-size: 13px;
+    }
+
+    .rg-game__label {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        max-width: calc(100% - 84px);
+        height: 34px;
+        padding: 0 12px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        background: rgba(5, 5, 10, 0.55);
+        backdrop-filter: blur(6px);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 32px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* After the pick: each picture's share of upvotes over it, and the crowd's pick or the correct answer named. */
+    .rg-game__overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        background: rgba(5, 5, 10, 0.45);
+        color: #fff;
+        text-align: center;
+    }
+
+    .rg-game__overlay-share {
+        font-size: clamp(30px, 8vw, 64px);
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.04em;
+    }
+
+    .rg-game__option--answer .rg-game__overlay-share {
+        color: var(--rg-accent-2);
+    }
+
+    .rg-game__overlay-label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+    .rg-game__badge {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        padding: 6px 11px;
+        border-radius: var(--rg-radius-pill);
+        background: #fff;
+        color: #0a0a0f;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    /*
+     * Below the pair, its space kept from the start so nothing moves when the pick is made: the verdict in its colour,
+     * its lines cut short rather than pushing the way on off the screen, and the way on with its timer.
+     */
+    .rg-game__after {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        height: 106px;
+        margin-top: clamp(8px, 2vh, 18px);
+        overflow: hidden;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__after {
+            height: 92px;
+        }
+    }
+
+    .rg-game__verdict {
+        display: flex;
+        flex: 1 1 220px;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .rg-game__verdict-title {
+        margin: 0;
+        overflow: hidden;
+        font-size: 17px;
+        line-height: 1.35;
+        font-weight: 600;
+        color: var(--rg-text-2);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* The numbers in three lines beside the way on on a phone, two on a wider screen. */
+    .rg-game__verdict > .rg-game__note {
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: 14px;
+        line-height: 1.35;
+        color: var(--rg-text-2);
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__verdict > .rg-game__note {
+            font-size: 15px;
+            -webkit-line-clamp: 2;
+        }
+    }
+
+    .rg-game__verdict > .rg-game__note--message {
+        -webkit-line-clamp: 1;
+    }
+
+    .rg-game__verdict--correct .rg-game__verdict-title {
+        color: var(--rg-good);
+    }
+
+    .rg-game__verdict--incorrect .rg-game__verdict-title {
+        color: var(--rg-danger);
+    }
+
+    .rg-game__note--message {
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__next {
+        position: relative;
+        flex: none;
+        height: 48px;
+        padding: 0 22px;
+        overflow: hidden;
+        border: 1px solid var(--rg-border-2);
+        border-radius: 12px;
+        background: var(--rg-card);
+        color: var(--rg-text);
+        font-size: 14.5px;
+        font-weight: 700;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-game__next:hover {
+        border-color: var(--rg-accent);
+    }
+
+    .rg-game__next > .rg-game__timer {
+        background: var(--rg-accent-soft);
+    }
+
+    /* A step's sign: 56 square, the accent's soft ground. */
+    .rg-game__tile {
+        display: grid;
+        place-items: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: var(--rg-accent-soft);
+        color: var(--rg-accent-2);
+    }
+
+    /* Result Preview: the result kept back, in the dark whatever the theme. */
+    .rg-game__locked {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        height: 190px;
+        border: 1px solid #25252f;
+        border-radius: 24px;
+        background: linear-gradient(180deg, #16161f, #0d0d14);
+        color: #7d7d8c;
+    }
+
+    .rg-game__locked-line {
+        width: 140px;
+        height: 12px;
+        border-radius: 999px;
+        background: #2b2b38;
+    }
+
+    .rg-game__locked-line--short {
+        width: 190px;
+        height: 8px;
+    }
+
+    .rg-game__form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .rg-game__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .rg-game__field-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__input {
+        height: 50px;
+        padding: 0 14px;
+        border: 1px solid var(--rg-border-2);
+        border-radius: 14px;
+        background: var(--rg-card);
+        color: var(--rg-text);
+        font-size: 16px;
+        outline: none;
+    }
+
+    .rg-game__input:focus {
+        border-color: var(--rg-accent);
+    }
+
+    .rg-game__check {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        font-size: 14px;
+        line-height: 1.4;
+        color: var(--rg-text-2);
+        cursor: pointer;
+    }
+
+    .rg-game__check > input {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        accent-color: var(--rg-accent);
+    }
+
+    /* Sign-up on the result: the second ground, radius 18. */
+    .rg-game__signup {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid var(--rg-border);
+        border-radius: 18px;
+        background: var(--rg-card-2);
+    }
+
+    .rg-game__signup-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: var(--rg-text);
+    }
+
+    /* Inside a step's own card, under its title: no box of its own. */
+    .rg-game__signup--plain {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-align: left;
+    }
+
+    .rg-game__named {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: var(--rg-good-soft);
+        color: var(--rg-good);
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .rg-game__signup-step {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .rg-game__signup-as {
+        margin: -4px 0 2px;
+        overflow-wrap: anywhere;
+        font-size: 14px;
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__signup-password-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+    }
+
+    .rg-game__signup-login {
+        margin: 0;
+        font-size: 13.5px;
+        color: var(--rg-text-2);
+        text-align: center;
+    }
+
+    .rg-game__signup-as > .rg-game__link,
+    .rg-game__signup-password-head > .rg-game__link,
+    .rg-game__signup-login > .rg-game__link {
+        min-height: 0;
+        padding: 0;
+        color: var(--rg-accent-2);
+        font-size: inherit;
+    }
+
+    .rg-game__lines {
+        text-align: left;
+    }
+
+    .rg-game__quote {
+        margin: 0;
+        padding: 14px;
+        border: 1px solid var(--rg-border);
+        border-radius: 14px;
+        background: var(--rg-card-2);
+        font-size: 15px;
+        line-height: 1.45;
+        color: var(--rg-text);
+    }
+
+    /* Sharing: the device's own sheet first where there is one, then the link and the places, four abreast. */
+    .rg-game__share-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .rg-game__share-row > .rg-game__button--primary {
+        grid-column: 1 / -1;
+    }
+
+    /*
+     * The result, as the reference draws it: the card that goes out when it is shared beside what to do with it —
+     * share, sign up, go on — side by side from 760 up, one above the other below.
+     */
+    .rg-game__result {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+        width: 100%;
+        max-width: 960px;
+    }
+
+    @media (min-width: 760px) {
+        .rg-game__result {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 48px;
+        }
+    }
+
+    .rg-game__result-card,
+    .rg-game__result-side {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+        max-width: 460px;
+        margin: 0 auto;
+    }
+
+    .rg-game__result-side {
+        gap: 16px;
+    }
+
+    /* The profile's description, large above the card; a long one a size down. */
+    .rg-game__result-headline {
+        margin: 0 0 4px;
+        font-size: clamp(26px, 6.5vw, 38px);
+        line-height: 1.05;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--rg-text);
+        text-wrap: balance;
+    }
+
+    .rg-game__result-headline--long {
+        font-size: clamp(20px, 5vw, 26px);
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+    }
+
+    .rg-game__share-card {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1200 / 630;
+        overflow: hidden;
+        border: 1px solid #25252f;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #1c1c27, #0d0d14);
+        color: #fff;
+    }
+
+    .rg-game__share-card-image {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .rg-game__share-card-glow {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(120% 100% at 85% 0%, color-mix(in srgb, var(--rg-accent) 55%, transparent), transparent 60%);
+        color: rgba(255, 255, 255, 0.28);
+    }
+
+    .rg-game__share-card-shade {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(5, 5, 10, 0) 35%, rgba(5, 5, 10, 0.86));
+    }
+
+    .rg-game__share-card-text {
+        position: absolute;
+        right: 16px;
+        bottom: 14px;
+        left: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .rg-game__share-card-game {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .rg-game__share-card-profile {
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+
+    /*
+     * The score and the byline — the site's address or the player's @name: on a narrow card the byline goes whole to a
+     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it.
+     */
+    .rg-game__share-card-line {
+        font-size: 12.5px;
+        line-height: 1.35;
+        color: rgba(255, 255, 255, 0.86);
+    }
+
+    .rg-game__share-card-host {
+        display: inline-block;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+    }
 }

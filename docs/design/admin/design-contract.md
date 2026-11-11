@@ -15,7 +15,8 @@ The authoritative visual and UX references are:
 | File | What it defines |
 |---|---|
 | [`reference/original/RateGuru-Dev-UI-Kit.html`](reference/original/RateGuru-Dev-UI-Kit.html) | Foundations, every component with a stable reference ID, measurements, tokens and rules |
-| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor and its playable previews, Experiments with the experiment editor, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin.html`](reference/original/RateGuru-Admin.html) | The full admin prototype: shell, navigation and every screen (Dashboard, Posts, Comments, Reports, Users, User edit, Categories, Tags, Rating groups, Rating group edit, Project settings, Languages, Translation Center, Translation AI, Media diagnostics, the Content Studio section: Publications & plans with the publication editor, Personas with the persona editor, Reply rules, Reply log and Action queue, and the Growth section: Games with the game editor — General, Content with Results, Flow, Versions, Traffic and Analytics — and its playable previews, Experiments with the experiment editor and its periods, Analytics, and the media picker) |
+| [`reference/original/RateGuru-Admin-v3.html`](reference/original/RateGuru-Admin-v3.html) | The third delivery of the admin prototype, which Content Studio's Publications & plans with the publication editor, Action queue and Personas with the persona editor were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v2.html`](reference/original/RateGuru-Admin-v2.html) | The second delivery of the admin prototype, which Categories, Tags, Rating groups, Project settings, Posts, Comments, Reports, Users and Media diagnostics were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 | [`reference/original/RateGuru-Admin-v1.html`](reference/original/RateGuru-Admin-v1.html) | The first delivery of the admin prototype, which Languages and Translation Center were built against. Superseded; kept as it was delivered, so a screen built on it can still be compared with what it was built from |
 
@@ -188,6 +189,7 @@ This section is the target design from the prototype. Production builds it as de
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
   | Content Studio | Publications & plans · Action queue · Personas |
+  | Growth | Games |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -1252,6 +1254,100 @@ check; global search stays with Users, whose result for a persona opens its edit
 - **Access:** an active administrator's (`manage-personas`): the navigation item, every page and every Livewire
   request ask, and so do the actions. A moderator sees no Content Studio and moderates personas in Users.
 
+## Growth
+
+```text
+Growth
+└── Games
+```
+
+Growth holds the games visitors play to discover the site. Its section holds only screens that work: the
+prototype's Experiments and Growth Analytics arrive with their own screens, never as items before them; a game's
+traffic periods are what experiments will build on.
+
+### Games
+
+The library (`ListGames`) and a game's editor — one page per tab — are drawn in Admin v2
+over `Game` (`GameResource`, group Growth, `gamepad-2`, not globally searchable). Every write goes through the
+games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin/games.md`.
+
+- **Library header band:** “Run interactive games.” Stats: Total (not archived), Live, Drafts and Paused. No
+  New game: the library lists the games there are.
+- **Toolbar (TBL-02):** the search over the title, the internal name and the address; Status and Mechanic as filter
+  dropdowns with their chips; Sort (Last updated, Name A–Z); 25 a page (`GamesQuery`, a registered stable
+  pagination boundary).
+- **Table (TBL-01):** the game's icon — its mechanic's, on a 40 tile — and its title, a link to its editor, with
+  the internal name, mechanic and address; the newest version and where its traffic stands; the status (STS-01);
+  Plays, Completion and Sign-ups of the last 30 days, a dash for none; Last updated; the row menu (TBL-04) with
+  Edit, Preview, Analytics and Versions. The status is changed in the editor, not in the library.
+- **Editor band:** the game's icon on a 44 tile, the title and status; under the title the mechanic, the address and
+  the internal name, each behind its icon; the status menu (Go live, Pause,
+  Resume, Archive, Restore — each asked first, Go live only with traffic) and the tabs (NAV-03): General, Content,
+  Flow, Versions, Traffic, Analytics and Preview. Save, Discard and the unsaved count sit in the top bar on the tabs
+  that edit, and the browser asks before unsaved changes are left.
+- **General:** General information across the page: Title and Internal name side by side, Address (FRM-09, locked
+  once first published), Description (FRM-03, 240) and the cover image as a row — its thumbnail, file name and
+  size, Upload or Replace and Remove; stored the moment it is chosen. Beside it, 320 wide and below it under 1280,
+  Example round: the mechanic as a badge, a round of it drawn from placeholders with the game's title, and the
+  mechanic in a sentence. There is no page for a new game.
+- **Content:** three panes under the band, the side ones running the page's height and staying in view under the
+  top bar. Left (320): the content set — “Content set”, its name, its rounds and the versions made from it (“5 rounds ·
+  Used in V1”) — opening a 440-wide menu over the page: the sets, each with the same line and a check on the one on
+  screen; Show archived with Restore on each; Name of this set, Copy set, New set, and Delete set for a set no version
+  used or Archive set for one a version used, with why; then Rounds or Results (FRM-08, Results counting what is
+  to fix) and that results belong to the set; then the rounds — “Rounds · n” with Add round, each round with its grip,
+  its number (ink when on screen), its name and whether it can be published (green Complete or the first issue in
+  the due colour), dragged onto the round whose place it takes with a line where it goes, or moved with Move up and
+  Move down in its menu, which has Duplicate and, after a separator, Delete; at the foot how many are ready. Middle (up to 1040, centred): “Round n of m” with Previous and Next; a round's Round name, Question,
+  Description, Round mode as two cards (the crowd or a correct answer) and Play without points; its two options as
+  cards — the option's letter, its picture as a 260-high tile showing the whole picture, upright or wide, that opens the picker over published posts with a picture
+  (their upvote share and votes) or the upload, Post or Upload (FRM-08), the post or the upload, Answer label and,
+  for a correct answer, Mark correct; then Reveal message, Show each post's upvote share and the crowd pick — each
+  post's share and votes, the rule, the verdict with Choose another post or Use a correct answer, and that
+  publishing freezes the votes; Choose another post names the option it changes — the one short of votes or off
+  the site, or either when the shares are too close. Results: Points per round, the crowd limits, and the result
+  profiles in a drawer (OVL-02) with their match ranges (range slots), the checks and Fit ranges. Right (360, from
+  1360 up): Live preview — an iPhone as the reference draws it (402 × 820 at 0.7463: the island, the status bar, the
+  home indicator) with the site's own game screen below the status bar, played from the draft as it stands, unsaved
+  edits and pictures chosen but not yet stored included, without the preview banner; Reset and Full game above it, Theme (Dark, Light) and Photos (As
+  uploaded, Landscape, Mixed — square frames —, Portrait) below; below 1360
+  it opens over the page from Preview round. Round mode is two cards padded 10 and 12, radius 10, each with a 16
+  radio, its name and a 12px line.
+- **Flow:** as the reference draws it. A band: the flow on screen — “Flow”, its name and the versions made from it —
+  opening a 480-wide menu with a search over names and steps, the active flows (their steps in order and versions),
+  Show archived, a new flow from a template (Result First, Email Before Result, Direct Play) and a footing; the ⋯ menu
+  with Archive flow and Delete flow, each with why when it can't; Copy flow and Preview. Then three panes running the
+  page's height: the step library (250) — “Steps”, each kind a row with its sign, name and one line, ticked when in
+  the flow, + when it can be added where it fits best, greyed with the reason when it fits nowhere; the flow down the
+  middle (up to 520, centred) — its name renamed in place, the versions as a badge, what keeps it from being
+  published, and its steps as cards joined by a line (each its sign, name, audience, one-line summary and problems;
+  Move up, Move down and Remove; the game on the sunken ground, “Same in every flow”), the + on the line between two
+  cards opening the steps that fit there beside it; and the selected step (360) — its sign, name and place, Settings
+  (Show to with who skips it, Next pair as rows, the delay with − and +, sign-up as rows, the texts, Remove step) or
+  Preview (Preview as Anonymous or Logged in; Theme Dark or Light, kept from step to step; the step in an iPhone from
+  the flow as it stands, unsaved edits included; Open full preview).
+- **Versions:** a content set and a flow, the checks (rounds, results, flow) and Publish Vn — asked first, with
+  “take over Vm's traffic” as an option; the note when the set or flow, or a translation of it, changed since the
+  newest version made from them; the versions with their set, flow, rounds, traffic, attempts, publisher and
+  Preview, Retire and Restore (retired versions behind Show archived).
+- **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
+  whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest
+  first, with the visitors each assigned and the attempts started and completed.
+- **Analytics:** Group (FRM-08), Period (7, 30, 90 days, all time) and Version (FRM-10); the figures; the funnel;
+  Rounds reached and Results for the chosen version or the busiest one; Side by side by version, flow or content
+  set; the traffic periods with Open Traffic. Empty states say there is nothing to measure before a version is
+  published, and nobody of a group in a period.
+- **Preview:** as the reference draws it. A band of switches — “Preview mode”; Source (Draft or a version), Content
+  set and Flow for a draft; Theme (Dark, Light); View (Mobile, Desktop) and, on a desktop, Display (Browser window,
+  Full page); Visitor (Anonymous, Logged in); Language — with Restart, Open and Fullscreen. Then the
+  stage on the sunken ground: the site's own game page in an iPhone (402 × 820), in a dark Chrome window (1000 × 660,
+  the game's tab and address) fitted to the stage, or across it; Fullscreen lays the whole screen over the window.
+  Beside it Journey (300): the flow's steps, the one on screen marked and the ones before it done as the frame
+  moves, each starting the game again there; the result for a number of matches; and that nothing is recorded.
+  Inside a frame the game page leaves out its own preview banner.
+- **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
+  and the preview route ask, and so do the actions.
+
 ## Moderation
 
 ### Posts
@@ -1590,6 +1686,20 @@ checks the files of the one asset it shows. The page keeps its route, its naviga
 | Personas figures and columns | Inactive, Replies a day, Replies · 7 days; Plans, 7 days and Now a day columns | Total, Active, Restricted and Replies on; no plan or reply columns | nothing records plans or replies yet, and no figure is drawn that cannot be counted |
 | Personas status | Active or Inactive, with Deactivate and Activate in the row | the account's lifecycle status, changed in Users | engagement Off and the account's status are separate things, and there is no inactive account |
 | Personas engagement and limit in the row | segmented control and stepper editable in each row | read-only in the row, edited in the persona's editor | every change is saved from the editor, through the action that checks it |
+| Games library | a Site filter; Duplicate in the row menu; the status changed from the row's badge | no Site filter; Versions in the row menu instead of Duplicate; the status changed in the editor only | one deployment is one brand; duplicating a game needs a domain action of its own; the library is for finding a game, its editor for running it |
+| Games General | a new game made from it; a Site and a Language select; a mechanic picker over five mechanics; “Round 1 of 5” in the example; the site, round, experience and translation counts under the title | no new game; no Site or Language; the mechanic named in the Example round's badge and sentence; “Round 1”; the mechanic, address and internal name under the title | one deployment is one brand and English is the source text; only Versus is built, and a picker with one choice offers nothing; the example's count would not be the game's; the counts are on the tabs |
+| Game editor Save | “Save draft” beside the tabs, status changed in one click | Save, Discard and the unsaved count in the top bar; every status move asked first | the editor shell every Admin v2 editor uses; a status move changes what visitors see |
+| Crowd rounds | one vote is enough, and the reveal says how players picked | at least 10 votes each, and a gap between the shares only where the content set asks for one (both per content set); the reveal shows each post's share of upvotes on the site | a round needs a crowd that has decided; the site's votes are not the players' picks |
+| Result profiles | ranges in points, profiles of the game | ranges in matches, the points beside them; profiles of each content set | a range in matches cannot hold a score no player can reach, and a set's rounds decide its results |
+| Versions | Delete version | Retire and Restore | attempts and results keep their version |
+| Traffic periods | Hide a period, and a verdict on whether a period has enough data | neither | a period is the record of what visitors were given; no verdict is drawn from figures |
+| Game analytics | Device, Country and Source filters and breakdowns, Activated in 7 days, deltas against the previous period, PostHog links, figures for “playing now” and “better than X%” | Group, Period and Version; Version, Flow and Content set breakdowns; no deltas, no links out; the funnel in people, a replay no second start, with Sign-up begun before New account, by how it began | only what playing records is shown, and nothing estimated; a step of a funnel is a share of the one before only when both count the same thing |
+| Game flow | Preview as Anonymous, Email known or Logged in, without a theme; the flow's revisions (r1, r2) and a Result card over the tab | Preview as Anonymous or Logged in, with Theme (Dark, Light); no revisions; results edited in Content | a visitor is either logged in, their email known, or anonymous until they sign in; a version keeps its own copy of the flow, and a set's results are saved with its rounds |
+| Game result screens | “Your result” over Result Preview and beside Full Result; the result's address on the card; Show agreement on the content set and on Full Result, with the agreement line under the card; the profile's description under the card | no “Your result”; no agreement; the description large above the card, on the result and on the page a share opens; the card names the player by their @username once they have an account, as the reference does, and the site by its domain otherwise, never the result's address; with Show partial score off, Result Preview's teaser on one line in the headline's place | the card's score already says how many picks matched, and the result opens with the profile's own words; an address cut short on a card is no use to anyone, and the share carries the link |
+| Game result sign-up | Full Result's sign-up for anonymous visitors: an email field with Continue with email, Google and Apple, Log in; sharing only after signing up; the Registration step a button and a log-in link | the email or Google / Facebook (those switched on) or Log in, then a name and one password with Show, sent as its own confirmation — the site's real registration, coming back to the game; Apple left out; sign-up above sharing, sharing still there; the same sign-up on the Registration step, under its title, with its own button and log-in link | the site registers with a name, an email and a confirmed password, and the screen is for getting the visitor an account quickly: one field first, two after, never four at once; the site has no Apple sign-in; hiding sharing would cost the shares of everyone who doesn't sign up |
+| Game preview | a Player switch between game concepts; Desktop · in site; an Email known visitor; Picks and Score under Journey; each language's completeness beside it | the one player; Mobile and Desktop, the game alone; Anonymous and Logged in; Journey and the result jump; the languages by name | only the Versus player is built, and the game page never sits inside the site's shell; a visitor is either logged in or anonymous; the frame's own page shows the picks |
+| Content rounds and live preview | Results as a tab of its own; Delete round asked first | Results beside Rounds in Content; Delete takes the round out of the draft at once | a set's rounds and results are one draft, saved together; Discard brings a deleted round back until Save |
+| Content set menu | a set a live version uses can't be archived until that version is retired | a set any version used can be archived; the versions keep their own copy | archiving only keeps a set out of new versions, and a published version never reads its set again |
 
 ### Tertiary text contrast
 

@@ -4,6 +4,7 @@ namespace App\Filament\Support;
 
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
+use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
 use App\Filament\Resources\Tags\Pages\ManageTags;
 use App\Support\Translations\ProjectContentSection;
@@ -28,6 +29,11 @@ final class TranslationSourceEditor
             ProjectContentSection::RatingGroups => RatingGroupResource::getUrl('edit', ['record' => $unit->recordId]),
             // Options are edited on their group's page.
             ProjectContentSection::RatingOptions => RatingGroupResource::getUrl('edit', ['record' => $unit->parentId]),
+            // A game's content opens where its editor shows it: the round, the set's results, the flow's step.
+            ProjectContentSection::Games => GameResource::getUrl('edit', ['record' => $unit->recordId]),
+            ProjectContentSection::GameRounds, ProjectContentSection::GameRoundOptions => GameResource::getUrl('content', ['record' => $unit->parentId, 'set' => $unit->location['set'] ?? null, 'round' => $unit->location['round'] ?? null]),
+            ProjectContentSection::GameResultProfiles => GameResource::getUrl('content', ['record' => $unit->parentId, 'set' => $unit->location['set'] ?? null, 'view' => 'results']),
+            ProjectContentSection::GameFlowSteps => GameResource::getUrl('flow', ['record' => $unit->parentId, 'flow' => $unit->location['flow'] ?? null, 'step' => $unit->location['step'] ?? null]),
         };
     }
 }

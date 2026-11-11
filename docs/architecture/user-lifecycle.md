@@ -215,6 +215,8 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | Reports | retain (moderation evidence) |
 | Post media | retain |
 | Post saves | delete |
+| Game attempts (Growth → Games) | retain, as the game's anonymous history |
+| Emails left on a game's Email Capture step by attempts that became the account's | delete |
 | Received notifications | delete |
 | Other users' notifications referencing this identity | delete |
 

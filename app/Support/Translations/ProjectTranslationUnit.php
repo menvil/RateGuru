@@ -24,12 +24,13 @@ final readonly class ProjectTranslationUnit
     /**
      * @param  string  $id  the stable identity, built from the record id rather than anything an administrator can rename: `categories:17:name`
      * @param  int|null  $recordId  the model's id; null for project settings and static pages
-     * @param  int|null  $parentId  the rating group of a rating option
+     * @param  int|null  $parentId  the rating group of a rating option; the game of a game's content
      * @param  string  $key  the business key an administrator knows it by: slug, key, group.option, settings field or page key
      * @param  string  $label  the content it belongs to, as an administrator recognises it
      * @param  string  $reference  the English text a translation is made from; blank when there is nothing to translate
      * @param  array<string, mixed>  $translations  what each language stores, as stored — not necessarily text
      * @param  string  $usage  where a visitor meets the text, for whoever translates it
+     * @param  array<string, int>  $location  what the content's own editor is opened at, where a record id alone does not say: a game round's or option's `set` and `round`, a result profile's `set`, a flow step's `flow` and `step`
      */
     public function __construct(
         public string $id,
@@ -44,6 +45,7 @@ final readonly class ProjectTranslationUnit
         public int $maxLength,
         public bool $multiline,
         public string $usage,
+        public array $location = [],
     ) {}
 
     /** A blank English text needs no translation, and has none counted (TranslatableField::isPresent()). */
@@ -114,7 +116,7 @@ final readonly class ProjectTranslationUnit
 
         return new self(
             $this->id, $this->section, $this->recordId, $this->parentId, $this->key, $this->label, $this->field,
-            $this->reference, $translations, $this->maxLength, $this->multiline, $this->usage,
+            $this->reference, $translations, $this->maxLength, $this->multiline, $this->usage, $this->location,
         );
     }
 }

@@ -8,6 +8,9 @@
 
     Values compare as text, so 4 typed into a field and 4 saved are the same;
     nested values (a page's title, a feature flag) count one by one.
+    rgAdminEditorChanges counts the saved values that changed, for a draft of
+    a fixed shape; rgAdminEditorListChanges also counts the values only the
+    draft has, for a draft whose lists grow — a game's rounds, a flow's steps.
 
     `leaving` is set while the page goes away with nothing to keep — its draft
     deleted — so no part of it asks before the browser leaves.
@@ -37,6 +40,15 @@
             const before = leaves(saved ?? {})
 
             return Object.keys(before).filter((path) => (now[path] ?? '') !== before[path]).length
+        }
+
+        window.rgAdminEditorListChanges = (draft, saved) => {
+            const now = leaves(draft ?? {})
+            const before = leaves(saved ?? {})
+
+            return [...new Set([...Object.keys(now), ...Object.keys(before)])]
+                .filter((path) => (now[path] ?? '') !== (before[path] ?? ''))
+                .length
         }
 
         window.Alpine ? register() : document.addEventListener('alpine:init', register)

@@ -143,8 +143,15 @@ final class PostImagePresenter
 
     public function responsive(Post $post, PostImageContext $context): ?ResponsiveImage
     {
-        $asset = $post->imageAsset;
+        return $this->responsiveAsset($post->imageAsset, $context);
+    }
 
+    /**
+     * responsive() for a post image shown somewhere other than its post — a
+     * game round's picture — by its asset alone.
+     */
+    public function responsiveAsset(?MediaAsset $asset, PostImageContext $context): ?ResponsiveImage
+    {
         if ($asset === null) {
             return null;
         }
@@ -241,8 +248,15 @@ final class PostImagePresenter
      */
     public function openGraph(Post $post): ?OpenGraphImage
     {
-        $asset = $post->imageAsset;
+        return $this->openGraphAsset($post->imageAsset);
+    }
 
+    /**
+     * openGraph() for a picture an administrator chose for a game — its
+     * cover, a result profile's share image — by its asset alone.
+     */
+    public function openGraphAsset(?MediaAsset $asset): ?OpenGraphImage
+    {
         if ($asset === null) {
             return null;
         }

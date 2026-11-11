@@ -11,6 +11,7 @@ use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Comments\CommentResource;
+use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\PostResource;
 use App\Filament\Resources\RatingGroups\RatingGroupResource;
@@ -54,6 +55,7 @@ final class AdminShellNavigation
         StudioPlanResource::class => 'newspaper',
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
+        GameResource::class => 'gamepad-2',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',

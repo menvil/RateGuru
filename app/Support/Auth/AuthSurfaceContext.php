@@ -11,11 +11,15 @@ use Illuminate\Validation\ValidationException;
 /**
  * Where an authentication attempt started, and therefore where it ends.
  *
- * There are two surfaces. The standalone pages (/login, /register,
- * /forgot-password) behave exactly as they always have. The modal marks its
- * requests explicitly — surface, mode and the page the person was on — and
- * everything started there comes back to that page: a success lands on it,
- * a failure lands on it with the modal open again.
+ * The standalone pages (/login, /register, /forgot-password) behave exactly
+ * as they always have. The modal marks its requests explicitly — surface,
+ * mode and the page the person was on — and everything started there comes
+ * back to that page: a success lands on it, a failure lands on it with the
+ * modal open again. A form set into a page itself — the sign-up on a game's
+ * result — marks itself embedded and comes back the same way, except that a
+ * failed form post lands with the modal shut, the errors shown in the form
+ * on the page. A provider round trip started there that fails still opens
+ * the modal: only the modal shows those notices.
  *
  * This class only decides where responses go. It authenticates nobody,
  * links nothing and never looks at credentials; the actions it wraps are
@@ -31,9 +35,11 @@ final readonly class AuthSurfaceContext
 
     public const string MODAL = 'modal';
 
+    public const string EMBEDDED = 'embedded';
+
     /**
-     * Modal failures get their own error bag so the forms of the page
-     * underneath (a contact form with its own `email` field) never render
+     * Modal and embedded failures get their own error bag so the other forms
+     * of the page (a contact form with its own `email` field) never render
      * an authentication error as theirs.
      */
     public const string ERROR_BAG = 'authModal';
@@ -45,7 +51,7 @@ final readonly class AuthSurfaceContext
     private const string SESSION_KEY = 'auth.surface_context';
 
     private function __construct(
-        private bool $modal,
+        private bool $returnsToPage,
         private AuthModalMode $mode,
         private string $returnPath,
     ) {}
@@ -61,7 +67,7 @@ final readonly class AuthSurfaceContext
      */
     public static function fromInput(array $input, ?AuthModalMode $mode = null): self
     {
-        if (($input[self::SURFACE_FIELD] ?? null) !== self::MODAL) {
+        if (! in_array($input[self::SURFACE_FIELD] ?? null, [self::MODAL, self::EMBEDDED], true)) {
             return self::page();
         }
 
@@ -90,7 +96,7 @@ final readonly class AuthSurfaceContext
      */
     public function remember(Session $session): void
     {
-        if (! $this->modal) {
+        if (! $this->returnsToPage) {
             $session->forget(self::SESSION_KEY);
 
             return;
@@ -103,9 +109,14 @@ final readonly class AuthSurfaceContext
         ]);
     }
 
-    public function isModal(): bool
+    /**
+     * Whether the attempt comes back to the page it started on: true for the
+     * modal and for a form embedded in a page alike, false for the
+     * standalone pages.
+     */
+    public function returnsToPage(): bool
     {
-        return $this->modal;
+        return $this->returnsToPage;
     }
 
     /**
@@ -130,7 +141,7 @@ final readonly class AuthSurfaceContext
 
     public function decorate(ValidationException $exception): ValidationException
     {
-        return $this->modal
+        return $this->returnsToPage
             ? $exception->errorBag(self::ERROR_BAG)->redirectTo($this->returnPath)
             : $exception;
     }
@@ -141,7 +152,7 @@ final readonly class AuthSurfaceContext
      */
     public function redirectAfterLogin(string $default): RedirectResponse
     {
-        if ($this->modal) {
+        if ($this->returnsToPage) {
             redirect()->setIntendedUrl($this->returnPath);
         }
 
@@ -154,7 +165,7 @@ final readonly class AuthSurfaceContext
      */
     public function redirectAfterRegistration(string $default): RedirectResponse
     {
-        if (! $this->modal) {
+        if (! $this->returnsToPage) {
             return redirect($default);
         }
 
@@ -169,7 +180,7 @@ final readonly class AuthSurfaceContext
      */
     public function redirectAfterPasswordResetLinkRequest(string $status): RedirectResponse
     {
-        if (! $this->modal) {
+        if (! $this->returnsToPage) {
             return back()->with('status', $status);
         }
 
@@ -182,7 +193,7 @@ final readonly class AuthSurfaceContext
     /** An expected social sign-in failure, shown on the surface it started from. */
     public function redirectAfterSocialFailure(string $message): RedirectResponse
     {
-        if (! $this->modal) {
+        if (! $this->returnsToPage) {
             return redirect()->route('login')->withErrors(['social' => $message]);
         }
 
@@ -197,7 +208,7 @@ final readonly class AuthSurfaceContext
      */
     public function redirectToPendingLink(string $message): RedirectResponse
     {
-        if (! $this->modal) {
+        if (! $this->returnsToPage) {
             return redirect()->route('login')->with('status', $message);
         }
 
