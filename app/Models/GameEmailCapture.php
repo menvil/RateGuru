@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * An email a guest left on an Email Capture step, with the consent wording
  * they saw and whether they ticked it. Stored only — nothing is ever sent to
- * it — and deleted after a fixed number of days (games:purge-email-captures)
+ * it — and deleted after a fixed number of days (games:purge-expired)
  * or with the account its attempt was later claimed by.
  *
  * @property int $id

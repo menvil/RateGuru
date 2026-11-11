@@ -83,8 +83,8 @@ final class GamePreviewDrafts
         return new ContentSetDraft(
             scoring: [
                 'points_per_round' => (int) ($scoring['points_per_round'] ?? 1),
-                'crowd_min_votes' => (int) ($scoring['crowd_min_votes'] ?? 100),
-                'crowd_min_gap' => (int) ($scoring['crowd_min_gap'] ?? 5),
+                'crowd_min_votes' => (int) ($scoring['crowd_min_votes'] ?? config('games.crowd.min_votes')),
+                'crowd_min_gap' => (int) ($scoring['crowd_min_gap'] ?? config('games.crowd.min_gap')),
             ],
             rounds: $this->rows($draft['rounds'] ?? null),
             profiles: $this->rows($draft['profiles'] ?? null),

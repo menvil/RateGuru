@@ -37,8 +37,8 @@ class GameContentSet extends Model
     protected $attributes = [
         'position' => 0,
         'points_per_round' => 1,
-        'crowd_min_votes' => 100,
-        'crowd_min_gap' => 5,
+        'crowd_min_votes' => 10,
+        'crowd_min_gap' => 0,
         'lock_version' => 1,
     ];
 

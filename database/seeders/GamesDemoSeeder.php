@@ -15,7 +15,6 @@ use App\Enums\GameRoundMode;
 use App\Enums\GameStatus;
 use App\Models\Game;
 use App\Models\Post;
-use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Games\Drafts\DraftImageState;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -99,11 +98,10 @@ class GamesDemoSeeder extends Seeder
 
             app(ChangeGameStatusAction::class)->handle($admin, $game->fresh(), GameStatus::Live);
 
-            $settings = ProjectSettings::query()->find(1);
-
-            if ($settings !== null) {
-                $settings->forceFill(['feature_flags' => [...($settings->feature_flags ?? []), 'allow_games' => true]])->save();
-            }
+            // Created from the defaults when the database has no settings row
+            // yet, so the game is reachable at the address this run prints.
+            $settings = app(ProjectSettingsManager::class)->lockedRow();
+            $settings->forceFill(['feature_flags' => [...($settings->feature_flags ?? []), 'allow_games' => true]])->save();
         });
 
         app(ProjectSettingsManager::class)->flush();

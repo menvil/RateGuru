@@ -11,7 +11,7 @@ return new class extends Migration
         // Every tracked moment of a game, append-only, written in the same
         // transaction as the change it records (GameEventRecorder). Ids and
         // codes only: no text a visitor typed. Kept for a fixed number of days
-        // (games:purge-events).
+        // (games:purge-expired).
         Schema::create('game_events', function (Blueprint $table) {
             $table->id();
             $table->foreignId('game_id')->constrained('games')->restrictOnDelete();
