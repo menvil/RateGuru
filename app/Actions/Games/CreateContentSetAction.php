@@ -44,7 +44,6 @@ final class CreateContentSetAction
                 'name' => $name,
                 'position' => (int) GameContentSet::query()->where('game_id', $locked->id)->max('position') + 1,
                 'points_per_round' => $source !== null ? $source->points_per_round : 1,
-                'show_agreement' => $source !== null ? $source->show_agreement : true,
                 'crowd_min_votes' => $source !== null ? $source->crowd_min_votes : (int) config('games.crowd.min_votes'),
                 'crowd_min_gap' => $source !== null ? $source->crowd_min_gap : (int) config('games.crowd.min_gap'),
             ])->save();

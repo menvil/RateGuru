@@ -62,7 +62,7 @@ class GameVersionFactory extends Factory
         return [
             'schema' => GameVersionSnapshot::SCHEMA,
             'game' => ['id' => $gameId, 'slug' => 'game-'.$gameId, 'mechanic' => 'versus', 'title' => ['en' => 'Trust Your Taste'], 'description' => [], 'cover_asset_id' => null],
-            'scoring' => ['points_per_round' => 1, 'show_agreement' => true, 'crowd_min_votes' => 100, 'crowd_min_gap' => 5],
+            'scoring' => ['points_per_round' => 1, 'crowd_min_votes' => 100, 'crowd_min_gap' => 0],
             'rounds' => [[
                 'key' => 'r1',
                 'question' => ['en' => 'Which one would you rather see in your feed?'],
@@ -81,7 +81,7 @@ class GameVersionFactory extends Factory
             'flow' => ['id' => $flowId, 'name' => 'Result First', 'steps' => [
                 ['key' => 's1', 'type' => 'landing', 'audience' => 'all', 'settings' => ['show_branding' => true], 'texts' => ['title' => ['en' => 'Which one would you pick?'], 'button_label' => ['en' => 'Start playing']]],
                 ['key' => 's2', 'type' => 'game', 'audience' => 'all', 'settings' => ['advance' => 'button', 'advance_seconds' => 2.5], 'texts' => []],
-                ['key' => 's3', 'type' => 'full_result', 'audience' => 'all', 'settings' => ['show_score' => true, 'show_profile' => true, 'show_agreement' => true, 'share_enabled' => true, 'signup' => 'inline'], 'texts' => ['title' => ['en' => 'Keep playing']]],
+                ['key' => 's3', 'type' => 'full_result', 'audience' => 'all', 'settings' => ['show_score' => true, 'show_profile' => true, 'share_enabled' => true, 'signup' => 'inline'], 'texts' => ['title' => ['en' => 'Keep playing']]],
             ]],
             'locales' => ['en'],
         ];

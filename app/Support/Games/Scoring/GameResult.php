@@ -14,10 +14,4 @@ final readonly class GameResult
         public int $maxScore,
         public ?SnapshotProfile $profile,
     ) {}
-
-    /** How often the player matched, as a whole percentage of the scored rounds. */
-    public function agreement(): int
-    {
-        return $this->scored === 0 ? 0 : (int) round($this->matches * 100 / $this->scored);
-    }
 }

@@ -86,7 +86,7 @@ it('lets a guest play to the result, scored on the server', function () {
     $page->call('choose', 0)->assertSee('You’re with the crowd.')->assertSee('90% upvoted it');
     $page->call('next')->assertSee('Pair 2 of 2');
     $page->call('choose', 1)->assertSee('Bold call.');
-    $page->call('next')->assertSee('Your result')->assertSee('You matched the crowd in 1 of 2 picks');
+    $page->call('next')->assertSee('data-testid="game-step-full_result"', false)->assertSee('You matched the crowd in 1 of 2 picks');
 
     $attempt = GameAttempt::query()->sole();
 
@@ -135,7 +135,7 @@ it('lets a started attempt finish while the game is paused, and starts none', fu
     $page = guestGame($this->slug)->call('init')->call('continue');
     $this->draft['game']->fresh()->forceFill(['status' => GameStatus::Paused])->save();
 
-    $page->call('choose', 0)->call('next')->call('choose', 0)->call('next')->assertSee('Your result');
+    $page->call('choose', 0)->call('next')->call('choose', 0)->call('next')->assertSee('data-testid="game-step-full_result"', false);
 
     // Another browser: another session, another cookie.
     session()->flush();
@@ -197,4 +197,14 @@ it('keeps a visitor on the version they were given when the shares change', func
     guestGame($this->slug)->call('init');
 
     expect(GameAssignment::query()->whereNotNull('active_key')->sole()->version_id)->toBe($this->version->id);
+});
+
+it('draws the game under its own bar — the site\'s name and the way out — and not the site\'s header, keeping the sign-in dialog', function () {
+    $this->get('/games/'.$this->slug)
+        ->assertOk()
+        ->assertSee('data-testid="game-brand"', false)
+        ->assertSee('data-testid="game-skip-to-feed"', false)
+        ->assertSee('data-testid="auth-modal-root"', false)
+        ->assertDontSee('data-testid="app-header"', false)
+        ->assertDontSee('data-testid="mobile-nav-drawer"', false);
 });

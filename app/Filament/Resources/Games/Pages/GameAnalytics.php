@@ -80,7 +80,7 @@ final class GameAnalytics extends Page
         $total = $metrics->funnels($scope)[0];
         $byVersion = $metrics->funnels($scope, 'version');
         $emailVersions = $versions->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
-        $completedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->completed, array_intersect_key($byVersion, array_flip($emailVersions))));
+        $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
 
         return [
@@ -104,8 +104,8 @@ final class GameAnalytics extends Page
             'scopeText' => implode(' · ', [$audience === GameAudience::Anonymous ? 'Anonymous visitors' : 'Logged-in players', self::PERIODS[$period], $versionId !== null ? $versions->get($versionId)?->label() : 'all versions']),
             'noVersions' => $versions->isEmpty(),
             'noData' => $total->isEmpty(),
-            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $completedWithEmail, $emailVersions !== []) : self::playerKpis($total),
-            'funnel' => $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $completedWithEmail, $emailVersions !== []) : self::playerFunnel($total),
+            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $finishedWithEmail, $emailVersions !== []) : self::playerKpis($total),
+            'funnel' => $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope)) : self::playerFunnel($total),
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
             'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown), $versions, $audience),
             'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id)),
@@ -148,14 +148,19 @@ final class GameAnalytics extends Page
         return $versions->sortByDesc(fn (GameVersion $version): array => [$byVersion[(int) $version->id]->started ?? 0, (int) $version->number])->first();
     }
 
-    /** @return list<array{label: string, value: string, note: string}> */
-    private static function anonymousKpis(GameFunnel $total, int $completedWithEmail, bool $asksForEmail): array
+    /**
+     * Started counts people, as Visitors does; Completion is of plays, a
+     * replay one more.
+     *
+     * @return list<array{label: string, value: string, note: string}>
+     */
+    private static function anonymousKpis(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail): array
     {
         return [
             ['label' => 'Visitors', 'value' => number_format($total->visitors), 'note' => 'People who opened the game'],
-            ['label' => 'Started', 'value' => number_format($total->started), 'note' => self::percent($total->started, $total->visitors).' of visitors'],
-            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => number_format($total->completed).' completed'],
-            ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emails, $completedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : 'No version asks for an email'],
+            ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of visitors'],
+            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
+            ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emailers, $finishedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : 'No version asks for an email'],
             ['label' => 'New accounts', 'value' => number_format($total->registered), 'note' => self::percent($total->registered, $total->visitors).' of visitors'],
             ['label' => 'Signed in', 'value' => number_format($total->signedIn), 'note' => 'Existing accounts'],
         ];
@@ -166,27 +171,56 @@ final class GameAnalytics extends Page
     {
         return [
             ['label' => 'Players', 'value' => number_format($total->visitors), 'note' => 'Logged-in players who opened the game'],
-            ['label' => 'Started', 'value' => number_format($total->started), 'note' => self::percent($total->started, $total->visitors).' of players'],
-            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => number_format($total->completed).' completed'],
+            ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of players'],
+            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
             ['label' => 'Shared', 'value' => self::percent($total->shared, $total->completed), 'note' => number_format($total->shared).' '.str('result')->plural($total->shared).' shared'],
             ['label' => 'Played again', 'value' => number_format($total->replayers), 'note' => 'Players who started more than once'],
         ];
     }
 
+    /** How many plays were completed, of how many, a replay one more. */
+    private static function plays(GameFunnel $total): string
+    {
+        return number_format($total->completed).' of '.number_format($total->started).' '.str('play')->plural($total->started).' completed';
+    }
+
     /**
-     * The anonymous funnel; Email captured only where a version asks for one.
+     * The anonymous funnel, people at every step: Email captured only where
+     * a version asks for one, then who began signing up — by how — and the
+     * accounts made.
      *
+     * @param  array<string, int>  $methods
      * @return list<array<string, mixed>>
      */
-    private static function anonymousFunnel(GameFunnel $total, int $completedWithEmail, bool $asksForEmail): array
+    private static function anonymousFunnel(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, array $methods): array
     {
         return self::funnelRows($total->visitors, array_values(array_filter([
             ['Visitors', $total->visitors, null, 'People who opened the game'],
-            ['Game started', $total->started, $total->visitors, null],
-            ['Completed', $total->completed, $total->started, null],
-            $asksForEmail ? ['Email captured', $total->emails, $completedWithEmail, 'Of the completed attempts of versions that ask for an email'] : null,
-            ['New account', $total->registered, $total->completed, 'Made within a day of an attempt, each person once'],
+            ['Game started', $total->starters, $total->visitors, 'People who started at least once'],
+            ['Completed', $total->finishers, $total->starters, 'People who finished at least once'],
+            $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'Of the people who finished a version that asks for an email'] : null,
+            ['Sign-up begun', $total->signUpStarters, $total->finishers, self::methods($methods)],
+            ['New account', $total->registered, $total->finishers, 'Made within a day of an attempt, each person once'],
         ])));
+    }
+
+    /**
+     * How the people who began signing up began it.
+     *
+     * @param  array<string, int>  $methods
+     */
+    private static function methods(array $methods): string
+    {
+        $labels = ['email' => 'Email', 'google' => 'Google', 'facebook' => 'Facebook', 'register' => 'Sign-up dialog', 'login' => 'Log in'];
+        $parts = [];
+
+        foreach ($labels as $method => $label) {
+            if (($methods[$method] ?? 0) > 0) {
+                $parts[] = $label.' '.number_format($methods[$method]);
+            }
+        }
+
+        return $parts === [] ? 'The email form opened, a provider chosen, or the site\'s sign-up or log-in' : implode(' · ', $parts);
     }
 
     /** @return list<array<string, mixed>> */
@@ -194,10 +228,10 @@ final class GameAnalytics extends Page
     {
         return self::funnelRows($total->visitors, [
             ['Players', $total->visitors, null, 'Logged-in players who opened the game'],
-            ['Game started', $total->started, $total->visitors, null],
-            ['Completed', $total->completed, $total->started, null],
-            ['Shared result', $total->shared, $total->completed, null],
-            ['Played again', $total->replayers, $total->visitors, 'Players who started more than once'],
+            ['Game started', $total->starters, $total->visitors, 'Players who started at least once'],
+            ['Completed', $total->finishers, $total->starters, 'Players who finished at least once'],
+            ['Shared result', $total->sharers, $total->finishers, null],
+            ['Played again', $total->replayers, $total->starters, 'Players who started more than once'],
         ]);
     }
 
@@ -297,17 +331,17 @@ final class GameAnalytics extends Page
                 'cells' => $audience === GameAudience::Anonymous
                     ? [
                         [number_format($funnel->visitors), null],
-                        [number_format($funnel->started), self::percent($funnel->started, $funnel->visitors)],
-                        [number_format($funnel->completed), self::percent($funnel->completed, $funnel->started)],
-                        [number_format($funnel->emails), self::percent($funnel->emails, $funnel->completed)],
+                        [number_format($funnel->starters), self::percent($funnel->starters, $funnel->visitors)],
+                        [number_format($funnel->finishers), self::percent($funnel->finishers, $funnel->starters)],
+                        [number_format($funnel->emailers), self::percent($funnel->emailers, $funnel->finishers)],
                         [number_format($funnel->registered), self::percent($funnel->registered, $funnel->visitors)],
                     ]
                     : [
                         [number_format($funnel->visitors), null],
-                        [number_format($funnel->started), self::percent($funnel->started, $funnel->visitors)],
-                        [number_format($funnel->completed), self::percent($funnel->completed, $funnel->started)],
-                        [number_format($funnel->shared), self::percent($funnel->shared, $funnel->completed)],
-                        [number_format($funnel->replayers), self::percent($funnel->replayers, $funnel->visitors)],
+                        [number_format($funnel->starters), self::percent($funnel->starters, $funnel->visitors)],
+                        [number_format($funnel->finishers), self::percent($funnel->finishers, $funnel->starters)],
+                        [number_format($funnel->sharers), self::percent($funnel->sharers, $funnel->finishers)],
+                        [number_format($funnel->replayers), self::percent($funnel->replayers, $funnel->starters)],
                     ],
             ];
         }

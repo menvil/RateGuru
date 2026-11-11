@@ -1,10 +1,12 @@
 @php
     /*
-     * A game's Flow tab (EditGameFlow): the flows down the left with the step
-     * library, the flow on screen as cards in order — a + between two cards
-     * offers only the steps that fit there — and the selected step's settings
-     * on the right. The flow is one draft until Save in the top bar; its
-     * problems are listed as it stands.
+     * A game's Flow tab (EditGameFlow), as the reference draws it: a band with
+     * the flow on screen and its menu, Copy flow and Preview; then three
+     * panes — the step library (250), the flow's steps in order down the
+     * middle (up to 520), a + between two cards offering only the steps that
+     * fit there, and the selected step (360): its settings, or the step
+     * played as a phone shows it, light or dark. The flow is one draft until Save in the top
+     * bar; its problems are listed as it stands.
      */
     $draft = '{ steps: $wire.steps }';
     $saved = '{ steps: $wire.saved }';
@@ -19,49 +21,60 @@
     @include('filament.pages.editor.script')
     @include('filament.pages.games.editor-header', ['header' => $header])
 
-    <div class="rg-admin-screen__body">
-        @if ($stale)
-            <x-admin.ui.inline-notice tone="warning">
-                Someone saved this flow after you opened it. Reload to see their changes; what you changed here is replaced.
-                <x-slot:actions>
-                    <x-admin.ui.button size="sm" icon="refresh-cw" wire:click="reload">Reload</x-admin.ui.button>
-                </x-slot:actions>
-            </x-admin.ui.inline-notice>
-        @endif
+    <div class="rg-admin-games__flow-band">
+        @include('filament.pages.games.flow.flows')
 
-        @if ($flowArchived)
-            <x-admin.ui.inline-notice tone="info">
-                This flow is archived. It can’t be published until it is restored.
-                <x-slot:actions>
-                    <x-admin.ui.button size="sm" icon="archive-restore" wire:click="restoreFlow">Restore flow</x-admin.ui.button>
-                </x-slot:actions>
-            </x-admin.ui.inline-notice>
-        @endif
+        <x-admin.ui.row-menu id="rg-admin-game-flow-menu" label="More actions for this flow">
+            @if ($flowArchived)
+                <x-admin.ui.menu-item icon="archive-restore" wire:click="restoreFlow">Restore flow</x-admin.ui.menu-item>
+            @else
+                <x-admin.ui.menu-item icon="archive" :disabled="$flowOnly" :hint="$flowOnly ? 'A game keeps at least one flow. Add another first.' : 'It can’t be published until it is restored. Versions keep their own copy.'" wire:click="askFlow('archive')">Archive flow</x-admin.ui.menu-item>
+            @endif
+            <div class="rg-admin-menu__separator" role="separator"></div>
+            <x-admin.ui.menu-item icon="trash-2" tone="danger" :disabled="$flowUsed || ($flowOnly && ! $flowArchived)" :hint="$flowUsed ? 'A published version was made from this flow. Archive it instead.' : (($flowOnly && ! $flowArchived) ? 'A game keeps at least one flow.' : null)" wire:click="askFlow('delete')">Delete flow</x-admin.ui.menu-item>
+        </x-admin.ui.row-menu>
 
-        <div class="rg-admin-games__flow">
-            <aside class="rg-admin-games__rail" aria-label="Flows">
-                @include('filament.pages.games.flow.flows')
+        <span class="rg-admin-games__flow-band-gap"></span>
+        <x-admin.ui.button size="sm" icon="copy" wire:click="createFlow(true)">Copy flow</x-admin.ui.button>
+        <x-admin.ui.button size="sm" icon="play" :href="$fullPreviewUrl">Preview</x-admin.ui.button>
+    </div>
+
+    <div class="rg-admin-games__flowspace">
+        <aside class="rg-admin-games__pane rg-admin-games__pane--library" aria-label="Steps">
+            <div class="rg-admin-games__pane-inner">
                 @include('filament.pages.games.flow.library')
-            </aside>
+            </div>
+        </aside>
 
-            <section class="rg-admin-games__main" aria-label="Steps">
-                @if ($issues !== [])
-                    <x-admin.ui.inline-notice tone="warning">
-                        This flow can’t be published yet.
-                        <ul class="rg-admin-games__issues">
-                            @foreach ($issues as $issue)
-                                <li>{{ $issue->index >= 0 ? 'Step '.($issue->index + 1).' · ' : '' }}{{ $issue->message }}</li>
-                            @endforeach
-                        </ul>
-                    </x-admin.ui.inline-notice>
-                @endif
+        <section class="rg-admin-games__flow-stage" aria-label="Flow">
+            <div class="rg-admin-games__flow-stage-inner">
                 @include('filament.pages.games.flow.canvas')
-            </section>
+            </div>
+        </section>
 
-            <aside class="rg-admin-games__panel" aria-label="Step settings">
+        {{-- The step preview's theme lives on the pane, so it stays as chosen from one step to the next. --}}
+        <aside
+            class="rg-admin-games__pane rg-admin-games__pane--step"
+            aria-label="Step settings"
+            x-data="{
+                theme: null,
+                apply() {
+                    const root = this.$refs.frame?.contentDocument?.documentElement
+
+                    if (! root) {
+                        return
+                    }
+
+                    this.theme ??= root.dataset.theme === 'dark' ? 'dark' : 'light'
+                    root.dataset.theme = this.theme
+                },
+            }"
+            x-init="$watch('theme', () => apply())"
+        >
+            <div class="rg-admin-games__pane-inner">
                 @include('filament.pages.games.flow.settings')
-            </aside>
-        </div>
+            </div>
+        </aside>
     </div>
 
     @if ($confirmingFlow !== null)

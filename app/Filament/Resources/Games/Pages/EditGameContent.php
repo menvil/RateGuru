@@ -9,19 +9,27 @@ use App\Data\Games\ContentSetDraft;
 use App\Enums\GameOptionSource;
 use App\Enums\GameProfileIcon;
 use App\Enums\GameRoundMode;
+use App\Enums\GameVersionStatus;
+use App\Enums\ImageOrientation;
+use App\Enums\PostStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\GameContentSet;
+use App\Models\GameVersion;
 use App\Models\Post;
 use App\Queries\Games\GameDraftQuery;
 use App\Queries\Games\GamePostPickerQuery;
+use App\Queries\Games\GameUnpublishedChangesQuery;
+use App\Services\Games\GamePreviewDrafts;
 use App\Services\Media\Exceptions\ImageIngestException;
 use App\Support\Games\ContentSetDraftRules;
 use App\Support\Games\Drafts\DraftContentChecks;
+use App\Support\Games\Drafts\DraftImageState;
 use App\Support\Games\Results\ResultProfileCoverage;
 use App\Support\Games\Versus\CrowdComparison;
+use App\Support\Games\Versus\ImageState;
 use App\Support\Games\Versus\VersusRoundCheck;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Settings\ProjectSettingsManager;
@@ -47,7 +55,10 @@ use Livewire\WithFileUploads;
  * profiles edited. The browser counts what is unsaved and asks before the page
  * is left with unsaved changes; Discard draws the set again as saved. Each
  * round says, as it stands on screen, whether it can be published and why not
- * (VersusRoundCheck), and Results whether every result has a profile.
+ * (VersusRoundCheck), and Results whether every result has a profile. Beside
+ * the round, a live preview plays it as it stands, unsaved edits included:
+ * each draw hands the draft to GamePreviewDrafts, and the preview frame plays
+ * the draft the stamp names.
  */
 final class EditGameContent extends Page
 {
@@ -101,9 +112,10 @@ final class EditGameContent extends Page
     /** The profile the drawer edits, by key. */
     public ?string $editingProfile = null;
 
-    public string $newSetName = '';
-
     public string $setName = '';
+
+    /** How the live preview frames every pair: `uploaded` as its pictures are, or all landscape, square or portrait. */
+    public string $previewShape = 'uploaded';
 
     /** What the set confirmation on screen asks about: archive or delete. */
     #[Locked]
@@ -160,7 +172,6 @@ final class EditGameContent extends Page
             return;
         }
 
-        $this->uploads = [];
         $this->drawSet($set->fresh() ?? $set);
         $this->toast('Content saved');
     }
@@ -223,14 +234,25 @@ final class EditGameContent extends Page
     public function moveRound(mixed $index, mixed $by): void
     {
         $from = is_numeric($index) ? (int) $index : -1;
-        $to = $from + (is_numeric($by) ? (int) $by : 0);
+
+        $this->dropRound($from, $from + (is_numeric($by) ? (int) $by : 0));
+    }
+
+    /** A round dragged to another place: the rounds between close up, and the round on screen stays on screen. */
+    public function dropRound(mixed $from, mixed $to): void
+    {
+        $from = is_numeric($from) ? (int) $from : -1;
+        $to = is_numeric($to) ? (int) $to : -1;
 
         if (! isset($this->rounds[$from]) || ! isset($this->rounds[$to]) || $from === $to) {
             return;
         }
 
-        [$this->rounds[$from], $this->rounds[$to]] = [$this->rounds[$to], $this->rounds[$from]];
-        $this->selected = $to;
+        $shown = $this->rounds[$this->selected]['key'] ?? null;
+        $moved = array_splice($this->rounds, $from, 1);
+        array_splice($this->rounds, $to, 0, $moved);
+        $at = array_search($shown, array_column($this->rounds, 'key'), true);
+        $this->selected = is_int($at) ? $at : $to;
     }
 
     public function setSource(mixed $index, mixed $slot, mixed $source): void
@@ -473,14 +495,16 @@ final class EditGameContent extends Page
         }
 
         try {
-            $set = app(CreateContentSetAction::class)->handle($this->admin(), $game, $this->newSetName !== '' ? $this->newSetName : 'New set', $copy ? $this->setId : null);
+            // The action trims the name to its limit.
+            $name = $copy ? $this->currentSet()?->name.' copy' : 'New set';
+            $set = app(CreateContentSetAction::class)->handle($this->admin(), $game, $name, $copy ? $this->setId : null);
         } catch (CannotManageGameException $exception) {
             $this->toast($exception->getMessage(), 'error');
 
             return;
         }
 
-        $this->newSetName = '';
+        session()->flash('rg-admin-toast', ['message' => $copy ? $set->name.' added as a copy' : 'New empty set added', 'tone' => 'success']);
         $this->redirect(GameResource::getUrl('content', ['record' => $game, 'set' => $set->id]));
     }
 
@@ -539,9 +563,13 @@ final class EditGameContent extends Page
         $this->redirect(GameResource::getUrl('content', ['record' => $game]));
     }
 
-    public function restoreSet(): void
+    /** Restores the set on screen, or an archived one from the set menu, which then opens. */
+    public function restoreSet(mixed $setId = null): void
     {
-        $set = $this->currentSet();
+        $other = is_numeric($setId) && (int) $setId !== $this->setId;
+        $set = $other
+            ? GameContentSet::query()->where('game_id', $this->gameId)->find((int) $setId)
+            : $this->currentSet();
 
         if ($set === null) {
             return;
@@ -551,6 +579,13 @@ final class EditGameContent extends Page
             app(ChangeContentSetAction::class)->restore($this->admin(), $set);
         } catch (CannotManageGameException $exception) {
             $this->toast($exception->getMessage(), 'error');
+
+            return;
+        }
+
+        if ($other) {
+            session()->flash('rg-admin-toast', ['message' => $set->name.' restored', 'tone' => 'success']);
+            $this->redirect(GameResource::getUrl('content', ['record' => $this->gameId, 'set' => $set->id]));
 
             return;
         }
@@ -575,11 +610,13 @@ final class EditGameContent extends Page
         return GameContentSet::query()->where('game_id', $this->gameId)->find($this->setId);
     }
 
+    /** Draws the set as saved: what was changed, and the pictures chosen but not stored, are dropped. */
     private function drawSet(GameContentSet $set): void
     {
         $set = app(GameDraftQuery::class)->contentSet((int) $set->game_id, (int) $set->id) ?? $set;
         $draft = ContentSetDraft::of($set);
 
+        $this->uploads = [];
         $this->setId = (int) $set->id;
         $this->setName = $set->name;
         $this->lockVersion = $set->lock_version;
@@ -596,7 +633,6 @@ final class EditGameContent extends Page
         return new ContentSetDraft(
             scoring: [
                 'points_per_round' => (int) ($this->scoring['points_per_round'] ?? 1),
-                'show_agreement' => (bool) ($this->scoring['show_agreement'] ?? true),
                 'crowd_min_votes' => (int) ($this->scoring['crowd_min_votes'] ?? 100),
                 'crowd_min_gap' => (int) ($this->scoring['crowd_min_gap'] ?? 5),
             ],
@@ -668,7 +704,7 @@ final class EditGameContent extends Page
         abort_if($game === null, 404);
 
         $checks = $this->checks();
-        $sets = GameContentSet::query()->where('game_id', $game->id)->withCount(['rounds', 'versions'])->orderBy('position')->orderBy('id')->get();
+        $sets = GameContentSet::query()->where('game_id', $game->id)->withCount('rounds')->with(['versions' => fn ($query) => $query->orderBy('number')])->orderBy('position')->orderBy('id')->get();
         $set = $sets->firstWhere('id', $this->setId);
         $draftQuery = app(GameDraftQuery::class);
         $posts = $draftQuery->posts(collect($this->rounds)->flatMap(fn (array $round) => array_column($round['options'], 'post_id'))->filter()->map(fn (mixed $id): int => (int) $id)->values()->all());
@@ -679,18 +715,18 @@ final class EditGameContent extends Page
         $roundCheck = $round !== null ? ($checks->rounds[(string) $round['key']] ?? null) : null;
 
         return [
-            'header' => $this->editorHeader($game, 'content', $this->tabBadges($checks)),
+            'header' => $this->editorHeader($game, 'content', $this->tabBadges($checks), $this->setId > 0 ? app(GameUnpublishedChangesQuery::class)->forSet($game, $this->setId) : null),
             'sets' => $sets->map(fn (GameContentSet $item): array => [
                 'id' => (int) $item->id,
                 'name' => $item->name,
-                'rounds' => (int) $item->rounds_count,
-                'versions' => (int) $item->versions_count,
+                'use' => $this->setUse($item, (int) $item->id === $this->setId ? count($this->rounds) : (int) $item->rounds_count),
                 'archived' => $item->isArchived(),
                 'url' => GameResource::getUrl('content', ['record' => $game, 'set' => $item->id]),
                 'current' => (int) $item->id === $this->setId,
             ])->all(),
             'setArchived' => $set?->isArchived() ?? false,
-            'setUsed' => $set !== null && (int) $set->versions_count > 0,
+            'setManage' => $set === null ? null : $this->setManagement($set, $sets->whereNull('archived_at')->count()),
+            'resultIssues' => count($checks->profileIssues),
             'checks' => $checks,
             'roundRows' => array_map(fn (array $item, int $index): array => [
                 'index' => $index,
@@ -716,9 +752,89 @@ final class EditGameContent extends Page
             'editingIndex' => $this->editingProfile !== null ? $this->profileIndex($this->editingProfile) : null,
             'picker' => $this->pickerView($checks),
             'siteName' => app(ProjectSettingsManager::class)->current()->siteName(),
-            // As saved: the preview plays the set from the database, so a round shows there once it is saved.
-            'previewRoundUrl' => GameResource::getUrl('preview', ['record' => $game, 'set' => $this->setId, 'start' => 'round:'.$this->selected]),
+            // The round on screen as it stands, unsaved edits included: the frame plays the draft handed over here.
+            'liveUrl' => $this->rounds === [] ? null : route('games.preview', [
+                'game' => $game->id,
+                'set' => $this->setId,
+                'start' => 'round:'.$this->selected,
+                'framed' => 1,
+                'shape' => ImageOrientation::tryFrom($this->previewShape)?->value,
+                'draft' => app(GamePreviewDrafts::class)->put((int) auth()->id(), $this->setId, $this->draft(), $this->chosenPictures()),
+            ]),
+            'fullPreviewUrl' => GameResource::getUrl('preview', ['record' => $game, 'set' => $this->setId]),
         ];
+    }
+
+    /** A set's rounds and the versions made from it: “5 rounds · Used in V1, V3”. */
+    private function setUse(GameContentSet $set, int $rounds): string
+    {
+        $numbers = fn (GameVersionStatus $status): string => $set->versions->where('status', $status)->map(fn (GameVersion $version): string => 'V'.$version->number)->implode(', ');
+        $active = $numbers(GameVersionStatus::Active);
+        $retired = $numbers(GameVersionStatus::Retired);
+
+        return $rounds.' '.Str::plural('round', $rounds).' · '.match (true) {
+            $active !== '' => 'Used in '.$active,
+            $retired !== '' => 'Only in retired '.$retired,
+            default => 'Not in any version',
+        };
+    }
+
+    /**
+     * What the set on screen may become, and why: a set no version used may be
+     * deleted, one a version used only archived, and a game's last set neither.
+     *
+     * @return array{delete: bool, archive: bool, note: string}
+     */
+    private function setManagement(GameContentSet $set, int $unarchived): array
+    {
+        $active = $set->versions->where('status', GameVersionStatus::Active)->map(fn (GameVersion $version): string => 'V'.$version->number)->implode(', ');
+        $used = $set->versions->isNotEmpty();
+        $only = ! $set->isArchived() && $unarchived <= 1;
+
+        return [
+            'delete' => ! $only && ! $used,
+            'archive' => ! $only && $used && ! $set->isArchived(),
+            'note' => match (true) {
+                $only => 'This is the only set. Add another before deleting or archiving it.',
+                ! $used => 'No version uses this set, so it can be deleted.',
+                $set->isArchived() => 'Archived: it can’t be published until it is restored.',
+                $active !== '' => 'Used in '.$active.', so it can’t be deleted. Archiving hides it from new versions; '.$active.' keeps its own copy.',
+                default => 'Only retired versions used it, so it can’t be deleted. Archiving hides it from new versions; their copies stay.',
+            },
+        ];
+    }
+
+    /**
+     * The pictures chosen for options but not stored until Save, as the live
+     * preview shows them: by "round index:option position".
+     *
+     * @return array<string, array{src: string, width: int|null, height: int|null}>
+     */
+    private function chosenPictures(): array
+    {
+        $keys = array_column($this->rounds, 'key');
+        $pictures = [];
+
+        foreach ($this->uploads as $place => $upload) {
+            if (! $upload instanceof TemporaryUploadedFile || ! $upload->isPreviewable() || preg_match('/\Around:(.+):(\d+)\z/', (string) $place, $match) !== 1) {
+                continue;
+            }
+
+            $index = array_search($match[1], $keys, true);
+
+            if (! is_int($index)) {
+                continue;
+            }
+
+            $size = rescue(fn () => $upload->dimensions(), null, false);
+            $pictures[$index.':'.$match[2]] = [
+                'src' => $upload->temporaryUrl(),
+                'width' => is_array($size) && is_int($size[0] ?? null) ? $size[0] : null,
+                'height' => is_array($size) && is_int($size[1] ?? null) ? $size[1] : null,
+            ];
+        }
+
+        return $pictures;
     }
 
     /** @return array<string, string|null> */
@@ -763,7 +879,30 @@ final class EditGameContent extends Page
             ],
             'objective' => $check?->mode === GameRoundMode::Objective,
             'answer' => $check?->answer === $slot,
+            'problem' => $option['source'] === GameOptionSource::Post->value ? self::postProblem($post) : null,
         ];
+    }
+
+    /**
+     * What keeps a chosen post out of a round: `gone` once it left the site,
+     * `picture` when its picture can't be shown, `processing` while the
+     * picture is still being prepared; null when nothing does.
+     */
+    private static function postProblem(?Post $post): ?string
+    {
+        if ($post === null) {
+            return null;
+        }
+
+        if ($post->trashed() || $post->status !== PostStatus::Published) {
+            return 'gone';
+        }
+
+        return match (DraftImageState::of($post->imageAsset)) {
+            ImageState::Unavailable => 'picture',
+            ImageState::Processing => 'processing',
+            ImageState::Ready => null,
+        };
     }
 
     /**
@@ -779,6 +918,8 @@ final class EditGameContent extends Page
             'preferred' => $crowd->preferred,
             'minVotes' => $crowd->minVotes,
             'minGap' => $crowd->minGap,
+            // The options with fewer votes than the crowd needs — at least one, whatever the limit says.
+            'short' => array_keys(array_filter([$crowd->a, $crowd->b], fn ($side): bool => $side->votes() < max(1, $crowd->minVotes))),
             'unscored' => (bool) $round['unscored'],
         ];
     }

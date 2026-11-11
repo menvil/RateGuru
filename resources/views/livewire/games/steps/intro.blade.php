@@ -1,4 +1,4 @@
-{{-- Intro and Instructions: a title, a few lines, and Continue. --}}
+{{-- Intro and Instructions: a title, a few lines, and the way on. --}}
 <section class="rg-game__card" data-testid="game-step-{{ $data['type'] }}">
     <h1 class="rg-game__title">{{ $texts['title'] }}</h1>
     @if (($texts['body'] ?? '') !== '')

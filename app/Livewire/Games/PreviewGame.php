@@ -6,9 +6,11 @@ use App\Enums\GameAnswerOutcome;
 use App\Enums\GameAudience;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
+use App\Enums\ImageOrientation;
 use App\Models\Game;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
+use App\Services\Games\GamePreviewDrafts;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\FlowVisitor;
@@ -27,10 +29,13 @@ use Livewire\Component;
 
 /**
  * A game played as an administrator checks it, before or after publishing:
- * a draft's content set through one of its flows, or a published version,
- * as an anonymous visitor, one whose email is known, or a signed-in player,
- * in any installed language — from the landing, from a round, or straight to
- * the result for a number of matches.
+ * a draft's content set through one of its flows — as saved, or as the
+ * Content tab holds it unsaved (`draft`, the stamp GamePreviewDrafts handed
+ * it over under), through a flow as saved or as the Flow tab holds it
+ * (`flow_draft`) — or a published version, as an anonymous visitor or a
+ * signed-in player, in any installed language —
+ * from the landing, from a round, or straight to the result for a number of
+ * matches.
  *
  * Nothing is recorded: no assignment, attempt, answer, email or event. The
  * picks live in the page's own locked state and are judged the way the game
@@ -49,6 +54,22 @@ final class PreviewGame extends Component
 
     #[Locked]
     public int $flowId = 0;
+
+    /** The stamp of the unsaved draft played instead of the saved set; empty plays the set as saved. */
+    #[Locked]
+    public string $draft = '';
+
+    /** The stamp of the unsaved flow played instead of the saved one; empty plays the flow as saved. */
+    #[Locked]
+    public string $flowDraft = '';
+
+    /** Drawn inside an editor's phone frame, which says itself that it is a preview: the page leaves out its banner. */
+    #[Locked]
+    public bool $framed = false;
+
+    /** Every pair's frames in one shape — landscape, square or portrait — to see how such pictures sit; empty frames each pair as its pictures are. */
+    #[Locked]
+    public string $shape = '';
 
     #[Locked]
     public string $visitorMode = 'anonymous';
@@ -89,9 +110,13 @@ final class PreviewGame extends Component
         } else {
             $this->setId = $request->integer('set') ?: (int) $model->contentSets()->value('id');
             $this->flowId = $request->integer('flow') ?: (int) $model->flows()->value('id');
+            $this->draft = (string) $request->query('draft', '');
+            $this->flowDraft = (string) $request->query('flow_draft', '');
         }
 
-        $this->visitorMode = in_array($request->query('visitor'), ['anonymous', 'known', 'authenticated'], true) ? (string) $request->query('visitor') : 'anonymous';
+        $this->framed = $request->boolean('framed');
+        $this->shape = ImageOrientation::tryFrom((string) $request->query('shape', ''))->value ?? '';
+        $this->visitorMode = $request->query('visitor') === 'authenticated' ? 'authenticated' : 'anonymous';
         $locale = (string) $request->query('locale', 'en');
         $this->locale = app(LocaleManager::class)->isSupported($locale) ? $locale : 'en';
         app()->setLocale($this->locale);
@@ -166,6 +191,8 @@ final class PreviewGame extends Component
         $this->dispatch('toast', message: 'Preview: here the site’s sign-up would open. Nothing is created.');
     }
 
+    public function signUpStarted(mixed $method): void {}
+
     public function shared(mixed $provider): void {}
 
     public function replay(): void
@@ -189,22 +216,30 @@ final class PreviewGame extends Component
         $snapshot = $this->snapshot();
         $attempt = PreviewAttempt::of((int) $game->id, $this->visitor()->audience, $snapshot, $this->answers);
         $hasNext = $this->stepKey !== '' && GameFlowRunner::after($snapshot->flowSteps(), $this->flowVisitor(), $this->stepKey) !== null;
-        $view = GamePlayView::of($game, $this->versionId, $snapshot, $this->stepKey, $attempt, $this->reveal, $this->visitor(), $this->locale, null, $hasNext, preview: true);
+        $view = GamePlayView::of($game, $this->versionId, $snapshot, $this->stepKey, $attempt, $this->reveal, $this->visitor(), $this->locale, null, $hasNext, preview: true, shape: ImageOrientation::tryFrom($this->shape), pictures: $this->chosenPictures());
         $source = $this->versionId > 0 ? 'V'.GameVersion::query()->whereKey($this->versionId)->value('number') : __('games.play.preview_draft');
 
-        return view('livewire.games.play-game', ['play' => $view, 'preview' => $source])
+        return view('livewire.games.play-game', ['play' => $view, 'preview' => $source, 'banner' => ! $this->framed])
             ->layout('layouts.app', [...app(AppLayoutData::class)->toArray(), 'focused' => true]);
     }
 
     /**
      * Where the preview starts: the landing, a round with the rounds before it
-     * answered as the crowd did, or the result for a number of matches.
+     * answered as the crowd did, the result for a number of matches, or any
+     * step of the flow — one after the game with every round answered as the
+     * crowd did.
      */
     private function start(string $start): void
     {
         $snapshot = $this->snapshot();
         $steps = $snapshot->flowSteps();
         $this->stepKey = (string) GameFlowRunner::first($steps, $this->flowVisitor())?->key;
+
+        if (preg_match('/\Astep:(.+)\z/', $start, $match) === 1) {
+            $this->startAtStep($match[1]);
+
+            return;
+        }
 
         if (preg_match('/\A(round|result):(\d+)\z/', $start, $match) !== 1) {
             return;
@@ -222,6 +257,30 @@ final class PreviewGame extends Component
 
         $this->answerFirst($snapshot->roundCount(), $number);
         $this->stepKey = (string) (GameFlowRunner::ofType($steps, GameFlowStepType::FullResult) ?? $this->afterGame())?->key;
+    }
+
+    private function startAtStep(string $key): void
+    {
+        $snapshot = $this->snapshot();
+        $steps = $snapshot->flowSteps();
+        $keys = array_map(fn (FlowStepDraft $step): string => $step->key, $steps);
+        $at = array_search($key, $keys, true);
+        $game = GameFlowRunner::ofType($steps, GameFlowStepType::Game);
+
+        if (! is_int($at)) {
+            return;
+        }
+
+        $gameAt = $game === null ? null : array_search($game->key, $keys, true);
+
+        if (is_int($gameAt) && $at > $gameAt) {
+            $this->answerFirst($snapshot->roundCount(), $snapshot->roundCount());
+        }
+
+        // A step this visitor never sees gives way to the next one they do.
+        $this->stepKey = GameFlowRunner::isVisible($steps[$at], $this->flowVisitor())
+            ? $key
+            : (string) GameFlowRunner::after($steps, $this->flowVisitor(), $key)?->key;
     }
 
     /** Answers the first rounds, matching in as many scored rounds as asked. */
@@ -266,11 +325,26 @@ final class PreviewGame extends Component
 
         $game = Game::query()->findOrFail($this->gameId);
         $query = app(GameDraftQuery::class);
-        $set = $query->contentSet((int) $game->id, $this->setId);
-        $flow = $query->flow((int) $game->id, $this->flowId);
+        $unsaved = $this->draft !== '' ? app(GamePreviewDrafts::class)->get((int) auth()->id(), $this->setId, $this->draft) : null;
+        $set = $unsaved !== null ? $query->draftContentSet((int) $game->id, $this->setId, $unsaved) : $query->contentSet((int) $game->id, $this->setId);
+        $unsavedFlow = $this->flowDraft !== '' ? app(GamePreviewDrafts::class)->getFlow((int) auth()->id(), $this->flowId, $this->flowDraft) : null;
+        $flow = $unsavedFlow !== null ? $query->draftFlow((int) $game->id, $this->flowId, $unsavedFlow) : $query->flow((int) $game->id, $this->flowId);
         abort_if($set === null || $flow === null, 404);
 
         return $this->snapshotRead = VersionSnapshotBuilder::buildForPreview($game, ContentSetReport::of($set), $flow);
+    }
+
+    /**
+     * The pictures the Content tab chose for options but has not stored yet,
+     * shown in their places while the unsaved draft plays.
+     *
+     * @return array<string, array{src: string, width: int|null, height: int|null}>
+     */
+    private function chosenPictures(): array
+    {
+        return $this->draft !== '' && $this->versionId === 0
+            ? app(GamePreviewDrafts::class)->pictures((int) auth()->id(), $this->setId, $this->draft)
+            : [];
     }
 
     private function visitor(): GameVisitor
@@ -284,7 +358,7 @@ final class PreviewGame extends Component
     {
         $visitor = $this->visitor();
 
-        return new FlowVisitor($visitor->audience, $this->visitorMode !== 'anonymous' || $this->emailLeft, $this->nextGameLive());
+        return new FlowVisitor($visitor->audience, $this->visitorMode === 'authenticated' || $this->emailLeft, $this->nextGameLive());
     }
 
     private function nextGameLive(): bool

@@ -9,33 +9,42 @@ two pictures per round, and the player picks one.
 Games stay invisible until **Project settings → Feature flags → Allow games** is on.
 Prepare and preview a game first; switch games on when it is live.
 
-## Making a game
+## Setting up a game
 
-1. **Growth → Games → New game.** Give it a public title, an internal name and
-   an address (slug). A new game starts as a Draft with one content set,
-   "Standard", and one flow, "Result First".
-2. **General.** Title, description (up to 240 characters) and a cover picture.
-   The address and the mechanic are locked once the game is first published.
+1. **Growth → Games**, then open the game. The admin panel does not make new
+   games: the library lists the ones there are. A game starts as a Draft with
+   one content set, "Standard", and one flow, "Result First".
+2. **General.** Public title, internal name, address (slug), description (up
+   to 240 characters) and a cover picture; beside them an example round shows
+   what the mechanic asks of a player. The address is locked once the game is
+   first published.
 3. **Content → Rounds.** Each round is a question with two options:
    - from a **post** — the round's point goes to the post the site's voters
-     liked more. Both posts need at least 100 votes and a gap of at least 5
-     percentage points between their upvote shares (both settable per content
-     set). Persona votes count like everyone's. The editor says when a pair is
+     liked more. Both posts need at least 100 votes, and their upvote shares
+     must differ — by any amount, or by at least the gap you set for the
+     content set in Results (both settable per content set). Persona votes count like everyone's. The editor says when a pair is
      too close or has too few votes, and offers to pick another post or to
      mark a correct answer instead;
    - from an **upload** — then you mark which option is correct.
-   A round can be **unscored**: it is played but counts for nothing.
+   A round can be **unscored**: it is played but counts for nothing. Drag a
+   round in the list to change its place, or use Move up and Move down in its
+   menu.
+   Beside the round, **Live preview** plays it on the screen players see on a
+   phone, with your changes before you save them. On a narrower screen it
+   opens from **Preview round**.
 4. **Content → Results.** Points per round and the result profiles. Every
    number of matches, from none to all scored rounds, must belong to exactly
    one profile; "Fit ranges" spreads them again after rounds change.
 5. **Flow.** The screens around the game, in order: landing, intro,
    instructions, the game, result preview, email capture, full result,
    registration, share, and the next game or the feed. Each step can be shown
-   to everyone, only to anonymous visitors or only to logged-in players.
-6. **Preview.** Play the draft or any version as an anonymous visitor, a
-   visitor whose email is known, or a logged-in player, in any language, from
-   the landing, from a given round, or straight to a result. Nothing is
-   recorded.
+   to everyone, only to anonymous visitors or only to logged-in players. Full
+   Result can ask anonymous visitors to sign up right there — the email, then
+   a name and a password, or Google or Facebook where they are switched on —
+   or leave sign-up to a Registration step after it.
+6. **Preview.** Play the draft or any version as an anonymous visitor or a
+   logged-in player, in any language, from the landing, from a given round,
+   or straight to a result. Nothing is recorded.
 
 ## Publishing and traffic
 
@@ -72,6 +81,12 @@ logged-in players, shares and repeat players), the funnel, how many attempts
 reached each round, which results players got, the versions, flows or content
 sets side by side, and the traffic periods. Library shows each game's plays,
 completion and sign-ups of the last 30 days.
+
+The funnel counts people: someone who played three times started once.
+Completion is the share of plays finished, replays included. Between the
+finished players and the new accounts, **Sign-up begun** shows who started
+signing up from the game and how — email, Google, Facebook, the site's
+sign-up dialog or Log in.
 
 ## Privacy
 

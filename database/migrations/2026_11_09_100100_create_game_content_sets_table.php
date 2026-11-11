@@ -17,7 +17,6 @@ return new class extends Migration
             $table->string('name', 80);
             $table->unsignedInteger('position')->default(0);
             $table->unsignedTinyInteger('points_per_round')->default(1);
-            $table->boolean('show_agreement')->default(true);
             // How sure the crowd has to be before a round scores by it: the
             // votes each post needs and the gap, in percentage points, its
             // upvote share needs over the other's.

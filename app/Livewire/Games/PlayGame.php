@@ -13,6 +13,7 @@ use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
+use App\Enums\SocialProvider;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Games\CannotPlayGameException;
 use App\Livewire\Concerns\OpensAuthModal;
@@ -31,6 +32,7 @@ use App\Support\Games\Snapshot\GameVersionSnapshot;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -238,15 +240,29 @@ final class PlayGame extends Component
         $this->moveAttempt($attempt, $this->visitor());
     }
 
+    /** The site's sign-up or log-in dialog, opened from the game — counted, by which of the two. */
     public function signUp(mixed $mode = 'register'): void
     {
+        $mode = $mode === 'login' ? AuthModalMode::Login : AuthModalMode::Register;
         $game = $this->game();
 
         if ($game !== null) {
-            app(RecordGameInteractionAction::class)->handle(GameEventType::RegistrationCtaClicked, $game, $this->visitor(), $this->attempt(), $this->versionId);
+            app(RecordGameInteractionAction::class)->handle(GameEventType::RegistrationCtaClicked, $game, $this->visitor(), $this->attempt(), $this->versionId, $mode === AuthModalMode::Login ? 'login' : 'register');
         }
 
-        $this->openAuthModal($mode === 'login' ? AuthModalMode::Login : AuthModalMode::Register);
+        $this->openAuthModal($mode);
+    }
+
+    /** Signing up begun on the result itself — on with an email, or off to a provider — counted, by which. */
+    #[Renderless]
+    public function signUpStarted(mixed $method): void
+    {
+        $game = $this->game();
+        $methods = ['email', ...array_map(fn (SocialProvider $provider): string => $provider->value, SocialProvider::cases())];
+
+        if ($game !== null && is_string($method) && in_array($method, $methods, true)) {
+            app(RecordGameInteractionAction::class)->handle(GameEventType::RegistrationCtaClicked, $game, $this->visitor(), $this->attempt(), $this->versionId, $method);
+        }
     }
 
     /** A share made in the browser — the link copied, the device's own sheet — counted. */

@@ -44,7 +44,7 @@ it('shows what two guests did: one opened the game, the other played it through'
 
     Livewire::withCookie($cookie, str_repeat('a', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
         ->call('init')->call('continue')->call('choose', 0)->call('next')
-        ->assertSee('Your result');
+        ->assertSee('data-testid="game-step-full_result"', false);
     session()->flush();
     Livewire::withCookie($cookie, str_repeat('b', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
         ->call('init');
@@ -77,6 +77,23 @@ it('shows what two guests did: one opened the game, the other played it through'
         ->assertSee('Traffic periods · Logged-in players');
 });
 
+it('counts people where it counts people: a guest who played twice started once, and began signing up by email', function () {
+    liveGame($this->draft);
+
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('a', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->call('signUpStarted', 'email')
+        ->call('replay')->call('choose', 1)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
+    session()->flush();
+    $this->actingAs($this->draft['admin']);
+
+    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertSeeInOrder(['Started', '1', '100.0% of visitors'])
+        ->assertSeeInOrder(['Completion', '100.0%', '2 of 2 plays completed'])
+        ->assertSeeInOrder(['Funnel', 'Game started', '1', 'Completed', '1', 'Sign-up begun', 'Email 1', '1', 'New account', '0']);
+});
+
 it('counts the emails of versions that ask for one', function () {
     $this->draft['flow'] = app(ChangeGameFlowAction::class)->create($this->draft['admin'], $this->draft['game'], 'Email first', GameFlowTemplate::EmailBeforeResult);
     liveGame($this->draft);
@@ -84,7 +101,7 @@ it('counts the emails of versions that ask for one', function () {
     Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('d', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
         ->call('init')->call('continue')->call('choose', 0)->call('next')->call('continue')
         ->set('email', 'guest@example.test')->call('submitEmail')
-        ->assertSee('Your result');
+        ->assertSee('data-testid="game-step-full_result"', false);
     session()->flush();
     $this->actingAs($this->draft['admin']);
 

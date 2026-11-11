@@ -16,7 +16,7 @@ function scoringSnapshot(int $points = 2): GameVersionSnapshot
     return GameVersionSnapshot::fromArray([
         'schema' => 1,
         'game' => ['id' => 1, 'slug' => 'taste', 'mechanic' => 'versus', 'title' => ['en' => 'Taste'], 'description' => [], 'cover_asset_id' => null],
-        'scoring' => ['points_per_round' => $points, 'show_agreement' => true, 'crowd_min_votes' => 100, 'crowd_min_gap' => 5],
+        'scoring' => ['points_per_round' => $points, 'crowd_min_votes' => 100, 'crowd_min_gap' => 5],
         'rounds' => [$round('r1', true, 0), $round('r2', false, null), $round('r3', true, 1)],
         'profiles' => [
             ['key' => 'low', 'name' => ['en' => 'Low'], 'min' => 0, 'max' => 1, 'icon' => 'compass'],
@@ -48,7 +48,6 @@ it('works out matches, score and profile from the answers', function () {
         ->and($result->matches)->toBe(2)
         ->and($result->score)->toBe(4)
         ->and($result->maxScore)->toBe(4)
-        ->and($result->agreement())->toBe(100)
         ->and($result->profile?->key)->toBe('high');
 });
 

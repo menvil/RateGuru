@@ -21,8 +21,10 @@ use InvalidArgumentException;
  * Reads a game's figures back from what playing it recorded: what Growth →
  * Games → Analytics, the library and Traffic show.
  *
- *  - funnels()      visitors, starts, completions, emails, accounts, shares and
- *                   repeat players — in all, or per version, flow or content set;
+ *  - funnels()      visitors, starts, completions, emails, sign-ups begun,
+ *                   accounts, shares and repeat players — attempts and the
+ *                   people behind them — in all, or per version, flow or set;
+ *  - signUpMethods() the people who began signing up, by how;
  *  - reach()        how many started attempts answered each round of a version;
  *  - results()      the completed attempts of a version by result;
  *  - periods()      the attempts started and completed in each traffic period;
@@ -66,30 +68,40 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                     [GameAudience::Anonymous->value, GameAudience::Authenticated->value],
                 ),
         );
+        $person = self::person($scope);
         $attempts = $this->counts(
             $this->grouped($this->attempts($scope), 'game_attempts.version_id', $by)
                 ->selectRaw(
-                    'COUNT(*) AS started,
+                    "COUNT(*) AS started,
                     SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
+                    COUNT(DISTINCT {$person}) AS starters,
+                    COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN {$person} END) AS finishers,
                     COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS registered,
-                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in',
-                    [GameAttemptStatus::Completed->value, GameAccountOutcome::Registered->value, GameAccountOutcome::SignedIn->value],
+                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in",
+                    [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::Registered->value, GameAccountOutcome::SignedIn->value],
                 ),
         );
         $emails = $this->counts(
             $this->grouped($this->cohortJoin(GameEmailCapture::query(), 'game_email_captures.attempt_id', $scope), 'game_attempts.version_id', $by)
-                ->selectRaw('COUNT(*) AS emails', []),
+                ->selectRaw("COUNT(*) AS emails, COUNT(DISTINCT {$person}) AS emailers", []),
         );
         $shared = $this->counts(
             $this->grouped(
                 $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::ShareClicked->value),
                 'game_attempts.version_id',
                 $by,
-            )->selectRaw('COUNT(DISTINCT game_events.attempt_id) AS shared', []),
+            )->selectRaw("COUNT(DISTINCT game_events.attempt_id) AS shared, COUNT(DISTINCT {$person}) AS sharers", []),
+        );
+        $signUps = $this->counts(
+            $this->grouped(
+                $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)->where('game_events.type', GameEventType::RegistrationCtaClicked->value),
+                'game_attempts.version_id',
+                $by,
+            )->selectRaw("COUNT(DISTINCT {$person}) AS sign_up_starters", []),
         );
         $replayers = $this->replayers($scope, $by);
 
-        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($shared), ...array_keys($replayers)]);
+        $buckets = array_unique([...array_keys($visitors), ...array_keys($attempts), ...array_keys($emails), ...array_keys($shared), ...array_keys($signUps), ...array_keys($replayers)]);
         sort($buckets);
 
         if ($by === null) {
@@ -108,6 +120,11 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 signedIn: $attempts[$bucket]['signed_in'] ?? 0,
                 shared: $shared[$bucket]['shared'] ?? 0,
                 replayers: $replayers[$bucket] ?? 0,
+                starters: $attempts[$bucket]['starters'] ?? 0,
+                finishers: $attempts[$bucket]['finishers'] ?? 0,
+                emailers: $emails[$bucket]['emailers'] ?? 0,
+                sharers: $shared[$bucket]['sharers'] ?? 0,
+                signUpStarters: $signUps[$bucket]['sign_up_starters'] ?? 0,
             );
         }
 
@@ -262,6 +279,41 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     }
 
     /**
+     * The people of the scope who began signing up from a game, by how:
+     * `email`, a provider, or the site's `register` or `login` dialog — the
+     * detail a registration_cta_clicked event carries. A person who tried two
+     * ways counts under each.
+     *
+     * @return array<string, int>
+     */
+    public function signUpMethods(GameMetricsScope $scope): array
+    {
+        $person = self::person($scope);
+        $rows = $this->cohortJoin(GameEvent::query(), 'game_events.attempt_id', $scope)
+            ->where('game_events.type', GameEventType::RegistrationCtaClicked->value)
+            ->whereNotNull('game_events.provider')
+            ->groupBy('game_events.provider')
+            ->select('game_events.provider')
+            ->selectRaw("COUNT(DISTINCT {$person}) AS people", [])
+            ->orderBy('game_events.provider')
+            ->toBase()
+            ->get();
+        $methods = [];
+
+        foreach ($rows as $row) {
+            $methods[(string) $row->provider] = (int) $row->people;
+        }
+
+        return $methods;
+    }
+
+    /** The column a person of the scope's audience is told apart by: an anonymous visitor's cookie hash, a player's account. */
+    private static function person(GameMetricsScope $scope): string
+    {
+        return $scope->audience === GameAudience::Anonymous ? 'game_attempts.visitor_hash' : 'game_attempts.user_id';
+    }
+
+    /**
      * People who started more than one attempt in the scope, by group: each
      * person's attempts counted first, then those with more than one.
      *
@@ -269,7 +321,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      */
     private function replayers(GameMetricsScope $scope, ?string $by): array
     {
-        $identity = $scope->audience === GameAudience::Anonymous ? 'game_attempts.visitor_hash' : 'game_attempts.user_id';
+        $identity = self::person($scope);
         $people = $this->grouped($this->attempts($scope), 'game_attempts.version_id', $by)
             ->addSelect("{$identity} as person")
             ->groupBy($identity)

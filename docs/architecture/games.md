@@ -42,9 +42,10 @@ A Versus round is **crowd** or **objective**.
   included. The comparison is exact (`upA·nB` against `upB·nA`, no floats). A
   round is publishable only when both posts are published with a ready picture,
   differ, have at least `crowd_min_votes` votes each (100 by default), and their
-  shares differ by at least `crowd_min_gap` percentage points (5; 0 turns the
-  gap rule off). Both limits are set per content set. This is a product rule,
-  not a significance test, and the editor says so.
+  shares differ: by at least `crowd_min_gap` percentage points where the
+  administrator asks for a gap (none by default, so only a tie has no pick).
+  Both limits are set per content set. A gap is a product rule, not a
+  significance test, and the editor says so.
 - **Objective.** One option is marked correct. A round with an uploaded picture
   is always objective. Votes play no part.
 - **Unscored.** A round can count for nothing. It is part of the progress and
@@ -123,6 +124,13 @@ activity since is "abandoned", a derived state. A paused game lets started
 attempts finish but starts none; an archived game is over, and its result
 pages say so.
 
+Full Result can carry the sign-up itself for an anonymous visitor: the email
+first, or a provider, or logging in instead; then a name and one password,
+shown on request and sent as its own confirmation. It is the site's own
+registration — `POST /register` with the `embedded` surface of
+`AuthSurfaceContext`, which comes back to the game like the modal does but
+with the modal shut and a failure's errors in the form on the page.
+
 Signing up or signing in claims the guest's attempts of the last day
 (`Registered` and `Login` listeners, `ClaimGuestGameAttemptsAction`): under a
 lock on the user row, with `canSignIn()` checked again, only attempts of this
@@ -141,18 +149,27 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `registration_cta_clicked`, `account_attributed`, `share_clicked`, `replay`
 and `exit`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
+`share_clicked` names where the result went; `registration_cta_clicked` names
+how signing up began: `email` or a provider on the sign-up set into Full
+Result, or `register` / `login` for the site's dialog.
 
 `GameMetricsQuery` reads the figures back (a registered raw-SQL boundary):
 
 | Figure | Definition |
 | --- | --- |
 | Visitors / players | distinct people with a `view` in the window — guests by hash, players by account |
-| Started | attempts started in the window |
-| Completion | completed of those, however late they finished |
-| Email capture | emails of those, over the completed attempts of versions whose flow asks for one |
+| Started | people who started an attempt in the window, each once however often they played |
+| Completed | people who finished one of those attempts, however late |
+| Completion | completed attempts over started ones — plays, a replay one more |
+| Email capture | people who left an email on one of those attempts, over the people who finished a version whose flow asks for one |
+| Sign-up begun | people with a `registration_cta_clicked` on one of those attempts, and how many began each way |
 | New accounts | distinct people whose attempt in the window led to `registered` |
-| Shared | attempts in the window whose result was shared |
+| Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
+
+The funnel counts people at every step, so each step is a share of the one
+before it; the plays behind it — and how many of them were completed — are
+the Completion figure's.
 
 Nothing is estimated and nothing claims one version is better than another;
 versions are compared only inside one traffic period.
@@ -171,7 +188,39 @@ Public routes sit inside the guest-viewing check and behind
 default — which guards every Livewire request of the player as well. The admin
 pages and the preview (`/games/{game}/preview`) need `manage-games`
 (administrators with the privileged panel). The preview plays a draft or a
-version as any kind of visitor in any language and records nothing.
+version as any kind of visitor in any language and records nothing; `start`
+takes the landing, a round, a result for a number of matches or any step of
+the flow, `framed` leaves out its banner inside an editor's device frame, and
+`shape` frames every pair landscape, square or portrait.
+
+The game page is `layouts.app` in its focused mode: no header, navigation,
+search or post panel — the game draws its own bar, the site's name and Skip to
+the feed — while the sign-in dialog and the toasts stay. A pair's frames follow
+its pictures: 4:3 when both are wide, 3:4 when both are upright, square for a
+mixed pair; a wide pair stacks on a phone. The round fills the screen and
+never scrolls: the space for the verdict and Next pair is kept from the start,
+and the pictures shrink, keeping their shape, into what the question leaves.
+Every other step is one column, up to 480 wide, the result a share card beside
+what to do with it.
+
+The share card names the player by their @username while their account is in
+good standing (`PlayerHandle`), and the site by its domain otherwise. A
+player's result is shared as their own page, `/games/{slug}/r/{attempt}` —
+the attempt's public id, so nobody can put a name on a result they did not
+earn — and a guest's as the profile's page, `/games/{slug}/v{n}/{profile}`.
+Once the account is banned, limited or deleted, the player's page opens the
+profile's instead.
+
+Content's live preview plays the round on screen before it is saved. Each
+draw of the tab hands the draft to `GamePreviewDrafts`, in the cache for 30
+minutes under a stamp made from the draft itself and the administrator's id;
+the preview frame's address carries the stamp, and the preview builds the set
+in memory from that draft (`DraftContentSet`) instead of reading the saved
+one. Pictures chosen for options but stored only on Save go with the draft as
+their temporary preview addresses and show in their places. The Flow tab's step
+preview hands its unsaved steps over the same way (`flow_draft`, `DraftFlow`);
+a step the chosen visitor never sees gives way to the next one they do. A stamp from someone else, or one that has expired, plays the set as
+saved. Nothing of the draft is written to the database.
 
 ## Translations
 

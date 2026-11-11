@@ -1,7 +1,7 @@
 <?php
 
+use App\Enums\GameStatus;
 use App\Filament\Resources\Games\GameResource;
-use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
 use App\Models\Game;
 use App\Models\MediaAsset;
@@ -18,41 +18,23 @@ beforeEach(function () {
     $this->actingAs($this->admin);
 });
 
-it('draws a new game with Create game in the top bar', function () {
-    $this->get(GameResource::getUrl('create'))
-        ->assertOk()
-        ->assertSee('New game')
-        ->assertSee('Create game')
-        ->assertSee('Creating the game publishes nothing.');
+it('offers no page that makes a game', function () {
+    expect(GameResource::canCreate())->toBeFalse()
+        ->and(GameResource::hasPage('create'))->toBeFalse();
+
+    $this->get('/admin/games/create')->assertNotFound();
 });
 
-it('makes the slug from the title until the slug is typed', function () {
-    Livewire::test(CreateGame::class)
-        ->set('gameTitle', 'Trust Your Taste!')
-        ->assertSet('gameSlug', 'trust-your-taste')
-        ->set('gameSlug', 'my-own')
-        ->set('gameTitle', 'Something else')
-        ->assertSet('gameSlug', 'my-own');
-});
+it('shows the rules the general fields break, keyed to their fields, and saves nothing', function () {
+    $game = Game::factory()->create(['title' => 'Before']);
 
-it('creates the game as a draft and opens its editor', function () {
-    Livewire::test(CreateGame::class)
-        ->set('gameTitle', 'Trust Your Taste')
-        ->call('save')
-        ->assertHasNoErrors()
-        ->assertRedirect(GameResource::getUrl('edit', ['record' => Game::query()->sole()]));
-
-    expect(Game::query()->sole()->slug)->toBe('trust-your-taste');
-});
-
-it('shows the rules a new game breaks, keyed to their fields', function () {
-    Livewire::test(CreateGame::class)
+    Livewire::test(EditGameGeneral::class, ['record' => $game->id])
         ->set('gameTitle', '')
         ->set('gameSlug', 'Bad Slug')
         ->call('save')
         ->assertHasErrors(['title', 'slug']);
 
-    expect(Game::query()->exists())->toBeFalse();
+    expect($game->fresh()->title)->toBe('Before');
 });
 
 it('saves the general fields from the top bar, and refuses to overwrite a newer save', function () {
@@ -87,7 +69,10 @@ it('stores a cover the moment it is chosen, and releases it when removed', funct
     $page = Livewire::test(EditGameGeneral::class, ['record' => $game->id])
         ->set('coverUpload', UploadedFile::fake()->image('cover.jpg', 1600, 900))
         ->assertHasNoErrors()
-        ->assertDispatched('rg-admin-toast', message: 'Cover saved', tone: 'success');
+        ->assertDispatched('rg-admin-toast', message: 'Cover saved', tone: 'success')
+        ->assertSee('cover.jpg')
+        ->assertSee('1600 × 900 · Landscape')
+        ->assertSee('Replace');
 
     $asset = MediaAsset::query()->find($game->fresh()->cover_asset_id);
 
@@ -97,6 +82,47 @@ it('stores a cover the moment it is chosen, and releases it when removed', funct
 
     expect($game->fresh()->cover_asset_id)->toBeNull()
         ->and($asset->fresh()->trashed())->toBeTrue();
+});
+
+it('draws the game’s icon, its mechanic’s, in the header band, and names the mechanic under the title', function () {
+    $game = Game::factory()->create(['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste']);
+
+    $this->get(GameResource::getUrl('edit', ['record' => $game]))
+        ->assertOk()
+        ->assertSee('<span class="rg-admin-games__glyph rg-admin-games__glyph--lg" title="Versus">', false)
+        ->assertSeeInOrder(['Trust Your Taste', 'rg-admin-games__meta-item', 'Versus', '/games/trust-your-taste'], false);
+});
+
+it('keeps the cover among the general fields, and shows an example round of the mechanic beside them', function () {
+    $game = Game::factory()->create(['title' => 'Trust Your Taste']);
+
+    $this->get(GameResource::getUrl('edit', ['record' => $game]))
+        ->assertOk()
+        ->assertSeeInOrder(['General information', 'Public title', 'Description', 'Cover image', 'No cover yet', 'Upload cover', 'Example round', 'Versus', 'Round 1', 'Trust Your Taste', 'Choose between two images.'])
+        ->assertDontSee('How the game is played.');
+});
+
+it('archives the game from its status menu, asked first', function () {
+    $game = Game::factory()->create();
+
+    Livewire::test(EditGameGeneral::class, ['record' => $game->id])
+        ->call('askStatus', 'archived')
+        ->assertSee('Archive this game?')
+        ->call('changeStatus')
+        ->assertDispatched('rg-admin-toast', message: 'The game is archived', tone: 'success');
+
+    expect($game->fresh()->status)->toBe(GameStatus::Archived);
+});
+
+it('says why the game cannot go live yet instead of making it live', function () {
+    $game = Game::factory()->create();
+
+    Livewire::test(EditGameGeneral::class, ['record' => $game->id])
+        ->call('askStatus', 'live')
+        ->call('changeStatus')
+        ->assertDispatched('rg-admin-toast', message: 'Publish a version and give it a share in Traffic first.', tone: 'error');
+
+    expect($game->fresh()->status)->toBe(GameStatus::Draft);
 });
 
 it('opens no editor for a game that does not exist, nor for a moderator', function () {

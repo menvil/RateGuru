@@ -1,25 +1,33 @@
 {{--
-    The step library: every kind of step, whether the flow has it, and — for
-    one it lacks — Add, which puts it where it fits best; a step that fits
-    nowhere says so.
+    The step library, as the reference draws it: every kind of step, each a
+    row — its sign, its name and a line on what it does — that adds a step the
+    flow lacks where it fits best. A step already in the flow is ticked; one
+    that fits nowhere is greyed, its reason on hover.
 --}}
-<x-admin.ui.card title="Steps" description="Each kind of step once. Game is required.">
-    <ul class="rg-admin-games__library">
-        @foreach ($library as $item)
-            <li class="rg-admin-games__library-item">
-                <span class="rg-admin-games__mechanic-icon" aria-hidden="true"><x-admin.ui.icon :name="$item['icon']" :size="16" /></span>
-                <span class="rg-admin-games__mechanic-text">
-                    <span class="rg-admin-games__mechanic-name">{{ $item['label'] }}</span>
-                    <span class="rg-admin-games__note">{{ $item['description'] }}</span>
+<p class="rg-admin-games__eyebrow rg-admin-games__library-head">Steps</p>
+<ul class="rg-admin-games__library">
+    @foreach ($library as $item)
+        @php($addable = ! $item['present'] && $item['fits'])
+        <li>
+            <button
+                type="button"
+                @class(['rg-admin-games__library-item', 'rg-admin-games__library-item--off' => ! $item['present'] && ! $item['fits']])
+                title="{{ $item['tip'] }}"
+                @if ($addable) wire:click="insertStep('{{ $item['type'] }}')" @else aria-disabled="true" @endif
+            >
+                <span class="rg-admin-games__library-sign" aria-hidden="true"><x-admin.ui.icon :name="$item['icon']" :size="15" /></span>
+                <span class="rg-admin-games__library-text">
+                    <span class="rg-admin-games__library-name">{{ $item['label'] }}</span>
+                    <span class="rg-admin-games__library-line">{{ $item['description'] }}</span>
                 </span>
                 @if ($item['present'])
-                    <x-admin.ui.icon name="check" :size="16" label="In this flow" />
-                @elseif ($item['fits'])
-                    <x-admin.ui.button size="sm" icon="plus" wire:click="insertStep('{{ $item['type'] }}')">Add<span class="rg-admin-sr-only"> {{ $item['label'] }}</span></x-admin.ui.button>
+                    <x-admin.ui.icon name="circle-check" :size="15" class="rg-admin-games__library-state rg-admin-games__library-state--in" label="In this flow" />
+                @elseif ($addable)
+                    <x-admin.ui.icon name="plus" :size="15" class="rg-admin-games__library-state" :label="'Add '.$item['label']" />
                 @else
-                    <span class="rg-admin-games__note" title="Doesn’t fit this flow">—</span>
+                    <x-admin.ui.icon name="minus" :size="15" class="rg-admin-games__library-state" :label="$item['tip']" />
                 @endif
-            </li>
-        @endforeach
-    </ul>
-</x-admin.ui.card>
+            </button>
+        </li>
+    @endforeach
+</ul>

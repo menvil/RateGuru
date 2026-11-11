@@ -16,10 +16,10 @@ use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
 use App\Queries\Games\GameTrafficQuery;
+use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Publishing\GamePublishReadiness;
-use Carbon\CarbonInterface;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Livewire\Attributes\Locked;
@@ -53,11 +53,24 @@ final class GameVersions extends Page
 
     public bool $showRetired = false;
 
+    /**
+     * The new version starts from the set and flow the address names — the
+     * notice on a tab whose saved changes the players don't see sends them —
+     * or the first of each; and from the version in traffic to take over,
+     * when the address names one.
+     */
     public function mount(int|string $record): void
     {
         $game = $this->mountGame($record);
-        $this->publishSetId = (int) GameContentSet::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
-        $this->publishFlowId = (int) GameFlow::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
+        $sets = GameContentSet::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id);
+        $flows = GameFlow::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id);
+        $set = (int) request()->query('set');
+        $flow = (int) request()->query('flow');
+        $takeOver = (int) request()->query('take_over');
+
+        $this->publishSetId = $sets->contains($set) ? $set : (int) $sets->first();
+        $this->publishFlowId = $flows->contains($flow) ? $flow : (int) $flows->first();
+        $this->takeOver = in_array($takeOver, app(GameTrafficQuery::class)->versionsInTraffic([(int) $game->id])[(int) $game->id] ?? [], true) ? (string) $takeOver : '';
     }
 
     public function askPublish(): void
@@ -153,7 +166,8 @@ final class GameVersions extends Page
         $chosenFlow = $flows->firstWhere('id', $this->publishFlowId);
         $readiness = $chosenSet !== null && $chosenFlow !== null ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds) : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
-        $changedSince = $latestFromPair === null ? null : self::editedAfter($chosenSet, $chosenFlow, $latestFromPair->published_at);
+        $edits = app(GameUnpublishedChangesQuery::class);
+        $changedSince = $latestFromPair === null ? null : $edits->setEditedAfter($this->publishSetId, $latestFromPair->published_at) || $edits->flowEditedAfter($this->publishFlowId, $latestFromPair->published_at);
         $inTraffic = array_values(array_unique(array_merge(array_keys($shares['anonymous']), array_keys($shares['authenticated']))));
         $unplayable = $traffic->unplayableVersionIds($versions->modelKeys());
 
@@ -199,41 +213,5 @@ final class GameVersions extends Page
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'nextLabel' => 'V'.($game->last_version_number + 1),
         ];
-    }
-
-    /**
-     * Whether the set or the flow, or anything in them, was saved after a
-     * moment — a translation made in Translation Center included, which is
-     * saved on the round, option, result or step it translates.
-     */
-    private static function editedAfter(?ContentSetReport $set, ?GameFlow $flow, CarbonInterface $moment): bool
-    {
-        $saved = [];
-
-        if ($set !== null) {
-            $saved[] = $set->set->updated_at;
-
-            foreach ($set->set->rounds as $round) {
-                $saved[] = $round->updated_at;
-
-                foreach ($round->options as $option) {
-                    $saved[] = $option->updated_at;
-                }
-            }
-
-            foreach ($set->set->profiles as $profile) {
-                $saved[] = $profile->updated_at;
-            }
-        }
-
-        if ($flow !== null) {
-            $saved[] = $flow->updated_at;
-
-            foreach ($flow->steps as $step) {
-                $saved[] = $step->updated_at;
-            }
-        }
-
-        return array_filter($saved, fn (?CarbonInterface $at): bool => $at?->greaterThan($moment) ?? false) !== [];
     }
 }

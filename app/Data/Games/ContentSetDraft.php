@@ -22,7 +22,7 @@ use App\Models\GameRoundOption;
 final readonly class ContentSetDraft
 {
     /**
-     * @param  array{points_per_round: int, show_agreement: bool, crowd_min_votes: int, crowd_min_gap: int}  $scoring
+     * @param  array{points_per_round: int, crowd_min_votes: int, crowd_min_gap: int}  $scoring
      * @param  list<array<string, mixed>>  $rounds
      * @param  list<array<string, mixed>>  $profiles
      */
@@ -37,7 +37,6 @@ final readonly class ContentSetDraft
         return new self(
             scoring: [
                 'points_per_round' => $set->points_per_round,
-                'show_agreement' => $set->show_agreement,
                 'crowd_min_votes' => $set->crowd_min_votes,
                 'crowd_min_gap' => $set->crowd_min_gap,
             ],

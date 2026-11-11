@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Games;
 
-use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
 use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
@@ -19,11 +18,11 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Growth → Games: the library (ListGames), a new game (CreateGame) and a
- * game's editor, one page per tab — General, Content, Flow, Versions,
- * Traffic, Analytics — drawn in Admin v2 over Game. What visitors play is a
- * published version's snapshot; nothing edited here reaches them until a
- * version is published and given traffic.
+ * Growth → Games: the library (ListGames) and a game's editor, one page per
+ * tab — General, Content, Flow, Versions, Traffic, Analytics — drawn in
+ * Admin v2 over Game. What visitors play is a published version's snapshot;
+ * nothing edited here reaches them until a version is published and given
+ * traffic.
  *
  * Only an active administrator gets here (`manage-games`): the navigation
  * item, every page and every Livewire request on them ask, and the game
@@ -78,9 +77,10 @@ class GameResource extends Resource
         return static::canAccess();
     }
 
+    /** No page here makes a game: the library lists the games there are. */
     public static function canCreate(): bool
     {
-        return static::canAccess();
+        return false;
     }
 
     public static function canEdit(Model $record): bool
@@ -103,7 +103,6 @@ class GameResource extends Resource
     {
         return [
             'index' => ListGames::route('/'),
-            'create' => CreateGame::route('/create'),
             'edit' => EditGameGeneral::route('/{record}'),
             'content' => EditGameContent::route('/{record}/content'),
             'flow' => EditGameFlow::route('/{record}/flow'),

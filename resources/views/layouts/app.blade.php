@@ -18,21 +18,29 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         @php
             $searchClearUrl = route('feed', request()->except(['search', 'page']));
-            // A focused page — a game — keeps the header's brand and account
-            // controls, the sign-in dialog and the toasts, and leaves out the
-            // navigation and the search around it.
+            // A focused page — a game — draws its own bar: it leaves out the
+            // header, the navigation, the search and the post panel, and keeps
+            // the sign-in dialog and the toasts.
             $focused = (bool) ($focused ?? false);
         @endphp
         <div
             class="min-h-screen"
             x-data="{ mobileNavOpen: false, mobileSearchOpen: @js(filled(request('search'))) }"
         >
+            @if ($focused)
+                {{-- A focused page draws its own bar. The sign-in dialog stays, in the
+                     header's z-[60] stacking context, for the game's sign-up step. --}}
+                @guest
+                    <div class="relative z-[60]">
+                        <x-auth.modal />
+                    </div>
+                @endguest
+            @else
             {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
             <header class="sticky top-0 z-[60] border-b border-rg-border bg-rg-topbar" data-app-header data-testid="app-header">
                 <div class="rg-app-header-layout mx-auto flex h-[60px] w-full max-w-[1440px] items-center gap-1.5 px-3 sm:gap-2 sm:px-4">
-                    @unless ($focused)
                     <button
                         type="button"
                         class="grid size-9 shrink-0 cursor-pointer place-items-center rounded-rgControl border border-rg-border2 bg-rg-card text-rg-text2 transition hover:text-rg-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent lg:hidden"
@@ -42,15 +50,11 @@
                     >
                         <x-ui.icon name="menu" class="size-5" />
                     </button>
-                    @endunless
 
                     <a href="{{ url('/') }}" class="min-w-0 shrink self-center rounded-rgControl px-1 py-1 text-[17px] font-extrabold tracking-tight text-rg-text transition-colors hover:text-rg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rg-accent focus-visible:ring-offset-2 focus-visible:ring-offset-rg-bg sm:px-2 sm:text-[22px]" data-testid="site-brand">
                         <x-brand-wordmark class="block truncate" />
                     </a>
 
-                    @if ($focused)
-                        <span class="ml-auto"></span>
-                    @else
                     <x-ui.search-form
                         :action="route('feed')"
                         :value="request('search')"
@@ -73,7 +77,6 @@
                     >
                         <x-ui.icon name="search" class="size-4" />
                     </button>
-                    @endif
 
                     @auth
                         <div
@@ -247,7 +250,6 @@
                 </div>
 
                 {{-- Mobile search row --}}
-                @unless ($focused)
                 <div
                     x-cloak
                     x-show="mobileSearchOpen"
@@ -267,7 +269,6 @@
                         class="flex items-center gap-2"
                     />
                 </div>
-                @endunless
 
                 @guest
                     {{-- Rendered once, and inside the header like the upload modal: the
@@ -277,7 +278,9 @@
                     <x-auth.modal />
                 @endguest
             </header>
+            @endif
 
+            @unless ($focused)
             {{-- Mobile navigation drawer --}}
             <div
                 x-cloak
@@ -355,11 +358,12 @@
                     @include('layouts.partials.app-sidebar-content')
                 </div>
             </div>
+            @endunless
 
             {{-- The feed in its split view draws a selected post itself (its detail column, and
                  its own overlay on a phone); every other page with post cards — a profile, the
                  saved posts — has only this one, whatever the view mode. --}}
-            @if($projectSettings->featureFlag('post_detail_overlay_mode', false) || ! request()->routeIs('feed'))
+            @if(! $focused && ($projectSettings->featureFlag('post_detail_overlay_mode', false) || ! request()->routeIs('feed')))
                 {{-- Global post detail overlay: shared across the feed, profile, and saved-posts
                      pages so clicking a post always opens the same sliding panel. The backdrop
                      has no Livewire-driven content, so plain window-event Alpine state is safe

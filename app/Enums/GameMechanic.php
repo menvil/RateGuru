@@ -24,6 +24,14 @@ enum GameMechanic: string
         };
     }
 
+    /** The admin kit icon a game of the mechanic is drawn with. */
+    public function icon(): string
+    {
+        return match ($this) {
+            self::Versus => 'columns-2',
+        };
+    }
+
     /** How many options each round of the mechanic has. */
     public function optionCount(): int
     {

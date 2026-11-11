@@ -39,8 +39,9 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
 
     Route::get('/u/{username}', ProfilePage::class)->name('profile.show');
 
-    // Growth → Games: a live game, a shared result, and a share on its way
-    // to a provider. None of them exists while Project settings has games off.
+    // Growth → Games: a live game, a shared result — a profile's, or a
+    // player's own — and a share on its way to a provider. None of them
+    // exists while Project settings has games off.
     Route::middleware(EnsureGamesAreEnabled::class)->group(function () {
         Route::get('/games/{slug}', PlayGame::class)->where('slug', '[a-z0-9-]+')->name('games.play');
         Route::get('/games/{slug}/v{version}/{profile}', GameResultController::class)
@@ -50,6 +51,14 @@ Route::middleware(RequireSignInWhileGuestViewingIsOff::class)->group(function ()
             ->where(['slug' => '[a-z0-9-]+', 'version' => '[0-9]+', 'profile' => '[a-z0-9-]+'])
             ->middleware('throttle:30,1')
             ->name('games.share');
+        // A player's own result, by the attempt that earned it: their name on the card.
+        Route::get('/games/{slug}/r/{attempt}', [GameResultController::class, 'player'])
+            ->where(['slug' => '[a-z0-9-]+', 'attempt' => '[0-9A-Za-z]{26}'])
+            ->name('games.player-result');
+        Route::get('/games/{slug}/r/{attempt}/share/{provider}', [ShareGameResultController::class, 'player'])
+            ->where(['slug' => '[a-z0-9-]+', 'attempt' => '[0-9A-Za-z]{26}'])
+            ->middleware('throttle:30,1')
+            ->name('games.player-share');
     });
 });
 

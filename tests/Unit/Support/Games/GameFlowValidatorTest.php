@@ -107,6 +107,18 @@ it('asks for the texts each step needs, as it is set', function () {
         ->toBe(['2: Missing settings: Title, Email field label, Submit button, Skip link label, Privacy notice, Consent label.']);
 });
 
+it('asks for the teaser only while it stands in for the player\'s numbers', function () {
+    $teaserless = function (bool $partial): FlowStepDraft {
+        $preview = GameFlowValidator::fresh(GameFlowStepType::ResultPreview, 'p');
+
+        return new FlowStepDraft($preview->key, $preview->type, $preview->audience, ['show_partial' => $partial], [...$preview->texts, 'body' => '']);
+    };
+
+    expect($teaserless(true)->missingTexts())->toBe([])
+        ->and($teaserless(false)->requiredTexts())->toBe(['title', 'body', 'button_label'])
+        ->and($teaserless(false)->missingTexts())->toBe(['Teaser message']);
+});
+
 it('never shows an email or sign-up step to signed-in players', function () {
     $steps = flowOf([GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Registration], ['full_result' => ['signup' => 'step']]);
     $registration = $steps[2];

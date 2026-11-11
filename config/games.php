@@ -9,10 +9,11 @@ return [
 
     // What a new content set asks of the crowd before a round scores by it:
     // the site votes each post needs, and the gap, in percentage points,
-    // between the two posts' upvote shares.
+    // between the two posts' upvote shares — none, so the larger share wins
+    // however small its lead, unless the administrator asks for one.
     'crowd' => [
         'min_votes' => 100,
-        'min_gap' => 5,
+        'min_gap' => 0,
     ],
 
     // The anonymous visitor's first-party cookie, used only to keep them on

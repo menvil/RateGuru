@@ -33,7 +33,6 @@ final readonly class GameVersionSnapshot
         public LocalizedText $description,
         public ?int $coverAssetId,
         public int $pointsPerRound,
-        public bool $showAgreement,
         public int $crowdMinVotes,
         public int $crowdMinGap,
         public array $rounds,
@@ -63,7 +62,6 @@ final readonly class GameVersionSnapshot
             description: LocalizedText::of($game['description'] ?? []),
             coverAssetId: isset($game['cover_asset_id']) ? (int) $game['cover_asset_id'] : null,
             pointsPerRound: (int) $scoring['points_per_round'],
-            showAgreement: (bool) $scoring['show_agreement'],
             crowdMinVotes: (int) $scoring['crowd_min_votes'],
             crowdMinGap: (int) $scoring['crowd_min_gap'],
             rounds: array_values(array_map(fn (array $round): SnapshotRound => SnapshotRound::fromArray($round), (array) $data['rounds'])),
@@ -90,7 +88,6 @@ final readonly class GameVersionSnapshot
             ],
             'scoring' => [
                 'points_per_round' => $this->pointsPerRound,
-                'show_agreement' => $this->showAgreement,
                 'crowd_min_votes' => $this->crowdMinVotes,
                 'crowd_min_gap' => $this->crowdMinGap,
             ],

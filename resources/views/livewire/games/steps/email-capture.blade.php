@@ -4,7 +4,7 @@
 --}}
 @php($required = (bool) ($data['settings']['required'] ?? false))
 <section class="rg-game__card" data-testid="game-step-email_capture">
-    <h1 class="rg-game__title">{{ $texts['title'] }}</h1>
+    <h1 class="rg-game__title rg-game__title--sm">{{ $texts['title'] }}</h1>
     @if (($texts['body'] ?? '') !== '')
         <p class="rg-game__lead">{{ $texts['body'] }}</p>
     @endif
@@ -25,7 +25,7 @@
         <button type="submit" class="rg-game__button rg-game__button--primary rg-game__button--wide" wire:loading.attr="disabled" data-testid="game-email-submit">{{ $texts['button_label'] }}</button>
     </form>
     @if ($required)
-        <p class="rg-game__note">{{ __('games.play.email_required') }}</p>
+        <p class="rg-game__note rg-game__note--center">{{ __('games.play.email_required') }}</p>
     @elseif (($texts['secondary_label'] ?? '') !== '')
         <button type="button" class="rg-game__link" wire:click="continue" data-testid="game-email-skip">{{ $texts['secondary_label'] }}</button>
     @endif

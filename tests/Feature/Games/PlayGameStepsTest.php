@@ -52,7 +52,7 @@ it('keeps an email with an unticked consent and moves on, sending nothing', func
         ->set('email', 'Player@Example.com')
         ->call('submitEmail')
         ->assertHasNoErrors()
-        ->assertSee('Your result');
+        ->assertSee('data-testid="game-step-full_result"', false);
 
     $capture = GameEmailCapture::query()->sole();
 
@@ -74,7 +74,7 @@ it('refuses an address that is not one', function () {
 
 it('lets an optional email be skipped, and a required one not', function () {
     emailFlowGame($this->draft);
-    playToEmail($this->draft['game']->slug)->call('continue')->assertSee('Your result');
+    playToEmail($this->draft['game']->slug)->call('continue')->assertSee('data-testid="game-step-full_result"', false);
 
     expect(GameEmailCapture::query()->exists())->toBeFalse();
 });
@@ -92,7 +92,8 @@ it('skips the email step for a signed-in player, and the sign-up step too', func
     Livewire::test(PlayGame::class, ['slug' => $this->draft['game']->slug])
         ->call('init')->call('continue')->call('choose', 0)->call('next')
         ->call('continue')
-        ->assertSee('Your result')
+        ->assertSee('data-testid="game-step-full_result"', false)
+        ->assertDontSee('data-testid="game-signup"', false)
         ->assertDontSee('Create free account');
 });
 

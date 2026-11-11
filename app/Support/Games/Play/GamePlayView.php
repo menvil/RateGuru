@@ -8,21 +8,27 @@ use App\Enums\GameFlowStepType;
 use App\Enums\GameRoundMode;
 use App\Enums\GameSignupMode;
 use App\Enums\GameStatus;
+use App\Enums\ImageOrientation;
 use App\Enums\PostImageContext;
 use App\Enums\ShareProvider;
+use App\Enums\SocialProvider;
 use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\MediaAsset;
+use App\Models\User;
 use App\Queries\Games\GameTrafficQuery;
+use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Games\Scoring\GameScorer;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
 use App\Support\Games\Snapshot\SnapshotRound;
 use App\Support\Games\Snapshot\SnapshotStep;
+use App\Support\Media\ImageOrientationClassifier;
 use App\Support\Media\PostImagePresenter;
 use App\Support\Media\ResponsiveImage;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Sharing\ShareMetadata;
 use App\Support\Sharing\ShareUrlBuilder;
+use App\Support\Urls\DisplayHost;
 
 /**
  * Everything the game page draws for the step on screen, in the visitor's
@@ -55,8 +61,10 @@ final readonly class GamePlayView
 
     /**
      * @param  array<string, mixed>|null  $reveal
+     * @param  ImageOrientation|null  $shape  every pair's frames in one shape, for a preview of how pictures of that shape sit
+     * @param  array<string, array{src: string, width: int|null, height: int|null}>  $pictures  pictures a preview shows in options' places, by "round index:option position" — chosen in the editor, not stored yet
      */
-    public static function of(Game $game, int $versionId, GameVersionSnapshot $snapshot, string $stepKey, ?GameAttempt $attempt, ?array $reveal, GameVisitor $visitor, string $locale, ?Game $nextGame, bool $hasNext, bool $preview = false): self
+    public static function of(Game $game, int $versionId, GameVersionSnapshot $snapshot, string $stepKey, ?GameAttempt $attempt, ?array $reveal, GameVisitor $visitor, string $locale, ?Game $nextGame, bool $hasNext, bool $preview = false, ?ImageOrientation $shape = null, array $pictures = []): self
     {
         $title = $snapshot->title->in($locale);
         $gameData = self::gameData($game, $versionId, $snapshot, $locale);
@@ -74,24 +82,49 @@ final readonly class GamePlayView
             ]);
         }
 
-        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $locale) : null;
+        $result = $attempt !== null && $attempt->status === GameAttemptStatus::Completed ? self::result($game, $versionId, $snapshot, $attempt, $visitor, $locale) : null;
 
         return new self('step', $title, [
             'game' => $gameData,
             'type' => $step->type->value,
             'texts' => self::texts($step, $locale, $result, $title),
             'settings' => $step->settings,
-            'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale) : null,
+            'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale, $shape, $pictures) : null,
             'result' => $result,
-            'signup' => $step->type === GameFlowStepType::FullResult && $visitor->isAnonymous()
-                ? (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline
-                : false,
+            'signup' => self::signup($game, $step, $visitor),
+            'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
             'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
             'canReplay' => $preview || $game->status === GameStatus::Live,
             'stepKey' => $step->key,
             'hasNext' => $hasNext,
         ]);
+    }
+
+    /**
+     * The sign-up set into a step for an anonymous visitor — the Registration
+     * step's own, or Full Result's while it asks for sign-up there: the page a
+     * registration comes back to, and the providers the site signs people up
+     * with right now.
+     *
+     * @return array{returnTo: string, providers: list<SocialProvider>}|null
+     */
+    private static function signup(Game $game, SnapshotStep $step, GameVisitor $visitor): ?array
+    {
+        $asks = match ($step->type) {
+            GameFlowStepType::Registration => true,
+            GameFlowStepType::FullResult => (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
+            default => false,
+        };
+
+        if (! $asks || ! $visitor->isAnonymous()) {
+            return null;
+        }
+
+        return [
+            'returnTo' => route('games.play', ['slug' => $game->slug], absolute: false),
+            'providers' => app(SocialProviderAvailability::class)->available(),
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -141,9 +174,10 @@ final readonly class GamePlayView
 
     /**
      * @param  array<string, mixed>|null  $reveal
+     * @param  array<string, array{src: string, width: int|null, height: int|null}>  $pictures
      * @return array<string, mixed>
      */
-    private static function round(GameVersionSnapshot $snapshot, ?GameAttempt $attempt, ?array $reveal, string $locale): array
+    private static function round(GameVersionSnapshot $snapshot, ?GameAttempt $attempt, ?array $reveal, string $locale, ?ImageOrientation $shape, array $pictures): array
     {
         $answers = $attempt === null ? collect() : $attempt->answers->keyBy('round_index');
         $index = $reveal !== null ? (int) $reveal['round'] : ($attempt === null ? 0 : $attempt->rounds_answered);
@@ -172,10 +206,13 @@ final readonly class GamePlayView
             'question' => $round?->question->in($locale) ?? '',
             'description' => $round?->description->in($locale) ?? '',
             'scored' => $round === null || $round->scored,
+            'shape' => ($shape ?? self::pairShape($round === null ? [] : array_map(fn ($option): ?ImageOrientation => self::pictureOrientation($pictures[$index.':'.$option->position] ?? null) ?? self::orientation($assets->get((int) $option->assetId)), $round->options)))->value,
             'options' => $round === null ? [] : array_map(fn ($option): array => [
                 'position' => $option->position,
                 'label' => $option->label->in($locale),
-                'image' => self::image($assets->get((int) $option->assetId), self::PAIR_SIZES),
+                'image' => isset($pictures[$index.':'.$option->position])
+                    ? new ResponsiveImage($pictures[$index.':'.$option->position]['src'], null, null, $pictures[$index.':'.$option->position]['width'], $pictures[$index.':'.$option->position]['height'])
+                    : self::image($assets->get((int) $option->assetId), self::PAIR_SIZES),
             ], $round->options),
             'preload' => $next === null ? [] : array_values(array_filter(array_map(fn ($option): ?string => self::image($assets->get((int) $option->assetId), self::PAIR_SIZES)?->src, $next->options))),
             'progress' => $progress,
@@ -223,7 +260,7 @@ final readonly class GamePlayView
     }
 
     /** @return array<string, mixed> */
-    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, string $locale): array
+    private static function result(Game $game, int $versionId, GameVersionSnapshot $snapshot, GameAttempt $attempt, GameVisitor $visitor, string $locale): array
     {
         $outcomes = $attempt->answers->sortBy('round_index')->pluck('outcome')->values()->all();
         $result = GameScorer::result($snapshot, $outcomes);
@@ -231,7 +268,16 @@ final readonly class GamePlayView
         $title = $snapshot->title->in($locale);
         $site = app(ProjectSettingsManager::class)->current()->siteName();
         $versionNumber = (int) $game->versions()->whereKey($versionId)->value('number');
-        $shareUrl = $profile !== null && $versionNumber > 0 ? route('games.result', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profile->key]) : route('games.play', ['slug' => $game->slug]);
+        // The player's own name on the card while they have an account: the
+        // attempt's, or in a preview the administrator's as a logged-in player.
+        $userId = $attempt->user_id ?? $visitor->userId;
+        $player = PlayerHandle::of($userId !== null ? User::query()->find($userId) : null);
+        $own = $player !== null && $attempt->exists && $profile !== null;
+        $shareUrl = match (true) {
+            $own => route('games.player-result', ['slug' => $game->slug, 'attempt' => $attempt->public_id]),
+            $profile !== null && $versionNumber > 0 => route('games.result', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profile->key]),
+            default => route('games.play', ['slug' => $game->slug]),
+        };
         $shareText = $profile !== null
             ? strtr($profile->shareText->in($locale) !== '' ? $profile->shareText->in($locale) : __('games.play.share_default'), ['{profile}' => $profile->name->in($locale), '{game}' => $title])
             : $title;
@@ -243,8 +289,6 @@ final readonly class GamePlayView
             'score' => (int) ($attempt->score ?? $result->score),
             'max' => (int) $attempt->max_score,
             'points' => $snapshot->pointsPerRound,
-            'agreement' => $result->agreement(),
-            'showAgreement' => $snapshot->showAgreement,
             'byCrowd' => $snapshot->scoresByCrowdOnly(),
             'profile' => $profile === null ? null : [
                 'key' => $profile->key,
@@ -255,14 +299,18 @@ final readonly class GamePlayView
             ],
             'share' => [
                 'url' => $shareUrl,
+                // What the card names after the score: the player, or the site.
+                'byline' => $player ?? DisplayHost::of($shareUrl),
                 'text' => $shareText,
-                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $shareUrl, $shareText, $title, $site),
+                'links' => self::shareLinks($game, $versionNumber, $profile?->key, $own ? $attempt->public_id : null, $shareUrl, $shareText, $title, $site),
             ],
+            // Signed up or in from this attempt: the name is on the card now.
+            'named' => $player !== null && $attempt->account_outcome !== null ? $player : null,
         ];
     }
 
     /** @return list<array{provider: string, label: string, url: string|null}> */
-    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, string $url, string $text, string $title, string $site): array
+    private static function shareLinks(Game $game, int $versionNumber, ?string $profileKey, ?string $attemptId, string $url, string $text, string $title, string $site): array
     {
         $links = [];
         $metadata = new ShareMetadata(title: $title, shareText: $text, description: $text, url: $url, imageUrl: null, siteName: $site);
@@ -275,13 +323,54 @@ final readonly class GamePlayView
             $links[] = [
                 'provider' => $provider->value,
                 'label' => __('games.play.share_'.$provider->value),
-                'url' => $provider->sharesThroughRedirect() && $profileKey !== null && $versionNumber > 0
-                    ? route('games.share', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profileKey, 'provider' => $provider->value])
-                    : app(ShareUrlBuilder::class)->build($provider, $metadata),
+                'url' => match (true) {
+                    ! $provider->sharesThroughRedirect() => app(ShareUrlBuilder::class)->build($provider, $metadata),
+                    $attemptId !== null => route('games.player-share', ['slug' => $game->slug, 'attempt' => $attemptId, 'provider' => $provider->value]),
+                    $profileKey !== null && $versionNumber > 0 => route('games.share', ['slug' => $game->slug, 'version' => $versionNumber, 'profile' => $profileKey, 'provider' => $provider->value]),
+                    default => app(ShareUrlBuilder::class)->build($provider, $metadata),
+                },
             ];
         }
 
         return $links;
+    }
+
+    /**
+     * A pair's frames: wide when both pictures are wide, upright when both are
+     * upright, square for a mixed pair or one without a picture.
+     *
+     * @param  list<ImageOrientation|null>  $orientations
+     */
+    private static function pairShape(array $orientations): ImageOrientation
+    {
+
+        foreach ([ImageOrientation::Landscape, ImageOrientation::Portrait] as $shape) {
+            if ($orientations !== [] && array_filter($orientations, fn (?ImageOrientation $orientation): bool => $orientation !== $shape) === []) {
+                return $shape;
+            }
+        }
+
+        return ImageOrientation::Square;
+    }
+
+    /** @param  array{src: string, width: int|null, height: int|null}|null  $picture */
+    private static function pictureOrientation(?array $picture): ?ImageOrientation
+    {
+        return $picture !== null && (int) $picture['width'] > 0 && (int) $picture['height'] > 0
+            ? app(ImageOrientationClassifier::class)->classify((int) $picture['width'], (int) $picture['height'])
+            : null;
+    }
+
+    private static function orientation(?MediaAsset $asset): ?ImageOrientation
+    {
+        if ($asset === null || $asset->trashed()) {
+            return null;
+        }
+
+        $width = (int) $asset->width;
+        $height = (int) $asset->height;
+
+        return $width > 0 && $height > 0 ? app(ImageOrientationClassifier::class)->classify($width, $height) : null;
     }
 
     private static function image(?MediaAsset $asset, string $sizes): ?ResponsiveImage

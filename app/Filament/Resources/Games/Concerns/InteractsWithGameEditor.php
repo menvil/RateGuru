@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Games\Concerns;
 
 use App\Actions\Games\ChangeGameStatusAction;
+use App\Data\Games\UnpublishedChanges;
 use App\Enums\GameStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\GameFormat;
@@ -10,6 +11,7 @@ use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\User;
 use App\Queries\Games\GameTrafficQuery;
+use Illuminate\Support\Arr;
 use Livewire\Attributes\Locked;
 
 /**
@@ -110,12 +112,15 @@ trait InteractsWithGameEditor
 
     /**
      * The header band's data: the game, its status, the moves its status menu
-     * offers — each with why it cannot be made now, if it cannot — and the tabs.
+     * offers — each with why it cannot be made now, if it cannot — the tabs,
+     * and, on a tab whose saved changes the players don't see yet, which
+     * versions they play instead and the Versions tab set to publish one that
+     * has them, taking over the newest one's traffic.
      *
      * @param  array<string, string|null>  $badges
      * @return array<string, mixed>
      */
-    protected function editorHeader(Game $game, string $tab, array $badges = []): array
+    protected function editorHeader(Game $game, string $tab, array $badges = [], ?UnpublishedChanges $unpublished = null): array
     {
         $hasTraffic = app(GameTrafficQuery::class)->hasPlayableTraffic((int) $game->id);
         $moves = [];
@@ -141,12 +146,19 @@ trait InteractsWithGameEditor
                 'internal' => $game->internal_name,
                 'slug' => $game->slug,
                 'mechanic' => $game->mechanic->label(),
+                'icon' => $game->mechanic->icon(),
                 'status' => GameFormat::status($game->status),
                 'published' => $game->hasBeenPublished(),
                 'url' => url('/games/'.$game->slug),
             ],
             'moves' => $moves,
             'tabs' => GameResource::editorTabs($game, $tab, $badges),
+            'unpublished' => $unpublished === null ? null : [
+                'versions' => Arr::join($unpublished->versions, ', ', ' and '),
+                'plural' => count($unpublished->versions) > 1,
+                'next' => 'V'.($game->last_version_number + 1),
+                'url' => GameResource::getUrl('versions', ['record' => $game, 'set' => $unpublished->setId, 'flow' => $unpublished->flowId, 'take_over' => $unpublished->takeOverId]),
+            ],
             'confirmingStatus' => $confirming === null ? null : [...GameFormat::statusChange($game->status, $confirming), 'subject' => $game->title],
         ];
     }

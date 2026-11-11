@@ -212,7 +212,6 @@ final class SaveContentSetAction
 
         $locked->forceFill([
             'points_per_round' => $draft->scoring['points_per_round'],
-            'show_agreement' => $draft->scoring['show_agreement'],
             'crowd_min_votes' => $draft->scoring['crowd_min_votes'],
             'crowd_min_gap' => $draft->scoring['crowd_min_gap'],
             'lock_version' => $locked->lock_version + 1,

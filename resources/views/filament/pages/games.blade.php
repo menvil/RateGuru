@@ -7,7 +7,7 @@
      * narrower than the grid, the card scrolls sideways and every column
      * stays (TBL-01).
      */
-    $columns = '--rg-admin-table-columns: minmax(240px, 1.8fr) minmax(150px, 1fr) 120px 84px 100px 96px 120px 150px; --rg-admin-table-min-width: 1100px';
+    $columns = '--rg-admin-table-columns: minmax(260px, 1.8fr) minmax(150px, 1fr) 120px 84px 100px 96px 120px 88px; --rg-admin-table-min-width: 1020px';
     $total = $paginator->total();
 @endphp
 
@@ -15,7 +15,7 @@
     <section class="rg-admin-page-header" aria-labelledby="rg-admin-games-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-games-title" class="rg-admin-page-header__title">Games</h1>
-            <p class="rg-admin-page-header__description">Create and run interactive games for acquisition and engagement.</p>
+            <p class="rg-admin-page-header__description">Run interactive games for acquisition and engagement.</p>
         </div>
         <dl class="rg-admin-stats">
             <div class="rg-admin-stat">
@@ -94,10 +94,7 @@
                 <x-admin.ui.pagination :paginator="$paginator" noun="games" :note="$sort === 'name' ? 'by name' : 'last updated first'" action="goToPage" label="Games pages" />
             @elseif ($empty && ! $filtered)
                 <x-admin.ui.empty-state icon="gamepad-2" title="No games yet">
-                    A game is a few rounds of choices with a result at the end. Create one, publish a version, then give it traffic.
-                    <x-slot:action>
-                        <x-admin.ui.button size="sm" variant="primary" icon="plus" :href="$createUrl">New game</x-admin.ui.button>
-                    </x-slot:action>
+                    A game is a few rounds of choices with a result at the end. Once one is added, it is listed here.
                 </x-admin.ui.empty-state>
             @else
                 <x-admin.ui.empty-state icon="search-x" title="No games match these filters">
@@ -111,8 +108,4 @@
             @endif
         </div>
     </div>
-
-    @if ($confirmation !== null)
-        @include('filament.pages.games.status-confirmation', ['confirmation' => $confirmation])
-    @endif
 </div>

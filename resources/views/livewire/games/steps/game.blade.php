@@ -1,9 +1,12 @@
 @php
     /*
      * The game: the pair on screen with its question, the picks made so far,
-     * and — once picked — the reveal: who picked what, what it earned, and the
-     * way on, by itself after the delay or by button. The pick is marked the
-     * moment it is made; the server judges it.
+     * and — once picked — the reveal: each picture's share of upvotes over it,
+     * the crowd's pick or the correct answer, the player's own pick, what it
+     * earned, and the way on, by itself after the delay or by button. The
+     * pair's frames follow its pictures — wide, upright or square — and a wide
+     * pair stacks on a phone. The pick is marked the moment it is made; the
+     * server judges it.
      */
     $round = $data['round'];
     $reveal = $round['reveal'];
@@ -31,7 +34,7 @@
         <p class="rg-game__lead">{{ $round['description'] }}</p>
     @endif
 
-    <div class="rg-game__pair">
+    <div class="rg-game__pair rg-game__pair--{{ $round['shape'] }}">
         @foreach ($round['options'] as $option)
             @php
                 $position = $option['position'];
@@ -41,7 +44,7 @@
             @endphp
             <button
                 type="button"
-                @class(['rg-game__option', 'rg-game__option--picked' => $picked, 'rg-game__option--answer' => $isAnswer, 'rg-game__option--dim' => $reveal !== null && ! $picked && ! $isAnswer])
+                @class(['rg-game__option', 'rg-game__option--picked' => $picked, 'rg-game__option--answer' => $isAnswer, 'rg-game__option--miss' => $picked && ! $isAnswer && $reveal['outcome'] === 'incorrect', 'rg-game__option--dim' => $reveal !== null && ! $picked && ! $isAnswer])
                 x-bind:class="{ 'rg-game__option--picked': picked === {{ $position }} }"
                 x-on:click="choose({{ $position }})"
                 @disabled($reveal !== null)
@@ -56,34 +59,42 @@
                 @if ($option['label'] !== '')
                     <span class="rg-game__label">{{ $option['label'] }}</span>
                 @endif
+                @if ($share !== null || $isAnswer)
+                    <span class="rg-game__overlay">
+                        @if ($share !== null)
+                            <span class="rg-game__overlay-share" aria-hidden="true">{{ rtrim(rtrim(number_format($share, 1), '0'), '.') }}%</span>
+                            <span class="sr-only">{{ __('games.play.upvoted', ['share' => rtrim(rtrim(number_format($share, 1), '0'), '.')]) }}</span>
+                        @endif
+                        @if ($isAnswer)
+                            <span class="rg-game__overlay-label">{{ $reveal['crowd'] ? __('games.play.crowd_pick') : __('games.play.correct_answer') }}</span>
+                        @endif
+                    </span>
+                @endif
                 @if ($picked)
                     <span class="rg-game__badge">{{ __('games.play.you_picked') }}</span>
-                @endif
-                @if ($isAnswer)
-                    <span class="rg-game__badge rg-game__badge--answer">{{ $reveal['crowd'] ? __('games.play.crowd_pick') : __('games.play.correct_answer') }}</span>
-                @endif
-                @if ($share !== null)
-                    <span class="rg-game__share">{{ __('games.play.upvoted', ['share' => rtrim(rtrim(number_format($share, 1), '0'), '.')]) }}</span>
                 @endif
             </button>
         @endforeach
     </div>
 
-    @if ($reveal !== null)
-        <div class="rg-game__verdict rg-game__verdict--{{ $reveal['outcome'] }}" role="status">
-            <p class="rg-game__verdict-title">{{ $reveal['verdict'] }}</p>
-            @if ($reveal['detail'] !== '')
-                <p class="rg-game__note">{{ $reveal['detail'] }}</p>
-            @endif
-            @if ($reveal['message'] !== '')
-                <p class="rg-game__note">{{ $reveal['message'] }}</p>
-            @endif
-        </div>
-        <button type="button" class="rg-game__button rg-game__button--primary rg-game__button--wide rg-game__button--timer" x-on:click="next()" data-testid="game-next">
-            <span class="rg-game__timer" x-bind:style="`width: ${progress}%`" aria-hidden="true"></span>
-            <span class="rg-game__button-text">{{ $reveal['last'] ? __('games.play.see_result') : __('games.play.next_pair') }} →</span>
-        </button>
-    @endif
+    {{-- Kept from the start, so the pictures already leave room for the verdict and the way on. --}}
+    <div class="rg-game__after">
+        @if ($reveal !== null)
+            <div class="rg-game__verdict rg-game__verdict--{{ $reveal['outcome'] }}" role="status">
+                <p class="rg-game__verdict-title">{{ $reveal['verdict'] }}</p>
+                @if ($reveal['detail'] !== '')
+                    <p class="rg-game__note">{{ $reveal['detail'] }}</p>
+                @endif
+                @if ($reveal['message'] !== '')
+                    <p class="rg-game__note rg-game__note--message" title="{{ $reveal['message'] }}">{{ $reveal['message'] }}</p>
+                @endif
+            </div>
+            <button type="button" class="rg-game__next" x-on:click="next()" data-testid="game-next">
+                <span class="rg-game__timer" x-bind:style="`width: ${progress}%`" aria-hidden="true"></span>
+                <span class="rg-game__button-text">{{ $reveal['last'] ? __('games.play.see_result') : __('games.play.next_pair') }} →</span>
+            </button>
+        @endif
+    </div>
 
     @foreach ($round['preload'] as $src)
         <link rel="prefetch" as="image" href="{{ $src }}">

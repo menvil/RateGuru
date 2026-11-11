@@ -21,14 +21,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $name
  * @property int $position
  * @property int $points_per_round
- * @property bool $show_agreement
  * @property int $crowd_min_votes
  * @property int $crowd_min_gap
  * @property CarbonImmutable|null $archived_at
  * @property int $lock_version
  * @property CarbonImmutable $updated_at
  */
-#[Fillable(['name', 'points_per_round', 'show_agreement', 'crowd_min_votes', 'crowd_min_gap'])]
+#[Fillable(['name', 'points_per_round', 'crowd_min_votes', 'crowd_min_gap'])]
 class GameContentSet extends Model
 {
     /** @use HasFactory<GameContentSetFactory> */
@@ -38,7 +37,6 @@ class GameContentSet extends Model
     protected $attributes = [
         'position' => 0,
         'points_per_round' => 1,
-        'show_agreement' => true,
         'crowd_min_votes' => 100,
         'crowd_min_gap' => 5,
         'lock_version' => 1,
@@ -51,7 +49,6 @@ class GameContentSet extends Model
             'game_id' => 'integer',
             'position' => 'integer',
             'points_per_round' => 'integer',
-            'show_agreement' => 'boolean',
             'crowd_min_votes' => 'integer',
             'crowd_min_gap' => 'integer',
             'archived_at' => 'immutable_datetime',

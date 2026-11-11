@@ -39,8 +39,8 @@ function metricsScope(GameVersion $version, GameAudience $audience = GameAudienc
     return new GameMetricsScope((int) $version->game_id, $audience, CarbonImmutable::parse('2026-11-01 00:00:00'), CarbonImmutable::parse('2026-11-09 00:00:00'), $versionId);
 }
 
-/** A `view` of the version by a guest (a hash) or a player (a user). */
-function metricsView(GameVersion $version, string|User $who, string $at = '2026-11-05 12:00:00', GameEventType $type = GameEventType::View, ?GameAttempt $attempt = null): void
+/** A `view` of the version by a guest (a hash) or a player (a user), or another event with its detail. */
+function metricsView(GameVersion $version, string|User $who, string $at = '2026-11-05 12:00:00', GameEventType $type = GameEventType::View, ?GameAttempt $attempt = null, ?string $provider = null): void
 {
     (new GameEvent)->forceFill([
         'game_id' => $version->game_id,
@@ -50,6 +50,7 @@ function metricsView(GameVersion $version, string|User $who, string $at = '2026-
         'user_id' => $who instanceof User ? $who->id : null,
         'visitor_hash' => $who instanceof User ? null : hash('sha256', $who),
         'type' => $type,
+        'provider' => $provider,
         'occurred_at' => $at,
     ])->save();
 }
@@ -110,7 +111,7 @@ it('counts each visitor once, in the window and the audience asked for', functio
         ->and(metricsQuery()->funnels(metricsScope($version, GameAudience::Authenticated))[0]->visitors)->toBe(1);
 });
 
-it('counts the attempts started in the window, however late they finished, and what they led to', function () {
+it('counts the attempts started in the window, however late they finished, what they led to, and the people behind them', function () {
     $version = liveGame(publishableGameDraft(rounds: 2));
     $newcomer = User::factory()->create();
     $returning = User::factory()->create();
@@ -121,7 +122,7 @@ it('counts the attempts started in the window, however late they finished, and w
     $registered = metricsAttempt($version, 'guest-b', attributes: [...metricsCompleted(), 'user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
     // The same new account from a second attempt is one account.
     metricsAttempt($version, 'guest-b', attributes: ['user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
-    metricsAttempt($version, 'guest-c', attributes: ['user_id' => $returning->id, 'account_outcome' => GameAccountOutcome::SignedIn]);
+    $signedIn = metricsAttempt($version, 'guest-c', attributes: ['user_id' => $returning->id, 'account_outcome' => GameAccountOutcome::SignedIn]);
     // Started before the window.
     metricsAttempt($version, 'guest-d', '2026-10-30 12:00:00', metricsCompleted());
 
@@ -129,6 +130,11 @@ it('counts the attempts started in the window, however late they finished, and w
     metricsView($version, 'guest-a', type: GameEventType::ShareClicked, attempt: $completed);
     metricsView($version, 'guest-a', type: GameEventType::ShareClicked, attempt: $completed);
     metricsView($version, 'guest-b', type: GameEventType::ShareClicked, attempt: $registered);
+    // Signing up begun: by email, then again; logging in, and Google too.
+    metricsView($version, 'guest-b', type: GameEventType::RegistrationCtaClicked, attempt: $registered, provider: 'email');
+    metricsView($version, 'guest-b', type: GameEventType::RegistrationCtaClicked, attempt: $registered, provider: 'email');
+    metricsView($version, 'guest-c', type: GameEventType::RegistrationCtaClicked, attempt: $signedIn, provider: 'login');
+    metricsView($version, 'guest-c', type: GameEventType::RegistrationCtaClicked, attempt: $signedIn, provider: 'google');
 
     expect(metricsQuery()->funnels(metricsScope($version))[0])->toEqual(new GameFunnel(
         visitors: 0,
@@ -139,7 +145,13 @@ it('counts the attempts started in the window, however late they finished, and w
         signedIn: 1,
         shared: 2,
         replayers: 2,
-    ));
+        starters: 3,
+        finishers: 2,
+        emailers: 1,
+        sharers: 2,
+        signUpStarters: 2,
+    ))
+        ->and(metricsQuery()->signUpMethods(metricsScope($version)))->toBe(['email' => 1, 'google' => 1, 'login' => 1]);
 });
 
 it('splits the figures by version, flow and content set, a person once in each', function () {

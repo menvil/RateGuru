@@ -15,22 +15,25 @@ beforeEach(function () {
     $this->actingAs(User::factory()->admin()->create());
 });
 
-it('lists the games with New game in the top bar', function () {
+it('lists the games, each with its mechanic’s icon, and offers no way to make one', function () {
     Game::factory()->create(['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste']);
 
     $this->get(GameResource::getUrl('index'))
         ->assertOk()
-        ->assertSee('Create and run interactive games')
+        ->assertSee('Run interactive games')
         ->assertSee('Trust Your Taste')
         ->assertSee('/games/trust-your-taste')
-        ->assertSee('New game')
-        ->assertSee('Not published yet');
+        ->assertSee('<span class="rg-admin-games__glyph" title="Versus">', false)
+        ->assertSee('Not published yet')
+        ->assertDontSee('New game')
+        ->assertDontSee('/admin/games/create');
 });
 
-it('says when there are no games yet, and how to start one', function () {
+it('says when there are no games yet', function () {
     $this->get(GameResource::getUrl('index'))
         ->assertOk()
-        ->assertSee('No games yet');
+        ->assertSee('No games yet')
+        ->assertDontSee('New game');
 });
 
 it('shows a game\'s newest version and whether it has traffic', function () {
@@ -55,27 +58,18 @@ it('narrows by status, keeping archived games out unless asked for', function ()
         ->assertSet('status', '');
 });
 
-it('archives a game from its row, asked first', function () {
-    $game = Game::factory()->create(['title' => 'To archive']);
+it('opens a game’s editor, preview, analytics and versions from its row menu, and moves no status there', function () {
+    $game = Game::factory()->create(['title' => 'Menu game']);
 
-    Livewire::test(ListGames::class)
-        ->call('askStatus', $game->id, 'archived')
-        ->assertSee('Archive this game?')
-        ->call('changeStatus')
-        ->assertDispatched('rg-admin-toast', message: 'To archive: Archived', tone: 'success');
+    $page = $this->get(GameResource::getUrl('index'))->assertOk();
 
-    expect($game->fresh()->status)->toBe(GameStatus::Archived);
-});
+    foreach (['edit', 'preview', 'analytics', 'versions'] as $tab) {
+        $page->assertSee('href="'.GameResource::getUrl($tab, ['record' => $game]).'"', false);
+    }
 
-it('says why a game cannot go live yet instead of making it live', function () {
-    $game = Game::factory()->create();
-
-    Livewire::test(ListGames::class)
-        ->call('askStatus', $game->id, 'live')
-        ->call('changeStatus')
-        ->assertDispatched('rg-admin-toast', message: 'Publish a version and give it a share in Traffic first.', tone: 'error');
-
-    expect($game->fresh()->status)->toBe(GameStatus::Draft);
+    // A game's status is changed in its editor's header band, asked first there.
+    $page->assertDontSee('askStatus', false);
+    expect(method_exists(ListGames::class, 'askStatus'))->toBeFalse();
 });
 
 it('lets nobody but an administrator who may manage games in', function () {

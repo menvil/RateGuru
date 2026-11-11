@@ -122,7 +122,6 @@ final class VersionSnapshotBuilder
             description: $text($game->description, $game->description_translations),
             coverAssetId: $game->cover_asset_id,
             pointsPerRound: $set->points_per_round,
-            showAgreement: $set->show_agreement,
             crowdMinVotes: $set->crowd_min_votes,
             crowdMinGap: $set->crowd_min_gap,
             rounds: $rounds,

@@ -34,7 +34,9 @@ use Illuminate\Support\Str;
  * the traffic the way an administrator would, with games switched on.
  *
  * Its rounds need posts the crowd has decided between: at least
- * games.crowd.min_votes votes each and a clear gap. The compact demo seed has
+ * games.crowd.min_votes votes each and different upvote shares, apart by
+ * games.crowd.min_gap points where that asks for a gap; each pair is the
+ * least and the best liked left, so it is never close. The compact demo seed has
  * too few votes for that, so run the large dataset first:
  *
  *     php artisan db:seed --class=DemoFillSeeder
@@ -187,7 +189,7 @@ class GamesDemoSeeder extends Seeder
         }
 
         return new ContentSetDraft(
-            scoring: ['points_per_round' => 1, 'show_agreement' => true, 'crowd_min_votes' => $minVotes, 'crowd_min_gap' => $minGap],
+            scoring: ['points_per_round' => 1, 'crowd_min_votes' => $minVotes, 'crowd_min_gap' => $minGap],
             rounds: $rounds,
             profiles: $profiles,
         );

@@ -6,11 +6,12 @@ use App\Actions\Games\SaveGameGeneralAction;
 use App\Actions\Games\SetGameCoverAction;
 use App\Data\Games\GameGeneralData;
 use App\Exceptions\Games\CannotManageGameException;
-use App\Filament\Resources\Games\Concerns\EditsGameGeneral;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
+use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Services\Media\Exceptions\ImageIngestException;
+use App\Support\Games\GameGeneralRules;
 use App\Support\Media\PostImagePresenter;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -23,14 +24,14 @@ use Livewire\WithFileUploads;
 
 /**
  * A game's General tab: its public title, internal name, slug and
- * description, saved from the top bar through SaveGameGeneralAction; and its
+ * description — a draft until Save in the top bar, which goes through
+ * SaveGameGeneralAction; the browser compares what is typed with `saved` to
+ * count what is unsaved, and Discard puts the saved values back — and its
  * cover, stored the moment it is chosen (SetGameCoverAction). Once a version
- * has been published the slug and the mechanic are locked: shared links
- * point at the slug.
+ * has been published the slug is locked: shared links point at it.
  */
 final class EditGameGeneral extends Page
 {
-    use EditsGameGeneral;
     use InteractsWithGameEditor;
     use WithFileUploads;
 
@@ -39,6 +40,17 @@ final class EditGameGeneral extends Page
     protected string $view = 'filament.pages.game-general';
 
     protected Width|string|null $maxContentWidth = 'rg-admin-main';
+
+    public string $gameTitle = '';
+
+    public string $internalName = '';
+
+    public string $gameSlug = '';
+
+    public string $gameDescription = '';
+
+    /** @var array<string, string> the values as saved, for the browser's count of what is unsaved */
+    public array $saved = [];
 
     /** The game's version as the form was drawn from it. */
     #[Locked]
@@ -166,18 +178,42 @@ final class EditGameGeneral extends Page
         $this->toast('Cover removed', 'info');
     }
 
-    protected function slugIsFree(): bool
-    {
-        return ! ($this->game()?->hasBeenPublished() ?? false);
-    }
-
     private function draw(Game $game): void
     {
-        $this->fillGeneral(GameGeneralData::of($game));
-        $this->slugTyped = true;
+        $data = GameGeneralData::of($game);
+        $this->gameTitle = $data->title;
+        $this->internalName = $data->internalName;
+        $this->gameSlug = $data->slug;
+        $this->gameDescription = $data->description;
+        $this->saved = [
+            'gameTitle' => $data->title,
+            'internalName' => $data->internalName,
+            'gameSlug' => $data->slug,
+            'gameDescription' => $data->description,
+        ];
         $this->lockVersion = $game->lock_version;
         $this->stale = false;
         $this->gone = false;
+    }
+
+    private function generalData(): GameGeneralData
+    {
+        return new GameGeneralData(
+            title: $this->gameTitle,
+            internalName: $this->internalName,
+            slug: $this->gameSlug,
+            description: $this->gameDescription,
+        );
+    }
+
+    /** @return array<string, int> */
+    private function generalLimits(): array
+    {
+        return [
+            'title' => GameGeneralRules::TITLE_MAX,
+            'description' => GameGeneralRules::DESCRIPTION_MAX,
+            'slug' => GameGeneralRules::SLUG_MAX,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -186,18 +222,22 @@ final class EditGameGeneral extends Page
         $game = $this->game();
 
         if ($game === null) {
-            return ['creating' => false, 'header' => null, 'limits' => $this->generalLimits(), 'slugLocked' => true, 'mechanic' => null, 'cover' => null, 'stale' => false, 'gone' => true];
+            return ['header' => null, 'limits' => $this->generalLimits(), 'slugLocked' => true, 'mechanic' => null, 'cover' => null, 'stale' => false, 'gone' => true];
         }
 
         $game->load('coverAsset.variants');
+        $asset = $game->coverAsset;
 
         return [
-            'creating' => false,
-            'header' => $this->editorHeader($game, 'general'),
+            'header' => $this->editorHeader($game, 'general', unpublished: app(GameUnpublishedChangesQuery::class)->forGame($game)),
             'limits' => $this->generalLimits(),
             'slugLocked' => $game->hasBeenPublished(),
             'mechanic' => $game->mechanic,
-            'cover' => $game->coverAsset !== null ? app(PostImagePresenter::class)->assetPreviewUrl($game->coverAsset) : null,
+            'cover' => $asset === null ? null : [
+                'url' => app(PostImagePresenter::class)->assetPreviewUrl($asset),
+                'name' => is_string($asset->original_filename) && $asset->original_filename !== '' ? $asset->original_filename : 'Cover image',
+                'size' => is_int($asset->width) && is_int($asset->height) ? $asset->width.' × '.$asset->height : null,
+            ],
             'stale' => $this->stale,
             'gone' => $this->gone,
         ];

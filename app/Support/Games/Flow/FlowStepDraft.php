@@ -41,26 +41,39 @@ final readonly class FlowStepDraft
     }
 
     /**
-     * The labels of the English texts the step needs and lacks. Some are
-     * needed only by how the step is set: a skip link only while the email
-     * is optional, a consent label only while the checkbox is shown.
+     * The columns of the English texts the step needs. Some are needed only
+     * by how the step is set: a skip link only while the email is optional,
+     * a consent label only while the checkbox is shown, a teaser only while
+     * it stands in for the player's numbers.
+     *
+     * @return list<string>
+     */
+    public function requiredTexts(): array
+    {
+        $required = [];
+
+        foreach ($this->type->texts() as $column => $text) {
+            if ($text['required']
+                || ($this->type === GameFlowStepType::EmailCapture && $column === 'secondary_label' && ! $this->setting('required'))
+                || ($this->type === GameFlowStepType::EmailCapture && $column === 'consent_label' && (bool) $this->setting('consent_enabled'))
+                || ($this->type === GameFlowStepType::ResultPreview && $column === 'body' && ! $this->setting('show_partial'))) {
+                $required[] = $column;
+            }
+        }
+
+        return $required;
+    }
+
+    /**
+     * The labels of the English texts the step needs and lacks.
      *
      * @return list<string>
      */
     public function missingTexts(): array
     {
-        $missing = [];
+        $texts = $this->type->texts();
+        $missing = array_filter($this->requiredTexts(), fn (string $column): bool => $this->text($column) === '');
 
-        foreach ($this->type->texts() as $column => $text) {
-            $required = $text['required']
-                || ($this->type === GameFlowStepType::EmailCapture && $column === 'secondary_label' && ! $this->setting('required'))
-                || ($this->type === GameFlowStepType::EmailCapture && $column === 'consent_label' && (bool) $this->setting('consent_enabled'));
-
-            if ($required && $this->text($column) === '') {
-                $missing[] = $text['label'];
-            }
-        }
-
-        return $missing;
+        return array_values(array_map(fn (string $column): string => $texts[$column]['label'], $missing));
     }
 }

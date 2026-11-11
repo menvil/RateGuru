@@ -141,8 +141,8 @@ enum GameFlowStepType: string
             self::Registration => [
                 'title' => ['label' => 'Title', 'required' => true],
                 'body' => ['label' => 'Description', 'required' => false],
-                'button_label' => ['label' => 'Button label', 'required' => true],
-                'secondary_label' => ['label' => 'Login alternative', 'required' => false],
+                'button_label' => ['label' => 'Create account button', 'required' => true],
+                'secondary_label' => ['label' => 'Log-in link', 'required' => false],
             ],
             self::Share => [
                 'title' => ['label' => 'Title', 'required' => false],
@@ -236,7 +236,6 @@ enum GameFlowStepType: string
             self::FullResult => [
                 'show_score' => true,
                 'show_profile' => true,
-                'show_agreement' => true,
                 'share_enabled' => true,
                 'signup' => GameSignupMode::Inline->value,
             ],

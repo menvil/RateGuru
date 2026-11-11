@@ -2,17 +2,14 @@
 
 namespace App\Filament\Resources\Games\Pages;
 
-use App\Actions\Games\ChangeGameStatusAction;
 use App\Enums\GameMechanic;
 use App\Enums\GameStatus;
-use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\GameFormat;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Support\ListPageNumber;
 use App\Filament\Support\ModerationListFormat;
 use App\Models\Game;
 use App\Models\GameVersion;
-use App\Models\User;
 use App\Queries\Games\GameMetricsQuery;
 use App\Queries\Games\GamesQuery;
 use App\Queries\Games\GameTrafficQuery;
@@ -20,15 +17,14 @@ use App\Support\Games\Analytics\GameFunnel;
 use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
-use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
 /**
  * Growth → Games in Admin v2: the library. Every game not archived, the most
  * recently saved first, searched and narrowed by status and mechanic on the
  * server, 25 at a time, each with its newest version and where its traffic
- * stands, its status — changed from the row's menu, asked first — and its
- * editor. Archived games are listed under their own status.
+ * stands, its status and the way into its editor. A game's status is changed
+ * in its editor. Archived games are listed under their own status.
  */
 final class ListGames extends Page
 {
@@ -55,13 +51,6 @@ final class ListGames extends Page
 
     #[Url(as: 'page', except: 1)]
     public mixed $pageNumber = 1;
-
-    /** The game and the status the confirmation on screen is about. */
-    #[Locked]
-    public ?int $confirmingId = null;
-
-    #[Locked]
-    public ?string $confirmingStatus = null;
 
     public static function canAccess(array $parameters = []): bool
     {
@@ -100,48 +89,6 @@ final class ListGames extends Page
         $this->pageNumber = 1;
     }
 
-    public function askStatus(mixed $id, mixed $target): void
-    {
-        $this->closeStatus();
-        $game = is_numeric($id) ? Game::query()->find((int) $id) : null;
-        $status = is_string($target) ? GameStatus::tryFrom($target) : null;
-
-        if ($game === null || $status === null) {
-            return;
-        }
-
-        $this->confirmingId = (int) $game->id;
-        $this->confirmingStatus = $status->value;
-    }
-
-    public function closeStatus(): void
-    {
-        $this->confirmingId = null;
-        $this->confirmingStatus = null;
-    }
-
-    public function changeStatus(): void
-    {
-        [$id, $target] = [$this->confirmingId, $this->confirmingStatus !== null ? GameStatus::tryFrom($this->confirmingStatus) : null];
-        $this->closeStatus();
-        $game = $id !== null ? Game::query()->find($id) : null;
-        $user = auth()->user();
-
-        if ($game === null || $target === null || ! $user instanceof User) {
-            return;
-        }
-
-        try {
-            app(ChangeGameStatusAction::class)->handle($user, $game, $target);
-        } catch (CannotManageGameException $exception) {
-            $this->dispatch('rg-admin-toast', message: $exception->getMessage(), tone: 'error');
-
-            return;
-        }
-
-        $this->dispatch('rg-admin-toast', message: "{$game->title}: {$target->label()}", tone: 'success');
-    }
-
     /** @return array<string, mixed> */
     protected function getViewData(): array
     {
@@ -156,8 +103,6 @@ final class ListGames extends Page
         }
 
         $stats = $query->stats();
-        $confirming = $this->confirmingId !== null ? Game::query()->find($this->confirmingId) : null;
-        $confirmingStatus = $this->confirmingStatus !== null ? GameStatus::tryFrom($this->confirmingStatus) : null;
 
         return [
             'stats' => array_map(fn (int $count): string => number_format($count), $stats),
@@ -179,10 +124,6 @@ final class ListGames extends Page
             'rows' => $this->rows($paginator->items()),
             'filtered' => trim((string) $this->q) !== '' || $status !== null || $mechanic !== null,
             'empty' => (int) $stats['total'] === 0 && $status === null,
-            'createUrl' => GameResource::getUrl('create'),
-            'confirmation' => $confirming !== null && $confirmingStatus !== null
-                ? [...GameFormat::statusChange($confirming->status, $confirmingStatus), 'subject' => $confirming->title]
-                : null,
         ];
     }
 
@@ -217,10 +158,15 @@ final class ListGames extends Page
             'internal' => $game->internal_name,
             'slug' => $game->slug,
             'editUrl' => GameResource::getUrl('edit', ['record' => $game]),
+            'links' => [
+                ['label' => 'Edit', 'icon' => 'pencil', 'url' => GameResource::getUrl('edit', ['record' => $game])],
+                ['label' => 'Preview', 'icon' => 'play', 'url' => GameResource::getUrl('preview', ['record' => $game])],
+                ['label' => 'Analytics', 'icon' => 'chart-no-axes-column', 'url' => GameResource::getUrl('analytics', ['record' => $game])],
+                ['label' => 'Versions', 'icon' => 'git-branch', 'url' => GameResource::getUrl('versions', ['record' => $game])],
+            ],
             'mechanic' => $game->mechanic->label(),
+            'icon' => $game->mechanic->icon(),
             'status' => GameFormat::status($game->status),
-            'statusValue' => $game->status->value,
-            'published' => $game->hasBeenPublished(),
             'version' => $latest === null ? null : [
                 'label' => $latest->label(),
                 'published' => $latest->published_at->format('d M Y'),

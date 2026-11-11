@@ -1,7 +1,7 @@
 @php
     /*
-     * The set's Results: how its rounds score — points per match, whether the
-     * agreement percentage is shown, and how sure the crowd must be — and its
+     * The set's Results: how its rounds score — points per match and how sure
+     * the crowd must be — and its
      * result profiles, each the numbers of matches it stands for, with what
      * keeps them from covering every result exactly once.
      */
@@ -23,9 +23,8 @@
                 <div class="rg-admin-detail-row"><dt class="rg-admin-detail-row__label">Maximum score</dt><dd class="rg-admin-detail-row__value">{{ $scored * $points }} ({{ $scored }} × {{ $points }} {{ \Illuminate\Support\Str::plural('point', $points) }})</dd></div>
             </dl>
             <x-admin.ui.number-stepper label="Points per match" id="rg-admin-set-points" :value="$scoring['points_per_round']" :min="1" :max="10" :error="$errors->first('scoring.points_per_round') ?: null" wire:model.live="scoring.points_per_round" />
-            <x-admin.ui.switch label="Show agreement percentage" id="rg-admin-set-agreement" :checked="(bool) $scoring['show_agreement']" on-hint="The result card shows how often the player matched." off-hint="The result card shows the score only." wire:model.live="scoring.show_agreement" />
             <x-admin.ui.number-stepper label="Site votes each post needs" id="rg-admin-set-min-votes" :value="$scoring['crowd_min_votes']" :min="1" :max="1000000" hint="A crowd round scores only when both posts have at least this many up and down votes on the site." :error="$errors->first('scoring.crowd_min_votes') ?: null" wire:model.live.debounce.400ms="scoring.crowd_min_votes" />
-            <x-admin.ui.number-stepper label="Gap the crowd pick needs" id="rg-admin-set-min-gap" :value="$scoring['crowd_min_gap']" :min="0" :max="50" unit="points" hint="Posts whose upvote shares differ by less are too close to call. It is a product rule, not a statistical test; 0 turns it off." :error="$errors->first('scoring.crowd_min_gap') ?: null" wire:model.live.debounce.400ms="scoring.crowd_min_gap" />
+            <x-admin.ui.number-stepper label="Gap the crowd pick needs" id="rg-admin-set-min-gap" :value="$scoring['crowd_min_gap']" :min="0" :max="50" unit="points" hint="Posts whose upvote shares differ by less are too close to call: a product rule, not a statistical test. At 0 the larger share wins however small its lead; only a tie has no pick." :error="$errors->first('scoring.crowd_min_gap') ?: null" wire:model.live.debounce.400ms="scoring.crowd_min_gap" />
         </div>
     </x-admin.ui.card>
 

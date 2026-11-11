@@ -10,9 +10,10 @@ use Illuminate\Support\Facades\RateLimiter;
 use InvalidArgumentException;
 
 /**
- * Records what a visitor did that changes nothing else: a share clicked, the
- * registration invitation clicked, the game left by its exit. A burst of the
- * same from one visitor counts once a moment.
+ * Records what a visitor did that changes nothing else: a share clicked, by
+ * where to; signing up begun, by how — an email, a provider, the site's
+ * sign-up or log-in dialog; the game left by its exit. A burst of the same
+ * from one visitor counts once a moment.
  */
 final class RecordGameInteractionAction
 {
@@ -33,7 +34,7 @@ final class RecordGameInteractionAction
         }
 
         $this->events->record($type, (int) $game->id, $visitor, versionId: $versionId, attempt: $attempt, detail: [
-            'provider' => $type === GameEventType::ShareClicked ? $detail : null,
+            'provider' => in_array($type, [GameEventType::ShareClicked, GameEventType::RegistrationCtaClicked], true) ? $detail : null,
             'step_type' => $type === GameEventType::Exit ? $detail : null,
         ]);
     }

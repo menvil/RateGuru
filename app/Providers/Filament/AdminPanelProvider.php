@@ -7,12 +7,9 @@ use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Categories\Pages\ManageCategories;
-use App\Filament\Resources\Games\GameResource;
-use App\Filament\Resources\Games\Pages\CreateGame;
 use App\Filament\Resources\Games\Pages\EditGameContent;
 use App\Filament\Resources\Games\Pages\EditGameFlow;
 use App\Filament\Resources\Games\Pages\EditGameGeneral;
-use App\Filament\Resources\Games\Pages\ListGames;
 use App\Filament\Resources\Personas\Pages\ListPersonas;
 use App\Filament\Resources\Personas\PersonaResource;
 use App\Filament\Resources\Posts\Pages\ListPosts;
@@ -130,16 +127,6 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::editorActions('Save draft', null, 'discard-studio-plan', 'save-studio-plan'),
                 scopes: EditStudioPlan::class,
-            )
-            ->renderHook(
-                PanelsRenderHook::TOPBAR_END,
-                fn (): string => GameResource::canCreate() ? view('filament.pages.games.topbar')->render() : '',
-                scopes: ListGames::class,
-            )
-            ->renderHook(
-                PanelsRenderHook::TOPBAR_END,
-                fn (): string => self::editorActions('Create game', null, 'discard-game-general', 'save-game-general'),
-                scopes: CreateGame::class,
             )
             ->renderHook(
                 PanelsRenderHook::TOPBAR_END,

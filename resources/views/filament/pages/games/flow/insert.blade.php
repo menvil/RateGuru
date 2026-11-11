@@ -1,16 +1,22 @@
-{{-- The + between two steps, and the steps that fit there once it is open. --}}
-<div class="rg-admin-games__insert">
-    @if ($chooser['open'])
-        <div class="rg-admin-games__insert-panel">
-            <span class="rg-admin-games__note">{{ $chooser['types'] === [] ? 'No step fits between these two.' : 'Steps that fit here' }}</span>
-            <div class="rg-admin-games__set-tools">
-                @foreach ($chooser['types'] as $type)
-                    <x-admin.ui.button size="sm" :icon="$type['icon']" wire:click="insertStep('{{ $type['type'] }}', {{ $position }})">{{ $type['label'] }}</x-admin.ui.button>
-                @endforeach
-                <x-admin.ui.button size="sm" variant="ghost" wire:click="closeInsert">Close</x-admin.ui.button>
-            </div>
+{{--
+    The line between two steps, with its + in the middle; once open, the steps
+    that fit there beside it, or why none does.
+--}}
+<li class="rg-admin-games__connector" aria-label="Between steps {{ $position }} and {{ $position + 1 }}">
+    <span class="rg-admin-games__connector-line" aria-hidden="true"></span>
+    <button type="button" @class(['rg-admin-games__connector-add', 'rg-admin-games__connector-add--open' => $open]) wire:click="{{ $open ? 'closeInsert' : 'openInsert('.$position.')' }}" aria-expanded="{{ $open ? 'true' : 'false' }}" title="Add a step here" aria-label="Add a step here">
+        <x-admin.ui.icon name="plus" :size="14" />
+    </button>
+    <span class="rg-admin-games__connector-line" aria-hidden="true"></span>
+    @if ($open)
+        <div class="rg-admin-games__connector-panel" x-data x-on:click.outside="$wire.closeInsert()">
+            <p class="rg-admin-games__note rg-admin-games__connector-title">{{ $types === [] ? 'No step fits between these two.' : 'Steps that fit here' }}</p>
+            @foreach ($types as $type)
+                <button type="button" class="rg-admin-games__connector-option" wire:click="insertStep('{{ $type['type'] }}', {{ $position }})">
+                    <x-admin.ui.icon :name="$type['icon']" :size="15" />
+                    {{ $type['label'] }}
+                </button>
+            @endforeach
         </div>
-    @else
-        <x-admin.ui.icon-button icon="plus" label="Add a step here" variant="ghost" size="sm" wire:click="openInsert({{ $position }})" />
     @endif
-</div>
+</li>

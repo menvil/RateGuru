@@ -48,7 +48,6 @@ final class ContentSetDraftRules
 
         Validator::make($data, [
             'scoring.points_per_round' => ['required', 'integer', 'between:1,10'],
-            'scoring.show_agreement' => ['required', 'boolean'],
             'scoring.crowd_min_votes' => ['required', 'integer', 'between:1,1000000'],
             'scoring.crowd_min_gap' => ['required', 'integer', 'between:0,50'],
             'rounds' => ['array', 'max:'.self::MOST_ROUNDS],
@@ -86,7 +85,6 @@ final class ContentSetDraftRules
         return new ContentSetDraft(
             scoring: [
                 'points_per_round' => (int) $data['scoring']['points_per_round'],
-                'show_agreement' => (bool) $data['scoring']['show_agreement'],
                 'crowd_min_votes' => (int) $data['scoring']['crowd_min_votes'],
                 'crowd_min_gap' => (int) $data['scoring']['crowd_min_gap'],
             ],
