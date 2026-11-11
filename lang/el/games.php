@@ -6,7 +6,6 @@ return [
         'by_site' => 'Ένα παιχνίδι του :site',
         'pairs_meta' => ':count ζευγάρια · περίπου ένα λεπτό',
         'pair_of' => 'Ζευγάρι :current από :total',
-        'progress_label' => 'Οι επιλογές σας μέχρι τώρα',
         'pick_option' => 'Επιλέξτε το :letter',
         'you_picked' => 'Η επιλογή σας',
         'crowd_pick' => 'Η επιλογή του κοινού',

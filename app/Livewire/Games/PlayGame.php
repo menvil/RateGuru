@@ -140,6 +140,11 @@ final class PlayGame extends Component
     /** On from the step on screen: before the game by the flow alone, after it through the attempt. */
     public function continue(): void
     {
+        // The game is left only by its last reveal (next()), never stepped past.
+        if ($this->currentType() === GameFlowStepType::Game) {
+            return;
+        }
+
         $visitor = $this->visitor();
         $attempt = $this->attempt();
 
@@ -163,7 +168,11 @@ final class PlayGame extends Component
         $this->stepKey = (string) $next?->key;
     }
 
-    public function choose(mixed $position): void
+    /**
+     * A pick, for the round on screen as the page sends it along. A page that
+     * sends no round is taken to show the round the attempt stands on.
+     */
+    public function choose(mixed $position, mixed $round = null): void
     {
         if (! is_numeric($position) || $this->currentType() !== GameFlowStepType::Game || $this->reveal !== null) {
             return;
@@ -173,11 +182,24 @@ final class PlayGame extends Component
         // an attempt this visitor cannot go on with is never replaced unseen.
         $attempt = $this->attemptId === null ? $this->startAttempt(false) : $this->attempt();
 
-        if ($attempt === null || $attempt->status !== GameAttemptStatus::Started) {
+        if ($attempt === null) {
+            return;
+        }
+
+        // Another tab finished the game meanwhile: on to where the attempt stands.
+        if ($attempt->status !== GameAttemptStatus::Started) {
+            $this->stepKey = (string) $attempt->current_step_key;
+
             return;
         }
 
         $roundIndex = $attempt->rounds_answered;
+
+        // A tab still showing a round another tab already answered answers
+        // nothing; the page draws the round the attempt stands on instead.
+        if ($round !== null && (! is_numeric($round) || (int) $round !== $roundIndex)) {
+            return;
+        }
 
         try {
             $answer = app(RecordGameAnswerAction::class)->handle($attempt, $this->visitor(), $roundIndex, (int) $position);
@@ -294,7 +316,8 @@ final class PlayGame extends Component
         $next = $to === 'next' ? $this->nextGame() : null;
 
         if ($game !== null) {
-            app(RecordGameInteractionAction::class)->handle(GameEventType::Exit, $game, $this->visitor(), $this->attempt(), $this->versionId, $to === 'next' ? 'next_game' : 'feed');
+            // Where the visitor is actually sent: the feed, when the next game is no longer there for them.
+            app(RecordGameInteractionAction::class)->handle(GameEventType::Exit, $game, $this->visitor(), $this->attempt(), $this->versionId, $next !== null ? 'next_game' : 'feed');
         }
 
         $this->redirect($next !== null ? route('games.play', ['slug' => $next->slug]) : route('feed'));
@@ -428,13 +451,7 @@ final class PlayGame extends Component
             return null;
         }
 
-        foreach ($this->snapshot()->steps as $step) {
-            if ($step->type === GameFlowStepType::NextGame && is_numeric($step->setting('next_game_id'))) {
-                return Game::query()->whereKey((int) $step->setting('next_game_id'))->where('status', GameStatus::Live)->first();
-            }
-        }
-
-        return null;
+        return app(GameFlowVisitorQuery::class)->nextGame($this->snapshot(), $this->visitor()->audience);
     }
 
     private function snapshot(): GameVersionSnapshot

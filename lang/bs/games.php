@@ -6,7 +6,6 @@ return [
         'by_site' => 'Igra sa stranice :site',
         'pairs_meta' => 'Parova: :count · oko jedne minute',
         'pair_of' => 'Par :current od :total',
-        'progress_label' => 'Tvoji dosadašnji izbori',
         'pick_option' => 'Odaberi opciju :letter',
         'you_picked' => 'Tvoj izbor',
         'crowd_pick' => 'Izbor publike',

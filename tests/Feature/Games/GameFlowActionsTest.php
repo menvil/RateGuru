@@ -82,6 +82,27 @@ it('makes a flow from a template or as a copy', function () {
         ->and($copy->steps()->count())->toBe(3);
 });
 
+it('renames or restores a flow at the version its editor was drawn from, and refuses either over a newer save', function () {
+    $draft = publishableGameDraft(1);
+    $flow = $draft['flow'];
+    $admin = $draft['admin'];
+
+    app(ChangeGameFlowAction::class)->rename($admin, $flow, 'Renamed', 1);
+    $flow->forceFill(['archived_at' => now()])->save();
+
+    expect(fn () => app(ChangeGameFlowAction::class)->rename($admin, $flow, 'Again', 1))
+        ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());
+    expect(fn () => app(ChangeGameFlowAction::class)->restore($admin, $flow, 1))
+        ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());
+    expect($flow->fresh()->name)->toBe('Renamed')
+        ->and($flow->fresh()->isArchived())->toBeTrue();
+
+    app(ChangeGameFlowAction::class)->restore($admin, $flow, 2);
+
+    expect($flow->fresh()->isArchived())->toBeFalse()
+        ->and($flow->fresh()->lock_version)->toBe(3);
+});
+
 it('archives only while another flow remains, and deletes only a flow no version used', function () {
     $draft = publishableGameDraft(1);
     $admin = $draft['admin'];

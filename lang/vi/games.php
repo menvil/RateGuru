@@ -6,7 +6,6 @@ return [
         'by_site' => 'Một trò chơi của :site',
         'pairs_meta' => ':count cặp · khoảng một phút',
         'pair_of' => 'Cặp :current trên :total',
-        'progress_label' => 'Các lựa chọn của bạn đến lúc này',
         'pick_option' => 'Chọn phương án :letter',
         'you_picked' => 'Bạn',
         'crowd_pick' => 'Lựa chọn của số đông',

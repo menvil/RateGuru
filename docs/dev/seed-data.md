@@ -61,10 +61,11 @@ php artisan db:seed --class=GamesDemoSeeder
 ```
 
 `GamesDemoSeeder` builds "Trust Your Taste" the way an administrator would:
-five crowd rounds from published posts with at least 100 votes and a clear gap,
-the suggested results, the Result First flow; it publishes V1, gives it all the
-traffic of both audiences, makes the game live and switches games on in Project
-settings. Play it at `/games/trust-your-taste`.
+five crowd rounds, each the least liked against the best liked of the published
+posts left with at least 10 votes, the suggested results, the Result First
+flow; it publishes V1, gives it all the traffic of both audiences, makes the
+game live and switches games on in Project settings — creating the settings
+row from the defaults if there is none. Play it at `/games/trust-your-taste`.
 
 It runs once: when the game exists it changes nothing, and without enough
 decided posts it makes nothing and says why. It is not called by

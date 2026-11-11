@@ -73,7 +73,10 @@ final class ChangeGameStatusAction
             return $from;
         });
 
-        $this->logger->info('game.status.changed', ['game_id' => $game->id, 'admin_id' => $admin->id, 'from' => $from->value, 'to' => $target->value]);
+        // A move to where the game already stands changed nothing, so it is no change to record.
+        if ($from !== $target) {
+            $this->logger->info('game.status.changed', ['game_id' => $game->id, 'admin_id' => $admin->id, 'from' => $from->value, 'to' => $target->value]);
+        }
     }
 
     private static function refusal(GameStatus $from, GameStatus $target): string
@@ -81,7 +84,9 @@ final class ChangeGameStatusAction
         return match ($target) {
             GameStatus::Paused => 'Only a live game can be paused.',
             GameStatus::Draft => 'A game that has been published goes back to Paused, never to Draft.',
-            default => "A {$from->label()} game can’t become {$target->label()}.",
+            // Only an archived game is refused going live, and it comes back by Restore.
+            GameStatus::Live => "A game that is {$from->label()} can’t go live. Restore it first.",
+            default => "A game that is {$from->label()} can’t become {$target->label()}.",
         };
     }
 }

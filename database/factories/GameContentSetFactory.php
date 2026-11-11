@@ -19,7 +19,7 @@ class GameContentSetFactory extends Factory
             'name' => 'Standard',
             'position' => 0,
             'points_per_round' => 1,
-            'crowd_min_votes' => 100,
+            'crowd_min_votes' => 10,
             'crowd_min_gap' => 0,
         ];
     }

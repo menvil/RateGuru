@@ -6,7 +6,6 @@ return [
         'by_site' => 'Hra od :site',
         'pairs_meta' => 'Počet dvojíc: :count · asi minúta',
         'pair_of' => 'Dvojica :current z :total',
-        'progress_label' => 'Tvoje doterajšie voľby',
         'pick_option' => 'Vybrať možnosť :letter',
         'you_picked' => 'Ty',
         'crowd_pick' => 'Voľba väčšiny',

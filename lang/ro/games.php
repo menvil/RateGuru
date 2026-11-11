@@ -6,7 +6,6 @@ return [
         'by_site' => 'Un joc de la :site',
         'pairs_meta' => 'Perechi: :count · aproximativ un minut',
         'pair_of' => 'Perechea :current din :total',
-        'progress_label' => 'Alegerile tale de până acum',
         'pick_option' => 'Alege opțiunea :letter',
         'you_picked' => 'Tu',
         'crowd_pick' => 'Alegerea majorității',

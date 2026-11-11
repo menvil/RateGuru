@@ -6,7 +6,6 @@ return [
         'by_site' => 'Гра від :site',
         'pairs_meta' => ':count пар · близько хвилини',
         'pair_of' => 'Пара :current з :total',
-        'progress_label' => 'Ваш вибір на цей момент',
         'pick_option' => 'Вибрати варіант :letter',
         'you_picked' => 'Ви',
         'crowd_pick' => 'Вибір більшості',

@@ -6,7 +6,6 @@ return [
         'by_site' => 'Mängu pakub :site',
         'pairs_meta' => ':count paari · umbes minut',
         'pair_of' => 'Paar :current/:total',
-        'progress_label' => 'Sinu senised valikud',
         'pick_option' => 'Vali variant :letter',
         'you_picked' => 'Sinu valik',
         'crowd_pick' => 'Rahva valik',

@@ -6,7 +6,6 @@ return [
         'by_site' => 'Žaidimą pateikia :site',
         'pairs_meta' => 'Porų: :count · apie minutę',
         'pair_of' => 'Pora :current iš :total',
-        'progress_label' => 'Jūsų pasirinkimai iki šiol',
         'pick_option' => 'Pasirinkti :letter variantą',
         'you_picked' => 'Jūs',
         'crowd_pick' => 'Daugumos pasirinkimas',

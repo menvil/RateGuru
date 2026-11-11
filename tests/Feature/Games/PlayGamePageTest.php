@@ -53,6 +53,7 @@ it('opens a live game at its address, and nothing while games are off or the gam
 
 it('describes the game when its link is shared, with the site’s own picture until the game has a cover', function () {
     $game = $this->draft['game'];
+    $postPictures = storeGamePostPictures();
     $page = $this->get('/games/'.$this->slug)->assertOk();
 
     $page->assertSee('<meta property="og:title" content="'.e($game->title).'">', false)
@@ -61,8 +62,8 @@ it('describes the game when its link is shared, with the site’s own picture un
         ->assertSee('<meta property="og:image" content="'.asset(config('share.open_graph.fallback_path')).'">', false);
 
     // Never a picture of a post the game shows.
-    foreach ($this->version->read()->postIds() as $postId) {
-        $page->assertDontSee('posts/'.$postId.'/', false);
+    foreach ($postPictures as $path) {
+        $page->assertDontSee($path, false);
     }
 });
 
@@ -100,11 +101,65 @@ it('lets a guest play to the result, scored on the server', function () {
 });
 
 it('records a pick once, however often it is sent', function () {
-    $page = guestGame($this->slug)->call('init')->call('continue')->call('choose', 0);
-    $page->set('reveal', null);
+    guestGame($this->slug)->call('init')->call('continue')->call('choose', 0)->call('choose', 0)->call('choose', 1);
 
-    expect(GameAnswer::query()->count())->toBe(1);
+    expect(GameAnswer::query()->count())->toBe(1)
+        ->and(GameAttempt::query()->sole()->rounds_answered)->toBe(1);
+});
+
+it('keeps the reveal out of the browser’s hands', function () {
+    guestGame($this->slug)->call('init')->call('continue')->call('choose', 0)->set('reveal', null);
 })->throws(CannotUpdateLockedPropertyException::class);
+
+it('answers only the round on screen, so a tab left behind answers none it never saw', function () {
+    $page = guestGame($this->slug)->call('init')->call('continue');
+    $stale = guestGame($this->slug)->assertSee('Pair 1 of 2');
+
+    $page->call('choose', 0, 0)->call('next')->assertSee('Pair 2 of 2');
+    $stale->call('choose', 1, 0)->assertSet('reveal', null)->assertSee('Pair 2 of 2');
+
+    expect(GameAnswer::query()->count())->toBe(1)
+        ->and(GameAttempt::query()->sole()->rounds_answered)->toBe(1);
+
+    // Once another tab has finished the game, a pick goes on to where the attempt stands.
+    $page->call('choose', 0, 1)->call('next')->assertSee('data-testid="game-step-full_result"', false);
+    $stale->call('choose', 1, 1)->assertSee('data-testid="game-step-full_result"', false);
+
+    expect(GameAnswer::query()->count())->toBe(2);
+});
+
+it('sends the round on screen with a pick, and leaves the round open to another tap when no reveal comes back', function () {
+    guestGame($this->slug)->call('init')->call('continue')->assertSeeHtml('x-data="rgGameRound({ round: 0, ');
+
+    expect((string) file_get_contents(resource_path('js/games.js')))
+        ->toContain('wire.choose(position, round).then(reopen, reopen);')
+        ->toMatch('/if \(wire\.reveal === null\) \{\s+this\.picked = null;/');
+});
+
+it('never steps past the game but by its last reveal', function () {
+    $page = guestGame($this->slug)->call('init')->call('continue');
+    $gameStep = $page->get('stepKey');
+
+    $page->call('continue')->assertSet('stepKey', $gameStep)->assertSee('Pair 1 of 2');
+    $page->call('choose', 0)->call('continue')->assertSet('stepKey', $gameStep);
+
+    expect(GameAttempt::query()->sole()->current_step_key)->toBe($gameStep);
+});
+
+it('describes a revealed picture by what the reveal says of it, read after its name', function () {
+    $dom = livewireDom(guestGame($this->slug)->call('init')->call('continue')->call('choose', 0));
+    $description = fn (int $position): string => collect(explode(' ', (string) $dom->query('//button[@data-testid="game-option-'.$position.'"]')->item(0)?->getAttribute('aria-describedby')))
+        ->map(fn (string $id): string => $id === '' ? '' : trim((string) $dom->query('//*[@id="'.$id.'"]')->item(0)?->textContent))
+        ->implode(' ');
+
+    expect($description(0))->toContain('90% upvoted it')->toContain('Crowd’s pick')->toContain('You')
+        ->and($description(1))->toContain('60% upvoted it')->not->toContain('You');
+});
+
+it('keeps the progress dots from the screen reader, which hears the pair’s number instead', function () {
+    expect(livewireFragment(guestGame($this->slug)->call('init')->call('continue'), '//ol'))
+        ->toStartWith('<ol class="rg-game__dots" aria-hidden="true">');
+});
 
 it('resumes an attempt where it stands after a refresh', function () {
     guestGame($this->slug)->call('init')->call('continue')->call('choose', 0)->call('next');
@@ -139,7 +194,8 @@ it('lets a started attempt finish while the game is paused, and starts none', fu
 
     // Another browser: another session, another cookie.
     session()->flush();
-    guestGame($this->slug, 'othertokenothertokenothertokenothertoken')->assertSee('This game is taking a break.');
+    guestGame($this->slug, 'othertokenothertokenothertokenothertoken')
+        ->assertSeeHtml('<h1 class="rg-game__title rg-game__title--sm">This game is taking a break. Come back soon.</h1>');
 });
 
 it('stops showing a version once a post it shows leaves the site', function () {
@@ -159,6 +215,23 @@ it('starts another attempt on Play again', function () {
 
     expect(GameAttempt::query()->count())->toBe(2)
         ->and(GameEvent::query()->where('type', GameEventType::Replay)->count())->toBe(1);
+});
+
+it('counts a guest’s share to a provider on their attempt, sharing the profile’s page', function () {
+    $page = guestGame($this->slug)->call('init')->call('continue')->call('choose', 0)->call('next')->call('choose', 0)->call('next');
+    $attempt = GameAttempt::query()->sole();
+    $link = route('games.player-share', ['slug' => $this->slug, 'attempt' => $attempt->public_id, 'provider' => 'x']);
+
+    $page->assertSeeHtml(e($link));
+
+    expect($this->get($link)->headers->get('Location'))
+        ->toContain(urlencode(route('games.result', ['slug' => $this->slug, 'version' => 1, 'profile' => $attempt->profile_key])))
+        ->and(GameEvent::query()->where('type', GameEventType::ShareClicked)->sole()->attempt_id)->toBe($attempt->id);
+});
+
+it('lets a long byline wrap on the share card rather than be cut', function () {
+    expect((string) file_get_contents(resource_path('css/app.css')))
+        ->toContain(".rg-game__share-card-host {\n        display: inline-block;\n        max-width: 100%;\n        overflow-wrap: anywhere;\n    }");
 });
 
 it('gives a person the attempt they played as a guest when they register', function () {

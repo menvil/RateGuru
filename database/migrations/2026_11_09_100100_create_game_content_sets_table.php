@@ -20,8 +20,8 @@ return new class extends Migration
             // How sure the crowd has to be before a round scores by it: the
             // votes each post needs and the gap, in percentage points, its
             // upvote share needs over the other's.
-            $table->unsignedInteger('crowd_min_votes')->default(100);
-            $table->unsignedTinyInteger('crowd_min_gap')->default(5);
+            $table->unsignedInteger('crowd_min_votes')->default(10);
+            $table->unsignedTinyInteger('crowd_min_gap')->default(0);
             $table->dateTime('archived_at')->nullable();
             $table->unsignedInteger('lock_version')->default(1);
             $table->timestamps();

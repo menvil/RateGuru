@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Games\ChangeGameFlowAction;
+use App\Actions\Games\PublishGameVersionAction;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
@@ -53,7 +54,7 @@ it('shows what two guests did: one opened the game, the other played it through'
     $this->actingAs($this->draft['admin']);
     $profile = $version->read()->profileFor(1);
 
-    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->assertSee('Anonymous visitors · Last 30 days · all versions')
         ->assertSeeInOrder(['Visitors', '2', 'People who opened the game'])
         ->assertSeeInOrder(['Started', '1', '50.0% of visitors'])
@@ -61,15 +62,19 @@ it('shows what two guests did: one opened the game, the other played it through'
         ->assertSee('No version asks for an email')
         // No version asks for an email, so the funnel has no step for it.
         ->assertDontSee('Email captured')
-        ->assertSeeInOrder(['Funnel', 'Visitors', '2', 'Game started', '1', '50.0%', 'Completed', '1', '100.0%'])
         ->assertSee('Rounds reached · V1')
         ->assertSee('V1 has the most attempts here')
         ->assertSeeInOrder(['Round 1', '100.0%'])
         ->assertSeeInOrder(['Results · V1', $profile->name->english(), '100.0%'])
         ->assertSeeInOrder(['Side by side', 'V1', $this->draft['set']->name.' · '.$this->draft['flow']->name])
-        ->assertSee('1 started · 1 completed')
-        // Split by flow: the flow and the versions made from it.
-        ->set('breakdown', 'flow')
+        ->assertSee('1 started · 1 completed');
+
+    // A row's bar comes before its count, so the funnel is read from its rows rather than the markup.
+    expect(collect($page->viewData('funnel'))->pluck('count', 'label')->all())
+        ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'New account' => '0']);
+
+    // Split by flow: the flow and the versions made from it.
+    $page->set('breakdown', 'flow')
         ->assertSeeInOrder([$this->draft['flow']->name, 'Used by V1'])
         // Nobody signed in came.
         ->set('audience', 'authenticated')
@@ -88,10 +93,13 @@ it('counts people where it counts people: a guest who played twice started once,
     session()->flush();
     $this->actingAs($this->draft['admin']);
 
-    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->assertSeeInOrder(['Started', '1', '100.0% of visitors'])
-        ->assertSeeInOrder(['Completion', '100.0%', '2 of 2 plays completed'])
-        ->assertSeeInOrder(['Funnel', 'Game started', '1', 'Completed', '1', 'Sign-up begun', 'Email 1', '1', 'New account', '0']);
+        ->assertSeeInOrder(['Completion', '100.0%', '2 of 2 plays completed']);
+    $funnel = collect($page->viewData('funnel'));
+
+    expect($funnel->pluck('count', 'label')->all())->toBe(['Visitors' => '1', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '1', 'New account' => '0'])
+        ->and($funnel->firstWhere('label', 'Sign-up begun')['hint'])->toBe('Email 1');
 });
 
 it('counts the emails of versions that ask for one', function () {
@@ -136,4 +144,24 @@ it('is only for those who manage games', function () {
     $this->actingAs(User::factory()->create())
         ->get(GameResource::getUrl('analytics', ['record' => $this->draft['game']]))
         ->assertForbidden();
+});
+
+it('leaves the emails out for a version chosen that asks for none, though another version does', function () {
+    $emailFirst = app(ChangeGameFlowAction::class)->create($this->draft['admin'], $this->draft['game'], 'Email first', GameFlowTemplate::EmailBeforeResult);
+    app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game'], $this->draft['set']->id, $emailFirst->id);
+    $version = liveGame($this->draft);
+
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('e', 40))->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false);
+    session()->flush();
+    $this->actingAs($this->draft['admin']);
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->set('version', $version->id)
+        ->assertSee('Anonymous visitors · Last 30 days · V2')
+        ->assertSee('This version doesn’t ask for an email')
+        ->assertDontSee('Email captured');
+
+    expect(collect($page->viewData('kpis'))->firstWhere('label', 'Email capture')['value'])->toBe('—');
 });

@@ -6,7 +6,6 @@ return [
         'by_site' => 'A(z) :site játéka',
         'pairs_meta' => ':count pár · kb. egy perc',
         'pair_of' => 'Pár: :current / :total',
-        'progress_label' => 'Eddigi választásaid',
         'pick_option' => 'A(z) :letter lehetőség választása',
         'you_picked' => 'Te',
         'crowd_pick' => 'A közönség választása',

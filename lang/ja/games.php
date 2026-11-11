@@ -6,7 +6,6 @@ return [
         'by_site' => ':site のゲーム',
         'pairs_meta' => ':count 組 · 約1分',
         'pair_of' => 'ペア :current / :total',
-        'progress_label' => 'これまでの選択',
         'pick_option' => '選択肢 :letter を選ぶ',
         'you_picked' => 'あなた',
         'crowd_pick' => 'みんなの選択',

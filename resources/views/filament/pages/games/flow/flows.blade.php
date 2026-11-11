@@ -62,7 +62,7 @@
                     <ul class="rg-admin-games__set-list" aria-label="Archived flows">
                         @foreach ($archived as $item)
                             <li x-show="shows(@js($item['name'].' '.$item['chain']))">
-                                <a href="{{ $item['url'] }}" @class(['rg-admin-games__set-item', 'rg-admin-games__set-item--current' => $item['current']])>
+                                <a href="{{ $item['url'] }}" @class(['rg-admin-games__set-item', 'rg-admin-games__set-item--current' => $item['current']]) @if ($item['current']) aria-current="true" @endif>
                                     <span class="rg-admin-games__set-item-text">
                                         <span class="rg-admin-games__set-item-name rg-admin-games__set-item-name--archived">{{ $item['name'] }}</span>
                                         <span class="rg-admin-games__note">{{ $item['chain'] }}</span>

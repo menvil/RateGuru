@@ -136,8 +136,10 @@ final class GameFlowValidator
 
     /**
      * The types that can be added at a position (0 = before the first step)
-     * without adding a problem the flow does not already have. The game is
-     * offered only to a flow without one.
+     * without adding a problem the flow does not already have: every problem
+     * of the flow with the step added is one it had before. A step that
+     * settles one problem by causing another is not offered there. The game
+     * is offered only to a flow without one.
      *
      * @param  list<FlowStepDraft>  $steps
      * @return list<GameFlowStepType>
@@ -145,7 +147,7 @@ final class GameFlowValidator
     public static function insertableAt(array $steps, int $position): array
     {
         $present = array_map(fn (FlowStepDraft $step): string => $step->type->value, $steps);
-        $baseline = self::structuralCount($steps);
+        $baseline = array_count_values(self::structuralProblems($steps));
         $fits = [];
 
         foreach (GameFlowStepType::cases() as $type) {
@@ -155,8 +157,13 @@ final class GameFlowValidator
 
             $candidate = $steps;
             array_splice($candidate, $position, 0, [self::fresh($type)]);
+            $added = array_filter(
+                array_count_values(self::structuralProblems($candidate)),
+                fn (int $count, string $problem): bool => $count > ($baseline[$problem] ?? 0),
+                ARRAY_FILTER_USE_BOTH,
+            );
 
-            if (self::structuralCount($candidate) <= $baseline) {
+            if ($added === []) {
                 $fits[] = $type;
             }
         }
@@ -196,14 +203,24 @@ final class GameFlowValidator
     /**
      * Problems that come from where steps stand, not from what they say: a
      * new step's texts are complete, so its own missing texts never count.
+     * Each is its message without the step number a duplicate names, which
+     * a step added before that number moves without changing the problem.
      *
      * @param  list<FlowStepDraft>  $steps
+     * @return list<string>
      */
-    private static function structuralCount(array $steps): int
+    private static function structuralProblems(array $steps): array
     {
-        return count(array_filter(
-            self::issues($steps),
-            fn (FlowIssue $issue): bool => ! str_starts_with($issue->message, 'Missing settings:') && $issue->message !== 'Choose the next game.',
-        ));
+        $problems = [];
+
+        foreach (self::issues($steps) as $issue) {
+            if (str_starts_with($issue->message, 'Missing settings:') || $issue->message === 'Choose the next game.') {
+                continue;
+            }
+
+            $problems[] = preg_replace('/ Step \d+ already does this\.\z/', '', $issue->message) ?? $issue->message;
+        }
+
+        return $problems;
     }
 }

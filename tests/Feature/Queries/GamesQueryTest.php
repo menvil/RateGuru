@@ -48,7 +48,14 @@ it('searches the title, the internal name and the slug, literally and in any cas
     $game = Game::factory()->create(['title' => 'Trust Your Taste', 'internal_name' => 'TYT 50% off_q4', 'slug' => 'trust-your-taste']);
 
     expect(gamesPage($search))->toBe([$game->id]);
-})->with(['your TASTE', '50%', 'off_q4', 'trust-your']);
+})->with(['your TASTE', '50%', 'off_q4', 'trust-your', '%', '_']);
+
+it('takes % and _ as themselves, never as wildcards', function () {
+    Game::factory()->create(['title' => 'Trust Your Taste', 'internal_name' => 'TYT 50% off_q4', 'slug' => 'trust-your-taste']);
+
+    expect(gamesPage('trust%taste'))->toBe([])
+        ->and(gamesPage('off_q_'))->toBe([]);
+});
 
 it('pages through games saved at one moment without moving or repeating any', function () {
     $moment = now()->subMinute();
@@ -57,7 +64,9 @@ it('pages through games saved at one moment without moving or repeating any', fu
     $first = gamesPage();
     $second = gamesPage(page: 2);
 
-    expect(array_intersect($first, $second))->toBe([])
+    expect(count($first))->toBe(GamesQuery::PER_PAGE)
+        ->and(count($second))->toBe(5)
+        ->and(array_intersect($first, $second))->toBe([])
         ->and(count($first) + count($second))->toBe($games->count())
         ->and([...$first, ...$second])->toBe($games->sortByDesc('id')->pluck('id')->values()->all());
 });

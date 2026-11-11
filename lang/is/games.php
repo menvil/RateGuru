@@ -6,7 +6,6 @@ return [
         'by_site' => 'Leikur frá :site',
         'pairs_meta' => 'Pör: :count · um eina mínútu',
         'pair_of' => 'Par :current af :total',
-        'progress_label' => 'Valið þitt hingað til',
         'pick_option' => 'Velja kost :letter',
         'you_picked' => 'Þú',
         'crowd_pick' => 'Val fjöldans',

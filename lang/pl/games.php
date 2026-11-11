@@ -6,7 +6,6 @@ return [
         'by_site' => 'Gra serwisu :site',
         'pairs_meta' => 'Par: :count · około minuty',
         'pair_of' => 'Para :current z :total',
-        'progress_label' => 'Twoje dotychczasowe wybory',
         'pick_option' => 'Wybierz opcję :letter',
         'you_picked' => 'Ty',
         'crowd_pick' => 'Wybór większości',

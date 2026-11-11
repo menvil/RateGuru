@@ -16,6 +16,7 @@ use App\Queries\Games\GameTrafficQuery;
 use App\Support\Games\Traffic\TrafficShareValidator;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Livewire\Attributes\Locked;
 
 /**
  * A game's Traffic tab: how each audience's visitors are shared out between
@@ -23,6 +24,10 @@ use Filament\Support\Enums\Width;
  * applied on its own (ApplyGameTrafficAction), and every period an allocation
  * was in effect, with how many visitors it assigned and how many attempts
  * they started and completed.
+ *
+ * Apply names the shares the audience was drawn with, so shares changed
+ * since — by another administrator, or by a version published taking over
+ * another's — are never silently put back; the audience is drawn again.
  */
 final class GameTraffic extends Page
 {
@@ -38,6 +43,7 @@ final class GameTraffic extends Page
     public array $shares = [];
 
     /** @var array<string, array<int|string, mixed>> the shares in effect */
+    #[Locked]
     public array $applied = [];
 
     public function mount(int|string $record): void
@@ -98,16 +104,16 @@ final class GameTraffic extends Page
             return;
         }
 
-        $shares = [];
-
-        foreach ($this->shares[$audience->value] ?? [] as $versionId => $share) {
-            $shares[(int) $versionId] = is_numeric($share) && (string) (int) $share === (string) $share ? (int) $share : -1;
-        }
+        $shares = self::wholeShares($this->shares[$audience->value] ?? []);
 
         try {
-            $started = app(ApplyGameTrafficAction::class)->handle($this->admin(), $game, $audience, $shares);
+            $started = app(ApplyGameTrafficAction::class)->handle($this->admin(), $game, $audience, $shares, self::wholeShares($this->applied[$audience->value] ?? []));
         } catch (CannotManageGameException $exception) {
-            $this->toast($exception->getMessage(), 'error');
+            if ($exception->isStale()) {
+                $this->drawAudience($audience);
+            }
+
+            $this->toast($exception->isStale() ? 'These shares changed after you opened the page, so nothing was applied. They now show as they are.' : $exception->getMessage(), 'error');
 
             return;
         }
@@ -118,13 +124,39 @@ final class GameTraffic extends Page
 
     private function draw(): void
     {
-        $traffic = app(GameTrafficQuery::class);
-
         foreach (GameAudience::cases() as $audience) {
-            $shares = $traffic->currentPeriod($this->gameId, $audience)?->shares() ?? [];
-            $this->shares[$audience->value] = $shares;
-            $this->applied[$audience->value] = $shares;
+            $this->drawAudience($audience);
         }
+    }
+
+    private function drawAudience(GameAudience $audience): void
+    {
+        $shares = app(GameTrafficQuery::class)->currentPeriod($this->gameId, $audience)?->shares() ?? [];
+        $this->shares[$audience->value] = $shares;
+        $this->applied[$audience->value] = $shares;
+    }
+
+    /**
+     * Shares as typed, version id to a whole number, the way Apply sends them
+     * and the page checks them: whole-number text such as "05" counts as 5,
+     * anything else, "12.5" too, as -1, which no share may be.
+     *
+     * @param  array<int|string, mixed>  $shares
+     * @return array<int, int>
+     */
+    private static function wholeShares(array $shares): array
+    {
+        $whole = [];
+
+        foreach ($shares as $versionId => $share) {
+            $whole[(int) $versionId] = match (true) {
+                is_int($share) => $share,
+                is_string($share) && preg_match('/\A-?\d{1,9}\z/', trim($share)) === 1 => (int) trim($share),
+                default => -1,
+            };
+        }
+
+        return $whole;
     }
 
     /** @return list<int> */
@@ -145,12 +177,7 @@ final class GameTraffic extends Page
         $groups = [];
 
         foreach (GameAudience::cases() as $audience) {
-            $draft = $this->shares[$audience->value] ?? [];
-            $clean = [];
-
-            foreach ($draft as $versionId => $share) {
-                $clean[(int) $versionId] = is_numeric($share) ? (int) $share : -1;
-            }
+            $clean = self::wholeShares($this->shares[$audience->value] ?? []);
 
             $groups[] = [
                 'audience' => $audience->value,

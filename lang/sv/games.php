@@ -6,7 +6,6 @@ return [
         'by_site' => 'Ett spel från :site',
         'pairs_meta' => ':count par · cirka en minut',
         'pair_of' => 'Par :current av :total',
-        'progress_label' => 'Dina val hittills',
         'pick_option' => 'Välj alternativ :letter',
         'you_picked' => 'Du',
         'crowd_pick' => 'Publikens val',

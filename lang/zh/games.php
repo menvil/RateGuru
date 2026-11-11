@@ -6,7 +6,6 @@ return [
         'by_site' => '一款来自 :site 的游戏',
         'pairs_meta' => ':count 组 · 约一分钟',
         'pair_of' => '第 :current 组，共 :total 组',
-        'progress_label' => '您目前的选择',
         'pick_option' => '选择选项 :letter',
         'you_picked' => '您',
         'crowd_pick' => '大众之选',

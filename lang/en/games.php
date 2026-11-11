@@ -6,7 +6,6 @@ return [
         'by_site' => 'A game by :site',
         'pairs_meta' => ':count pairs · about a minute',
         'pair_of' => 'Pair :current of :total',
-        'progress_label' => 'Your picks so far',
         'pick_option' => 'Pick option :letter',
         'you_picked' => 'You',
         'crowd_pick' => 'Crowd’s pick',

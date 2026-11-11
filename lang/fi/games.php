@@ -6,7 +6,6 @@ return [
         'by_site' => 'Pelin tarjoaa :site',
         'pairs_meta' => ':count paria · noin minuutti',
         'pair_of' => 'Pari :current/:total',
-        'progress_label' => 'Valintasi tähän mennessä',
         'pick_option' => 'Valitse vaihtoehto :letter',
         'you_picked' => 'Valintasi',
         'crowd_pick' => 'Yleisön valinta',

@@ -13,7 +13,7 @@ use InvalidArgumentException;
  * Records what a visitor did that changes nothing else: a share clicked, by
  * where to; signing up begun, by how — an email, a provider, the site's
  * sign-up or log-in dialog; the game left by its exit. A burst of the same
- * from one visitor counts once a moment.
+ * from one visitor counts three times every ten seconds at most.
  */
 final class RecordGameInteractionAction
 {

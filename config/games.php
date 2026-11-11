@@ -12,7 +12,7 @@ return [
     // between the two posts' upvote shares — none, so the larger share wins
     // however small its lead, unless the administrator asks for one.
     'crowd' => [
-        'min_votes' => 100,
+        'min_votes' => 10,
         'min_gap' => 0,
     ],
 

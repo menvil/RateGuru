@@ -19,7 +19,7 @@ router.
 
 | Layer | Tables | Written by |
 | --- | --- | --- |
-| Draft | `games`, `game_content_sets`, `game_rounds`, `game_round_options`, `game_result_profiles`, `game_flows`, `game_flow_steps` | the editors' actions, under `lock_version` |
+| Draft | `games`, `game_content_sets`, `game_rounds`, `game_round_options`, `game_result_profiles`, `game_flows`, `game_flow_steps` | the editors' actions, under `lock_version` — renaming and restoring a set or a flow too |
 | Version | `game_versions` (snapshot JSON), `game_version_assets`, `game_version_posts` | `PublishGameVersionAction` only |
 | Traffic | `game_traffic_periods`, `game_traffic_shares` | `ApplyGameTrafficAction`, `PublishGameVersionAction` (taking traffic over) |
 | Runtime | `game_assignments`, `game_attempts`, `game_answers`, `game_email_captures`, `game_events` | the player's actions |
@@ -41,7 +41,7 @@ A Versus round is **crowd** or **objective**.
   upvotes, `up / (up + down)`, from the posts' own counters, persona votes
   included. The comparison is exact (`upA·nB` against `upB·nA`, no floats). A
   round is publishable only when both posts are published with a ready picture,
-  differ, have at least `crowd_min_votes` votes each (100 by default), and their
+  differ, have at least `crowd_min_votes` votes each (10 by default), and their
   shares differ: by at least `crowd_min_gap` percentage points where the
   administrator asks for a gap (none by default, so only a tie has no pick).
   Both limits are set per content set. A gap is a product rule, not a
@@ -65,7 +65,10 @@ and profile, so a result never changes after the fact.
 The answer never reaches the browser before the pick, and the snapshot is never
 part of Livewire state. Only an answer to the next round is accepted
 (`round_index = rounds_answered`, the attempt row locked), and
-`unique(attempt_id, round_index)` makes a repeated answer harmless.
+`unique(attempt_id, round_index)` makes a repeated answer harmless. The page
+sends the round on screen with each pick: a pick from a stale tab, made on a
+round the attempt has already passed, records nothing and shows where the
+attempt stands.
 
 ## Versions
 
@@ -92,8 +95,10 @@ included — changed after the newest version published from them.
 Each audience — anonymous visitors and logged-in players — has its own shares
 between active versions, whole percentages adding up to 100, or no traffic at
 all. Applying shares starts a new period, unless the current one has assigned
-nobody yet, in which case it is updated. A live game cannot be left with no
-traffic in both audiences.
+nobody yet, in which case it is updated. A live game cannot be left without
+playable traffic in both audiences. Apply carries the shares the page was
+drawn with and, under the game's lock, refuses as stale when they have changed
+since — after a publish that took a version's traffic over, say.
 
 A visitor is assigned deterministically: `hash(game, period, identity) mod 100`
 over the playable versions in number order. The assignment
@@ -138,8 +143,11 @@ session with no user yet. `Registered` records `registered`, `Login`
 `signed_in`. A failure is reported, never thrown at the visitor.
 
 Email capture stores the address and a separate marketing consent, unticked by
-default, with the consent wording the guest saw. Nothing is ever sent.
-Deleting an account deletes the emails its attempts left.
+default, with the consent wording the guest saw. Nothing is ever sent. Only a
+guest's attempt takes an email — one an account has claimed refuses it — and a
+required email step holds only the visitors who still see it: a guest who
+signs in on it goes on. Deleting an account deletes the emails its attempts
+left.
 
 ## Events and metrics
 
@@ -149,9 +157,11 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `registration_cta_clicked`, `account_attributed`, `share_clicked`, `replay`
 and `exit`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
-`share_clicked` names where the result went; `registration_cta_clicked` names
-how signing up began: `email` or a provider on the sign-up set into Full
-Result, or `register` / `login` for the site's dialog.
+`share_clicked` names where the result went, and is recorded on the attempt
+whose result it is — for a provider only once the provider's address has been
+built; `registration_cta_clicked` names how signing up began: `email` or a
+provider on the sign-up set into Full Result, or `register` / `login` for the
+site's dialog; `exit` names where the visitor was actually sent.
 
 `GameMetricsQuery` reads the figures back (a registered raw-SQL boundary):
 
@@ -209,7 +219,9 @@ player's result is shared as their own page, `/games/{slug}/r/{attempt}` —
 the attempt's public id, so nobody can put a name on a result they did not
 earn — and a guest's as the profile's page, `/games/{slug}/v{n}/{profile}`.
 Once the account is banned, limited or deleted, the player's page opens the
-profile's instead.
+profile's instead. Every played result's provider links go through its
+attempt's address, `/games/{slug}/r/{attempt}/share/{provider}`, so the share
+is counted on the attempt; a guest's still shares the profile's page.
 
 Content's live preview plays the round on screen before it is saved. Each
 draw of the tab hands the draft to `GamePreviewDrafts`, in the cache for 30

@@ -6,7 +6,6 @@ return [
         'by_site' => 'Hra z dílny :site',
         'pairs_meta' => 'Počet dvojic: :count · zhruba minuta',
         'pair_of' => 'Dvojice :current z :total',
-        'progress_label' => 'Tvoje dosavadní volby',
         'pick_option' => 'Vybrat možnost :letter',
         'you_picked' => 'Tvoje volba',
         'crowd_pick' => 'Volba publika',

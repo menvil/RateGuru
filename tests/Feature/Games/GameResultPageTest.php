@@ -7,7 +7,6 @@ use App\Enums\GameStatus;
 use App\Enums\UserStatus;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
-use App\Models\GameRoundOption;
 use App\Models\GameVersion;
 use App\Models\ProjectSettings;
 use App\Models\User;
@@ -30,10 +29,10 @@ it('shows a shared result with its profile and the game to play', function () {
 });
 
 it('never previews a shared result with a post\'s picture', function () {
+    $postPictures = storeGamePostPictures();
     $html = $this->get("/games/{$this->slug}/v1/oracle")->getContent();
-    $postImages = GameRoundOption::query()->get()->map(fn ($option) => $option->post->imageAsset->path)->all();
 
-    foreach ($postImages as $path) {
+    foreach ($postPictures as $path) {
         expect($html)->not->toContain($path);
     }
 
@@ -110,5 +109,26 @@ it('shares a player\'s own result, counted on its way', function () {
 
     expect($response->headers->get('Location'))->toStartWith('https://twitter.com/intent/tweet?')
         ->toContain(urlencode(route('games.player-result', ['slug' => $this->slug, 'attempt' => $attempt->public_id])))
-        ->and(GameEvent::query()->where('type', GameEventType::ShareClicked)->value('provider'))->toBe('x');
+        ->and(GameEvent::query()->where('type', GameEventType::ShareClicked)->sole()->only(['provider', 'attempt_id']))->toBe(['provider' => 'x', 'attempt_id' => $attempt->id]);
+});
+
+it('shares a guest\'s result as the profile\'s page, counted on the attempt that earned it', function () {
+    $attempt = playedResult($this->version, User::factory()->create());
+    $attempt->forceFill(['user_id' => null, 'audience' => GameAudience::Anonymous, 'visitor_hash' => str_repeat('a', 64)])->save();
+
+    $response = $this->get("/games/{$this->slug}/r/{$attempt->public_id}/share/telegram");
+
+    expect($response->headers->get('Location'))->toStartWith('https://t.me/share/url?')
+        ->toContain(urlencode(route('games.result', ['slug' => $this->slug, 'version' => 1, 'profile' => 'oracle'])))
+        ->not->toContain($attempt->public_id)
+        ->and(GameEvent::query()->where('type', GameEventType::ShareClicked)->sole()->only(['provider', 'attempt_id']))->toBe(['provider' => 'telegram', 'attempt_id' => $attempt->id]);
+});
+
+it('counts nothing a provider cannot take', function () {
+    $attempt = playedResult($this->version, User::factory()->create());
+
+    $this->get("/games/{$this->slug}/v1/oracle/share/pinterest")->assertNotFound();
+    $this->get("/games/{$this->slug}/r/{$attempt->public_id}/share/pinterest")->assertNotFound();
+
+    expect(GameEvent::query()->where('type', GameEventType::ShareClicked)->exists())->toBeFalse();
 });

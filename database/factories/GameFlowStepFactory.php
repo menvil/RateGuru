@@ -15,10 +15,17 @@ class GameFlowStepFactory extends Factory
 {
     public function definition(): array
     {
-        return $this->attributesFor(GameFlowStepType::Game);
+        return [
+            'flow_id' => GameFlow::factory(),
+            'position' => 0,
+            ...$this->attributesFor(GameFlowStepType::Game),
+        ];
     }
 
-    /** A fresh step of a type: its fixed audience, default settings and texts. */
+    /**
+     * A fresh step of a type: its fixed audience, default settings and texts.
+     * The flow and position it was given are kept.
+     */
     public function type(GameFlowStepType $type): static
     {
         return $this->state(fn (): array => $this->attributesFor($type));
@@ -28,8 +35,6 @@ class GameFlowStepFactory extends Factory
     private function attributesFor(GameFlowStepType $type): array
     {
         return [
-            'flow_id' => GameFlow::factory(),
-            'position' => 0,
             'type' => $type,
             'audience' => $type->fixedAudience() ?? GameStepAudience::All,
             'settings' => $type->defaultSettings(),

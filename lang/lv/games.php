@@ -6,7 +6,6 @@ return [
         'by_site' => 'Spēli piedāvā :site',
         'pairs_meta' => 'Pāri: :count · aptuveni minūte',
         'pair_of' => 'Pāris :current no :total',
-        'progress_label' => 'Jūsu izvēles līdz šim',
         'pick_option' => 'Izvēlēties variantu :letter',
         'you_picked' => 'Jūs',
         'crowd_pick' => 'Vairākuma izvēle',

@@ -142,8 +142,7 @@ final class GameVersions extends Page
         $game = $this->game();
         abort_if($game === null, 404);
 
-        $query = app(GameDraftQuery::class);
-        $sets = GameContentSet::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->get();
+        $sets = app(GameDraftQuery::class)->contentSets((int) $game->id);
         $flows = GameFlow::query()->where('game_id', $game->id)->whereNull('archived_at')->with('steps')->orderBy('position')->orderBy('id')->get();
         $versions = GameVersion::query()->where('game_id', $game->id)->with(['contentSet', 'flow', 'publishedBy'])->withCount('attempts')->orderByDesc('number')->get();
         $gameIds = Game::query()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all();
@@ -158,8 +157,7 @@ final class GameVersions extends Page
         $reports = [];
 
         foreach ($sets as $set) {
-            $loaded = $query->contentSet((int) $game->id, (int) $set->id);
-            $reports[(int) $set->id] = $loaded !== null ? ContentSetReport::of($loaded) : null;
+            $reports[(int) $set->id] = ContentSetReport::of($set);
         }
 
         $chosenSet = $reports[$this->publishSetId] ?? null;
@@ -176,9 +174,9 @@ final class GameVersions extends Page
             'sets' => $sets->map(fn (GameContentSet $set): array => [
                 'id' => (int) $set->id,
                 'name' => $set->name,
-                'rounds' => $reports[(int) $set->id] !== null ? count($reports[(int) $set->id]->rounds) : 0,
+                'rounds' => count($reports[(int) $set->id]->rounds),
                 'state' => match (true) {
-                    $reports[(int) $set->id] === null || $reports[(int) $set->id]->rounds === [] => ['label' => 'Empty', 'tone' => 'neutral'],
+                    $reports[(int) $set->id]->rounds === [] => ['label' => 'Empty', 'tone' => 'neutral'],
                     $reports[(int) $set->id]->isPublishable() => ['label' => 'Ready', 'tone' => 'success'],
                     default => ['label' => ($reports[(int) $set->id]->roundsWithIssues() + count($reports[(int) $set->id]->profileIssues)).' to fix', 'tone' => 'warning'],
                 },

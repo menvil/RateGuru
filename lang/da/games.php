@@ -6,7 +6,6 @@ return [
         'by_site' => 'Et spil fra :site',
         'pairs_meta' => ':count par · cirka et minut',
         'pair_of' => 'Par :current af :total',
-        'progress_label' => 'Dine valg indtil videre',
         'pick_option' => 'Vælg mulighed :letter',
         'you_picked' => 'Dit valg',
         'crowd_pick' => 'Publikums valg',

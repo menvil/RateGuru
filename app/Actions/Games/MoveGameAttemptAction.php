@@ -14,8 +14,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Moves a completed attempt on from the step it stands on to the next step the
  * visitor sees. A move from any other step — an older tab — moves nothing: the
- * attempt stays where it is. A required email step lets nobody past without
- * the email.
+ * attempt stays where it is. A required email step lets nobody who still sees
+ * it past without the email; one the visitor no longer sees — they signed in
+ * on it — is passed over like any other.
  */
 final class MoveGameAttemptAction
 {
@@ -43,12 +44,14 @@ final class MoveGameAttemptAction
             $snapshot = $locked->version->read();
             $steps = $snapshot->flowSteps();
             $current = GameFlowRunner::find($steps, $fromKey);
+            $flowVisitor = $this->flowVisitors->for($visitor, $snapshot, $visitor->audience);
 
-            if ($current?->type === GameFlowStepType::EmailCapture && (bool) $current->setting('required') && ! $locked->emailCapture()->exists()) {
+            if ($current?->type === GameFlowStepType::EmailCapture && (bool) $current->setting('required')
+                && GameFlowRunner::isVisible($current, $flowVisitor) && ! $locked->emailCapture()->exists()) {
                 throw CannotPlayGameException::becauseEmailIsRequired();
             }
 
-            $next = GameFlowRunner::after($steps, $this->flowVisitors->for($visitor, $snapshot, $visitor->audience), $fromKey);
+            $next = GameFlowRunner::after($steps, $flowVisitor, $fromKey);
             $locked->forceFill(['current_step_key' => $next?->key, 'last_activity_at' => now()])->save();
 
             if ($next !== null) {

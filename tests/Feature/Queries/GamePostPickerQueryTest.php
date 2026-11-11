@@ -45,12 +45,26 @@ it('searches the title, the id and the author, literally and in any case', funct
     expect(pickerPage($search === 'id' ? '#'.$post->id : $search))->toBe([$post->id]);
 })->with(['beach AT', '50%', 'id', '@sea_lover', 'sea_']);
 
+it('takes % and _ as themselves, never as wildcards', function () {
+    $decoy = User::factory()->create(['username' => 'seaXlover']);
+    Post::factory()->published()->withImage()->for($decoy)->create(['title' => 'Beach at 500 sunsets']);
+    $author = User::factory()->create(['username' => 'sea_lover']);
+    $post = Post::factory()->published()->withImage()->for($author)->create(['title' => 'Beach at 50% sunset']);
+
+    expect(pickerPage('at 50%'))->toBe([$post->id])
+        ->and(pickerPage('sea_lover'))->toBe([$post->id])
+        ->and(pickerPage('beach%sunset'))->toBe([])
+        ->and(pickerPage('s_a_lover'))->toBe([]);
+});
+
 it('pages through posts of equal votes without moving or repeating any', function () {
     $posts = Post::factory()->published()->withImage()->count(GamePostPickerQuery::PER_PAGE + 3)->create(['upvotes_count' => 10]);
 
     $first = pickerPage();
     $second = pickerPage(page: 2);
 
-    expect(array_intersect($first, $second))->toBe([])
+    expect(count($first))->toBe(GamePostPickerQuery::PER_PAGE)
+        ->and(count($second))->toBe(3)
+        ->and(array_intersect($first, $second))->toBe([])
         ->and([...$first, ...$second])->toBe($posts->sortByDesc('id')->pluck('id')->values()->all());
 });

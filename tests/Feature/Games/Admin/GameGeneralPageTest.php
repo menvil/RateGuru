@@ -114,6 +114,21 @@ it('archives the game from its status menu, asked first', function () {
     expect($game->fresh()->status)->toBe(GameStatus::Archived);
 });
 
+it('confirms a pause or an archive with the primary button, as either can be taken back', function (string $target, string $button) {
+    $game = Game::factory()->status(GameStatus::Live)->create();
+
+    $html = Livewire::test(EditGameGeneral::class, ['record' => $game->id])
+        ->call('askStatus', $target)
+        ->assertSee($button)
+        ->assertDontSeeHtml('rg-admin-button--danger')
+        ->html();
+
+    expect($html)->toMatch('#<button[^>]*class="rg-admin-button rg-admin-button--primary rg-admin-button--md"[^>]*wire:click="changeStatus"#');
+})->with([
+    'pause' => ['paused', 'Pause game'],
+    'archive' => ['archived', 'Archive game'],
+]);
+
 it('says why the game cannot go live yet instead of making it live', function () {
     $game = Game::factory()->create();
 

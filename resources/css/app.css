@@ -1065,7 +1065,10 @@ select:disabled {
         letter-spacing: -0.03em;
     }
 
-    /* The score and the site's address: on a narrow card the address goes whole to a second line rather than being cut. */
+    /*
+     * The score and the byline — the site's address or the player's @name: on a narrow card the byline goes whole to a
+     * second line rather than being cut, and breaks inside only when even a line of its own is too narrow for it.
+     */
     .rg-game__share-card-line {
         font-size: 12.5px;
         line-height: 1.35;
@@ -1073,6 +1076,8 @@ select:disabled {
     }
 
     .rg-game__share-card-host {
-        white-space: nowrap;
+        display: inline-block;
+        max-width: 100%;
+        overflow-wrap: anywhere;
     }
 }

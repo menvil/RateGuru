@@ -79,7 +79,8 @@ final class GameAnalytics extends Page
 
         $total = $metrics->funnels($scope)[0];
         $byVersion = $metrics->funnels($scope, 'version');
-        $emailVersions = $versions->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
+        // Of the versions the figures are of: the one chosen, or every one.
+        $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
         $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
 
@@ -104,7 +105,7 @@ final class GameAnalytics extends Page
             'scopeText' => implode(' · ', [$audience === GameAudience::Anonymous ? 'Anonymous visitors' : 'Logged-in players', self::PERIODS[$period], $versionId !== null ? $versions->get($versionId)?->label() : 'all versions']),
             'noVersions' => $versions->isEmpty(),
             'noData' => $total->isEmpty(),
-            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $finishedWithEmail, $emailVersions !== []) : self::playerKpis($total),
+            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $finishedWithEmail, $emailVersions !== [], $versionId !== null) : self::playerKpis($total),
             'funnel' => $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope)) : self::playerFunnel($total),
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
             'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown), $versions, $audience),
@@ -154,13 +155,15 @@ final class GameAnalytics extends Page
      *
      * @return list<array{label: string, value: string, note: string}>
      */
-    private static function anonymousKpis(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail): array
+    private static function anonymousKpis(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, bool $oneVersion): array
     {
+        $noEmail = $oneVersion ? 'This version doesn’t ask for an email' : 'No version asks for an email';
+
         return [
             ['label' => 'Visitors', 'value' => number_format($total->visitors), 'note' => 'People who opened the game'],
             ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of visitors'],
             ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
-            ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emailers, $finishedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : 'No version asks for an email'],
+            ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emailers, $finishedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : $noEmail],
             ['label' => 'New accounts', 'value' => number_format($total->registered), 'note' => self::percent($total->registered, $total->visitors).' of visitors'],
             ['label' => 'Signed in', 'value' => number_format($total->signedIn), 'note' => 'Existing accounts'],
         ];

@@ -30,7 +30,7 @@ final readonly class ProjectTranslationUnit
      * @param  string  $reference  the English text a translation is made from; blank when there is nothing to translate
      * @param  array<string, mixed>  $translations  what each language stores, as stored — not necessarily text
      * @param  string  $usage  where a visitor meets the text, for whoever translates it
-     * @param  array<string, int>  $location  what the content's own editor is opened at, where a record id alone does not say: a game's content set and round
+     * @param  array<string, int>  $location  what the content's own editor is opened at, where a record id alone does not say: a game round's or option's `set` and `round`, a result profile's `set`, a flow step's `flow` and `step`
      */
     public function __construct(
         public string $id,

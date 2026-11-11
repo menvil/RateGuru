@@ -6,7 +6,6 @@ return [
         'by_site' => 'თამაში საიტიდან :site',
         'pairs_meta' => ':count წყვილი · დაახლოებით ერთი წუთი',
         'pair_of' => 'წყვილი :current / :total',
-        'progress_label' => 'თქვენი არჩევანი აქამდე',
         'pick_option' => 'აირჩიეთ ვარიანტი :letter',
         'you_picked' => 'თქვენ',
         'crowd_pick' => 'საზოგადოების არჩევანი',

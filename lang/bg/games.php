@@ -6,7 +6,6 @@ return [
         'by_site' => 'Игра от :site',
         'pairs_meta' => ':count двойки · около минута',
         'pair_of' => 'Двойка :current от :total',
-        'progress_label' => 'Вашите избори досега',
         'pick_option' => 'Избери вариант :letter',
         'you_picked' => 'Вашият избор',
         'crowd_pick' => 'Изборът на публиката',

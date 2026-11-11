@@ -130,6 +130,39 @@ it('gives a new profile a key from its name, and keeps a saved profile\'s key', 
         ->toBe(['wild-card', 'independent', 'sharp-eye', 'oracle', 'sharp-eye-2']);
 });
 
+it('moves a profile\'s key through one no profile can hold', function () {
+    $draft = publishableGameDraft(1);
+    [$first, $second] = $draft['set']->profiles()->orderBy('position')->get()->all();
+    $second->forceFill(['key' => 'moving-'.$first->id])->save();
+    $data = savedDraft($draft)->toArray();
+    $data['profiles'][0]['key'] = 'renamed-key';
+
+    app(SaveContentSetAction::class)->handle($draft['admin'], $draft['set'], new ContentSetDraft($data['scoring'], $data['rounds'], $data['profiles']), $draft['set']->lock_version);
+
+    expect($draft['set']->profiles()->orderBy('position')->pluck('key')->all())->toBe(['renamed-key', 'moving-'.$first->id]);
+});
+
+it('renames or restores a set at the version its editor was drawn from, and refuses either over a newer save', function () {
+    $draft = publishableGameDraft(1);
+    $set = $draft['set'];
+    $admin = $draft['admin'];
+
+    app(ChangeContentSetAction::class)->rename($admin, $set, 'Renamed', 1);
+    $set->forceFill(['archived_at' => now()])->save();
+
+    expect(fn () => app(ChangeContentSetAction::class)->rename($admin, $set, 'Again', 1))
+        ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());
+    expect(fn () => app(ChangeContentSetAction::class)->restore($admin, $set, 1))
+        ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isStale())->toBeTrue());
+    expect($set->fresh()->name)->toBe('Renamed')
+        ->and($set->fresh()->isArchived())->toBeTrue();
+
+    app(ChangeContentSetAction::class)->restore($admin, $set, 2);
+
+    expect($set->fresh()->isArchived())->toBeFalse()
+        ->and($set->fresh()->lock_version)->toBe(3);
+});
+
 it('copies a set with its rounds, options and profiles', function () {
     $draft = publishableGameDraft(2);
 

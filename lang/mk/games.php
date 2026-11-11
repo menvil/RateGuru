@@ -6,7 +6,6 @@ return [
         'by_site' => 'Игра од :site',
         'pairs_meta' => 'Парови: :count · околу една минута',
         'pair_of' => 'Пар :current од :total',
-        'progress_label' => 'Вашите досегашни избори',
         'pick_option' => 'Избери опција :letter',
         'you_picked' => 'Вие',
         'crowd_pick' => 'Избор на мнозинството',

@@ -9,11 +9,13 @@ use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\GameFlowStep;
+use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\MediaAsset;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Urls\DisplayHost;
+use Illuminate\Support\Facades\Blade;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -145,4 +147,21 @@ it('leaves out its banner inside an editor\'s frame, which says itself that it i
 
     Livewire::withQueryParams([])->test(PreviewGame::class, ['game' => $this->draft['game']->id])
         ->assertSee('Preview — draft — nothing is recorded');
+});
+
+it('gives a profile the result step hides away by neither its picture nor its sign', function () {
+    $step = GameFlowStep::query()->where('flow_id', $this->draft['flow']->id)->where('type', 'full_result')->sole();
+    $step->forceFill(['settings' => [...$step->settings, 'show_profile' => false]])->save();
+    $picture = MediaAsset::factory()->create();
+    GameResultProfile::query()->where('key', 'oracle')->update(['share_asset_id' => $picture->id]);
+    $result = fn () => Livewire::withQueryParams(['start' => 'result:2'])->test(PreviewGame::class, ['game' => $this->draft['game']->id]);
+
+    $result()->assertDontSee($picture->path)
+        ->assertSeeHtml(Blade::render('<x-ui.icon name="award" class="size-16" />'))
+        ->assertDontSeeHtml(Blade::render('<x-ui.icon name="sparkles" class="size-16" />'));
+
+    $cover = MediaAsset::factory()->create();
+    $this->draft['game']->forceFill(['cover_asset_id' => $cover->id])->save();
+
+    $result()->assertSee($cover->path)->assertDontSee($picture->path);
 });

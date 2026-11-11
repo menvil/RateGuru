@@ -30,7 +30,7 @@ it('creates a draft game with an empty content set and a Result First flow', fun
         ->and($game->internal_name)->toBe('Trust Your Taste')
         ->and($game->created_by_user_id)->toBe($admin->id)
         ->and($game->contentSets()->sole()->name)->toBe('Standard')
-        ->and($game->contentSets()->sole()->crowd_min_votes)->toBe(100)
+        ->and($game->contentSets()->sole()->crowd_min_votes)->toBe(10)
         ->and($game->contentSets()->sole()->crowd_min_gap)->toBe(0)
         ->and($game->flows()->sole()->name)->toBe('Result First')
         ->and($game->flows()->sole()->steps->map(fn (GameFlowStep $step) => $step->type)->all())

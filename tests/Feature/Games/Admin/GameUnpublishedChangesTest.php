@@ -9,6 +9,7 @@ use App\Models\GameContentSet;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameRound;
+use App\Models\MediaAsset;
 use App\Models\ProjectSettings;
 use Livewire\Livewire;
 
@@ -72,6 +73,7 @@ it('says on General when the title, a translation of it, the description or the 
     'the title' => [fn ($game) => $game->forceFill(['title' => 'Trust Your Gut'])->save()],
     'a translation of the title' => [fn ($game) => $game->forceFill(['title_translations' => ['de' => 'Vertrau deinem Geschmack']])->save()],
     'the description' => [fn ($game) => $game->forceFill(['description' => 'Something else'])->save()],
+    'the cover' => [fn ($game) => $game->forceFill(['cover_asset_id' => MediaAsset::factory()->create()->id])->save()],
 ]);
 
 it('says nothing while no version is in traffic, or of a set no version in traffic was made from', function () {
@@ -104,10 +106,10 @@ it('opens Versions set to publish from the set and flow the address names, takin
         ->assertSet('publishFlowId', $this->draft['flow']->id)
         ->assertSet('takeOver', (string) $version->id);
 
-    // Another game's, or nothing in traffic: the first of each, taking over nothing.
+    // Another game's, though in traffic there: the first of each, taking over nothing.
     $foreign = publishableGameDraft(1);
 
-    Livewire::withQueryParams(['set' => $foreign['set']->id, 'flow' => $foreign['flow']->id, 'take_over' => 999])
+    Livewire::withQueryParams(['set' => $foreign['set']->id, 'flow' => $foreign['flow']->id, 'take_over' => liveGame($foreign)->id])
         ->test(GameVersions::class, ['record' => $this->draft['game']->id])
         ->assertSet('publishSetId', $this->draft['set']->id)
         ->assertSet('publishFlowId', $this->draft['flow']->id)

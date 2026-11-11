@@ -46,7 +46,7 @@
         @if ($play->state === 'unavailable')
             <section class="rg-game__card rg-game__card--center" data-testid="game-unavailable">
                 <span class="rg-game__tile" aria-hidden="true"><x-ui.icon name="flag" class="size-6" /></span>
-                <p class="rg-game__lead">{{ __('games.play.'.(in_array($play->data['reason'], ['paused', 'ended'], true) ? $play->data['reason'] : 'unavailable')) }}</p>
+                <h1 class="rg-game__title rg-game__title--sm">{{ __('games.play.'.(in_array($play->data['reason'], ['paused', 'ended'], true) ? $play->data['reason'] : 'unavailable')) }}</h1>
                 <button type="button" class="rg-game__button" wire:click="leave('feed')">{{ __('games.play.go_to_feed') }}</button>
             </section>
         @elseif ($play->state === 'end')

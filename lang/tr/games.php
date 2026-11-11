@@ -6,7 +6,6 @@ return [
         'by_site' => ':site tarafından bir oyun',
         'pairs_meta' => ':count çift · yaklaşık bir dakika',
         'pair_of' => 'Çift :current / :total',
-        'progress_label' => 'Şimdiye kadarki seçimleriniz',
         'pick_option' => ':letter seçeneğini seç',
         'you_picked' => 'Siz',
         'crowd_pick' => 'Topluluğun seçimi',

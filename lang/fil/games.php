@@ -6,7 +6,6 @@ return [
         'by_site' => 'Isang laro ng :site',
         'pairs_meta' => ':count pares · mga isang minuto',
         'pair_of' => 'Pares :current ng :total',
-        'progress_label' => 'Mga pinili mo sa ngayon',
         'pick_option' => 'Piliin ang opsyon :letter',
         'you_picked' => 'Ikaw',
         'crowd_pick' => 'Pinili ng karamihan',

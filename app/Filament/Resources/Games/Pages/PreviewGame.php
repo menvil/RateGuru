@@ -62,8 +62,28 @@ final class PreviewGame extends Page
     {
         $game = $this->mountGame($record);
         $this->visitor = $this->visitor === 'authenticated' ? 'authenticated' : 'anonymous';
-        $this->set = $this->set ?: (int) GameContentSet::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
-        $this->flow = $this->flow ?: (int) GameFlow::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
+        $this->set = $this->gameSetId((int) $game->id);
+        $this->flow = $this->gameFlowId((int) $game->id);
+    }
+
+    /** The set the address names when it is this game's, or its first set not archived. */
+    private function gameSetId(int $gameId): int
+    {
+        $sets = GameContentSet::query()->where('game_id', $gameId);
+
+        return (clone $sets)->whereKey($this->set)->exists()
+            ? $this->set
+            : (int) $sets->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
+    }
+
+    /** The flow the address names when it is this game's, or its first flow not archived. */
+    private function gameFlowId(int $gameId): int
+    {
+        $flows = GameFlow::query()->where('game_id', $gameId);
+
+        return (clone $flows)->whereKey($this->flow)->exists()
+            ? $this->flow
+            : (int) $flows->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
     }
 
     /** @return array<string, mixed> */
@@ -74,17 +94,20 @@ final class PreviewGame extends Page
 
         $versions = GameVersion::query()->where('game_id', $game->id)->orderByDesc('number')->get();
         $version = $this->source !== 'draft' ? $versions->firstWhere('id', (int) $this->source) : null;
+        // A set or flow the browser names is played only when it is this game's.
+        $setId = $this->gameSetId((int) $game->id);
+        $flowId = $this->gameFlowId((int) $game->id);
         $params = ['game' => $game->id, 'visitor' => $this->visitor, 'locale' => $this->locale, 'start' => $this->start, 'framed' => 1];
-        $params += $version !== null ? ['version' => (int) $version->id] : ['set' => $this->set, 'flow' => $this->flow];
+        $params += $version !== null ? ['version' => (int) $version->id] : ['set' => $setId, 'flow' => $flowId];
 
         $rounds = $version !== null
             ? (int) $version->round_count
-            : GameContentSet::query()->find($this->set)?->rounds()->count() ?? 0;
+            : GameContentSet::query()->where('game_id', $game->id)->find($setId)?->rounds()->count() ?? 0;
 
         // The steps the frame plays: the version's frozen ones, or the chosen flow's as they stand.
         $steps = $version !== null
             ? array_map(fn ($step): array => [$step->key, $step->type, $step->audience], $version->read()->steps)
-            : (GameFlow::query()->where('game_id', $game->id)->with('steps')->find($this->flow)?->steps->map(fn (GameFlowStep $step): array => [$step->key(), $step->type, $step->audience])->all() ?? []);
+            : (GameFlow::query()->where('game_id', $game->id)->with('steps')->find($flowId)?->steps->map(fn (GameFlowStep $step): array => [$step->key(), $step->type, $step->audience])->all() ?? []);
 
         return [
             'header' => $this->editorHeader($game, 'preview'),

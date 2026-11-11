@@ -1,16 +1,25 @@
 <?php
 
+use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameFlowAction;
+use App\Actions\Games\ClaimGuestGameAttemptsAction;
 use App\Actions\Profile\AnonymizeUserAccountAction;
+use App\Enums\GameAccountOutcome;
+use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Enums\GameFlowStepType;
+use App\Enums\GameStatus;
 use App\Livewire\Games\PlayGame;
+use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
+use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use App\Support\Games\Play\GameSessionAttempts;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -32,6 +41,35 @@ function emailFlowGame(array $draft, bool $required = false): void
 
     $draft['flow'] = $flow;
     liveGame($draft);
+}
+
+/**
+ * The flow's steps replaced by fresh ones of these types, in this order; a
+ * Next Game step leads to the game given.
+ *
+ * @param  list<GameFlowStepType>  $types
+ */
+function replaceFlowSteps(GameFlow $flow, array $types, ?Game $nextGame = null): void
+{
+    $flow->steps()->delete();
+
+    foreach ($types as $position => $type) {
+        $step = GameFlowStep::factory()->type($type)->create(['flow_id' => $flow->id, 'position' => $position]);
+
+        if ($type === GameFlowStepType::NextGame) {
+            $step->forceFill(['settings' => ['next_game_id' => $nextGame?->id]])->save();
+        }
+    }
+}
+
+/** The one-round game played by a guest's browser to the step after its result. */
+function playPastResult(string $slug, string $token = 'pastpastpastpastpastpastpastpastpastpast'): Testable
+{
+    return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->test(PlayGame::class, ['slug' => $slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false)
+        ->call('continue');
 }
 
 function playToEmail(string $slug): Testable
@@ -99,7 +137,8 @@ it('skips the email step for a signed-in player, and the sign-up step too', func
 
 it('deletes the emails of attempts an account claimed when the account is deleted', function () {
     emailFlowGame($this->draft);
-    playToEmail($this->draft['game']->slug)->set('email', 'player@example.com')->call('submitEmail');
+    playToEmail($this->draft['game']->slug)->set('email', 'player@example.com')->call('submitEmail')->assertHasNoErrors();
+    expect(GameEmailCapture::query()->count())->toBe(1);
     $user = User::factory()->create();
     GameAttempt::query()->update(['user_id' => $user->id]);
 
@@ -107,4 +146,99 @@ it('deletes the emails of attempts an account claimed when the account is delete
 
     expect(GameEmailCapture::query()->exists())->toBeFalse()
         ->and(GameAttempt::query()->count())->toBe(1);
+});
+
+it('takes no email for an attempt an account has claimed meanwhile', function () {
+    emailFlowGame($this->draft);
+    $page = playToEmail($this->draft['game']->slug);
+    GameAttempt::query()->update(['user_id' => User::factory()->create()->id]);
+
+    $page->set('email', 'player@example.com')->call('submitEmail')->assertHasErrors(['email']);
+
+    expect(GameEmailCapture::query()->exists())->toBeFalse();
+});
+
+it('passes a guest who signed in on a required email step on, asking no email', function () {
+    emailFlowGame($this->draft, required: true);
+    playToEmail($this->draft['game']->slug)->assertSee('Before your result');
+
+    // What signing in does: the account signed in, the session's guest attempts claimed.
+    $user = User::factory()->create();
+    $this->actingAs($user);
+    app(ClaimGuestGameAttemptsAction::class)->handle($user, GameSessionAttempts::all(session()->driver()), GameAccountOutcome::SignedIn);
+
+    Livewire::test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->assertHasNoErrors()
+        ->assertSee('data-testid="game-step-full_result"', false);
+
+    expect(GameEmailCapture::query()->exists())->toBeFalse();
+});
+
+it('guards every way on against a second click sent while the first is on its way', function () {
+    emailFlowGame($this->draft);
+
+    playToEmail($this->draft['game']->slug)
+        ->assertSeeHtml('wire:click="continue" wire:loading.attr="disabled" data-testid="game-email-skip"')
+        ->call('continue')->call('continue')
+        ->assertSee('data-testid="game-step-registration"', false)
+        ->assertSeeHtml('wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue"');
+
+    $shared = publishableGameDraft(1);
+    replaceFlowSteps($shared['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share, GameFlowStepType::Feed]);
+    liveGame($shared);
+
+    playPastResult($shared['game']->slug)
+        ->assertSee('data-testid="game-step-share"', false)
+        ->assertSeeHtml('wire:click="continue" wire:loading.attr="disabled" data-testid="game-continue"');
+});
+
+it('offers the way out on a Share step that ends the flow', function () {
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share]);
+    liveGame($this->draft);
+
+    playPastResult($this->draft['game']->slug)
+        ->assertSee('data-testid="game-step-share"', false)
+        ->assertDontSee('data-testid="game-continue"', false)
+        ->assertSee('data-testid="game-feed"', false)
+        ->call('leave', 'feed')
+        ->assertRedirect(route('feed'));
+});
+
+it('offers the next game only to an audience it gives a version to', function () {
+    $next = publishableGameDraft(1);
+    liveGame($next);
+    app(ApplyGameTrafficAction::class)->handle($next['admin'], $next['game'], GameAudience::Anonymous, []);
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $next['game']);
+    liveGame($this->draft);
+
+    // A guest, whom the next game gives nothing to play: their result is the end.
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('g', 40))
+        ->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')
+        ->assertSee('data-testid="game-step-full_result"', false)
+        ->assertDontSee('data-testid="game-continue"', false)
+        ->assertSee('data-testid="game-feed"', false);
+
+    // Another browser, signed in.
+    session()->flush();
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next')->call('continue')
+        ->assertSee('data-testid="game-step-next_game"', false)
+        ->assertSee('data-testid="game-next-game"', false);
+});
+
+it('counts leaving for a next game that went away as leaving for the feed, where the visitor is sent', function () {
+    $next = publishableGameDraft(1);
+    liveGame($next);
+    replaceFlowSteps($this->draft['flow'], [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::NextGame], $next['game']);
+    liveGame($this->draft);
+
+    $page = playPastResult($this->draft['game']->slug)->assertSee('data-testid="game-step-next_game"', false);
+    $next['game']->fresh()->forceFill(['status' => GameStatus::Paused])->save();
+
+    $page->call('leave', 'next')->assertRedirect(route('feed'));
+
+    expect(GameEvent::query()->where('type', GameEventType::Exit)->sole()->step_type)->toBe('feed');
 });

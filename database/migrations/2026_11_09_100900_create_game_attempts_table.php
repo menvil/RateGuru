@@ -82,6 +82,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['game_id', 'captured_at'], 'game_email_captures_game_index');
+            // What games:purge-expired finds expired emails by.
+            $table->index('captured_at', 'game_email_captures_captured_index');
         });
     }
 

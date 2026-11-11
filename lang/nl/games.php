@@ -6,7 +6,6 @@ return [
         'by_site' => 'Een spel van :site',
         'pairs_meta' => ':count paren · ongeveer een minuut',
         'pair_of' => 'Paar :current van :total',
-        'progress_label' => 'Je keuzes tot nu toe',
         'pick_option' => 'Kies optie :letter',
         'you_picked' => 'Jij',
         'crowd_pick' => 'Keuze van de meerderheid',

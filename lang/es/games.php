@@ -6,7 +6,6 @@ return [
         'by_site' => 'Un juego de :site',
         'pairs_meta' => ':count pares · alrededor de un minuto',
         'pair_of' => 'Par :current de :total',
-        'progress_label' => 'Tus elecciones hasta ahora',
         'pick_option' => 'Elegir la opción :letter',
         'you_picked' => 'Tu elección',
         'crowd_pick' => 'Elección del público',

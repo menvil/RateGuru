@@ -14447,3 +14447,27 @@ function allowGames(bool $allowed = true): void
     $settings->forceFill(['feature_flags' => [...($settings->feature_flags ?? []), 'allow_games' => $allowed]])->save();
     app(ProjectSettingsManager::class)->flush();
 }
+
+/**
+ * Every picture of the posts the game rounds show, put on a faked public disk
+ * — the master and each variant — so a page that wrongly showed one of them
+ * would show it, and the assertion that it does not can fail. Their paths.
+ *
+ * @return list<string>
+ */
+function storeGamePostPictures(): array
+{
+    Storage::fake('public');
+    $paths = [];
+
+    foreach (GameRoundOption::query()->with('post.imageAsset.variants')->get() as $option) {
+        $asset = $option->post->imageAsset;
+
+        foreach ([$asset, ...$asset->variants] as $file) {
+            Storage::disk($file->disk)->put($file->path, 'image');
+            $paths[] = $file->path;
+        }
+    }
+
+    return $paths;
+}

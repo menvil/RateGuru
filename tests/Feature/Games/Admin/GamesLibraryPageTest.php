@@ -37,11 +37,18 @@ it('says when there are no games yet', function () {
 });
 
 it('shows a game\'s newest version and whether it has traffic', function () {
-    $version = GameVersion::factory()->create(['number' => 3]);
+    $quiet = GameVersion::factory()->create(['number' => 3]);
+    $live = liveGame(publishableGameDraft(1));
 
     $this->get(GameResource::getUrl('index'))
         ->assertSee('V3')
         ->assertSee('No traffic');
+
+    // Read from the rows: Live is also a game's own status badge.
+    $versions = collect(Livewire::test(ListGames::class)->viewData('rows'))->pluck('version', 'id');
+
+    expect($versions[$quiet->game_id])->toMatchArray(['label' => 'V3', 'state' => ['label' => 'No traffic', 'tone' => 'outline', 'dot' => false]])
+        ->and($versions[$live->game_id])->toMatchArray(['label' => 'V1', 'state' => ['label' => 'Live', 'tone' => 'success', 'dot' => true]]);
 });
 
 it('narrows by status, keeping archived games out unless asked for', function () {
@@ -94,9 +101,14 @@ it('shows each game’s plays, completion and sign-ups of the last 30 days, and 
     session()->flush();
     $this->actingAs($draft['admin']);
 
-    $page = $this->get(GameResource::getUrl('index'))->assertOk();
-
-    // Two started, one completed, no account made from two anonymous visitors.
-    $page->assertSeeInOrder([$draft['game']->title, '2', '50.0%', '0.0%'])
+    $this->get(GameResource::getUrl('index'))
+        ->assertOk()
         ->assertSeeInOrder([$quiet->title, '—', '—', '—']);
+
+    // Two started, one completed, no account made from two anonymous visitors —
+    // read from the rows, as any digit of the row's markup would match a bare 2.
+    $rows = collect(Livewire::test(ListGames::class)->viewData('rows'))->keyBy('id');
+
+    expect($rows[$draft['game']->id])->toMatchArray(['plays' => '2', 'completion' => '50.0%', 'signups' => '0.0%'])
+        ->and($rows[$quiet->id])->toMatchArray(['plays' => null, 'completion' => null, 'signups' => null]);
 });

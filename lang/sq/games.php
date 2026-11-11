@@ -6,7 +6,6 @@ return [
         'by_site' => 'Një lojë nga :site',
         'pairs_meta' => ':count çifte · rreth një minutë',
         'pair_of' => 'Çifti :current nga :total',
-        'progress_label' => 'Zgjedhjet e tua deri tani',
         'pick_option' => 'Zgjidh opsionin :letter',
         'you_picked' => 'Ti',
         'crowd_pick' => 'Zgjedhja e shumicës',

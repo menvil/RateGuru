@@ -35,6 +35,7 @@ it('publishes a crowd round with a clear pick and scores by it', function () {
 
     expect($check->issues)->toBe([])
         ->and($check->mode)->toBe(GameRoundMode::Crowd)
+        ->and($check->scored)->toBeTrue()
         ->and($check->answer)->toBe(0);
 });
 
@@ -65,6 +66,12 @@ it('says a post that left the site, or a picture that is not ready, blocks the r
     ]), 100, 5);
 
     expect($check->issues)->toBe(['Option A: the post is no longer public', 'Option B image still processing']);
+});
+
+it('says an upload without its photo, or with a picture that is gone, blocks the round', function () {
+    $check = VersusRoundCheck::of(versusRound([uploadOption(null), uploadOption(11, true, ImageState::Unavailable)], GameRoundMode::Objective), 100, 5);
+
+    expect($check->issues)->toBe(['Option A photo missing', 'Option B image unavailable']);
 });
 
 it('refuses the same post on both sides', function () {

@@ -87,7 +87,9 @@
                 @endif
                 <x-admin.ui.button size="sm" :href="$trafficUrl" trailing-icon="arrow-right">Set traffic</x-admin.ui.button>
             </div>
-            @if ($versions === [])
+            @if ($versions === [] && $retiredCount > 0)
+                <x-admin.ui.empty-state icon="archive" title="No active versions">{{ $retiredCount }} archived. Turn on Show archived to see {{ $retiredCount === 1 ? 'it' : 'them' }}.</x-admin.ui.empty-state>
+            @elseif ($versions === [])
                 <x-admin.ui.empty-state icon="layers" title="No versions yet">Publish a content set played through a flow to make the first version.</x-admin.ui.empty-state>
             @else
                 <div class="rg-admin-table__scroll">

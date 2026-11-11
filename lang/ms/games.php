@@ -6,7 +6,6 @@ return [
         'by_site' => 'Permainan oleh :site',
         'pairs_meta' => ':count pasangan · kira-kira seminit',
         'pair_of' => 'Pasangan :current daripada :total',
-        'progress_label' => 'Pilihan anda setakat ini',
         'pick_option' => 'Pilih opsyen :letter',
         'you_picked' => 'Anda',
         'crowd_pick' => 'Pilihan ramai',
