@@ -50,6 +50,11 @@ Prepare and preview a game first; switch games on when it is live.
    logged-in player, in any language, from the landing, from a given round,
    or straight to a result. Nothing is recorded.
 
+Games are not created in the admin: each arrives with the release that adds
+it, as a draft in Growth → Games — the first is **Trust Your Taste** (Versus),
+with an empty Standard content set and a Result First flow. Fill it, publish a
+version, give it traffic and set it live.
+
 ## Publishing and traffic
 
 - **Saving and publishing.** Saving changes the draft only; players keep
