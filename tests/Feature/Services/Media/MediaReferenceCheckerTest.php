@@ -1,5 +1,9 @@
 <?php
 
+use App\Models\Game;
+use App\Models\GameResultProfile;
+use App\Models\GameRoundOption;
+use App\Models\GameVersion;
 use App\Models\MediaAsset;
 use App\Models\Post;
 use App\Models\StudioPlan;
@@ -99,7 +103,7 @@ it('does not treat a plan pointing at a different asset as a reference', functio
     expect(app(MediaReferenceChecker::class)->isReferenced($asset))->toBeFalse();
 });
 
-it('batches reference checks across posts, avatars and plans in three queries, regardless of how many ids are checked', function () {
+it('batches reference checks across every source in one query each, regardless of how many ids are checked', function () {
     $referencedByPost = MediaAsset::factory()->postImage()->create();
     Post::factory()->published()->create(['image_asset_id' => $referencedByPost->id]);
 
@@ -113,22 +117,46 @@ it('batches reference checks across posts, avatars and plans in three queries, r
     $referencedByPlans = MediaAsset::factory()->postImage()->count(30)->create();
     $referencedByPlans->each(fn (MediaAsset $asset) => StudioPlan::factory()->create(['image_asset_id' => $asset->id]));
 
+    $referencedByGame = MediaAsset::factory()->postImage()->create();
+    Game::factory()->create(['cover_asset_id' => $referencedByGame->id]);
+
+    $referencedByVersion = MediaAsset::factory()->postImage()->create();
+    GameVersion::factory()->create()->assets()->attach($referencedByVersion->id);
+
     $unreferenced = MediaAsset::factory()->postImage()->count(20)->create();
 
-    $assetIds = collect([$referencedByPost->id, $referencedByTrashedPost->id, $referencedByAvatar->id])
+    $assetIds = collect([$referencedByPost->id, $referencedByTrashedPost->id, $referencedByAvatar->id, $referencedByGame->id, $referencedByVersion->id])
         ->merge($referencedByPlans->modelKeys())
         ->merge($unreferenced->modelKeys());
 
-    $this->expectsDatabaseQueryCount(3);
+    // Posts, avatars, plans, game covers, round uploads, profile share images
+    // and published game versions.
+    $this->expectsDatabaseQueryCount(7);
 
     $referenced = app(MediaReferenceChecker::class)->referencedAssetIds($assetIds);
 
     expect($referenced->has($referencedByPost->id))->toBeTrue()
         ->and($referenced->has($referencedByTrashedPost->id))->toBeTrue()
         ->and($referenced->has($referencedByAvatar->id))->toBeTrue()
+        ->and($referenced->has($referencedByGame->id))->toBeTrue()
+        ->and($referenced->has($referencedByVersion->id))->toBeTrue()
         ->and($referencedByPlans->every(fn (MediaAsset $asset): bool => $referenced->has($asset->id)))->toBeTrue()
         ->and($unreferenced->contains(fn (MediaAsset $asset): bool => $referenced->has($asset->id)))->toBeFalse();
 });
+
+it('reports an asset as referenced while a game uses it as cover, upload, share image or published picture', function (Closure $use) {
+    $asset = MediaAsset::factory()->postImage()->create();
+    $use($asset);
+    $checker = app(MediaReferenceChecker::class);
+
+    expect($checker->isReferenced($asset))->toBeTrue()
+        ->and($checker->referencedAssetIds(collect([$asset->id]))->has($asset->id))->toBeTrue();
+})->with([
+    'a game\'s cover' => [fn (MediaAsset $asset) => Game::factory()->create(['cover_asset_id' => $asset->id])],
+    'a round option\'s upload' => [fn (MediaAsset $asset) => GameRoundOption::factory()->create(['source' => 'upload', 'post_id' => null, 'asset_id' => $asset->id])],
+    'a result profile\'s share image' => [fn (MediaAsset $asset) => GameResultProfile::factory()->create(['share_asset_id' => $asset->id])],
+    'a published version' => [fn (MediaAsset $asset) => GameVersion::factory()->create()->assets()->attach($asset->id)],
+]);
 
 it('asks nothing of the database for no ids at all', function () {
     $this->expectsDatabaseQueryCount(0);

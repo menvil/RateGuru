@@ -27,7 +27,7 @@ it('starts the OAuth flow despite an unusable optional marker', function (array 
 
     // Fell back to the page flow rather than refusing, and remembered no modal
     // context to come back to.
-    expect(AuthSurfaceContext::pull(session()->driver())->isModal())->toBeFalse();
+    expect(AuthSurfaceContext::pull(session()->driver())->returnsToPage())->toBeFalse();
 })->with([
     'surface as an array' => [[AuthSurfaceContext::SURFACE_FIELD => ['modal']]],
     'nested array' => [[AuthSurfaceContext::SURFACE_FIELD => ['deeper' => ['modal']]]],
@@ -41,15 +41,15 @@ it('starts the OAuth flow in modal mode despite an unusable mode or return marke
 
     // The surface itself was usable, so the modal is remembered — and the
     // unusable part took its documented fallback, which is the thing worth
-    // asserting. isModal() alone would hold just as well for a context that came
-    // back with a wrong mode or a return path somewhere unexpected.
+    // asserting. returnsToPage() alone would hold just as well for a context
+    // that came back with a wrong mode or a return path somewhere unexpected.
     //
     // Both are read through redirectAfterSocialFailure, the public path that
     // surfaces them: it redirects to the remembered return path and flashes the
     // remembered mode.
     $remembered = AuthSurfaceContext::pull(session()->driver());
 
-    expect($remembered->isModal())->toBeTrue();
+    expect($remembered->returnsToPage())->toBeTrue();
 
     $failure = $remembered->redirectAfterSocialFailure('nope');
 
@@ -73,5 +73,5 @@ it('still honours a well-formed modal marker', function () {
         AuthSurfaceContext::MODE_FIELD => 'register',
     ]))->assertRedirect();
 
-    expect(AuthSurfaceContext::pull(session()->driver())->isModal())->toBeTrue();
+    expect(AuthSurfaceContext::pull(session()->driver())->returnsToPage())->toBeTrue();
 });

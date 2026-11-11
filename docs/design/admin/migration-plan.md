@@ -304,7 +304,14 @@ prototype (`RateGuru-Admin-v1.html`) and are reviewed against the current one, w
 reference.
 
 Planned on their own, once the screens above are on v2: the Dashboard, which is work of its own rather than a
-migration, and the prototype's Growth section — Games with the game editor, Experiments and Analytics.
+migration, and the rest of the prototype's Growth section — Experiments and Growth Analytics.
+
+### Growth
+
+Growth is a section of its own, built from the current prototype rather than migrated from v1, one working screen at
+a time like Content Studio. Games is built — the library and the game editor with General, Content and Results,
+Flow, Versions, Traffic, Analytics and Preview (the contract's Growth section, `docs/architecture/games.md`).
+Experiments and Growth Analytics come with their own screens; until then no item stands for them.
 
 ### Content Studio
 

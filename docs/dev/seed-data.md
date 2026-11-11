@@ -50,6 +50,27 @@ The large dataset can contain more than one million comment votes and may take
 noticeably longer than the default seed. It is deliberately not called by
 `DatabaseSeeder`.
 
+## Demo game
+
+To try Growth → Games locally, build the demo game after the large dataset — its
+rounds need posts with enough votes to be decided:
+
+```bash
+php artisan db:seed --class=DemoFillSeeder
+php artisan db:seed --class=GamesDemoSeeder
+```
+
+`GamesDemoSeeder` builds "Trust Your Taste" the way an administrator would:
+five crowd rounds, each the least liked against the best liked of the published
+posts left with at least 10 votes, the suggested results, the Result First
+flow; it publishes V1, gives it all the traffic of both audiences, makes the
+game live and switches games on in Project settings — creating the settings
+row from the defaults if there is none. Play it at `/games/trust-your-taste`.
+
+It runs once: when the game exists it changes nothing, and without enough
+decided posts it makes nothing and says why. It is not called by
+`DatabaseSeeder`.
+
 ## Demo accounts
 
 Admin:

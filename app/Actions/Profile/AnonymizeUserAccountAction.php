@@ -6,6 +6,8 @@ use App\Enums\ProfileActivityVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Follow;
+use App\Models\GameAttempt;
+use App\Models\GameEmailCapture;
 use App\Models\PasswordResetToken;
 use App\Models\PersonaProfile;
 use App\Models\PostSave;
@@ -100,6 +102,13 @@ final class AnonymizeUserAccountAction
                 ->delete();
 
             PostSave::query()->where('user_id', $locked->id)->delete();
+
+            // The emails left on game steps by attempts that became this
+            // account's: personal data with nothing left to keep it for. The
+            // attempts themselves stay, as the game's anonymous history.
+            GameEmailCapture::query()
+                ->whereIn('attempt_id', GameAttempt::query()->select('id')->where('user_id', $locked->id))
+                ->delete();
 
             // A Google/Facebook subject id is a persistent identifier of the
             // person at the provider: once the account is a tombstone nothing

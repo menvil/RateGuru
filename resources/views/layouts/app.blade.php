@@ -18,11 +18,24 @@
     <body class="min-h-screen bg-rg-bg font-sans text-rg-text antialiased">
         @php
             $searchClearUrl = route('feed', request()->except(['search', 'page']));
+            // A focused page — a game — draws its own bar: it leaves out the
+            // header, the navigation, the search and the post panel, and keeps
+            // the sign-in dialog and the toasts.
+            $focused = (bool) ($focused ?? false);
         @endphp
         <div
             class="min-h-screen"
             x-data="{ mobileNavOpen: false, mobileSearchOpen: @js(filled(request('search'))) }"
         >
+            @if ($focused)
+                {{-- A focused page draws its own bar. The sign-in dialog stays, in the
+                     header's z-[60] stacking context, for the game's sign-up step. --}}
+                @guest
+                    <div class="relative z-[60]">
+                        <x-auth.modal />
+                    </div>
+                @endguest
+            @else
             {{-- z-[60]: must sit above the post-detail overlay (z-50), or the header's own
                  dropdowns (user menu, notifications, search suggestions) open invisibly
                  behind the open panel — they cannot escape the header's stacking context. --}}
@@ -265,7 +278,9 @@
                     <x-auth.modal />
                 @endguest
             </header>
+            @endif
 
+            @unless ($focused)
             {{-- Mobile navigation drawer --}}
             <div
                 x-cloak
@@ -343,11 +358,12 @@
                     @include('layouts.partials.app-sidebar-content')
                 </div>
             </div>
+            @endunless
 
             {{-- The feed in its split view draws a selected post itself (its detail column, and
                  its own overlay on a phone); every other page with post cards — a profile, the
                  saved posts — has only this one, whatever the view mode. --}}
-            @if($projectSettings->featureFlag('post_detail_overlay_mode', false) || ! request()->routeIs('feed'))
+            @if(! $focused && ($projectSettings->featureFlag('post_detail_overlay_mode', false) || ! request()->routeIs('feed')))
                 {{-- Global post detail overlay: shared across the feed, profile, and saved-posts
                      pages so clicking a post always opens the same sliding panel. The backdrop
                      has no Livewire-driven content, so plain window-event Alpine state is safe
@@ -396,8 +412,10 @@
                 <livewire:feed.post-drawer wire:key="global-post-detail-overlay-drawer" :as-overlay="true" />
             @endif
 
-            <div class="mx-auto grid w-full max-w-[1440px] lg:grid-cols-[240px_minmax(0,1fr)]">
-                @include('layouts.partials.app-sidebar')
+            <div @class(['mx-auto grid w-full max-w-[1440px]', 'lg:grid-cols-[240px_minmax(0,1fr)]' => ! $focused])>
+                @unless ($focused)
+                    @include('layouts.partials.app-sidebar')
+                @endunless
 
                 <div class="min-w-0">
                     @isset($header)
@@ -411,7 +429,7 @@
                     <x-account-restriction-notice />
 
                     <main
-                        class="{{ $isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8' }}"
+                        class="{{ $focused ? 'px-0 py-0' : ($isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8') }}"
                         data-testid="app-main"
                     >
                         {{ $slot ?? '' }}
