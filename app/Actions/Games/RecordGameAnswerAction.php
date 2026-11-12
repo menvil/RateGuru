@@ -95,6 +95,12 @@ final class RecordGameAnswerAction
                     'current_step_key' => $next?->key,
                 ]);
                 $this->events->record(GameEventType::Completed, (int) $locked->game_id, $visitor, attempt: $locked);
+
+                // Entering the step after the game is a step like any other the
+                // attempt moves on to, so it is counted the way a move counts it.
+                if ($next !== null) {
+                    $this->events->record($next->type === GameFlowStepType::FullResult ? GameEventType::ResultViewed : GameEventType::StepViewed, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['step_type' => $next->type->value]);
+                }
             }
 
             $locked->save();

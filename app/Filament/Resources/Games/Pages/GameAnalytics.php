@@ -190,7 +190,8 @@ final class GameAnalytics extends Page
     /**
      * The anonymous funnel, people at every step: Email captured only where
      * a version asks for one, then who began signing up — by how — and the
-     * accounts made.
+     * accounts made, both shares of the people who finished rather than of
+     * the step above.
      *
      * @param  array<string, int>  $methods
      * @return list<array<string, mixed>>
@@ -198,12 +199,12 @@ final class GameAnalytics extends Page
     private static function anonymousFunnel(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, array $methods): array
     {
         return self::funnelRows($total->visitors, array_values(array_filter([
-            ['Visitors', $total->visitors, null, 'People who opened the game'],
-            ['Game started', $total->starters, $total->visitors, 'People who started at least once'],
-            ['Completed', $total->finishers, $total->starters, 'People who finished at least once'],
-            $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'Of the people who finished a version that asks for an email'] : null,
-            ['Sign-up begun', $total->signUpStarters, $total->finishers, self::methods($methods)],
-            ['New account', $total->registered, $total->finishers, 'Made within a day of an attempt, each person once'],
+            ['Visitors', $total->visitors, null, null, 'People who opened the game'],
+            ['Game started', $total->starters, $total->visitors, 'Visitors', 'People who started at least once'],
+            ['Completed', $total->finishers, $total->starters, 'Game started', 'People who finished at least once'],
+            $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'finishers asked', 'Of the people who finished a version that asks for an email'] : null,
+            ['Sign-up begun', $total->signUpStarters, $total->finishers, 'Completed', self::methods($methods)],
+            ['New account', $total->registered, $total->finishers, 'Completed', 'Made within a day of an attempt, each person once'],
         ])));
     }
 
@@ -226,30 +227,39 @@ final class GameAnalytics extends Page
         return $parts === [] ? 'The email form opened, a provider chosen, or the site\'s sign-up or log-in' : implode(' · ', $parts);
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * The logged-in funnel: who played again is of the players who started,
+     * since a replay needs no share before it.
+     *
+     * @return list<array<string, mixed>>
+     */
     private static function playerFunnel(GameFunnel $total): array
     {
         return self::funnelRows($total->visitors, [
-            ['Players', $total->visitors, null, 'Logged-in players who opened the game'],
-            ['Game started', $total->starters, $total->visitors, 'Players who started at least once'],
-            ['Completed', $total->finishers, $total->starters, 'Players who finished at least once'],
-            ['Shared result', $total->sharers, $total->finishers, null],
-            ['Played again', $total->replayers, $total->starters, 'Players who started more than once'],
+            ['Players', $total->visitors, null, null, 'Logged-in players who opened the game'],
+            ['Game started', $total->starters, $total->visitors, 'Players', 'Players who started at least once'],
+            ['Completed', $total->finishers, $total->starters, 'Game started', 'Players who finished at least once'],
+            ['Shared result', $total->sharers, $total->finishers, 'Completed', null],
+            ['Played again', $total->replayers, $total->starters, 'Game started', 'Players who started more than once'],
         ]);
     }
 
     /**
-     * @param  list<array{0: string, 1: int, 2: int|null, 3: string|null}>  $steps
+     * Each step with its rate, a share of the step it is measured against,
+     * named — not always the step above it.
+     *
+     * @param  list<array{0: string, 1: int, 2: int|null, 3: string|null, 4: string|null}>  $steps
      * @return list<array<string, mixed>>
      */
     private static function funnelRows(int $start, array $steps): array
     {
         return array_map(fn (array $step): array => [
             'label' => $step[0],
-            'hint' => $step[3],
+            'hint' => $step[4],
             'count' => number_format($step[1]),
             'bar' => $start > 0 ? min(100, round($step[1] * 100 / $start, 1)) : 0,
-            'fromPrevious' => $step[2] === null ? '—' : self::percent($step[1], $step[2]),
+            'rate' => $step[2] === null ? '—' : self::percent($step[1], $step[2]),
+            'rateOf' => $step[3] === null ? null : 'of '.$step[3],
             'fromStart' => self::percent($step[1], $start),
         ], $steps);
     }

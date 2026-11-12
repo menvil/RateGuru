@@ -51,6 +51,29 @@ it('opens a live game at its address, and nothing while games are off or the gam
     $this->get('/games/'.$this->slug)->assertNotFound();
 });
 
+it('answers nothing more from a game page drawn before games were switched off, and records nothing', function () {
+    $snapshot = pageComponentSnapshot($this->get('/games/'.$this->slug)->assertOk()->getContent(), 'games.play-game');
+    $update = fn () => $this->withHeaders(['X-Livewire' => '1'])->postJson(Livewire::getUpdateUri(), [
+        'components' => [['snapshot' => $snapshot, 'updates' => [], 'calls' => [
+            ['path' => '', 'method' => 'init', 'params' => []],
+            ['path' => '', 'method' => 'continue', 'params' => []],
+        ]]],
+    ]);
+
+    allowGames(false);
+    $update()->assertNotFound();
+
+    expect(GameAssignment::query()->exists())->toBeFalse()
+        ->and(GameAttempt::query()->exists())->toBeFalse()
+        ->and(GameEvent::query()->exists())->toBeFalse();
+
+    // The same request, games on again: it is the switch that refused it.
+    allowGames();
+    $update()->assertOk();
+
+    expect(GameAttempt::query()->count())->toBe(1);
+});
+
 it('describes the game when its link is shared, with the site’s own picture until the game has a cover', function () {
     $game = $this->draft['game'];
     $postPictures = storeGamePostPictures();

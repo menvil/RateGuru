@@ -98,11 +98,12 @@ reached each round, which results players got, the versions, flows or content
 sets side by side, and the traffic periods. Library shows each game's plays,
 completion and sign-ups of the last 30 days.
 
-The funnel counts people: someone who played three times started once.
-Completion is the share of plays finished, replays included. Between the
-finished players and the new accounts, **Sign-up begun** shows who started
-signing up from the game and how — email, Google, Facebook, the site's
-sign-up dialog or Log in.
+The funnel counts people: someone who played three times started once. Each
+step's rate says what it is a share of — Played again, for instance, is of the
+players who started, not of those who shared. Completion is the share of plays
+finished, replays included. Between the finished players and the new accounts,
+**Sign-up begun** shows who started signing up from the game and how — email,
+Google, Facebook, the site's sign-up dialog or Log in.
 
 ## Privacy
 
@@ -110,6 +111,9 @@ sign-up dialog or Log in.
   `rg_game_visitor`, for a year. It holds a random token; only a hash of it is
   stored. **Mention it on your privacy page** (Project settings → Static pages).
 - Email capture stores the address and, separately, whether the visitor agreed
-  to marketing — unticked by default. Nothing is sent from a game.
+  to marketing — unticked by default. Nothing is sent from a game. The step's
+  default wording says just that — the email is kept with the result, and news
+  goes only to whoever ticks the box — so keep any wording you write to the
+  same promise.
 - Game events are deleted after 400 days and captured emails after 365.
   Deleting an account deletes the emails its games left.

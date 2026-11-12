@@ -49,7 +49,7 @@ it('refuses a save drawn before somebody else\'s', function () {
     $draft = publishableGameDraft(1);
 
     app(SaveContentSetAction::class)->handle($draft['admin'], $draft['set'], savedDraft($draft), $draft['set']->lock_version + 1);
-})->throws(CannotManageGameException::class);
+})->throws(CannotManageGameException::class, 'Someone saved this content set after you opened it. Reload to see their changes.');
 
 it('holds the draft to its shape and lengths', function (Closure $break, string $key) {
     $draft = publishableGameDraft(1);

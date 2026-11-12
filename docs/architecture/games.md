@@ -33,6 +33,31 @@ Locks are always taken in one order: the administrator's user row, then the
 game, then the content set, then the flow. Traffic locks the game; an answer
 locks its attempt.
 
+## Database checks
+
+Three rules are kept by the database itself, alike on every engine:
+
+| Constraint | Holds |
+| --- | --- |
+| `game_round_options_source_shape_check` | a post option holds no uploaded picture: `source = 'upload' OR asset_id IS NULL` |
+| `game_traffic_shares_percent_check` | a share is 1 to 100 percent |
+| `game_assignments_identity_check` | an assignment names exactly one of `user_id` and `visitor_hash` — a signed-in player or an anonymous browser, never both |
+
+That an uploaded option holds no post is `SaveContentSetAction`'s to keep, not
+the database's: the post purge detaches `post_id` (`ON DELETE SET NULL`), and
+MariaDB refuses a `CHECK` on a column with a referential action, so no engine
+checks it and all three agree.
+
+SQLite takes a `CHECK` only with its table, so on SQLite these three tables
+are written whole, in `CREATE TABLE` statements of their own, while PostgreSQL
+and MariaDB add the same named constraint to the table `Schema::create` made.
+That is the engine-specific exception [Database
+support](database-support.md) asks to be written down: the SQLite statement
+repeats the columns, keys, referential actions and enum sets by hand, so both
+branches of each migration must describe one table. The shared behaviour test,
+`tests/Feature/Database/GameTablesTest.php`, holds each check — with the round
+options' cascade, post detach and asset restriction — on all three engines.
+
 ## Scoring
 
 A Versus round is **crowd** or **objective**.
@@ -157,11 +182,15 @@ transaction as the change it records: `view`, `assigned`, `step_viewed`,
 `registration_cta_clicked`, `account_attributed`, `share_clicked`, `replay`
 and `exit`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
+`step_viewed` (`result_viewed` for Full Result) names each step after the game
+an attempt enters, the one its last pick moves it on to included.
 `share_clicked` names where the result went, and is recorded on the attempt
 whose result it is — for a provider only once the provider's address has been
-built; `registration_cta_clicked` names how signing up began: `email` or a
-provider on the sign-up set into Full Result, or `register` / `login` for the
-site's dialog; `exit` names where the visitor was actually sent.
+built, for a copied link only once the clipboard took it (where it refuses,
+the page shows the link to copy by hand); `registration_cta_clicked` names
+how signing up began: `email` or a provider on the sign-up set into Full
+Result, or `register` / `login` for the site's dialog; `exit` names where the
+visitor was actually sent.
 
 `GameMetricsQuery` reads the figures back (a registered raw-SQL boundary):
 
@@ -177,9 +206,12 @@ site's dialog; `exit` names where the visitor was actually sent.
 | Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
 
-The funnel counts people at every step, so each step is a share of the one
-before it; the plays behind it — and how many of them were completed — are
-the Completion figure's.
+The funnel counts people at every step, and each step's rate names the step it
+is a share of — not always the one above it: Sign-up begun and New accounts
+are shares of the people who completed, Email captured of those who finished a
+version that asks for an email, and Played again of the players who started.
+The plays behind it — and how many of them were completed — are the
+Completion figure's.
 
 Nothing is estimated and nothing claims one version is better than another;
 versions are compared only inside one traffic period.

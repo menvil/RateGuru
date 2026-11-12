@@ -86,7 +86,10 @@ it('keeps an email with an unticked consent and moves on, sending nothing', func
     Mail::fake();
 
     playToEmail($this->draft['game']->slug)
-        ->assertSee('Leave your email to stay in touch.')
+        // Promising nothing the game does not do: the email is kept, news only on the ticked box.
+        ->assertSee('Leave your email with your result.')
+        ->assertSee('We keep your email with your result and never share it. We only send you news if you tick the box below.')
+        ->assertDontSee('stay in touch')
         ->set('email', 'Player@Example.com')
         ->call('submitEmail')
         ->assertHasNoErrors()
@@ -99,7 +102,8 @@ it('keeps an email with an unticked consent and moves on, sending nothing', func
         ->and($capture->consent_label)->toBe('Tell me about new games and news')
         ->and(GameEvent::query()->where('type', GameEventType::EmailCaptured)->count())->toBe(1);
 
-    Mail::assertNothingSent();
+    // Neither sent nor queued.
+    Mail::assertNothingOutgoing();
 });
 
 it('refuses an address that is not one', function () {
@@ -203,6 +207,23 @@ it('offers the way out on a Share step that ends the flow', function () {
         ->call('leave', 'feed')
         ->assertRedirect(route('feed'));
 });
+
+it('counts the step the last pick moves the attempt on to as viewed, the way a move counts it', function (bool $emailFirst, array $viewed) {
+    $emailFirst ? emailFlowGame($this->draft) : liveGame($this->draft);
+
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('v', 40))
+        ->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('continue')->call('choose', 0)->call('next');
+
+    $attempt = GameAttempt::query()->sole();
+    $events = GameEvent::query()->where('attempt_id', $attempt->id)->whereIn('type', [GameEventType::StepViewed, GameEventType::ResultViewed])->get();
+
+    expect($attempt->isCompleted())->toBeTrue()
+        ->and($events->map(fn (GameEvent $event): array => [$event->type->value, $event->step_type])->all())->toBe([$viewed]);
+})->with([
+    'Full Result straight after the game' => [false, ['result_viewed', 'full_result']],
+    'the result preview first' => [true, ['step_viewed', 'result_preview']],
+]);
 
 it('offers the next game only to an audience it gives a version to', function () {
     $next = publishableGameDraft(1);
