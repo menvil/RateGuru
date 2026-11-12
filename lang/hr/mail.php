@@ -12,6 +12,7 @@ return [
         'subject' => 'Potvrdi svoju adresu e-pošte',
         'line' => 'Potvrdi svoju adresu e-pošte kako bi dovršio postavljanje računa.',
         'action' => 'Potvrdi adresu e-pošte',
+        'expires' => 'Račun koji nije potvrđen u roku od :days dana briše se.',
         'ignore' => 'Ako nisi stvorio račun, ne trebaš ništa poduzeti.',
     ],
 

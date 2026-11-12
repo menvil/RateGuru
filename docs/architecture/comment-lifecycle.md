@@ -97,6 +97,12 @@ body and renders under the "Deleted user" author label. Only the author
 identity is tombstoned — never the comment. Conversely a deleted comment
 by a living user hides content but not identity elsewhere.
 
+The one exception is the removal of an account that never confirmed its
+address ([user-lifecycle.md](user-lifecycle.md), "Unconfirmed accounts"):
+its comments are deleted, leaves first, and one that other people answered
+stays as the `[comment deleted]` tombstone with its text emptied, so their
+replies keep their place.
+
 ## Admin table
 
 Author-deleted rows stay reviewable (withTrashed) as audit history, labeled

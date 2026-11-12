@@ -43,8 +43,9 @@ apart:
 | Signing in for itself (`User::canSignIn()`) | while living | never | while living |
 | Administrative powers (panel, moderation) | none | none | by role, Active only |
 
-- **Participation** belongs to status alone. An Active Persona has every
-  capability in the matrix below; a sanctioned one loses them exactly as a
+- **Participation** belongs to status, plus a confirmed address for a
+  member ("Unconfirmed accounts" below), which a Persona never needs. An
+  Active Persona has every capability in the matrix below; a sanctioned one loses them exactly as a
   member does, and Limit, Shadowban, Ban and Restore access apply to it
   unchanged. Its posts always wait for moderation, whatever its trust or
   address (`CreatePostAction`): it is published only by an administrator's
@@ -86,6 +87,51 @@ apart:
 
 Lifecycle status is **not** RBAC: no status ever grants a permission a role
 withholds, and no role rescues a non-active status (fail closed).
+
+## Unconfirmed accounts
+
+An account that signed up with an email address takes part only once it has
+confirmed one. `User::canCreateContent()`, `canComment()`, `canVote()` and
+`canFollow()` ask for a living status **and** `User::hasConfirmedIdentity()`:
+a confirmed address, or a Google or Facebook identity that signs in to the
+account. Staff and Personas never need one — a Persona's address is
+synthetic by design. Reporting, saving, unfollowing, the profile and account
+security are not held back. Every action, policy and disabled button that
+asks those four methods asks the address too, the locked re-checks included,
+so Content Studio's executors are unchanged for Personas.
+
+Until then the account reads `AccountConfirmationNotice` on every page —
+what it may not do, where the link went, a button for a new one, and that it
+is deleted otherwise — and the refusals that can be reached by a click (a
+comment or reply, a follow, a post) say to confirm the address
+(`User::needsAddressConfirmation()`: living and unsanctioned, lacking only
+that). A sanctioned account reads its own notice instead.
+
+A week after signing up (`UnconfirmedAccountsQuery::GRACE_DAYS`) an account
+still unconfirmed is removed by the daily `users:purge-unconfirmed`
+(`--dry-run` lists who would go). It is an account of the User role, living,
+whose address is not confirmed, which never confirmed one
+(`email_first_verified_at`, set the first time any address is confirmed and
+never cleared — a change of address clears only `email_verified_at`), and
+which no Google or Facebook identity signs in to. The confirmation mail says
+so to exactly those accounts.
+
+`PurgeUnconfirmedAccountAction` asks the account again on its locked row,
+locks the posts and then the comments it touched in ascending id order, and
+erases what it did before tombstoning it through `AnonymizeUserAccountAction`:
+
+| Data | On removal of an unconfirmed account |
+| --- | --- |
+| Its posts | delete, with their whole graph (`PostGraphDeletionService`) |
+| Its comments and replies | delete, leaves first; one others answered becomes `[comment deleted]`, its text, votes and reports gone |
+| Its votes (post / comment / rating) | delete; counts on what others wrote are counted again |
+| Reports it filed, and reports about it | delete; report counts counted again |
+| Its game attempts, answers, emails, events and assignments | delete |
+| Everything account deletion removes | as account deletion (table below) |
+| Moderation logs | retain (audit history) |
+
+This is the one place where an account's community contribution goes with
+it: the account never showed it was anyone's.
 
 ## Status meanings (as audited on develop)
 
@@ -353,7 +399,9 @@ Limited/Banned, and existing content remains publicly visible.
 
 ## Where lifecycle checks live
 
-- Enforcement call sites go through the capability API:
+- Enforcement call sites go through the capability API (which, for
+  posting, commenting, voting and following, also asks for a confirmed
+  address — "Unconfirmed accounts"):
   `PostPolicy::create/report/vote/deleteFromFeed`, `AddCommentAction`,
   `VotePostAction`, `VoteCommentAction`, `VoteRatingOptionAction`,
   `ReportContentAction`, `FollowAuthorAction`, `CreatePostAction`

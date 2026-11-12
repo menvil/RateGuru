@@ -12,6 +12,7 @@ return [
         'subject' => 'Bestätige deine E-Mail-Adresse',
         'line' => 'Bitte bestätige deine E-Mail-Adresse, um die Einrichtung deines Kontos abzuschließen.',
         'action' => 'E-Mail-Adresse bestätigen',
+        'expires' => 'Ein Konto, das nicht innerhalb von :days Tagen bestätigt wird, wird gelöscht.',
         'ignore' => 'Falls du kein Konto erstellt hast, musst du nichts weiter tun.',
     ],
 

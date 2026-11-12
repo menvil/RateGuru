@@ -12,6 +12,7 @@ return [
         'subject' => 'Kumpirmahin ang iyong email address',
         'line' => 'Pakikumpirma ang iyong email address para matapos ang pag-set up ng iyong account.',
         'action' => 'Kumpirmahin ang email address',
+        'expires' => 'Binubura ang account na hindi nakumpirma sa loob ng :days araw.',
         'ignore' => 'Kung hindi ka gumawa ng account, wala ka nang kailangang gawin.',
     ],
 

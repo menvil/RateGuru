@@ -79,6 +79,10 @@ return [
         'banned' => 'Tvoj račun ima prepoved sodelovanja. Še vedno se lahko prijaviš, brskaš in upravljaš varnost računa.',
         'shadowbanned' => 'Tvoj račun ima omejeno sodelovanje.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Potrdi svoj e-poštni naslov, da boš lahko objavljal, komentiral, glasoval in sledil drugim. Povezavo smo poslali na :email. Račun, ki ni potrjen v :days dneh po registraciji, se izbriše.',
+        'required' => 'Najprej potrdi svoj e-poštni naslov: povezava je v e-poštnem sporočilu, ki smo ti ga poslali.',
+    ],
     'recently_deleted' => [
         'title' => 'Nedavno izbrisano',
         'description' => 'Izbrisane objave je mogoče obnoviti še :days dni. Nato jih lahko skupaj z razpravo trajno odstranimo.',

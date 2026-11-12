@@ -12,6 +12,7 @@ return [
         'subject' => 'Apstipriniet savu e-pasta adresi',
         'line' => 'Lūdzu, apstipriniet savu e-pasta adresi, lai pabeigtu konta iestatīšanu.',
         'action' => 'Apstiprināt e-pasta adresi',
+        'expires' => 'Konts, kas netiek apstiprināts :days dienu laikā, tiek dzēsts.',
         'ignore' => 'Ja kontu neizveidojāt jūs, nekas nav jādara.',
     ],
 

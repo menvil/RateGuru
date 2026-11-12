@@ -79,6 +79,10 @@ return [
         'banned' => 'Jūsu kontam ir aizliegts piedalīties. Jūs joprojām varat pieteikties, pārlūkot vietni un pārvaldīt konta drošību.',
         'shadowbanned' => 'Jūsu konta dalība ir ierobežota.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Apstipriniet savu e-pasta adresi, lai varētu publicēt ierakstus, komentēt, balsot un sekot citiem. Mēs nosūtījām saiti uz :email. Konts, kas netiek apstiprināts :days dienu laikā pēc reģistrācijas, tiek dzēsts.',
+        'required' => 'Vispirms apstipriniet savu e-pasta adresi: saite ir e-pastā, ko mēs jums nosūtījām.',
+    ],
     'recently_deleted' => [
         'title' => 'Nesen dzēstie',
         'description' => 'Dzēstos ierakstus var atjaunot :days dienu laikā. Pēc tam tie var tikt neatgriezeniski noņemti kopā ar diskusiju.',

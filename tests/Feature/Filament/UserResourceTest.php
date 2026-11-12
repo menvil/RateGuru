@@ -572,3 +572,34 @@ it('shows the person trusted in the drawer once marked trusted from it, with not
         ->assertSet('trust', 'trusted')
         ->assertSet('saved.trust', 'trusted');
 });
+
+it('shows when each person joined to the minute, and whose address nobody confirmed', function () {
+    $this->travelTo(now()->setDate(2026, 11, 12)->setTime(15, 31));
+    $this->actingAs(User::factory()->admin()->create());
+    $confirmed = User::factory()->create(['created_at' => now()->subDays(3)]);
+    $unconfirmed = User::factory()->unverified()->create(['created_at' => now()->subDays(3)]);
+    $persona = User::factory()->persona()->create();
+
+    $page = Livewire::test(ListUsers::class);
+
+    expect(listedRow($page, $confirmed)['meta'])->toEndWith(' · joined 09 Nov 2026, 15:31')
+        ->and(listedRow($page, $confirmed)['unconfirmed'])->toBeFalse()
+        ->and(listedRow($page, $unconfirmed)['unconfirmed'])->toBeTrue()
+        ->and(listedRow($page, $persona)['unconfirmed'])->toBeFalse();
+});
+
+it('tells in a person\'s editor when they confirmed their address, or when they are removed for not doing it', function () {
+    $this->travelTo(now()->setDate(2026, 11, 12)->setTime(15, 31));
+    $this->actingAs(User::factory()->admin()->create());
+    $confirmed = User::factory()->create(['email_verified_at' => now()->subDay()]);
+    $unconfirmed = User::factory()->unverified()->create(['created_at' => now()->subDays(3)]);
+    $overdue = User::factory()->unverified()->create(['created_at' => now()->subDays(8)]);
+
+    Livewire::test(UserEditor::class, ['userId' => $confirmed->id])
+        ->assertSeeText('Confirmed 11 Nov 2026, 15:31');
+    Livewire::test(UserEditor::class, ['userId' => $unconfirmed->id])
+        ->assertSeeText('09 Nov 2026, 15:31')
+        ->assertSeeText('Not confirmed · removed 16 Nov 2026, 15:31 unless confirmed');
+    Livewire::test(UserEditor::class, ['userId' => $overdue->id])
+        ->assertSeeText('Not confirmed · removed at the next cleanup');
+});

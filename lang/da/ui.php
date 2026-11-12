@@ -79,6 +79,10 @@ return [
         'banned' => 'Din konto er udelukket fra at deltage. Du kan stadig logge ind, browse og administrere kontosikkerheden.',
         'shadowbanned' => 'Din konto har begrænset deltagelse.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Bekræft din e-mailadresse for at kunne lave opslag, kommentere, stemme og følge andre. Vi har sendt et link til :email. En konto, der ikke er bekræftet inden for :days dage efter tilmeldingen, bliver slettet.',
+        'required' => 'Bekræft først din e-mailadresse: linket står i den e-mail, vi har sendt dig.',
+    ],
     'recently_deleted' => [
         'title' => 'Senest slettede',
         'description' => 'Slettede opslag kan gendannes i :days dage. Derefter kan de blive fjernet permanent sammen med deres diskussion.',

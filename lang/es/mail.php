@@ -12,6 +12,7 @@ return [
         'subject' => 'Confirma tu dirección de correo electrónico',
         'line' => 'Confirma tu dirección de correo electrónico para terminar de configurar tu cuenta.',
         'action' => 'Confirmar dirección de correo electrónico',
+        'expires' => 'Una cuenta que no se confirma en :days días se elimina.',
         'ignore' => 'Si no creaste una cuenta, no tienes que hacer nada más.',
     ],
 

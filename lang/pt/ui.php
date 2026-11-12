@@ -79,6 +79,10 @@ return [
         'banned' => 'Sua conta foi banida de participar. Você ainda pode entrar, navegar e gerenciar a segurança da sua conta.',
         'shadowbanned' => 'Sua conta tem participação restrita.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Confirme seu endereço de e-mail para publicar, comentar, votar e seguir outras pessoas. Enviamos um link para :email. Uma conta que não for confirmada em até :days dias após o cadastro será excluída.',
+        'required' => 'Confirme primeiro seu endereço de e-mail: o link está no e-mail que enviamos para você.',
+    ],
     'recently_deleted' => [
         'title' => 'Excluídas recentemente',
         'description' => 'As publicações excluídas podem ser restauradas por :days dias. Depois disso, elas poderão ser removidas permanentemente junto com a discussão.',

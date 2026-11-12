@@ -12,6 +12,7 @@ return [
         'subject' => 'Confirm your email address',
         'line' => 'Please confirm your email address to finish setting up your account.',
         'action' => 'Confirm email address',
+        'expires' => 'An account that is not confirmed within :days days is deleted.',
         'ignore' => 'If you did not create an account, no further action is required.',
     ],
 

@@ -79,6 +79,10 @@ return [
         'banned' => 'Hesabınızın katılımı yasaklandı. Yine de giriş yapabilir, göz atabilir ve hesap güvenliğinizi yönetebilirsiniz.',
         'shadowbanned' => 'Hesabınızın katılımı kısıtlandı.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Gönderi paylaşmak, yorum yapmak, oy vermek ve başkalarını takip etmek için e-posta adresinizi doğrulayın. :email adresine bir bağlantı gönderdik. Kayıttan sonraki :days gün içinde doğrulanmayan hesaplar silinir.',
+        'required' => 'Önce e-posta adresinizi doğrulayın: bağlantı size gönderdiğimiz e-postada.',
+    ],
     'recently_deleted' => [
         'title' => 'Son silinenler',
         'description' => 'Silinen gönderiler :days gün boyunca geri yüklenebilir. Bu sürenin ardından tartışmalarıyla birlikte kalıcı olarak kaldırılabilirler.',

@@ -79,6 +79,10 @@ return [
         'banned' => 'Il tuo account è stato escluso dalla partecipazione. Puoi comunque accedere, navigare e gestire la sicurezza del tuo account.',
         'shadowbanned' => 'La partecipazione del tuo account è limitata.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Conferma il tuo indirizzo e-mail per pubblicare, commentare, votare e seguire altre persone. Abbiamo inviato un link a :email. Un account non confermato entro :days giorni dalla registrazione viene eliminato.',
+        'required' => 'Prima conferma il tuo indirizzo e-mail: il link è nell\'e-mail che ti abbiamo inviato.',
+    ],
     'recently_deleted' => [
         'title' => 'Eliminati di recente',
         'description' => 'I post eliminati possono essere ripristinati per :days giorni. Dopodiché potrebbero essere rimossi definitivamente insieme alla loro discussione.',

@@ -88,6 +88,14 @@ final class UploadPostForm extends Component
         $this->submitError = null;
         $imageSource = ImageInputSource::Upload;
 
+        // Said before anything is fetched or stored: an account that has not
+        // confirmed its address may not post, and is told how to.
+        if (auth()->user()?->needsAddressConfirmation()) {
+            $this->submitError = __('ui.account_confirmation.required');
+
+            return;
+        }
+
         // Captured separately from $this->image: a successful submission
         // below resets $this->image to null, but this local reference must
         // still point at the temp file so the finally block can clean it up
@@ -275,6 +283,7 @@ final class UploadPostForm extends Component
         $ratingGroups = app(RatingConfigurationManager::class)->activeGroups();
 
         return view('livewire.feed.upload-post-form', [
+            'needsConfirmation' => auth()->user()?->needsAddressConfirmation() ?? false,
             'ratingGroups' => $ratingGroups,
             'categories' => $activeCategories->get(),
             'tags' => $this->tags,

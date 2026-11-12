@@ -12,6 +12,7 @@ return [
         'subject' => 'Erősítsd meg az e-mail-címed',
         'line' => 'Erősítsd meg az e-mail-címed, hogy befejezd a fiókod beállítását.',
         'action' => 'E-mail-cím megerősítése',
+        'expires' => 'Azt a fiókot, amelyet :days napon belül nem erősítenek meg, töröljük.',
         'ignore' => 'Ha nem te hoztál létre fiókot, nincs további teendőd.',
     ],
 

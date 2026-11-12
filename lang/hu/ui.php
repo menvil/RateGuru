@@ -79,6 +79,10 @@ return [
         'banned' => 'A fiókodat kitiltottuk a részvételből. Továbbra is bejelentkezhetsz, böngészhetsz, és kezelheted a fiókod biztonságát.',
         'shadowbanned' => 'A fiókod részvétele korlátozva van.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Erősítsd meg az e-mail-címed, hogy posztolhass, hozzászólhass, szavazhass és követhess másokat. Elküldtük a linket ide: :email. Azt a fiókot, amelyet a regisztrációtól számított :days napon belül nem erősítenek meg, töröljük.',
+        'required' => 'Előbb erősítsd meg az e-mail-címed: a linket az általunk küldött e-mailben találod.',
+    ],
     'recently_deleted' => [
         'title' => 'Nemrég törölt',
         'description' => 'A törölt bejegyzések :days napig visszaállíthatók. Ezután a hozzájuk tartozó beszélgetéssel együtt véglegesen eltávolíthatók.',

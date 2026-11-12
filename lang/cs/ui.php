@@ -79,6 +79,10 @@ return [
         'banned' => 'Tvůj účet má zakázanou účast. Stále se můžeš přihlásit, procházet obsah a spravovat zabezpečení účtu.',
         'shadowbanned' => 'Tvůj účet má omezenou účast.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Potvrď svou e-mailovou adresu, abys mohl přidávat příspěvky, komentovat, hlasovat a sledovat ostatní. Odkaz jsme poslali na :email. Účet, který nebude potvrzen do :days dnů od registrace, bude smazán.',
+        'required' => 'Nejdřív potvrď svou e-mailovou adresu: odkaz najdeš v e-mailu, který jsme ti poslali.',
+    ],
     'recently_deleted' => [
         'title' => 'Nedávno smazané',
         'description' => 'Smazané příspěvky lze obnovit po dobu :days dní. Poté mohou být trvale odstraněny i s diskuzí.',

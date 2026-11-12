@@ -209,8 +209,10 @@ final class ListUsers extends Page
             'id' => (int) $person->id,
             'username' => (string) ($person->username ?? '—'),
             'initials' => ModerationListFormat::initials((string) ($person->username ?? $person->name)),
-            'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('M Y') : ''),
+            'meta' => ($deleted ? 'Deleted account' : (string) $person->name).($person->created_at !== null ? ' · joined '.$person->created_at->format('d M Y, H:i') : ''),
             'email' => $deleted ? 'Removed on deletion' : (string) $person->email,
+            // A Persona's address is synthetic and never confirmed; nobody else's goes unsaid.
+            'unconfirmed' => ! $deleted && $person->role !== UserRole::Persona && $person->email_verified_at === null,
             'role' => (string) $person->role?->label(),
             'staff' => $person->role?->isStaff() ?? false,
             'status' => ModerationListFormat::personStatus($person),

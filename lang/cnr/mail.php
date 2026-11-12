@@ -12,6 +12,7 @@ return [
         'subject' => 'Potvrdi svoju e-mail adresu',
         'line' => 'Potvrdi svoju e-mail adresu da završiš podešavanje naloga.',
         'action' => 'Potvrdi e-mail adresu',
+        'expires' => 'Nalog koji nije potvrđen u roku od :days dana se briše.',
         'ignore' => 'Ako nalog nije napravljen na tvoj zahtjev, ne moraš ništa da preduzimaš.',
     ],
 

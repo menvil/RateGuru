@@ -61,11 +61,14 @@ final class FollowButton extends Component
         } catch (FollowFeatureDisabledException) {
             $this->message = __('follows.feature_disabled');
         } catch (CannotFollowAuthorException $exception) {
-            // Said without a reason when it is the viewer's own account: a
-            // shadowbanned one is never told it is.
-            $this->message = $exception->isAboutFollower()
-                ? __('follows.cannot_follow')
-                : __('follows.cannot_follow_author');
+            // Said without a reason when it is the viewer's own account — a
+            // shadowbanned one is never told it is — unless all it lacks is a
+            // confirmed address.
+            $this->message = match (true) {
+                ! $exception->isAboutFollower() => __('follows.cannot_follow_author'),
+                $viewer->needsAddressConfirmation() => __('ui.account_confirmation.required'),
+                default => __('follows.cannot_follow'),
+            };
         }
     }
 

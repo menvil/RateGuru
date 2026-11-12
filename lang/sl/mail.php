@@ -12,6 +12,7 @@ return [
         'subject' => 'Potrdi svoj e-poštni naslov',
         'line' => 'Potrdi svoj e-poštni naslov, da dokončaš nastavitev računa.',
         'action' => 'Potrdi e-poštni naslov',
+        'expires' => 'Račun, ki ni potrjen v :days dneh, se izbriše.',
         'ignore' => 'Če tega računa ne poznaš, ti ni treba storiti ničesar.',
     ],
 

@@ -79,6 +79,10 @@ return [
         'banned' => 'Tvom računu je zabranjeno učešće. I dalje se možeš prijaviti, pregledati sadržaj i upravljati sigurnošću računa.',
         'shadowbanned' => 'Učešće tvog računa je ograničeno.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Potvrdi svoju e-mail adresu da bi mogao objavljivati, komentarisati, glasati i pratiti druge. Poslali smo link na :email. Račun koji nije potvrđen u roku od :days dana od registracije se briše.',
+        'required' => 'Prvo potvrdi svoju e-mail adresu: link je u e-mailu koji smo ti poslali.',
+    ],
     'recently_deleted' => [
         'title' => 'Nedavno izbrisano',
         'description' => 'Izbrisane objave možeš vratiti u roku od :days dana. Nakon toga mogu biti trajno uklonjene zajedno sa svojom diskusijom.',

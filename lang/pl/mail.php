@@ -12,6 +12,7 @@ return [
         'subject' => 'Potwierdź swój adres e-mail',
         'line' => 'Potwierdź swój adres e-mail, aby dokończyć konfigurację konta.',
         'action' => 'Potwierdź adres e-mail',
+        'expires' => 'Konto niepotwierdzone w ciągu :days dni zostaje usunięte.',
         'ignore' => 'Jeśli to nie Ty zakładasz konto, nie musisz nic robić.',
     ],
 

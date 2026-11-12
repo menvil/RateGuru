@@ -12,6 +12,7 @@ return [
         'subject' => 'E-posta adresinizi doğrulayın',
         'line' => 'Hesabınızın kurulumunu tamamlamak için lütfen e-posta adresinizi doğrulayın.',
         'action' => 'E-posta adresini doğrula',
+        'expires' => ':days gün içinde doğrulanmayan hesaplar silinir.',
         'ignore' => 'Bir hesap oluşturmadıysanız başka bir işlem yapmanıza gerek yoktur.',
     ],
 

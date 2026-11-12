@@ -79,6 +79,10 @@ return [
         'banned' => 'Your account is banned from participating. You can still sign in, browse and manage account security.',
         'shadowbanned' => 'Your account has restricted participation.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Confirm your email address to post, comment, vote and follow. We sent a link to :email. An account not confirmed within :days days of signing up is deleted.',
+        'required' => 'Confirm your email address first: the link is in the email we sent you.',
+    ],
     'recently_deleted' => [
         'title' => 'Recently Deleted',
         'description' => 'Deleted posts stay restorable for :days days. After that they may be permanently removed together with their discussion.',

@@ -183,6 +183,11 @@
                     <dd class="rg-admin-detail-row__value">{{ $person['joined'] ?? '—' }}</dd>
                 </div>
                 <div class="rg-admin-detail-row">
+                    <x-admin.ui.icon name="mail" class="rg-admin-detail-row__icon" />
+                    <dt class="rg-admin-detail-row__label">Email</dt>
+                    <dd class="rg-admin-detail-row__value" data-testid="user-editor-confirmation">{{ $person['confirmation'] }}</dd>
+                </div>
+                <div class="rg-admin-detail-row">
                     <x-admin.ui.icon name="image" class="rg-admin-detail-row__icon" />
                     <dt class="rg-admin-detail-row__label">Posts</dt>
                     <dd class="rg-admin-detail-row__value">{{ $person['postsBreakdown'] }}</dd>
