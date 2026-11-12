@@ -208,3 +208,42 @@ it('tells a guest who signed up from the result that their name is on the card n
         ->assertSee('Your name is on the card now: @newbie')
         ->assertDontSeeHtml('data-testid="game-signup"');
 });
+
+it('names nobody on the card of a guest attempt no account has claimed, whoever is signed in to look at it', function () {
+    liveGame($this->draft);
+    $slug = $this->draft['game']->slug;
+
+    playToResult($slug);
+    // Started longer ago than signing in claims an attempt for.
+    GameAttempt::query()->sole()->forceFill(['started_at' => now()->subHours((int) config('games.attribution_hours') + 1)])->save();
+
+    $user = User::factory()->create(['username' => 'viewer']);
+    $this->actingAs($user);
+
+    expect(app(ClaimGuestGameAttemptsAction::class)->handle($user, GameSessionAttempts::all(session()->driver()), GameAccountOutcome::SignedIn))->toBe(0);
+
+    $attempt = GameAttempt::query()->sole();
+
+    // As its shared page names nobody, so does the card, and the link shared is the profile's page.
+    Livewire::test(PlayGame::class, ['slug' => $slug])
+        ->assertSee('data-testid="game-step-full_result"', false)
+        ->assertSeeHtml('data-testid="game-byline">'.DisplayHost::of(url('/')).'<')
+        ->assertDontSeeHtml('@viewer')
+        ->assertSeeHtml('value="'.e(route('games.result', ['slug' => $slug, 'version' => 1, 'profile' => $attempt->profile_key])).'"')
+        ->assertDontSeeHtml(e(route('games.player-result', ['slug' => $slug, 'attempt' => $attempt->public_id])).'"');
+});
+
+it('counts a copied link only once the clipboard took it, and otherwise offers the link to copy by hand', function () {
+    liveGame($this->draft);
+    $slug = $this->draft['game']->slug;
+
+    $share = playToResult($slug)->html();
+
+    expect($share)->toContain('await navigator.clipboard.writeText(this.$refs.url.value);')
+        // Counted after the copy, never beside it.
+        ->and($share)->toMatch('/writeText\(this\.\$refs\.url\.value\);\s+\} catch \(error\) \{\s+this\.failed = true;[\s\S]+?return;\s+\}\s+this\.copied = true;[\s\S]+?this\.\$wire\.shared\(\'copy_link\'\);/')
+        ->and(substr_count($share, "shared('copy_link')"))->toBe(1)
+        ->and($share)->toContain('data-testid="game-share-copy-fallback"')
+        ->and($share)->toContain('value="'.e(route('games.result', ['slug' => $slug, 'version' => 1, 'profile' => GameAttempt::query()->sole()->profile_key])).'"')
+        ->and($share)->toContain('Could not copy automatically. Select and copy manually.');
+});

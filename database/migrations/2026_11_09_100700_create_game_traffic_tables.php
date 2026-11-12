@@ -28,6 +28,7 @@ return new class extends Migration
         // A version's whole-number share of its period's visitors. A period
         // with no rows is an explicit "no traffic" for its audience.
         if (DB::getDriverName() === 'sqlite') {
+            // Created whole: SQLite takes a CHECK only with its table (docs/architecture/games.md, "Database checks").
             DB::statement(<<<'SQL'
                 CREATE TABLE "game_traffic_shares" (
                     "period_id" INTEGER NOT NULL,

@@ -156,7 +156,7 @@ final class GameFlowValidator
             }
 
             $candidate = $steps;
-            array_splice($candidate, $position, 0, [self::fresh($type)]);
+            array_splice($candidate, $position, 0, [self::fresh($type, flow: $steps)]);
             $added = array_filter(
                 array_count_values(self::structuralProblems($candidate)),
                 fn (int $count, string $problem): bool => $count > ($baseline[$problem] ?? 0),
@@ -188,14 +188,26 @@ final class GameFlowValidator
         return null;
     }
 
-    /** A new step of a type, as an editor adds it. */
-    public static function fresh(GameFlowStepType $type, string $key = 'new'): FlowStepDraft
+    /**
+     * A new step of a type, as an editor adds it to a flow: a Full Result
+     * added to a flow with a Registration step sends sign-up there, rather
+     * than inviting it a second time on itself.
+     *
+     * @param  list<FlowStepDraft>  $flow
+     */
+    public static function fresh(GameFlowStepType $type, string $key = 'new', array $flow = []): FlowStepDraft
     {
+        $settings = $type->defaultSettings();
+
+        if ($type === GameFlowStepType::FullResult && in_array(GameFlowStepType::Registration, array_map(fn (FlowStepDraft $step): GameFlowStepType => $step->type, $flow), true)) {
+            $settings['signup'] = GameSignupMode::Step->value;
+        }
+
         return new FlowStepDraft(
             key: $key,
             type: $type,
             audience: $type->fixedAudience() ?? GameStepAudience::All,
-            settings: $type->defaultSettings(),
+            settings: $settings,
             texts: $type->defaultTexts(),
         );
     }

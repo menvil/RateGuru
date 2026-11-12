@@ -37,12 +37,16 @@ it('leaves out the posts it is asked to', function () {
     expect(pickerPage(except: [$a->id]))->toBe([$b->id]);
 });
 
-it('searches the title, the id and the author, literally and in any case', function (string $search) {
+it('searches the title, the id and the author, literally and in any case, only among the posts it may offer', function (string $search) {
     $author = User::factory()->create(['username' => 'sea_lover']);
     Post::factory()->published()->withImage()->create(['title' => 'Other']);
     $post = Post::factory()->published()->withImage()->for($author)->create(['title' => 'Beach at 50% sunset']);
+    // Matches the title and the author too, but is not on the site.
+    Post::factory()->hidden()->withImage()->for($author)->create(['title' => 'Beach at 50% sunset']);
+    $search = $search === 'id' ? '#'.$post->id : $search;
 
-    expect(pickerPage($search === 'id' ? '#'.$post->id : $search))->toBe([$post->id]);
+    expect(pickerPage($search))->toBe([$post->id])
+        ->and(pickerPage($search, [$post->id]))->toBe([]);
 })->with(['beach AT', '50%', 'id', '@sea_lover', 'sea_']);
 
 it('takes % and _ as themselves, never as wildcards', function () {

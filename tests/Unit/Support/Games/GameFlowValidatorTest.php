@@ -150,6 +150,22 @@ it('never offers a step that settles one problem by causing another', function (
         ->and(GameFlowValidator::defaultPosition($resultless, GameFlowStepType::FullResult))->toBe(2);
 });
 
+it('offers a Full Result back to a flow with a Registration step, sending sign-up to that step', function () {
+    $resultless = flowOf([
+        GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::ResultPreview,
+        GameFlowStepType::EmailCapture, GameFlowStepType::Registration,
+    ]);
+    $added = $resultless;
+    array_splice($added, 4, 0, [GameFlowValidator::fresh(GameFlowStepType::FullResult, 'r', $resultless)]);
+
+    expect(GameFlowValidator::insertableAt($resultless, 4))->toContain(GameFlowStepType::FullResult)
+        ->and(GameFlowValidator::defaultPosition($resultless, GameFlowStepType::FullResult))->toBe(4)
+        ->and($added[4]->signup())->toBe(GameSignupMode::Step)
+        ->and(GameFlowValidator::issues($added))->toBe([])
+        // Without a Registration step, a new Full Result invites sign-up on itself.
+        ->and(GameFlowValidator::fresh(GameFlowStepType::FullResult)->signup())->toBe(GameSignupMode::Inline);
+});
+
 it('still offers a step before a duplicate, whose step number it only moves', function () {
     $steps = flowOf([GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::Share, GameFlowStepType::Share]);
 
@@ -159,6 +175,11 @@ it('still offers a step before a duplicate, whose step number it only moves', fu
 it('keeps only the settings a type takes, within their bounds', function () {
     expect(GameFlowStepSettings::normalize(GameFlowStepType::Game, ['advance' => 'later', 'advance_seconds' => 30, 'evil' => 1]))
         ->toBe(['advance' => 'auto', 'advance_seconds' => 8.0])
+        ->and(GameFlowStepSettings::normalize(GameFlowStepType::Game, ['advance' => 'auto', 'advance_seconds' => 0]))
+        ->toBe(['advance' => 'auto', 'advance_seconds' => 1.5])
+        // Rounded to the half second first, to 1.0, then held at the lower bound.
+        ->and(GameFlowStepSettings::normalize(GameFlowStepType::Game, ['advance' => 'auto', 'advance_seconds' => '1.2']))
+        ->toBe(['advance' => 'auto', 'advance_seconds' => 1.5])
         ->and(GameFlowStepSettings::normalize(GameFlowStepType::Game, ['advance' => 'button', 'advance_seconds' => '2.3']))
         ->toBe(['advance' => 'button', 'advance_seconds' => 2.5])
         ->and(GameFlowStepSettings::normalize(GameFlowStepType::EmailCapture, ['required' => '1']))

@@ -18,14 +18,15 @@ it('prefers the post with the larger share of upvotes, not the one with more vot
 });
 
 it('compares the exact shares, never the rounded percentages', function () {
-    // 2/3 = 66.666… % against 666/1000 = 66.6 %: equal when rounded to one
-    // decimal, yet A is larger — and with no gap required, A is the pick.
-    $comparison = CrowdComparison::of(crowdSide(1, 200, 100), crowdSide(2, 666, 334), minVotes: 100, minGap: 0);
+    // 2/3 = 66.666… % against 667/1000 = 66.7 %: both shown as 66.7 when
+    // rounded to one decimal, yet B's share is the larger — and with no gap
+    // required, B is the pick.
+    $comparison = CrowdComparison::of(crowdSide(1, 200, 100), crowdSide(2, 667, 333), minVotes: 100, minGap: 0);
 
     expect($comparison->state)->toBe(GameCrowdState::Majority)
-        ->and($comparison->preferred)->toBe(0)
+        ->and($comparison->preferred)->toBe(1)
         ->and($comparison->a->displayShare())->toBe(66.7)
-        ->and($comparison->b->displayShare())->toBe(66.6);
+        ->and($comparison->b->displayShare())->toBe(66.7);
 });
 
 it('calls exactly equal shares a tie', function () {

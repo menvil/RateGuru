@@ -113,6 +113,31 @@ it('applies nothing over shares changed since the page was drawn, and draws them
     expect(GameTrafficPeriod::query()->where('audience', GameAudience::Anonymous)->whereNull('ended_at')->sole()->shares())->toBe([$v3->id => 100]);
 });
 
+it('applies one audience\'s shares and leaves the other\'s unsaved ones as they are', function () {
+    $publish = fn () => app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    [$v1, $v2] = [$publish(), $publish()];
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Authenticated, [$v1->id => 100]);
+
+    $page = Livewire::test(GameTraffic::class, ['record' => $this->draft['game']->id])
+        ->call('addVersion', 'anonymous', $v1->id)
+        ->set('shares.anonymous.'.$v1->id, 100)
+        ->call('addVersion', 'authenticated', $v2->id)
+        ->set('shares.authenticated.'.$v1->id, 40)
+        ->set('shares.authenticated.'.$v2->id, 60)
+        ->call('apply', 'anonymous')
+        ->assertDispatched('rg-admin-toast', message: 'Shares applied. A new period started.', tone: 'success')
+        ->assertSet('shares.authenticated', [$v1->id => 40, $v2->id => 60]);
+
+    expect(collect($page->viewData('groups'))->firstWhere('audience', 'authenticated')['changed'])->toBeTrue();
+
+    // In another tab: the logged-in shares are applied anew, so this page's are out of date.
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $this->draft['game'], GameAudience::Authenticated, [$v2->id => 100]);
+
+    $page->call('apply', 'authenticated')
+        ->assertDispatched('rg-admin-toast', message: 'These shares changed after you opened the page, so nothing was applied. They now show as they are.', tone: 'error')
+        ->assertSet('shares.authenticated', [$v2->id => 100]);
+});
+
 it('reads every content set of the Versions tab in the same few queries, however many there are', function () {
     $queries = function (): int {
         $count = 0;
