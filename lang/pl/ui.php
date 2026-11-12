@@ -79,6 +79,10 @@ return [
         'banned' => 'Twoje konto zostało zablokowane i nie możesz brać udziału w społeczności. Nadal możesz się logować, przeglądać treści i zarządzać bezpieczeństwem konta.',
         'shadowbanned' => 'Twoje konto ma ograniczone możliwości udziału w społeczności.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Potwierdź swój adres e-mail, aby publikować, komentować, głosować i obserwować innych. Wysłaliśmy link na adres :email. Konto niepotwierdzone w ciągu :days dni od rejestracji zostaje usunięte.',
+        'required' => 'Najpierw potwierdź swój adres e-mail: link jest w wiadomości, którą do Ciebie wysłaliśmy.',
+    ],
     'recently_deleted' => [
         'title' => 'Ostatnio usunięte',
         'description' => 'Usunięte posty można przywrócić przez :days dni. Potem mogą zostać trwale usunięte wraz z dyskusją.',

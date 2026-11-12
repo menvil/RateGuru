@@ -12,6 +12,7 @@ return [
         'subject' => 'Kinnita oma e-posti aadress',
         'line' => 'Konto seadistamise lõpetamiseks kinnita oma e-posti aadress.',
         'action' => 'Kinnita e-posti aadress',
+        'expires' => 'Konto, mida ei kinnitata :days päeva jooksul, kustutatakse.',
         'ignore' => 'Kui sa kontot ei loonud, ei pea sa midagi tegema.',
     ],
 

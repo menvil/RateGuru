@@ -79,6 +79,10 @@ return [
         'banned' => 'Aðgangurinn þinn er útilokaður frá þátttöku. Þú getur samt skráð þig inn, skoðað vefinn og stjórnað öryggi aðgangsins.',
         'shadowbanned' => 'Þátttaka aðgangsins þíns er takmörkuð.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Staðfestu netfangið þitt til að geta sett inn færslur, skrifað athugasemdir, kosið og fylgst með öðrum. Við sendum tengil á :email. Aðgangi sem er ekki staðfestur innan :days daga frá skráningu er eytt.',
+        'required' => 'Staðfestu fyrst netfangið þitt: tengillinn er í tölvupóstinum sem við sendum þér.',
+    ],
     'recently_deleted' => [
         'title' => 'Nýlega eytt',
         'description' => 'Hægt er að endurheimta eyddar færslur í :days daga. Eftir það gæti þeim verið eytt varanlega ásamt umræðunni.',

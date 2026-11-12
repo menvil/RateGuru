@@ -79,6 +79,10 @@ return [
         'banned' => 'Je account is uitgesloten van deelname. Je kunt nog steeds inloggen, rondkijken en de beveiliging van je account beheren.',
         'shadowbanned' => 'De deelname van je account is beperkt.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Bevestig je e-mailadres om te posten, te reageren, te stemmen en anderen te volgen. We hebben een link gestuurd naar :email. Een account dat niet binnen :days dagen na de registratie is bevestigd, wordt verwijderd.',
+        'required' => 'Bevestig eerst je e-mailadres: de link staat in de e-mail die we je hebben gestuurd.',
+    ],
     'recently_deleted' => [
         'title' => 'Onlangs verwijderd',
         'description' => 'Verwijderde berichten kunnen :days dagen lang worden hersteld. Daarna kunnen ze samen met hun discussie permanent worden verwijderd.',

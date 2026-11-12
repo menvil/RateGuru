@@ -12,6 +12,7 @@ return [
         'subject' => 'Confirmez votre adresse e-mail',
         'line' => 'Veuillez confirmer votre adresse e-mail pour terminer la configuration de votre compte.',
         'action' => 'Confirmer l\'adresse e-mail',
+        'expires' => 'Un compte non confirmé dans les :days jours est supprimé.',
         'ignore' => 'Si vous n\'avez pas créé de compte, aucune action n\'est requise.',
     ],
 

@@ -79,6 +79,10 @@ return [
         'banned' => 'Dein Konto ist von der Teilnahme ausgeschlossen. Du kannst dich weiterhin anmelden, dich umsehen und die Sicherheit deines Kontos verwalten.',
         'shadowbanned' => 'Die Teilnahme mit deinem Konto ist eingeschränkt.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Bestätige deine E-Mail-Adresse, um Beiträge zu posten, zu kommentieren, abzustimmen und anderen zu folgen. Wir haben einen Link an :email gesendet. Ein Konto, das nicht innerhalb von :days Tagen nach der Registrierung bestätigt wird, wird gelöscht.',
+        'required' => 'Bestätige zuerst deine E-Mail-Adresse: Der Link steht in der E-Mail, die wir dir geschickt haben.',
+    ],
     'recently_deleted' => [
         'title' => 'Kürzlich gelöscht',
         'description' => 'Gelöschte Beiträge können :days Tage lang wiederhergestellt werden. Danach können sie zusammen mit ihrer Diskussion endgültig entfernt werden.',

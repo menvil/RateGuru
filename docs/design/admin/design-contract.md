@@ -1477,7 +1477,8 @@ editor — or the list on them where they are not the viewer's to edit.
   the Role and Suspicious chips — Suspicious, as the dashboard's Suspicious users opens the list
   (`?suspicious=1`): shadowbanned, or with reported posts or comments.
 - **Table (TBL-01):** the avatar, the username — which opens the person's editor for whoever may edit it — the name
-  and when they joined; the email address (“Removed on deletion” for a deleted account); the role, staff as an
+  and when they joined, to the minute; the email address (“Removed on deletion” for a deleted account), with “Not
+  confirmed” under an address nobody confirmed (never a persona’s); the role, staff as an
   outline badge; the status (STS-01); trust as a two-step bar and its word (Trusted, Not trusted); posts; the
   reports on their posts and comments (STS-02); Edit and the row menu.
 - **Row menu (TBL-04):** the person, their status and trust as its caption; Edit user, View posts (the Posts list
@@ -1501,7 +1502,8 @@ editor — or the list on them where they are not the viewer's to edit.
   Edit in Content Studio and Close.
 - **Where they stand:** Status — the badge, since when and by whom (the decision that set it, with its reason),
   that status is changed only by a moderation action, and those actions; Account — sign-in methods, language,
-  joined, posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
+  joined (to the minute), the email address confirmed and when — or not, and for an account the cleanup of
+  unconfirmed accounts removes, when it does — posts by status; Moderation history (DOM-02) — the moderation of the person and of their posts and
   comments, newest first, then when the account was created.
 - **Access:** moderators see the list; editing an account and every moderation action are an administrator's,
   never on their own account nor another administrator's, and never on a deleted one.

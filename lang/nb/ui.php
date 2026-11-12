@@ -79,6 +79,10 @@ return [
         'banned' => 'Kontoen din er utestengt fra å delta. Du kan fortsatt logge inn, bla gjennom innhold og administrere kontosikkerheten.',
         'shadowbanned' => 'Kontoen din har begrenset deltakelse.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Bekreft e-postadressen din for å kunne publisere, kommentere, stemme og følge andre. Vi har sendt en lenke til :email. En konto som ikke er bekreftet innen :days dager etter registreringen, blir slettet.',
+        'required' => 'Bekreft e-postadressen din først: lenken står i e-posten vi sendte deg.',
+    ],
     'recently_deleted' => [
         'title' => 'Nylig slettet',
         'description' => 'Slettede innlegg kan gjenopprettes i :days dager. Etter det kan de bli fjernet permanent sammen med diskusjonen.',

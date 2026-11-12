@@ -12,6 +12,7 @@ return [
         'subject' => 'Sahkan alamat e-mel anda',
         'line' => 'Sila sahkan alamat e-mel anda untuk melengkapkan persediaan akaun anda.',
         'action' => 'Sahkan alamat e-mel',
+        'expires' => 'Akaun yang tidak disahkan dalam tempoh :days hari akan dipadamkan.',
         'ignore' => 'Jika anda tidak mencipta akaun, tiada tindakan lanjut diperlukan.',
     ],
 

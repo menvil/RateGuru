@@ -12,6 +12,7 @@ return [
         'subject' => 'Bekræft din e-mailadresse',
         'line' => 'Bekræft din e-mailadresse for at gøre oprettelsen af din konto færdig.',
         'action' => 'Bekræft e-mailadresse',
+        'expires' => 'En konto, der ikke er bekræftet inden for :days dage, bliver slettet.',
         'ignore' => 'Hvis du ikke har oprettet en konto, behøver du ikke gøre noget.',
     ],
 

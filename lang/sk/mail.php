@@ -12,6 +12,7 @@ return [
         'subject' => 'Potvrď svoju e-mailovú adresu',
         'line' => 'Potvrď svoju e-mailovú adresu a dokonči nastavenie účtu.',
         'action' => 'Potvrdiť e-mailovú adresu',
+        'expires' => 'Účet, ktorý nebude potvrdený do :days dní, bude odstránený.',
         'ignore' => 'Ak o vytvorení účtu nič nevieš, nemusíš nič robiť.',
     ],
 

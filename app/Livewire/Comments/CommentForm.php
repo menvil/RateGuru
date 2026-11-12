@@ -38,9 +38,11 @@ final class CommentForm extends Component
         } catch (CannotCommentException $e) {
             $this->addError(
                 'body',
-                $e->isGuest()
-                    ? __('ui.comments.sign_in_to_comment')
-                    : $e->getMessage(),
+                match (true) {
+                    $e->isGuest() => __('ui.comments.sign_in_to_comment'),
+                    $e->isNotAllowed() && auth()->user()?->needsAddressConfirmation() => __('ui.account_confirmation.required'),
+                    default => $e->getMessage(),
+                },
             );
 
             return;

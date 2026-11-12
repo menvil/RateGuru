@@ -33,6 +33,8 @@ use SensitiveParameter;
  * @property int|null $trust_level
  * @property ProfileActivityVisibility|null $rating_activity_visibility
  * @property Carbon|null $anonymized_at
+ * @property Carbon|null $email_verified_at
+ * @property Carbon|null $email_first_verified_at
  * @property string|null $session_generation
  */
 #[Fillable(['name', 'display_name', 'username', 'email', 'locale', 'theme_preference', 'notify_followed_author_posts', 'avatar_asset_id', 'bio', 'profile_website_url', 'rating_activity_visibility', 'role', 'status', 'trust_level', 'password'])]
@@ -49,11 +51,23 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
      */
     public const TOMBSTONE_DISPLAY_NAME = 'Deleted user';
 
+    /** Whether a Google or Facebook identity signs in to it, once asked. */
+    private ?bool $signInIdentity = null;
+
     protected static function booted(): void
     {
         static::creating(function (User $user): void {
             if ($user->trust_level === null) {
                 $user->trust_level = MarkUserTrustedAction::TRUSTED_LEVEL;
+            }
+        });
+
+        // The first confirmation of an address is kept for good: a change of
+        // address clears email_verified_at, never this. Every way an address
+        // is confirmed saves the account, so it is caught here, once.
+        static::saving(function (User $user): void {
+            if ($user->email_first_verified_at === null && $user->email_verified_at !== null) {
+                $user->email_first_verified_at = $user->email_verified_at;
             }
         });
     }
@@ -67,6 +81,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     {
         return [
             'email_verified_at' => 'datetime',
+            'email_first_verified_at' => 'datetime',
             'anonymized_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
@@ -80,6 +95,8 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
     // Lifecycle capability conveniences. Every method delegates to the
     // central contract on UserStatus and fails closed when status is null —
     // no lifecycle meaning may live here (docs/architecture/user-lifecycle.md).
+    // Posting, commenting, voting and following also ask for a confirmed
+    // address (hasConfirmedIdentity), which is not lifecycle.
 
     /**
      * The language this user is written to in, for anything that leaves the
@@ -112,17 +129,55 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
 
     public function canCreateContent(): bool
     {
-        return $this->status?->canCreateContent() ?? false;
+        return ($this->status?->canCreateContent() ?? false) && $this->hasConfirmedIdentity();
     }
 
     public function canVote(): bool
     {
-        return $this->status?->canVote() ?? false;
+        return ($this->status?->canVote() ?? false) && $this->hasConfirmedIdentity();
     }
 
     public function canComment(): bool
     {
-        return $this->status?->canComment() ?? false;
+        return ($this->status?->canComment() ?? false) && $this->hasConfirmedIdentity();
+    }
+
+    /**
+     * Whether the account has shown it is someone's: its address is
+     * confirmed, or it signs in with Google or Facebook. Until then it may
+     * not post, comment, vote or follow, and a week after signing up it is
+     * removed with everything it did (UnconfirmedAccountsQuery). Staff and
+     * Personas never need to: a Persona's address is synthetic by design.
+     */
+    public function hasConfirmedIdentity(): bool
+    {
+        return $this->isStaff()
+            || $this->isPersona()
+            || $this->hasVerifiedEmail()
+            || $this->hasSignInIdentity();
+    }
+
+    /**
+     * Whether a confirmed address is all the account lacks to take part:
+     * it is living and unsanctioned, and has not confirmed one yet.
+     */
+    public function needsAddressConfirmation(): bool
+    {
+        return ($this->status?->canCreateContent() ?? false) && ! $this->hasConfirmedIdentity();
+    }
+
+    /**
+     * Whether a Google or Facebook identity signs in to the account. Asked
+     * once per instance — every card of a feed asks it — and only of an
+     * account whose address is not confirmed.
+     */
+    private function hasSignInIdentity(): bool
+    {
+        if ($this->relationLoaded('socialAccounts')) {
+            return $this->socialAccounts->isNotEmpty();
+        }
+
+        return $this->signInIdentity ??= $this->exists && $this->socialAccounts()->exists();
     }
 
     public function canReport(): bool
@@ -132,7 +187,7 @@ class User extends Authenticatable implements FilamentUser, HasLocalePreference,
 
     public function canFollow(): bool
     {
-        return $this->status?->canFollow() ?? false;
+        return ($this->status?->canFollow() ?? false) && $this->hasConfirmedIdentity();
     }
 
     public function canBeFollowed(): bool

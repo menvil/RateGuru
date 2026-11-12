@@ -22,17 +22,16 @@ afterEach(function () {
     ImageFixtures::cleanup();
 });
 
-it('holds a newcomer\'s post for a moderator until they confirm their email, then publishes the next one straight into the feed', function () {
+it('asks a newcomer to confirm their email before they post, then publishes their post straight into the feed', function () {
     // Stored where the browser test server serves files from, so the picture
     // the application makes of the upload actually loads in the feed.
     config(['media.disks.public' => ImageFixtures::disk()]);
 
-    // The server fetches each picture through the import pipeline; only the
+    // The server fetches the picture through the import pipeline; only the
     // network under it is scripted. The address is in the reserved .test
     // zone, so the browser's own preview of it never reaches anyone.
     bindFakeHostResolver(['images.rateguru.test' => ['93.184.216.34']]);
     app()->instance(ImportHttpTransport::class, new ScriptedImportHttpTransport([
-        new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
         new ImportTransportResponse(200, ['content-type' => 'image/jpeg'], jpegMarkerBytes(640, 480)),
     ]));
 
@@ -47,25 +46,19 @@ it('holds a newcomer\'s post for a moderator until they confirm their email, the
         ->type('@auth-modal-register-password', 'password')
         ->type('@auth-modal-register-password-confirmation', 'password');
 
-    // Until the address is confirmed, a post waits for a moderator, and its
-    // author is told so.
+    // Until the address is confirmed, the newcomer may not post: every page
+    // says so, and the upload dialog asks for it instead of a form.
     submitAndWaitForNewPage($page, '@auth-modal-register-submit')
         ->assertPresent('@header-auth-actions')
+        ->assertVisible('@account-confirmation-notice')
         ->click('@open-upload-button')
-        ->click('@image-tab-url')
-        ->type('@upload-image-url-input', 'https://images.rateguru.test/first-dish.jpg')
-        ->type('#title', 'My very first dish')
-        ->click('[data-testid="upload-form"] button[type="submit"]')
-        ->assertMissing('@upload-modal')
-        ->assertSeeIn('@toast-container', 'will appear after moderation')
-        ->assertDontSee('My very first dish');
+        ->assertVisible('@upload-confirmation-required')
+        ->assertMissing('@upload-form');
 
     $newcomer = User::query()->where('email', 'nadia@rateguru.test')->sole();
 
-    expect(Post::query()->where('title', 'My very first dish')->sole()->status)->toBe(PostStatus::Pending);
-
     // The link from the confirmation email, opened in the same browser, where
-    // the newcomer is signed in. Once it is, the next post goes straight into
+    // the newcomer is signed in. Once it is, their post goes straight into
     // the feed.
     $page->navigate(URL::temporarySignedRoute('verification.verify', now()->addHour(), [
         'id' => $newcomer->id,
@@ -75,6 +68,7 @@ it('holds a newcomer\'s post for a moderator until they confirm their email, the
     expect($newcomer->fresh()->hasVerifiedEmail())->toBeTrue();
 
     $page->navigate(route('feed'))
+        ->assertMissing('@account-confirmation-notice')
         ->click('@open-upload-button')
         ->click('@image-tab-url')
         ->type('@upload-image-url-input', 'https://images.rateguru.test/second-dish.jpg')

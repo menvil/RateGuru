@@ -79,6 +79,10 @@ return [
         'banned' => 'Naka-ban ang iyong account sa paglahok. Maaari ka pa ring mag-sign in, mag-browse at pamahalaan ang seguridad ng account.',
         'shadowbanned' => 'Pinaghihigpitan ang paglahok ng iyong account.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Kumpirmahin ang iyong email address para makapag-post, makapag-comment, makaboto, at makasunod sa iba. Nagpadala kami ng link sa :email. Binubura ang account na hindi nakumpirma sa loob ng :days araw mula nang mag-sign up.',
+        'required' => 'Kumpirmahin muna ang iyong email address: nasa email na ipinadala namin sa iyo ang link.',
+    ],
     'recently_deleted' => [
         'title' => 'Kamakailang Na-delete',
         'description' => 'Maaaring i-restore ang mga na-delete na post sa loob ng :days araw. Pagkatapos nito, maaari na silang permanenteng alisin kasama ang kanilang talakayan.',

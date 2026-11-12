@@ -12,6 +12,7 @@ return [
         'subject' => 'Confirme seu endereço de e-mail',
         'line' => 'Confirme seu endereço de e-mail para concluir a configuração da sua conta.',
         'action' => 'Confirmar endereço de e-mail',
+        'expires' => 'Uma conta que não for confirmada em até :days dias será excluída.',
         'ignore' => 'Se você não criou uma conta, nenhuma ação adicional é necessária.',
     ],
 

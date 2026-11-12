@@ -12,6 +12,7 @@ return [
         'subject' => 'Confirmă-ți adresa de e-mail',
         'line' => 'Confirmă-ți adresa de e-mail pentru a finaliza configurarea contului.',
         'action' => 'Confirmă adresa de e-mail',
+        'expires' => 'Un cont neconfirmat în :days zile este șters.',
         'ignore' => 'Dacă nu ai creat un cont, nu trebuie să faci nimic.',
     ],
 

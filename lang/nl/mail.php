@@ -12,6 +12,7 @@ return [
         'subject' => 'Bevestig je e-mailadres',
         'line' => 'Bevestig je e-mailadres om het instellen van je account af te ronden.',
         'action' => 'E-mailadres bevestigen',
+        'expires' => 'Een account dat niet binnen :days dagen is bevestigd, wordt verwijderd.',
         'ignore' => 'Heb je geen account aangemaakt? Dan hoef je verder niets te doen.',
     ],
 

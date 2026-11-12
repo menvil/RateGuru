@@ -79,6 +79,10 @@ return [
         'banned' => 'Llogarisë sate i është ndaluar pjesëmarrja. Mund të hysh përsëri, të shfletosh dhe të menaxhosh sigurinë e llogarisë.',
         'shadowbanned' => 'Llogaria jote ka pjesëmarrje të kufizuar.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Konfirmo adresën tënde të email-it që të mund të postosh, komentosh, votosh dhe ndjekësh të tjerët. Të dërguam një lidhje në :email. Një llogari që nuk konfirmohet brenda :days ditëve nga regjistrimi fshihet.',
+        'required' => 'Fillimisht konfirmo adresën tënde të email-it: lidhja ndodhet në email-in që të dërguam.',
+    ],
     'recently_deleted' => [
         'title' => 'Fshirë së fundi',
         'description' => 'Postimet e fshira mund të rikthehen për :days ditë. Pas kësaj mund të hiqen përgjithmonë bashkë me diskutimin e tyre.',

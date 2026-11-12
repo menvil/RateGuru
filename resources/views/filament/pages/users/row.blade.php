@@ -29,7 +29,12 @@
     </div>
 
     <div class="rg-admin-table__cell rg-admin-users__email" role="cell">
-        <span class="rg-admin-table__ellipsis" title="{{ $row['email'] }}">{{ $row['email'] }}</span>
+        <div class="rg-admin-table__stack">
+            <span class="rg-admin-table__ellipsis" title="{{ $row['email'] }}">{{ $row['email'] }}</span>
+            @if ($row['unconfirmed'])
+                <span class="rg-admin-table__meta rg-admin-table__meta--small" data-testid="user-row-unconfirmed">Not confirmed</span>
+            @endif
+        </div>
     </div>
 
     <div class="rg-admin-table__cell" role="cell">

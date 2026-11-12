@@ -12,6 +12,7 @@ return [
         'subject' => 'Patvirtinkite savo el. pašto adresą',
         'line' => 'Patvirtinkite savo el. pašto adresą, kad užbaigtumėte paskyros kūrimą.',
         'action' => 'Patvirtinti el. pašto adresą',
+        'expires' => 'Paskyra, nepatvirtinta per :days dienas, ištrinama.',
         'ignore' => 'Jei paskyros nekūrėte, nieko daryti nereikia.',
     ],
 
