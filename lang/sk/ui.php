@@ -79,6 +79,10 @@ return [
         'banned' => 'Tvoj účet má zakázanú účasť. Stále sa môžeš prihlásiť, prehliadať obsah a spravovať zabezpečenie účtu.',
         'shadowbanned' => 'Tvoj účet má obmedzenú účasť.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Potvrď svoju e-mailovú adresu, aby si mohol pridávať príspevky, komentovať, hlasovať a sledovať ostatných. Odkaz sme poslali na :email. Účet, ktorý nebude potvrdený do :days dní od registrácie, bude odstránený.',
+        'required' => 'Najprv potvrď svoju e-mailovú adresu: odkaz nájdeš v e-maile, ktorý sme ti poslali.',
+    ],
     'recently_deleted' => [
         'title' => 'Nedávno odstránené',
         'description' => 'Odstránené príspevky môžeš obnoviť počas :days dní. Potom môžu byť natrvalo odstránené spolu s diskusiou.',

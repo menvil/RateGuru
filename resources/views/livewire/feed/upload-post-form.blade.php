@@ -3,6 +3,12 @@
 <div data-testid="upload-post-form">
     <h2 class="sr-only">{{ $uploadSettings->uploadCtaLabel() }}</h2>
 
+    @if ($needsConfirmation)
+        {{-- No form to fill in for nothing: an account that has not confirmed its address may not post yet. --}}
+        <p role="status" data-testid="upload-confirmation-required" class="rounded-rgCard border border-rg-border bg-rg-surface px-5 py-4 text-sm text-rg-text">
+            {{ __('ui.account_confirmation.required') }}
+        </p>
+    @else
     {{-- novalidate: a hidden address field the browser found wrong would stop the form without
          a word; the server checks every field and says what is wrong. --}}
     <form
@@ -388,4 +394,5 @@
             </x-ui.button>
         </div>
     </form>
+    @endif
 </div>

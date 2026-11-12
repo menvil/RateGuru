@@ -12,6 +12,7 @@ return [
         'subject' => 'Konfirmo adresën tënde të email-it',
         'line' => 'Konfirmo adresën tënde të email-it për të përfunduar konfigurimin e llogarisë.',
         'action' => 'Konfirmo adresën e email-it',
+        'expires' => 'Një llogari që nuk konfirmohet brenda :days ditëve fshihet.',
         'ignore' => 'Nëse nuk ke krijuar llogari, nuk nevojitet asnjë veprim tjetër.',
     ],
 

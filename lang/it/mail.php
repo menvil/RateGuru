@@ -12,6 +12,7 @@ return [
         'subject' => 'Conferma il tuo indirizzo e-mail',
         'line' => 'Conferma il tuo indirizzo e-mail per completare la configurazione del tuo account.',
         'action' => 'Conferma indirizzo e-mail',
+        'expires' => 'Un account non confermato entro :days giorni viene eliminato.',
         'ignore' => 'Se non hai creato un account, non devi fare nient\'altro.',
     ],
 

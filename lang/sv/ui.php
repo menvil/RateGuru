@@ -79,6 +79,10 @@ return [
         'banned' => 'Ditt konto är avstängt från att delta. Du kan fortfarande logga in, bläddra och hantera kontots säkerhet.',
         'shadowbanned' => 'Ditt konto har begränsat deltagande.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Bekräfta din e-postadress för att kunna publicera, kommentera, rösta och följa andra. Vi har skickat en länk till :email. Ett konto som inte bekräftas inom :days dagar efter registreringen raderas.',
+        'required' => 'Bekräfta din e-postadress först: länken finns i mejlet vi skickade till dig.',
+    ],
     'recently_deleted' => [
         'title' => 'Nyligen raderade',
         'description' => 'Raderade inlägg kan återställas i :days dagar. Därefter kan de tas bort permanent tillsammans med diskussionen.',

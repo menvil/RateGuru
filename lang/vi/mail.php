@@ -12,6 +12,7 @@ return [
         'subject' => 'Xác nhận địa chỉ email của bạn',
         'line' => 'Vui lòng xác nhận địa chỉ email để hoàn tất thiết lập tài khoản.',
         'action' => 'Xác nhận địa chỉ email',
+        'expires' => 'Tài khoản không được xác nhận trong vòng :days ngày sẽ bị xóa.',
         'ignore' => 'Nếu bạn không tạo tài khoản, bạn không cần làm gì thêm.',
     ],
 

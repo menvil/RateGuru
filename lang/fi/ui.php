@@ -79,6 +79,10 @@ return [
         'banned' => 'Tilisi on estetty osallistumasta. Voit edelleen kirjautua sisään, selata sivustoa ja hallita tilisi turvallisuutta.',
         'shadowbanned' => 'Tilisi osallistumista on rajoitettu.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Vahvista sähköpostiosoitteesi, niin voit julkaista, kommentoida, äänestää ja seurata muita. Lähetimme linkin osoitteeseen :email. Tili, jota ei vahvisteta :days päivän kuluessa rekisteröitymisestä, poistetaan.',
+        'required' => 'Vahvista ensin sähköpostiosoitteesi: linkki on sähköpostissa, jonka lähetimme sinulle.',
+    ],
     'recently_deleted' => [
         'title' => 'Äskettäin poistetut',
         'description' => 'Poistetut julkaisut voi palauttaa :days päivän ajan. Sen jälkeen ne voidaan poistaa pysyvästi keskusteluineen.',

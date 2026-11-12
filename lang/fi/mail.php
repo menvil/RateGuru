@@ -12,6 +12,7 @@ return [
         'subject' => 'Vahvista sähköpostiosoitteesi',
         'line' => 'Vahvista sähköpostiosoitteesi, niin tilisi käyttöönotto viimeistellään.',
         'action' => 'Vahvista sähköpostiosoite',
+        'expires' => 'Tili, jota ei vahvisteta :days päivän kuluessa, poistetaan.',
         'ignore' => 'Jos et luonut tiliä, sinun ei tarvitse tehdä mitään.',
     ],
 

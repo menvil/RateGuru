@@ -79,6 +79,10 @@ return [
         'banned' => 'Akaun anda telah disekat daripada mengambil bahagian. Anda masih boleh log masuk, melayari laman dan mengurus keselamatan akaun.',
         'shadowbanned' => 'Penyertaan akaun anda dihadkan.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Sahkan alamat e-mel anda untuk menyiarkan, mengulas, mengundi dan mengikuti orang lain. Kami telah menghantar pautan ke :email. Akaun yang tidak disahkan dalam tempoh :days hari selepas pendaftaran akan dipadamkan.',
+        'required' => 'Sahkan alamat e-mel anda dahulu: pautan ada dalam e-mel yang kami hantar kepada anda.',
+    ],
     'recently_deleted' => [
         'title' => 'Baru Dipadam',
         'description' => 'Siaran yang dipadam boleh dipulihkan selama :days hari. Selepas itu ia mungkin dialih keluar secara kekal bersama perbincangannya.',

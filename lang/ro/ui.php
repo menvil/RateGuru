@@ -79,6 +79,10 @@ return [
         'banned' => 'Contului tău i-a fost interzisă participarea. Te poți autentifica în continuare, poți naviga și îți poți gestiona securitatea contului.',
         'shadowbanned' => 'Participarea contului tău este restricționată.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Confirmă-ți adresa de e-mail ca să poți publica, comenta, vota și urmări alți utilizatori. Am trimis un link la :email. Un cont neconfirmat în :days zile de la înregistrare este șters.',
+        'required' => 'Mai întâi confirmă-ți adresa de e-mail: linkul se află în e-mailul pe care ți l-am trimis.',
+    ],
     'recently_deleted' => [
         'title' => 'Șterse recent',
         'description' => 'Postările șterse pot fi restaurate timp de :days zile. După aceea, pot fi eliminate definitiv împreună cu discuția lor.',

@@ -79,6 +79,10 @@ return [
         'banned' => 'Jūsų paskyrai uždrausta dalyvauti. Vis dar galite prisijungti, naršyti ir tvarkyti paskyros saugą.',
         'shadowbanned' => 'Jūsų paskyros dalyvavimas apribotas.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Patvirtinkite savo el. pašto adresą, kad galėtumėte skelbti įrašus, komentuoti, balsuoti ir sekti kitus. Nuorodą išsiuntėme adresu :email. Paskyra, nepatvirtinta per :days dienas nuo registracijos, ištrinama.',
+        'required' => 'Pirmiausia patvirtinkite savo el. pašto adresą: nuoroda yra mūsų jums atsiųstame laiške.',
+    ],
     'recently_deleted' => [
         'title' => 'Neseniai ištrinti',
         'description' => 'Ištrintus įrašus galima atkurti per :days d. Vėliau jie gali būti negrįžtamai pašalinti kartu su diskusija.',

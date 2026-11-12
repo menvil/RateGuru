@@ -427,6 +427,7 @@
                     @endisset
 
                     <x-account-restriction-notice />
+                    <x-account-confirmation-notice />
 
                     <main
                         class="{{ $focused ? 'px-0 py-0' : ($isFeedRoute ? 'px-2 py-4 sm:px-6 sm:py-6 lg:px-6' : 'px-4 py-10 sm:px-6 lg:px-8') }}"

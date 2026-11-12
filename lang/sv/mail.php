@@ -12,6 +12,7 @@ return [
         'subject' => 'Bekräfta din e-postadress',
         'line' => 'Bekräfta din e-postadress för att slutföra konfigurationen av ditt konto.',
         'action' => 'Bekräfta e-postadress',
+        'expires' => 'Ett konto som inte bekräftas inom :days dagar raderas.',
         'ignore' => 'Om du inte har skapat något konto behöver du inte göra något.',
     ],
 

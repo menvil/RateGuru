@@ -79,6 +79,10 @@ return [
         'banned' => 'Tài khoản của bạn đã bị cấm tham gia. Bạn vẫn có thể đăng nhập, xem nội dung và quản lý bảo mật tài khoản.',
         'shadowbanned' => 'Tài khoản của bạn bị hạn chế tham gia.',
     ],
+    'account_confirmation' => [
+        'notice' => 'Hãy xác nhận địa chỉ email để đăng bài, bình luận, bình chọn và theo dõi người khác. Chúng tôi đã gửi liên kết đến :email. Tài khoản không được xác nhận trong vòng :days ngày kể từ khi đăng ký sẽ bị xóa.',
+        'required' => 'Vui lòng xác nhận địa chỉ email trước: liên kết nằm trong email chúng tôi đã gửi cho bạn.',
+    ],
     'recently_deleted' => [
         'title' => 'Đã xóa gần đây',
         'description' => 'Bài đăng đã xóa có thể được khôi phục trong vòng :days ngày. Sau thời gian đó, chúng có thể bị xóa vĩnh viễn cùng với phần thảo luận.',

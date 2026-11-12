@@ -12,6 +12,7 @@ return [
         'subject' => 'Staðfestu netfangið þitt',
         'line' => 'Staðfestu netfangið þitt til að ljúka uppsetningu aðgangsins.',
         'action' => 'Staðfesta netfang',
+        'expires' => 'Aðgangi sem er ekki staðfestur innan :days daga er eytt.',
         'ignore' => 'Ef þú stofnaðir ekki aðgang þarftu ekki að gera neitt.',
     ],
 

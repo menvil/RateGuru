@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Notifications\MailAddressee;
 use App\Support\Settings\ProjectSettingsManager;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -33,13 +35,23 @@ final class MailLocalizationServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
-        VerifyEmail::toMailUsing(fn (object $notifiable, string $url): MailMessage => (new MailMessage)
-            ->subject(__('mail.verify.subject'))
-            ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
-            ->line(__('mail.verify.line'))
-            ->action(__('mail.verify.action'), $url)
-            ->line(__('mail.verify.ignore'))
-            ->salutation(__('mail.salutation', ['app' => app(ProjectSettingsManager::class)->current()->siteName()])));
+        VerifyEmail::toMailUsing(function (object $notifiable, string $url): MailMessage {
+            $mail = (new MailMessage)
+                ->subject(__('mail.verify.subject'))
+                ->greeting(__('mail.greeting', ['name' => MailAddressee::nameOf($notifiable)]))
+                ->line(__('mail.verify.line'))
+                ->action(__('mail.verify.action'), $url);
+
+            // Only to an account the cleanup of unconfirmed accounts removes:
+            // one that confirmed an address before and has changed it is not.
+            if ($notifiable instanceof User && app(UnconfirmedAccountsQuery::class)->isUnconfirmed($notifiable)) {
+                $mail->line(__('mail.verify.expires', ['days' => UnconfirmedAccountsQuery::GRACE_DAYS]));
+            }
+
+            return $mail
+                ->line(__('mail.verify.ignore'))
+                ->salutation(__('mail.salutation', ['app' => app(ProjectSettingsManager::class)->current()->siteName()]));
+        });
 
         ResetPassword::toMailUsing(fn (object $notifiable, string $token): MailMessage => (new MailMessage)
             ->subject(__('mail.reset.subject'))

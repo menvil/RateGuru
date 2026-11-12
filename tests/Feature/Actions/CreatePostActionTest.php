@@ -13,6 +13,7 @@ use App\Enums\UserStatus;
 use App\Exceptions\Posts\CannotCreatePostException;
 use App\Models\MediaAsset;
 use App\Models\Post;
+use App\Models\SocialAccount;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\Media\Exceptions\ImageIngestException;
@@ -105,8 +106,12 @@ it('creates a published post for trusted user', function () {
     expect($post->published_at)->not->toBeNull();
 });
 
-it('holds the post of an author who has not confirmed their email for a moderator, and publishes the next one once they have', function () {
-    $user = User::factory()->unverified()->create();
+it('holds the post of a Google sign-in whose email is not confirmed for a moderator, and publishes the next one once it is', function () {
+    // Signing in with Google lets the account post; only a confirmed
+    // address publishes at once. An account with neither may not post at all.
+    $user = SocialAccount::factory()->unverifiedEmail('someone@example.com')
+        ->create(['user_id' => User::factory()->unverified()])
+        ->user;
     $data = fn (string $title) => new CreatePostData(title: $title, description: null, sourceUrl: null, tagIds: [], image: null);
 
     $first = app(CreatePostAction::class)->handle($user, $data('Before confirming'));

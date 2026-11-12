@@ -18,6 +18,7 @@ use App\Models\ModerationLog;
 use App\Models\Post;
 use App\Models\User;
 use App\Queries\Users\ModerationUsersQuery;
+use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Queries\Users\UserModerationProfileQuery;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
@@ -199,7 +200,8 @@ final class UserEditor extends Component
                 'name' => (string) $person->name,
                 'initials' => ModerationListFormat::initials((string) $person->username),
                 'status' => ModerationListFormat::personStatus($person),
-                'joined' => $person->created_at?->format('d M Y'),
+                'joined' => $person->created_at?->format('d M Y, H:i'),
+                'confirmation' => self::confirmation($person),
                 'posts' => number_format(array_sum($posts)),
                 'comments' => number_format($profile->comments($person)),
                 'reports' => number_format(app(ModerationUsersQuery::class)->reportsOnContentOf($person)),
@@ -391,5 +393,29 @@ final class UserEditor extends Component
         abort_if($person === null, 404);
 
         return $person;
+    }
+
+    /**
+     * Whether the person confirmed their address, and when; for one who never
+     * did and signed up with it, when the cleanup of unconfirmed accounts
+     * removes them.
+     */
+    private static function confirmation(User $person): string
+    {
+        if ($person->isTombstoned()) {
+            return '—';
+        }
+
+        if ($person->email_verified_at !== null) {
+            return 'Confirmed '.$person->email_verified_at->format('d M Y, H:i');
+        }
+
+        $removal = app(UnconfirmedAccountsQuery::class)->removalDate($person);
+
+        return match (true) {
+            $removal === null => 'Not confirmed',
+            $removal->isFuture() => 'Not confirmed · removed '.$removal->format('d M Y, H:i').' unless confirmed',
+            default => 'Not confirmed · removed at the next cleanup',
+        };
     }
 }

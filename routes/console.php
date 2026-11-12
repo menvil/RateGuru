@@ -51,6 +51,12 @@ Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 // Attempts, answers and results are kept.
 Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
 
+// Accounts that signed up with an email address and did not confirm one
+// within a week (docs/architecture/user-lifecycle.md, "Unconfirmed
+// accounts"): removed with everything they did, each asked again under lock.
+// Staff, Personas and Google or Facebook sign-ins are never among them.
+Schedule::command('users:purge-unconfirmed')->daily()->withoutOverlapping();
+
 // Content Studio's dispatcher (docs/architecture/studio-plans.md, "Running a
 // plan"): sends the approved plans' actions that are due and sends again
 // those lost on their way. The schedule and the recovery: an approval, a run
