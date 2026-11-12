@@ -17,12 +17,14 @@ use App\Data\Games\GameFlowDraft;
 use App\Data\Games\GameGeneralData;
 use App\Enums\GameAudience;
 use App\Enums\GameStatus;
+use App\Enums\UserStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\GameFlow;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Models\MediaAsset;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use Illuminate\Http\UploadedFile;
@@ -31,10 +33,17 @@ use Illuminate\Support\Facades\Storage;
 /*
  * Every administrator action of Growth → Games asks itself whether its caller
  * may manage games, whatever the page in front of it already asked: someone
- * who may not, calling one directly, is refused and nothing is written.
+ * who may not, calling one directly, is refused and nothing is written. It
+ * asks again on the locked row of the caller, so an administrator sanctioned
+ * after the request loaded them writes nothing either.
  */
 
-/** @return list<int> what a game action writes to, counted and versioned */
+/**
+ * What a game action writes to, counted and versioned — the media assets and
+ * the files on the public disk too, as the cover is stored before the lock.
+ *
+ * @return list<int|list<string>>
+ */
 function gameWriteState(array $draft): array
 {
     return [
@@ -46,21 +55,36 @@ function gameWriteState(array $draft): array
         (int) GameFlow::query()->whereKey($draft['flow']->id)->value('lock_version'),
         GameVersion::query()->count(),
         GameTrafficPeriod::query()->count(),
+        MediaAsset::withTrashed()->count(),
+        Storage::disk('public')->allFiles(),
     ];
 }
 
-it('refuses every game action to someone who may not manage games, and writes nothing', function (Closure $action) {
+it('refuses every game action to someone who may not manage games, and writes nothing', function (Closure $caller, Closure $action) {
     Storage::fake('public');
     $draft = publishableGameDraft(1);
     $draft['version'] = app(PublishGameVersionAction::class)->handle($draft['admin'], $draft['game'], $draft['set']->id, $draft['flow']->id);
     $draft['game'] = $draft['game']->fresh();
+    $user = $caller($draft);
     $before = gameWriteState($draft);
 
-    expect(fn () => $action(User::factory()->moderator()->create(), $draft))
+    expect(fn () => $action($user, $draft))
         ->toThrow(fn (CannotManageGameException $exception) => expect($exception->isNotAllowed())->toBeTrue());
 
     expect(gameWriteState($draft))->toBe($before);
 })->with([
+    'a moderator' => [fn (array $draft): User => User::factory()->moderator()->create()],
+    'an administrator banned after being loaded' => [function (array $draft): User {
+        $stale = User::query()->findOrFail($draft['admin']->id);
+        User::query()->whereKey($stale->id)->update(['status' => UserStatus::Banned]);
+
+        // The instance still says it may, so only the action's own look at
+        // the locked row can refuse it.
+        expect($stale->can('manage-games'))->toBeTrue();
+
+        return $stale;
+    }],
+])->with([
     'create a game' => [fn (User $user, array $d) => app(CreateGameAction::class)->handle($user, new GameGeneralData(title: 'Another game', slug: 'another-game'))],
     'save the general fields' => [fn (User $user, array $d) => app(SaveGameGeneralAction::class)->handle($user, $d['game'], GameGeneralData::of($d['game']), $d['game']->lock_version)],
     'set the cover' => [fn (User $user, array $d) => app(SetGameCoverAction::class)->handle($user, $d['game'], UploadedFile::fake()->image('cover.jpg', 1600, 900), $d['game']->lock_version)],

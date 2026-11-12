@@ -387,6 +387,23 @@ it('says under the share image upload why a file is refused', function () {
         ->assertSee($page->errors()->first('uploads.profile:'.$key));
 });
 
+it('drops the share image chosen for a profile with the profile, so a later save stores nothing of it', function () {
+    $assets = MediaAsset::query()->count();
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('showView', 'results')
+        ->call('addProfile');
+    $key = $page->get('editingProfile');
+
+    $page->set('uploads.profile:'.$key, UploadedFile::fake()->image('share.png', 1200, 630))
+        ->call('removeProfile', $key);
+
+    expect($page->get('uploads'))->not->toHaveKey('profile:'.$key);
+
+    $page->call('save')->assertDispatched('rg-admin-toast', message: 'Content saved', tone: 'success');
+
+    expect(MediaAsset::query()->count())->toBe($assets);
+});
+
 it('asks before the page is left with unsaved changes, unless it goes away on purpose', function () {
     Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
         ->assertSeeHtml('x-on:beforeunload.window="if (! $store.adminEditor.leaving && rgAdminEditorListChanges(');

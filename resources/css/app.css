@@ -955,6 +955,20 @@ select:disabled {
         grid-column: 1 / -1;
     }
 
+    /* The link to copy by hand when the clipboard refused it, across the whole row. */
+    .rg-game__share-fallback {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .rg-game__share-fallback > .rg-game__input {
+        width: 100%;
+        min-width: 0;
+        font-size: 14px;
+    }
+
     /*
      * The result, as the reference draws it: the card that goes out when it is shared beside what to do with it —
      * share, sign up, go on — side by side from 760 up, one above the other below.

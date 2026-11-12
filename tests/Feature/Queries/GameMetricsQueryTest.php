@@ -154,6 +154,31 @@ it('counts the attempts started in the window, however late they finished, what 
         ->and(metricsQuery()->signUpMethods(metricsScope($version)))->toBe(['email' => 1, 'google' => 1, 'login' => 1]);
 });
 
+it('counts a share made through the site’s own share address, a person once however often they share', function () {
+    $version = liveGame(publishableGameDraft(rounds: 2));
+    $slug = $version->game->slug;
+    $first = metricsAttempt($version, 'guest-a', attributes: ['game_id' => $version->game_id, ...metricsCompleted()]);
+    // The same guest again, from a second attempt.
+    $second = metricsAttempt($version, 'guest-a', attributes: ['game_id' => $version->game_id, ...metricsCompleted()]);
+
+    $share = fn (GameAttempt $attempt, string $provider) => $this->get(route('games.player-share', ['slug' => $slug, 'attempt' => $attempt->public_id, 'provider' => $provider]))->assertRedirect();
+    $sharing = function () use ($version): array {
+        $funnel = metricsQuery()->funnels(metricsScope($version))[0];
+
+        return [$funnel->shared, $funnel->sharers];
+    };
+
+    $share($first, 'x');
+
+    expect($sharing())->toBe([1, 1]);
+
+    $share($first, 'telegram');
+    $share($second, 'x');
+
+    expect(GameEvent::query()->where('type', GameEventType::ShareClicked)->count())->toBe(3)
+        ->and($sharing())->toBe([2, 1]);
+});
+
 it('splits the figures by version, flow and content set, a person once in each', function () {
     $draft = publishableGameDraft(rounds: 2);
     $first = liveGame($draft);
@@ -212,17 +237,33 @@ it('counts the attempts started from each traffic period', function () {
     $draft = publishableGameDraft(rounds: 1);
     $version = liveGame($draft);
     $period = GameTrafficPeriod::query()->where('game_id', $version->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
-    $assignment = GameAssignment::query()->forceCreate([
-        'game_id' => $version->game_id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', 'guest-a'),
-        'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    // An earlier allocation of the same audience, over before the current one began.
+    $earlier = GameTrafficPeriod::factory()->create([
+        'game_id' => $version->game_id, 'started_at' => '2026-10-01 00:00:00', 'ended_at' => '2026-10-15 00:00:00', 'started_by_user_id' => $draft['admin']->id,
     ]);
+    $assign = fn (string $guest, GameTrafficPeriod $in): GameAssignment => GameAssignment::query()->forceCreate([
+        'game_id' => $version->game_id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest),
+        'version_id' => $version->id, 'period_id' => $in->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    ]);
+    $first = $assign('guest-a', $period);
+    // A second visitor of the same period, counted in it with the first.
+    $second = $assign('guest-b', $period);
+    $old = $assign('guest-c', $earlier);
 
-    metricsAttempt($version, 'guest-a', attributes: ['assignment_id' => $assignment->id, ...metricsCompleted()]);
-    metricsAttempt($version, 'guest-a', attributes: ['assignment_id' => $assignment->id]);
+    metricsAttempt($version, 'guest-a', attributes: ['assignment_id' => $first->id, ...metricsCompleted()]);
+    metricsAttempt($version, 'guest-a', attributes: ['assignment_id' => $first->id]);
+    metricsAttempt($version, 'guest-b', attributes: ['assignment_id' => $second->id]);
+    metricsAttempt($version, 'guest-c', attributes: ['assignment_id' => $old->id, ...metricsCompleted()]);
     // A replay with no assignment belongs to no period.
     metricsAttempt($version, 'guest-a');
 
-    expect(metricsQuery()->periods((int) $version->game_id))->toBe([$period->id => ['started' => 2, 'completed' => 1]]);
+    // The query sets no order: compared by period, whichever row came first.
+    $periods = metricsQuery()->periods((int) $version->game_id);
+    ksort($periods);
+    $expected = [$period->id => ['started' => 3, 'completed' => 1], $earlier->id => ['started' => 1, 'completed' => 1]];
+    ksort($expected);
+
+    expect($periods)->toBe($expected);
 });
 
 it('reads the library’s columns for each game with something in the window', function () {

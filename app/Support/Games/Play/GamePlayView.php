@@ -269,8 +269,11 @@ final readonly class GamePlayView
         $site = app(ProjectSettingsManager::class)->current()->siteName();
         $versionNumber = (int) $game->versions()->whereKey($versionId)->value('number');
         // The player's own name on the card while they have an account: the
-        // attempt's, or in a preview the administrator's as a logged-in player.
-        $userId = $attempt->user_id ?? $visitor->userId;
+        // attempt's owner, nobody while a played attempt is still a guest's —
+        // whoever is signed in now, as its shared page names nobody — or in a
+        // preview, whose attempt is never saved, the administrator's as a
+        // logged-in player.
+        $userId = $attempt->exists ? $attempt->user_id : $visitor->userId;
         $player = PlayerHandle::of($userId !== null ? User::query()->find($userId) : null);
         $own = $player !== null && $attempt->exists && $profile !== null;
         // A share to a provider goes by the attempt, so it is counted on it;

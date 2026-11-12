@@ -1333,17 +1333,18 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
 - **Traffic:** per audience — anonymous visitors and logged-in players — the shares of the active versions (FRM-05,
   whole percentages adding up to 100), Add, Remove, Split evenly, Reset and Apply shares; the periods, newest
   first, with the visitors each assigned and the attempts started and completed.
-- **Analytics:** Group (FRM-08), Period (7, 30, 90 days, all time) and Version (FRM-10); the figures; the funnel;
-  Rounds reached and Results for the chosen version or the busiest one; Side by side by version, flow or content
-  set; the traffic periods with Open Traffic. Empty states say there is nothing to measure before a version is
-  published, and nobody of a group in a period.
+- **Analytics:** Group (FRM-08), Period (7, 30, 90 days, all time) and Version (FRM-10); the figures; the funnel,
+  each rate naming the step it is a share of; Rounds reached and Results for the chosen version or the busiest one;
+  Side by side by version, flow or content set; the traffic periods with Open Traffic. Empty states say there is
+  nothing to measure before a version is published, and nobody of a group in a period.
 - **Preview:** as the reference draws it. A band of switches — “Preview mode”; Source (Draft or a version), Content
   set and Flow for a draft; Theme (Dark, Light); View (Mobile, Desktop) and, on a desktop, Display (Browser window,
   Full page); Visitor (Anonymous, Logged in); Language — with Restart, Open and Fullscreen. Then the
   stage on the sunken ground: the site's own game page in an iPhone (402 × 820), in a dark Chrome window (1000 × 660,
-  the game's tab and address) fitted to the stage, or across it; Fullscreen lays the whole screen over the window.
-  Beside it Journey (300): the flow's steps, the one on screen marked and the ones before it done as the frame
-  moves, each starting the game again there; the result for a number of matches; and that nothing is recorded.
+  the game's tab and address) fitted to the stage, or across it; Fullscreen lays the whole screen over the window,
+  Journey scrolling within it. Beside it Journey (300): the flow's steps, the one on screen marked and the ones
+  before it done as the frame moves, each starting the game again there; the result for a number of matches; and
+  that nothing is recorded.
   Inside a frame the game page leaves out its own preview banner.
 - **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
   and the preview route ask, and so do the actions.

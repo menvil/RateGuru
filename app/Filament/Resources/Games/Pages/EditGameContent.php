@@ -480,6 +480,7 @@ final class EditGameContent extends Page
         $index = is_string($key) ? $this->profileIndex($key) : null;
 
         if ($index !== null) {
+            unset($this->uploads['profile:'.$key]);
             array_splice($this->profiles, $index, 1);
             $this->editingProfile = null;
         }

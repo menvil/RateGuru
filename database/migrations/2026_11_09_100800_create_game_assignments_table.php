@@ -18,6 +18,7 @@ return new class extends Migration
         // then allows one open assignment per visitor and any number of ended
         // ones, on every engine (unique indexes let NULLs repeat).
         if (DB::getDriverName() === 'sqlite') {
+            // Created whole: SQLite takes a CHECK only with its table (docs/architecture/games.md, "Database checks").
             DB::statement(sprintf(<<<'SQL'
                 CREATE TABLE "game_assignments" (
                     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

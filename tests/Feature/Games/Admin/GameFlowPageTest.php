@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\SaveGameFlowAction;
 use App\Data\Games\GameFlowDraft;
 use App\Filament\Resources\Games\GameResource;
@@ -9,6 +10,7 @@ use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\ProjectSettings;
 use App\Models\User;
+use App\Support\Games\Flow\GameFlowTemplate;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -88,12 +90,44 @@ it('offers between two steps only the steps that fit there, and adds one', funct
     $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
         ->call('openInsert', 3)
         ->assertSee('Steps that fit here')
-        ->call('insertStep', 'share')
+        ->call('insertStep', 'share', 3)
         ->assertSet('selected', 3);
 
     expect(collect($page->get('steps'))->pluck('type')->all())->toBe(['landing', 'game', 'full_result', 'share']);
 
     $page->call('insertStep', 'intro', 3)->assertDispatched('rg-admin-toast', message: 'That step doesn’t fit there.', tone: 'error');
+});
+
+it('adds a step from the library where it fits best, though a chooser is open elsewhere', function () {
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('openInsert', 1)
+        ->call('insertStep', 'share')
+        ->assertNotDispatched('rg-admin-toast')
+        ->assertSet('selected', 3)
+        ->assertSet('insertAt', null);
+
+    expect(collect($page->get('steps'))->pluck('type')->all())->toBe(['landing', 'game', 'full_result', 'share']);
+});
+
+it('puts a removed Full Result back into a flow with a Registration step, sending sign-up to that step', function () {
+    $flow = app(ChangeGameFlowAction::class)->create($this->draft['admin'], $this->draft['game'], 'Email first', GameFlowTemplate::EmailBeforeResult);
+
+    $page = Livewire::withQueryParams(['flow' => $flow->id])->test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('removeStep', 4)
+        ->assertSee('Missing Full Result.')
+        ->call('insertStep', 'full_result')
+        ->assertNotDispatched('rg-admin-toast')
+        ->assertSet('steps.4.type', 'full_result')
+        ->assertSet('steps.4.settings.signup', 'step');
+
+    expect($page->viewData('issues'))->toBe([]);
+});
+
+it('shows a step\'s button text on its card when the step has no title', function () {
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('insertStep', 'feed');
+
+    expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('“Go to the feed”');
 });
 
 it('lists the flow\'s problems as it stands, and keeps the game', function () {
@@ -165,6 +199,22 @@ it('renames the flow at the version on screen, and refuses a rename over another
     expect($flow->fresh()->name)->toBe('Renamed')
         ->and(GameFlowStep::query()->where('title', 'Theirs')->exists())->toBeTrue()
         ->and(GameFlowStep::query()->where('title', 'Mine')->exists())->toBeFalse();
+});
+
+it('shows the flow\'s name as stored after a rename, and its stored name again after a rename refused', function () {
+    $flow = $this->draft['flow'];
+
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('flowName', '   ')
+        ->call('renameFlow')
+        ->assertDispatched('rg-admin-toast', message: 'Give the flow a name.', tone: 'error')
+        ->assertSet('flowName', $flow->name)
+        ->set('flowName', '  Renamed  ')
+        ->call('renameFlow')
+        ->assertDispatched('rg-admin-toast', message: 'Flow renamed', tone: 'success')
+        ->assertSet('flowName', 'Renamed');
+
+    expect($flow->fresh()->name)->toBe('Renamed');
 });
 
 it('asks before the page is left with unsaved changes, unless it goes away on purpose', function () {

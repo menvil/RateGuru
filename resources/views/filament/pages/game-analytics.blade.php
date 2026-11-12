@@ -49,14 +49,14 @@
                 </dl>
             </x-admin.ui.card>
 
-            <x-admin.ui.card title="Funnel" description="Visitors are people, counted once each; everything after them counts the attempts started in this period, however late they finished.">
+            <x-admin.ui.card title="Funnel" description="People at every step, each counted once — someone who played three times started once — from the attempts started in this period, however late they finished. Completion above counts plays.">
                 <div class="rg-admin-table__scroll">
                     <div class="rg-admin-table__grid rg-admin-games__funnel" role="table" aria-label="Funnel">
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Step</div>
                             <div class="rg-admin-table__cell" role="columnheader"><span class="sr-only">Share of the first step</span></div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Count</div>
-                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">From previous</div>
+                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Rate</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">From first</div>
                         </div>
                         @foreach ($funnel as $step)
@@ -71,7 +71,12 @@
                                     <span class="rg-admin-games__bar"><span style="width: {{ $step['bar'] }}%"></span></span>
                                 </div>
                                 <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $step['count'] }}</div>
-                                <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $step['fromPrevious'] }}</div>
+                                <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">
+                                    {{ $step['rate'] }}
+                                    @if ($step['rateOf'] !== null)
+                                        <span class="rg-admin-table__meta">{{ $step['rateOf'] }}</span>
+                                    @endif
+                                </div>
                                 <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $step['fromStart'] }}</div>
                             </div>
                         @endforeach

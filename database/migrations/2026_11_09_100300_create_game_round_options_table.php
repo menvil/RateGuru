@@ -22,7 +22,7 @@ return new class extends Migration
         // The choices of a round, in their slots: A is 0, B is 1. A versus
         // round has exactly two; another mechanic may have more or fewer.
         if (DB::getDriverName() === 'sqlite') {
-            // Created whole: SQLite takes a CHECK only with its table.
+            // Created whole: SQLite takes a CHECK only with its table (docs/architecture/games.md, "Database checks").
             $this->createSqliteTable();
         } else {
             Schema::create('game_round_options', function (Blueprint $table) {
