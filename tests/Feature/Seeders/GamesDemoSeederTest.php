@@ -38,7 +38,9 @@ it('builds, publishes and opens the demo game from posts the crowd has decided b
         ->and(app(GameTrafficQuery::class)->hasPlayableTraffic((int) $game->id))->toBeTrue()
         ->and(app(ProjectSettingsManager::class)->featureEnabled('allow_games'))->toBeTrue()
         // The better liked post is not always on the same side.
-        ->and(array_map(fn ($round): ?int => $round->answer, $version->read()->rounds))->toBe([1, 0, 1, 0, 1]);
+        ->and(array_map(fn ($round): ?int => $round->answer, $version->read()->rounds))->toBe([1, 0, 1, 0, 1])
+        // Asked the way the rounds are scored — by the share of upvotes, not their count.
+        ->and(array_unique(array_map(fn ($round): string => $round->question->in('en'), $version->read()->rounds)))->toBe(['Which one did people like more?']);
 
     $this->seed(GamesDemoSeeder::class);
 

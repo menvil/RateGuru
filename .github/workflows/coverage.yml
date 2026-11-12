@@ -91,12 +91,14 @@ jobs:
       # gated by the CI "Architecture tests" job.
       # In parallel, as CI's own Unit and Feature run: each worker records the
       # coverage of the files it ran and Pest merges them into one report. On
-      # one process this step took about nine minutes.
+      # one process this step took about nine minutes. The merge holds every
+      # worker's coverage at once and grows with the codebase, so memory is
+      # not capped here or in phpunit.xml (which PHPUnit applies over -d).
       - name: Run tests with coverage
         id: coverage
         shell: bash
         run: |
-          php -d memory_limit=1G artisan test \
+          php -d memory_limit=-1 artisan test \
             --parallel \
             --testsuite=Unit,Feature \
             --coverage \

@@ -196,12 +196,16 @@ final class EditGameFlow extends Page
         $this->insertAt = null;
     }
 
-    /** Adds a step of a type where the chooser is open, or where it fits best. */
+    /**
+     * Adds a step of a type at the position given — the chooser names its
+     * own — or, from the library, where it fits best: the position the
+     * library offered it for, whether or not a chooser is open.
+     */
     public function insertStep(mixed $type, mixed $position = null): void
     {
         $type = is_string($type) ? GameFlowStepType::tryFrom($type) : null;
         $drafts = (new GameFlowDraft(array_values($this->steps)))->drafts();
-        $position = is_numeric($position) ? (int) $position : ($this->insertAt ?? ($type !== null ? GameFlowValidator::defaultPosition($drafts, $type) : null));
+        $position = is_numeric($position) ? (int) $position : ($type !== null ? GameFlowValidator::defaultPosition($drafts, $type) : null);
 
         if ($type === null || $position === null || ! in_array($type, GameFlowValidator::insertableAt($drafts, $position), true) || count($this->steps) >= SaveGameFlowAction::MOST_STEPS) {
             $this->toast('That step doesn’t fit there.', 'error');
@@ -209,7 +213,7 @@ final class EditGameFlow extends Page
             return;
         }
 
-        array_splice($this->steps, $position, 0, [GameFlowDraft::newStep($type, 'n'.Str::lower(Str::random(10)))]);
+        array_splice($this->steps, $position, 0, [GameFlowDraft::newStep($type, 'n'.Str::lower(Str::random(10)), $drafts)]);
         $this->selected = $position;
         $this->insertAt = null;
     }
@@ -247,6 +251,8 @@ final class EditGameFlow extends Page
         try {
             app(ChangeGameFlowAction::class)->rename($this->admin(), $flow, $this->flowName, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
+            // A name refused is not shown as the flow's.
+            $this->flowName = $flow->name;
             $this->stale = $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
 
@@ -255,6 +261,8 @@ final class EditGameFlow extends Page
 
         // The rename moved the flow on from the version on screen, and nothing else did.
         $this->lockVersion++;
+        // The name as stored: trimmed, and cut to its limit.
+        $this->flowName = (string) $flow->fresh()?->name;
         $this->toast('Flow renamed');
     }
 
@@ -460,6 +468,8 @@ final class EditGameFlow extends Page
         $settings = (array) ($step['settings'] ?? []);
         $texts = (array) ($step['texts'] ?? []);
         $audience = GameStepAudience::tryFrom((string) ($step['audience'] ?? '')) ?? GameStepAudience::All;
+        // Every step carries every text column, empty where unused: an empty title falls back to the button.
+        $line = trim((string) ($texts['title'] ?? '')) ?: trim((string) ($texts['button_label'] ?? ''));
 
         return [
             'index' => $index,
@@ -472,7 +482,7 @@ final class EditGameFlow extends Page
                 GameFlowStepType::Game => ($settings['advance'] ?? 'auto') === 'auto' ? 'Next pair after '.($settings['advance_seconds'] ?? 2.5).' s' : 'Next pair by button',
                 GameFlowStepType::EmailCapture => ($settings['required'] ?? false) ? 'Required to continue' : 'Optional · '.($texts['secondary_label'] ?? 'Skip'),
                 GameFlowStepType::FullResult => collect(['show_score' => 'Score', 'show_profile' => 'Profile', 'share_enabled' => 'Share'])->filter(fn ($label, $key) => (bool) ($settings[$key] ?? true))->values()->implode(' · ').' · '.(GameSignupMode::tryFrom((string) ($settings['signup'] ?? 'inline')) ?? GameSignupMode::Inline)->label(),
-                default => trim((string) ($texts['title'] ?? $texts['button_label'] ?? '')) !== '' ? '“'.Str::limit((string) ($texts['title'] ?: $texts['button_label']), 60).'”' : ($type?->description() ?? ''),
+                default => $line !== '' ? '“'.Str::limit($line, 60).'”' : ($type?->description() ?? ''),
             },
         ];
     }

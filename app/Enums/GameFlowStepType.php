@@ -190,11 +190,11 @@ enum GameFlowStepType: string
             ],
             self::EmailCapture => [
                 'title' => 'Before your result',
-                'body' => 'Leave your email to stay in touch.',
+                'body' => 'Leave your email with your result.',
                 'field_label' => 'Email address',
                 'button_label' => 'Continue',
                 'secondary_label' => 'Skip for now',
-                'notice' => 'We keep your email to stay in touch with you. We never share it.',
+                'notice' => 'We keep your email with your result and never share it. We only send you news if you tick the box below.',
                 'consent_label' => 'Tell me about new games and news',
             ],
             self::FullResult => [

@@ -38,6 +38,8 @@ it('says when there are no games yet', function () {
 
 it('shows a game\'s newest version and whether it has traffic', function () {
     $quiet = GameVersion::factory()->create(['number' => 3]);
+    // An older version made after it, so the number decides which is newest, not the order they were made in.
+    GameVersion::factory()->create(['game_id' => $quiet->game_id, 'number' => 2]);
     $live = liveGame(publishableGameDraft(1));
 
     $this->get(GameResource::getUrl('index'))

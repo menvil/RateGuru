@@ -2,9 +2,11 @@
 
 use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\PublishGameVersionAction;
+use App\Enums\GameAudience;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
+use App\Models\GameAttempt;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
@@ -71,7 +73,15 @@ it('shows what two guests did: one opened the game, the other played it through'
 
     // A row's bar comes before its count, so the funnel is read from its rows rather than the markup.
     expect(collect($page->viewData('funnel'))->pluck('count', 'label')->all())
-        ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'New account' => '0']);
+        ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'New account' => '0'])
+        // Each rate names what it is a share of: signing up is of the people who finished, not of those who began it.
+        ->and(collect($page->viewData('funnel'))->pluck('rateOf', 'label')->all())
+        ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'New account' => 'of Completed']);
+
+    // The funnel counts people, and says so.
+    $page->assertSee('each counted once')
+        ->assertDontSee('counts the attempts started')
+        ->assertSeeHtml('<span class="rg-admin-table__meta">of Game started</span>');
 
     // Split by flow: the flow and the versions made from it.
     $page->set('breakdown', 'flow')
@@ -128,14 +138,41 @@ it('narrows the figures to one version, and to the window asked for', function (
     session()->flush();
     $this->travelBack();
 
+    // V2, without traffic, with another guest's attempt started now.
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    GameAttempt::factory()->create(['version_id' => $second->id]);
+
+    $this->actingAs($this->draft['admin']);
+    $started = fn ($page): string => collect($page->viewData('kpis'))->firstWhere('label', 'Started')['value'];
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
+    expect($started($page))->toBe('2');
+
+    $page->set('version', $version->id)
+        ->assertSee('Anonymous visitors · Last 30 days · V1');
+    expect($started($page))->toBe('1');
+
+    $page->set('period', '7d')
+        ->assertSee('No visitors here yet')
+        ->set('version', 0)
+        ->assertDontSee('No visitors here yet');
+    expect($started($page))->toBe('1');
+});
+
+it('names what each rate of the logged-in funnel is a share of: playing again is of the players who started', function () {
+    $version = liveGame($this->draft);
+    $player = User::factory()->create();
+    GameAttempt::factory()->count(2)->create(['version_id' => $version->id, 'audience' => GameAudience::Authenticated, 'user_id' => $player->id, 'visitor_hash' => null]);
+
     $this->actingAs($this->draft['admin']);
 
-    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
-        ->set('version', $version->id)
-        ->assertSee('Anonymous visitors · Last 30 days · V1')
-        ->assertSeeInOrder(['Started', '1'])
-        ->set('period', '7d')
-        ->assertSee('No visitors here yet');
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->set('audience', 'authenticated')
+        ->assertSeeHtml('<span class="rg-admin-table__meta">of Game started</span>');
+    $funnel = collect($page->viewData('funnel'))->keyBy('label');
+
+    expect($funnel['Played again'])->toMatchArray(['count' => '1', 'rate' => '100.0%', 'rateOf' => 'of Game started'])
+        ->and($funnel['Shared result']['rateOf'])->toBe('of Completed');
 });
 
 it('is only for those who manage games', function () {
