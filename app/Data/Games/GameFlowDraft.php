@@ -8,6 +8,7 @@ use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowStepSettings;
+use App\Support\Games\Flow\GameFlowValidator;
 
 /**
  * A flow's steps as the Flow tab edits them, as plain arrays, in order: each
@@ -43,18 +44,25 @@ final readonly class GameFlowDraft
         ];
     }
 
-    /** A new step of a type, as an editor adds it. */
-    public static function newStep(GameFlowStepType $type, string $key): array
+    /**
+     * A new step of a type, as an editor adds it to the flow given: the step
+     * the flow rules checked where it is added (GameFlowValidator::fresh).
+     *
+     * @param  list<FlowStepDraft>  $flow
+     * @return array<string, mixed>
+     */
+    public static function newStep(GameFlowStepType $type, string $key, array $flow = []): array
     {
+        $fresh = GameFlowValidator::fresh($type, $key, $flow);
         $texts = array_fill_keys(GameFlowStepType::TEXT_COLUMNS, '');
 
         return [
             'id' => null,
             'key' => $key,
             'type' => $type->value,
-            'audience' => ($type->fixedAudience() ?? GameStepAudience::All)->value,
-            'settings' => GameFlowStepSettings::normalize($type, []),
-            'texts' => [...$texts, ...$type->defaultTexts()],
+            'audience' => $fresh->audience->value,
+            'settings' => GameFlowStepSettings::normalize($type, $fresh->settings),
+            'texts' => [...$texts, ...$fresh->texts],
         ];
     }
 

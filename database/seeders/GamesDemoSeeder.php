@@ -158,7 +158,7 @@ class GamesDemoSeeder extends Seeder
                 'id' => null,
                 'key' => 'r'.($index + 1),
                 'internal_name' => 'Round '.($index + 1),
-                'question' => 'Which one got more upvotes?',
+                'question' => 'Which one did people like more?',
                 'description' => '',
                 'reveal_message' => '',
                 'mode' => GameRoundMode::Crowd->value,

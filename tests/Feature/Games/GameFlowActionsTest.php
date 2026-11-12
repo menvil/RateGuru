@@ -70,7 +70,7 @@ it('refuses a save drawn before somebody else\'s', function () {
     $flow = $draft['flow']->load('steps');
 
     app(SaveGameFlowAction::class)->handle($draft['admin'], $flow, GameFlowDraft::of($flow), $flow->lock_version + 1);
-})->throws(CannotManageGameException::class);
+})->throws(CannotManageGameException::class, 'Someone saved this flow after you opened it. Reload to see their changes.');
 
 it('makes a flow from a template or as a copy', function () {
     $draft = publishableGameDraft(1);

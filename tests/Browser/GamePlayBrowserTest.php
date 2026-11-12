@@ -164,6 +164,45 @@ it('signs a guest up on the result in two steps, back on it signed in, the resul
     $page->assertNoJavaScriptErrors();
 });
 
+it('counts a copied link only once the clipboard took it, and offers the link to copy by hand when it refused', function () {
+    buttonPacedGame($this->draft);
+    liveGame($this->draft);
+    $page = visitGame($this->draft['game']->slug, 390);
+
+    $page->click('[data-testid="game-start"]');
+    waitForScript($page, "!! document.querySelector('[data-testid=\"game-option-0\"]')", true, 10.0);
+    pickInGame($page, 0);
+    nextInGame($page, "document.querySelector('[data-testid=\"game-step-game\"]')?.dataset.round === '1'");
+    pickInGame($page, 0);
+    nextInGame($page, "!! document.querySelector('[data-testid=\"game-share-copy\"]')");
+
+    $copies = fn (): int => GameEvent::query()->where('type', GameEventType::ShareClicked)->where('provider', 'copy_link')->count();
+    $fallbackShown = "getComputedStyle(document.querySelector('[data-testid=\"game-share-copy-fallback\"]')).display !== 'none'";
+    $attempt = GameAttempt::query()->sole();
+
+    // Refused, the way an in-app browser refuses it: the link, selected, to copy
+    // by hand, and nothing sent to be counted.
+    $page->script("(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('Denied', 'NotAllowedError')) })()");
+    watchLivewireUpdates($page);
+    $page->click('[data-testid="game-share-copy"]');
+    waitForScript($page, $fallbackShown, true, 10.0);
+
+    expect(livewireUpdatesSinceWatching($page)['fetches'])->toBe(0)
+        ->and($page->script("document.querySelector('[data-testid=\"game-share-copy-url\"]').value"))
+        ->toBe(route('games.result', ['slug' => $this->draft['game']->slug, 'version' => 1, 'profile' => $attempt->profile_key]))
+        ->and($page->script("(() => { const input = document.querySelector('[data-testid=\"game-share-copy-url\"]'); return input.selectionStart === 0 && input.selectionEnd === input.value.length })()"))->toBeTrue();
+    $page->assertSee('Could not copy automatically. Select and copy manually.');
+
+    // Taken: counted, once, and the fallback put away.
+    $page->script('(() => { navigator.clipboard.writeText = () => Promise.resolve() })()');
+    $page->click('[data-testid="game-share-copy"]');
+    waitForScript($page, "document.querySelector('[data-testid=\"game-share-copy\"]').textContent.trim()", 'Link copied', 10.0);
+    eventually(fn () => expect($copies())->toBe(1), 10.0);
+
+    expect($page->script($fallbackShown))->toBeFalse();
+    $page->assertNoJavaScriptErrors();
+});
+
 it('opens the site’s log-in dialog from the result instead', function () {
     buttonPacedGame($this->draft);
     liveGame($this->draft);

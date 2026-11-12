@@ -83,6 +83,31 @@ it('refuses to publish what is not ready, saying why', function () {
     publish($draft);
 })->throws(CannotManageGameException::class, 'This version can’t be published yet: 1 of 1 rounds need attention in Content.');
 
+it('publishes only a content set and a flow of its own game, and writes nothing for another game\'s', function () {
+    $draft = publishableGameDraft(1);
+    $foreign = publishableGameDraft(1);
+    $publishWith = fn (int $setId, int $flowId) => app(PublishGameVersionAction::class)->handle($draft['admin'], $draft['game'], $setId, $flowId);
+
+    expect(fn () => $publishWith($foreign['set']->id, $draft['flow']->id))
+        ->toThrow(CannotManageGameException::class, 'This content set no longer exists.');
+    expect(fn () => $publishWith($draft['set']->id, $foreign['flow']->id))
+        ->toThrow(CannotManageGameException::class, 'This flow no longer exists.');
+    expect(GameVersion::query()->exists())->toBeFalse()
+        ->and($draft['game']->fresh()->last_version_number)->toBe(0)
+        ->and($draft['game']->fresh()->lock_version)->toBe($draft['game']->lock_version);
+});
+
+it('takes traffic over only from a version of its own game', function () {
+    $theirs = liveGame(publishableGameDraft(1));
+    $draft = publishableGameDraft(1);
+
+    publish($draft, takeOver: $theirs->id);
+
+    expect(GameTrafficPeriod::query()->whereNull('ended_at')->with('versions')->orderBy('id')->get()->map->shares()->all())
+        ->toBe([[$theirs->id => 100], [$theirs->id => 100]])
+        ->and(GameTrafficPeriod::query()->where('game_id', $draft['game']->id)->exists())->toBeFalse();
+});
+
 it('gives the new version another version\'s traffic when asked', function () {
     $draft = publishableGameDraft(1);
     $v1 = publish($draft);

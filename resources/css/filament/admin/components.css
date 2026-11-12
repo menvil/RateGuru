@@ -13257,6 +13257,12 @@
         inset: 0;
     }
 
+    /* Fullscreen holds the preview to the window, which never scrolls: Journey scrolls inside it instead of growing past it. */
+    .rg-admin-games__preview--fs .rg-admin-games__journey {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
     .rg-admin-games__preview-bar {
         display: flex;
         flex-wrap: wrap;
@@ -13614,6 +13620,7 @@
         --rg-admin-table-min-width: 760px;
     }
 
+    .rg-admin-games__funnel .rg-admin-table__cell--numeric,
     .rg-admin-games__breakdown .rg-admin-table__cell--numeric {
         display: flex;
         flex-direction: column;

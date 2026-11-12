@@ -63,7 +63,7 @@ it('deletes the events and emails past their retention, and keeps the rest', fun
     $oldEvents = [expiringGameEvent($this->version, 500), expiringGameEvent($this->version, 400.01)];
     $keptEvents = [expiringGameEvent($this->version, 400), expiringGameEvent($this->version, 30)];
     $oldEmail = expiringGameEmail($this->version, 365.01);
-    $keptEmail = expiringGameEmail($this->version, 364);
+    $keptEmail = expiringGameEmail($this->version, 365);
 
     $this->artisan('games:purge-expired')
         ->expectsOutput('Deleted 2 game events older than 400 days.')

@@ -118,7 +118,8 @@ final class GameTraffic extends Page
             return;
         }
 
-        $this->draw();
+        // Only this audience is drawn again: the other keeps its unsaved shares, and the shares it was drawn with.
+        $this->drawAudience($audience);
         $this->toast($started ? 'Shares applied. A new period started.' : 'Shares applied. The current period had no visitors yet, so it was updated.');
     }
 
