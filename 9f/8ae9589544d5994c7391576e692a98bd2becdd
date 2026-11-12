@@ -1,0 +1,115 @@
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_f62ceebc7fc9de 36-53,60
+  s_4b9dc6ab6b25d3::t_8c70f8fb915cda 54-55
+  s_4b9dc6ab6b25d3::t_b948c999958501 56-59
+  s_4b9dc6ab6b25d3::t_bec6736c95c977 185-186,189
+  s_4b9dc6ab6b25d3::t_22c7059c0b4be6 190-193
+tests/Feature/Games/Admin/GameContentPageTest.php
+  s_4b9dc6ab6b25d3::t_b5570c49c3448c 390-406
+app/Actions/Games/RecordGameAnswerAction.php
+  s_4b9dc6ab6b25d3::t_45a2fb1131f52b 98-103
+app/Enums/GameFlowStepType.php
+  s_4b9dc6ab6b25d3::t_45a2fb1131f52b 193
+  s_4b9dc6ab6b25d3::t_c482ca96556bca 197
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_4020a224035aa1 958-971
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_846804554a765e 13260-13265,13623
+tests/Feature/Games/PlayGamePageTest.php
+  s_4b9dc6ab6b25d3::t_3e806e46531941 54-76
+resources/views/filament/pages/game-analytics.blade.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 52,59,74-79
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_1dea358f0ad254 1336,1344
+  s_4b9dc6ab6b25d3::t_7569425ff413c0 1337-1339,1345-1347
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_b4017eeebe87d9 157-163,170,172,178,180-181
+  s_4b9dc6ab6b25d3::t_1df6632fb8105b 164,171,173-177,179
+  s_4b9dc6ab6b25d3::t_adaf768f5d0cd0 165-169
+  s_4b9dc6ab6b25d3::t_56a23ddc575e22 240-242,244-256,260-266
+resources/views/livewire/games/steps/share-buttons.blade.php
+  s_4b9dc6ab6b25d3::t_45a2fb1131f52b 4-8,10-36,41,49-52
+app/Support/Games/Flow/GameFlowValidator.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 159,191-198,200-205,210
+database/migrations/2026_11_09_100700_create_game_traffic_tables.php
+  s_4b9dc6ab6b25d3::t_8a0ebc467c0fca 31
+docs/admin/games.md
+  s_4b9dc6ab6b25d3::t_aed55f0c5939ed 104-106
+  s_4b9dc6ab6b25d3::t_8792bf895127e5 114-117
+tests/Feature/Games/ContentSetActionsTest.php
+  s_4b9dc6ab6b25d3::t_d29d67fc415e52 52
+tests/Feature/Games/PublishGameVersionActionTest.php
+  s_4b9dc6ab6b25d3::t_0da595b9d1ab5c 86-110
+tests/Feature/Models/GameVersionPostModelTest.php
+  s_4b9dc6ab6b25d3::t_0cb337b100db75 9-10,12,14,21,23-26,30-32
+database/seeders/GamesDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_45a2fb1131f52b 161
+tests/Feature/Games/PlayGameSignupTest.php
+  s_4b9dc6ab6b25d3::t_429c3d0efea3e3 240
+  s_4b9dc6ab6b25d3::t_a573217b187b8d 211-231,234-239,241-249
+app/Filament/Resources/Games/Pages/GameTraffic.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 121-122
+tests/Feature/Games/GameActionsAuthorizationTest.php
+  s_4b9dc6ab6b25d3::t_f52665c23f6e6b 20,27,36-38,41-46,58-59,63,68,71,76-87
+database/migrations/2026_11_09_100800_create_game_assignments_table.php
+  s_4b9dc6ab6b25d3::t_8a0ebc467c0fca 21
+tests/Feature/Queries/GamePostPickerQueryTest.php
+  s_4b9dc6ab6b25d3::t_21915bcf9041e1 40,44-46,48-49
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_3a2396d53832fb 3,13,93,101-132,204-217
+tests/Feature/Games/Admin/GamesLibraryPageTest.php
+  s_4b9dc6ab6b25d3::t_ec8c13fb24e498 41-42
+tests/Unit/Support/Games/CrowdComparisonTest.php
+  ai_agent 21-24,27,29
+tests/Feature/Seeders/GamesDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_f9a14a628d92ae 41-43
+app/Filament/Resources/Games/Pages/EditGameContent.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 483
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_6e0753b2b17fb0 5,9,76-84,141-144,146,148-166,168,174-175
+  s_4b9dc6ab6b25d3::t_ec8c13fb24e498 167,169-173
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_26477867ff7e9b 193-194
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 202-207,230-235,239-243,248-251,258,261-262
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 199-203,208,216,254-255,264-265,471-472,485
+tests/Feature/Database/GameTablesTest.php
+  s_4b9dc6ab6b25d3::t_6bf857bf91fcd0 1-140
+tests/Browser/GamePlayBrowserTest.php
+  s_4b9dc6ab6b25d3::t_77fd72d66b8a88 167-182,185,187-189,192-195,197-205
+  s_4b9dc6ab6b25d3::t_3bc61234b25a0e 183-184,186,190-191,196
+app/Data/Games/GameFlowDraft.php
+  s_4b9dc6ab6b25d3::t_fd6bd1a849adde 11,47-54,56,63-65
+tests/Unit/Support/Games/GameFlowValidatorTest.php
+  s_4b9dc6ab6b25d3::t_521dd1f2538434 153-168,178-182
+tests/Feature/Games/GameFlowActionsTest.php
+  s_4b9dc6ab6b25d3::t_ac9005b991d2ac 73
+database/migrations/2026_11_09_100300_create_game_round_options_table.php
+  s_4b9dc6ab6b25d3::t_8a0ebc467c0fca 25
+tests/Feature/Games/Admin/GameVersionsTrafficPageTest.php
+  s_4b9dc6ab6b25d3::t_1fddc857d82e5e 116-140
+tests/Feature/Games/PlayGameStepsTest.php
+  s_4b9dc6ab6b25d3::t_a0d11bea6f3d5b 89-92,105-106
+  s_4b9dc6ab6b25d3::t_0aa35e4bec0c29 211-227
+tests/Feature/Console/GamesPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_c177ebc0248cf8 66
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_eedd2b176318b0 272-275
+  s_4b9dc6ab6b25d3::t_45a2fb1131f52b 276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9f8ae9589544d5994c7391576e692a98bd2becdd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
