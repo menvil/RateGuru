@@ -8,8 +8,8 @@
      * played as a phone shows it, light or dark. The flow is one draft until Save in the top
      * bar; its problems are listed as it stands.
      */
-    $draft = '{ steps: $wire.steps }';
-    $saved = '{ steps: $wire.saved }';
+    $draft = '{ steps: $wire.steps, goal: $wire.goal }';
+    $saved = '{ steps: $wire.saved, goal: $wire.savedGoal }';
 @endphp
 
 <div

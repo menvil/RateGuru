@@ -8,10 +8,12 @@ use App\Enums\GameAudience;
 use App\Enums\GameVersionStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
+use App\Models\GameFlowStep;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\GameVersionPost;
 use App\Models\User;
+use App\Queries\Games\GameFlowFactsQuery;
 use App\Support\Games\Drafts\ContentSetReport;
 use App\Support\Games\Publishing\GamePublishReadiness;
 use App\Support\Games\Publishing\VersionSnapshotBuilder;
@@ -55,7 +57,8 @@ final class PublishGameVersionAction
             $flow->load('steps');
 
             $report = ContentSetReport::of($set);
-            $readiness = GamePublishReadiness::of($locked, $report, $flow, Game::query()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all());
+            $drafts = $flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all();
+            $readiness = GamePublishReadiness::of($locked, $report, $flow, Game::query()->pluck('id')->map(fn (mixed $id): int => (int) $id)->all(), app(GameFlowFactsQuery::class)->for($drafts));
 
             if (! $readiness->isReady()) {
                 throw CannotManageGameException::because('This version can’t be published yet: '.$readiness->problems()[0]);
@@ -72,6 +75,7 @@ final class PublishGameVersionAction
                 'content_set_id' => $set->id,
                 'flow_id' => $flow->id,
                 'snapshot' => $snapshot->toArray(),
+                'goal' => $snapshot->flowGoal,
                 'snapshot_schema' => GameVersionSnapshot::SCHEMA,
                 'round_count' => $snapshot->roundCount(),
                 'scored_round_count' => $snapshot->scoredRoundCount(),

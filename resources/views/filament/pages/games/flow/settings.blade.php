@@ -120,19 +120,85 @@
                     <p class="rg-admin-games__note">The email is stored, never sent anything, and it creates no account.</p>
                     @break
                 @case('full_result')
+                    @php($sendsOn = ($step['settings']['onward'] ?? 'next') !== 'next')
                     <x-admin.ui.switch label="Show score" id="rg-admin-step-score" :checked="(bool) ($step['settings']['show_score'] ?? true)" wire:model.live="{{ $path }}.settings.show_score" />
                     <x-admin.ui.switch label="Show profile" id="rg-admin-step-profile" :checked="(bool) ($step['settings']['show_profile'] ?? true)" wire:model.live="{{ $path }}.settings.show_profile" />
-                    <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" wire:model.live="{{ $path }}.settings.share_enabled" />
-                    <fieldset class="rg-admin-field rg-admin-games__radio-rows">
-                        <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
-                        @foreach ($signups as $signup)
-                            <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['signup'] ?? 'inline') === $signup['value']])>
-                                <input type="radio" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
-                                {{ $signup['label'] }}
+                    <x-admin.ui.radio-cards label="Way on" :options="[
+                        'next' => ['label' => 'Next step', 'help' => 'Sign-up and sharing here, then the next step of the flow.'],
+                        'post' => ['label' => 'Go to a post', 'help' => 'A post to vote on; the steps after this one are never shown.'],
+                        'feed' => ['label' => 'Go to the feed', 'help' => 'The site’s feed; the steps after this one are never shown.'],
+                    ]" :value="$step['settings']['onward'] ?? 'next'" wire:model.live="{{ $path }}.settings.onward" data-testid="game-flow-way-on" />
+                    @if ($sendsOn)
+                        <p class="rg-admin-games__note">Sign-up and share buttons are not shown while Full Result sends visitors on.</p>
+                        @if (($step['settings']['onward'] ?? '') === 'post')
+                            @include('filament.pages.games.flow.post-settings')
+                        @else
+                            <label class="rg-admin-field">
+                                <span class="rg-admin-label">Which feed</span>
+                                <select class="rg-admin-games__select" wire:model.live="{{ $path }}.settings.feed_sort">
+                                    @foreach ($feedSorts as $value => $label)
+                                        <option value="{{ $value }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
                             </label>
-                        @endforeach
-                        <span class="rg-admin-games__note">Signed-in players are never asked.</span>
-                    </fieldset>
+                        @endif
+                    @else
+                        <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" wire:model.live="{{ $path }}.settings.share_enabled" />
+                        <fieldset class="rg-admin-field rg-admin-games__radio-rows">
+                            <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
+                            @foreach ($signups as $signup)
+                                <label @class(['rg-admin-games__radio-row', 'rg-admin-games__radio-row--on' => ($step['settings']['signup'] ?? 'inline') === $signup['value']])>
+                                    <input type="radio" value="{{ $signup['value'] }}" wire:model.live="{{ $path }}.settings.signup" />
+                                    {{ $signup['label'] }}
+                                </label>
+                            @endforeach
+                            <span class="rg-admin-games__note">Signed-in players are never asked.</span>
+                        </fieldset>
+                    @endif
+                    @break
+                @case('feed')
+                    <label class="rg-admin-field">
+                        <span class="rg-admin-label">Which feed</span>
+                        <select class="rg-admin-games__select" wire:model.live="{{ $path }}.settings.feed_sort">
+                            @foreach ($feedSorts as $value => $label)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    @break
+                @case('go_to_post')
+                    @include('filament.pages.games.flow.post-settings')
+                    @break
+                @case('go_to_page')
+                    @php($destination = $step['settings']['destination'] ?? 'category')
+                    <x-admin.ui.radio-cards label="Where to" :options="[
+                        'category' => ['label' => 'A category', 'help' => 'The feed of one category.'],
+                        'tag' => ['label' => 'A tag', 'help' => 'The feed of one tag.'],
+                        'page' => ['label' => 'Another page on this site', 'help' => 'The feed, a post, a profile, a game or a static page.'],
+                        'url' => ['label' => 'Another site', 'help' => 'An https address; it counts for no account.'],
+                    ]" :value="$destination" wire:model.live="{{ $path }}.settings.destination" />
+                    @switch ($destination)
+                        @case('tag')
+                            <x-admin.ui.text-field label="Tag" id="rg-admin-step-tag" :value="$step['settings']['tag'] ?? ''" hint="The tag’s slug, as in its address." wire:model.live.debounce.400ms="{{ $path }}.settings.tag" />
+                            @break
+                        @case('page')
+                            <x-admin.ui.text-field label="Page address" id="rg-admin-step-path" :value="$step['settings']['path'] ?? ''" hint="A path on this site, such as /posts/123." wire:model.live.debounce.400ms="{{ $path }}.settings.path" />
+                            @break
+                        @case('url')
+                            <x-admin.ui.text-field label="Site address" id="rg-admin-step-url" :value="$step['settings']['url'] ?? ''" hint="https:// only. {click_id}, {game} and {result} are filled in." wire:model.live.debounce.400ms="{{ $path }}.settings.url" />
+                            <x-admin.ui.switch label="Open in a new tab" id="rg-admin-step-new-tab" :checked="(bool) ($step['settings']['new_tab'] ?? false)" on-hint="The game stays open behind it." off-hint="The visitor leaves the game." wire:model.live="{{ $path }}.settings.new_tab" />
+                            @break
+                        @default
+                            <label class="rg-admin-field">
+                                <span class="rg-admin-label">Category</span>
+                                <select class="rg-admin-games__select" wire:model.live="{{ $path }}.settings.category">
+                                    <option value="">Choose a category</option>
+                                    @foreach ($categories as $slug => $name)
+                                        <option value="{{ $slug }}">{{ $name }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                    @endswitch
                     @break
                 @case('next_game')
                     <label class="rg-admin-field">

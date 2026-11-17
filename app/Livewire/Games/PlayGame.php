@@ -4,6 +4,7 @@ namespace App\Livewire\Games;
 
 use App\Actions\Games\AssignGameVersionAction;
 use App\Actions\Games\CaptureGameEmailAction;
+use App\Actions\Games\LeaveGameAction;
 use App\Actions\Games\MoveGameAttemptAction;
 use App\Actions\Games\RecordGameAnswerAction;
 use App\Actions\Games\RecordGameInteractionAction;
@@ -324,7 +325,7 @@ final class PlayGame extends Component
 
     public function replay(): void
     {
-        $attempt = $this->startAttempt(true);
+        $attempt = $this->startAttempt(true, $this->attempt());
 
         if ($attempt !== null) {
             $this->versionId = (int) $attempt->version_id;
@@ -335,17 +336,40 @@ final class PlayGame extends Component
     }
 
     /** Leaves the game for the feed or the next game, counted as an exit. */
-    public function leave(mixed $to): void
+    /**
+     * Out of the game: 'step' follows the way out of the step on screen — a
+     * post, a page, the feed, as the flow says — and with $newTab only counts
+     * it, the page having opened it in a tab of its own; 'next' goes to the
+     * next game; anything else, to the feed.
+     */
+    public function leave(mixed $to, mixed $newTab = false): void
     {
         $game = $this->game();
+
+        if ($to === 'step' && $game !== null) {
+            $exit = app(LeaveGameAction::class)->handle($game, $this->visitor(), $this->attempt());
+
+            if ($newTab !== true) {
+                $this->redirect($exit->url);
+            }
+
+            return;
+        }
+
         $next = $to === 'next' ? $this->nextGame() : null;
+
+        if ($game !== null && $next !== null) {
+            $this->redirect(app(LeaveGameAction::class)->toNextGame($game, $this->visitor(), $this->attempt(), $next)->url);
+
+            return;
+        }
 
         if ($game !== null) {
             // Where the visitor is actually sent: the feed, when the next game is no longer there for them.
-            app(RecordGameInteractionAction::class)->handle(GameEventType::Exit, $game, $this->visitor(), $this->attempt(), $this->versionId, $next !== null ? 'next_game' : 'feed');
+            app(RecordGameInteractionAction::class)->handle(GameEventType::Exit, $game, $this->visitor(), $this->attempt(), $this->versionId, 'feed');
         }
 
-        $this->redirect($next !== null ? route('games.play', ['slug' => $next->slug]) : route('feed'));
+        $this->redirect(route('feed'));
     }
 
     public function render(): View
@@ -390,7 +414,7 @@ final class PlayGame extends Component
         }
     }
 
-    private function startAttempt(bool $replay): ?GameAttempt
+    private function startAttempt(bool $replay, ?GameAttempt $from = null): ?GameAttempt
     {
         $game = $this->game();
 
@@ -399,7 +423,7 @@ final class PlayGame extends Component
         }
 
         try {
-            $attempt = app(StartGameAttemptAction::class)->handle($game, $this->visitor(), app()->getLocale(), $replay, $this->visitId);
+            $attempt = app(StartGameAttemptAction::class)->handle($game, $this->visitor(), app()->getLocale(), $replay, $this->visitId, $from);
         } catch (CannotPlayGameException $exception) {
             $this->unavailable = $exception->reason === 'not_live' ? ($game->status === GameStatus::Archived ? 'ended' : 'paused') : 'unavailable';
 

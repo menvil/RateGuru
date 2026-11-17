@@ -44,6 +44,8 @@ final class ChangeGameFlowAction
             $flow->forceFill([
                 'game_id' => $locked->id,
                 'name' => $name,
+                // A copy keeps the goal it was given; a new flow takes the one its steps give it.
+                'goal' => $source?->goal,
                 'position' => (int) GameFlow::query()->where('game_id', $locked->id)->max('position') + 1,
             ])->save();
 

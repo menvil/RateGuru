@@ -10,6 +10,7 @@ use App\Support\Seo\PostOpenGraph;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\View\AppLayoutData;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -22,6 +23,18 @@ final class PostShow extends Component
 
     public ?string $deleteError = null;
 
+    /**
+     * What a game that sent the visitor here asked them to do on the post:
+     * vote, and answer these rating groups. Drawn as a highlight only; what
+     * counts for the game is read back from the votes themselves.
+     */
+    #[Locked]
+    public bool $askVote = false;
+
+    /** @var list<string> */
+    #[Locked]
+    public array $askGroups = [];
+
     public function boot(PublishedPostDetailsQuery $publishedPostDetails): void
     {
         $this->publishedPostDetails = $publishedPostDetails;
@@ -30,6 +43,11 @@ final class PostShow extends Component
     public function mount(Post $post): void
     {
         $this->postId = $post->id;
+        $this->askVote = request()->query('vote') === '1';
+        $ask = request()->query('ask');
+        $this->askGroups = is_string($ask)
+            ? array_slice(array_values(array_filter(explode(',', $ask), fn (string $key): bool => preg_match('/^[a-z0-9]+(?:_[a-z0-9]+)*$/', $key) === 1)), 0, 8)
+            : [];
     }
 
     public function getPostProperty(): Post

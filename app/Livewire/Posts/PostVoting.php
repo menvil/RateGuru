@@ -2,11 +2,14 @@
 
 namespace App\Livewire\Posts;
 
+use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Votes\VotePostAction;
 use App\Enums\VoteType;
 use App\Exceptions\Votes\CannotVoteException;
+use App\Livewire\Concerns\CreditsGameSiteActivity;
 use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\GuestVoteAttemptLog;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
@@ -16,7 +19,7 @@ use Livewire\Component;
 /** @property-read Post|null $post */
 final class PostVoting extends Component
 {
-    use OpensAuthModal;
+    use CreditsGameSiteActivity, OpensAuthModal;
 
     public int $postId;
 
@@ -114,6 +117,8 @@ final class PostVoting extends Component
         }
 
         unset($this->post);
+
+        $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->postVoteChanged($user, $this->postId, app(GameVisitorResolver::class)->browserHash()));
 
         $this->dispatch('post-voted', postId: $this->postId);
     }

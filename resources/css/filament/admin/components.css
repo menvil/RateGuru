@@ -12917,6 +12917,64 @@
         color: var(--rg-admin-text-secondary);
     }
 
+    .rg-admin-games__step-chip--goal {
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    /* The flow's goal, over the canvas. */
+    .rg-admin-games__goal {
+        margin-bottom: 16px;
+    }
+
+    .rg-admin-games__goal .rg-admin-card__body,
+    .rg-admin-games__goal > .rg-admin-field {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    /* The post a step links to, and the posts a search found. */
+    .rg-admin-games__linked-post {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-games__linked-post-title {
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-games__post-matches {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-games__post-match {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        text-align: left;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__post-match:hover {
+        background: var(--rg-admin-surface-pill);
+    }
+
     .rg-admin-games__step-fixed {
         display: inline-flex;
         align-items: center;

@@ -77,6 +77,8 @@ use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Support\Games\Flow\FlowStepDraft;
+use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
 use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Import\Dns\HostResolver;
@@ -14440,6 +14442,49 @@ function liveGame(array $draft): GameVersion
     allowGames();
 
     return $version;
+}
+
+/**
+ * The flow's steps replaced by fresh ones of these types, in this order, each
+ * with its defaults and the settings given for its type; a Next Game step
+ * leads to the game given.
+ *
+ * @param  list<GameFlowStepType>  $types
+ * @param  array<string, array<string, mixed>>  $settings  by step type
+ */
+function replaceFlowSteps(GameFlow $flow, array $types, ?Game $nextGame = null, array $settings = []): void
+{
+    $flow->steps()->delete();
+
+    foreach ($types as $position => $type) {
+        $step = GameFlowStep::factory()->type($type)->create(['flow_id' => $flow->id, 'position' => $position]);
+        $own = $settings[$type->value] ?? [];
+
+        if ($type === GameFlowStepType::NextGame) {
+            $own = ['next_game_id' => $nextGame?->id, ...$own];
+        }
+
+        if ($own !== []) {
+            $step->forceFill(['settings' => [...$step->settings, ...$own]])->save();
+        }
+    }
+}
+
+/**
+ * Steps of the given types, each fresh — default texts and settings — keyed
+ * by its place, with settings overridden by type.
+ *
+ * @param  list<GameFlowStepType>  $types
+ * @param  array<string, array<string, mixed>>  $settings
+ * @return list<FlowStepDraft>
+ */
+function flowOf(array $types, array $settings = []): array
+{
+    return array_map(function (GameFlowStepType $type, int $index) use ($settings): FlowStepDraft {
+        $fresh = GameFlowValidator::fresh($type, 's'.$index);
+
+        return new FlowStepDraft($fresh->key, $type, $fresh->audience, [...$fresh->settings, ...($settings[$type->value] ?? [])], $fresh->texts);
+    }, $types, array_keys($types));
 }
 
 /** Games switched on in Project settings, as an administrator switches them on. */

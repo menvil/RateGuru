@@ -15,6 +15,7 @@ use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Queries\Games\GameDraftQuery;
+use App\Queries\Games\GameFlowFactsQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Support\Games\Drafts\ContentSetReport;
@@ -162,7 +163,9 @@ final class GameVersions extends Page
 
         $chosenSet = $reports[$this->publishSetId] ?? null;
         $chosenFlow = $flows->firstWhere('id', $this->publishFlowId);
-        $readiness = $chosenSet !== null && $chosenFlow !== null ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds) : null;
+        $readiness = $chosenSet !== null && $chosenFlow !== null
+            ? GamePublishReadiness::of($game, $chosenSet, $chosenFlow, $gameIds, app(GameFlowFactsQuery::class)->for($chosenFlow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()))
+            : null;
         $latestFromPair = $versions->first(fn (GameVersion $version): bool => (int) $version->content_set_id === $this->publishSetId && (int) $version->flow_id === $this->publishFlowId);
         $edits = app(GameUnpublishedChangesQuery::class);
         $changedSince = $latestFromPair === null ? null : $edits->setEditedAfter($this->publishSetId, $latestFromPair->published_at) || $edits->flowEditedAfter($this->publishFlowId, $latestFromPair->published_at);
@@ -185,7 +188,7 @@ final class GameVersions extends Page
                 'id' => (int) $flow->id,
                 'name' => $flow->name,
                 'chain' => $flow->steps->map(fn (GameFlowStep $step): string => $step->type->label())->implode(' → '),
-                'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all()) === [],
+                'valid' => GameFlowValidator::issues($flow->steps->map(fn (GameFlowStep $step) => $step->draft())->values()->all(), $flow->goal) === [],
             ])->all(),
             'readiness' => $readiness,
             'changedSince' => $latestFromPair !== null && $changedSince === true ? $latestFromPair->label() : null,

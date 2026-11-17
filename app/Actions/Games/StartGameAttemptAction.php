@@ -5,6 +5,8 @@ namespace App\Actions\Games;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameMilestone;
+use App\Enums\GameOnwardKind;
 use App\Exceptions\Games\CannotPlayGameException;
 use App\Models\Game;
 use App\Models\GameAttempt;
@@ -32,6 +34,7 @@ final class StartGameAttemptAction
         private readonly GameTrafficQuery $traffic,
         private readonly ActionRateLimiter $limiter,
         private readonly GameEventRecorder $events,
+        private readonly GameMilestoneRecorder $milestones,
     ) {}
 
     /**
@@ -41,7 +44,7 @@ final class StartGameAttemptAction
      *
      * @throws CannotPlayGameException
      */
-    public function handle(Game $game, GameVisitor $visitor, string $locale, bool $replay = false, ?int $visitId = null): GameAttempt
+    public function handle(Game $game, GameVisitor $visitor, string $locale, bool $replay = false, ?int $visitId = null, ?GameAttempt $from = null): GameAttempt
     {
         if (! $game->status->acceptsNewAttempts()) {
             throw CannotPlayGameException::becauseGameIsNotLive();
@@ -66,7 +69,7 @@ final class StartGameAttemptAction
         $visit = $visitId === null || $visitor->browserHash === null ? null
             : TrafficVisit::query()->whereKey($visitId)->where('visitor_hash', $visitor->browserHash)->first(['id', 'game_id', 'version_id']);
 
-        return DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit): GameAttempt {
+        return DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit, $from): GameAttempt {
             $gameStep = GameFlowRunner::ofType($version->read()->flowSteps(), GameFlowStepType::Game);
 
             $attempt = new GameAttempt;
@@ -94,11 +97,47 @@ final class StartGameAttemptAction
 
             $this->events->record(GameEventType::Started, (int) $game->id, $visitor, attempt: $attempt);
 
+            $this->milestones->reach(GameMilestone::Started, $attempt, $visitor);
+
             if ($replay) {
                 $this->events->record(GameEventType::Replay, (int) $game->id, $visitor, attempt: $attempt);
+
+                // Played again: the play the visitor came back from reached it.
+                if ($from !== null && (int) $from->game_id === (int) $game->id) {
+                    $this->milestones->reach(GameMilestone::Replayed, $from, $visitor);
+                }
             }
+
+            $this->creditNextGame($game, $visitor);
 
             return $attempt;
         });
+    }
+
+    /**
+     * A start of the game another game's Next Game step sent the visitor to,
+     * within 30 minutes, is that play's "next game started".
+     */
+    private function creditNextGame(Game $game, GameVisitor $visitor): void
+    {
+        $sender = GameAttempt::query()
+            ->where('game_id', '!=', $game->id)
+            ->where('onward_kind', GameOnwardKind::NextGame)
+            ->where('onward_at', '>=', now()->subMinutes(30))
+            ->where(fn ($query) => $visitor->userId !== null
+                ? $query->where('user_id', $visitor->userId)
+                : $query->where('visitor_hash', $visitor->visitorHash)->whereNull('user_id'))
+            ->orderByDesc('onward_at')
+            ->first();
+
+        if ($sender === null) {
+            return;
+        }
+
+        $step = GameFlowRunner::ofType($sender->version->read()->flowSteps(), GameFlowStepType::NextGame);
+
+        if ($step !== null && (int) $step->setting('next_game_id') === (int) $game->id) {
+            $this->milestones->reach(GameMilestone::NextGame, $sender, $visitor);
+        }
     }
 }

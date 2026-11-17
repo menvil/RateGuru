@@ -46,6 +46,13 @@
     </div>
 
     <div class="rg-game__result-side">
+        @if ($data['onward'] !== null)
+            {{-- Sent on into the site: the way in, without sign-up or sharing here. --}}
+            @include('livewire.games.steps.onward')
+            @if ($data['canReplay'])
+                <button type="button" class="rg-game__link" wire:click="replay" data-testid="game-replay">{{ __('games.play.play_again') }}</button>
+            @endif
+        @else
         @if ($data['signup'] !== null)
             @include('livewire.games.steps.signup', ['signup' => $data['signup'], 'preview' => $data['preview'], 'stepKey' => $data['stepKey']])
         @endif
@@ -65,6 +72,7 @@
         @endif
         @if ($data['canReplay'])
             <button type="button" class="rg-game__link" wire:click="replay" data-testid="game-replay">{{ __('games.play.play_again') }}</button>
+        @endif
         @endif
     </div>
 </section>

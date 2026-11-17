@@ -4,6 +4,7 @@ namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
 use App\Data\Games\GameFlowDraft;
+use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStepAudience;
 use App\Exceptions\Games\CannotManageGameException;
@@ -59,7 +60,9 @@ final class SaveGameFlowAction
             $rules["steps.*.texts.{$column}"] = ['nullable', 'string', 'max:'.$max];
         }
 
-        Validator::make(['steps' => $draft->steps], $rules)->validate();
+        $rules['goal'] = ['nullable', Rule::enum(GameFlowGoal::class)];
+
+        Validator::make(['steps' => $draft->steps, 'goal' => $draft->goal], $rules)->validate();
 
         DB::transaction(function () use ($admin, $flow, $draft, $expectedLockVersion): void {
             $lockedAdmin = $this->lockAdministrator($admin);
@@ -94,7 +97,7 @@ final class SaveGameFlowAction
             $existing->reject(fn (GameFlowStep $step): bool => in_array((int) $step->id, $kept, true))
                 ->each(fn (GameFlowStep $step) => $step->delete());
 
-            $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
+            $locked->forceFill(['goal' => $draft->goal, 'lock_version' => $locked->lock_version + 1])->save();
             $this->touchGame($game, $lockedAdmin);
             $flow->setRawAttributes($locked->getAttributes(), true);
         });

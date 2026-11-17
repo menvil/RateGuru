@@ -20,6 +20,8 @@ enum GameFlowStepType: string
     case Share = 'share';
     case NextGame = 'next_game';
     case Feed = 'feed';
+    case GoToPost = 'go_to_post';
+    case GoToPage = 'go_to_page';
 
     /** The text columns a step has, in the order an editor shows them. */
     public const TEXT_COLUMNS = ['title', 'body', 'button_label', 'secondary_label', 'field_label', 'notice', 'consent_label'];
@@ -38,6 +40,8 @@ enum GameFlowStepType: string
             self::Share => 'Share',
             self::NextGame => 'Next Game',
             self::Feed => 'Go to Feed',
+            self::GoToPost => 'Go to Post',
+            self::GoToPage => 'Go to Page',
         };
     }
 
@@ -55,6 +59,8 @@ enum GameFlowStepType: string
             self::Share => 'Share the result',
             self::NextGame => 'Suggest another game',
             self::Feed => 'Send the visitor to the feed',
+            self::GoToPost => 'Open a post: one you link to, their last pick or a fresh one',
+            self::GoToPage => 'Send the visitor to a category, a tag, a page or another site',
         };
     }
 
@@ -72,6 +78,8 @@ enum GameFlowStepType: string
             self::Share => 'share-2',
             self::NextGame => 'arrow-right',
             self::Feed => 'home',
+            self::GoToPost => 'thumbs-up',
+            self::GoToPage => 'arrow-up-right',
         };
     }
 
@@ -81,7 +89,7 @@ enum GameFlowStepType: string
             self::Landing, self::Intro, self::Instructions => GameFlowStage::BeforeGame,
             self::Game => GameFlowStage::Game,
             self::ResultPreview, self::EmailCapture, self::FullResult, self::Registration, self::Share => GameFlowStage::AfterGame,
-            self::NextGame, self::Feed => GameFlowStage::Exit,
+            self::NextGame, self::Feed, self::GoToPost, self::GoToPage => GameFlowStage::Exit,
         };
     }
 
@@ -94,7 +102,7 @@ enum GameFlowStepType: string
     {
         return match ($this) {
             self::EmailCapture, self::Registration => GameStepAudience::Anonymous,
-            self::Share, self::NextGame, self::Feed => null,
+            self::Share, self::NextGame, self::Feed, self::GoToPost, self::GoToPage => null,
             default => GameStepAudience::All,
         };
     }
@@ -137,6 +145,9 @@ enum GameFlowStepType: string
             self::FullResult => [
                 'title' => ['label' => 'Sign-up title', 'required' => false],
                 'body' => ['label' => 'Sign-up text', 'required' => false],
+                'secondary_label' => ['label' => 'Way-on title', 'required' => false],
+                'notice' => ['label' => 'Way-on text', 'required' => false],
+                'button_label' => ['label' => 'Way-on button', 'required' => false],
             ],
             self::Registration => [
                 'title' => ['label' => 'Title', 'required' => true],
@@ -153,6 +164,17 @@ enum GameFlowStepType: string
                 'button_label' => ['label' => 'Button label', 'required' => true],
             ],
             self::Feed => [
+                'title' => ['label' => 'Title', 'required' => false],
+                'body' => ['label' => 'Text', 'required' => false],
+                'button_label' => ['label' => 'Button label', 'required' => true],
+            ],
+            self::GoToPost => [
+                'title' => ['label' => 'Title', 'required' => true],
+                'body' => ['label' => 'Text', 'required' => false],
+                'button_label' => ['label' => 'Button label', 'required' => true],
+            ],
+            self::GoToPage => [
+                'title' => ['label' => 'Title', 'required' => true],
                 'button_label' => ['label' => 'Button label', 'required' => true],
             ],
         };
@@ -200,6 +222,9 @@ enum GameFlowStepType: string
             self::FullResult => [
                 'title' => 'Keep playing',
                 'body' => 'Create a free account to vote, comment and play more games.',
+                'secondary_label' => '',
+                'notice' => '',
+                'button_label' => '',
             ],
             self::Registration => [
                 'title' => 'Create your free account',
@@ -216,7 +241,18 @@ enum GameFlowStepType: string
                 'button_label' => 'Play next',
             ],
             self::Feed => [
+                'title' => 'Keep rating',
+                'body' => 'Vote on a few more posts while you’re here.',
                 'button_label' => 'Go to the feed',
+            ],
+            self::GoToPost => [
+                'title' => 'One more: rate this post',
+                'body' => 'See how everyone voted, and add your vote.',
+                'button_label' => 'Rate it',
+            ],
+            self::GoToPage => [
+                'title' => 'More like this',
+                'button_label' => 'Take a look',
             ],
         };
     }
@@ -238,8 +274,31 @@ enum GameFlowStepType: string
                 'show_profile' => true,
                 'share_enabled' => true,
                 'signup' => GameSignupMode::Inline->value,
+                'onward' => GameOnward::Next->value,
+                'post_target' => GamePostTarget::LastPick->value,
+                'post_id' => null,
+                'ask_vote' => true,
+                'ask_groups' => '',
+                'auto_open' => false,
+                'feed_sort' => '',
             ],
             self::NextGame => ['next_game_id' => null],
+            self::Feed => ['feed_sort' => ''],
+            self::GoToPost => [
+                'post_target' => GamePostTarget::LastPick->value,
+                'post_id' => null,
+                'ask_vote' => true,
+                'ask_groups' => '',
+                'auto_open' => false,
+            ],
+            self::GoToPage => [
+                'destination' => GamePageDestination::Category->value,
+                'category' => '',
+                'tag' => '',
+                'path' => '',
+                'url' => '',
+                'new_tab' => false,
+            ],
             default => [],
         };
     }

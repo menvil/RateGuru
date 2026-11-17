@@ -5,6 +5,8 @@ namespace App\Support\Games\Play;
 use App\Enums\GameAnswerOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameOnward;
+use App\Enums\GamePageDestination;
 use App\Enums\GameRoundMode;
 use App\Enums\GameSignupMode;
 use App\Enums\GameStatus;
@@ -16,6 +18,7 @@ use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\MediaAsset;
 use App\Models\User;
+use App\Queries\Games\GameOnwardQuery;
 use App\Queries\Games\GameTrafficQuery;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Games\Scoring\GameScorer;
@@ -92,6 +95,7 @@ final readonly class GamePlayView
             'round' => $step->type === GameFlowStepType::Game ? self::round($snapshot, $attempt, $reveal, $locale, $shape, $pictures) : null,
             'result' => $result,
             'signup' => self::signup($game, $step, $visitor),
+            'onward' => self::onward($game, $step, $snapshot, $attempt, $visitor, $locale, $preview),
             'preview' => $preview,
             'authenticated' => ! $visitor->isAnonymous(),
             'nextGame' => $nextGame === null ? null : ['title' => $nextGame->title, 'slug' => $nextGame->slug],
@@ -99,6 +103,69 @@ final readonly class GamePlayView
             'stepKey' => $step->key,
             'hasNext' => $hasNext,
         ]);
+    }
+
+    /**
+     * Where the step sends the visitor on into the site, when it does — Go to
+     * Post, Go to Page, Go to Feed, or Full Result going on to a post or the
+     * feed: the prompt's texts (the site's own when the flow left them empty,
+     * as a version published before they existed did), the post it leads to,
+     * whether it opens by itself, and another site's address when it opens in
+     * a tab of its own.
+     *
+     * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
+     */
+    private static function onward(Game $game, SnapshotStep $step, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, string $locale, bool $preview): ?array
+    {
+        $draft = $step->draft();
+        $kind = match (true) {
+            $step->type === GameFlowStepType::GoToPage => 'page',
+            $draft->sendsToPost() => 'post',
+            $draft->sendsToFeed() => 'feed',
+            default => null,
+        };
+
+        if ($kind === null) {
+            return null;
+        }
+
+        $result = $step->type === GameFlowStepType::FullResult;
+        $text = fn (string $column, string $fallback): string => ($value = trim($step->text($column, $locale))) !== '' ? $value : $fallback;
+        $site = app(ProjectSettingsManager::class)->current()->siteName();
+        [$title, $body, $button] = match ($kind) {
+            'post' => [
+                $text($result ? 'secondary_label' : 'title', __('games.play.onward_post_title')),
+                $text($result ? 'notice' : 'body', __('games.play.onward_post_text')),
+                $text('button_label', __('games.play.onward_post_button')),
+            ],
+            'feed' => [
+                $text($result ? 'secondary_label' : 'title', __('games.play.onward_feed_title')),
+                $text($result ? 'notice' : 'body', __('games.play.onward_feed_text')),
+                $text('button_label', __('games.play.onward_feed_button', ['site' => $site])),
+            ],
+            default => [$text('title', ''), '', $text('button_label', __('games.play.continue'))],
+        };
+
+        $post = null;
+
+        if ($kind === 'post') {
+            $found = app(GameOnwardQuery::class)->post($draft, $snapshot, $attempt, $visitor->userId);
+            $asset = $found?->image_asset_id === null ? null : MediaAsset::query()->with('variants')->find($found->image_asset_id);
+            $post = $found === null ? null : ['title' => (string) $found->title, 'image' => self::image($asset, '(max-width: 767px) 100vw, 480px')];
+        }
+
+        $newTab = $kind === 'page' && $draft->destination() === GamePageDestination::Url && (bool) $draft->setting('new_tab');
+
+        return [
+            'kind' => $kind,
+            'title' => $title,
+            'text' => $body,
+            'button' => $button,
+            'post' => $post,
+            'autoOpen' => $kind === 'post' && $post !== null && ! $preview && (bool) $draft->setting('auto_open') && $attempt?->onward_at === null,
+            'newTab' => $newTab,
+            'href' => $newTab ? app(GameOnwardQuery::class)->externalAddress((string) $draft->setting('url'), $game, $attempt) : null,
+        ];
     }
 
     /**
@@ -113,7 +180,9 @@ final readonly class GamePlayView
     {
         $asks = match ($step->type) {
             GameFlowStepType::Registration => true,
-            GameFlowStepType::FullResult => (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
+            // Sent on into the site, Full Result asks for no sign-up: voting there does.
+            GameFlowStepType::FullResult => $step->draft()->onward() === GameOnward::Next
+                && (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
             default => false,
         };
 

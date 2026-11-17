@@ -44,6 +44,8 @@
     </template>
 </div>
 
+@include('filament.pages.games.flow.goal')
+
 @if ($issues !== [])
     <x-admin.ui.inline-notice tone="danger">
         <strong>This flow can’t be published yet.</strong>
@@ -68,6 +70,9 @@
                         <span class="rg-admin-games__step-name">{{ $card['label'] }}</span>
                         @if ($card['audience'])
                             <span class="rg-admin-games__step-chip"><x-admin.ui.icon name="user" :size="11" />{{ $card['audience'] }}</span>
+                        @endif
+                        @if ($card['goal'])
+                            <span class="rg-admin-games__step-chip rg-admin-games__step-chip--goal" data-testid="game-flow-goal-chip"><x-admin.ui.icon name="target" :size="11" />Goal</span>
                         @endif
                         @if ($card['game'])
                             <span class="rg-admin-games__step-fixed"><x-admin.ui.icon name="lock" :size="11" />Same in every flow</span>

@@ -2,13 +2,16 @@
 
 namespace App\Livewire\Voting;
 
+use App\Actions\Games\CreditGameSiteActivityAction;
 use App\Actions\Rating\VoteRatingOptionAction;
 use App\Exceptions\Rating\CannotVoteForRatingOptionException;
+use App\Livewire\Concerns\CreditsGameSiteActivity;
 use App\Livewire\Concerns\OpensAuthModal;
 use App\Models\Post;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\RatingVote;
+use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Observability\GuestVoteAttemptLog;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Rating\RatingVoteDistribution;
@@ -18,7 +21,7 @@ use Livewire\Component;
 
 class RatingVoting extends Component
 {
-    use OpensAuthModal;
+    use CreditsGameSiteActivity, OpensAuthModal;
 
     protected string $viewName = 'livewire.voting.rating-voting';
 
@@ -130,6 +133,8 @@ class RatingVoting extends Component
         }
 
         $this->hasPreloadedState = false;
+        $postId = (int) $this->post->id;
+        $this->creditGame(fn (CreditGameSiteActivityAction $credit) => $credit->ratingAnswered($user, $postId, $this->groupKey, app(GameVisitorResolver::class)->browserHash()));
         $this->dispatch($this->votedEventName, postId: $this->post->id, groupKey: $this->groupKey);
     }
 

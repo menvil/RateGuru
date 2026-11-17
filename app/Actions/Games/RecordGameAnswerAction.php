@@ -5,6 +5,7 @@ namespace App\Actions\Games;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
+use App\Enums\GameMilestone;
 use App\Exceptions\Games\CannotPlayGameException;
 use App\Models\GameAnswer;
 use App\Models\GameAttempt;
@@ -30,6 +31,7 @@ final class RecordGameAnswerAction
         private readonly ActionRateLimiter $limiter,
         private readonly GameFlowVisitorQuery $flowVisitors,
         private readonly GameEventRecorder $events,
+        private readonly GameMilestoneRecorder $milestones,
     ) {}
 
     /** @throws CannotPlayGameException */
@@ -78,6 +80,13 @@ final class RecordGameAnswerAction
             $locked->forceFill(['rounds_answered' => $roundIndex + 1, 'last_activity_at' => now()]);
             $this->events->record(GameEventType::RoundAnswered, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['round_index' => $roundIndex]);
 
+            // Halfway: the middle round, whatever the length of the game — the
+            // same moment for every game, so one postback fits them all.
+            if ($roundIndex + 1 === (int) ceil($snapshot->roundCount() / 2)) {
+                $this->events->record(GameEventType::Halfway, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['round_index' => $roundIndex]);
+                $this->milestones->reach(GameMilestone::Halfway, $locked, $visitor);
+            }
+
             if ($roundIndex + 1 === $snapshot->roundCount()) {
                 $outcomes = GameAnswer::query()->where('attempt_id', $locked->id)->orderBy('round_index')->pluck('outcome')->all();
                 $result = GameScorer::result($snapshot, $outcomes);
@@ -95,6 +104,7 @@ final class RecordGameAnswerAction
                     'current_step_key' => $next?->key,
                 ]);
                 $this->events->record(GameEventType::Completed, (int) $locked->game_id, $visitor, attempt: $locked);
+                $this->milestones->reach(GameMilestone::Completed, $locked, $visitor);
 
                 // Entering the step after the game is a step like any other the
                 // attempt moves on to, so it is counted the way a move counts it.

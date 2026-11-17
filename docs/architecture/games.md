@@ -100,8 +100,11 @@ attempt stands.
 A version is a content set and a flow frozen together. Its number rises
 monotonically per game (`games.last_version_number` under the game's lock, plus
 `unique(game_id, number)`), and numbers are never reused. The snapshot
-(`snapshot_schema = 1`) holds the game's texts, scoring, rounds, profiles, flow
-steps and every translation, and is read through `GameVersionSnapshot`. A
+(`snapshot_schema = 2`) holds the game's texts, scoring, rounds, profiles, flow
+steps, the flow's goal and every translation, and is read through
+`GameVersionSnapshot`, which reads schema 1 too — a version published before
+goals existed, whose goal the migration that added them wrote into
+`game_versions.goal` by the rule it records. A
 published version is immutable: the model refuses any change but its status.
 Versions are retired, never deleted; a retired one can be restored. A set or
 flow that a version used is only ever archived.
@@ -114,6 +117,67 @@ Versions and Traffic warn about it.
 
 Versions says when the chosen set or flow — or anything in them, a translation
 included — changed after the newest version published from them.
+
+## Goals
+
+Every flow has a goal (`GameFlowGoal`): what a play of it is for — an account
+confirmed (sign-up or log-in), only a new account, an email, a share, the post
+it sends the visitor to opened, voted on or rated, three votes in the feed,
+the next game started, a page followed, the feed followed, a replay, or the
+game finished. `game_flows.goal` is null while the flow follows its steps:
+`FlowGoalRules::defaultFor()` then picks what the steps are evidently there
+for. The snapshot always carries the goal in force, and so does
+`game_versions.goal`; changing it is an edit of the draft that counts from the
+next version published.
+
+`FlowGoalRules::stepFor()` names the step that reaches a goal. An account is
+reached where the flow asks for one — Registration, or sign-up on Full Result —
+or on the site after a step that sends the visitor there, where voting or
+commenting asks for an account. `GameFlowValidator` refuses a goal the flow
+cannot reach (“The goal “…” needs …”), and the editor offers the step that
+would.
+
+The moments of a play the traffic tracker counts (`GameMilestone`) are
+recorded by `GameMilestoneRecorder` inside the transaction of the action that
+reached them: started, halfway (the round `ceil(N/2)`), completed, email,
+shared, replayed (on the attempt the visitor came back from), next game
+started (on the attempt whose Next Game step sent them, within 30 minutes),
+page, feed and post opened, and the votes below. Each raises
+`App\Events\Games\GameMilestoneReached` synchronously; when it is the goal,
+`markGoal()` sets `game_attempts.goal_reached_at` with an `UPDATE … WHERE
+goal_reached_at IS NULL` — at most once per attempt, the one place that does —
+and records `goal_reached`.
+
+## Ways on
+
+Four exit steps send the visitor on: Next Game, Go to Feed (with a sort), Go to
+Post and Go to Page; and Full Result can do it itself (`onward`: next step, a
+post or the feed), when sign-up and sharing are not shown on it and the steps
+after it never are. Go to Post opens a post the administrator linked, the post
+of the option the visitor picked in the last round with one (else a fresh
+one), or the newest published post outside the game that is not theirs and
+they have not voted on (`GameOnwardQuery`). Go to Page opens a category or a
+tag of the feed, a page of this site (the feed, a post, a profile, a game or a
+static page, checked against the router), or another https site with
+`{click_id}`, `{game}` and `{result}` filled in, optionally in a tab of its
+own.
+
+`PlayGame::leave('step')` hands the attempt to `LeaveGameAction`, which takes
+the step from the attempt as stored — never from the page — under a lock,
+decides the address, and the first time writes `onward_kind`, `onward_post_id`
+and `onward_at`, `exit`, and the moment: `post_opened`, `page` or `feed`. A
+post that is not published sends the visitor to the feed and counts nothing.
+A post can open by itself after 3 seconds, once: coming back to the game never
+sends the visitor away again. The preview only says where it would go.
+
+The post page is the site's own: `vote=1` and `ask=k1,k2` only highlight the
+vote and the rating groups. What the visitor does there is credited by
+`CreditGameSiteActivityAction`, called by the voting components once a vote is
+in, to the play that sent them within 30 minutes — theirs, or their browser's
+before they signed in — read back from the votes themselves: `post_voted` (a
+vote on that post), `post_rated` (an answer to a group the step asked for),
+`feed_voted` (three votes after leaving for the feed), each once. A failure is
+reported and never spoils the vote.
 
 ## Traffic
 
@@ -178,9 +242,10 @@ left.
 
 `game_events` is append-only, written by `GameEventRecorder` in the same
 transaction as the change it records: `view`, `assigned`, `step_viewed`,
-`started`, `round_answered`, `completed`, `result_viewed`, `email_captured`,
-`registration_cta_clicked`, `account_attributed`, `share_clicked`, `replay`
-and `exit`. Each row carries the game, version, attempt, assignment, audience
+`started`, `round_answered`, `halfway`, `completed`, `result_viewed`,
+`email_captured`, `registration_cta_clicked`, `account_attributed`,
+`share_clicked`, `replay`, `exit`, `post_opened`, `post_voted`, `post_rated`,
+`feed_voted`, `goal_reached` and `account_confirmed`. Each row carries the game, version, attempt, assignment, audience
 and the user or the visitor's hash — ids and codes, never anything typed.
 `step_viewed` (`result_viewed` for Full Result) names each step after the game
 an attempt enters, the one its last pick moves it on to included.

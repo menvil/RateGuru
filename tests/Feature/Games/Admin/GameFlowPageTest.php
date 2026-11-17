@@ -125,7 +125,8 @@ it('puts a removed Full Result back into a flow with a Registration step, sendin
 
 it('shows a step\'s button text on its card when the step has no title', function () {
     $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
-        ->call('insertStep', 'feed');
+        ->call('insertStep', 'feed')
+        ->set('steps.3.texts.title', '');
 
     expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('“Go to the feed”');
 });

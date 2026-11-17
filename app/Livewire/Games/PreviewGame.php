@@ -203,9 +203,15 @@ final class PreviewGame extends Component
         $this->stepKey = (string) GameFlowRunner::ofType($this->snapshot()->flowSteps(), GameFlowStepType::Game)?->key;
     }
 
-    public function leave(mixed $to): void
+    public function leave(mixed $to, mixed $newTab = false): void
     {
-        $this->dispatch('toast', message: 'Preview: here the visitor would go to '.($to === 'next' ? 'the next game.' : 'the feed.'));
+        $where = match ($to) {
+            'next' => 'the next game.',
+            'step' => 'where this step leads.',
+            default => 'the feed.',
+        };
+
+        $this->dispatch('toast', message: 'Preview: here the visitor would go to '.$where);
     }
 
     public function render(): View
