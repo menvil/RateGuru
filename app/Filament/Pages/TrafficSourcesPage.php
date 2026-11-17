@@ -16,6 +16,7 @@ use App\Actions\Traffic\SendTestPostbackAction;
 use App\Enums\GeoEdition;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficCampaignStage;
+use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficSourceType;
 use App\Exceptions\Abuse\RateLimitExceededException;
@@ -23,6 +24,7 @@ use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\Game;
+use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficPostback;
@@ -697,6 +699,47 @@ final class TrafficSourcesPage extends Page
             'bid_desktop' => (string) $campaign->bid_desktop,
             'price_from' => now()->toDateString(),
         ];
+
+        // Targeting is typed in only where the network doesn't report it; a reported one stays as synced.
+        if (! TrafficApiConnection::query()->where('source_id', $campaign->source_id)->where('status', TrafficConnectionStatus::Connected)->exists()) {
+            $this->campaignDraft += ['countries' => $campaign->countries ?? [], 'devices' => $campaign->devices ?? [], 'format' => (string) $campaign->format];
+        }
+    }
+
+    /** Puts a country in the open campaign's typed-in targeting, or takes it out. */
+    public function toggleCampaignCountry(mixed $code): void
+    {
+        if (! is_string($code) || ! array_key_exists('countries', $this->campaignDraft) || ! array_key_exists(strtoupper($code), Countries::all())) {
+            return;
+        }
+
+        $code = strtoupper($code);
+        $countries = (array) $this->campaignDraft['countries'];
+        $this->campaignDraft['countries'] = in_array($code, $countries, true) ? array_values(array_diff($countries, [$code])) : [...$countries, $code];
+    }
+
+    public function toggleCampaignDevice(mixed $device): void
+    {
+        if (! in_array($device, ['mobile', 'desktop'], true) || ! array_key_exists('devices', $this->campaignDraft)) {
+            return;
+        }
+
+        $devices = (array) $this->campaignDraft['devices'];
+        $this->campaignDraft['devices'] = in_array($device, $devices, true) ? array_values(array_diff($devices, [$device])) : [...$devices, $device];
+    }
+
+    /** Opens Report on the open campaign: its source, its campaign. */
+    public function campaignReport(): void
+    {
+        $campaign = is_numeric($this->camp) ? TrafficCampaign::query()->find((int) $this->camp) : null;
+
+        if ($campaign !== null) {
+            $this->source = (string) $campaign->source_id;
+            $this->campaignId = (string) $campaign->id;
+            $this->tab = 'report';
+            $this->closeCampaign();
+            $this->normalize();
+        }
     }
 
     public function closeCampaign(): void

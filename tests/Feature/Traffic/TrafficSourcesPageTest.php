@@ -132,3 +132,21 @@ it('edits a source in panes, with what its preset filled in, and names a paramet
 
     expect(collect($source->fresh()->link_params)->firstWhere('param', 'cr')['label'])->toBe('Creative');
 });
+
+it('shows a campaign in its panel — stages, results, targeting typed in where no network reports it — and opens it in the report', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $source->id, 'name' => 'US popunder', 'countries' => ['US']]);
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns', 'camp' => (string) $campaign->id])->test(TrafficSourcesPage::class)
+        ->assertSee('Results by stage')
+        ->assertSee('Typed in here')
+        ->assertSee('United States')
+        ->call('toggleCampaignCountry', 'ca')
+        ->call('toggleCampaignDevice', 'mobile')
+        ->call('saveCampaign')
+        ->assertHasNoErrors();
+
+    expect($campaign->fresh())->countries->toBe(['US', 'CA'])->devices->toBe(['mobile']);
+
+    $page->call('campaignReport')->assertSet('tab', 'report')->assertSet('campaignId', (string) $campaign->id)->assertSet('camp', '');
+});

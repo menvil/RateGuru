@@ -15687,9 +15687,15 @@
     }
 
     .rg-admin-traffic__money-field > .rg-admin-input {
+        flex: 1;
         width: 100%;
         min-width: 0;
         text-align: right;
+    }
+
+    .rg-admin-traffic__money-field > .rg-admin-traffic__note {
+        flex: none;
+        white-space: nowrap;
     }
 
     .rg-admin-traffic__source-row {
@@ -16331,6 +16337,127 @@
         .rg-admin-traffic__window,
         .rg-admin-traffic__name-key {
             grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    /* Traffic sources → a campaign's panel: stages, results, targeting, price. */
+    .rg-admin-traffic__stage-cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__stage-card {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: 12.5px;
+        text-align: left;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__stage-card > strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .rg-admin-traffic__stage-card--on {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__kpis {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__kpis > div {
+        display: flex;
+        flex-direction: column;
+        padding: 8px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-traffic__kpis strong {
+        font-size: 16px;
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-traffic__stage-row {
+        display: grid;
+        grid-template-columns: 90px minmax(0, 1fr) 60px 70px 70px 54px;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 8px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: 12.5px;
+    }
+
+    .rg-admin-traffic__stage-row.rg-admin-traffic__param-row--head {
+        border-top: 0;
+    }
+
+    .rg-admin-traffic__facts-grid {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr);
+        gap: 8px 12px;
+        align-items: center;
+        margin: 0;
+        font-size: 13px;
+    }
+
+    .rg-admin-traffic__facts-grid > dt {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__facts-grid > dd {
+        margin: 0;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__chip--toggle {
+        height: 26px;
+        padding: 0 8px;
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__chip--toggle:disabled {
+        cursor: default;
+    }
+
+    .rg-admin-traffic__chip--on {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__price-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__price-line .rg-admin-traffic__money-field {
+        width: 220px;
+    }
+
+    @media (max-width: 600px) {
+        .rg-admin-traffic__stage-cards,
+        .rg-admin-traffic__kpis {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
 }

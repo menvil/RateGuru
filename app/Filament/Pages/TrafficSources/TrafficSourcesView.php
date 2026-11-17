@@ -1119,17 +1119,34 @@ final class TrafficSourcesView
         ];
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * A campaign's panel: the campaign, its source and whether the network
+     * reports its targeting, its figures over the last 30 days and by stage,
+     * its history, and what its fields choose from.
+     *
+     * @return array<string, mixed>|null
+     */
     private function campaignPanel(int $id): ?array
     {
         $campaign = TrafficCampaign::query()->find($id);
 
-        return $campaign === null ? null : [
+        if ($campaign === null) {
+            return null;
+        }
+
+        $source = TrafficSource::query()->find($campaign->source_id);
+        $month = TrafficReportFilter::lastDays(30, CarbonImmutable::now());
+
+        return [
             'model' => $campaign,
-            'source' => TrafficSource::query()->whereKey($campaign->source_id)->value('name'),
+            'source' => $source?->name,
+            'sourceModel' => $source,
+            'reported' => TrafficApiConnection::query()->where('source_id', $campaign->source_id)->where('status', TrafficConnectionStatus::Connected)->exists(),
+            'figures' => $this->reports->byCampaign($month)[$campaign->id] ?? new ReportFigures,
             'stages' => $this->reports->stages($campaign->id),
             'history' => TrafficCampaignEvent::query()->where('campaign_id', $campaign->id)->orderByDesc('occurred_at')->orderByDesc('id')->limit(30)->get(),
             'games' => Game::query()->orderBy('title')->pluck('title', 'id')->all(),
+            'countries' => Countries::all(),
         ];
     }
 
