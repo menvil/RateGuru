@@ -1,0 +1,52 @@
+app/Support/Games/Analytics/GameFunnel.php
+  s_4b9dc6ab6b25d3::t_fc03837d4be4d4 45-46
+resources/views/filament/pages/game-value.blade.php
+  s_4b9dc6ab6b25d3::t_c0302254ff0aa8 1-61
+resources/views/filament/pages/games.blade.php
+  s_4b9dc6ab6b25d3::t_fc03837d4be4d4 83
+tests/Browser/AdminGamesBrowserTest.php
+  s_4b9dc6ab6b25d3::t_e2732dd8228ee0 56
+  ai_agent 69,71,75
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_e2732dd8228ee0 76,79,111
+resources/views/filament/pages/game-analytics.blade.php
+  s_4b9dc6ab6b25d3::t_905326bfde8ce5 163-188
+app/Filament/Resources/Games/Pages/ListGames.php
+  s_4b9dc6ab6b25d3::t_739904c9b3c7ea 147
+  s_4b9dc6ab6b25d3::t_fc03837d4be4d4 178
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_fc03837d4be4d4 81-82,130,244-245,279
+  s_4b9dc6ab6b25d3::t_739904c9b3c7ea 227
+docs/architecture/games.md
+  s_4b9dc6ab6b25d3::t_8f92db91c01dad 281-288
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_e2732dd8228ee0 290-291
+app/Filament/Resources/Games/GameResource.php
+  s_4b9dc6ab6b25d3::t_c0302254ff0aa8 10,62,113
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_905326bfde8ce5 13,15,18-19,119-153
+  s_4b9dc6ab6b25d3::t_fc03837d4be4d4 205,247-248
+app/Filament/Resources/Games/Pages/GameValue.php
+  s_4b9dc6ab6b25d3::t_c0302254ff0aa8 1-142
+tests/Feature/Games/Admin/GameValuePageTest.php
+  s_4b9dc6ab6b25d3::t_df0bf4b23b2721 1-6,8,10-34,38-44
+  s_4b9dc6ab6b25d3::t_aa4cd92111a138 45-46,49-55
+  s_4b9dc6ab6b25d3::t_739904c9b3c7ea 35-37
+  ai_agent 7,9,47-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "46ac7fd560096dbaa21eddd6d9d36580fc4573e1",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
