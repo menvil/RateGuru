@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\AuthModalMode;
+use App\Enums\GeoEdition;
 use App\Enums\PostStatus;
 use App\Enums\ThemePreference;
 use App\Http\Middleware\EnsureGamesAreEnabled;
@@ -28,10 +29,15 @@ use App\Support\Auth\RememberSessionGenerationOnLogin;
 use App\Support\Auth\SocialProviderAvailability;
 use App\Support\Feed\FeedAddress;
 use App\Support\Games\Play\ClaimGameAttemptsOnSignIn;
+use App\Support\Geo\GeoDatabaseLocator;
+use App\Support\Geo\GeoLookup;
+use App\Support\Geo\MmdbGeoLookup;
 use App\Support\Import\Dns\DnsHostResolver;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportHttpTransport;
+use App\Support\Import\Net\PublicIpClassifier;
 use App\Support\Import\PinnedImportHttpTransport;
+use App\Support\Observability\DomainLogger;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\StudioAi\OpenAiStudioDiscussionGenerator;
 use App\Support\StudioAi\OpenAiStudioImageAnalyzer;
@@ -79,6 +85,18 @@ class AppServiceProvider extends ServiceProvider
         // A singleton, so a provider call is recorded once however often its
         // result is handed to the recorder within a request or a worker.
         $this->app->singleton(TranslationAiCallRecorder::class);
+
+        // The IP location database (docs/architecture/geo.md). The lookup is
+        // scoped: one reader per request or job, opened by the first lookup
+        // that needs it and never kept by a queue worker past its job, so a
+        // database replaced by an update is picked up by the next one.
+        $this->app->singleton(GeoDatabaseLocator::class, fn (): GeoDatabaseLocator => new GeoDatabaseLocator((string) config('geo.directory')));
+        $this->app->scoped(GeoLookup::class, fn ($app): GeoLookup => new MmdbGeoLookup(
+            $app->make(GeoDatabaseLocator::class),
+            GeoEdition::tryFrom((string) config('geo.default_edition')) ?? GeoEdition::GeoLite2City,
+            $app->make(PublicIpClassifier::class),
+            $app->make(DomainLogger::class),
+        ));
 
         // Reads its settings on every call, so it holds nothing worth keeping
         // and needs none of them to be built: a missing key never fails boot.

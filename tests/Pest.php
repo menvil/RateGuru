@@ -77,6 +77,7 @@ use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
 use App\Support\Games\Results\ResultProfileCoverage;
+use App\Support\Geo\GeoDatabaseLocator;
 use App\Support\Import\Dns\HostResolver;
 use App\Support\Import\ImportFetchPolicy;
 use App\Support\Import\ImportHttpTransport;
@@ -14470,4 +14471,75 @@ function storeGamePostPictures(): array
     }
 
     return $paths;
+}
+
+/**
+ * A fresh, empty directory standing in for storage/geoip for one test, put in
+ * the configuration before anything reads it. The file that uses it removes it
+ * again with removeGeoDirectory($this) in its afterEach.
+ */
+function geoDirectory(): string
+{
+    $root = sys_get_temp_dir().'/rateguru-geoip-'.uniqid('', true);
+    File::ensureDirectoryExists($root);
+    config(['geo.directory' => $root]);
+    app()->forgetInstance(GeoDatabaseLocator::class);
+    app()->forgetScopedInstances();
+    test()->geoDirectory = $root;
+
+    return $root;
+}
+
+/** Takes the test case itself, as removeCatalogScratchDirectory() does. */
+function removeGeoDirectory(TestCase $test): void
+{
+    if (isset($test->geoDirectory)) {
+        File::deleteDirectory($test->geoDirectory);
+    }
+}
+
+/**
+ * Puts one of MaxMind's test databases in service as the given edition's
+ * current file — tests/Fixtures/geo/GeoLite2-City-Test.mmdb knows, among
+ * others, 81.2.69.142 (GB, ENG, London), 216.160.83.56 (US, WA, Milton) and
+ * 2001:218:: (JP, no city). Returns the file's path.
+ */
+function installGeoDatabase(string $edition = 'geolite2_city', string $fixture = 'GeoLite2-City-Test.mmdb'): string
+{
+    $root = test()->geoDirectory ?? geoDirectory();
+    File::ensureDirectoryExists($root.'/'.$edition);
+    copy(base_path('tests/Fixtures/geo/'.$fixture), $path = $root.'/'.$edition.'/current.mmdb');
+
+    return $path;
+}
+
+/**
+ * A tar archive of the given files, as npm packs a package: ustar headers of
+ * 512 bytes, each file padded to the block, two empty blocks at the end.
+ *
+ * @param  array<string, string>  $files  path inside the archive => contents
+ */
+function tarOf(array $files): string
+{
+    $archive = '';
+
+    foreach ($files as $name => $contents) {
+        $header = str_pad($name, 100, "\0")
+            .str_pad('0000644', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad('0', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad('0', 7, '0', STR_PAD_LEFT)."\0"
+            .str_pad(decoct(strlen($contents)), 11, '0', STR_PAD_LEFT)."\0"
+            .str_pad(decoct(0), 11, '0', STR_PAD_LEFT)."\0"
+            .'        '
+            .'0'
+            .str_pad('', 100, "\0")
+            ."ustar\0".'00'
+            .str_pad('', 247, "\0");
+        $header = substr($header, 0, 512);
+        $checksum = array_sum(array_map('ord', str_split($header)));
+        $header = substr_replace($header, str_pad(decoct($checksum), 6, '0', STR_PAD_LEFT)."\0 ", 148, 8);
+        $archive .= $header.$contents.str_repeat("\0", (512 - strlen($contents) % 512) % 512);
+    }
+
+    return $archive.str_repeat("\0", 1024);
 }

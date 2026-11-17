@@ -51,6 +51,16 @@ Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 // Attempts, answers and results are kept.
 Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
 
+// The local IP location database (docs/architecture/geo.md). Every minute,
+// but a run with nothing to do ends at once: each edition is checked once a
+// day, sooner after a failure or when the administrator asks for a refresh.
+// A download and its checks can take minutes, so the run goes to the
+// background and keeps the minute's other commands on time; its overlap lock
+// lasts an hour — longer than the slowest run, short enough that a scheduler
+// killed mid-download stops updates for an hour, not a day. Two runs at once
+// are kept apart by a file lock as well.
+Schedule::command('geo:update')->everyMinute()->withoutOverlapping(60)->runInBackground();
+
 // Accounts that signed up with an email address and did not confirm one
 // within a week (docs/architecture/user-lifecycle.md, "Unconfirmed
 // accounts"): removed with everything they did, each asked again under lock.
