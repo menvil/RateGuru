@@ -1,0 +1,65 @@
+app/Actions/Traffic/SetTrafficStepValueAction.php
+  s_4b9dc6ab6b25d3::t_e31cbb8c871e48 1-44,46-61
+  s_4b9dc6ab6b25d3::t_2f6bce0e07f719 45
+app/Queries/Traffic/TrafficChanceSampleQuery.php
+  s_4b9dc6ab6b25d3::t_04fdb92050f8c2 1-66
+app/Services/Traffic/TrafficVisitWorth.php
+  s_4b9dc6ab6b25d3::t_126cfa7d2595eb 1-142
+app/Support/Traffic/Worth/VisitValue.php
+  s_4b9dc6ab6b25d3::t_7c585d150bca80 1-112
+app/Support/Traffic/Worth/StepWorth.php
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-51
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_5a30c62c0127b6 93-95
+app/Actions/Traffic/WorkOutChancesAction.php
+  s_4b9dc6ab6b25d3::t_5a30c62c0127b6 1-101
+app/Queries/Traffic/TrafficWorthQuery.php
+  s_4b9dc6ab6b25d3::t_5a30c62c0127b6 1-67
+tests/Feature/Traffic/TrafficWorthTest.php
+  s_4b9dc6ab6b25d3::t_4a4ee6cd2ffc11 1-162
+app/Actions/Traffic/SaveTrafficPricesAction.php
+  s_4b9dc6ab6b25d3::t_2ac00f1a5b6a6c 113
+  s_4b9dc6ab6b25d3::t_e31cbb8c871e48 1-90,92-112,114-116
+  s_4b9dc6ab6b25d3::t_b80f557c6f51a6 91
+app/Support/Traffic/Worth/ChanceCalculator.php
+  s_4b9dc6ab6b25d3::t_7c585d150bca80 1-56,59-128,131-161
+  s_4b9dc6ab6b25d3::t_b80f557c6f51a6 57-58,129-130
+app/Console/Commands/TrafficWorkOutWorthCommand.php
+  s_4b9dc6ab6b25d3::t_2f6bce0e07f719 1-54
+routes/console.php
+  s_4b9dc6ab6b25d3::t_2f6bce0e07f719 61-66
+app/Support/Traffic/Worth/WorthPrices.php
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-46
+app/Actions/Traffic/RevalueOpenVisitsAction.php
+  s_4b9dc6ab6b25d3::t_126cfa7d2595eb 1-4,6-29,31-74
+  s_4b9dc6ab6b25d3::t_e31cbb8c871e48 5,30
+app/Support/Traffic/Worth/CountryGroups.php
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-28
+tests/Unit/Support/Traffic/WorthTest.php
+  s_4b9dc6ab6b25d3::t_fe2b54f3f78e5b 1-129
+app/Support/Traffic/Worth/ChanceTable.php
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-39
+app/Support/Traffic/Worth/Slice.php
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-94
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_04fdb92050f8c2 135-140
+app/Support/Traffic/Worth/ConfirmationCurve.php
+  s_4b9dc6ab6b25d3::t_b80f557c6f51a6 52
+  s_4b9dc6ab6b25d3::t_ebd8985f4c6372 1-51,53-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "08b482896284cc79ef03c4a0e37c8c6d49fa107d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
