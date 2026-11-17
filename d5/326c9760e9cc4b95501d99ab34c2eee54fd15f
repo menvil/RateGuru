@@ -1,0 +1,52 @@
+app/Actions/Traffic/AllocateSpendDayAction.php
+  s_4b9dc6ab6b25d3::t_3359cc7b173a66 1-85
+app/Actions/Traffic/SaveTrafficSourceAction.php
+  s_4b9dc6ab6b25d3::t_7f5d74b7a4bdf9 45-46,103-104
+app/Support/Traffic/Spend/SpendCsv.php
+  s_4b9dc6ab6b25d3::t_0f3768aef3276b 62-70,110-111
+  s_4b9dc6ab6b25d3::t_7434b607217058 1-61,71-109,112-117
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_f093f361cc98c8 129,14609-14615
+routes/console.php
+  s_4b9dc6ab6b25d3::t_7f5d74b7a4bdf9 72-75
+tests/Unit/Support/Traffic/SpendTest.php
+  s_4b9dc6ab6b25d3::t_f35608e68ea622 1-67,69-70
+  s_4b9dc6ab6b25d3::t_0f3768aef3276b 68
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_bbffe516fcd9e1 9,13,17,28,146,337-347,349-362
+  s_4b9dc6ab6b25d3::t_ecb2e0fa1997b0 348
+tests/Feature/Traffic/TrafficSpendTest.php
+  s_4b9dc6ab6b25d3::t_f093f361cc98c8 1-113
+app/Actions/Traffic/EnterSpendAction.php
+  s_4b9dc6ab6b25d3::t_3359cc7b173a66 1-11,13,15-80,82-99,101-108
+  s_4b9dc6ab6b25d3::t_bbffe516fcd9e1 12,14,81,100
+app/Support/Traffic/Spend/SpendAllocator.php
+  s_4b9dc6ab6b25d3::t_f9cad92fa9bf08 1-76
+app/Console/Commands/TrafficAllocateSpendCommand.php
+  s_4b9dc6ab6b25d3::t_7f5d74b7a4bdf9 1-40,44-75
+  s_4b9dc6ab6b25d3::t_ecb2e0fa1997b0 41-43
+app/Support/Traffic/Spend/ClickSpend.php
+  s_4b9dc6ab6b25d3::t_f9cad92fa9bf08 1-55
+app/Actions/Traffic/MaterializeFixedSpendAction.php
+  s_4b9dc6ab6b25d3::t_3359cc7b173a66 1-39
+app/Actions/Traffic/ReplaceSpendSliceAction.php
+  s_4b9dc6ab6b25d3::t_3359cc7b173a66 1-58
+app/Support/Traffic/Spend/FixedPriceSchedule.php
+  s_4b9dc6ab6b25d3::t_f9cad92fa9bf08 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d5326c9760e9cc4b95501d99ab34c2eee54fd15f",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
