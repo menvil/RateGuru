@@ -1,0 +1,23 @@
+docs/design/admin/design-contract.md
+  s_4b9dc6ab6b25d3::t_f5a63ed960fba3 18-19
+tests/Feature/Docs/AdminDesignDocsTest.php
+  s_4b9dc6ab6b25d3::t_f5a63ed960fba3 16,29-30,43
+docs/design/admin/reference/original/RateGuru-Admin.html
+  s_4b9dc6ab6b25d3::t_f5a63ed960fba3 5,379,383,391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6090597001aa69c0599feb357d984218be121be8",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
