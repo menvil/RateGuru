@@ -1,0 +1,75 @@
+app/Actions/Traffic/ChangeTrafficCampaignStageAction.php
+  s_4b9dc6ab6b25d3::t_f6406eea427aad 1-59
+app/Actions/Traffic/SaveTrafficCampaignAction.php
+  s_4b9dc6ab6b25d3::t_f6406eea427aad 1-50,52-163
+  s_4b9dc6ab6b25d3::t_a3da977c36de66 51
+app/Support/Traffic/Postbacks/PostbackTemplate.php
+  s_4b9dc6ab6b25d3::t_350a05f2c8c837 1-94
+app/Support/Traffic/Money/TrafficMoney.php
+  s_4b9dc6ab6b25d3::t_172387e5831664 35-36,38
+app/Console/Commands/TrafficArchiveQuietCampaignsCommand.php
+  s_4b9dc6ab6b25d3::t_a3da977c36de66 1-32,34-58
+  s_4b9dc6ab6b25d3::t_92de2965d85a2b 33
+routes/console.php
+  s_4b9dc6ab6b25d3::t_92de2965d85a2b 59
+app/Support/Traffic/Links/LinkInspection.php
+  s_4b9dc6ab6b25d3::t_196f378588fefe 1-32
+app/Support/Traffic/Presets/SourceDefaults.php
+  s_4b9dc6ab6b25d3::t_9aa39aebc4c880 1-139
+app/Services/Traffic/TrafficPresetCatalog.php
+  s_4b9dc6ab6b25d3::t_196f378588fefe 1-33
+app/Policies/TrafficSourcePolicy.php
+  s_4b9dc6ab6b25d3::t_8db856058155a5 1-20
+app/Actions/Traffic/RecordTrafficCampaignEventAction.php
+  s_4b9dc6ab6b25d3::t_f6406eea427aad 1-23
+app/Models/TrafficCampaign.php
+  s_4b9dc6ab6b25d3::t_92de2965d85a2b 118-123
+tests/Feature/Traffic/TrafficSourceActionsTest.php
+  s_4b9dc6ab6b25d3::t_ce4c042c438e47 1-203
+app/Support/Traffic/Links/LinkInspector.php
+  s_4b9dc6ab6b25d3::t_196f378588fefe 1-157
+app/Exceptions/Traffic/CannotManageTrafficException.php
+  s_4b9dc6ab6b25d3::t_8db856058155a5 1-62
+app/Support/Traffic/Presets/PresetSchema.php
+  s_4b9dc6ab6b25d3::t_350a05f2c8c837 1-7,9-103,108-137
+  s_4b9dc6ab6b25d3::t_029059ef4a599d 8,104-107
+tests/Unit/Support/Traffic/PresetsAndLinksTest.php
+  s_4b9dc6ab6b25d3::t_5219e864e0b488 1-8,10-113,115-116,118-137
+  s_4b9dc6ab6b25d3::t_d10d55e2c78921 9,114,117
+app/Support/Traffic/Links/LinkParams.php
+  s_4b9dc6ab6b25d3::t_029059ef4a599d 1-77
+tests/Feature/Policies/SanctionedAdministratorPoliciesTest.php
+  s_4b9dc6ab6b25d3::t_f299af16405ac3 22
+config/traffic_presets.php
+  s_4b9dc6ab6b25d3::t_bade8c45d2d23e 32-37,60-64,87-92,124-128,152-155,178-182,205-208,231-236,259-261
+  s_4b9dc6ab6b25d3::t_4b71984a2c300b 1-31,38-59,65-86,93-123,129-151,156-177,183-204,209-230,237-258,262-294
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_92de2965d85a2b 19,144
+app/Actions/Traffic/ArchiveTrafficCampaignAction.php
+  s_4b9dc6ab6b25d3::t_f6406eea427aad 1-76
+config/traffic.php
+  s_4b9dc6ab6b25d3::t_350a05f2c8c837 19-28
+app/Support/Traffic/Links/TrackingLinkBuilder.php
+  s_4b9dc6ab6b25d3::t_196f378588fefe 1-43
+app/Actions/Traffic/Concerns/LocksTrafficRecords.php
+  s_4b9dc6ab6b25d3::t_8db856058155a5 1-73
+app/Actions/Traffic/SaveTrafficSourceAction.php
+  s_4b9dc6ab6b25d3::t_4b6466cbab01b5 1-55,57-265,267-288
+  s_4b9dc6ab6b25d3::t_8d479e405bbc38 56,266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd419c5ed6936e5eed2c89c2baeaa03239de6c22",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
