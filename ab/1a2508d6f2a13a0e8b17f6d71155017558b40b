@@ -1,0 +1,47 @@
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_32b389e9679fd4 81-91
+tests/Feature/Traffic/TrafficSourceActionsTest.php
+  s_4b9dc6ab6b25d3::t_55d9eea438ffa8 142-147,150
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  ai_agent 14
+  s_4b9dc6ab6b25d3::t_670fdbb9784eca 132-133
+tests/Unit/Support/Geo/GeoUpdatePlanTest.php
+  s_4b9dc6ab6b25d3::t_670fdbb9784eca 64-72
+app/Actions/Traffic/BlockTrafficRefsAction.php
+  s_4b9dc6ab6b25d3::t_652a40224f1029 61,63,65,114-115,119
+  s_4b9dc6ab6b25d3::t_cf92f648ac3bf8 62,64,120
+tests/Feature/Traffic/TrafficConnectorsTest.php
+  s_4b9dc6ab6b25d3::t_fedaf9880f30e6 202-217
+  s_4b9dc6ab6b25d3::t_40caf1753e52c0 106-125
+app/Actions/Traffic/SaveTrafficSourceAction.php
+  s_4b9dc6ab6b25d3::t_6d2b528e61cccd 159
+  s_4b9dc6ab6b25d3::t_c361112e57ac49 262-264
+app/Support/Geo/Update/GeoUpdatePlan.php
+  s_4b9dc6ab6b25d3::t_9d6b8d6a38dfeb 47-48
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_40caf1753e52c0 7
+  s_4b9dc6ab6b25d3::t_32b389e9679fd4 81-83
+app/Actions/Traffic/MaterializeFixedSpendAction.php
+  s_4b9dc6ab6b25d3::t_6c843b58df7221 25
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_9d6b8d6a38dfeb 71-72
+app/Services/Traffic/Connectors/ExoClickConnector.php
+  s_4b9dc6ab6b25d3::t_32b389e9679fd4 95,97-99,102
+  s_4b9dc6ab6b25d3::t_66b4322b09f756 96,100-101,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab1a2508d6f2a13a0e8b17f6d71155017558b40b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
