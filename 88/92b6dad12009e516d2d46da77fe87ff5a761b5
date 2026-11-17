@@ -1,0 +1,147 @@
+app/Actions/Translations/StartProjectTranslationGenerationAction.php
+  s_4b9dc6ab6b25d3::t_13519136d758bf 18
+  s_4b9dc6ab6b25d3::t_73fd25bcd6cd53 9
+  s_4b9dc6ab6b25d3::t_d222f91256c0b3 77-78,80-81,84,89
+  s_4b9dc6ab6b25d3::t_81c83cb09bef9f 46,57
+  s_4b9dc6ab6b25d3::t_3402191b48336a 27-30
+app/Exceptions/Translations/CannotSaveTranslationException.php
+  s_4b9dc6ab6b25d3::t_1829a9694f65b0 35-36,90-96
+tests/Feature/I18n/UpdateProjectTranslationActionTest.php
+  s_4b9dc6ab6b25d3::t_9b717d53047d8d 264-367
+  s_4b9dc6ab6b25d3::t_4b406f9b3d6baf 7,13
+app/Support/Translations/Generation/ProjectTranslationSourceFingerprint.php
+  s_4b9dc6ab6b25d3::t_014ad16634f63c 8-9,14-19,35-47
+app/Queries/Translations/ProjectTranslationSourcesQuery.php
+  s_4b9dc6ab6b25d3::t_a730075dac3396 1-50
+routes/console.php
+  s_4b9dc6ab6b25d3::t_5cb2b4b9b447d4 48-54
+tests/Feature/Filament/TranslationCenterPageTest.php
+  s_4b9dc6ab6b25d3::t_83a1b6d2ce5eb6 3
+  s_4b9dc6ab6b25d3::t_775f08ae325fa6 365-471
+  s_4b9dc6ab6b25d3::t_4acdcfe9cdb807 866-898
+app/Actions/Translations/RecordProjectTranslationSourceAction.php
+  s_4b9dc6ab6b25d3::t_8765f99f5f0b60 48-82
+  s_4b9dc6ab6b25d3::t_84d43c70388803 7-8
+  s_4b9dc6ab6b25d3::t_b9afa17950d9f5 1-6,9-47,83
+app/Actions/Games/ChangeGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_84d43c70388803 6,14,34
+  s_4b9dc6ab6b25d3::t_8765f99f5f0b60 60
+resources/views/filament/pages/translation-center/row.blade.php
+  s_4b9dc6ab6b25d3::t_b01a2f5bdde575 10-18
+  s_4b9dc6ab6b25d3::t_66abb32c762a9f 89-97
+  s_4b9dc6ab6b25d3::t_db994121bd5019 85-88,98-99
+  s_4b9dc6ab6b25d3::t_fb5ade2613e9ab 175-177,180
+  s_4b9dc6ab6b25d3::t_50bb737d605b38 202
+  s_4b9dc6ab6b25d3::t_49abfbe3d287a1 30
+resources/views/filament/pages/translation-center/script.blade.php
+  s_4b9dc6ab6b25d3::t_fb2ac22e3753fc 136-139
+  s_4b9dc6ab6b25d3::t_7e25034f503610 268-272
+  s_4b9dc6ab6b25d3::t_9784229e895676 695-699
+  s_4b9dc6ab6b25d3::t_d12fe24bc780ea 483,488
+  s_4b9dc6ab6b25d3::t_1829a9694f65b0 458,818-819,822-823
+  s_4b9dc6ab6b25d3::t_51602bb03ec94f 660-661,672,680,685
+  s_4b9dc6ab6b25d3::t_97bc81bb878fc0 754
+  s_4b9dc6ab6b25d3::t_13b29459a356a1 641-643
+  s_4b9dc6ab6b25d3::t_ffb72a380bc59f 6-7
+  s_4b9dc6ab6b25d3::t_faed22316a3bac 222,226,229-230,232,235
+  s_4b9dc6ab6b25d3::t_afae094b182063 156-157,163-167,172
+  s_4b9dc6ab6b25d3::t_707c6d7c9b5897 15-26
+  s_4b9dc6ab6b25d3::t_f5453b260ee2a4 590-608
+  s_4b9dc6ab6b25d3::t_a7e0121edefa6c 96-97,100
+  s_4b9dc6ab6b25d3::t_caea458a102c3a 582-583
+app/Filament/Pages/TranslationCenterPage.php
+  s_4b9dc6ab6b25d3::t_ea70920defaf62 79-80
+  s_4b9dc6ab6b25d3::t_d8042bc09b5072 491,501,512
+  s_4b9dc6ab6b25d3::t_1829a9694f65b0 131-135,142,151-157
+  s_4b9dc6ab6b25d3::t_2408b0b510d6db 169-173
+  s_4b9dc6ab6b25d3::t_3b47bd6fc51a9b 566-568
+  s_4b9dc6ab6b25d3::t_c057a971c4dca2 16,18
+  s_4b9dc6ab6b25d3::t_2ea4b05ee017eb 525,535-537,540,543,548-550
+  s_4b9dc6ab6b25d3::t_cbf9fc6760b722 53-69
+tests/Feature/Actions/BackfillProjectTranslationsActionTest.php
+  s_4b9dc6ab6b25d3::t_4acdcfe9cdb807 330-345
+app/Actions/Games/CreateContentSetAction.php
+  s_4b9dc6ab6b25d3::t_8765f99f5f0b60 59,64,71
+  s_4b9dc6ab6b25d3::t_84d43c70388803 6,11,25
+tests/Browser/AdminTranslationCenterOutdatedBrowserTest.php
+  s_4b9dc6ab6b25d3::t_806492e767d1a7 1-125
+app/Actions/Translations/UpdateProjectTranslationAction.php
+  s_4b9dc6ab6b25d3::t_1171cd76426362 113-132
+  s_4b9dc6ab6b25d3::t_178ded658479d9 41-47,55
+tests/Feature/Games/ContentSetActionsTest.php
+  s_4b9dc6ab6b25d3::t_aa4cb59209eb28 6,14-15,17-18,208-223
+app/Actions/Translations/BaselineProjectTranslationSourcesAction.php
+  s_4b9dc6ab6b25d3::t_c298b1f547cdd4 1-74
+app/Console/Commands/TranslationsBaselineSourcesCommand.php
+  s_4b9dc6ab6b25d3::t_250214b7bcf15d 1-29
+tests/Feature/I18n/GenerateProjectTranslationChunkJobTest.php
+  s_4b9dc6ab6b25d3::t_3323cc8d4fb303 190-219
+resources/views/filament/pages/translation-center.blade.php
+  s_4b9dc6ab6b25d3::t_d24b58d3d0639c 148
+  s_4b9dc6ab6b25d3::t_7c3feae6961f14 14-19,21
+  s_4b9dc6ab6b25d3::t_7582b2f753fa90 102,106,109,112
+  s_4b9dc6ab6b25d3::t_b8a1f8b48ab31e 217-222
+  s_4b9dc6ab6b25d3::t_9a5585256a23e5 248,250-253
+  s_4b9dc6ab6b25d3::t_d5e342754c36e5 79-85
+app/Models/ProjectTranslationSource.php
+  s_4b9dc6ab6b25d3::t_878363a97602b4 1-28
+app/Console/Commands/BackfillProjectTranslationsCommand.php
+  s_4b9dc6ab6b25d3::t_84d43c70388803 6,12-15,23,35-37
+tests/Feature/Database/ProjectTranslationSourcesTableTest.php
+  s_4b9dc6ab6b25d3::t_3a382ea2e25e19 1-37
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_5f098c7447d48a 9365-9395
+  s_4b9dc6ab6b25d3::t_9f05c934b6fc00 9548-9565
+  s_4b9dc6ab6b25d3::t_66abb32c762a9f 9328-9329
+tests/Feature/I18n/StartProjectTranslationGenerationActionTest.php
+  s_4b9dc6ab6b25d3::t_203eabc61044be 13
+  s_4b9dc6ab6b25d3::t_4a3f05886b1037 72-104
+  s_4b9dc6ab6b25d3::t_b919ea1074f631 150
+app/Jobs/Translations/GenerateProjectTranslationChunkJob.php
+  s_4b9dc6ab6b25d3::t_eb514de6eade32 57-58
+  s_4b9dc6ab6b25d3::t_50f017b47d6487 92
+  s_4b9dc6ab6b25d3::t_f808a68713a827 133-137,147
+  s_4b9dc6ab6b25d3::t_bfed65ba2660e8 8
+docs/architecture/translation-engine.md
+  s_4b9dc6ab6b25d3::t_7b0fbaf47b1b36 177-203,212
+  s_4b9dc6ab6b25d3::t_3df25869333710 204-211
+app/Actions/Translations/SaveProjectTranslationGenerationAction.php
+  s_4b9dc6ab6b25d3::t_f38af9f8c6676f 50
+  s_4b9dc6ab6b25d3::t_9a46f0cb24b10f 95,105-106
+  s_4b9dc6ab6b25d3::t_2439d77c201595 81-82
+  s_4b9dc6ab6b25d3::t_07f556fbd29e19 144-146,148,154
+  s_4b9dc6ab6b25d3::t_d2872bf2650b31 28-31
+  s_4b9dc6ab6b25d3::t_0b651fa1ef2d0d 78-80,83
+  s_4b9dc6ab6b25d3::t_2f335aae87feae 10
+database/migrations/2026_11_17_101300_create_project_translation_sources_table.php
+  s_4b9dc6ab6b25d3::t_f7ca654ab2c80a 1-42
+tests/Feature/I18n/OutdatedProjectTranslationTest.php
+  s_4b9dc6ab6b25d3::t_41d5beb40a1765 1-103
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_da34adff5bbd97 8866-8875
+  s_4b9dc6ab6b25d3::t_b39d146b5643db 18
+  s_4b9dc6ab6b25d3::t_0d91106233ba45 8852-8865
+  s_4b9dc6ab6b25d3::t_34b02094d076d6 64
+tests/Feature/Console/TranslationsBaselineSourcesCommandTest.php
+  s_4b9dc6ab6b25d3::t_1ea24ca7f0450b 1-83
+tests/Feature/I18n/ProjectTranslationGenerationReviewTest.php
+  s_4b9dc6ab6b25d3::t_956165228777b9 257-314
+app/Exceptions/Translations/CannotGenerateTranslationsException.php
+  s_4b9dc6ab6b25d3::t_1829a9694f65b0 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8892b6dad12009e516d2d46da77fe87ff5a761b5",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
