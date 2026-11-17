@@ -32,13 +32,13 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     $visit = TrafficVisit::factory()->create(['source_id' => $source->id, 'campaign_id' => $campaign->id, 'site_ref' => '40123', 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now(), 'spend' => '0.25', 'account_at' => now()]);
     TrafficPostback::factory()->create(['conversion_id' => TrafficConversion::factory()->create(['visit_id' => $visit->id])->id, 'status' => 'failed']);
 
-    Livewire::withQueryParams(['tab' => $tab, 'by' => $text === 'Sites' ? 'site' : 'source'])->test(TrafficSourcesPage::class)
+    Livewire::withQueryParams(['tab' => $tab, 'view' => $text === 'site 40123' ? 'sites' : 'sources'])->test(TrafficSourcesPage::class)
         ->call('load')
         ->assertOk()
         ->assertSee($text);
 })->with([
     'report' => ['report', 'PopAds main'],
-    'report by site' => ['report', 'Sites'],
+    'report, sites and zones' => ['report', 'site 40123'],
     'campaigns' => ['campaigns', 'US popunder'],
     'value' => ['value', 'What an account is worth'],
     'spend' => ['spend', 'Spend without visits'],

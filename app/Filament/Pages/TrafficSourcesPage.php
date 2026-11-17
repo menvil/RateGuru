@@ -30,6 +30,7 @@ use App\Models\TrafficSource;
 use App\Models\User;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Traffic\Presets\SourceDefaults;
+use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -82,13 +83,56 @@ final class TrafficSourcesPage extends Page
     #[Url(except: '')]
     public mixed $source = '';
 
-    /** What the report's tree is split by. */
-    #[Url(except: 'source')]
-    public mixed $by = 'source';
-
-    /** The rows opened in the tree, as dimension:value pairs. */
+    /** Paid or unpaid traffic: a network, a placement, unpaid, or all of it. */
     #[Url(except: '')]
-    public mixed $path = '';
+    public mixed $type = '';
+
+    /** A campaign's id, or every campaign. */
+    #[Url(as: 'campaign', except: '')]
+    public mixed $campaignId = '';
+
+    /** A game's id, or every game. */
+    #[Url(except: '')]
+    public mixed $game = '';
+
+    #[Url(except: '')]
+    public mixed $device = '';
+
+    /** The report's view: a tree — by source, device, country, game or version — or the flat list of sites and zones. */
+    #[Url(as: 'view', except: 'sources')]
+    public mixed $reportView = 'sources';
+
+    /** @var list<string> the tree's rows opened, by their path; the ad networks to begin with */
+    public array $open = ['type=network'];
+
+    /** @var list<string> the tree's levels shown in full rather than their ten biggest rows */
+    public array $more = [];
+
+    /** Sites & zones: one row per zone (a site where a network has no zones), or per site. */
+    #[Url(as: 'list', except: 'zone')]
+    public mixed $listBy = 'zone';
+
+    #[Url(except: '')]
+    public mixed $q = '';
+
+    /** Sites & zones leaves out those under so many clicks. */
+    #[Url(as: 'min', except: 0)]
+    public mixed $minClicks = 0;
+
+    #[Url(as: 'seg', except: 'all')]
+    public mixed $segment = 'all';
+
+    #[Url(except: 'spend')]
+    public mixed $sort = 'spend';
+
+    #[Url(except: 'desc')]
+    public mixed $dir = 'desc';
+
+    /** @var list<string> the sites and zones ticked, as source:level:ref, kept across pages */
+    public array $selected = [];
+
+    /** The Worth blocking panel: the block rule, its thresholds and how many meet it. */
+    public bool $blockRule = false;
 
     /** The source editor: a preset to start from (`new:popads`, `new:placement`) or a source's id. */
     #[Url(except: '')]
@@ -176,9 +220,16 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'source', 'by', 'log'], true)) {
+        if (in_array($property, ['tab', 'period', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
             $this->pageNumber = 1;
-            $this->path = $property === 'by' || $property === 'source' ? '' : $this->path;
+        }
+
+        if (in_array($property, ['period', 'source', 'type', 'campaignId', 'game', 'device', 'reportView', 'listBy'], true)) {
+            $this->selected = [];
+        }
+
+        if ($property === 'source') {
+            $this->campaignId = '';
         }
 
         $this->normalize();
@@ -196,20 +247,182 @@ final class TrafficSourcesPage extends Page
         $this->pageNumber = is_numeric($page) ? max(1, (int) $page) : 1;
     }
 
-    /** Opens a row of the tree: the next level is split under it. */
-    public function drill(mixed $dimension, mixed $value): void
+    /** Opens a row of the tree, or closes it. */
+    public function toggleNode(mixed $key): void
     {
-        if (! is_string($dimension) || ! is_scalar($value) && $value !== null) {
+        if (! is_string($key) || mb_strlen($key) > 300) {
             return;
         }
 
-        $this->path = trim($this->path.';'.$dimension.':'.($value ?? ''), ';');
-        $this->by = TrafficSourcesView::nextDimension($dimension);
+        $this->open = in_array($key, $this->open, true)
+            ? array_values(array_filter($this->open, fn (string $open): bool => $open !== $key && ! str_starts_with($open, $key.'|')))
+            : [...$this->open, $key];
     }
 
-    public function closePath(): void
+    /** Shows every row of a level of the tree, not just its ten biggest. */
+    public function showMore(mixed $key): void
     {
-        $this->path = '';
+        if (is_string($key) && mb_strlen($key) <= 300 && ! in_array($key, $this->more, true)) {
+            $this->more[] = $key;
+        }
+    }
+
+    /** Opens a source's sites or zones as the flat list, from the “more” row of the tree. */
+    public function listSites(mixed $sourceId, mixed $level): void
+    {
+        $this->reportView = 'sites';
+        $this->source = is_numeric($sourceId) ? (string) (int) $sourceId : $this->source;
+        $this->listBy = $level === 'site' ? 'site' : 'zone';
+        $this->segment = 'all';
+        $this->q = '';
+        $this->pageNumber = 1;
+        $this->selected = [];
+        $this->normalize();
+    }
+
+    public function sortBy(mixed $column): void
+    {
+        if (! is_string($column) || ! in_array($column, SiteZoneList::SORTS, true)) {
+            return;
+        }
+
+        $this->dir = $this->sort === $column && $this->dir === 'desc' ? 'asc' : 'desc';
+        $this->sort = $column;
+        $this->pageNumber = 1;
+    }
+
+    /** Ticks a site or zone, or unticks it. */
+    public function toggleSelected(mixed $key): void
+    {
+        if (! is_string($key) || preg_match('/^\d+:(site|zone):.{1,120}$/', $key) !== 1) {
+            return;
+        }
+
+        $this->selected = in_array($key, $this->selected, true)
+            ? array_values(array_diff($this->selected, [$key]))
+            : [...$this->selected, $key];
+    }
+
+    /** Ticks every row of the page, or unticks them all when each is ticked already. */
+    public function togglePage(): void
+    {
+        $page = $this->siteList()['selectable'];
+        $this->selected = array_diff($page, $this->selected) === []
+            ? array_values(array_diff($this->selected, $page))
+            : array_values(array_unique([...$this->selected, ...$page]));
+    }
+
+    /** Ticks every site or zone the segment, search and threshold match, on every page. */
+    public function selectMatching(): void
+    {
+        $this->selected = $this->siteList()['matchingSelectable'];
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selected = [];
+    }
+
+    /** Blocks the sites and zones ticked: through each network's API where it can, else marked by hand. */
+    public function blockSelected(): void
+    {
+        $byHand = 0;
+        $queued = 0;
+
+        foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            $viaApi = app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level);
+
+            try {
+                app(BlockTrafficRefsAction::class)->block($this->admin(), $source, $level, $refs, null, $viaApi);
+            } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+                $this->toast($exception->getMessage(), 'error');
+
+                return;
+            }
+
+            $viaApi ? $queued += count($refs) : $byHand += count($refs);
+        }
+
+        $this->selected = [];
+        $this->toast(trim(($queued > 0 ? $queued.' queued for the network. ' : '').($byHand > 0 ? $byHand.' marked as blocked: add them to the network’s list — Copy IDs gives them to you.' : '')));
+    }
+
+    /** Unblocks the sites and zones ticked. */
+    public function unblockSelected(): void
+    {
+        $count = 0;
+
+        foreach ($this->selectedRefs() as ['source' => $source, 'level' => $level, 'refs' => $refs]) {
+            foreach (TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->get() as $block) {
+                try {
+                    app(BlockTrafficRefsAction::class)->unblock($this->admin(), $block);
+                } catch (CannotManageTrafficException|RateLimitExceededException $exception) {
+                    $this->toast($exception->getMessage(), 'error');
+
+                    return;
+                }
+
+                $count++;
+            }
+        }
+
+        $this->selected = [];
+        $this->toast($count.' unblocked');
+    }
+
+    public function toggleBlockRule(): void
+    {
+        $this->blockRule = ! $this->blockRule;
+    }
+
+    /** Shows the sites and zones the block rule picks out. */
+    public function showWorthBlocking(): void
+    {
+        $this->reportView = 'sites';
+        $this->segment = 'block';
+        $this->sort = 'spend';
+        $this->dir = 'desc';
+        $this->q = '';
+        $this->pageNumber = 1;
+        $this->blockRule = false;
+    }
+
+    /**
+     * The sites and zones ticked, grouped by source and level, each source
+     * read once.
+     *
+     * @return list<array{source: TrafficSource, level: TrafficBlockLevel, refs: list<string>}>
+     */
+    private function selectedRefs(): array
+    {
+        $groups = [];
+
+        foreach ($this->selected as $key) {
+            [$sourceId, $level, $ref] = array_pad(explode(':', $key, 3), 3, '');
+            $groups[$sourceId.':'.$level]['refs'][] = $ref;
+            $groups[$sourceId.':'.$level]['source'] = (int) $sourceId;
+            $groups[$sourceId.':'.$level]['level'] = $level;
+        }
+
+        $sources = TrafficSource::query()->whereKey(array_column($groups, 'source'))->get()->keyBy('id');
+        $out = [];
+
+        foreach ($groups as $group) {
+            $source = $sources->get($group['source']);
+            $level = TrafficBlockLevel::tryFrom($group['level']);
+
+            if ($source !== null && $level !== null) {
+                $out[] = ['source' => $source, 'level' => $level, 'refs' => array_values(array_unique($group['refs']))];
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array{selectable: list<string>, matchingSelectable: list<string>} */
+    private function siteList(): array
+    {
+        return app(TrafficSourcesView::class)->siteSelection($this, $this->filter());
     }
 
     // Sources --------------------------------------------------------------
@@ -649,15 +862,17 @@ final class TrafficSourcesPage extends Page
         $filter = $this->period === 'yesterday'
             ? new TrafficReportFilter(now()->utc()->subDay()->toDateString(), now()->utc()->subDay()->toDateString())
             : $base;
-        $where = is_numeric($this->source) ? ['source_id' => (int) $this->source] : [];
+        $where = array_filter([
+            'source_id' => is_numeric($this->source) ? (int) $this->source : null,
+            'channel' => in_array($this->type, ['network', 'placement'], true) ? $this->type : null,
+            'campaign_id' => is_numeric($this->campaignId) ? (int) $this->campaignId : null,
+            'game_id' => is_numeric($this->game) ? (int) $this->game : null,
+            'device' => in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : null,
+        ], fn (mixed $value): bool => $value !== null);
 
-        foreach (array_filter(explode(';', (string) $this->path)) as $step) {
-            [$dimension, $value] = array_pad(explode(':', $step, 2), 2, '');
-            $column = TrafficSourcesView::columnOf($dimension);
-
-            if ($column !== null) {
-                $where[$column] = $value === '' ? null : $value;
-            }
+        // Unpaid traffic is the traffic of no source.
+        if ($this->type === 'unpaid' && ! isset($where['source_id'])) {
+            $where['source_id'] = null;
         }
 
         return new TrafficReportFilter($filter->fromDay, $filter->toDay, $where);
@@ -668,8 +883,20 @@ final class TrafficSourcesPage extends Page
         $this->tab = is_string($this->tab) && array_key_exists($this->tab, self::TABS) ? $this->tab : 'report';
         $this->period = is_string($this->period) && array_key_exists($this->period, self::PERIODS) ? $this->period : '30d';
         $this->source = is_numeric($this->source) ? (string) (int) $this->source : '';
-        $this->by = is_string($this->by) && TrafficSourcesView::columnOf($this->by) !== null ? $this->by : 'source';
-        $this->path = is_string($this->path) ? mb_substr($this->path, 0, 400) : '';
+        $this->type = in_array($this->type, ['network', 'placement', 'unpaid'], true) ? $this->type : '';
+        $this->campaignId = is_numeric($this->campaignId) ? (string) (int) $this->campaignId : '';
+        $this->game = is_numeric($this->game) ? (string) (int) $this->game : '';
+        $this->device = in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : '';
+        $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
+        $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';
+        $this->q = is_string($this->q) ? mb_substr($this->q, 0, 80) : '';
+        $this->minClicks = is_numeric($this->minClicks) ? max(0, min(100000, (int) $this->minClicks)) : 0;
+        $this->segment = is_string($this->segment) && array_key_exists($this->segment, SiteZoneList::SEGMENTS) ? $this->segment : 'all';
+        $this->sort = is_string($this->sort) && in_array($this->sort, SiteZoneList::SORTS, true) ? $this->sort : 'spend';
+        $this->dir = $this->dir === 'asc' ? 'asc' : 'desc';
+        $this->open = array_values(array_filter($this->open, 'is_string'));
+        $this->more = array_values(array_filter($this->more, 'is_string'));
+        $this->selected = array_slice(array_values(array_filter($this->selected, 'is_string')), 0, 2000);
         $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'clicks';
         $this->pageNumber = is_numeric($this->pageNumber) ? max(1, (int) $this->pageNumber) : 1;
         $this->edit = is_string($this->edit) || is_int($this->edit) ? (string) $this->edit : '';

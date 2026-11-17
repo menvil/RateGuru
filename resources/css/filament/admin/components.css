@@ -14762,4 +14762,576 @@
         font-weight: var(--rg-admin-weight-semibold, 600);
         font-variant-numeric: tabular-nums;
     }
+
+    /* Traffic sources: the filter bar every tab reads, under the header. */
+    .rg-admin-traffic__filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 var(--rg-admin-space-6, 24px) 12px;
+    }
+
+    .rg-admin-traffic__good {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-traffic__bad {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    /* Report: a titled panel — Mobile and desktop, How accounts come, Performance. */
+    .rg-admin-traffic__panel {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding: 14px 16px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-traffic__panel-head {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .rg-admin-traffic__panel-title {
+        margin: 0;
+        font-size: 14px;
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__devices,
+    .rg-admin-traffic__ways {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+    }
+
+    .rg-admin-traffic__device {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        text-align: left;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__device:hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__device--on {
+        border-color: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-traffic__device-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-traffic__device-sign {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-traffic__device-name {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        font-size: 13px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-traffic__device-roi {
+        font-size: 15px;
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-traffic__device-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        font-size: 13px;
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-traffic__device-stats > span {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rg-admin-traffic__way {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-traffic__way-title {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        font-size: 13px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__bar {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .rg-admin-traffic__bar-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto 44px;
+        gap: 8px;
+        align-items: baseline;
+        font-size: 12.5px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__bar-head > :last-child {
+        text-align: right;
+    }
+
+    .rg-admin-traffic__bar-track {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--rg-admin-surface-pill);
+        overflow: hidden;
+    }
+
+    .rg-admin-traffic__bar-fill {
+        display: block;
+        height: 100%;
+        background: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-traffic__bar-fill--good {
+        background: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-traffic__way-lines {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 4px 0 0;
+        padding-top: 8px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: 12px;
+    }
+
+    .rg-admin-traffic__way-lines > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__way-lines dt {
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__way-lines dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Performance: its views, the tree or the list, and their figures. */
+    .rg-admin-traffic__perf-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .rg-admin-traffic__perf-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__views {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        padding: 2px;
+        border-radius: var(--rg-admin-radius-control);
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-traffic__view {
+        height: 28px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: calc(var(--rg-admin-radius-control) - 2px);
+        background: transparent;
+        font: inherit;
+        font-size: 12.5px;
+        color: var(--rg-admin-text-secondary);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__view--on {
+        background: var(--rg-admin-surface-card);
+        box-shadow: var(--rg-admin-shadow-xs);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__chain {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__perf {
+        margin: 0 -16px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-traffic__perf-grid {
+        display: flex;
+        flex-direction: column;
+        min-width: 1360px;
+    }
+
+    .rg-admin-traffic__perf-row {
+        display: grid;
+        grid-template-columns: minmax(280px, 2.4fr) repeat(12, minmax(74px, 1fr));
+        gap: 8px;
+        align-items: center;
+        padding: 7px 16px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__perf-row--head {
+        position: sticky;
+        top: 0;
+        padding-block: 6px;
+        background: var(--rg-admin-surface-sunken);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-traffic__perf-row--head > :not(:first-child) {
+        text-align: right;
+    }
+
+    .rg-admin-traffic__perf-row--top {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__perf-row--more .rg-admin-traffic__perf-name {
+        padding-left: calc(var(--rg-depth, 0) * 20px + 28px);
+    }
+
+    .rg-admin-traffic__perf-row--total {
+        border-bottom: 0;
+        background: var(--rg-admin-surface-sunken);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-traffic__perf-row--blocked {
+        opacity: 0.6;
+    }
+
+    .rg-admin-traffic__perf-row--ticked {
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-traffic__perf-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding-left: calc(var(--rg-depth, 0) * 20px);
+    }
+
+    .rg-admin-traffic__perf-label {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__perf-label > * {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-traffic__perf-title {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-traffic__toggle,
+    .rg-admin-traffic__toggle-space {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+    }
+
+    .rg-admin-traffic__toggle {
+        padding: 0;
+        border: 0;
+        border-radius: var(--rg-admin-radius-sm);
+        background: transparent;
+        color: var(--rg-admin-text-secondary);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__toggle:hover {
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-traffic__fig {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-traffic__fig > strong {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-traffic__fig > small {
+        font-size: 10.5px;
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-traffic__link {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        font: inherit;
+        font-size: 12.5px;
+        color: var(--rg-admin-text-link, var(--rg-admin-text-strong));
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__sort {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        font: inherit;
+        letter-spacing: inherit;
+        text-transform: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__sort--on {
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__tick {
+        flex: none;
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: var(--rg-admin-surface-inverse);
+    }
+
+    .rg-admin-traffic__perf-foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .rg-admin-traffic__perf-foot > p {
+        flex: 1;
+        min-width: 280px;
+        margin: 0;
+    }
+
+    /* Worth blocking: the rule with its thresholds, in place. */
+    .rg-admin-traffic__rule {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__rule-line {
+        margin: 0;
+        font-size: 13px;
+        line-height: 32px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__rule-input {
+        display: inline-block;
+        width: 72px;
+        height: 28px;
+        margin: 0 4px;
+        padding: 0 8px;
+    }
+
+    .rg-admin-traffic__rule-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* Sites & zones: its controls, segments, what it says, the ticked rows. */
+    .rg-admin-traffic__list-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-traffic__list-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__list-control > select {
+        width: auto;
+    }
+
+    .rg-admin-traffic__list-search {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+        max-width: 320px;
+    }
+
+    .rg-admin-traffic__list-search > svg {
+        position: absolute;
+        top: 50%;
+        left: 10px;
+        color: var(--rg-admin-text-tertiary);
+        transform: translateY(-50%);
+    }
+
+    .rg-admin-traffic__list-search > input {
+        width: 100%;
+        padding-left: 30px;
+    }
+
+    .rg-admin-traffic__segments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__segment {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: 999px;
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: 12.5px;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__segment--on {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-traffic__segment-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+    }
+
+    .rg-admin-traffic__segment-count {
+        font-variant-numeric: tabular-nums;
+        opacity: 0.7;
+    }
+
+    .rg-admin-traffic__insight {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 0;
+        padding: 8px 12px;
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 12.5px;
+        line-height: 18px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__insight > svg {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    .rg-admin-traffic__selection {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-pill);
+        font-size: 13px;
+    }
+
+    .rg-admin-traffic__selection-actions {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-left: auto;
+    }
+
+    .rg-admin-traffic__pager {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__pager-buttons {
+        display: inline-flex;
+        gap: 4px;
+    }
 }

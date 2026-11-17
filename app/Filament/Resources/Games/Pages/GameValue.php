@@ -259,7 +259,7 @@ final class GameValue extends Page
             'paid' => $paid->visits > 0 ? $paid : null,
             'postbacks' => $postbacks,
             'pricesUrl' => TrafficSourcesPage::getUrl(['tab' => 'value']),
-            'reportUrl' => TrafficSourcesPage::getUrl(['tab' => 'report', 'path' => 'game:'.$game->id]),
+            'reportUrl' => TrafficSourcesPage::getUrl(['tab' => 'report', 'game' => $game->id]),
             'sourcesUrl' => TrafficSourcesPage::getUrl(['tab' => 'sources']),
             'worked' => $data['worked'],
         ];

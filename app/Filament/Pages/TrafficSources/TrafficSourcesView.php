@@ -2,9 +2,8 @@
 
 namespace App\Filament\Pages\TrafficSources;
 
-use App\Actions\Traffic\BlockTrafficRefsAction;
 use App\Enums\GeoEdition;
-use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficConnectionStatus;
@@ -36,10 +35,11 @@ use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
-use App\Support\Traffic\Reports\ReportTree;
+use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Worth\TrafficStep;
 use BackedEnum;
+use Illuminate\Support\Collection;
 
 /**
  * What each tab of Growth → Traffic sources shows, read for the tab on
@@ -50,8 +50,26 @@ use BackedEnum;
  */
 final class TrafficSourcesView
 {
-    /** The order a tree opens in: each dimension's next. */
-    private const array NEXT = ['type' => 'source', 'source' => 'campaign', 'campaign' => 'site', 'site' => 'zone', 'zone' => 'device', 'device' => 'country', 'country' => 'city', 'city' => 'game', 'game' => 'version', 'version' => 'device'];
+    /**
+     * The report's views: each tree with the dimensions it opens through, in
+     * order; Sites & zones is the flat list instead.
+     *
+     * @var array<string, array{0: string, 1: list<string>|null}>
+     */
+    public const array VIEWS = [
+        'sources' => ['Sources', ['type', 'source', 'campaign', 'site']],
+        'sites' => ['Sites & zones', null],
+        'devices' => ['Devices', ['device', 'type', 'source']],
+        'countries' => ['Countries', ['country', 'source', 'campaign']],
+        'games' => ['Games', ['game', 'type', 'source']],
+        'versions' => ['Game versions', ['game', 'version', 'source']],
+    ];
+
+    /** How many rows a level of the tree shows before the rest fold into one. */
+    private const int CAP = 10;
+
+    /** @var array<string, array{rule: array<string, mixed>, startRates: array<int, float|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>}> what the block rule needs, by filter, for this render */
+    private array $judged = [];
 
     public function __construct(
         private readonly TrafficReportQuery $reports,
@@ -59,18 +77,7 @@ final class TrafficSourcesView
         private readonly TrafficLogsQuery $logs,
         private readonly TrafficPresetCatalog $presets,
         private readonly ConnectorRegistry $connectors,
-        private readonly BlockTrafficRefsAction $blocking,
     ) {}
-
-    public static function columnOf(string $dimension): ?string
-    {
-        return TrafficDimension::tryFrom($dimension)?->columns()[0];
-    }
-
-    public static function nextDimension(string $dimension): string
-    {
-        return self::NEXT[$dimension] ?? 'source';
-    }
 
     /** @return array{source: array<string, mixed>, rules: list<array<string, mixed>>} */
     public static function draftOf(TrafficSource $source): array
@@ -104,6 +111,10 @@ final class TrafficSourcesView
                 },
             ])->values()->all(),
             'sourceOptions' => [['value' => '', 'label' => 'All sources'], ...$sources->map(fn (TrafficSource $source): array => ['value' => (string) $source->id, 'label' => $source->name])->values()->all()],
+            'typeOptions' => [['value' => '', 'label' => 'All traffic'], ['value' => 'network', 'label' => 'Ad networks'], ['value' => 'placement', 'label' => 'Banners & links'], ['value' => 'unpaid', 'label' => 'Unpaid']],
+            'deviceOptions' => [['value' => '', 'label' => 'All devices'], ['value' => 'mobile', 'label' => 'Mobile'], ['value' => 'desktop', 'label' => 'Desktop']],
+            'gameOptions' => [['value' => '', 'label' => 'All games', 'trigger' => 'All games'], ...Game::query()->orderBy('title')->get(['id', 'title'])->map(fn (Game $game): array => ['value' => (string) $game->id, 'label' => $game->title])->all()],
+            'campaignOptions' => [['value' => '', 'label' => 'All campaigns', 'trigger' => 'All'], ...TrafficCampaign::query()->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))->orderByDesc('first_click_at')->limit(100)->get(['id', 'name', 'external_id'])->map(fn (TrafficCampaign $campaign): array => ['value' => (string) $campaign->id, 'label' => $campaign->name ?? 'Campaign '.$campaign->external_id])->all()],
             'periodOptions' => collect(TrafficSourcesPage::PERIODS)->map(fn (string $label, string $value): array => ['value' => $value, 'label' => $label])->values()->all(),
             'periodLabel' => TrafficSourcesPage::PERIODS[$page->period].' · '.$filter->fromDay.($filter->fromDay === $filter->toDay ? '' : ' – '.$filter->toDay),
             'capture' => (bool) $settings->capture_enabled,
@@ -134,82 +145,349 @@ final class TrafficSourcesView
     private function report(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
         $summary = $this->reports->summary($filter);
-        $total = array_reduce($summary, fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);
-        $unallocated = $this->spend->unallocated($filter->fromDay, $filter->toDay, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null);
-        $extra = array_reduce($unallocated, fn (string $sum, array $row): string => TrafficMoney::stored(TrafficMoney::of($sum)->plus(TrafficMoney::of($row['amount']))), '0');
-        $total = $total->withSpend($extra);
+        $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
+        // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a campaign or unpaid traffic.
+        $unallocated = array_intersect_key($filter->where, array_flip(['game_id', 'device', 'campaign_id'])) === [] && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
+            ? $this->spend->unallocated($filter->fromDay, $filter->toDay, isset($filter->where['source_id']) ? (int) $filter->where['source_id'] : null)
+            : [];
+        $extra = array_reduce($unallocated, fn (string $total, array $row): string => TrafficMoney::stored(TrafficMoney::of($total)->plus(TrafficMoney::of($row['amount']))), '0');
+        $total = $sum($summary)->withSpend($extra);
+        $paid = $sum(array_filter($summary, fn (array $row): bool => in_array($row['channel'], ['network', 'placement'], true)))->withSpend($extra);
         $byDevice = [];
         $path = array_fill_keys(['signup_form', 'signup', 'login', 'late', 'place_game', 'place_post', 'place_feed', 'place_other', 'within_10_minutes', 'within_an_hour', 'within_a_day'], 0);
+        $paidNew = 0;
 
         foreach ($summary as $row) {
-            $byDevice[$row['device']] = isset($byDevice[$row['device']]) ? $byDevice[$row['device']]->plus($row['figures']) : $row['figures'];
+            if (in_array($row['channel'], ['network', 'placement'], true)) {
+                $byDevice[$row['device']] = isset($byDevice[$row['device']]) ? $byDevice[$row['device']]->plus($row['figures']) : $row['figures'];
+                $paidNew += $row['figures']->newVisitors();
 
-            foreach ($row['path'] as $key => $count) {
-                $path[$key] += $count;
+                foreach ($row['path'] as $key => $count) {
+                    $path[$key] += $count;
+                }
             }
         }
 
-        $dimension = TrafficDimension::from((string) $page->by);
-        $groups = array_map(fn (array $group): array => ['keys' => $group['keys'], 'figures' => $dimension === TrafficDimension::Source && isset($group['keys']['source_id'])
-            ? $group['figures']->withSpend(collect($unallocated)->where('source_id', (int) $group['keys']['source_id'])->reduce(fn (string $sum, array $row): string => TrafficMoney::stored(TrafficMoney::of($sum)->plus(TrafficMoney::of($row['amount']))), '0'))
-            : $group['figures']], $this->reports->level($filter, $dimension));
-
-        $zones = null;
-
-        if (in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true)) {
-            $zones = $this->zones($filter, $dimension === TrafficDimension::Zone, $sources);
-        }
+        $labels = $this->labels($sources);
+        $list = $page->reportView === 'sites' ? $this->siteList($page, $filter, $sources) : null;
 
         return [
             'total' => $total,
+            'paid' => $paid,
+            'paidNew' => $paidNew,
             'byDevice' => $byDevice,
             'accountsPath' => $path,
-            'dimension' => $dimension,
-            'level' => ReportTree::level($groups),
-            'dimensions' => collect(TrafficDimension::cases())->map(fn (TrafficDimension $d): array => ['value' => $d->value, 'label' => $d->label()])->values()->all(),
-            'pathSteps' => array_values(array_filter(explode(';', (string) $page->path))),
-            'zones' => $zones,
+            'views' => collect(self::VIEWS)->map(fn (array $view): string => $view[0])->all(),
+            'chain' => self::VIEWS[$page->reportView][1] === null ? [] : array_map(fn (string $dimension): string => TrafficDimension::from($dimension)->label(), self::VIEWS[$page->reportView][1]),
+            'tree' => $list === null ? $this->tree($page, $filter, $sources, $labels) : [],
+            'list' => $list,
+            'worthBlocking' => $list['counts']['block'] ?? $this->worthBlocking($filter, $sources),
             'unallocated' => $extra,
         ];
     }
 
-    /** @return list<array<string, mixed>> */
-    private function zones(TrafficReportFilter $filter, bool $byZone, $sources): array
+    /**
+     * The tree of the view on screen: each level's rows, biggest spend first,
+     * its ten biggest and the rest in one row, and under each row opened the
+     * next dimension's level, to the depth the view goes.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function tree(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources, array $labels): array
     {
-        $settings = TrafficSetting::current();
-        $rule = $settings->only(['block_min_spend', 'block_min_clicks', 'block_roi_below', 'block_open_below', 'block_bot_clicks', 'block_start_clicks', 'block_start_percent']);
-        $run = TrafficChanceRun::query()->where('status', 'finished')->orderByDesc('id')->first();
-        $worthKnown = $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('accounts') >= 30;
-        $rows = $this->reports->zones($filter, $byZone);
-        $startRates = [];
+        $chain = self::VIEWS[$page->reportView][1] ?? self::VIEWS['sources'][1];
+        $rows = [];
+        $this->branch($page, $chain, 0, $filter, '', $sources, $labels, $rows);
 
-        foreach (collect($rows)->groupBy('source_id') as $sourceId => $group) {
-            $sum = $group->reduce(fn (ReportFigures $sum, array $row): ReportFigures => $sum->plus($row['figures']), new ReportFigures);
-            $startRates[$sourceId] = $sum->startRate();
+        return $rows;
+    }
+
+    /**
+     * One level of the tree, and the levels opened under it.
+     *
+     * @param  list<string>  $chain
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function branch(TrafficSourcesPage $page, array $chain, int $depth, TrafficReportFilter $filter, string $parent, $sources, array $labels, array &$rows): void
+    {
+        $dimension = TrafficDimension::from($chain[$depth]);
+        $groups = $this->reports->level($filter, $dimension);
+
+        // Unpaid traffic is one type: its channels are its sources.
+        if ($dimension === TrafficDimension::Type) {
+            $unpaid = array_filter($groups, fn (array $group): bool => ! in_array($group['keys']['channel'], ['network', 'placement'], true));
+            $groups = [
+                ...array_values(array_filter($groups, fn (array $group): bool => in_array($group['keys']['channel'], ['network', 'placement'], true))),
+                ...($unpaid === [] ? [] : [['keys' => ['channel' => 'unpaid'], 'figures' => collect($unpaid)->reduce(fn (ReportFigures $sum, array $group): ReportFigures => $sum->plus($group['figures']), new ReportFigures), 'count' => count($unpaid)]]),
+            ];
+            $order = ['network' => 0, 'placement' => 1, 'unpaid' => 2];
+            usort($groups, fn (array $a, array $b): int => $order[$a['keys']['channel']] <=> $order[$b['keys']['channel']]);
+        } else {
+            usort($groups, fn (array $a, array $b): int => [(float) $b['figures']->spend, $b['figures']->visits] <=> [(float) $a['figures']->spend, $a['figures']->visits]);
         }
 
-        $level = $byZone ? TrafficBlockLevel::Zone : TrafficBlockLevel::Site;
-        $blocks = TrafficBlock::query()->where('level', $level)->get()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->ref);
+        $levelKey = $parent.'#'.$dimension->value;
+        $shown = in_array($levelKey, $page->more, true) ? $groups : array_slice($groups, 0, self::CAP);
+        $last = $depth + 1 >= count($chain);
+        $blockable = in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true);
+        $judge = $blockable ? $this->judgeContext($filter) : null;
 
-        return collect($rows)
-            ->map(function (array $row) use ($byZone, $level, $blocks, $startRates, $worthKnown, $rule, $sources): array {
-                $ref = (string) ($byZone ? $row['zone_ref'] : $row['site_ref']);
-                $source = $sources->firstWhere('id', $row['source_id']);
+        foreach ($shown as $group) {
+            $keys = $group['keys'];
+            $value = $dimension === TrafficDimension::Source && $keys['source_id'] === null ? 'c:'.$keys['channel'] : ($keys[$dimension->columns()[0]] ?? '');
+            $key = ltrim($parent.'|'.$dimension->value.'='.$value, '|');
+            $open = ! $last && in_array($key, $page->open, true);
+            $row = [
+                'kind' => 'node',
+                'depth' => $depth,
+                'key' => $key,
+                'label' => $this->nodeLabel($dimension, $keys, $labels),
+                'sub' => $dimension === TrafficDimension::Type ? $this->typeNote((string) $keys['channel'], $group['count'] ?? null) : null,
+                'mono' => $blockable,
+                'figures' => $group['figures'],
+                'children' => ! $last,
+                'open' => $open,
+                'flag' => null,
+            ];
 
-                return [
-                    ...$row,
-                    'ref' => $ref,
-                    'level' => $level->value,
-                    'source' => $source->name ?? 'Source #'.$row['source_id'],
-                    'judgement' => BlockJudge::judge($row['figures'], $startRates[$row['source_id']] ?? null, $worthKnown, $rule),
-                    'block' => $blocks->get($row['source_id'].':'.$ref),
-                    'api' => $source !== null && $this->blocking->canBlockViaApi($source, $level),
-                ];
-            })
-            ->sortByDesc(fn (array $row): float => (float) $row['figures']->spend)
-            ->take(200)
-            ->values()
-            ->all();
+            if ($judge !== null && isset($keys['source_id'])) {
+                $ref = (string) ($keys[$dimension->columns()[0]] ?? '');
+                $block = $judge['blocks']->get($keys['source_id'].':'.$dimension->value.':'.$ref);
+                $row['flag'] = $this->flag(BlockJudge::judge($group['figures'], $judge['startRates'][$keys['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'], $block);
+            }
+
+            $rows[] = $row;
+
+            if ($open) {
+                $child = $dimension === TrafficDimension::Type && $keys['channel'] === 'unpaid'
+                    ? new TrafficReportFilter($filter->fromDay, $filter->toDay, [...$filter->where, 'source_id' => null])
+                    : $filter->within($dimension, $keys);
+                $this->branch($page, $chain, $depth + 1, $child, $key, $sources, $labels, $rows);
+            }
+        }
+
+        if (count($groups) > count($shown)) {
+            $rest = array_slice($groups, count($shown));
+            $rows[] = [
+                'kind' => 'more',
+                'depth' => $depth,
+                'key' => $levelKey,
+                'count' => count($rest),
+                'figures' => collect($rest)->reduce(fn (ReportFigures $sum, array $group): ReportFigures => $sum->plus($group['figures']), new ReportFigures),
+                'noun' => strtolower($dimension->label()).'s',
+                'list' => $blockable && isset($filter->where['source_id']) ? ['source' => (int) $filter->where['source_id'], 'level' => $dimension->value] : null,
+            ];
+        }
+    }
+
+    /** @param  array<string, int|string|null>  $keys */
+    private function nodeLabel(TrafficDimension $dimension, array $keys, array $labels): string
+    {
+        $column = $dimension->columns()[0];
+        $value = $keys[$column] ?? null;
+
+        return match (true) {
+            $dimension === TrafficDimension::Type => ['network' => 'Ad networks', 'placement' => 'Banners & links', 'unpaid' => 'Unpaid'][(string) $value] ?? ucfirst((string) $value),
+            $dimension === TrafficDimension::Source && $value === null => TrafficChannel::tryFrom((string) ($keys['channel'] ?? ''))?->label() ?? 'Unpaid',
+            $value === null || $value === '' => match ($column) {
+                'campaign_id' => 'No campaign',
+                'game_id' => 'No game',
+                'version_id' => 'No version',
+                'site_ref', 'zone_ref' => 'No ID',
+                default => 'Unknown',
+            },
+            $column === 'site_ref' => 'site '.$value,
+            $column === 'zone_ref' => 'zone '.$value,
+            $column === 'device' => ucfirst((string) $value),
+            default => $labels[$column][(string) $value] ?? (string) $value,
+        };
+    }
+
+    private function typeNote(string $type, ?int $count): string
+    {
+        return match ($type) {
+            'network' => 'Paid per click or impression',
+            'placement' => 'At a fixed price',
+            default => ($count ?? 0).' '.(($count ?? 0) === 1 ? 'channel' : 'channels').' · costs nothing',
+        };
+    }
+
+    /**
+     * What the block rule needs to judge a site or zone: its thresholds,
+     * each source's start rate, whether worth is measured yet, and the blocks.
+     *
+     * @return array{rule: array<string, mixed>, startRates: array<int, float|null>, worthKnown: bool, blocks: Collection<string, TrafficBlock>}
+     */
+    private function judgeContext(TrafficReportFilter $filter): array
+    {
+        $id = md5(serialize($filter));
+
+        if (isset($this->judged[$id])) {
+            return $this->judged[$id];
+        }
+
+        $settings = TrafficSetting::current();
+        $run = TrafficChanceRun::query()->where('status', 'finished')->orderByDesc('id')->first();
+        $startRates = [];
+
+        foreach ($this->reports->level(new TrafficReportFilter($filter->fromDay, $filter->toDay, array_diff_key($filter->where, array_flip(['site_ref', 'zone_ref', 'campaign_id']))), TrafficDimension::Source) as $group) {
+            if ($group['keys']['source_id'] !== null) {
+                $startRates[(int) $group['keys']['source_id']] = $group['figures']->startRate();
+            }
+        }
+
+        return $this->judged[$id] = [
+            'rule' => $settings->only(['block_min_spend', 'block_min_clicks', 'block_roi_below', 'block_open_below', 'block_bot_clicks', 'block_start_clicks', 'block_start_percent']),
+            'startRates' => $startRates,
+            'worthKnown' => $run !== null && (int) TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->where('step', 'opened')->value('slice_accounts') >= 30,
+            'blocks' => TrafficBlock::query()->get()->keyBy(fn (TrafficBlock $block): string => $block->source_id.':'.$block->level->value.':'.$block->ref),
+        ];
+    }
+
+    /** @return array{label: string, tone: string, tip: string}|null */
+    private function flag(string $state, ?TrafficBlock $block): ?array
+    {
+        if ($block !== null) {
+            $still = $block->clicks_after > 0;
+
+            return ['label' => $still ? 'Blocked · still sending' : 'Blocked', 'tone' => $still ? 'danger' : 'neutral', 'tip' => 'Blocked '.$block->blocked_at->format('j M').match ($block->method) {
+                TrafficBlockMethod::Api => ' through the network',
+                TrafficBlockMethod::Auto => ' by the block rule',
+                default => ' by hand',
+            }.($still ? ' · '.$block->clicks_after.' clicks since' : '')];
+        }
+
+        return match ($state) {
+            'bots' => ['label' => 'Likely bots', 'tone' => 'danger', 'tip' => 'Meets the block rule: few clicks open the page'],
+            'losing' => ['label' => 'Losing', 'tone' => 'danger', 'tip' => 'Meets the block rule: enough data and ROI below the line'],
+            'weak_start' => ['label' => 'Weak start', 'tone' => 'warning', 'tip' => 'Starts the game far less often than the source’s other places'],
+            'profit' => ['label' => 'Profitable', 'tone' => 'success', 'tip' => 'Enough data, value above spend'],
+            default => null,
+        };
+    }
+
+    /**
+     * Sites & zones: every network site or zone on the filters as one list,
+     * each judged by the block rule and put in its segment, then searched,
+     * thresholded, sorted and paged.
+     *
+     * @return array<string, mixed>
+     */
+    private function siteList(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
+    {
+        $rows = $this->siteRows($page, $filter, $sources);
+        $list = SiteZoneList::of($rows, (string) $page->segment, (string) $page->q, (int) $page->minClicks, (string) $page->sort, (string) $page->dir, (int) $page->pageNumber);
+        $all = collect($rows)->filter(fn (array $row): bool => $row['figures']->visits >= (int) $page->minClicks);
+        $spend = $all->sum(fn (array $row): float => (float) $row['figures']->spend);
+        $running = 0.0;
+        $biggest = 0;
+
+        foreach ($all->sortByDesc(fn (array $row): float => (float) $row['figures']->spend) as $row) {
+            if ($spend <= 0 || $running >= 0.8 * $spend) {
+                break;
+            }
+
+            $running += (float) $row['figures']->spend;
+            $biggest++;
+        }
+
+        $early = $all->filter(fn (array $row): bool => SiteZoneList::segmentOf($row) === 'early');
+        $rule = TrafficSetting::current();
+
+        return [
+            ...$list,
+            'noun' => $page->listBy === 'site' ? 'sites' : 'zones',
+            'insight' => $all->isEmpty() ? null : $all->count().' '.($page->listBy === 'site' ? 'sites' : 'zones').'.'
+                .($biggest > 0 ? ' The '.$biggest.' biggest take 80% of the spend: sort by Spend and start there.' : '')
+                .($early->isNotEmpty() ? ' '.$early->count().' are too early to judge the money (under '.TrafficMoney::format($rule->block_min_spend).' and '.$rule->block_min_clicks.' clicks each) yet spent '.TrafficMoney::format($early->sum(fn (array $row): float => (float) $row['figures']->spend)).' together; bots show after '.$rule->block_bot_clicks.' clicks and a weak start after '.$rule->block_start_clicks.', so those are caught early.' : ''),
+            'selectable' => collect($list['rows'])->filter(fn (array $row): bool => $page->segment === 'blocked' ? $row['blocked'] : ! $row['blocked'])->pluck('key')->values()->all(),
+            'selected' => count($page->selected),
+            'selectedBlocked' => collect($rows)->whereIn('key', $page->selected)->where('blocked', true)->count(),
+            'copyIds' => collect($rows)->whereIn('key', $page->selected)->pluck('ref')->implode("\n"),
+            'from' => count($list['matching']) === 0 ? 0 : ($list['page'] - 1) * SiteZoneList::PER_PAGE + 1,
+            'to' => min(count($list['matching']), $list['page'] * SiteZoneList::PER_PAGE),
+        ];
+    }
+
+    /**
+     * The networks' sites or zones on the filters, judged: a zone where the
+     * network names zones, else its site.
+     *
+     * @return list<array{key: string, ref: string, level: string, source: string, source_id: int, campaign: string|null, state: string, blocked: bool, flag: array<string, string>|null, figures: ReportFigures}>
+     */
+    private function siteRows(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
+    {
+        $byZone = $page->listBy !== 'site';
+        $judge = $this->judgeContext($filter);
+        $rows = $this->reports->zones($filter, $byZone);
+        $campaigns = TrafficCampaign::query()->whereKey(collect($rows)->pluck('campaign_id')->filter()->unique()->all())->get(['id', 'name', 'external_id'])->keyBy('id');
+        $out = [];
+
+        foreach ($rows as $row) {
+            $zone = $byZone && $row['zone_ref'] !== null && $row['zone_ref'] !== '';
+            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
+
+            if ($ref === '') {
+                continue;
+            }
+
+            $level = $zone ? 'zone' : 'site';
+            $block = $judge['blocks']->get($row['source_id'].':'.$level.':'.$ref);
+            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+            $campaign = $row['campaign_id'] !== null ? $campaigns->get($row['campaign_id']) : null;
+            $out[] = [
+                'key' => $row['source_id'].':'.$level.':'.$ref,
+                'ref' => $ref,
+                'level' => $level,
+                'site' => $zone ? (string) $row['site_ref'] : null,
+                'source' => (string) ($sources->firstWhere('id', $row['source_id'])->name ?? 'Source #'.$row['source_id']),
+                'source_id' => $row['source_id'],
+                'campaign' => $campaign !== null ? ($campaign->name ?? 'Campaign '.$campaign->external_id) : ($row['campaigns'] > 1 ? 'In '.$row['campaigns'].' campaigns' : null),
+                'state' => $state,
+                'blocked' => $block !== null,
+                'flag' => $this->flag($state, $block),
+                'figures' => $row['figures'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /** How many sites and zones the block rule picks out on the filters, not blocked yet. */
+    private function worthBlocking(TrafficReportFilter $filter, $sources): int
+    {
+        $count = 0;
+        $judge = $this->judgeContext($filter);
+
+        foreach ($this->reports->zones($filter, true) as $row) {
+            $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
+            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
+            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+
+            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * What the page needs to tick sites and zones: the keys on the page on
+     * screen and every key the list matches, each one that can be ticked.
+     *
+     * @return array{selectable: list<string>, matchingSelectable: list<string>}
+     */
+    public function siteSelection(TrafficSourcesPage $page, TrafficReportFilter $filter): array
+    {
+        $sources = TrafficSource::query()->get(['id', 'name']);
+        $list = $this->siteList($page, $filter, $sources);
+        $rows = collect($this->siteRows($page, $filter, $sources))->keyBy('key');
+
+        return [
+            'selectable' => $list['selectable'],
+            'matchingSelectable' => collect($list['matching'])->filter(fn (string $key): bool => $page->segment === 'blocked' ? (bool) ($rows[$key]['blocked'] ?? false) : ! ($rows[$key]['blocked'] ?? true))->values()->all(),
+        ];
     }
 
     /** @return array<string, mixed> */

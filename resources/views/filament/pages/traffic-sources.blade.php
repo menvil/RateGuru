@@ -1,7 +1,8 @@
 @php
     /*
      * Growth → Traffic sources (TrafficSourcesPage): the header band with the
-     * period and the source filter, the warnings that matter on every tab —
+     * period, the filters every tab reads — type of traffic, source,
+     * campaign, game, device — the warnings that matter on every tab —
      * nothing recorded, no IP database — the tabs, and the tab on screen. Its
      * figures are read once the page is in a browser (wire:init).
      */
@@ -19,9 +20,16 @@
         </div>
         <div class="rg-admin-traffic__filters">
             <x-admin.ui.filter-dropdown label="Period" id="rg-admin-traffic-period" :options="$periodOptions" :value="$period" wire:model.live="period" />
-            <x-admin.ui.filter-dropdown label="Source" id="rg-admin-traffic-source" :options="$sourceOptions" :value="$source" wire:model.live="source" />
         </div>
     </section>
+
+    <div class="rg-admin-traffic__filter-bar" data-testid="traffic-filters">
+        <x-admin.ui.filter-dropdown label="Traffic" id="rg-admin-traffic-type" :options="$typeOptions" :value="$type" wire:model.live="type" />
+        <x-admin.ui.filter-dropdown label="Source" id="rg-admin-traffic-source" :options="$sourceOptions" :value="$source" wire:model.live="source" />
+        <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
+        <x-admin.ui.filter-dropdown label="Game" id="rg-admin-traffic-game" :options="$gameOptions" :value="$game" wire:model.live="game" />
+        <x-admin.ui.filter-dropdown label="Device" id="rg-admin-traffic-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
+    </div>
 
     <div class="rg-admin-screen__body">
         @if (! $capture)
