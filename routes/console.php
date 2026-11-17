@@ -51,6 +51,12 @@ Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 // Attempts, answers and results are kept.
 Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
 
+// What the tracker recorded (docs/architecture/traffic.md, "Retention"):
+// visits after traffic.retention_days.visits (400) with their conversions,
+// click details and postbacks after 90, spend figures and the block log after
+// 400, in small batches. Sources, campaigns, prices and attributions stay.
+Schedule::command('traffic:purge-expired')->daily()->withoutOverlapping();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.

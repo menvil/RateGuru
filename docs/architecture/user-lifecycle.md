@@ -127,6 +127,7 @@ erases what it did before tombstoning it through `AnonymizeUserAccountAction`:
 | Its votes (post / comment / rating) | delete; counts on what others wrote are counted again |
 | Reports it filed, and reports about it | delete; report counts counted again |
 | Its game attempts, answers, emails, events and assignments | delete |
+| What the tracker credited it to (`account_attributions`) and the browsers it was known by (`account_browsers`) | delete; the visit it signed up on keeps the sign-up, as one never confirmed, and conversions or other accounts' attributions naming its attempts let them go |
 | Everything account deletion removes | as account deletion (table below) |
 | Moderation logs | retain (audit history) |
 
@@ -263,6 +264,8 @@ row. `AnonymizeUserAccountAction` turns it into an irreversible tombstone:
 | Post saves | delete |
 | Game attempts (Growth → Games) | retain, as the game's anonymous history |
 | Emails left on a game's Email Capture step by attempts that became the account's | delete |
+| The browsers the tracker knew the account by (`account_browsers`) | delete |
+| What the tracker credited the account to (`account_attributions`) | retain, without the browser's hash: it is already an anonymous count |
 | Received notifications | delete |
 | Other users' notifications referencing this identity | delete |
 

@@ -65,6 +65,11 @@ services only decide HOW to delete an already-approved target safely.
 | game_version_posts.post_id | posts | — | no FK | history only: which posts a published version showed, read to find versions a post leaving the site made unplayable |
 | games / game_* `*_asset_id`, game_version_assets.media_asset_id | media_assets | — | **RESTRICT** | only the media lifecycle removes an asset, never one a game, round, profile or published version still holds (`MediaReferenceChecker`) |
 | games / game_* user references (created_by, updated_by, published_by, started_by, attempts, assignments, events) | users | — | **RESTRICT** | accounts become tombstones and are never deleted |
+| traffic_* user references (created_by, updated_by, connected_by, archived_by, actor, entered_by, uploaded_by, blocked_by, set_by), account_attributions.user_id, account_browsers.user_id | users | — | **RESTRICT** | accounts become tombstones; an unconfirmed account's purge deletes its attribution and browsers, the anonymisation of an account its browsers (`docs/architecture/user-lifecycle.md`) |
+| traffic_conversions.attempt_id, account_attributions.credited_attempt_id | game_attempts | — | **RESTRICT** | the purge of an unconfirmed account lets these pointers go before it deletes the account's attempts |
+| account_attributions.credited_visit_id / expired_visit_id | traffic_visits | — | SET NULL | protective detach: a visit past its retention leaves the account's attribution without it |
+| game_attempts.traffic_visit_id, game_attempts.onward_post_id | traffic_visits / posts | — | no FK | pointers only: a visit is purged on its own schedule, a post by its own deletion rules |
+| traffic_* children (api connection, postback rules, campaign stages, events and prices, visit details, conversions, postbacks and their attempts, chances, spend days of an import) | their traffic parent | — | CASCADE | implementation-owned rows that mean nothing without their parent |
 | sessions.user_id | — | no FK | no FK | framework table, cleaned explicitly by PR-B |
 | notifications.notifiable | — | morph, no FK | morph, no FK | cleaned explicitly by PR-B |
 
