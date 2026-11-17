@@ -59,9 +59,9 @@ it('asks an anonymous visitor for the email first, then a name and one password,
             'name="password"',
             'name="password_confirmation"',
             'Create account',
-            // Before sharing: an account is what the screen is for.
-            'data-testid="game-share"',
         ])
+        // Sharing sits under the card, in the card's column; on a phone the column's order puts it after the sign-up.
+        ->assertSee('data-testid="game-share"', false)
         ->assertDontSee('data-testid="game-signup-google"', false);
 });
 

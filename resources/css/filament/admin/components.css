@@ -13216,10 +13216,40 @@
         min-width: 0;
     }
 
+    .rg-admin-games__linked-post-thumb {
+        flex: none;
+        width: 56px;
+        height: 56px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+        object-fit: cover;
+    }
+
     .rg-admin-games__linked-post-text > * {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* The title and the facts whole on two lines each, rather than cut on one: the settings pane is narrow. */
+    .rg-admin-games__linked-post-text > * {
+        display: -webkit-box;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    .rg-admin-games__linked-post-text {
+        gap: 2px;
+    }
+
+    .rg-admin-games__linked-post-text > .rg-admin-games__linked-post-state {
+        display: flex;
+        margin-top: 2px;
+    }
+
+    .rg-admin-games__linked-post {
+        align-items: flex-start;
     }
 
     .rg-admin-games__linked-post-title {

@@ -1235,6 +1235,56 @@ select:disabled {
         gap: 16px;
     }
 
+    /*
+     * A phone: one column, in this order — the headline, the card, the sign-up, word of the name on the card, the
+     * share row, the way on, the button, Play again. The share row sits under the card in its own column only on a
+     * wide screen.
+     */
+    @media (max-width: 759.98px) {
+        .rg-game__result {
+            gap: 16px;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+
+        .rg-game__result-card,
+        .rg-game__result-side {
+            display: contents;
+        }
+
+        .rg-game__result-card > .rg-game__result-headline {
+            order: 1;
+        }
+
+        .rg-game__result-card > .rg-game__share-card {
+            order: 2;
+        }
+
+        .rg-game__result-side > * {
+            order: 7;
+        }
+
+        .rg-game__result-side > .rg-game__signup {
+            order: 3;
+        }
+
+        .rg-game__result-side > .rg-game__named {
+            order: 4;
+        }
+
+        .rg-game__result-card > .rg-game__share {
+            order: 5;
+        }
+
+        .rg-game__result-side > .rg-game__onward {
+            order: 6;
+        }
+
+        .rg-game__result-side > .rg-game__link {
+            order: 8;
+        }
+    }
+
     /* The profile's description, large above the card; a long one a size down. */
     .rg-game__result-headline {
         margin: 0 0 4px;
@@ -1244,6 +1294,15 @@ select:disabled {
         letter-spacing: -0.03em;
         color: var(--rg-text);
         text-wrap: balance;
+    }
+
+    /* Up to 80 characters: one line, as large as the headline where it fits and scaled down to the column. */
+    .rg-game__result-headline--line {
+        --rg-game-line-max: clamp(26px, 6.5vw, 38px);
+        font-size: max(18px, min(var(--rg-game-line-max), calc(100cqi / (var(--rg-game-line-chars, 20) * 0.52))));
+        white-space: nowrap;
+        overflow-x: clip;
+        text-wrap: nowrap;
     }
 
     .rg-game__result-headline--long {

@@ -44,12 +44,16 @@
     </div>
     @if ($linkedPost !== null)
         <div class="rg-admin-games__linked-post" data-testid="game-flow-linked-post">
-            <span class="rg-admin-games__linked-post-sign" aria-hidden="true"><x-admin.ui.icon name="newspaper" :size="16" /></span>
+            @if ($linkedPost['thumbnail'] !== null)
+                <img class="rg-admin-games__linked-post-thumb" src="{{ $linkedPost['thumbnail'] }}" alt="" loading="lazy" />
+            @else
+                <span class="rg-admin-games__linked-post-sign" aria-hidden="true"><x-admin.ui.icon name="newspaper" :size="16" /></span>
+            @endif
             <span class="rg-admin-games__linked-post-text">
                 <a href="{{ $linkedPost['url'] }}" target="_blank" rel="noopener" class="rg-admin-games__linked-post-title">{{ $linkedPost['title'] }}</a>
                 <span class="rg-admin-games__note">#{{ $linkedPost['id'] }} · by {{ $linkedPost['author'] }} · {{ $linkedPost['votes'] }} {{ \Illuminate\Support\Str::plural('vote', $linkedPost['votes']) }}{{ $linkedPost['up'] === null ? '' : ' · '.$linkedPost['up'].'% up' }}</span>
+                <span class="rg-admin-games__linked-post-state"><x-admin.ui.badge :tone="$linkedPost['published'] ? 'success' : 'danger'">{{ $linkedPost['published'] ? 'Published' : 'Hidden' }}</x-admin.ui.badge></span>
             </span>
-            <x-admin.ui.badge :tone="$linkedPost['published'] ? 'success' : 'danger'">{{ $linkedPost['published'] ? 'Published' : 'Hidden' }}</x-admin.ui.badge>
             <x-admin.ui.icon-button icon="x" label="Remove the link" variant="ghost" size="sm" wire:click="unlinkPost" />
         </div>
         @unless ($linkedPost['published'])

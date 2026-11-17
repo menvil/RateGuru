@@ -269,5 +269,7 @@ it('chooses the post a step sends visitors to from the list of posts with their 
         ->call('pickPost', $post->id)
         ->assertSet('picking', false)
         ->assertSet('steps.2.settings.post_id', $post->id)
-        ->assertSee('Choose another post');
+        ->assertSee('Choose another post')
+        // The chosen post shows with its picture, small, beside its title.
+        ->assertViewHas('linkedPost', fn (array $linked): bool => $linked['title'] === 'A cat in a box' && $linked['thumbnail'] !== null);
 });

@@ -8,7 +8,9 @@
      * have no account. Beside it, for an anonymous visitor, sign-up first when
      * the step asks for it here — the quickest way to an account is the point
      * of the screen; once they signed up or in, word that their name is on the
-     * card; then sharing and the way on, with Play again.
+     * card; then the way on, with Play again. Sharing sits under the card on a
+     * wide screen; on a phone, where everything is one column, it comes after
+     * the sign-up and before the way on, as the order of the column says.
      */
     $result = $data['result'];
     $settings = $data['settings'];
@@ -24,7 +26,12 @@
 <section class="rg-game__result" data-testid="game-step-full_result">
     <div class="rg-game__result-card">
         @if ($description !== '')
-            <p @class(['rg-game__result-headline', 'rg-game__result-headline--long' => mb_strlen($description) > 80]) data-testid="game-profile-description">{{ $description }}</p>
+            {{-- Up to 80 characters on one line, its size scaled to the column (rgGameLine); a longer one wraps a size down. --}}
+            @if (mb_strlen($description) <= 80)
+                <p class="rg-game__result-headline rg-game__result-headline--line" style="--rg-game-line-chars: {{ max(1, mb_strlen($description)) }}" x-data="rgGameLine" x-on:resize.window="fit()" wire:ignore.self data-testid="game-profile-description">{{ $description }}</p>
+            @else
+                <p class="rg-game__result-headline rg-game__result-headline--long" data-testid="game-profile-description">{{ $description }}</p>
+            @endif
         @endif
         <div class="rg-game__share-card">
             @if ($picture)
@@ -43,14 +50,15 @@
                 <span class="rg-game__share-card-line" @if ((bool) ($settings['show_score'] ?? true)) data-testid="game-score" @endif>{{ (bool) ($settings['show_score'] ?? true) ? $score.' · ' : '' }}<span class="rg-game__share-card-host" data-testid="game-byline">{{ $result['share']['byline'] }}</span></span>
             </div>
         </div>
+
+        @if ((bool) ($settings['share_enabled'] ?? true))
+            @include('livewire.games.steps.share-buttons', ['share' => $result['share']])
+        @endif
     </div>
 
     <div class="rg-game__result-side">
         @if ($data['onward'] !== null)
-            {{-- Sent on into the site: sharing, where it is on, then the way in; sign-up waits for the site. --}}
-            @if ((bool) ($settings['share_enabled'] ?? true))
-                @include('livewire.games.steps.share-buttons', ['share' => $result['share']])
-            @endif
+            {{-- Sent on into the site: the way in; sign-up waits for the site. --}}
             @include('livewire.games.steps.onward')
             @if ($data['canReplay'])
                 <button type="button" class="rg-game__link" wire:click="replay" data-testid="game-replay">{{ __('games.play.play_again') }}</button>
@@ -62,10 +70,6 @@
 
         @if ($result['named'] !== null)
             <p class="rg-game__named" role="status" data-testid="game-named"><x-ui.icon name="check" class="size-4" />{{ __('games.play.name_on_card', ['name' => $result['named']]) }}</p>
-        @endif
-
-        @if ((bool) ($settings['share_enabled'] ?? true))
-            @include('livewire.games.steps.share-buttons', ['share' => $result['share']])
         @endif
 
         @if ($data['hasNext'])

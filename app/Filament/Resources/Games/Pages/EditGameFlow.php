@@ -40,6 +40,7 @@ use App\Support\Games\Flow\GameFlowStepSettings;
 use App\Support\Games\Flow\GameFlowTemplate;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Flow\PostLink;
+use App\Support\Media\PostImagePresenter;
 use App\Support\Rating\RatingConfigurationManager;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Worth\StepLabels;
@@ -703,7 +704,7 @@ final class EditGameFlow extends Page
     private function linkedPost(?array $step): ?array
     {
         $id = $step['settings']['post_id'] ?? null;
-        $post = is_numeric($id) ? Post::withTrashed()->with('user:id,username')->find((int) $id) : null;
+        $post = is_numeric($id) ? Post::withTrashed()->with(['user:id,username', 'imageAsset.variants'])->find((int) $id) : null;
 
         if ($post === null) {
             return null;
@@ -714,6 +715,7 @@ final class EditGameFlow extends Page
         return [
             'id' => (int) $post->id,
             'title' => (string) $post->title,
+            'thumbnail' => app(PostImagePresenter::class)->assetThumbnailUrl($post->imageAsset),
             'author' => (string) ($post->user->username ?? 'someone'),
             'votes' => $votes,
             'up' => $votes > 0 ? (int) round((int) $post->upvotes_count / $votes * 100) : null,
