@@ -1,0 +1,45 @@
+app/Filament/Resources/Games/Pages/EditGameContent.php
+  s_4b9dc6ab6b25d3::t_b51847d0158ec3 532,540-544
+app/Actions/Games/SaveGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_66665da9683477 75-76,97,99,103-111
+  s_4b9dc6ab6b25d3::t_e7d7f7a0efed0a 98
+  s_4b9dc6ab6b25d3::t_66506c4d1131ca 6,32
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_a77256f3835a29 12816
+  s_4b9dc6ab6b25d3::t_66665da9683477 12815,12817-12819
+  s_4b9dc6ab6b25d3::t_ee48c6765124e2 12820-12824
+resources/views/filament/pages/games/flow/canvas.blade.php
+  s_4b9dc6ab6b25d3::t_9a8296c292b05d 43
+  s_4b9dc6ab6b25d3::t_a77256f3835a29 41
+app/Actions/Games/ChangeContentSetAction.php
+  s_4b9dc6ab6b25d3::t_b51847d0158ec3 31-39,47-54,56,58-59
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_b51847d0158ec3 400,412-417
+tests/Feature/Games/Admin/GameUnpublishedChangesTest.php
+  s_4b9dc6ab6b25d3::t_be000a5871e25a 118-139,142-162
+  s_4b9dc6ab6b25d3::t_ac4c76b887484c 140-141
+app/Actions/Games/ChangeGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_b51847d0158ec3 72,76,79,81,88,90-91
+  s_4b9dc6ab6b25d3::t_66665da9683477 68-71,73-75,82-87,89
+app/Actions/Games/Concerns/SavesOnlyChanges.php
+  s_4b9dc6ab6b25d3::t_66506c4d1131ca 1-33
+app/Actions/Games/SaveContentSetAction.php
+  s_4b9dc6ab6b25d3::t_b57b131f66aa1f 6,52,144,170,203
+  s_4b9dc6ab6b25d3::t_b51847d0158ec3 127-128,143,145,169,171,175-177,212-214,230-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c73f632bc531265d0de10000d5a7174c372e2247",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
