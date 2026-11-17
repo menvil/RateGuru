@@ -177,7 +177,6 @@ final class TrafficSourcesPage extends Page
     public string $linkSource = '';
 
     /** The source Spend shows day by day and takes a corrected day or a file for. */
-    #[Url(as: 'spend_source', except: '')]
     public mixed $spendSource = '';
 
     /** @var list<int> the sources Spend shows by campaign */

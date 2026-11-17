@@ -15996,4 +15996,81 @@
             grid-column: 1 / -1;
         }
     }
+
+    /* Traffic sources → Sources: the sections, a source's line. */
+    .rg-admin-traffic__source-section {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 16px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 11px;
+        letter-spacing: 0.02em;
+    }
+
+    .rg-admin-traffic__source-section > span {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__source-line {
+        display: grid;
+        grid-template-columns: 28px minmax(220px, 1.5fr) minmax(200px, 1.2fr) minmax(200px, 1.2fr) 150px 32px 72px;
+        gap: 10px;
+        align-items: center;
+        padding: 9px 16px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__source-sign {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__source-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__source-title .rg-admin-traffic__text-button {
+        font-size: 13px;
+        text-decoration: none;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__source-count {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .rg-admin-traffic__source-empty {
+        padding: 8px 16px;
+    }
+
+    @media (max-width: 1000px) {
+        .rg-admin-traffic__source-line {
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+        }
+
+        .rg-admin-traffic__source-line > :nth-child(3),
+        .rg-admin-traffic__source-line > :nth-child(4),
+        .rg-admin-traffic__source-line > :nth-child(5),
+        .rg-admin-traffic__source-line > :nth-child(6) {
+            display: none;
+        }
+    }
 }

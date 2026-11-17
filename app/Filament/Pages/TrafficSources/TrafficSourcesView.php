@@ -23,6 +23,7 @@ use App\Models\TrafficCampaignEvent;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
+use App\Models\TrafficPostbackRule;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
@@ -44,6 +45,7 @@ use App\Support\Traffic\Blocking\BlockJudge;
 use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
 use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Postbacks\PostbackSchedule;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
@@ -954,23 +956,65 @@ final class TrafficSourcesView
         };
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Sources, as the reference draws it: the ad networks, then the banners
+     * and links, each with its preset, key, API, blocks and age, how its
+     * postbacks stand and where its spend comes from, and its clicks over
+     * the last 30 days; then the unpaid channels RateGuru recognises by
+     * itself, with how each is recognised.
+     *
+     * @return array<string, mixed>
+     */
     private function sourcesTab($sources): array
     {
         $sources->load('apiConnection');
-        $last = TrafficSource::query()->withMax('visits', 'arrived_at')->get()->pluck('visits_max_arrived_at', 'id');
+        $month = TrafficReportFilter::lastDays(30, CarbonImmutable::now());
+        $byGroup = collect($this->reports->level($month, TrafficDimension::Source))->keyBy(fn (array $group): string => $group['keys']['source_id'] !== null ? (string) $group['keys']['source_id'] : 'c:'.$group['keys']['channel']);
+        $blocked = TrafficBlock::query()->pluck('source_id')->countBy();
+        $rules = TrafficPostbackRule::query()->where('enabled', true)->get(['id', 'source_id', 'event']);
+        $failed = TrafficPostback::query()->where('created_at', '>=', now()->subDays(7))->whereIn('status', [TrafficPostbackStatus::Pending, TrafficPostbackStatus::Failed])->where('attempts', '>', 0)->orderByDesc('id')->get(['id', 'source_id', 'rule_id', 'status', 'http_status', 'attempts', 'run_after', 'outcome']);
+        $row = function (TrafficSource $source) use ($byGroup, $blocked, $rules, $failed): array {
+            $connection = $source->apiConnection;
+            $ruleCount = $rules->where('source_id', $source->id)->count();
+            $failing = $failed->where('source_id', $source->id);
+            $failingRules = $failing->pluck('rule_id')->unique()->count();
+            $last = $failing->first();
 
-        return [
-            'sources' => $sources->map(fn (TrafficSource $source): array => [
+            return [
                 'id' => $source->id,
                 'name' => $source->name,
-                'type' => $source->type->value,
-                'key' => $source->link_key,
                 'status' => $source->status->value,
-                'preset' => $this->presets->find($source->preset_key)['name'] ?? ($source->type === TrafficSourceType::Placement ? 'Banner or link' : 'No preset'),
-                'connection' => $source->apiConnection?->status->value,
-                'lastClick' => $last[$source->id] ?? null,
-            ])->all(),
+                'sub' => implode(' · ', array_filter([
+                    $source->preset_key !== null ? ($this->presets->find($source->preset_key)['name'] ?? $source->preset_key).' preset' : null,
+                    $connection !== null ? ($connection->status === TrafficConnectionStatus::Connected ? 'API connected' : 'API needs attention') : null,
+                    'key '.$source->link_key,
+                    ($blocked[$source->id] ?? 0) > 0 ? $blocked[$source->id].' blocked' : null,
+                    $source->type === TrafficSourceType::Placement && is_array($source->creatives) && $source->creatives !== [] ? count($source->creatives).' '.Str::plural('creative', count($source->creatives)) : null,
+                    'since '.$source->created_at->format('j M Y'),
+                ])),
+                'postbacks' => match (true) {
+                    $source->type === TrafficSourceType::Placement => ['icon' => 'minus', 'tone' => null, 'text' => 'No postbacks', 'sub' => 'A tracking link carries no click ID'],
+                    $ruleCount === 0 => ['icon' => 'minus', 'tone' => null, 'text' => 'No postbacks', 'sub' => 'Add a rule in the editor to tell the network which clicks became players'],
+                    $failingRules > 0 => ['icon' => 'circle-alert', 'tone' => 'bad', 'text' => $failingRules.' of '.$ruleCount.' '.Str::plural('postback', $ruleCount).' failing', 'sub' => implode(' · ', array_filter([$last?->http_status !== null ? 'HTTP '.$last->http_status : ($last?->outcome !== null ? str_replace('_', ' ', $last->outcome->value) : null), $last?->status === TrafficPostbackStatus::Pending ? 'retrying at '.$last->run_after->format('H:i') : null, $last !== null ? 'attempt '.$last->attempts.' of '.(count(PostbackSchedule::RETRY_AFTER) + 1) : null]))],
+                    default => ['icon' => 'arrow-up-right', 'tone' => null, 'text' => $ruleCount.' '.Str::plural('postback', $ruleCount).' · delivering', 'sub' => $rules->where('source_id', $source->id)->map(fn ($rule): string => $rule->event === TrafficEvent::Goal ? 'Flow goal reached' : $rule->event->label())->unique()->implode(', ')],
+                },
+                'spend' => $this->spendHow($source),
+                'spendStatus' => $this->spendStatus($source, $connection)['text'],
+                'clicks' => ($byGroup->get((string) $source->id)['figures'] ?? new ReportFigures)->visits,
+                'unit' => $source->type === TrafficSourceType::Placement ? 'visits' : 'clicks',
+            ];
+        };
+
+        return [
+            'networks' => $sources->where('type', TrafficSourceType::Network)->map($row)->values()->all(),
+            'placementRows' => $sources->where('type', TrafficSourceType::Placement)->map($row)->values()->all(),
+            'channels' => collect([
+                'shared' => ['Shared results', 'share-2', 'Links players share from their result: the share page carries the result ID.'],
+                'referral' => ['Other sites', 'globe', 'A link on another site, without a source key. Grouped by the referring site.'],
+                'search' => ['Search', 'search', 'Referred by a search engine.'],
+                'direct' => ['Direct', 'arrow-right', 'No referrer and no source key: typed in, bookmarks, apps that hide the referrer.'],
+                'internal' => ['Inside RateGuru', 'home', 'From the feed, a post page, another game or a notification on this site.'],
+            ])->map(fn (array $channel, string $key): array => ['key' => $key, 'name' => $channel[0], 'icon' => $channel[1], 'how' => $channel[2], 'visits' => ($byGroup->get('c:'.$key)['figures'] ?? new ReportFigures)->visits])->values()->all(),
         ];
     }
 

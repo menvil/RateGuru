@@ -42,7 +42,7 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     'campaigns' => ['campaigns', 'US popunder'],
     'value' => ['value', 'What a new user is worth'],
     'spend' => ['spend', 'Where spend comes from'],
-    'sources' => ['sources', 'Tracking'],
+    'sources' => ['sources', 'How a visit gets its source'],
     'logs' => ['logs', 'failed'],
 ]);
 

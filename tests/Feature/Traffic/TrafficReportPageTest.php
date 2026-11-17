@@ -6,6 +6,7 @@ use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
+use App\Models\TrafficPostbackRule;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
@@ -227,7 +228,8 @@ it('lays out Spend: where spend comes from, spend by source by campaign — thos
     $banner = TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '30', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
     TrafficSpendDay::query()->forceCreate(['source_id' => $banner->id, 'network_day' => '2026-11-16', 'origin' => 'fixed', 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00', 'counted' => true, 'allocated_amount' => 0, 'allocated_at' => now()]);
 
-    $page = Livewire::withQueryParams(['tab' => 'spend', 'spend_source' => (string) $this->source->id])->test(TrafficSourcesPage::class)->call('load')
+    $page = Livewire::withQueryParams(['tab' => 'spend'])->test(TrafficSourcesPage::class)->call('load')
+        ->set('spendSource', (string) $this->source->id)
         ->assertSee('Where spend comes from')
         ->assertSee('Used by PopAds main')
         ->assertSee('Price in each click · per click')
@@ -241,4 +243,16 @@ it('lays out Spend: where spend comes from, spend by source by campaign — thos
     $page->set('spendEntry.day', '2026-11-16')->set('spendEntry.amount', '5')->call('enterSpend')->assertHasNoErrors();
 
     expect(TrafficSpendDay::query()->where('source_id', $this->source->id)->where('origin', 'manual')->sole()->amount)->toBe('5.00000000');
+});
+
+it('lays out Sources: networks and banners with their postbacks, spend and clicks, then the unpaid channels', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => 'goal']);
+    TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '120', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
+    siteClicks($this->source, '40123', 3, 3);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'opened_at' => now()]);
+
+    Livewire::withQueryParams(['tab' => 'sources'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSeeInOrder(['AD NETWORKS', 'PopAds main', '1 postback', 'delivering', 'Flow goal reached', '3 clicks', 'BANNERS', 'Cat blog sidebar', 'No postbacks', 'UNPAID', 'Search', '1 visits'])
+        ->assertSee('How a postback works')
+        ->assertSee('Tracking');
 });
