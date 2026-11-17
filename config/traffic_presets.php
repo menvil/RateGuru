@@ -156,7 +156,10 @@ return [
             ],
             'postback' => [
                 'url_template' => 'https://serve.popads.net/cpixel.php?s2s=1&aid=…&id={click_id}&value={value}',
-                'response_rules' => [],
+                // PopAds answers 200 with an empty body; an error code comes only in this header.
+                'response_rules' => [
+                    ['outcome' => 'rejected', 'match' => 'header', 'text' => 'X-PopAds-EC'],
+                ],
                 'otherwise' => 'ok',
             ],
             'fill' => 'Your account’s aid from Conversions → Pixels and Postbacks, in the postback address.',

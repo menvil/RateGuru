@@ -145,7 +145,7 @@ final class SaveTrafficSourceAction
             'source.response_rules' => ['nullable', 'array'],
             'source.response_rules.rules' => ['array', 'max:20'],
             'source.response_rules.rules.*.outcome' => ['required', Rule::in(['ok', 'duplicate', 'rejected'])],
-            'source.response_rules.rules.*.match' => ['required', Rule::in(['equals', 'contains'])],
+            'source.response_rules.rules.*.match' => ['required', Rule::in(['equals', 'contains', 'header'])],
             'source.response_rules.rules.*.text' => ['required', 'string', 'max:200'],
             'source.response_rules.otherwise' => ['required_with:source.response_rules', Rule::in(['ok', 'retry'])],
             'source.spend_mode' => ['required', Rule::in(array_map(fn (TrafficSpendMode $mode): string => $mode->value, $spendModes))],

@@ -111,7 +111,20 @@ final class PostbackDeliverer
         if ($response instanceof Response) {
             $body = mb_strcut($response->body(), 0, self::MAX_BYTES);
 
-            return new PostbackAttempt(PostbackResponse::outcome($response->status(), $body, $rules), $response->status(), $latency, PostbackResponse::excerpt($body));
+            $headers = [];
+
+            foreach ($response->headers() as $name => $values) {
+                $headers[strtolower((string) $name)] = (string) ($values[0] ?? '');
+            }
+
+            // A header a rule looks at is what the network said: kept in the log with the body.
+            $said = collect($rules['rules'] ?? [])->where('match', 'header')
+                ->map(fn (array $rule): string => trim($rule['text']))
+                ->filter(fn (string $name): bool => trim($headers[strtolower($name)] ?? '') !== '')
+                ->map(fn (string $name): string => $name.': '.$headers[strtolower($name)].' ')
+                ->implode('');
+
+            return new PostbackAttempt(PostbackResponse::outcome($response->status(), $body, $rules, $headers), $response->status(), $latency, PostbackResponse::excerpt(trim($said.$body)));
         }
 
         if ($response instanceof ConnectionException && str_contains(strtolower($response->getMessage()), 'timed out')) {

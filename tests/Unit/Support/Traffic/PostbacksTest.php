@@ -69,3 +69,11 @@ it('tries again after 1, 5 and 30 minutes, 2 and 9 hours, then gives up', functi
         ->and(PostbackSchedule::after(TrafficPostbackOutcome::Rejected, 1, null, $now)['status'])->toBe(TrafficPostbackStatus::Failed)
         ->and(PostbackResponse::excerpt("line\none\x07".str_repeat('x', 400)))->toHaveLength(255);
 });
+
+it('reads an error a network names only in a header', function () {
+    $popads = ['rules' => [['outcome' => 'rejected', 'match' => 'header', 'text' => 'X-PopAds-EC']], 'otherwise' => 'ok'];
+
+    expect(PostbackResponse::outcome(200, '', $popads, ['x-popads-ec' => '4']))->toBe(TrafficPostbackOutcome::Rejected)
+        ->and(PostbackResponse::outcome(200, '', $popads, ['x-popads-ec' => ' ']))->toBe(TrafficPostbackOutcome::Ok)
+        ->and(PostbackResponse::outcome(200, '', $popads))->toBe(TrafficPostbackOutcome::Ok);
+});

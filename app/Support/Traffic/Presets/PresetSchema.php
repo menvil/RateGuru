@@ -123,8 +123,8 @@ final class PresetSchema
         }
 
         foreach (is_array($postback['response_rules'] ?? null) ? $postback['response_rules'] : [] as $rule) {
-            if (! in_array($rule['outcome'] ?? null, self::RESPONSE_OUTCOMES, true) || ! in_array($rule['match'] ?? null, ['equals', 'contains'], true) || ! is_string($rule['text'] ?? null) || $rule['text'] === '') {
-                $problems[] = "{$at}: a response rule needs an outcome (ok, duplicate, rejected), a match (equals, contains) and a text";
+            if (! in_array($rule['outcome'] ?? null, self::RESPONSE_OUTCOMES, true) || ! in_array($rule['match'] ?? null, ['equals', 'contains', 'header'], true) || ! is_string($rule['text'] ?? null) || $rule['text'] === '') {
+                $problems[] = "{$at}: a response rule needs an outcome (ok, duplicate, rejected), a match (equals, contains, header) and a text";
             }
         }
 

@@ -192,3 +192,13 @@ it('sends a test postback from an unsaved rule without writing anything', functi
         ->and($attempt->httpStatus)->toBe(200)
         ->and(TrafficPostback::query()->count())->toBe(0);
 });
+
+it('fails a PopAds postback whose answer names an error in its header, keeping what it said', function () {
+    $this->source->forceFill(['response_rules' => ['rules' => [['outcome' => 'rejected', 'match' => 'header', 'text' => 'X-PopAds-EC']], 'otherwise' => 'ok']])->save();
+    $postback = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    Http::fake(['pb.example.com/*' => Http::response('', 200, ['X-PopAds-EC' => '7'])]);
+
+    $this->artisan('traffic:send-postbacks')->assertSuccessful();
+
+    expect($postback->fresh())->status->toBe(TrafficPostbackStatus::Failed)->outcome->toBe(TrafficPostbackOutcome::Rejected)->response_excerpt->toBe('X-PopAds-EC: 7');
+});
