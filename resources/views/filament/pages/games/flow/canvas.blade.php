@@ -1,10 +1,11 @@
 {{--
     The flow down the middle, as the reference draws it: its name — renamed in
-    place — and the versions made from it; what keeps it from being
-    published; then its steps in order, joined by a line. Each card is its
-    kind, who sees it, what it says and its problems, with Move up, Move down
-    and Remove (the game stays, the same in every flow); the + on the line
-    between two cards, and after the last, opens the steps that fit there.
+    place — and the versions made from it; how to edit it; what keeps it from
+    being published; its goal; then its steps in order, joined by a line. Each
+    card is its kind, who sees it, what it says, what reaching it is worth and
+    its problems, with Move up, Move down and Remove (the game stays, the same
+    in every flow); the + on the line between two cards, and after the last,
+    opens the steps that fit there.
 --}}
 @php
     $connector = fn (int $position): array => ['position' => $position, 'last' => $position === count($cards), 'open' => $insertAt === $position, 'types' => $insertAt === $position ? $insertable : []];
@@ -44,7 +45,7 @@
     </template>
 </div>
 
-@include('filament.pages.games.flow.goal')
+<p class="rg-admin-games__canvas-hint"><x-admin.ui.icon name="pencil" :size="14" />Click + between two steps to add one, use the arrows to reorder, and select a step to change its settings on the right. Edits don’t change live versions; publish a new version in Versions.</p>
 
 @if ($issues !== [])
     <x-admin.ui.inline-notice tone="danger">
@@ -56,6 +57,8 @@
         </ul>
     </x-admin.ui.inline-notice>
 @endif
+
+@include('filament.pages.games.flow.goal')
 
 <ol class="rg-admin-games__canvas" aria-label="Steps">
     @foreach ($cards as $card)
@@ -76,6 +79,9 @@
                         @endif
                         @if ($card['game'])
                             <span class="rg-admin-games__step-fixed"><x-admin.ui.icon name="lock" :size="11" />Same in every flow</span>
+                        @endif
+                        @if ($card['worth'] !== null)
+                            <span class="rg-admin-games__step-chip" title="{{ $card['worth']['tip'] }}" data-testid="game-flow-worth-chip"><x-admin.ui.icon name="circle-dollar-sign" :size="11" />{{ $card['worth']['text'] }}</span>
                         @endif
                     </span>
                     <span class="rg-admin-games__step-summary">{{ $card['summary'] }}</span>

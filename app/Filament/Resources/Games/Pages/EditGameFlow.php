@@ -27,6 +27,7 @@ use App\Models\Post;
 use App\Queries\Games\GameFlowFactsQuery;
 use App\Queries\Games\GamePostPickerQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
+use App\Queries\Traffic\GameWorthQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Support\Games\Flow\DraftFlow;
 use App\Support\Games\Flow\FlowGoalRules;
@@ -39,6 +40,9 @@ use App\Support\Games\Flow\GameFlowTemplate;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Flow\PostLink;
 use App\Support\Rating\RatingConfigurationManager;
+use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Worth\StepLabels;
+use App\Support\Traffic\Worth\TrafficStep;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
 use Illuminate\Support\Str;
@@ -185,6 +189,19 @@ final class EditGameFlow extends Page
         }
     }
 
+    /** Looks the post up as its link or words are typed; an empty field clears what was found. */
+    public function updatedPostLink(): void
+    {
+        if (trim($this->postLink) === '') {
+            $this->postMatches = [];
+            $this->postLinkError = '';
+
+            return;
+        }
+
+        $this->linkPost();
+    }
+
     /**
      * Links the post pasted — its address on this site, #id or id — to the
      * selected step; words look posts up by title or author instead.
@@ -215,7 +232,13 @@ final class EditGameFlow extends Page
         }
 
         $this->postMatches = app(GamePostPickerQuery::class)->linkable($link->words)
-            ->map(fn (Post $post): array => ['id' => (int) $post->id, 'title' => (string) $post->title, 'author' => (string) $post->user?->username])
+            ->map(fn (Post $post): array => [
+                'id' => (int) $post->id,
+                'title' => (string) $post->title,
+                'author' => (string) $post->user?->username,
+                'votes' => (int) $post->upvotes_count + (int) $post->downvotes_count,
+                'published' => true,
+            ])
             ->values()->all();
 
         if ($this->postMatches === []) {
@@ -509,13 +532,18 @@ final class EditGameFlow extends Page
         $selectedDraft = $selectedKey !== null ? GameFlowRunner::find($drafts, (string) $step['key']) : null;
         $setId = (int) GameContentSet::query()->where('game_id', $game->id)->whereNull('archived_at')->orderBy('position')->orderBy('id')->value('id');
         $fullResult = collect($this->steps)->firstWhere('type', GameFlowStepType::FullResult->value);
+        $postTitles = Post::withTrashed()->whereKey(collect($this->steps)->pluck('settings.post_id')->filter(fn ($id): bool => is_numeric($id))->map(fn ($id): int => (int) $id)->all())->pluck('title', 'id')->all();
+        $gameWorth = app(GameWorthQuery::class);
+        $rounds = $gameWorth->rounds($game);
+        $mobile = $gameWorth->slice($game, $rounds, device: 'mobile');
+        $worth = ['mobile' => $mobile['steps'], 'desktop' => $gameWorth->slice($game, $rounds, device: 'desktop')['steps']];
 
         return [
             'header' => $this->editorHeader($game, 'flow', ['flow' => $issues !== [] ? (string) count($issues) : null], $this->flowId > 0 ? app(GameUnpublishedChangesQuery::class)->forFlow($game, $this->flowId) : null),
             'flows' => $flows->map(fn (GameFlow $item): array => [
                 'id' => (int) $item->id,
                 'name' => $item->name,
-                'chain' => $item->steps->map(fn ($s) => $s->type->label())->implode(' → '),
+                'chain' => 'Goal: '.GameFlowDraft::of($item)->goal()->label().' · '.$item->steps->map(fn ($s) => $s->type->label())->implode(' → '),
                 'usage' => $this->flowUsage($item),
                 'archived' => $item->isArchived(),
                 'url' => GameResource::getUrl('flow', ['record' => $game, 'flow' => $item->id]),
@@ -543,7 +571,14 @@ final class EditGameFlow extends Page
             'issues' => $issues,
             'flowIssues' => array_values(array_filter($issues, fn (FlowIssue $issue): bool => $issue->index < 0)),
             'stepIssues' => collect($issues)->filter(fn (FlowIssue $issue): bool => $issue->index >= 0)->groupBy(fn (FlowIssue $issue): int => $issue->index)->map(fn ($group) => $group->pluck('message')->all())->all(),
-            'cards' => array_map(fn (array $item, int $index): array => [...$this->card($item, $index), 'goal' => $index === $goalStep && $goal !== GameFlowGoal::Completed], $this->steps, array_keys($this->steps)),
+            'cards' => array_map(fn (array $item, int $index): array => [
+                ...$this->card($item, $index, $postTitles),
+                'goal' => $index === $goalStep && $goal !== GameFlowGoal::Completed,
+                'worth' => $this->worthChip($this->worthRows($item, $rounds, $worth)),
+            ], $this->steps, array_keys($this->steps)),
+            'stepWorth' => $step === null ? [] : $this->worthRows($step, $rounds, $worth),
+            'worthWorkedOut' => $mobile['worked'],
+            'valueUrl' => GameResource::getUrl('value', ['record' => $game]),
             'goalCard' => $this->goalCard($drafts, $chosenGoal, $goal, $goalStep),
             'ratingGroups' => app(RatingConfigurationManager::class)->activeGroups()->map(fn ($group): array => ['key' => (string) $group->key, 'label' => $group->translatedLabel('en')])->values()->all(),
             'categories' => Category::query()->active()->ordered()->get()->mapWithKeys(fn (Category $category): array => [(string) $category->slug => $category->translatedName('en')])->all(),
@@ -592,14 +627,24 @@ final class EditGameFlow extends Page
             return match (true) {
                 $option->needs() === null => 'Always possible',
                 $at !== null => 'In this flow · step '.($at + 1),
-                default => 'Needs '.($option->fix()?->label() ?? 'another step'),
+                default => 'Needs '.$option->needs(),
             };
         };
         $reachable = FlowGoalRules::reaches($drafts, $goal);
         $label = $step !== null ? 'step '.($step + 1).' · '.$drafts[$step]->type->label() : '';
 
         return [
-            'options' => ['' => 'Follow the steps · '.$default->label()] + collect(GameFlowGoal::cases())->mapWithKeys(fn (GameFlowGoal $option): array => [$option->value => $option->label().' · '.$status($option)])->all(),
+            'choices' => [
+                ['value' => '', 'label' => 'Follow the steps', 'short' => 'Whatever the steps lead to', 'icon' => 'workflow', 'status' => 'Now '.$default->label(), 'reachable' => true],
+                ...array_map(fn (GameFlowGoal $option): array => [
+                    'value' => $option->value,
+                    'label' => $option->label(),
+                    'short' => $option->short(),
+                    'icon' => $option->icon(),
+                    'status' => $status($option),
+                    'reachable' => FlowGoalRules::reaches($drafts, $option),
+                ], GameFlowGoal::cases()),
+            ],
             'goal' => $goal,
             'chosen' => $chosen !== null,
             'reachable' => $reachable,
@@ -618,19 +663,98 @@ final class EditGameFlow extends Page
      * The post the selected step links to, as its panel shows it.
      *
      * @param  array<string, mixed>|null  $step
-     * @return array{id: int, title: string, published: bool, url: string}|null
+     * @return array{id: int, title: string, author: string, votes: int, up: int|null, published: bool, url: string}|null
      */
     private function linkedPost(?array $step): ?array
     {
         $id = $step['settings']['post_id'] ?? null;
-        $post = is_numeric($id) ? Post::withTrashed()->find((int) $id) : null;
+        $post = is_numeric($id) ? Post::withTrashed()->with('user:id,username')->find((int) $id) : null;
 
-        return $post === null ? null : [
+        if ($post === null) {
+            return null;
+        }
+
+        $votes = (int) $post->upvotes_count + (int) $post->downvotes_count;
+
+        return [
             'id' => (int) $post->id,
             'title' => (string) $post->title,
+            'author' => (string) ($post->user->username ?? 'someone'),
+            'votes' => $votes,
+            'up' => $votes > 0 ? (int) round((int) $post->upvotes_count / $votes * 100) : null,
             'published' => ! $post->trashed() && Post::query()->published()->whereKey($post->id)->exists(),
             'url' => route('posts.show', $post->id),
         ];
+    }
+
+    /**
+     * What reaching a step of the flow is worth, mobile and desktop, every
+     * source and country: a row for each step of a visit's worth it lets the
+     * visitor reach — the game a row for every round — marked where the value
+     * was set by hand.
+     *
+     * @param  array<string, mixed>  $step
+     * @param  array{mobile: array<string, array<string, mixed>>, desktop: array<string, array<string, mixed>>}  $worth
+     * @return list<array{step: string, name: string, mobile: string, desktop: string, manual: bool}>
+     */
+    private function worthRows(array $step, int $rounds, array $worth): array
+    {
+        $type = GameFlowStepType::tryFrom((string) ($step['type'] ?? ''));
+
+        if ($type === null) {
+            return [];
+        }
+
+        return array_map(fn (string $key): array => [
+            'step' => $key,
+            'name' => StepLabels::name($key, $rounds),
+            'mobile' => (string) $worth['mobile'][$key]['value'],
+            'desktop' => (string) $worth['desktop'][$key]['value'],
+            'manual' => $worth['mobile'][$key]['manual'] !== null,
+        ], TrafficStep::ofFlowStep($type, (array) ($step['settings'] ?? []), $rounds));
+    }
+
+    /**
+     * The price on a step's card: its best row — a visitor is worth their
+     * best step — “up to” when it has more than one, mobile then desktop
+     * when they differ; none while nothing it reaches is worth anything.
+     *
+     * @param  list<array{step: string, name: string, mobile: string, desktop: string, manual: bool}>  $rows
+     * @return array{text: string, tip: string}|null
+     */
+    private function worthChip(array $rows): ?array
+    {
+        $mobile = collect($rows)->max(fn (array $row): float => (float) $row['mobile']) ?? 0.0;
+        $desktop = collect($rows)->max(fn (array $row): float => (float) $row['desktop']) ?? 0.0;
+
+        if ($mobile <= 0 && $desktop <= 0) {
+            return null;
+        }
+
+        $pair = fn (string|float $m, string|float $d): string => TrafficMoney::brief($m).(abs((float) $d - (float) $m) > 1e-9 ? ' / '.TrafficMoney::brief($d) : '');
+
+        return [
+            'text' => (count($rows) > 1 ? 'up to ' : '').$pair($mobile, $desktop),
+            'tip' => 'Worth when reached, mobile / desktop · '.collect($rows)->map(fn (array $row): string => $row['name'].' '.$pair($row['mobile'], $row['desktop']))->implode(' · ').' · worked out from the traffic on the Value tab',
+        ];
+    }
+
+    /**
+     * The post a step sends the visitor to, as its card names it: the linked
+     * post's title, a fresh post, or their last pick.
+     *
+     * @param  array<string, mixed>  $settings
+     * @param  array<int, string>  $postTitles
+     */
+    private function postTarget(array $settings, array $postTitles): string
+    {
+        return match ($settings['post_target'] ?? '') {
+            GamePostTarget::Chosen->value => is_numeric($settings['post_id'] ?? null) && isset($postTitles[(int) $settings['post_id']])
+                ? '“'.Str::limit($postTitles[(int) $settings['post_id']], 40).'”'
+                : 'a post not linked yet',
+            GamePostTarget::Fresh->value => 'a fresh post',
+            default => 'their last pick',
+        };
     }
 
     /** A flow's versions: “Used in V1, V3”, “Only in retired V1” or “Not in a version yet”. */
@@ -650,9 +774,10 @@ final class EditGameFlow extends Page
 
     /**
      * @param  array<string, mixed>  $step
+     * @param  array<int, string>  $postTitles  of the posts the steps link to, by id
      * @return array<string, mixed>
      */
-    private function card(array $step, int $index): array
+    private function card(array $step, int $index, array $postTitles): array
     {
         $type = GameFlowStepType::tryFrom((string) $step['type']);
         $settings = (array) ($step['settings'] ?? []);
@@ -672,20 +797,17 @@ final class EditGameFlow extends Page
                 GameFlowStepType::Game => ($settings['advance'] ?? 'auto') === 'auto' ? 'Next pair after '.($settings['advance_seconds'] ?? 2.5).' s' : 'Next pair by button',
                 GameFlowStepType::EmailCapture => ($settings['required'] ?? false) ? 'Required to continue' : 'Optional · '.($texts['secondary_label'] ?? 'Skip'),
                 GameFlowStepType::FullResult => match ($settings['onward'] ?? GameOnward::Next->value) {
-                    GameOnward::Post->value => 'Then on to a post',
-                    GameOnward::Feed->value => 'Then on to the feed',
+                    GameOnward::Post->value => 'Go to a post: '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ', opens by itself' : ''),
+                    GameOnward::Feed->value => 'Go to the feed',
                     default => collect(['show_score' => 'Score', 'show_profile' => 'Profile', 'share_enabled' => 'Share'])->filter(fn ($label, $key) => (bool) ($settings[$key] ?? true))->values()->implode(' · ').' · '.(GameSignupMode::tryFrom((string) ($settings['signup'] ?? 'inline')) ?? GameSignupMode::Inline)->label(),
                 },
-                GameFlowStepType::GoToPost => match ($settings['post_target'] ?? '') {
-                    GamePostTarget::Chosen->value => is_numeric($settings['post_id'] ?? null) ? 'Post #'.$settings['post_id'] : 'No post linked yet',
-                    GamePostTarget::Fresh->value => 'A fresh post',
-                    default => 'The post of their last pick',
-                },
-                GameFlowStepType::GoToPage => match ($settings['destination'] ?? '') {
-                    GamePageDestination::Tag->value => 'Tag · '.($settings['tag'] ?? ''),
-                    GamePageDestination::Page->value => (string) ($settings['path'] ?? ''),
+                GameFlowStepType::Feed => trim((string) ($texts['button_label'] ?? '')).' → '.mb_strtolower(['newest' => 'Newest', 'top' => 'Top', 'hot' => 'Hot'][$settings['feed_sort'] ?? ''] ?? 'the feed'),
+                GameFlowStepType::GoToPost => trim((string) ($texts['button_label'] ?? '')).' → '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ' · opens by itself' : ''),
+                GameFlowStepType::GoToPage => trim((string) ($texts['button_label'] ?? '')).' → '.match ($settings['destination'] ?? '') {
+                    GamePageDestination::Tag->value => '#'.($settings['tag'] ?? '').' tag',
+                    GamePageDestination::Page->value => (string) (($settings['path'] ?? '') ?: 'a page'),
                     GamePageDestination::Url->value => Str::limit((string) ($settings['url'] ?? ''), 50),
-                    default => 'Category · '.($settings['category'] ?? ''),
+                    default => (($settings['category'] ?? '') ?: 'a').' category',
                 },
                 default => $line !== '' ? '“'.Str::limit($line, 60).'”' : ($type?->description() ?? ''),
             },

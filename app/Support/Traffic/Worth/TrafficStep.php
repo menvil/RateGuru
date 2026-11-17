@@ -2,6 +2,9 @@
 
 namespace App\Support\Traffic\Worth;
 
+use App\Enums\GameFlowStepType;
+use App\Enums\GameOnward;
+use App\Enums\GameSignupMode;
 use App\Enums\TrafficEvent;
 
 /**
@@ -51,6 +54,43 @@ final class TrafficStep
             TrafficEvent::Halfway => self::halfway($rounds),
             TrafficEvent::Goal, TrafficEvent::SignupForm, TrafficEvent::PostPublished, TrafficEvent::Returned => null,
             default => $event->value,
+        };
+    }
+
+    /**
+     * The steps a step of a flow lets the visitor reach, as the flow editor
+     * prices it: the landing its opening, the game every round, Full Result
+     * whatever it offers — sharing and an inline sign-up, or the post or the
+     * feed it sends the visitor on to — and each later step its own.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return list<string>
+     */
+    public static function ofFlowStep(GameFlowStepType $type, array $settings, int $rounds): array
+    {
+        $playing = array_slice(self::all($rounds), 1, max(1, $rounds) + 1);
+        $post = ['post_opened', 'post_voted', 'post_rated'];
+        $account = ['signup', 'account', 'login'];
+
+        return match ($type) {
+            GameFlowStepType::Landing => ['opened'],
+            GameFlowStepType::Game => $playing,
+            GameFlowStepType::EmailCapture => ['email'],
+            GameFlowStepType::Registration => $account,
+            GameFlowStepType::Share => ['shared'],
+            GameFlowStepType::NextGame => ['next_game'],
+            GameFlowStepType::Feed => ['feed', 'feed_voted'],
+            GameFlowStepType::GoToPost => $post,
+            GameFlowStepType::GoToPage => ['page'],
+            GameFlowStepType::FullResult => match ($settings['onward'] ?? GameOnward::Next->value) {
+                GameOnward::Post->value => $post,
+                GameOnward::Feed->value => ['feed', 'feed_voted'],
+                default => [
+                    ...(($settings['share_enabled'] ?? true) ? ['shared'] : []),
+                    ...(($settings['signup'] ?? GameSignupMode::Inline->value) === GameSignupMode::Inline->value ? $account : []),
+                ],
+            },
+            default => [],
         };
     }
 

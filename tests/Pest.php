@@ -69,7 +69,10 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
+use App\Models\TrafficChanceRun;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
+use App\Models\TrafficStepChance;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
@@ -14637,4 +14640,48 @@ function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserA
 function browserHashOf(string $token): string
 {
     return hash('sha256', $token);
+}
+
+/**
+ * A finished working-out of chances, as the nightly run leaves it: for each
+ * slice key (`*`, `g12`, `g12|d:mobile` …) the chance of each step, with the
+ * visitors who reached it and the slice's accounts — a slice of 30 or more
+ * stands on its own.
+ *
+ * @param  array<string, array<string, array{chance: float, visitors?: int, accounts?: int}>>  $slices
+ */
+function finishedChanceRun(array $slices, int $sliceAccounts = 40): TrafficChanceRun
+{
+    $run = TrafficChanceRun::query()->forceCreate([
+        'status' => 'finished',
+        'reason' => 'nightly',
+        'price_set_id' => TrafficPriceSet::current()->id,
+        'matured_before' => now()->subDays(14),
+        'visits_scanned' => 1000,
+        'started_at' => now()->subMinute(),
+        'finished_at' => now(),
+    ]);
+
+    foreach ($slices as $key => $steps) {
+        preg_match('/(?:^|\|)g(\d+)/', $key, $game);
+        preg_match('/\|d:(\w+)/', $key, $device);
+
+        foreach ($steps as $step => $row) {
+            TrafficStepChance::query()->forceCreate([
+                'run_id' => $run->id,
+                'slice_key' => $key,
+                'game_id' => isset($game[1]) ? (int) $game[1] : null,
+                'device' => $device[1] ?? null,
+                'step' => $step,
+                'visitors' => $row['visitors'] ?? 100,
+                'accounts' => $row['accounts'] ?? (int) round(($row['visitors'] ?? 100) * $row['chance']),
+                'slice_accounts' => $sliceAccounts,
+                'chance' => number_format($row['chance'], 8, '.', ''),
+                'thin' => $sliceAccounts < 30,
+                'stands_on' => $key,
+            ]);
+        }
+    }
+
+    return $run;
 }

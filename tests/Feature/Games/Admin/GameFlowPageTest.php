@@ -123,12 +123,13 @@ it('puts a removed Full Result back into a flow with a Registration step, sendin
     expect($page->viewData('issues'))->toBe([]);
 });
 
-it('shows a step\'s button text on its card when the step has no title', function () {
+it('shows where an exit step leads on its card, after its button', function () {
     $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
         ->call('insertStep', 'feed')
-        ->set('steps.3.texts.title', '');
+        ->set('steps.3.texts.title', '')
+        ->set('steps.3.settings.feed_sort', 'top');
 
-    expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('“Go to the feed”');
+    expect(collect($page->viewData('cards'))->firstWhere('label', 'Go to Feed')['summary'])->toBe('Go to the feed → top');
 });
 
 it('lists the flow\'s problems as it stands, and keeps the game', function () {

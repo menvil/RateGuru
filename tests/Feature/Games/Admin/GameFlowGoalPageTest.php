@@ -20,7 +20,7 @@ it('shows the goal of a flow that follows its steps, and the step that reaches i
     $this->get(GameResource::getUrl('flow', ['record' => $this->draft['game']]))
         ->assertOk()
         ->assertSee('Goal of this flow')
-        ->assertSee('Follow the steps · Account confirmed')
+        ->assertSeeInOrder(['Follow the steps', 'Now Account confirmed'])
         ->assertSee('Counted on step 3 · Full Result.')
         ->assertSee('One goal per flow. A published version keeps its goal; a change here counts from the next version you publish.')
         ->assertSee('data-testid="game-flow-goal-chip"', false);
@@ -86,7 +86,65 @@ it('blocks sign-up and sharing while Full Result sends visitors on', function ()
     Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
         ->call('selectStep', 2)
         ->set('steps.2.settings.onward', 'feed')
-        ->assertSee('Sign-up and share buttons are not shown while Full Result sends visitors on.')
+        ->assertSee('Three votes in the feed within 30 minutes count as Voted in the feed.')
         ->assertSee('Which feed')
         ->assertDontSee('Sign-up for anonymous visitors');
+});
+
+it('prices each step on its card and in its panel, mobile and desktop, from the worked-out chances', function () {
+    $game = $this->draft['game'];
+    finishedChanceRun([
+        'g'.$game->id.'|d:mobile' => ['opened' => ['chance' => 0.1], 'started' => ['chance' => 0.2], 'completed' => ['chance' => 0.4]],
+        'g'.$game->id.'|d:desktop' => ['opened' => ['chance' => 0.1], 'started' => ['chance' => 0.3], 'completed' => ['chance' => 0.6]],
+    ]);
+
+    $page = Livewire::test(EditGameFlow::class, ['record' => $game->id])->call('selectStep', 1);
+    $cards = collect($page->viewData('cards'))->keyBy('label');
+
+    // An account is $0.50 before bonuses: a step is worth its chance of one, a step with several rows its best.
+    expect($cards['Landing']['worth']['text'])->toBe('$0.050')
+        ->and($cards['Game']['worth']['text'])->toBe('up to $0.20 / $0.30')
+        ->and($cards['Game']['worth']['tip'])->toContain('Round 1 answered · game finished $0.20 / $0.30');
+
+    $page->assertSee('What this step is worth')
+        ->assertSeeInOrder(['When reached', 'Game started', '$0.10', '$0.15', 'game finished', '$0.20', '$0.30'])
+        ->assertSee('All prices');
+});
+
+it('prices only what reaches an account while nothing is worked out', function () {
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])->call('selectStep', 0);
+    $cards = collect($page->viewData('cards'))->keyBy('label');
+
+    // The account is worth its price whatever the chances; the steps before it are worth nothing yet.
+    expect($cards['Landing']['worth'])->toBeNull()
+        ->and($cards['Game']['worth'])->toBeNull()
+        ->and($cards['Full Result']['worth']['text'])->toBe('up to $0.50')
+        ->and($page->html())->toContain('Not worked out yet');
+});
+
+it('chooses a goal from the menu, and goes back to the steps', function () {
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtml('data-testid="game-flow-goal-option-email"')
+        ->assertSee('Needs an Email Capture step')
+        ->set('goal', 'email')
+        ->assertSee('Nothing in this flow can reach this goal.')
+        ->set('goal', '')
+        ->assertSet('goal', '')
+        ->assertDontSee('Nothing in this flow can reach this goal.');
+});
+
+it('looks a post up by its title as it is typed, and links the one picked', function () {
+    $post = gamePost(900, 100);
+    $post->forceFill(['title' => 'A very particular puppy'])->save();
+
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('insertStep', 'go_to_post')
+        ->set('steps.3.settings.post_target', 'chosen')
+        ->set('postLink', 'particular pup')
+        ->assertSet('postMatches.0.id', $post->id)
+        ->assertSee('A very particular puppy')
+        ->call('choosePost', $post->id)
+        ->assertSet('steps.3.settings.post_id', $post->id)
+        ->assertSet('postMatches', [])
+        ->assertSee('#'.$post->id.' · by');
 });

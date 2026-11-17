@@ -1,51 +1,78 @@
 {{--
     Which post a step sends the visitor to — one linked by its address, #id or
-    words of its title; the post of their last pick; a fresh one — and what to
-    ask there: the vote, the site's rating groups, and whether the post opens
-    by itself.
+    words of its title or author, looked up as they are typed; the post of
+    their last pick; a fresh one — and what to ask there: the vote and the
+    site's rating groups.
 --}}
 @php
     $settings = $step['settings'];
     $asked = array_values(array_filter(explode(',', (string) ($settings['ask_groups'] ?? ''))));
-    $targets = [
-        'last_pick' => ['label' => 'Their last pick', 'help' => 'The post of the option they picked in the last round; a fresh post when it has none.'],
-        'chosen' => ['label' => 'A post you link', 'help' => 'The same post for every visitor.'],
-        'fresh' => ['label' => 'A fresh post', 'help' => 'The newest post outside the game they haven’t voted on.'],
-    ];
+    $askVote = (bool) ($settings['ask_vote'] ?? true);
 @endphp
-<x-admin.ui.radio-cards label="Which post" :options="$targets" :value="$settings['post_target'] ?? 'last_pick'" wire:model.live="{{ $path }}.settings.post_target" />
+@include('filament.pages.games.flow.choice', [
+    'label' => 'Which post',
+    'options' => ['chosen' => 'A post you link to', 'last_pick' => 'The post they picked in the last round', 'fresh' => 'A fresh post they haven’t rated'],
+    'value' => $settings['post_target'] ?? 'last_pick',
+    'model' => $path.'.settings.post_target',
+])
 
 @if (($settings['post_target'] ?? '') === 'chosen')
-    @if ($linkedPost !== null)
-        <div class="rg-admin-games__linked-post" data-testid="game-flow-linked-post">
-            <a href="{{ $linkedPost['url'] }}" target="_blank" rel="noopener" class="rg-admin-games__linked-post-title">#{{ $linkedPost['id'] }} · {{ $linkedPost['title'] }}</a>
-            <x-admin.ui.badge :tone="$linkedPost['published'] ? 'success' : 'danger'">{{ $linkedPost['published'] ? 'Published' : 'Hidden' }}</x-admin.ui.badge>
-            @unless ($linkedPost['published'])
-                <p class="rg-admin-games__note">This post is hidden, so visitors can’t open it. Link another post, or publish it again.</p>
-            @endunless
-            <x-admin.ui.button size="sm" icon="x" wire:click="unlinkPost">Remove link</x-admin.ui.button>
+    <div class="rg-admin-field">
+        <label class="rg-admin-label" for="rg-admin-step-post-link">Post link</label>
+        <div class="rg-admin-games__post-link">
+            <x-admin.ui.icon name="link" :size="14" class="rg-admin-games__post-link-icon" />
+            <input id="rg-admin-step-post-link" type="text" class="rg-admin-input rg-admin-games__post-link-input" placeholder="Paste the post’s link or search by title" autocomplete="off" wire:model.live.debounce.400ms="postLink" wire:keydown.enter.prevent="linkPost" />
         </div>
-    @else
-        <form class="rg-admin-field" wire:submit="linkPost">
-            <x-admin.ui.text-field label="Post link" id="rg-admin-step-post-link" :value="$postLink" hint="Paste the post’s address or #id, or type words from its title." :error="$postLinkError !== '' ? $postLinkError : null" wire:model="postLink" />
-            <x-admin.ui.button size="sm" type="submit" icon="link">Link post</x-admin.ui.button>
-        </form>
+        @if ($postLinkError !== '')
+            <span class="rg-admin-games__note rg-admin-games__note--danger">{{ $postLinkError }}</span>
+        @endif
         @if ($postMatches !== [])
             <ul class="rg-admin-games__post-matches" data-testid="game-flow-post-matches">
                 @foreach ($postMatches as $match)
-                    <li><button type="button" class="rg-admin-games__post-match" wire:click="choosePost({{ $match['id'] }})">#{{ $match['id'] }} · {{ $match['title'] }} <span class="rg-admin-games__note">{{ '@'.$match['author'] }}</span></button></li>
+                    <li>
+                        <button type="button" class="rg-admin-games__post-match" wire:click="choosePost({{ $match['id'] }})">
+                            <span class="rg-admin-games__post-match-title">{{ $match['title'] }}</span>
+                            <span class="rg-admin-games__note">#{{ $match['id'] }} · {{ '@'.$match['author'] }} · {{ $match['votes'] }} {{ \Illuminate\Support\Str::plural('vote', $match['votes']) }}{{ $match['published'] ? '' : ' · hidden' }}</span>
+                        </button>
+                    </li>
                 @endforeach
             </ul>
         @endif
+    </div>
+    @if ($linkedPost !== null)
+        <div class="rg-admin-games__linked-post" data-testid="game-flow-linked-post">
+            <span class="rg-admin-games__linked-post-sign" aria-hidden="true"><x-admin.ui.icon name="newspaper" :size="16" /></span>
+            <span class="rg-admin-games__linked-post-text">
+                <a href="{{ $linkedPost['url'] }}" target="_blank" rel="noopener" class="rg-admin-games__linked-post-title">{{ $linkedPost['title'] }}</a>
+                <span class="rg-admin-games__note">#{{ $linkedPost['id'] }} · by {{ $linkedPost['author'] }} · {{ $linkedPost['votes'] }} {{ \Illuminate\Support\Str::plural('vote', $linkedPost['votes']) }}{{ $linkedPost['up'] === null ? '' : ' · '.$linkedPost['up'].'% up' }}</span>
+            </span>
+            <x-admin.ui.badge :tone="$linkedPost['published'] ? 'success' : 'danger'">{{ $linkedPost['published'] ? 'Published' : 'Hidden' }}</x-admin.ui.badge>
+            <x-admin.ui.icon-button icon="x" label="Remove the link" variant="ghost" size="sm" wire:click="unlinkPost" />
+        </div>
+        @unless ($linkedPost['published'])
+            <x-admin.ui.inline-notice tone="warning">This post is hidden, so visitors can’t open it. Until it’s published again they go to the feed instead and the step doesn’t count.</x-admin.ui.inline-notice>
+        @endunless
     @endif
 @endif
 
-<fieldset class="rg-admin-field">
-    <legend class="rg-admin-label">Ask on the post</legend>
-    <x-admin.ui.checkbox label="Up or down vote" id="rg-admin-step-ask-vote" :checked="(bool) ($settings['ask_vote'] ?? true)" wire:model.live="{{ $path }}.settings.ask_vote" />
-    @foreach ($ratingGroups as $group)
-        <x-admin.ui.checkbox :label="$group['label']" :id="'rg-admin-step-ask-'.$group['key']" :checked="in_array($group['key'], $asked, true)" wire:click="toggleAsk('{{ $group['key'] }}')" />
-    @endforeach
-    <span class="rg-admin-games__note">Highlighted on the post. Voting there asks for an account.</span>
-</fieldset>
-<x-admin.ui.switch label="Open the post by itself" id="rg-admin-step-auto-open" :checked="(bool) ($settings['auto_open'] ?? false)" on-hint="After 3 seconds, once." off-hint="The visitor taps the button." wire:model.live="{{ $path }}.settings.auto_open" />
+<div class="rg-admin-field">
+    <span class="rg-admin-label" id="rg-admin-step-ask-label">Ask on the post</span>
+    <div class="rg-admin-games__asks" role="group" aria-labelledby="rg-admin-step-ask-label">
+        <button type="button" @class(['rg-admin-games__ask', 'rg-admin-games__ask--on' => $askVote]) aria-pressed="{{ $askVote ? 'true' : 'false' }}" wire:click="$set('{{ $path }}.settings.ask_vote', {{ $askVote ? 'false' : 'true' }})">
+            @if ($askVote)<x-admin.ui.icon name="check" :size="12" />@endif Up or down vote
+        </button>
+        @foreach ($ratingGroups as $group)
+            @php($on = in_array($group['key'], $asked, true))
+            <button type="button" @class(['rg-admin-games__ask', 'rg-admin-games__ask--on' => $on]) aria-pressed="{{ $on ? 'true' : 'false' }}" wire:click="toggleAsk('{{ $group['key'] }}')">
+                @if ($on)<x-admin.ui.icon name="check" :size="12" />@endif {{ $group['label'] }}
+            </button>
+        @endforeach
+    </div>
+    <span class="rg-admin-games__note">
+        @if (! $askVote && $asked === [])
+            Nothing highlighted: the post just opens. Opening it counts as Opened the post.
+        @else
+            The post opens with these highlighted. Rating groups come from Content → Rating groups. A vote within 30 minutes counts as Voted on the post, a rating group as Rated the post.
+        @endif
+    </span>
+</div>

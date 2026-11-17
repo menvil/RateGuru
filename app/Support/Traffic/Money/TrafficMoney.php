@@ -47,6 +47,24 @@ final class TrafficMoney
     }
 
     /** For people: "$1.23", "−$0.40", small amounts with as many decimals as they need. */
+    /** A price on a chip: cents from 10 cents up, a tenth of a cent below — $0.70, $0.056. */
+    public static function brief(mixed $amount): string
+    {
+        return self::format($amount, abs((float) (string) self::of($amount)) >= 0.1 ? 2 : 3);
+    }
+
+    /** A worth in a table, finer the smaller it is: $1.20, $0.172, $0.0257. */
+    public static function fine(mixed $amount): string
+    {
+        $size = abs((float) (string) self::of($amount));
+
+        return self::format($amount, match (true) {
+            $size >= 1 => 2,
+            $size >= 0.1 => 3,
+            default => 4,
+        });
+    }
+
     public static function format(mixed $amount, int $decimals = 2): string
     {
         $value = self::of($amount);

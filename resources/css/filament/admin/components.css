@@ -12485,8 +12485,13 @@
         border-radius: inherit;
     }
 
-    /* Growth → Games: a plain choice from a short list, framed like a text field (FRM-02) with its chevron. */
-    .rg-admin-games__select {
+    /*
+     * Growth → Games and Traffic sources: a plain choice from a short list,
+     * framed like a text field (FRM-02) with its own chevron, set in from the
+     * edge — the browser's arrow sits flush against it.
+     */
+    .rg-admin-games__select,
+    .rg-admin-traffic__select {
         width: 100%;
         min-width: 0;
         height: var(--rg-admin-input-md);
@@ -12505,13 +12510,15 @@
             box-shadow var(--rg-admin-transition-fast);
     }
 
-    .rg-admin-games__select:focus-visible {
+    .rg-admin-games__select:focus-visible,
+    .rg-admin-traffic__select:focus-visible {
         border-color: var(--rg-admin-focus-ring);
         outline: none;
         box-shadow: var(--rg-admin-focus-halo);
     }
 
-    .rg-admin-games__select:disabled {
+    .rg-admin-games__select:disabled,
+    .rg-admin-traffic__select:disabled {
         background-color: var(--rg-admin-surface-sunken);
         color: var(--rg-admin-text-tertiary);
         cursor: not-allowed;
@@ -12922,33 +12929,293 @@
         color: var(--rg-admin-status-success-fg);
     }
 
-    /* The flow's goal, over the canvas. */
-    .rg-admin-games__goal {
-        margin-bottom: 16px;
+    /* How to edit the flow, over its goal. */
+    .rg-admin-games__canvas-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        font-size: 12.5px;
+        line-height: 18px;
+        color: var(--rg-admin-text-secondary);
     }
 
-    .rg-admin-games__goal .rg-admin-card__body,
-    .rg-admin-games__goal > .rg-admin-field {
+    .rg-admin-games__canvas-hint > svg {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    /* The flow's goal, over the canvas: the goal in force, Change and its menu, what counts. */
+    .rg-admin-games__goal {
+        position: relative;
+        z-index: 20;
         display: flex;
         flex-direction: column;
+        gap: 8px;
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+    }
+
+    .rg-admin-games__goal--missing {
+        border-color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-games__goal-head {
+        position: relative;
+        display: flex;
+        align-items: center;
         gap: 10px;
     }
 
-    /* The post a step links to, and the posts a search found. */
-    .rg-admin-games__linked-post {
-        display: flex;
-        flex-wrap: wrap;
+    .rg-admin-games__goal-sign {
+        display: inline-flex;
+        flex: none;
         align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-games__goal-title {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-games__goal-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--rg-admin-text-body);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-games__goal-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 50;
+        width: 320px;
+        max-width: calc(100vw - 32px);
+        max-height: 440px;
+        overflow-y: auto;
+    }
+
+    .rg-admin-games__goal-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+        padding: 8px;
+        border: 0;
+        border-radius: var(--rg-admin-radius-item);
+        background: transparent;
+        text-align: left;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__goal-option:hover,
+    .rg-admin-games__goal-option:focus-visible,
+    .rg-admin-games__goal-option--on {
+        background: var(--rg-admin-surface-pill);
+        outline: none;
+    }
+
+    .rg-admin-games__goal-option-icon {
+        flex: none;
+        margin-top: 2px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-games__goal-option-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .rg-admin-games__goal-option-name {
+        font-size: 13px;
+        line-height: 18px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-games__goal-option-short {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__goal-option-state {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__goal-option-state--needs {
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-games__goal-option-check {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    .rg-admin-games__goal-menu-foot {
+        margin: 4px 0 0;
+        padding: 8px 8px 4px;
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: 12px;
+        line-height: 16px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__goal-counts {
+        margin: 0;
+        font-size: 12.5px;
+        line-height: 18px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-games__goal-where {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        margin: 0;
+        font-size: 12px;
+        line-height: 16px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__goal-where > svg {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    /* What reaching the selected step is worth, in its panel. */
+    .rg-admin-games__worth {
+        display: flex;
+        flex-direction: column;
         gap: 8px;
-        padding: 10px 12px;
+        padding: 12px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-md);
     }
 
-    .rg-admin-games__linked-post-title {
+    .rg-admin-games__worth-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .rg-admin-games__worth-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
-        overflow-wrap: anywhere;
+    }
+
+    .rg-admin-games__worth-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .rg-admin-games__worth-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 58px 58px;
+        gap: 8px;
+        font-size: 12.5px;
+        line-height: 18px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-games__worth-row > :not(:first-child) {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-games__worth-row--head {
+        font-size: 11px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__worth-row--head > :not(:first-child) {
+        font-weight: inherit;
+    }
+
+    /* The post a step links to: its link, typed or searched, the posts found, the post linked. */
+    .rg-admin-games__post-link {
+        position: relative;
+    }
+
+    .rg-admin-games__post-link-icon {
+        position: absolute;
+        top: 50%;
+        left: 12px;
+        color: var(--rg-admin-text-tertiary);
+        transform: translateY(-50%);
+        pointer-events: none;
+    }
+
+    .rg-admin-games__post-link-input {
+        width: 100%;
+        padding-left: 34px;
+    }
+
+    .rg-admin-games__linked-post {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-games__linked-post-sign {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-games__linked-post-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-games__linked-post-text > * {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-games__linked-post-title {
+        font-size: 13px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
     }
 
     .rg-admin-games__post-matches {
@@ -12961,6 +13228,9 @@
     }
 
     .rg-admin-games__post-match {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
         width: 100%;
         padding: 8px 10px;
         border: 1px solid var(--rg-admin-border-default);
@@ -12973,6 +13243,47 @@
 
     .rg-admin-games__post-match:hover {
         background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-games__post-match-title {
+        font-size: 13px;
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-games__note--danger {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    /* What a post asks for: the vote and the site's rating groups, as chips. */
+    .rg-admin-games__asks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-games__ask {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 28px;
+        padding: 0 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: 999px;
+        background: var(--rg-admin-surface-card);
+        font-size: 12.5px;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-games__ask--on {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-inverse);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-games__ask:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
     }
 
     .rg-admin-games__step-fixed {
@@ -13148,8 +13459,9 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        height: 36px;
-        padding: 0 10px;
+        min-height: 36px;
+        padding: 7px 10px;
+        line-height: 18px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-item);
         background: var(--rg-admin-surface-card);
@@ -13966,16 +14278,6 @@
         padding: 10px 12px;
         border-radius: var(--rg-admin-radius-sm);
         background: var(--rg-admin-surface-pill);
-    }
-
-    .rg-admin-traffic__select {
-        min-height: 36px;
-        padding: 0 10px;
-        border: 1px solid var(--rg-admin-border-default);
-        border-radius: var(--rg-admin-radius-control);
-        background: transparent;
-        color: var(--rg-admin-text-strong);
-        font: inherit;
     }
 
     .rg-admin-traffic__zone,
