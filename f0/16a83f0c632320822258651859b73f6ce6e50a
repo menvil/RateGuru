@@ -1,0 +1,54 @@
+app/Enums/GameFlowGoal.php
+  s_4b9dc6ab6b25d3::t_6f83567a4fc555 59,79,97
+app/Support/Games/Flow/GameFlowValidator.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 134-138,187,247,251,255
+app/Enums/GameFlowStepType.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 288-293
+app/Support/Games/Flow/FlowGoalRules.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 42,88,116-117
+  s_4b9dc6ab6b25d3::t_d7b9aba5439602 127-128
+tests/Unit/Support/Games/FlowGoalRulesTest.php
+  s_4b9dc6ab6b25d3::t_30d542a634b661 17-19
+app/Support/Traffic/Worth/TrafficStep.php
+  s_4b9dc6ab6b25d3::t_2b519724a7e655 86-88
+resources/views/filament/pages/games/flow/settings.blade.php
+  s_4b9dc6ab6b25d3::t_e7cf9ce309b853 133,136,143-145,180
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_e854599e3141e4 276-288
+app/Actions/Games/LeaveGameAction.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 130
+app/Enums/GameOnward.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 7-8,16,24
+app/Support/Games/Flow/FlowStepDraft.php
+  s_4b9dc6ab6b25d3::t_a47657a1b45380 96-101
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_45a8292bf5d6fd 839,844,849-862
+app/Support/Traffic/Worth/StepLabels.php
+  s_4b9dc6ab6b25d3::t_6f83567a4fc555 29
+tests/Feature/Games/PlayGameOnwardTest.php
+  s_4b9dc6ab6b25d3::t_30d542a634b661 16,220-222,224-232
+  s_4b9dc6ab6b25d3::t_e854599e3141e4 223
+app/Enums/TrafficEvent.php
+  s_4b9dc6ab6b25d3::t_6f83567a4fc555 113
+resources/views/filament/pages/games/flow/page-settings.blade.php
+  s_4b9dc6ab6b25d3::t_e7cf9ce309b853 1-6
+  s_4b9dc6ab6b25d3::t_cc71ab49b98321 7-36
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_22859f8dd14924 123,147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f016a83f0c632320822258651859b73f6ce6e50a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
