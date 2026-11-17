@@ -1,0 +1,22 @@
+resources/views/livewire/games/steps/onward.blade.php
+  s_4b9dc6ab6b25d3::t_fdf1bd00121d9e 2-4,33-41
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_444a3dbf65676b 474-476,479-481,485,492-494,509-512,518,520,523,528-530,536-537,540-541
+  s_4b9dc6ab6b25d3::t_fdf1bd00121d9e 544-547
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "62c0bee2d60ec256018ae9357a89ed71839d50ed",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
