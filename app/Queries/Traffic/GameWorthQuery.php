@@ -41,6 +41,22 @@ final class GameWorthQuery
         return max(1, $set === null ? 0 : $set->rounds()->count());
     }
 
+    /** What a new visitor who opens the game is worth, every source, device and country; null before any working-out. */
+    public function visitor(Game $game): ?BigDecimal
+    {
+        $run = $this->worth->lastRun();
+
+        if ($run === null) {
+            return null;
+        }
+
+        $slice = new Slice((int) $game->id);
+        $set = TrafficPriceSet::current();
+        $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+
+        return StepWorth::of($slice, 'opened', $prices, 100, false, $this->worth->manualValues((int) $game->id)['opened'] ?? null, $this->worth->table($run, $slice))['value'];
+    }
+
     /**
      * @return array{
      *     steps: array<string, array{value: BigDecimal, worked: BigDecimal, basis: TrafficValueBasis, chance: float, thin: bool, reached: float|null, manual: array{value: string, mode: TrafficStepValueMode}|null}>,

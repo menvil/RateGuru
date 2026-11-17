@@ -11,6 +11,8 @@ use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\User;
 use App\Queries\Games\GameTrafficQuery;
+use App\Queries\Traffic\GameWorthQuery;
+use App\Support\Traffic\Money\TrafficMoney;
 use Illuminate\Support\Arr;
 use Livewire\Attributes\Locked;
 
@@ -152,7 +154,7 @@ trait InteractsWithGameEditor
                 'url' => url('/games/'.$game->slug),
             ],
             'moves' => $moves,
-            'tabs' => GameResource::editorTabs($game, $tab, $badges),
+            'tabs' => GameResource::editorTabs($game, $tab, $badges + ['value' => $this->visitorWorth($game)]),
             'unpublished' => $unpublished === null ? null : [
                 'versions' => Arr::join($unpublished->versions, ', ', ' and '),
                 'plural' => count($unpublished->versions) > 1,
@@ -161,6 +163,14 @@ trait InteractsWithGameEditor
             ],
             'confirmingStatus' => $confirming === null ? null : [...GameFormat::statusChange($game->status, $confirming), 'subject' => $game->title],
         ];
+    }
+
+    /** The Value tab's badge: what a new visitor who opens the game is worth, once worked out. */
+    private function visitorWorth(Game $game): ?string
+    {
+        $worth = app(GameWorthQuery::class)->visitor($game);
+
+        return $worth === null ? null : TrafficMoney::format($worth, 3);
     }
 
     /**
