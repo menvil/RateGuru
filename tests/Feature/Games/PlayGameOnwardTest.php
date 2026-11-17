@@ -13,6 +13,7 @@ use App\Models\Post;
 use App\Models\ProjectSettings;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
+use App\Models\Tag;
 use App\Models\User;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -215,4 +216,18 @@ it('shows the post the visitor goes to as the feed does: its title, author, upvo
         ->assertSee('@catlover')
         ->assertDontSee('40 votes')
         ->assertDontSee('5 comments');
+});
+
+it('lets Full Result send the visitor on to a page — a tag of the feed here — counting the page', function () {
+    Tag::factory()->create(['slug' => 'cats']);
+    onwardGame($this->draft, [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], ['full_result' => ['onward' => 'page', 'destination' => 'tag', 'tag' => 'cats']]);
+
+    playOnwardGameToResult($this->draft['game']->slug)
+        ->assertSee('data-testid="game-onward"', false)
+        ->assertSee('data-onward="page"', false)
+        ->assertDontSee('data-testid="game-signup"', false)
+        ->call('leave', 'step')
+        ->assertRedirect(route('feed', ['tag' => 'cats']));
+
+    expect(GameAttempt::query()->sole()->onward_kind)->toBe(GameOnwardKind::Page);
 });

@@ -836,18 +836,29 @@ final class EditGameFlow extends Page
                 GameFlowStepType::FullResult => match ($settings['onward'] ?? GameOnward::Next->value) {
                     GameOnward::Post->value => (($settings['share_enabled'] ?? true) ? 'Share · ' : '').'Go to a post: '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ', opens by itself' : ''),
                     GameOnward::Feed->value => (($settings['share_enabled'] ?? true) ? 'Share · ' : '').'Go to the feed',
+                    GameOnward::Page->value => (($settings['share_enabled'] ?? true) ? 'Share · ' : '').'Go to a page: '.self::pageTarget($settings),
                     default => collect(['show_score' => 'Score', 'show_profile' => 'Profile', 'share_enabled' => 'Share'])->filter(fn ($label, $key) => (bool) ($settings[$key] ?? true))->values()->implode(' · ').' · '.(GameSignupMode::tryFrom((string) ($settings['signup'] ?? 'inline')) ?? GameSignupMode::Inline)->label(),
                 },
                 GameFlowStepType::Feed => trim((string) ($texts['button_label'] ?? '')).' → '.mb_strtolower(['newest' => 'Newest', 'top' => 'Top', 'hot' => 'Hot'][$settings['feed_sort'] ?? ''] ?? 'the feed'),
                 GameFlowStepType::GoToPost => trim((string) ($texts['button_label'] ?? '')).' → '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ' · opens by itself' : ''),
-                GameFlowStepType::GoToPage => trim((string) ($texts['button_label'] ?? '')).' → '.match ($settings['destination'] ?? '') {
-                    GamePageDestination::Tag->value => '#'.($settings['tag'] ?? '').' tag',
-                    GamePageDestination::Page->value => (string) (($settings['path'] ?? '') ?: 'a page'),
-                    GamePageDestination::Url->value => Str::limit((string) ($settings['url'] ?? ''), 50),
-                    default => (($settings['category'] ?? '') ?: 'a').' category',
-                },
+                GameFlowStepType::GoToPage => trim((string) ($texts['button_label'] ?? '')).' → '.self::pageTarget($settings),
                 default => $line !== '' ? '“'.Str::limit($line, 60).'”' : ($type?->description() ?? ''),
             },
         ];
+    }
+
+    /**
+     * Where a step's page way on leads, as its card names it.
+     *
+     * @param  array<string, mixed>  $settings
+     */
+    private static function pageTarget(array $settings): string
+    {
+        return match ($settings['destination'] ?? '') {
+            GamePageDestination::Tag->value => '#'.($settings['tag'] ?? '').' tag',
+            GamePageDestination::Page->value => (string) (($settings['path'] ?? '') ?: 'a page'),
+            GamePageDestination::Url->value => Str::limit((string) ($settings['url'] ?? ''), 50),
+            default => (($settings['category'] ?? '') ?: 'a').' category',
+        };
     }
 }

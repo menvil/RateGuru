@@ -26,7 +26,7 @@ final class StepLabels
         'shared' => ['Result shared', 'First share click', 'share-2'],
         'replayed' => ['Played again', 'Another attempt started', 'rotate-ccw'],
         'next_game' => ['Next game started', 'Started the suggested game', 'arrow-right'],
-        'page' => ['Went to the page', 'Clicked Go to Page', 'arrow-up-right'],
+        'page' => ['Went to the page', 'Clicked Go to Page, or Go to a page on Full Result', 'arrow-up-right'],
         'feed' => ['Went to the feed', 'Clicked Go to the feed', 'home'],
         'post_opened' => ['Opened the post', 'Followed Go to Post or Go to a post on Full Result', 'newspaper'],
         'post_voted' => ['Voted on the post', 'Up or down vote on that post within 30 minutes', 'thumbs-up'],

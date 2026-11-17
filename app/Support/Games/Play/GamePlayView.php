@@ -120,7 +120,7 @@ final readonly class GamePlayView
     {
         $draft = $step->draft();
         $kind = match (true) {
-            $step->type === GameFlowStepType::GoToPage => 'page',
+            $draft->sendsToPage() => 'page',
             $draft->sendsToPost() => 'post',
             $draft->sendsToFeed() => 'feed',
             default => null,
@@ -144,7 +144,7 @@ final readonly class GamePlayView
                 $text($result ? 'notice' : 'body', __('games.play.onward_feed_text')),
                 $text('button_label', __('games.play.onward_feed_button', ['site' => $site])),
             ],
-            default => [$text('title', ''), '', $text('button_label', __('games.play.continue'))],
+            default => [$text($result ? 'secondary_label' : 'title', ''), $result ? $text('notice', '') : '', $text('button_label', __('games.play.continue'))],
         };
 
         $post = null;

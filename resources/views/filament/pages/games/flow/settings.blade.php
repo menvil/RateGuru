@@ -130,16 +130,19 @@
                     <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" on-hint="A row of ways to share the result, whichever way on." wire:model.live="{{ $path }}.settings.share_enabled" />
                     @include('filament.pages.games.flow.choice', [
                         'label' => 'Way on',
-                        'options' => ['next' => 'Sign-up and sharing, then the next step', 'post' => 'Go to a post — one you link to, or one from the game', 'feed' => 'Go to the feed'],
+                        'options' => ['next' => 'Sign-up and sharing, then the next step', 'post' => 'Go to a post — one you link to, or one from the game', 'feed' => 'Go to the feed', 'page' => 'Go to a page — a category, a tag, a page of this site or another site'],
                         'value' => $onward,
                         'model' => $path.'.settings.onward',
-                        'note' => 'Go to a post and Go to the feed send the visitor on into the site; what they do there counts for the goal and for postbacks. That includes signing up: voting asks for an account, and a sign-up within 7 days counts. The share buttons stay on the card; the steps after this one are then never shown.',
+                        'note' => 'Go to a post, the feed or a page send the visitor on into the site; what they do there counts for the goal and for postbacks. That includes signing up: voting asks for an account, and a sign-up within 7 days counts — though not on another site. The share buttons stay on the card; the steps after this one are then never shown.',
                         'testid' => 'game-flow-way-on',
                     ])
                     @if ($onward === 'post')
                         @include('filament.pages.games.flow.post-settings')
                         @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
                         @include('filament.pages.games.flow.auto-open', ['hint' => 'The prompt shows for 3 seconds, then the post opens. Players can still tap the button sooner.'])
+                    @elseif ($onward === 'page')
+                        @include('filament.pages.games.flow.page-settings')
+                        @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
                     @elseif ($onward === 'feed')
                         @include('filament.pages.games.flow.choice', ['label' => 'Which feed', 'options' => $feedSorts, 'value' => $step['settings']['feed_sort'] ?? '', 'model' => $path.'.settings.feed_sort'])
                         @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
@@ -173,39 +176,9 @@
                     @include('filament.pages.games.flow.auto-open', ['hint' => 'The card shows for 3 seconds, then the post opens. Players can still tap the button sooner.'])
                     @break
                 @case('go_to_page')
-                    @php($destination = $step['settings']['destination'] ?? 'category')
                     @include('filament.pages.games.flow.texts', ['columns' => ['title']])
-                    @include('filament.pages.games.flow.choice', [
-                        'label' => 'Where it leads',
-                        'options' => ['category' => 'A category', 'tag' => 'A tag', 'page' => 'Another page on this site', 'url' => 'Another site'],
-                        'value' => $destination,
-                        'model' => $path.'.settings.destination',
-                    ])
-                    @switch ($destination)
-                        @case('tag')
-                            <x-admin.ui.text-field label="Tag" id="rg-admin-step-tag" :value="$step['settings']['tag'] ?? ''" hint="The tag’s slug, as in its address." wire:model.live.debounce.400ms="{{ $path }}.settings.tag" />
-                            @break
-                        @case('page')
-                            <x-admin.ui.text-field label="Page address" id="rg-admin-step-path" :value="$step['settings']['path'] ?? ''" hint="A path on this site, e.g. /top or /posts/123." wire:model.live.debounce.400ms="{{ $path }}.settings.path" />
-                            @break
-                        @case('url')
-                            <x-admin.ui.text-field label="Site address" id="rg-admin-step-url" :value="$step['settings']['url'] ?? ''" hint="A full https address on another site. {click_id}, {game} and {result} can be added." wire:model.live.debounce.400ms="{{ $path }}.settings.url" />
-                            @break
-                        @default
-                            <label class="rg-admin-field">
-                                <span class="rg-admin-label">Category</span>
-                                <select class="rg-admin-games__select" wire:model.live="{{ $path }}.settings.category">
-                                    <option value="">Choose a category</option>
-                                    @foreach ($categories as $slug => $name)
-                                        <option value="{{ $slug }}">{{ $name }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                    @endswitch
+                    @include('filament.pages.games.flow.page-settings')
                     @include('filament.pages.games.flow.texts', ['columns' => ['button_label']])
-                    @if ($destination === 'url')
-                        <x-admin.ui.switch label="Open in a new tab" id="rg-admin-step-new-tab" :checked="(bool) ($step['settings']['new_tab'] ?? false)" on-hint="The game stays open behind it." off-hint="The visitor leaves the game." wire:model.live="{{ $path }}.settings.new_tab" />
-                    @endif
                     @break
                 @case('next_game')
                     <label class="rg-admin-field">

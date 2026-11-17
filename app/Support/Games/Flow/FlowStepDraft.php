@@ -93,6 +93,12 @@ final readonly class FlowStepDraft
         return $this->type === GameFlowStepType::Feed || $this->onward() === GameOnward::Feed;
     }
 
+    /** Whether the step sends the visitor to a page — a category, a tag, a page or another site: Go to Page, or Full Result going on to one. */
+    public function sendsToPage(): bool
+    {
+        return $this->type === GameFlowStepType::GoToPage || $this->onward() === GameOnward::Page;
+    }
+
     /**
      * The columns of the English texts the step needs. Some are needed only
      * by how the step is set: a skip link only while the email is optional,

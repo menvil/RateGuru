@@ -39,7 +39,7 @@ final class FlowGoalRules
             GameFlowGoal::PostRated => self::ratedStep($steps, $result, $onward),
             GameFlowGoal::FeedVoted, GameFlowGoal::Feed => self::indexOf($steps, GameFlowStepType::Feed) ?? ($onward === GameOnward::Feed ? $result : null),
             GameFlowGoal::NextGame => self::indexOf($steps, GameFlowStepType::NextGame),
-            GameFlowGoal::Page => self::indexOf($steps, GameFlowStepType::GoToPage),
+            GameFlowGoal::Page => self::indexOf($steps, GameFlowStepType::GoToPage) ?? ($onward === GameOnward::Page ? $result : null),
             GameFlowGoal::Replayed => $result,
             GameFlowGoal::Completed => self::indexOf($steps, GameFlowStepType::Game),
         };
@@ -85,7 +85,7 @@ final class FlowGoalRules
      */
     public static function defaultFor(array $steps): GameFlowGoal
     {
-        if (self::indexOf($steps, GameFlowStepType::GoToPage) !== null) {
+        if (self::stepFor($steps, GameFlowGoal::Page) !== null) {
             return GameFlowGoal::Page;
         }
 
@@ -113,7 +113,8 @@ final class FlowGoalRules
     /** @param  list<FlowStepDraft>  $steps */
     private static function accountStep(array $steps, ?int $result, GameOnward $onward): ?int
     {
-        if ($result !== null && $onward !== GameOnward::Next) {
+        // Sent on into the site, the visitor signs up there; sent to another site, nowhere this flow can count.
+        if ($result !== null && $onward !== GameOnward::Next && ! ($onward === GameOnward::Page && $steps[$result]->destination() === GamePageDestination::Url)) {
             return $result;
         }
 
@@ -123,7 +124,8 @@ final class FlowGoalRules
             return $registration;
         }
 
-        if ($result !== null && $steps[$result]->signup() === GameSignupMode::Inline) {
+        // Sign-up on the result only while the result sends nobody on: sent on, it isn't drawn there.
+        if ($result !== null && $onward === GameOnward::Next && $steps[$result]->signup() === GameSignupMode::Inline) {
             return $result;
         }
 

@@ -56,7 +56,7 @@ enum GameFlowGoal: string
             self::PostRated => 'A rating group within 30 minutes',
             self::FeedVoted => '3 votes in the feed',
             self::NextGame => 'The game Next Game suggests',
-            self::Page => 'The Go to Page button',
+            self::Page => 'The Go to Page button, or Full Result’s',
             self::Feed => 'The Go to Feed button',
             self::Replayed => 'Another attempt from the result',
             self::Completed => 'The last round answered',
@@ -76,7 +76,7 @@ enum GameFlowGoal: string
             self::PostRated => 'Counts when the visitor answers a rating group the post asks for, such as Cuteness, within 30 minutes. A plain up or down vote isn’t enough.',
             self::FeedVoted => 'Counts when the visitor votes on 3 posts within 30 minutes of leaving the game for the feed.',
             self::NextGame => 'Counts when the visitor starts the game the Next Game step suggests.',
-            self::Page => 'Counts when the visitor follows the button on the Go to Page step.',
+            self::Page => 'Counts when the visitor follows the button on the Go to Page step, or Go to a page on Full Result.',
             self::Feed => 'Counts when the visitor follows the button on the Go to Feed step, or Go to the feed on Full Result.',
             self::Replayed => 'Counts when the visitor starts another attempt of this game from the result.',
             self::Completed => 'Counts when the last round is answered. For flows with nothing to do after the result.',
@@ -94,7 +94,7 @@ enum GameFlowGoal: string
             self::PostRated => 'a rating group asked on the post Go to Post or Full Result sends them to',
             self::FeedVoted, self::Feed => 'a Go to Feed step or Go to the feed on Full Result',
             self::NextGame => 'a Next Game step',
-            self::Page => 'a Go to Page step',
+            self::Page => 'a Go to Page step, or Full Result going on to a page',
             self::Replayed, self::Completed => null,
         };
     }

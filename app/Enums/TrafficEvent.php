@@ -110,7 +110,7 @@ enum TrafficEvent: string
             self::PostRated => 'Answered a rating group on that post within 30 minutes',
             self::FeedVoted => '3 votes in the feed within 30 minutes of the game',
             self::NextGame => 'Started the game the flow suggested',
-            self::Page => 'Followed Go to Page',
+            self::Page => 'Followed Go to Page, or Go to a page on Full Result',
             self::Feed => 'Followed Go to Feed',
             self::SignupForm => 'A Registration step, Full Result, or the form a vote or a comment opens',
             self::Signup => 'Signed up, email not confirmed yet',

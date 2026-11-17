@@ -131,7 +131,11 @@ final class GameFlowValidator
         $onward = $fullResultAt === null ? GameOnward::Next : $steps[$fullResultAt]->onward();
 
         if ($onward !== GameOnward::Next) {
-            $where = $onward === GameOnward::Post ? 'a post' : 'the feed';
+            $where = match ($onward) {
+                GameOnward::Post => 'a post',
+                GameOnward::Page => 'a page',
+                default => 'the feed',
+            };
 
             foreach ($steps as $index => $step) {
                 if ($index > $fullResultAt && ($first[$step->type->value] ?? null) === $index) {
@@ -180,7 +184,7 @@ final class GameFlowValidator
             $missing[] = 'Post';
         }
 
-        if ($step->type !== GameFlowStepType::GoToPage) {
+        if (! $step->sendsToPage()) {
             return $missing;
         }
 
@@ -240,15 +244,15 @@ final class GameFlowValidator
         $category = (string) $step->setting('category');
         $tag = (string) $step->setting('tag');
 
-        if ($step->type === GameFlowStepType::GoToPage && $step->destination() === GamePageDestination::Category && $category !== '' && ! in_array($category, $facts->categories, true)) {
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Category && $category !== '' && ! in_array($category, $facts->categories, true)) {
             $issues[] = new FlowIssue($index, "The category “{$category}” isn’t active on the site. Choose another category.");
         }
 
-        if ($step->type === GameFlowStepType::GoToPage && $step->destination() === GamePageDestination::Tag && $tag !== '' && ! in_array($tag, $facts->tags, true)) {
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Tag && $tag !== '' && ! in_array($tag, $facts->tags, true)) {
             $issues[] = new FlowIssue($index, "There is no tag “{$tag}” on the site. Choose another tag.");
         }
 
-        if ($step->type === GameFlowStepType::GoToPage && $step->destination() === GamePageDestination::Page) {
+        if ($step->sendsToPage() && $step->destination() === GamePageDestination::Page) {
             $path = (string) $step->setting('path');
 
             if (preg_match('#^/(?!/)#', $path) === 1 && ! ($facts->paths[$path] ?? false)) {

@@ -83,8 +83,9 @@ final class TrafficStep
             GameFlowStepType::GoToPost => $post,
             GameFlowStepType::GoToPage => ['page'],
             GameFlowStepType::FullResult => match ($settings['onward'] ?? GameOnward::Next->value) {
-                GameOnward::Post->value => $post,
-                GameOnward::Feed->value => ['feed', 'feed_voted'],
+                GameOnward::Post->value => [...(($settings['share_enabled'] ?? true) ? ['shared'] : []), ...$post],
+                GameOnward::Feed->value => [...(($settings['share_enabled'] ?? true) ? ['shared'] : []), 'feed', 'feed_voted'],
+                GameOnward::Page->value => [...(($settings['share_enabled'] ?? true) ? ['shared'] : []), 'page'],
                 default => [
                     ...(($settings['share_enabled'] ?? true) ? ['shared'] : []),
                     ...(($settings['signup'] ?? GameSignupMode::Inline->value) === GameSignupMode::Inline->value ? $account : []),

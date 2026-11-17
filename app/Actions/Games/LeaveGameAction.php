@@ -127,7 +127,7 @@ final class LeaveGameAction
             return [new GameExit(route('feed', $sort !== '' ? ['sort' => $sort] : [])), GameOnwardKind::Feed, null, GameMilestone::Feed];
         }
 
-        if ($step->type === GameFlowStepType::GoToPage) {
+        if ($step->sendsToPage()) {
             $url = match ($step->destination()) {
                 GamePageDestination::Category => route('feed', ['category' => [(string) $step->setting('category')]]),
                 GamePageDestination::Tag => route('feed', ['tag' => (string) $step->setting('tag')]),

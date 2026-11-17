@@ -273,3 +273,16 @@ it('chooses the post a step sends visitors to from the list of posts with their 
         // The chosen post shows with its picture, small, beside its title.
         ->assertViewHas('linkedPost', fn (array $linked): bool => $linked['title'] === 'A cat in a box' && $linked['thumbnail'] !== null);
 });
+
+it('lets Full Result go on to a page, set as Go to Page sets one, and asks for what it lacks', function () {
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('selected', 2)
+        ->set('steps.2.settings.onward', 'page')
+        ->assertSee('Where it leads')
+        ->assertSee('Choose a category')
+        ->assertSee('Missing settings: Category.')
+        ->set('steps.2.settings.destination', 'tag')
+        ->assertSee('Missing settings: Tag.')
+        ->set('steps.2.settings.tag', 'cats')
+        ->assertSee('Go to a page: #cats tag');
+});
