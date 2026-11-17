@@ -1,6 +1,7 @@
 {{-- A campaign: its stage, set at once; the rest a draft until Save; its stages' figures and its history. --}}
 @php($model = $campaign['model'])
 <x-admin.ui.drawer id="rg-admin-traffic-campaign" editor :title="$model->name ?? 'Campaign '.$model->external_id" :subtitle="$campaign['source'].' · ID '.$model->external_id" wire:key="campaign-{{ $model->id }}" x-on:dismiss="$wire.closeCampaign()">
+    <div class="rg-admin-traffic__drawer">
     <div class="rg-admin-traffic__section">
         <span class="rg-admin-label">Stage</span>
         <div class="rg-admin-traffic__stages">
@@ -56,6 +57,7 @@
         @empty
             <p class="rg-admin-traffic__note">Nothing yet.</p>
         @endforelse
+    </div>
     </div>
     <x-slot:footer>
         @if ($model->status->value === 'archived')

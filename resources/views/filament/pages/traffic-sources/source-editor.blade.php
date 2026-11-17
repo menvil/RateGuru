@@ -9,6 +9,7 @@
     $field = fn (string $key): ?string => $errors->first($key) ?: null;
 @endphp
 <x-admin.ui.drawer id="rg-admin-traffic-source" editor :title="$editor['new'] ? 'New source' : ($s['name'] ?? 'Source')" :subtitle="($editor['preset']['name'] ?? ($network ? 'Network' : 'Banner or link')).($editor['preset']['window_note'] ?? '' ? ' · '.$editor['preset']['window_note'] : '')" wire:key="source-editor-{{ $edit }}" x-on:dismiss="$wire.closeEditor()">
+    <div class="rg-admin-traffic__drawer">
     @if (($editor['preset']['fill'] ?? '') !== '')
         <x-admin.ui.inline-notice tone="info">Fill in: {{ $editor['preset']['fill'] }}</x-admin.ui.inline-notice>
     @endif
@@ -42,19 +43,27 @@
         <div class="rg-admin-traffic__section">
             <span class="rg-admin-label">Link parameters</span>
             @error('link_params')<p class="rg-admin-traffic__check--danger">{{ $message }}</p>@enderror
-            @foreach ($s['link_params'] ?? [] as $index => $param)
-                <div class="rg-admin-traffic__row" wire:key="param-{{ $index }}">
-                    <select class="rg-admin-traffic__select" wire:model="draft.source.link_params.{{ $index }}.kind" aria-label="Carries">
+            <div class="rg-admin-traffic__params" role="group" aria-label="Link parameters">
+                <span class="rg-admin-traffic__groups-head">Carries</span>
+                <span class="rg-admin-traffic__groups-head">Name</span>
+                <span class="rg-admin-traffic__groups-head">Parameter</span>
+                <span class="rg-admin-traffic__groups-head">Network’s token</span>
+                <span></span>
+                @foreach ($s['link_params'] ?? [] as $index => $param)
+                    <select class="rg-admin-traffic__select" wire:model="draft.source.link_params.{{ $index }}.kind" aria-label="What parameter {{ $index + 1 }} carries" wire:key="param-kind-{{ $index }}">
                         @foreach (\App\Enums\TrafficLinkParam::cases() as $kind)
                             <option value="{{ $kind->value }}">{{ $kind->value }}</option>
                         @endforeach
                     </select>
-                    <x-admin.ui.text-field label="Label" :id="'rg-admin-param-label-'.$index" :value="$param['label']" :error="$field('link_params.'.$index.'.label')" wire:model="draft.source.link_params.{{ $index }}.label" />
-                    <x-admin.ui.text-field label="Parameter" :id="'rg-admin-param-name-'.$index" :value="$param['param']" :error="$field('link_params.'.$index.'.param')" wire:model="draft.source.link_params.{{ $index }}.param" />
-                    <x-admin.ui.text-field label="Network’s token" :id="'rg-admin-param-token-'.$index" :value="$param['token']" :error="$field('link_params.'.$index.'.token')" wire:model="draft.source.link_params.{{ $index }}.token" />
-                    <x-admin.ui.icon-button icon="x" label="Remove parameter" variant="ghost" size="sm" wire:click="removeParam({{ $index }})" />
-                </div>
-            @endforeach
+                    <input class="rg-admin-input" type="text" aria-label="Name of parameter {{ $index + 1 }}" wire:model="draft.source.link_params.{{ $index }}.label" wire:key="param-label-{{ $index }}" />
+                    <input class="rg-admin-input rg-admin-traffic__mono" type="text" aria-label="Query parameter {{ $index + 1 }}" wire:model="draft.source.link_params.{{ $index }}.param" wire:key="param-name-{{ $index }}" />
+                    <input class="rg-admin-input rg-admin-traffic__mono" type="text" aria-label="Network’s token for parameter {{ $index + 1 }}" wire:model="draft.source.link_params.{{ $index }}.token" wire:key="param-token-{{ $index }}" />
+                    <x-admin.ui.icon-button icon="x" label="Remove parameter {{ $index + 1 }}" variant="ghost" size="sm" wire:click="removeParam({{ $index }})" />
+                    @foreach (['label', 'param', 'token', 'kind'] as $part)
+                        @error('link_params.'.$index.'.'.$part)<p class="rg-admin-traffic__check--danger rg-admin-traffic__params-error">{{ $message }}</p>@enderror
+                    @endforeach
+                @endforeach
+            </div>
             <x-admin.ui.button size="sm" icon="plus" wire:click="addParam">Add parameter</x-admin.ui.button>
         </div>
 
@@ -136,13 +145,13 @@
                     </div>
                 @endif
                 <div class="rg-admin-traffic__row">
-                    <x-admin.ui.text-field :label="$editor['connector']['credential_label'] ?? 'Key'" id="rg-admin-source-secret" type="password" :value="''" :hint="$editor['connector']['credential_help'] ?? null" wire:model="secret" autocomplete="off" />
+                    <x-admin.ui.text-field :label="$editor['connector']['credential_label'] ?? 'Key'" id="rg-admin-source-secret" type="password" :value="''" :hint="$editor['connector']['credential_help'] ?? null" wire:model="secret" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                     <x-admin.ui.button size="sm" wire:click="connectApi">{{ $editor['connection'] !== null && $editor['connection']['status']->value !== 'disconnected' ? 'Reconnect' : 'Connect' }}</x-admin.ui.button>
                 </div>
             </div>
         @endif
     @endif
-
+    </div>
     <x-slot:footer>
         <x-admin.ui.button wire:click="closeEditor">Cancel</x-admin.ui.button>
         <x-admin.ui.button variant="primary" wire:click="saveSource" data-testid="traffic-source-save">Save</x-admin.ui.button>

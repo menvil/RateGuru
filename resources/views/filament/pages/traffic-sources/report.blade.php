@@ -28,7 +28,12 @@
             };
         }
 
-        return $labels[$column][(string) $value] ?? (string) $value;
+        $name = $labels[$column][(string) $value] ?? (string) $value;
+
+        // A site or zone ID is the network's own: the same number at two networks is two places.
+        return in_array($column, ['site_ref', 'zone_ref'], true) && isset($keys['source_id'])
+            ? $name.' · '.($labels['source_id'][(string) $keys['source_id']] ?? 'Source #'.$keys['source_id'])
+            : $name;
     };
 @endphp
 
@@ -73,7 +78,7 @@
 @if ($level['total']->visits === 0)
     <x-admin.ui.empty-state icon="list" title="No visits in this period">Visits show here once a link carrying rg_src is clicked, or a page runs in a browser.</x-admin.ui.empty-state>
 @else
-    <div class="rg-admin-table__scroll">
+    <div class="rg-admin-table rg-admin-table__scroll">
         <div class="rg-admin-table__grid rg-admin-traffic__grid" role="table" aria-label="Report by {{ strtolower($dimension->label()) }}">
             <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                 @foreach ([$dimension->label(), 'Visits', 'Opened', 'Started', 'Accounts', 'Spend', 'Value', 'ROI', 'Cost of an account'] as $heading)

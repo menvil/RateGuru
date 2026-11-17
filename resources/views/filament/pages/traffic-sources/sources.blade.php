@@ -11,7 +11,7 @@
         </x-slot:action>
     </x-admin.ui.empty-state>
 @else
-    <div class="rg-admin-table__scroll">
+    <div class="rg-admin-table rg-admin-table__scroll">
         <div class="rg-admin-table__grid rg-admin-traffic__grid rg-admin-traffic__grid--6" role="table" aria-label="Sources">
             <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                 @foreach (['Source', 'Key', 'Kind', 'State', 'API', 'Last click'] as $heading)

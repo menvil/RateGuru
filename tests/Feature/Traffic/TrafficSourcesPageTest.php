@@ -96,3 +96,12 @@ it('sets a campaign’s stage from its panel', function () {
 
     expect($campaign->fresh())->stage->toBe(TrafficCampaignStage::Test)->status->toBe(TrafficCampaignStatus::Active);
 });
+
+it('never lets a password manager fill the network key field', function () {
+    $source = TrafficSource::factory()->create(['connector' => 'popads']);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => $source->id])->test(TrafficSourcesPage::class)
+        ->assertSee('id="rg-admin-source-secret"', false)
+        ->assertSee('autocomplete="new-password"', false)
+        ->assertSet('edit', (string) $source->id);
+});

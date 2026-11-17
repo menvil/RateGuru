@@ -16,7 +16,7 @@
         @endif
         <p class="rg-admin-games__note">An account is worth {{ $money($accountWorth) }} before bonuses, in a group worth 100%. Prices are on Growth → Traffic sources → Value.</p>
 
-        <div class="rg-admin-table__scroll">
+        <div class="rg-admin-table rg-admin-table__scroll">
             <div class="rg-admin-table__grid rg-admin-traffic__grid rg-admin-traffic__grid--6" role="table" aria-label="What each step is worth">
                 <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                     @foreach (['Step', 'Reached', 'Then an account', 'Worth', 'By hand', ''] as $heading)

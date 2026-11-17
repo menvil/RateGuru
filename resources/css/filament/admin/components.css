@@ -13858,14 +13858,84 @@
         font-variant-numeric: tabular-nums;
     }
 
-    .rg-admin-traffic__grid {
-        grid-template-columns: minmax(200px, 1.8fr) repeat(8, minmax(88px, 1fr));
-        min-width: 1000px;
+    /* A card of this screen stacks its fields with room between them; a button keeps its own width. */
+    .rg-admin-traffic .rg-admin-card__body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
     }
 
-    .rg-admin-traffic__grid--4 { grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(100px, 1fr)); min-width: 560px; }
-    .rg-admin-traffic__grid--5 { grid-template-columns: minmax(180px, 1.6fr) repeat(4, minmax(110px, 1fr)); min-width: 700px; }
-    .rg-admin-traffic__grid--6 { grid-template-columns: minmax(160px, 1.4fr) repeat(5, minmax(110px, 1fr)); min-width: 800px; }
+    .rg-admin-traffic .rg-admin-card__body > .rg-admin-button,
+    .rg-admin-traffic__section > .rg-admin-button {
+        align-self: flex-start;
+    }
+
+    /* A drawer of this screen: its sections with the panel's own padding. */
+    .rg-admin-traffic__drawer {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: var(--rg-admin-space-5);
+    }
+
+    /* A source's link parameters: one row each under a single header. */
+    .rg-admin-traffic__params {
+        display: grid;
+        grid-template-columns: 110px minmax(90px, 1fr) minmax(80px, 0.8fr) minmax(120px, 1.2fr) 32px;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .rg-admin-traffic__params .rg-admin-input,
+    .rg-admin-traffic__params .rg-admin-traffic__select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__params-error {
+        grid-column: 1 / -1;
+        margin: 0;
+    }
+
+    /* Country groups: one row per group under a single header. */
+    .rg-admin-traffic__groups {
+        display: grid;
+        grid-template-columns: minmax(110px, 1fr) 80px minmax(140px, 2fr) 32px;
+        gap: 8px 10px;
+        align-items: center;
+    }
+
+    .rg-admin-traffic__groups-head {
+        font-size: 12px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__groups .rg-admin-input {
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* Table rows lay their cells out by the table's own column variables (TBL-01). */
+    .rg-admin-traffic__grid {
+        --rg-admin-table-columns: minmax(200px, 1.8fr) repeat(8, minmax(88px, 1fr));
+        --rg-admin-table-min-width: 1000px;
+    }
+
+    .rg-admin-traffic__grid--4 {
+        --rg-admin-table-columns: minmax(160px, 1.4fr) repeat(3, minmax(100px, 1fr));
+        --rg-admin-table-min-width: 560px;
+    }
+
+    .rg-admin-traffic__grid--5 {
+        --rg-admin-table-columns: minmax(180px, 1.6fr) repeat(4, minmax(110px, 1fr));
+        --rg-admin-table-min-width: 700px;
+    }
+
+    .rg-admin-traffic__grid--6 {
+        --rg-admin-table-columns: minmax(160px, 1.4fr) repeat(5, minmax(110px, 1fr));
+        --rg-admin-table-min-width: 800px;
+    }
 
     .rg-admin-traffic__total {
         font-weight: var(--rg-admin-weight-medium);

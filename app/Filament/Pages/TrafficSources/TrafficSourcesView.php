@@ -38,6 +38,7 @@ use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\ReportTree;
 use App\Support\Traffic\Reports\TrafficReportFilter;
+use App\Support\Traffic\Worth\TrafficStep;
 use BackedEnum;
 
 /**
@@ -264,10 +265,36 @@ final class TrafficSourcesView
 
         return [
             'run' => $run === null ? null : ['at' => $run->finished_at, 'visits' => $run->visits_scanned, 'accounts' => (int) ($site['opened']->accounts ?? 0)],
-            'chances' => $site->map(fn ($row): array => ['step' => $row->step, 'visitors' => $row->visitors, 'accounts' => $row->accounts, 'chance' => (float) $row->chance])->values()->all(),
+            'chances' => $this->orderedChances($site),
             'bySource' => array_map(fn (array $group): array => ['keys' => $group['keys'], 'figures' => $group['figures']], $this->reports->level($filter, TrafficDimension::Source)),
             'countries' => Countries::all(),
         ];
+    }
+
+    /**
+     * The whole site's chances in the order of a play — opened, started, the
+     * rounds, completed, what follows, signing up — then how often accounts
+     * post and come back, named for what they are.
+     *
+     * @return list<array{step: string, label: string, visitors: int, accounts: int, chance: float}>
+     */
+    private function orderedChances($site): array
+    {
+        $rounds = $site->keys()->filter(fn ($step): bool => TrafficStep::isRound((string) $step))->map(fn ($step): int => (int) substr((string) $step, 6))->max() ?? 0;
+        $order = [...array_values(array_diff(TrafficStep::all($rounds + 1), ['account', 'login'])), 'post_bonus', 'returned_bonus'];
+        $labels = ['post_bonus' => 'Accounts that posted within 30 days', 'returned_bonus' => 'Accounts that came back on another day'];
+
+        return collect($order)
+            ->filter(fn (string $step): bool => $site->has($step))
+            ->map(fn (string $step): array => [
+                'step' => $step,
+                'label' => $labels[$step] ?? ucfirst(str_replace('_', ' ', $step)),
+                'visitors' => (int) $site[$step]->visitors,
+                'accounts' => (int) $site[$step]->accounts,
+                'chance' => (float) $site[$step]->chance,
+            ])
+            ->values()
+            ->all();
     }
 
     /** @return array<string, mixed> */

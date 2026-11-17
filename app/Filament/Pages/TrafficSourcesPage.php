@@ -672,7 +672,7 @@ final class TrafficSourcesPage extends Page
         $this->path = is_string($this->path) ? mb_substr($this->path, 0, 400) : '';
         $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'clicks';
         $this->pageNumber = is_numeric($this->pageNumber) ? max(1, (int) $this->pageNumber) : 1;
-        $this->edit = is_string($this->edit) ? $this->edit : '';
+        $this->edit = is_string($this->edit) || is_int($this->edit) ? (string) $this->edit : '';
         $this->camp = is_numeric($this->camp) ? (string) (int) $this->camp : '';
     }
 

@@ -45,7 +45,7 @@
 @if ($campaigns === [])
     <x-admin.ui.empty-state icon="megaphone" title="No campaigns yet">A campaign shows here by itself with the first click that names it.</x-admin.ui.empty-state>
 @else
-    <div class="rg-admin-table__scroll">
+    <div class="rg-admin-table rg-admin-table__scroll">
         <div class="rg-admin-table__grid rg-admin-traffic__grid" role="table" aria-label="Campaigns">
             <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                 @foreach (['Campaign', 'Source', 'Stage', 'Visits', 'Accounts', 'Spend', 'Value', 'ROI', 'Cost of an account'] as $heading)
@@ -57,7 +57,7 @@
                     <div class="rg-admin-table__cell" role="cell"><button type="button" class="rg-admin-traffic__drill" wire:click="openCampaign({{ $row['id'] }})">{{ $row['name'] }}</button></div>
                     <div class="rg-admin-table__cell" role="cell">{{ $row['source'] }}</div>
                     <div class="rg-admin-table__cell" role="cell">
-                        <x-admin.ui.badge :tone="$row['status'] === 'new' ? 'warning' : ($row['status'] === 'archived' ? 'neutral' : 'outline')">{{ $row['status'] === 'new' ? 'New' : ($row['status'] === 'archived' ? 'Archived' : ucfirst((string) $row['stage'])) }}</x-admin.ui.badge>
+                        <x-admin.ui.badge :tone="$row['status'] === 'new' ? 'warning' : ($row['status'] === 'archived' ? 'neutral' : 'outline')">{{ $row['status'] === 'new' ? 'New' : ($row['status'] === 'archived' ? 'Archived' : ($row['stage'] !== null ? ucfirst($row['stage']) : 'Active')) }}</x-admin.ui.badge>
                     </div>
                     <div class="rg-admin-table__cell" role="cell">{{ number_format($row['figures']->visits) }}</div>
                     <div class="rg-admin-table__cell" role="cell">{{ number_format($row['figures']->accounts) }}</div>

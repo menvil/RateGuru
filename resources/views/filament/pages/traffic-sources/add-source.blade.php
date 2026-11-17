@@ -1,5 +1,6 @@
 {{-- Add source: a network from its preset, or a banner or link at a fixed price. Choosing one opens the editor on a new source. --}}
 <x-admin.ui.drawer id="rg-admin-traffic-add" wide title="Add source" subtitle="A preset fills in the network’s link tokens and postback address." x-on:dismiss="$wire.closeAdding()">
+    <div class="rg-admin-traffic__drawer">
     <ul class="rg-admin-traffic__presets" data-testid="traffic-presets">
         @foreach ($presetCards as $preset)
             <li>
@@ -10,4 +11,5 @@
             </li>
         @endforeach
     </ul>
+    </div>
 </x-admin.ui.drawer>

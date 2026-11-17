@@ -4,7 +4,7 @@
     said they cost, the day's figures by origin and which one counts — with a
     day's total typed in, or a file of the network's figures.
 --}}
-<div class="rg-admin-table__scroll">
+<div class="rg-admin-table rg-admin-table__scroll">
     <div class="rg-admin-table__grid rg-admin-traffic__grid rg-admin-traffic__grid--5" role="table" aria-label="Spend by source">
         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
             @foreach (['Source', 'Visits', 'Spend on visits', 'Spend without visits', 'An estimate'] as $heading)
@@ -43,7 +43,7 @@
         </x-admin.ui.card>
     </div>
 
-    <div class="rg-admin-table__scroll">
+    <div class="rg-admin-table rg-admin-table__scroll">
         <div class="rg-admin-table__grid rg-admin-traffic__grid rg-admin-traffic__grid--6" role="table" aria-label="Day by day">
             <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                 @foreach (['Day', 'Clicks', 'Their links said', 'Figures', 'Counted on visits', 'State'] as $heading)
