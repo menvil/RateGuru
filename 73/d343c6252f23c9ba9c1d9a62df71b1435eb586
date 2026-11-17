@@ -1,0 +1,44 @@
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_3c06e60e0db29c 336,338
+  s_4b9dc6ab6b25d3::t_71f72b4e28c584 335,337
+  s_4b9dc6ab6b25d3::t_bb6a2ebff6eb59 8,19,22-23,32-37,39-41,70-77,96-99,101,104,106-111,136-137,140-145,151-155,160-164,166,168,170,172-185,189-190,192-199,203-204,206-209,211-330,334,339-395,431-432,434,436,439-448,452-453,456-460,540,603-604,631,639
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_0b0b8f1aa73fbb 14049-14052
+  s_4b9dc6ab6b25d3::t_a8fb0a139c4625 14029-14048
+  s_4b9dc6ab6b25d3::t_78f17f8a7b7290 13962-13964,13966,13992-13996,13998-14009,14013-14015,14021-14028,14053-14103
+tests/Feature/Games/Admin/GameValuePageTest.php
+  s_4b9dc6ab6b25d3::t_ca8bd41d133bad 105-107
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_bd558cf9a02101 6-7,13-14,210-220,222-235,238-247
+  s_4b9dc6ab6b25d3::t_497aef6674721c 153
+  s_4b9dc6ab6b25d3::t_fea88f3cbdfd72 66-72,115-116,209
+  s_4b9dc6ab6b25d3::t_23562b34128734 221,236-237
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_e578fdb1baf99a 1163,1168
+database/seeders/TrafficDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_7a86d41ff90e5b 15,92,119,133
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_bb6a2ebff6eb59 185-188
+  s_4b9dc6ab6b25d3::t_90571e57f2a24f 192,199,216-230
+resources/views/filament/pages/game-analytics.blade.php
+  s_4b9dc6ab6b25d3::t_1eaccc41fe182c 3-8,22-26,39-64,66-69,71,73-76,78-125,127-132,134-135,137-167,171,178,199-201,282
+  s_4b9dc6ab6b25d3::t_78f17f8a7b7290 77
+  s_4b9dc6ab6b25d3::t_a8fb0a139c4625 65,72,133,136
+  s_4b9dc6ab6b25d3::t_0b0b8f1aa73fbb 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "73d343c6252f23c9ba9c1d9a62df71b1435eb586",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
