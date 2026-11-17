@@ -1,9 +1,13 @@
 <?php
 
+use App\Actions\Traffic\MarkTrafficVisitAction;
+use App\Actions\Traffic\RecordAccountLoginAction;
 use App\Actions\Traffic\RevalueOpenVisitsAction;
 use App\Actions\Traffic\SaveTrafficPricesAction;
 use App\Actions\Traffic\SetTrafficStepValueAction;
 use App\Actions\Traffic\WorkOutChancesAction;
+use App\Enums\TrafficEvent;
+use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficStepValueMode;
 use App\Enums\TrafficValueBasis;
 use App\Exceptions\Traffic\CannotManageTrafficException;
@@ -17,6 +21,7 @@ use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Traffic\TrafficChanceSampleQuery;
 use App\Services\Traffic\TrafficVisitWorth;
+use Brick\Math\BigDecimal;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -92,15 +97,55 @@ it('saves new prices as a new set, leaving each visit on the set it came under',
     $first = TrafficPriceSet::current();
     $visit = TrafficVisit::factory()->create(['price_set_id' => $first->id]);
 
-    $second = app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '2', 'post_bonus' => '1', 'returned_bonus' => '0.2'], $first->id);
+    $second = app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '2', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0.1'], $first->id);
 
     expect($second->id)->not->toBe($first->id)
         ->and($first->fresh()->account_price)->toBe('0.5000')
         ->and($second->account_price)->toBe('2.0000')
+        ->and($second->login_price)->toBe('0.1000')
+        ->and($second->summary)->toBe('Prices: account $2.00, first post $1.00, return $0.20, existing account signed in $0.10')
         ->and($second->country_groups)->toBe($first->country_groups)
         ->and((string) app(TrafficVisitWorth::class)->step($visit, 'account')['value'])->toBe(number_format(0.5 * $visit->worth_percent / 100, 8, '.', ''))
-        ->and(fn () => app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '3', 'post_bonus' => '1', 'returned_bonus' => '0.2'], $first->id))
-        ->toThrow(CannotManageTrafficException::class, 'Someone saved the prices after you opened it.');
+        ->and(fn () => app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '3', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '0'], $first->id))
+        ->toThrow(CannotManageTrafficException::class, 'Someone saved the prices after you opened it.')
+        // A sign-in is priced like the other outcomes, and as strictly.
+        ->and(fn () => app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '3', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '-1'], $second->id))
+        ->toThrow(ValidationException::class, 'price of a sign-in')
+        // Saving the groups keeps the prices, a sign-in's with them.
+        ->and(app(SaveTrafficPricesAction::class)->groups($this->admin, [['key' => 'all', 'name' => 'All', 'percent' => 100, 'countries' => []]], $second->id)->login_price)->toBe('0.1000');
+});
+
+it('values a sign-in to an existing account at the price of the visit’s own set, and a later price never moves it', function () {
+    $priced = TrafficPriceSet::factory()->create(['login_price' => '0.4']);
+    $member = User::factory()->create();
+    $visit = TrafficVisit::factory()->create(['price_set_id' => $priced->id, 'worth_percent' => 60, 'opened_at' => now(), 'started_at' => now()]);
+    // A visitor known as they came stays worth nothing when they sign in again.
+    $known = TrafficVisit::factory()->create(['price_set_id' => $priced->id, 'known' => true, 'known_reason' => TrafficKnownReason::Browser, 'opened_at' => now()]);
+
+    app(RecordAccountLoginAction::class)->handle($member, $visit->visitor_hash, $this->now);
+    app(RecordAccountLoginAction::class)->handle($member, $known->visitor_hash, $this->now);
+
+    expect($visit->fresh())->known_reason->toBe(TrafficKnownReason::Login)->value_real->toBe('0.24000000')->value_expected->toBe('0.00000000')
+        ->and($known->fresh())->known_reason->toBe(TrafficKnownReason::Browser)->login_at->toBeNull()->value_real->toBe('0.00000000');
+
+    app(SaveTrafficPricesAction::class)->prices($this->admin, ['account_price' => '0.5', 'post_bonus' => '1', 'returned_bonus' => '0.2', 'login_price' => '2'], $priced->id);
+    app(MarkTrafficVisitAction::class)->handle($visit->id, TrafficEvent::Completed, $this->now->addMinute());
+    app(RevalueOpenVisitsAction::class)->handle($this->now->addDay());
+    $this->artisan('traffic:work-out-worth')->assertSuccessful();
+
+    $worth = app(TrafficVisitWorth::class);
+
+    expect($visit->fresh()->value_real)->toBe('0.24000000')
+        ->and((string) $worth->best($visit->fresh()))->toBe('0.24000000')
+        ->and($worth->settled($visit->fresh()))->toEqual(['value' => BigDecimal::of('0.24000000'), 'basis' => TrafficValueBasis::Outcome, 'step' => 'login'])
+        // Its other steps are a known visitor's: worth nothing.
+        ->and((string) $worth->step($visit->fresh(), 'completed')['value'])->toBe('0');
+
+    // An account landing on it later leaves it a sign-in, in what it tells its network as in its value.
+    $visit->forceFill(['account_at' => $this->now->addHour()])->save();
+
+    expect($worth->settled($visit->fresh())['step'])->toBe('login')
+        ->and((string) $worth->best($visit->fresh()))->toBe('0.24000000');
 });
 
 it('saves country groups, the last holding every other country', function () {

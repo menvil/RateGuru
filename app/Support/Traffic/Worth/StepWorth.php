@@ -9,10 +9,12 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 
 /**
- * What reaching a step is worth for a visit: nothing for a known visitor or a
- * sign-in; the account's worth for the account; the administrator's own
- * value when it is set to always count, or while the slice is thin; else the
- * chance of an account from the step times what an account is worth.
+ * What reaching a step is worth for a visit: a sign-in to an account the
+ * visitor already had, its price times the group's share; any other step of
+ * a known visitor, nothing; the account's worth for the account; the
+ * administrator's own value when it is set to always count, or while the
+ * slice is thin; else the chance of an account from the step times what an
+ * account is worth.
  */
 final class StepWorth
 {
@@ -22,15 +24,20 @@ final class StepWorth
      */
     public static function of(Slice $slice, string $step, WorthPrices $prices, int $percent, bool $known, ?array $manual, ChanceTable $table): array
     {
+        // A sign-in is an outcome of its own: no chance of a new account leads on from it.
+        if ($step === 'login') {
+            return ['value' => $prices->login($percent), 'basis' => TrafficValueBasis::Outcome, 'chance' => 0.0];
+        }
+
+        if ($known) {
+            return ['value' => BigDecimal::zero(), 'basis' => TrafficValueBasis::None, 'chance' => 0.0];
+        }
+
         $account = $prices->account(
             $table->of($slice, 'post_bonus')['chance'],
             $table->of($slice, 'returned_bonus')['chance'],
             $percent,
         );
-
-        if ($known || $step === 'login') {
-            return ['value' => BigDecimal::zero(), 'basis' => TrafficValueBasis::None, 'chance' => 0.0];
-        }
 
         if ($step === 'account') {
             return ['value' => $account, 'basis' => TrafficValueBasis::Outcome, 'chance' => 1.0];

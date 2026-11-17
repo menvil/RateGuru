@@ -107,6 +107,10 @@ final class TrafficSourcesPage extends Page
     #[Url(as: 'view', except: 'sources')]
     public mixed $reportView = 'sources';
 
+    /** What Sign-ups and confirmation splits its sign-ups by: one of TrafficSourcesView::SIGNUP_DIMENSIONS. */
+    #[Url(as: 'signups', except: 'source')]
+    public mixed $signupsBy = 'source';
+
     /** @var list<string> the tree's rows opened, by their path; the ad networks to begin with */
     public array $open = ['type=network'];
 
@@ -200,8 +204,8 @@ final class TrafficSourcesPage extends Page
 
     public ?TemporaryUploadedFile $spendFile = null;
 
-    /** @var array{account_price: string, post_bonus: string, returned_bonus: string} */
-    public array $prices = ['account_price' => '', 'post_bonus' => '', 'returned_bonus' => ''];
+    /** @var array{account_price: string, post_bonus: string, returned_bonus: string, login_price: string} */
+    public array $prices = ['account_price' => '', 'post_bonus' => '', 'returned_bonus' => '', 'login_price' => ''];
 
     /** @var list<array{key: string, name: string, percent: int|string, countries: string}> */
     public array $groups = [];
@@ -309,14 +313,22 @@ final class TrafficSourcesPage extends Page
         }
     }
 
-    /** Opens a source's sites or zones as the flat list, from the “more” row of the tree. */
-    public function listSites(mixed $sourceId, mixed $level): void
+    /**
+     * Opens a source's sites or zones as the flat list, from the “more” row
+     * of the tree — or searched for one of them, from its row in Sign-ups
+     * and confirmation.
+     */
+    public function listSites(mixed $sourceId, mixed $level, mixed $ref = ''): void
     {
         $this->reportView = 'sites';
         $this->source = is_numeric($sourceId) ? (string) (int) $sourceId : $this->source;
         $this->listBy = $level === 'site' ? 'site' : 'zone';
         $this->segment = 'all';
-        $this->q = '';
+        $this->q = is_string($ref) ? $ref : '';
+        // Looking up one site or zone: the row asked for shows, however few clicks it has.
+        if ($this->q !== '') {
+            $this->minClicks = 0;
+        }
         $this->pageNumber = 1;
         $this->selected = [];
         $this->normalize();
@@ -1081,6 +1093,7 @@ final class TrafficSourcesPage extends Page
         $this->game = is_numeric($this->game) ? (string) (int) $this->game : '';
         $this->device = in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : '';
         $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
+        $this->signupsBy = is_string($this->signupsBy) && array_key_exists($this->signupsBy, TrafficSourcesView::SIGNUP_DIMENSIONS) ? $this->signupsBy : 'source';
         $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';
         $this->stage = in_array($this->stage, ['test', 'optimise', 'scale', 'paused', 'new', 'archived'], true) ? $this->stage : 'all';
         $this->spendSource = is_numeric($this->spendSource) ? (string) (int) $this->spendSource : '';
@@ -1106,7 +1119,7 @@ final class TrafficSourcesPage extends Page
         $this->pricesFrom = $set->id;
         // Prices read as money: two decimals, more only where a price has them.
         $money = fn (string $amount): string => number_format((float) $amount, max(2, strlen(rtrim((string) substr((string) strrchr($amount, '.'), 1), '0'))), '.', '');
-        $this->prices = ['account_price' => $money((string) $set->account_price), 'post_bonus' => $money((string) $set->post_bonus), 'returned_bonus' => $money((string) $set->returned_bonus)];
+        $this->prices = ['account_price' => $money((string) $set->account_price), 'post_bonus' => $money((string) $set->post_bonus), 'returned_bonus' => $money((string) $set->returned_bonus), 'login_price' => $money((string) $set->login_price)];
         $this->groups = array_map(fn (array $group): array => ['key' => $group['key'], 'name' => $group['name'], 'percent' => $group['percent'], 'countries' => implode(', ', $group['countries'])], $set->country_groups);
     }
 

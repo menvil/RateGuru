@@ -115,7 +115,7 @@ enum TrafficEvent: string
             self::SignupForm => 'A Registration step, Full Result, or the form a vote or a comment opens',
             self::Signup => 'Signed up, email not confirmed yet',
             self::Account => 'Signed up on any page of the site within the source’s window after the click, counted once the email is confirmed',
-            self::Login => 'Signed in to an account they already had: worth nothing new',
+            self::Login => 'Signed in to an account they already had: not a new user, worth the sign-in price',
             self::PostPublished => 'A first post published within 30 days of signing up',
             self::Returned => 'Back on another day within 7 days of signing up',
             self::Settled => 'Came to rest — its account confirmed, 30 minutes without a new step, or a day after the click — with the best worth it reached',

@@ -11,19 +11,23 @@ use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Queries\Games\GameMetricsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
+use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TwoProportionTest;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Url;
 
@@ -32,13 +36,15 @@ use Livewire\Attributes\Url;
  * logged-in players apart — over a window, for every version or one, against
  * the window before it: the figures and what the visits were worth, the
  * versions on paid traffic compared, the visitors by where they came from,
- * the funnel, how many attempts reached each round, which results players
- * earned, the versions, flows or content sets side by side, and the traffic
- * periods the figures were made in.
+ * the funnel, who signed up and whether they confirmed, how many attempts
+ * reached each round, which results players earned, the versions, flows or
+ * content sets side by side, and the traffic periods the figures were made
+ * in.
  *
  * Playing figures are read from what playing recorded (GameMetricsQuery);
- * worth, spend and where visitors came from from Traffic sources
- * (TrafficReportQuery).
+ * worth, spend, where visitors came from and the sign-ups from Traffic
+ * sources (TrafficReportQuery), since an account that never confirmed is
+ * removed with everything it did, and the game's own figures with it.
  */
 final class GameAnalytics extends Page
 {
@@ -145,7 +151,11 @@ final class GameAnalytics extends Page
             'compared' => $earlier !== null,
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
             'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown), $versions, $audience),
-            'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id)),
+            'signups' => $audience === GameAudience::Anonymous
+                ? self::signups($reports->gameSignups((int) $game->id, $from, $now, $versionId, UnconfirmedAccountsQuery::cutoff()), (bool) TrafficSetting::current()->capture_enabled, $versionId !== null)
+                : null,
+            'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id, $versionId), $versionId !== null ? $versions->get($versionId) : null),
+            'periodVersion' => $versionId !== null ? $versions->get($versionId)?->label() : null,
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
             'paid' => self::paidVersions($game, $traffic, $versions, $this->paidSource, $window),
@@ -547,6 +557,49 @@ final class GameAnalytics extends Page
     }
 
     /**
+     * Who signed up and whether they confirmed, counted from the visits of
+     * the game — of the version chosen — that Traffic sources recorded in
+     * the window: the funnel loses a sign-up that never confirmed once its
+     * account is removed, so these stand by themselves, confirmed counted
+     * from the same visits. With no visit recorded there is nothing to count
+     * from: dashes, never a nought, and where visits are switched on.
+     *
+     * @param  array{visits: int, figures: SignupFigures}  $tracked
+     * @return array{tracked: bool, figures: list<array{label: string, value: string, note: string}>, note: string, trafficUrl: string|null}
+     */
+    private static function signups(array $tracked, bool $recording, bool $ofVersion): array
+    {
+        $f = $tracked['figures'];
+        $days = UnconfirmedAccountsQuery::GRACE_DAYS;
+        $of = $ofVersion ? 'this version' : 'the game';
+
+        if ($tracked['visits'] === 0) {
+            return [
+                'tracked' => false,
+                'figures' => array_map(fn (string $label): array => ['label' => $label, 'value' => '—', 'note' => 'No visits recorded'], ['Signed up', 'Confirmed', 'Never confirmed', 'Still waiting']),
+                'note' => $recording
+                    ? 'No visit of '.$of.' was recorded in this period. Sign-ups are counted from the visits Traffic sources records while Record visits is on.'
+                    : 'Visits aren’t recorded, so there are no sign-ups to count. Switch on Record visits under Traffic sources → Sources to count them here, those never confirmed included.',
+                'trafficUrl' => ! $recording && TrafficSourcesPage::canAccess() ? TrafficSourcesPage::getUrl(['tab' => 'sources']) : null,
+            ];
+        }
+
+        $off = $recording ? '' : ' Record visits is off now: visits since it was switched off, and their sign-ups, are not counted, so Still waiting can read 0.';
+
+        return [
+            'tracked' => true,
+            'figures' => [
+                ['label' => 'Signed up', 'value' => number_format($f->signedUp), 'note' => 'Of '.number_format($tracked['visits']).' recorded '.str('visit')->plural($tracked['visits'])],
+                ['label' => 'Confirmed', 'value' => number_format($f->confirmed), 'note' => self::percent($f->confirmed, $f->signedUp).' of those who signed up'],
+                ['label' => 'Never confirmed', 'value' => number_format($f->neverConfirmed), 'note' => 'Signed up over '.$days.' days ago · removed'],
+                ['label' => 'Still waiting', 'value' => number_format($f->waiting), 'note' => 'Signed up in the last '.$days.' days'],
+            ],
+            'note' => 'Counted from the visits of '.$of.' Traffic sources recorded in this period: an account not confirmed within '.$days.' days is removed with everything it did, and the funnel loses it. Confirmed here are the sign-ups of these visits; the funnel’s Account confirmed counts accounts by the play they are credited to, so the two can differ.'.$off,
+            'trafficUrl' => ! $recording && TrafficSourcesPage::canAccess() ? TrafficSourcesPage::getUrl(['tab' => 'sources']) : null,
+        ];
+    }
+
+    /**
      * The rounds and results of the version the figures look into: the one
      * chosen, or the busiest of the window.
      *
@@ -648,26 +701,30 @@ final class GameAnalytics extends Page
 
     /**
      * The audience's traffic periods, newest first, with what was assigned,
-     * started and completed in each.
+     * started and completed in each. Of one version: only the periods it had
+     * a share in, each still with every version's share, but with what was
+     * assigned to that version and its attempts alone.
      *
-     * @param  array<int, array{started: int, completed: int}>  $attempts
+     * @param  array<int, array{started: int, completed: int}>  $attempts  by period, of the version when there is one
      * @return list<array<string, mixed>>
      */
-    private static function periodRows(Game $game, GameAudience $audience, array $attempts): array
+    private static function periodRows(Game $game, GameAudience $audience, array $attempts, ?GameVersion $version): array
     {
         return GameTrafficPeriod::query()
             ->where('game_id', $game->id)
             ->where('audience', $audience->value)
+            ->when($version !== null, fn (Builder $query) => $query->whereHas('versions', fn (Builder $shared) => $shared->whereKey($version->id)))
             ->with('versions')
-            ->withCount('assignments')
+            ->withCount(['assignments' => fn (Builder $query) => $query->when($version !== null, fn (Builder $own) => $own->where('version_id', $version->id))])
             ->orderByDesc('started_at')
             ->orderByDesc('id')
             ->limit(20)
             ->get()
             ->map(fn (GameTrafficPeriod $period): array => [
                 'dates' => $period->started_at->format('d M Y').' — '.($period->ended_at?->format('d M Y') ?? 'now'),
-                'shares' => $period->versions->map(fn (GameVersion $version): string => $version->label().' '.((int) $version->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
-                'figures' => number_format((int) $period->assignments_count).' assigned · '
+                'shares' => $period->versions->map(fn (GameVersion $shared): string => $shared->label().' '.((int) $shared->getRelation('pivot')->getAttribute('share_percent')).'%')->implode(' · ') ?: 'No traffic',
+                'figures' => ($version !== null ? $version->label().': ' : '')
+                    .number_format((int) $period->assignments_count).' assigned · '
                     .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '
                     .number_format($attempts[(int) $period->id]['completed'] ?? 0).' completed',
                 'current' => $period->ended_at === null,

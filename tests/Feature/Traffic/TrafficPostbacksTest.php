@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Traffic\MarkTrafficVisitAction;
+use App\Actions\Traffic\RecordAccountLoginAction;
 use App\Actions\Traffic\ResendTrafficPostbackAction;
 use App\Actions\Traffic\SendTestPostbackAction;
 use App\Enums\TrafficEvent;
@@ -15,6 +16,7 @@ use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackAttempt;
 use App\Models\TrafficPostbackRule;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepValue;
 use App\Models\TrafficVisit;
@@ -294,6 +296,28 @@ it('settles a visit at once when its account is confirmed, with the account’s 
     $this->travel(2)->days();
     $this->artisan('traffic:settle-visits')->assertSuccessful();
     expect(TrafficConversion::query()->where('event', TrafficEvent::Settled)->count())->toBe(1);
+});
+
+it('never tells a network of a sign-in to an existing account, nor of the visit settling after it, however it is priced', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}', 'enabled' => true]);
+    $priced = TrafficPriceSet::factory()->create(['login_price' => '0.4']);
+    $visit = paidClick($this->source, ['price_set_id' => $priced->id, 'arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+
+    app(RecordAccountLoginAction::class)->handle(User::factory()->create(), $visit->visitor_hash, now()->subHour()->toImmutable());
+
+    // A sign-in is no event a network can be told of: no conversion, and the visit is worth its price.
+    expect(TrafficConversion::query()->count())->toBe(0)
+        ->and($visit->fresh()->value_real)->toBe('0.40000000');
+
+    app(MarkTrafficVisitAction::class)->handle($visit->id, TrafficEvent::Started, now()->subMinutes(50)->toImmutable());
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+    $settled = TrafficConversion::query()->where('event', TrafficEvent::Settled)->sole();
+
+    expect($settled->step)->toBe('login')
+        ->and((string) $settled->value)->toStartWith('0.4')
+        ->and($settled->postback_skip)->toBe(TrafficPostbackSkip::KnownVisitor)
+        ->and(TrafficConversion::query()->where('event', TrafficEvent::Started)->sole()->postback_skip)->toBe(TrafficPostbackSkip::KnownVisitor)
+        ->and(TrafficPostback::query()->count())->toBe(0);
 });
 
 it('tells the network only of settled visits that got as far as the rule asks', function () {

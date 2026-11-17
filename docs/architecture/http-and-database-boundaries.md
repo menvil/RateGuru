@@ -95,7 +95,9 @@ The reviewed boundaries are:
   accounts, per game, source, channel, device, country and rounds answered.
 - `TrafficReportQuery` for the traffic reports: conditional sums and counts of
   a period's visits per level of the tree, site or zone, campaign, stage and a
-  game's versions, ordered by the accounts they brought.
+  game's versions, ordered by the accounts they brought; and their sign-ups —
+  confirmed, never confirmed or still waiting against a bound cutoff, and how
+  soon confirmed — per dimension, only groups with a sign-up, the most first.
 - `TrafficSpendQuery` for reconciling spend: the sums of the visits' prices and
   counted spend and of the day's figures by origin, and the spend no visit took.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a

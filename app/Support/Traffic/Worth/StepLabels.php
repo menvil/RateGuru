@@ -34,7 +34,7 @@ final class StepLabels
         'feed_voted' => ['Voted in the feed', '3 votes in the feed within 30 minutes of the game', 'list-checks'],
         'signup' => ['Signed up', 'Signed up on any page within 7 days of the play, email not confirmed yet', 'user-plus'],
         'account' => ['Account confirmed', 'Email confirmed, or Google or Facebook', 'user'],
-        'login' => ['Existing account signed in', 'Already had an account', 'log-in'],
+        'login' => ['Existing account signed in', 'Already had an account and signed in after the click — not a new user', 'log-in'],
     ];
 
     public static function name(string $step, int $rounds): string

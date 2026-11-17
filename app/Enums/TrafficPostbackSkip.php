@@ -16,7 +16,7 @@ enum TrafficPostbackSkip: string
     public function label(): string
     {
         return match ($this) {
-            self::KnownVisitor => 'A known visitor: worth nothing new',
+            self::KnownVisitor => 'A known visitor: not a new user',
             self::SourceInactive => 'The source is paused or ended',
             self::NoClickId => 'No click ID to report',
             self::WindowClosed => 'After the source’s window',

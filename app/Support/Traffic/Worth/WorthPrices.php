@@ -9,7 +9,9 @@ use Brick\Math\RoundingMode;
 /**
  * What a confirmed account is worth to the site, from the prices of a set:
  * the account itself, plus its first post and its return on another day by
- * how often accounts do them, times the share its country group is worth.
+ * how often accounts do them, times the share its country group is worth;
+ * and what a sign-in to an account the visitor already had is worth, its own
+ * price times that share.
  */
 final readonly class WorthPrices
 {
@@ -17,6 +19,7 @@ final readonly class WorthPrices
         public string $accountPrice,
         public string $postBonus,
         public string $returnedBonus,
+        public string $loginPrice,
     ) {}
 
     /** A: what an account from a group of this percent is expected to be worth. */
@@ -37,6 +40,12 @@ final readonly class WorthPrices
         $sum = $returned ? $sum->plus(TrafficMoney::of($this->returnedBonus)) : $sum;
 
         return $sum->multipliedBy($percent)->dividedBy(100, TrafficMoney::SCALE, RoundingMode::HalfUp);
+    }
+
+    /** What a sign-in to an existing account from a group of this percent is worth. */
+    public function login(int $percent): BigDecimal
+    {
+        return TrafficMoney::of($this->loginPrice)->multipliedBy($percent)->dividedBy(100, TrafficMoney::SCALE, RoundingMode::HalfUp);
     }
 
     private static function rate(float $rate): BigDecimal

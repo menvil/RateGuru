@@ -20,8 +20,8 @@ use Illuminate\Validation\ValidationException;
  * The administrator's own value for a step of a game — always, or only while
  * the data behind the step is thin — or its removal. It counts from the next
  * postback at once, with no new version; the visits still open take it on
- * the next night. An account and a sign-in have no value to set: the
- * account's is its price, a sign-in's nothing.
+ * the next night. An account and a sign-in have no value to set here: both
+ * are priced once for the whole site, on Traffic sources → Value.
  */
 final class SetTrafficStepValueAction
 {

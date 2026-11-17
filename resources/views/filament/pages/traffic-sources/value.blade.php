@@ -1,11 +1,12 @@
 {{--
-    Value, as the reference draws it: the prices of the outcomes — saved as a
-    new set, so earlier visits keep theirs — with how often each came and
-    what an account brings on average; accounts by source against each
-    source's target; who counts as new; the country groups, their countries
-    as chips, their share of visitors and what a finished game is worth in
-    each. Beside them: what a new visitor is worth, step by step; how the
-    chances are worked out; the history of the prices.
+    Value, as the reference draws it: the prices of the outcomes — the
+    account, its bonuses and a sign-in to an account the visitor already had,
+    saved as a new set, so earlier visits keep theirs — with how often each
+    came and what an account brings on average; accounts by source against
+    each source's target; who counts as new; the country groups, their
+    countries as chips, their share of visitors and what a finished game is
+    worth in each. Beside them: what a new visitor is worth, step by step; how
+    the chances are worked out; the history of the prices.
 --}}
 @php
     $fine = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::fine($amount);
@@ -27,6 +28,7 @@
                     ['account_price', 'Account confirmed', 'A new account, signed up on any page within the source’s window after the click and confirmed', 'user-plus', number_format($outcomes['accounts']).' accounts', 'new users, confirmed', '$', false],
                     ['post_bonus', 'Published a post', 'Their first post goes live within 30 days of signing up', 'newspaper', number_format($outcomes['posted']), $share($outcomes['accounts'] > 0 ? $outcomes['posted'] / $outcomes['accounts'] : null).' of accounts', '+$', true],
                     ['returned_bonus', 'Came back', 'Back on another day within 7 days of signing up', 'rotate-ccw', number_format($outcomes['returned']), $share($outcomes['accounts'] > 0 ? $outcomes['returned'] / $outcomes['accounts'] : null).' of accounts', '+$', true],
+                    ['login_price', 'Existing account signed in', 'Already had an account and signed in after the click — not a new user; times the country group’s worth, like an account', 'log-in', number_format($outcomes['logins']).' '.($outcomes['logins'] === 1 ? 'sign-in' : 'sign-ins'), 'known visitors, not new', '$', false],
                 ] as [$field, $name, $note, $icon, $count, $countNote, $prefix, $bonus])
                     <div class="rg-admin-traffic__outcome">
                         <span class="rg-admin-games__value-step">
@@ -104,10 +106,10 @@
         <section class="rg-admin-games__value-card" data-testid="traffic-value-who">
             <header class="rg-admin-games__value-card-head">
                 <h3 class="rg-admin-games__value-card-title">Who counts <span class="rg-admin-games__value-tag">New visitors only</span></h3>
-                <p class="rg-admin-games__note">A visitor RateGuru already knows is worth $0: logged in, signed in on that browser before, or with an email, Google or Facebook account we already have. Their plays show in game analytics as engagement, not as new users. Signing in from a play is not a new account.</p>
+                <p class="rg-admin-games__note">A visitor RateGuru already knows as they come is worth $0: logged in, or signed in on that browser before. One who signs in to an email, Google or Facebook account we already have is no new account either: they are worth the price of an existing account signed in, set above, times their country group’s worth. Their plays show in game analytics as engagement, not as new users.</p>
             </header>
             <div class="rg-admin-traffic__who">
-                <div><span class="rg-admin-games__note">Known visitors</span><strong>{{ number_format($who['known']) }}</strong><span class="rg-admin-games__note">{{ $share($who['knownShare']) }} of everyone who opened a game · worth $0</span></div>
+                <div><span class="rg-admin-games__note">Known visitors</span><strong>{{ number_format($who['known']) }}</strong><span class="rg-admin-games__note">{{ $share($who['knownShare']) }} of everyone who opened a game · worth $0 unless they signed in</span></div>
                 <div><span class="rg-admin-games__note">Paid clicks on known visitors</span><strong>{{ number_format($who['paidKnown']) }}</strong><span class="rg-admin-games__note">{{ $money($who['paidKnownSpend']) }} spent on people we had already · no postbacks sent</span></div>
                 <div><span class="rg-admin-games__note">From inside RateGuru</span><strong>{{ $share($who['internalKnown']) }}</strong><span class="rg-admin-games__note">of visitors from the feed and post pages are known, so that traffic is mostly engagement</span></div>
             </div>
@@ -117,7 +119,7 @@
             <header class="rg-admin-traffic__perf-head">
                 <div class="rg-admin-games__value-card-head">
                     <h3 class="rg-admin-games__value-card-title">Country groups <span class="rg-admin-games__value-tag">Every game</span></h3>
-                    <p class="rg-admin-games__note">Chances are worked out per group, since one country rarely has enough accounts. The worth says what an account from a group brings against a full one — it starts at 100%, 60% and 30% — for example as ads pay differently by country.</p>
+                    <p class="rg-admin-games__note">Chances are worked out per group, since one country rarely has enough accounts. The worth says what an account, or a sign-in, from a group brings against a full one — it starts at 100%, 60% and 30% — for example as ads pay differently by country.</p>
                 </div>
                 <x-admin.ui.button size="sm" icon="plus" wire:click="addGroup">Add a group</x-admin.ui.button>
             </header>

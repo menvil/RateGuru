@@ -39,7 +39,8 @@ click whose window had closed is told the account came late. The account counts
 once confirmed (`ConfirmAccountAttributionAction`): an email confirmed, a claim
 with a confirmed address, signing up through Google or Facebook, or linking one
 later. Unconfirmed accounts are purged after 7 days and never count. Signing in
-to an existing account marks the visit known and reaches the goal "Account
+to an existing account marks the visit known — unless it brought an account or
+was a known visitor's already as it came — and reaches the goal "Account
 confirmed". A first post within 30 days and a return on another day are the
 account's bonuses.
 
@@ -60,15 +61,20 @@ step ends up a confirmed account, for every slice of game, source or channel,
 device and country group, each shrunk towards the slice above while it has fewer
 than 30 accounts: `p = (x + 30) / (n + 30 / p0)`. A step is worth that chance
 times what an account is worth — its price plus its bonuses by how often they
-happen, times its country group's share (`StepWorth`). Known visitors and
-sign-ins are worth nothing; a value set by hand on a game's Value tab counts
-always or while the data is thin. Prices and country groups are immutable sets:
-every visit keeps the set it arrived under, so a price change never recounts the
-past. A visit's worth so far and still to come (`VisitValue`) is kept on the
-visit and brought up to date nightly. The starting set prices an account $0.50,
-a first post $1 more and a return $0.20 more, and counts Tier 1 at 100 %,
-Tier 2 at 60 % and every other country — a visit whose country isn't known
-among them — at 30 %.
+happen, times its country group's share (`StepWorth`). A sign-in to an account
+the visitor already had is an outcome priced on its own: the sign-in price
+times the group's share is what the visit is worth so far, and nothing more is
+expected of it; it never enters the chances and is never told to a network, the
+visitor being a known one. Other known visitors are worth nothing; a value set
+by hand on a game's Value tab counts always or while the data is thin — never
+for the account or a sign-in, which are priced once for the whole site. Prices
+and country groups are immutable sets: every visit keeps the set it arrived
+under, so a price change never recounts the past. A visit's worth so far and
+still to come (`VisitValue`) is kept on the visit and brought up to date
+nightly. The starting set prices an account $0.50, a first post $1 more, a
+return $0.20 more and a sign-in $0, and counts Tier 1 at 100 %, Tier 2 at 60 %
+and every other country — a visit whose country isn't known among them — at
+30 %.
 
 ## Conversions
 
@@ -92,7 +98,8 @@ after the click, whichever comes first (`config/traffic.php`, `settle`). The
 account settles it in the same transaction; `traffic:settle-visits` settles the
 rest every minute, at the moment each came to rest, and leaves alone a visit
 older than twice the settle hours. A settled visit is worth the best step it
-reached — the account's worth once it has one — which is also what
+reached — the account's worth once it has one, a sign-in's once its visitor
+signed in, though a known visitor's is never told — which is also what
 `{value_total}` says. A Visit settled rule can ask for a visit that got at least
 to a step (started, halfway, finished, the flow's goal, an account; a step
 higher up the list, an account above all, meets it too): a network
@@ -158,6 +165,16 @@ daily cap.
 network days — conditional sums only, every value bound, every column named by
 `TrafficDimension`. `ReportTree` draws a level as its ten biggest groups and the
 rest; `TwoProportionTest` compares a game's two best versions on paid traffic.
+
+Sign-ups are read from the visits too (`SignupFigures`), since a purged
+unconfirmed account takes its attribution and its plays with it: signed up,
+confirmed, never confirmed — signed up at or before
+`UnconfirmedAccountsQuery::cutoff()`, bound — and still waiting after it, and
+how long after the sign-up the confirmation came, from the two `*_after_seconds`
+columns. How accounts come and Sign-ups and confirmation share one definition:
+the card's total is the summary's sum, its paid part How accounts come's. A
+game's Analytics tab counts its anonymous sign-ups the same way from the game's
+visits.
 
 ## Retention
 

@@ -15,8 +15,9 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Sets what an account is worth to the site — the account, its first post,
- * its return on another day — or the country groups and the share of that
- * price each is worth. Either way a new set of prices: a set is never
+ * its return on another day — and what a sign-in to an account the visitor
+ * already had is worth, or the country groups and the share of those prices
+ * each is worth. Either way a new set of prices: a set is never
  * changed, every visit keeps the set it arrived under, and postbacks already
  * sent keep what they said. The editor names the set it was drawn from, and
  * a set saved since refuses the change.
@@ -28,23 +29,24 @@ final class SaveTrafficPricesAction
     public const int MOST_GROUPS = 8;
 
     /**
-     * @param  array{account_price: mixed, post_bonus: mixed, returned_bonus: mixed}  $prices
+     * @param  array{account_price: mixed, post_bonus: mixed, returned_bonus: mixed, login_price: mixed}  $prices
      *
      * @throws CannotManageTrafficException|ValidationException
      */
     public function prices(User $admin, array $prices, int $drawnFrom): TrafficPriceSet
     {
         $money = ['required', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000'];
-        Validator::make($prices, ['account_price' => $money, 'post_bonus' => $money, 'returned_bonus' => $money], [], [
-            'account_price' => 'price of an account', 'post_bonus' => 'first post bonus', 'returned_bonus' => 'return bonus',
+        Validator::make($prices, ['account_price' => $money, 'post_bonus' => $money, 'returned_bonus' => $money, 'login_price' => $money], [], [
+            'account_price' => 'price of an account', 'post_bonus' => 'first post bonus', 'returned_bonus' => 'return bonus', 'login_price' => 'price of a sign-in',
         ])->validate();
 
         return $this->save($admin, $drawnFrom, fn (TrafficPriceSet $current): array => [
             'account_price' => TrafficMoney::stored($prices['account_price'], 4),
             'post_bonus' => TrafficMoney::stored($prices['post_bonus'], 4),
             'returned_bonus' => TrafficMoney::stored($prices['returned_bonus'], 4),
+            'login_price' => TrafficMoney::stored($prices['login_price'], 4),
             'country_groups' => $current->country_groups,
-            'summary' => 'Prices: account '.TrafficMoney::format($prices['account_price']).', first post '.TrafficMoney::format($prices['post_bonus']).', return '.TrafficMoney::format($prices['returned_bonus']),
+            'summary' => 'Prices: account '.TrafficMoney::format($prices['account_price']).', first post '.TrafficMoney::format($prices['post_bonus']).', return '.TrafficMoney::format($prices['returned_bonus']).', existing account signed in '.TrafficMoney::format($prices['login_price']),
         ]);
     }
 
@@ -94,6 +96,7 @@ final class SaveTrafficPricesAction
             'account_price' => $current->account_price,
             'post_bonus' => $current->post_bonus,
             'returned_bonus' => $current->returned_bonus,
+            'login_price' => $current->login_price,
             'country_groups' => $clean,
             'summary' => 'Country groups: '.implode(', ', array_map(fn (array $group): string => $group['name'].' '.$group['percent'].'%', $clean)),
         ]);

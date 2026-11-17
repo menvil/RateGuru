@@ -18,10 +18,11 @@ use Illuminate\Support\Facades\DB;
 /**
  * Somebody signs in to an account they already had. The browser is theirs
  * from now on; the visit it is on, unless it is the one their own new
- * account was credited to, turns out to be a known visitor's — it brings no
- * account and is worth nothing. A game they finished in this browser within
- * 7 days reaches the goal "Account confirmed" when the account is: an
- * existing account counts for it, not for "New accounts only".
+ * account was credited to or a known visitor's already, turns out to be a
+ * known visitor's — it brings no account, and is worth the price of a
+ * sign-in (MarkTrafficVisitAction works it out). A game they finished in
+ * this browser within 7 days reaches the goal "Account confirmed" when the
+ * account is: an existing account counts for it, not for "New accounts only".
  */
 final class RecordAccountLoginAction
 {
@@ -47,7 +48,8 @@ final class RecordAccountLoginAction
             $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latest($browserHash, $now->subDay());
 
             // A visit that brought an account — this one's or another's on the same browser — stays that account's: a sign-in doesn't make it a known visitor's.
-            if ($visit !== null && $visit->signup_at === null && $visit->account_at === null
+            // One known as it came stays known for its own reason: its visitor was never new, and signing in again is worth nothing.
+            if ($visit !== null && ! $visit->known && $visit->signup_at === null && $visit->account_at === null
                 && ! AccountAttribution::query()->where('credited_visit_id', $visit->id)->exists()) {
                 $this->marks->handle((int) $visit->id, TrafficEvent::Login, $now, ['known' => true, 'known_reason' => TrafficKnownReason::Login->value]);
             }

@@ -38,9 +38,9 @@ it('marks an outdated translation, filters to it, and makes it current when it i
     $missing = $page->script("(() => { const data = Alpine.\$data(document.querySelector('.rg-admin-translation-center')); return data.missing })()");
 
     expect(translationRowState($page, $this->stale))->toMatchArray([
-        'state' => ['English changed'], 'note' => 'Made from older English. Visitors see it until you save.', 'value' => 'Willkommen', 'canSave' => true, 'discard' => false,
+        'state' => ['English changed · update'], 'note' => 'Made from older English. Visitors see it until you save.', 'value' => 'Willkommen', 'canSave' => true, 'discard' => false,
     ])
-        ->and(translatedFromInPage($page, $this->stale))->toBe('TRANSLATED FROM Welcome')
+        ->and(translatedFromInPage($page, $this->stale))->toBe('TRANSLATED FROM THE OLD ENGLISH Welcome')
         ->and(translationScreen($page)['stats'])->toContain('NEEDS UPDATE 1')
         ->and(generateLabelInPage($page))->toBe("Generate missing ({$missing}) & outdated (1)");
 
@@ -74,7 +74,7 @@ it('keeps an outdated row in Needs update while it is edited, the English it was
 
     expect(translationScreen($page)['rows'])->toBe([$this->stale])
         ->and(translationRowState($page, $this->stale))->toMatchArray(['state' => ['Edited · not saved'], 'note' => 'Saved version is kept until you save'])
-        ->and(translatedFromInPage($page, $this->stale))->toBe('TRANSLATED FROM Welcome');
+        ->and(translatedFromInPage($page, $this->stale))->toBe('TRANSLATED FROM THE OLD ENGLISH Welcome');
 });
 
 it('generates a suggestion for an outdated translation in the background, which replaces it once saved', function () {

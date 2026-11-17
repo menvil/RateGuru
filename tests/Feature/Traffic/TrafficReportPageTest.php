@@ -2,6 +2,7 @@
 
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficKnownReason;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficBlock;
@@ -203,11 +204,17 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
 it('lays out Value: outcome prices with what an account brings, accounts by source against a target, who counts, and country groups with their countries', function () {
     // Four accounts, each worth an account at a full share: what they brought is measured, not assumed.
     siteClicks($this->source, '40123', 4, 4, ['account_at' => now(), 'spend' => '0.25', 'value_real' => '0.5']);
+    // Two sign-ins to accounts the visitors already had: worth their price, but no part of what an account brings.
+    siteClicks($this->source, '40123', 2, 2, ['known' => true, 'known_reason' => TrafficKnownReason::Login, 'login_at' => now(), 'value_real' => '0.3']);
 
     $page = Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)->call('load')
         ->assertSet('prices.account_price', '0.50')
+        ->assertSet('prices.login_price', '0.00')
         ->assertSee('What a new user is worth')
+        ->assertSeeInOrder(['Existing account signed in', 'signed in after the click', '2 sign-ins'])
         ->assertSee('An account brings on average')
+        ->assertViewHas('accountBrings', '0.50000000')
+        ->assertViewHas('outcomes', fn (array $outcomes): bool => $outcomes['logins'] === 2)
         ->assertSee('Accounts by source')
         ->assertSee('PopAds main')
         ->assertSee('below its worth')
@@ -278,4 +285,73 @@ it('lays out Logs: postbacks first, with the milestone, the click, the exact req
         ->assertSee('Resend')
         ->set('logFilter', 'failed')->assertSee('tag-81442')
         ->set('log', 'clicks')->assertSee('/games/x');
+});
+
+it('shows sign-ups and confirmation by the dimension chosen, ten rows and the rest in one, with the paid part How accounts come counts', function () {
+    $signedUp = ['arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'signup_at' => '2026-11-16 10:05:00', 'signup_method' => 'email'];
+
+    // Twelve zones of the network, zone 700nn signing up nn visitors, every one confirmed within ten minutes.
+    foreach (range(1, 12) as $zone) {
+        TrafficVisit::factory()->count($zone)->create(['source_id' => $this->source->id, 'zone_ref' => (string) (70000 + $zone), ...$signedUp, 'account_at' => '2026-11-16 10:08:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 480]);
+    }
+    // Two email sign-ups more than a week ago that never confirmed, and one of yesterday still waiting.
+    TrafficVisit::factory()->count(2)->create(['source_id' => $this->source->id, 'zone_ref' => '70001', ...$signedUp, 'arrived_at' => '2026-11-08 10:00:00', 'network_day' => '2026-11-08', 'signup_at' => '2026-11-08 10:05:00']);
+    TrafficVisit::factory()->create(['source_id' => $this->source->id, 'zone_ref' => '70001', ...$signedUp]);
+    // Unpaid sign-ups: How accounts come leaves them out, the card does not.
+    TrafficVisit::factory()->unpaid(TrafficChannel::Direct)->count(13)->create([...$signedUp, 'signup_method' => 'google', 'account_at' => '2026-11-16 10:05:00', 'signup_after_seconds' => 300, 'account_after_seconds' => 300]);
+
+    $page = Livewire::test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Sign-ups and confirmation')
+        ->assertSeeInOrder(['How accounts come', 'Never confirmed: signed up over 7 days ago, removed, never counted', '2', 'Still waiting: signed up in the last 7 days, not confirmed yet', '1'])
+        ->assertSeeInOrder(['Sign-ups and confirmation', 'PopAds main', 'Ad network', 'Direct', 'Unpaid', 'Total', 'Of it paid traffic', 'What How accounts come counts']);
+    $card = $page->viewData('signups');
+
+    // The card's total is every type of traffic; its paid part is How accounts come's own figures.
+    expect($card['total'])->signedUp->toBe(94)->confirmed->toBe(91)->neverConfirmed->toBe(2)->waiting->toBe(1)
+        ->and($card['paid'])->toEqual($page->viewData('paidSignups'))
+        ->and($card['paid'])->signedUp->toBe(81)->confirmed->toBe(78)
+        ->and(collect($card['rows'])->pluck('label')->all())->toBe(['PopAds main', 'Direct']);
+
+    $page->call('$set', 'signupsBy', 'zone')->assertSet('signupsBy', 'zone')
+        ->assertSee('zone 70012')
+        ->assertSee('+ 3 more zones')
+        ->assertSee('Find in Sites &amp; zones', false);
+    $card = $page->viewData('signups');
+
+    // The ten rows with the most sign-ups — unpaid traffic has no zone, so it is one — then the rest in one row, adding up to the total.
+    expect(collect($card['rows'])->pluck('label')->all())->toBe(['Unpaid traffic', 'zone 70012', 'zone 70011', 'zone 70010', 'zone 70009', 'zone 70008', 'zone 70007', 'zone 70006', 'zone 70005', 'zone 70004'])
+        ->and($card['rows'][0]['find'])->toBeNull()
+        ->and($card['rows'][1])->toMatchArray(['sub' => 'PopAds main', 'mono' => true, 'find' => ['source' => $this->source->id, 'level' => 'zone', 'ref' => '70012']])
+        ->and($card['rest']['count'])->toBe(3)
+        ->and($card['rest']['figures'])->signedUp->toBe(4 + 3 + 2)->confirmed->toBe(1 + 3 + 2)->neverConfirmed->toBe(2)->waiting->toBe(1)
+        ->and(collect($card['rows'])->reduce(fn ($sum, array $row) => $sum->plus($row['figures']), $card['rest']['figures']))->toEqual($card['total']);
+
+    // A zone's row opens it in Sites & zones, where it is blocked — shown however few clicks it has.
+    $page->set('minClicks', 100)
+        ->call('listSites', $this->source->id, 'zone', '70012')
+        ->assertSet('reportView', 'sites')
+        ->assertSet('listBy', 'zone')
+        ->assertSet('q', '70012')
+        ->assertSet('minClicks', 0);
+});
+
+it('keeps the sign-ups dimension in the address, and splits by method and by where they signed up', function () {
+    TrafficVisit::factory()->create(['source_id' => $this->source->id, 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'signup_at' => '2026-11-16 10:05:00', 'signup_method' => 'facebook', 'signup_place' => 'feed', 'account_at' => '2026-11-16 10:05:00']);
+
+    $labels = fn (array $query): array => collect(Livewire::withQueryParams($query)->test(TrafficSourcesPage::class)->call('load')->viewData('signups')['rows'])->pluck('label')->all();
+
+    expect($labels(['signups' => 'signup_method']))->toBe(['Facebook'])
+        ->and($labels(['signups' => 'signup_place']))->toBe(['In the feed'])
+        ->and($labels(['signups' => 'device']))->toBe(['Mobile'])
+        ->and($labels(['signups' => 'campaign']))->toBe(['No campaign']);
+
+    Livewire::withQueryParams(['signups' => 'nonsense'])->test(TrafficSourcesPage::class)->assertSet('signupsBy', 'source');
+});
+
+it('says so when nobody signed up on the filters', function () {
+    siteClicks($this->source, '40123', 3, 3);
+
+    Livewire::test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('No sign-ups on these filters')
+        ->assertDontSee('data-testid="traffic-signups-paid"', false);
 });

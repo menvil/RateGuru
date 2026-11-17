@@ -2,10 +2,12 @@
 
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficStepValueMode;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameValue;
 use App\Models\ProjectSettings;
 use App\Models\TrafficPostbackRule;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepValue;
 use App\Models\TrafficVisit;
@@ -73,13 +75,35 @@ it('sets a step’s value by hand in place, and goes back to the worked-out valu
     expect(TrafficStepValue::query()->count())->toBe(0);
 });
 
-it('never opens the account or a sign-in for setting by hand', function () {
+it('never opens the account or a sign-in for setting by hand, and links both to the prices of the whole site', function () {
     Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
         ->call('editStep', 'account')
         ->assertSet('editing', null)
         ->call('editStep', 'login')
         ->assertSet('editing', null)
-        ->assertDontSeeHtml('data-testid="game-value-edit-account"');
+        ->assertDontSeeHtml('data-testid="game-value-edit-account"')
+        ->assertDontSeeHtml('data-testid="game-value-edit-login"');
+
+    $prices = e(TrafficSourcesPage::getUrl(['tab' => 'value']));
+
+    $this->get(GameResource::getUrl('value', ['record' => $this->draft['game']]))
+        ->assertOk()
+        ->assertSeeHtmlInOrder(['data-testid="game-value-account"', 'href="'.$prices.'"', 'Set for the whole site', 'data-testid="game-value-login"', 'href="'.$prices.'"', 'Set for the whole site'])
+        // A step settable here has no such link.
+        ->assertDontSeeHtml('data-testid="game-value-site-started"');
+});
+
+it('shows what a sign-in to an existing account is worth, at the price of the whole site and the country group’s share', function () {
+    TrafficPriceSet::factory()->create(['login_price' => '0.4', 'country_groups' => [
+        ['key' => 't1', 'name' => 'Tier 1', 'percent' => 100, 'countries' => ['US']],
+        ['key' => 'rest', 'name' => 'Every other country', 'percent' => 30, 'countries' => []],
+    ]]);
+
+    Livewire::test(GameValue::class, ['record' => $this->draft['game']->id])
+        ->assertSeeHtmlInOrder(['data-testid="game-value-login"', 'Existing account signed in', 'signed in after the click', '$0.400'])
+        ->assertViewHas('rows', fn (array $rows): bool => collect($rows['accounts'])->firstWhere('step', 'login')['worth'] === '0.40000000')
+        ->set('group', 'rest')
+        ->assertViewHas('rows', fn (array $rows): bool => collect($rows['accounts'])->firstWhere('step', 'login')['worth'] === '0.12000000');
 });
 
 it('shows the game’s sources, its paid traffic and the postbacks that send its steps', function () {

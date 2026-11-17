@@ -134,7 +134,7 @@ parameters:
             -
                 class: App\Queries\Traffic\TrafficReportQuery
                 methods: [selectRaw, havingRaw, orderByRaw]
-                reason: 'Traffic reports need conditional sums and counts of the visits of a period — per level of the tree, site or zone, campaign, stage and a game''s versions — ordered by the accounts they brought, without hydrating up to millions of visit rows; every value is bound and every column comes from TrafficDimension.'
+                reason: 'Traffic reports need conditional sums and counts of the visits of a period — per level of the tree, site or zone, campaign, stage and a game''s versions, and their sign-ups per dimension against a bound cutoff — ordered by the accounts or sign-ups they brought, without hydrating up to millions of visit rows; every value is bound and every column comes from TrafficDimension.'
                 bindings: required
                 behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
                 status: approved

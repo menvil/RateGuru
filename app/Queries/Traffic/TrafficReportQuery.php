@@ -5,11 +5,15 @@ namespace App\Queries\Traffic;
 use App\Contracts\Persistence\RawSqlPersistenceBoundary;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDimension;
+use App\Enums\TrafficKnownReason;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficVisit;
+use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -17,8 +21,14 @@ use Illuminate\Database\Eloquent\Builder;
  * (docs/architecture/traffic.md, "Reports"): conditional sums and counts
  * with every value bound and every column named by TrafficDimension, never
  * arithmetic on dates or a branch per engine. A level of the tree, the
- * sites and zones of the networks, the campaigns and their stages, and a
- * game's paid traffic — each one pass over the period's visits.
+ * sites and zones of the networks, the campaigns and their stages, the
+ * sign-ups and whether they were confirmed, and a game's paid traffic and
+ * sign-ups — each one pass over the period's visits.
+ *
+ * A sign-up not confirmed is never confirmed once its account's window to
+ * confirm has closed — the account is removed then, with everything it did
+ * — and still waiting before; the moment the window closed for sign-ups is
+ * bound, as UnconfirmedAccountsQuery::cutoff() gives it.
  */
 final class TrafficReportQuery implements RawSqlPersistenceBoundary
 {
@@ -26,16 +36,17 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
 
     /**
      * The whole period by device and type of traffic, with how the accounts
-     * came: what the tiles, Mobile and desktop and How accounts come add up.
+     * came and the sign-ups: what the tiles, Mobile and desktop, How
+     * accounts come and the totals of Sign-ups and confirmation add up.
      *
-     * @return list<array{device: string, channel: string, figures: ReportFigures, path: array<string, int>}>
+     * @return list<array{device: string, channel: string, figures: ReportFigures, signups: SignupFigures, path: array<string, int>}>
      */
-    public function summary(TrafficReportFilter $filter): array
+    public function summary(TrafficReportFilter $filter, ?CarbonInterface $unconfirmedBefore = null): array
     {
         [$metrics, $bindings] = self::metrics();
+        [$signups, $signupBindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
         $path = [
             'SUM(CASE WHEN signup_form_at IS NOT NULL THEN 1 ELSE 0 END) AS signup_form',
-            'SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) AS signup',
             'SUM(CASE WHEN login_at IS NOT NULL THEN 1 ELSE 0 END) AS login',
             'SUM(CASE WHEN late_signup_at IS NOT NULL THEN 1 ELSE 0 END) AS late',
             'SUM(CASE WHEN account_at IS NOT NULL AND signup_place = ? THEN 1 ELSE 0 END) AS place_game',
@@ -50,15 +61,42 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
         return $this->visits($filter)
             ->groupBy('device', 'channel')
             ->select('device', 'channel')
-            ->selectRaw(implode(', ', [$metrics, ...$path]), [...$bindings, 'game', 'post', 'feed', 'other', 600, 3600, 86400])
+            ->selectRaw(implode(', ', [$metrics, $signups, ...$path]), [...$bindings, ...$signupBindings, 'game', 'post', 'feed', 'other', 600, 3600, 86400])
             ->toBase()
             ->get()
             ->map(fn (object $row): array => [
                 'device' => (string) $row->device,
                 'channel' => (string) $row->channel,
                 'figures' => ReportFigures::fromRow($row),
-                'path' => array_map('intval', array_intersect_key((array) $row, array_flip(['signup_form', 'signup', 'login', 'late', 'place_game', 'place_post', 'place_feed', 'place_other', 'within_10_minutes', 'within_an_hour', 'within_a_day']))),
+                'signups' => SignupFigures::fromRow($row),
+                'path' => array_map('intval', array_intersect_key((array) $row, array_flip(['signup_form', 'login', 'late', 'place_game', 'place_post', 'place_feed', 'place_other', 'within_10_minutes', 'within_an_hour', 'within_a_day']))),
             ])
+            ->all();
+    }
+
+    /**
+     * The sign-ups of the visits on the filters split by a dimension, the
+     * most first — then the most confirmed — at most 2 000 groups, and only
+     * groups with a sign-up.
+     *
+     * @return list<array{keys: array<string, int|string|null>, figures: SignupFigures}>
+     */
+    public function signups(TrafficReportFilter $filter, TrafficDimension $dimension, ?CarbonInterface $unconfirmedBefore = null): array
+    {
+        [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
+        $columns = $dimension->columns();
+
+        return $this->visits($filter)
+            ->groupBy(...$columns)
+            ->select(...$columns)
+            ->selectRaw($signups, $bindings)
+            ->havingRaw('SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) > ?', [0])
+            ->orderByRaw('SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) DESC, SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) DESC', [])
+            ->orderBy($columns[0])
+            ->limit(self::MOST_GROUPS)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => ['keys' => array_intersect_key((array) $row, array_flip($columns)), 'figures' => SignupFigures::fromRow($row)])
             ->all();
     }
 
@@ -231,6 +269,31 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->all();
     }
 
+    /**
+     * The sign-ups of a game's visits since a moment and before another — of
+     * one version when one is named — and how many visits there were: the
+     * sign-ups the game's own figures lose once an account that never
+     * confirmed is removed.
+     *
+     * @return array{visits: int, figures: SignupFigures}
+     */
+    public function gameSignups(int $gameId, CarbonImmutable $since, CarbonImmutable $until, ?int $versionId = null, ?CarbonInterface $unconfirmedBefore = null): array
+    {
+        [$signups, $bindings] = self::signupMetrics($unconfirmedBefore ?? UnconfirmedAccountsQuery::cutoff());
+        $row = (array) TrafficVisit::query()
+            ->where('game_id', $gameId)
+            ->where('arrived_at', '>=', $since)
+            ->where('arrived_at', '<', $until)
+            ->when($versionId !== null, fn (Builder $query) => $query->where('version_id', $versionId))
+            // The anonymous visitors' view: a visitor signed in when they came is a logged-in player, not one of them.
+            ->where(fn (Builder $query) => $query->whereNull('known_reason')->orWhere('known_reason', '<>', TrafficKnownReason::SignedIn->value))
+            ->selectRaw('COUNT(*) AS visits, '.$signups, $bindings)
+            ->toBase()
+            ->first();
+
+        return ['visits' => (int) ($row['visits'] ?? 0), 'figures' => SignupFigures::fromRow($row)];
+    }
+
     /** @return Builder<TrafficVisit> */
     private function visits(TrafficReportFilter $filter): Builder
     {
@@ -263,7 +326,31 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             'SUM(CASE WHEN spend_estimated THEN spend ELSE 0 END) AS spend_estimated',
             'SUM(CASE WHEN known THEN spend ELSE 0 END) AS known_spend',
             'SUM(value_real) AS value_real',
+            'SUM(CASE WHEN account_at IS NOT NULL AND NOT known THEN value_real ELSE 0 END) AS value_accounts',
             'SUM(value_expected) AS value_expected',
         ]), []];
+    }
+
+    /**
+     * The sign-up figures of a row, as SQL: signed up, confirmed, never
+     * confirmed — signed up at or before the moment the window closed — and
+     * still waiting, then how long after signing up the confirmed ones
+     * confirmed. That time is the seconds from the click to the confirmation
+     * less those to the sign-up, compared by adding to the sign-up's side so
+     * unsigned columns never go below zero.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private static function signupMetrics(CarbonInterface $unconfirmedBefore): array
+    {
+        return [implode(', ', [
+            'SUM(CASE WHEN signup_at IS NOT NULL THEN 1 ELSE 0 END) AS signed_up',
+            'SUM(CASE WHEN account_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed',
+            'SUM(CASE WHEN signup_at IS NOT NULL AND account_at IS NULL AND signup_at <= ? THEN 1 ELSE 0 END) AS never_confirmed',
+            'SUM(CASE WHEN signup_at IS NOT NULL AND account_at IS NULL AND signup_at > ? THEN 1 ELSE 0 END) AS waiting',
+            'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_10_minutes',
+            'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds > signup_after_seconds + ? AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_hour',
+            'SUM(CASE WHEN account_at IS NOT NULL AND account_after_seconds > signup_after_seconds + ? AND account_after_seconds <= signup_after_seconds + ? THEN 1 ELSE 0 END) AS confirmed_day',
+        ]), [$unconfirmedBefore, $unconfirmedBefore, 600, 600, 3600, 3600, 86400]];
     }
 }

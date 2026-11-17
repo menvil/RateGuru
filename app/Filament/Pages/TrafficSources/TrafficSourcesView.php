@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages\TrafficSources;
 
+use App\Enums\AccountSignupMethod;
+use App\Enums\AccountSignupPlace;
 use App\Enums\GeoEdition;
 use App\Enums\TrafficBlockMethod;
 use App\Enums\TrafficCampaignStatus;
@@ -37,6 +39,7 @@ use App\Queries\Traffic\TrafficLogsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
 use App\Queries\Traffic\TrafficWorthQuery;
+use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
@@ -50,16 +53,17 @@ use App\Support\Traffic\Postbacks\PostbackSchedule;
 use App\Support\Traffic\Postbacks\PostbackTemplate;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\SignupFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Worth\Slice;
 use App\Support\Traffic\Worth\StepLabels;
 use App\Support\Traffic\Worth\StepWorth;
-use App\Support\Traffic\Worth\WorthPrices;
 use BackedEnum;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -85,6 +89,23 @@ final class TrafficSourcesView
         'countries' => ['Countries', ['country', 'source', 'campaign']],
         'games' => ['Games', ['game', 'type', 'source']],
         'versions' => ['Game versions', ['game', 'version', 'source']],
+    ];
+
+    /**
+     * What Sign-ups and confirmation splits its sign-ups by, in order: each
+     * a TrafficDimension, with the name its switch shows.
+     *
+     * @var array<string, string>
+     */
+    public const array SIGNUP_DIMENSIONS = [
+        'source' => 'Source',
+        'campaign' => 'Campaign',
+        'site' => 'Site',
+        'zone' => 'Zone',
+        'country' => 'Country',
+        'device' => 'Device',
+        'signup_method' => 'Sign-up method',
+        'signup_place' => 'Where they signed up',
     ];
 
     /** How many rows a level of the tree shows before the rest fold into one. */
@@ -166,7 +187,8 @@ final class TrafficSourcesView
     /** @return array<string, mixed> */
     private function report(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
-        $summary = $this->reports->summary($filter);
+        $cutoff = UnconfirmedAccountsQuery::cutoff();
+        $summary = $this->reports->summary($filter, $cutoff);
         $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
         // Spend no visit took counts in the totals, but only where nothing narrows the visits to a game, a device, a campaign or unpaid traffic.
         $unallocated = array_intersect_key($filter->where, array_flip(['game_id', 'device', 'campaign_id'])) === [] && ! (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] === null) && ($filter->where['channel'] ?? 'network') === 'network'
@@ -176,13 +198,18 @@ final class TrafficSourcesView
         $total = $sum($summary)->withSpend($extra);
         $paid = $sum(array_filter($summary, fn (array $row): bool => in_array($row['channel'], ['network', 'placement'], true)))->withSpend($extra);
         $byDevice = [];
-        $path = array_fill_keys(['signup_form', 'signup', 'login', 'late', 'place_game', 'place_post', 'place_feed', 'place_other', 'within_10_minutes', 'within_an_hour', 'within_a_day'], 0);
+        $path = array_fill_keys(['signup_form', 'login', 'late', 'place_game', 'place_post', 'place_feed', 'place_other', 'within_10_minutes', 'within_an_hour', 'within_a_day'], 0);
         $paidNew = 0;
+        $signups = new SignupFigures;
+        $paidSignups = new SignupFigures;
 
         foreach ($summary as $row) {
+            $signups = $signups->plus($row['signups']);
+
             if (in_array($row['channel'], ['network', 'placement'], true)) {
                 $byDevice[$row['device']] = isset($byDevice[$row['device']]) ? $byDevice[$row['device']]->plus($row['figures']) : $row['figures'];
                 $paidNew += $row['figures']->newVisitors();
+                $paidSignups = $paidSignups->plus($row['signups']);
 
                 foreach ($row['path'] as $key => $count) {
                     $path[$key] += $count;
@@ -199,12 +226,73 @@ final class TrafficSourcesView
             'paidNew' => $paidNew,
             'byDevice' => $byDevice,
             'accountsPath' => $path,
+            'paidSignups' => $paidSignups,
+            'graceDays' => UnconfirmedAccountsQuery::GRACE_DAYS,
+            'signups' => $this->signupCard($page, $filter, $sources, $labels, $cutoff, $signups, $paidSignups),
             'views' => collect(self::VIEWS)->map(fn (array $view): string => $view[0])->all(),
             'chain' => self::VIEWS[$page->reportView][1] === null ? [] : array_map(fn (string $dimension): string => TrafficDimension::from($dimension)->label(), self::VIEWS[$page->reportView][1]),
             'tree' => $list === null ? $this->tree($page, $filter, $sources, $labels) : [],
             'list' => $list,
             'worthBlocking' => $list['counts']['block'] ?? $this->worthBlocking($filter, $sources),
             'unallocated' => $extra,
+        ];
+    }
+
+    /**
+     * Sign-ups and confirmation: the sign-ups of the visits on the filters by
+     * the dimension chosen, the most first — the ten biggest rows and the
+     * rest in one — and their total, which is How accounts come's own sum
+     * over every type of traffic on the filters; with the paid traffic How
+     * accounts come counts beside it whenever unpaid sign-ups are among them.
+     *
+     * @param  array<string, array<string, string>>  $labels
+     * @return array<string, mixed>
+     */
+    private function signupCard(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources, array $labels, CarbonInterface $cutoff, SignupFigures $total, SignupFigures $paid): array
+    {
+        $dimension = TrafficDimension::from($page->signupsBy);
+        $groups = $total->signedUp === 0 ? [] : $this->reports->signups($filter, $dimension, $cutoff);
+        $shown = array_slice($groups, 0, self::CAP);
+        $shownSum = array_reduce($shown, fn (SignupFigures $sum, array $group): SignupFigures => $sum->plus($group['figures']), new SignupFigures);
+        $byRef = in_array($dimension, [TrafficDimension::Campaign, TrafficDimension::Site, TrafficDimension::Zone], true);
+
+        return [
+            'by' => $page->signupsBy,
+            'dimensions' => self::SIGNUP_DIMENSIONS,
+            'heading' => $dimension->label(),
+            'rows' => array_map(function (array $group) use ($dimension, $byRef, $sources, $labels): array {
+                $keys = $group['keys'];
+                $source = isset($keys['source_id']) ? $sources->firstWhere('id', (int) $keys['source_id']) : null;
+                $ref = $keys[$dimension->columns()[0]] ?? null;
+
+                return [
+                    'key' => md5((string) json_encode($keys)),
+                    // A campaign, site or zone is the ad networks' own: unpaid traffic has none, and is one row.
+                    'label' => $byRef && ($keys['source_id'] ?? null) === null ? 'Unpaid traffic' : $this->nodeLabel($dimension, $keys, $labels),
+                    'sub' => match (true) {
+                        $dimension === TrafficDimension::Source => ($keys['source_id'] ?? null) === null ? 'Unpaid' : TrafficChannel::tryFrom((string) ($keys['channel'] ?? ''))?->label(),
+                        $byRef && ($keys['source_id'] ?? null) !== null => $source->name ?? 'Source #'.$keys['source_id'],
+                        default => null,
+                    },
+                    'mono' => $dimension === TrafficDimension::Site || $dimension === TrafficDimension::Zone,
+                    // A network's site or zone opens in Sites & zones, where it is blocked.
+                    'find' => in_array($dimension, [TrafficDimension::Site, TrafficDimension::Zone], true) && $source?->type === TrafficSourceType::Network && $ref !== null && $ref !== ''
+                        ? ['source' => (int) $source->id, 'level' => $dimension->value, 'ref' => (string) $ref]
+                        : null,
+                    'figures' => $group['figures'],
+                ];
+            }, $shown),
+            'rest' => count($groups) > count($shown) ? ['count' => count($groups) - count($shown), 'figures' => $total->minus($shownSum)] : null,
+            'noun' => match ($dimension) {
+                TrafficDimension::Source => 'sources',
+                TrafficDimension::Campaign => 'campaigns',
+                TrafficDimension::Site => 'sites',
+                TrafficDimension::Zone => 'zones',
+                TrafficDimension::Country => 'countries',
+                default => 'rows',
+            },
+            'total' => $total,
+            'paid' => $paid->signedUp !== $total->signedUp ? $paid : null,
         ];
     }
 
@@ -767,12 +855,13 @@ final class TrafficSourcesView
     }
 
     /**
-     * Value, as the reference draws it: the prices of the outcomes with how
-     * often they came in the period and what an account brings on average;
-     * accounts by source, against each source's target; who counts as new;
-     * the country groups with their share of visitors and what a finished
-     * game is worth in each; what a new visitor is worth, step by step; how
-     * the chances are worked out; and the history of the prices.
+     * Value, as the reference draws it: the prices of the outcomes — the
+     * account, its bonuses, a sign-in to an account a visitor already had —
+     * with how often they came in the period and what an account brings on
+     * average; accounts by source, against each source's target; who counts
+     * as new; the country groups with their share of visitors and what a
+     * finished game is worth in each; what a new visitor is worth, step by
+     * step; how the chances are worked out; and the history of the prices.
      *
      * @return array<string, mixed>
      */
@@ -787,7 +876,7 @@ final class TrafficSourcesView
         $paid = $sum($paidRows);
         $internal = $sum(array_filter($summary, fn (array $row): bool => $row['channel'] === 'internal'));
         $set = TrafficPriceSet::current();
-        $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+        $prices = $set->worth();
         $postRate = isset($site['post_bonus']) ? (float) $site['post_bonus']->chance : ($total->accounts > 0 ? $total->posted / $total->accounts : 0.0);
         $returnRate = isset($site['returned_bonus']) ? (float) $site['returned_bonus']->chance : ($total->accounts > 0 ? $total->returned / $total->accounts : 0.0);
         $groups = collect($set->country_groups);
@@ -795,9 +884,9 @@ final class TrafficSourcesView
         $opened = array_sum(array_map(fn (ReportFigures $f): int => $f->opened, $byGroup));
         // Every group at once, as the period's visitors are spread over them; a full share before any came.
         $mix = $opened === 0 ? 100 : (int) round(array_sum(array_map(fn (string $key, ReportFigures $f): int => $f->opened * (int) ($groups->firstWhere('key', $key)['percent'] ?? 100), array_keys($byGroup), $byGroup)) / $opened);
-        // What the accounts brought, each at its own group's share; for rows with none yet, the mix.
+        // What the accounts brought, each at its own group's share — sign-ins to accounts visitors already had left out; for rows with none yet, the mix.
         $brings = fn (ReportFigures $f): BigDecimal => $f->accounts > 0
-            ? TrafficMoney::of($f->valueReal)->dividedBy($f->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp)
+            ? TrafficMoney::of($f->valueAccounts)->dividedBy($f->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp)
             : $prices->account($postRate, $returnRate, $mix);
         $worth = app(TrafficWorthQuery::class);
         $stepWorth = fn (string $step, ?string $device, ?string $group): string => (string) StepWorth::of(new Slice(device: $device, group: $group), $step, $prices, $group === null ? $mix : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $worth->table($run, new Slice(device: $device, group: $group)))['value'];
@@ -806,7 +895,7 @@ final class TrafficSourcesView
 
         return [
             'run' => $run === null ? null : ['at' => $run->finished_at, 'visits' => $run->visits_scanned, 'accounts' => (int) ($site['opened']->slice_accounts ?? 0)],
-            'outcomes' => ['accounts' => $total->accounts, 'posted' => $total->posted, 'returned' => $total->returned],
+            'outcomes' => ['accounts' => $total->accounts, 'posted' => $total->posted, 'returned' => $total->returned, 'logins' => array_sum(array_map(fn (array $row): int => $row['path']['login'] ?? 0, $summary))],
             'postRate' => $postRate,
             'returnRate' => $returnRate,
             'accountBrings' => (string) $brings($total),
@@ -843,10 +932,10 @@ final class TrafficSourcesView
             'countries' => Countries::all(),
             'visitorWorth' => $stepWorth('opened', null, null),
             'visitorChance' => isset($site['opened']) ? (float) $site['opened']->chance : null,
-            'visitorRows' => collect(['opened' => 'Opened the game', 'started' => 'Started it', 'completed' => 'Finished it', 'email' => 'Left an email', 'signup' => 'Signed up, not confirmed', 'account' => 'Confirmed the account'])
+            'visitorRows' => collect(['opened' => 'Opened the game', 'started' => 'Started it', 'completed' => 'Finished it', 'email' => 'Left an email', 'signup' => 'Signed up, not confirmed', 'account' => 'Confirmed the account', 'login' => 'Signed in, had an account'])
                 ->map(fn (string $label, string $step): array => ['label' => $label, 'mobile' => $stepWorth($step, 'mobile', null), 'desktop' => $stepWorth($step, 'desktop', null)])->values()->all(),
             'priceChanges' => TrafficPriceSet::query()->orderByDesc('id')->limit(5)->get()->map(fn (TrafficPriceSet $priceSet): array => [
-                'summary' => $priceSet->summary ?? 'Account confirmed '.TrafficMoney::brief($priceSet->account_price).', Published a post +'.TrafficMoney::brief($priceSet->post_bonus).', Came back +'.TrafficMoney::brief($priceSet->returned_bonus),
+                'summary' => $priceSet->summary ?? 'Account confirmed '.TrafficMoney::brief($priceSet->account_price).', Published a post +'.TrafficMoney::brief($priceSet->post_bonus).', Came back +'.TrafficMoney::brief($priceSet->returned_bonus).', Existing account signed in '.TrafficMoney::brief($priceSet->login_price),
                 'at' => $priceSet->created_at,
                 'by' => $priceSet->created_by_user_id === null ? 'First prices' : (User::query()->whereKey($priceSet->created_by_user_id)->value('name') ?? 'An administrator'),
             ])->all(),
@@ -1220,6 +1309,8 @@ final class TrafficSourcesView
             'game_id' => self::named(Game::query()->pluck('title', 'id')),
             'version_id' => self::named(GameVersion::query()->pluck('number', 'id')->map(fn ($number): string => 'V'.$number)),
             'country' => Countries::all(),
+            'signup_method' => self::named(collect(AccountSignupMethod::cases())->mapWithKeys(fn (AccountSignupMethod $method): array => [$method->value => $method->label()])),
+            'signup_place' => self::named(collect(AccountSignupPlace::cases())->mapWithKeys(fn (AccountSignupPlace $place): array => [$place->value => $place->label()])),
             'connection' => self::named(collect(TrafficConnectionStatus::cases())->mapWithKeys(fn (TrafficConnectionStatus $status): array => [$status->value => ucfirst(str_replace('_', ' ', $status->value))])),
         ];
     }

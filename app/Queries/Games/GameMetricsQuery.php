@@ -192,16 +192,17 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
 
     /**
      * Per traffic period of the game, the attempts started from an assignment
-     * made in it and how many of those were completed. Periods nobody started
-     * in are absent.
+     * made in it and how many of those were completed — of one version, when
+     * one is named. Periods nobody started in are absent.
      *
      * @return array<int, array{started: int, completed: int}>
      */
-    public function periods(int $gameId): array
+    public function periods(int $gameId, ?int $versionId = null): array
     {
         $rows = GameAttempt::query()
             ->join('game_assignments', 'game_assignments.id', '=', 'game_attempts.assignment_id')
             ->where('game_attempts.game_id', $gameId)
+            ->when($versionId !== null, fn (Builder $query) => $query->where('game_attempts.version_id', $versionId))
             ->groupBy('game_assignments.period_id')
             ->select('game_assignments.period_id')
             ->selectRaw(

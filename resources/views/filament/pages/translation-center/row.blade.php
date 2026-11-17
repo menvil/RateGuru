@@ -37,12 +37,12 @@
 
 <div
     id="{{ $dom }}"
-    class="rg-admin-translation-row"
+    @class(['rg-admin-translation-row', 'rg-admin-translation-row--outdated' => $state === 'outdated'])
     role="row"
     data-unit="{{ $row['id'] }}"
     x-data="{ unit: @js($row['id']) }"
     x-show="shows(unit)"
-    x-bind:class="{ 'rg-admin-translation-row--linked': linked === unit }"
+    x-bind:class="{ 'rg-admin-translation-row--linked': linked === unit, 'rg-admin-translation-row--outdated': state(unit) === 'outdated' }"
 >
     <div class="rg-admin-translation-row__cell rg-admin-translation-row__item" role="cell">
         <x-admin.ui.badge tone="outline">{{ $row['section'] }}</x-admin.ui.badge>
@@ -85,7 +85,7 @@
         @if ($row['outdated'])
             {{-- What the stored translation was made from, until the row is saved and it is current again. --}}
             <div class="rg-admin-translation-row__previous" x-show="units[unit].outdated">
-                <span class="rg-admin-translation-row__previous-label">Translated from</span>
+                <span class="rg-admin-translation-row__previous-label">Translated from the old English</span>
                 <div
                     class="rg-admin-translation-row__previous-text"
                     lang="en"
@@ -173,7 +173,7 @@
                 <x-admin.ui.badge tone="success" dot :x-cloak="$state !== 'saved'" x-show="state(unit) === 'saved'">Saved</x-admin.ui.badge>
                 <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'missing'" x-show="state(unit) === 'missing'">Missing</x-admin.ui.badge>
                 @if ($row['outdated'])
-                    <x-admin.ui.badge tone="warning" :x-cloak="$state !== 'outdated'" x-show="state(unit) === 'outdated'">English changed</x-admin.ui.badge>
+                    <x-admin.ui.badge tone="warning" icon="refresh-cw" class="rg-admin-translation-row__outdated-badge" :x-cloak="$state !== 'outdated'" x-show="state(unit) === 'outdated'">English changed · update</x-admin.ui.badge>
                 @endif
                 <x-admin.ui.badge tone="info" dot x-cloak x-show="state(unit) === 'ai'">AI suggestion · not saved</x-admin.ui.badge>
                 <x-admin.ui.badge tone="outline" x-cloak x-show="state(unit) === 'edited'">Edited · not saved</x-admin.ui.badge>

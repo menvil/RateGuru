@@ -271,6 +271,27 @@ it('counts the attempts started from each traffic period', function () {
     expect($periods)->toBe($expected);
 });
 
+it('counts the attempts of one version in each traffic period, when one is named', function () {
+    $draft = publishableGameDraft(rounds: 1);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $period = GameTrafficPeriod::query()->where('game_id', $first->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
+    $assign = fn (string $guest, GameVersion $to): GameAssignment => GameAssignment::query()->forceCreate([
+        'game_id' => $first->game_id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest),
+        'version_id' => $to->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    ]);
+    $a = $assign('guest-a', $first);
+    $b = $assign('guest-b', $second);
+
+    metricsAttempt($first, 'guest-a', attributes: ['assignment_id' => $a->id, ...metricsCompleted()]);
+    metricsAttempt($second, 'guest-b', attributes: ['assignment_id' => $b->id]);
+    metricsAttempt($second, 'guest-b', attributes: ['assignment_id' => $b->id, ...metricsCompleted()]);
+
+    expect(metricsQuery()->periods((int) $first->game_id))->toBe([$period->id => ['started' => 3, 'completed' => 2]])
+        ->and(metricsQuery()->periods((int) $first->game_id, (int) $first->id))->toBe([$period->id => ['started' => 1, 'completed' => 1]])
+        ->and(metricsQuery()->periods((int) $first->game_id, (int) $second->id))->toBe([$period->id => ['started' => 2, 'completed' => 1]]);
+});
+
 it('reads the library’s columns for each game with something in the window', function () {
     $first = liveGame(publishableGameDraft(rounds: 1));
     $second = liveGame(publishableGameDraft(rounds: 1));

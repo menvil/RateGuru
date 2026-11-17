@@ -3,8 +3,10 @@
      * A game's Value tab (GameValue), as the reference draws it: what each
      * step of a play is worth in the slice the filters name, grouped as
      * playing, after the result, on the site and the account, each settable
-     * by hand in place; beside it what a new visitor and an account are worth,
-     * each source's figures, the game's paid traffic and its postbacks.
+     * by hand in place but the account and a sign-in, which link to the
+     * prices of the whole site; beside it what a new visitor and an account
+     * are worth, each source's figures, the game's paid traffic and its
+     * postbacks.
      */
     $fine = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::fine($amount);
     $brief = fn ($amount): string => \App\Support\Traffic\Money\TrafficMoney::brief($amount);
@@ -67,7 +69,7 @@
                                         <span class="rg-admin-games__value-step-text">
                                             <span class="rg-admin-games__value-step-name">{{ $row['name'] }}</span>
                                             <span class="rg-admin-games__note">{{ $row['note'] }}</span>
-                                            @if ($row['manual'] || $row['halfway'] || $row['goal'] || $row['postbacks'] !== [])
+                                            @if ($row['manual'] || $row['halfway'] || $row['goal'] || $row['postbacks'] !== [] || $row['sitePrice'])
                                                 <span class="rg-admin-games__value-tags">
                                                     @if ($row['manual'])
                                                         <span class="rg-admin-games__value-tag rg-admin-games__value-tag--hand"><x-admin.ui.icon name="pencil" :size="10" />{{ $row['manual'] }}</span>
@@ -81,6 +83,9 @@
                                                     @foreach ($row['postbacks'] as $postback)
                                                         <span class="rg-admin-games__value-tag" title="Sent to the source with this worth for the visitor’s slice"><x-admin.ui.icon name="arrow-up-right" :size="10" />{{ $postback }}</span>
                                                     @endforeach
+                                                    @if ($row['sitePrice'])
+                                                        <a class="rg-admin-link rg-admin-link--quiet" href="{{ $pricesUrl }}" title="Priced once for every game, on Traffic sources → Value" data-testid="game-value-site-{{ $row['step'] }}"><x-admin.ui.icon name="globe" :size="10" />Set for the whole site</a>
+                                                    @endif
                                                 </span>
                                             @endif
                                         </span>

@@ -12,15 +12,17 @@ return new class extends Migration
     {
         // What the outcomes of a visit are worth — a confirmed account, the
         // bonus for a first published post and for coming back on another
-        // day — with the country groups and the share of the price each is
-        // worth. Never changed once written: saving prices or groups adds a
-        // set, the newest one is in force, and every visit keeps the set that
-        // was in force when it came.
+        // day, and a sign-in to an account the visitor already had — with the
+        // country groups and the share of the price each is worth. Never
+        // changed once written: saving prices or groups adds a set, the newest
+        // one is in force, and every visit keeps the set that was in force
+        // when it came.
         Schema::create('traffic_price_sets', function (Blueprint $table) {
             $table->id();
             $table->decimal('account_price', 10, 4);
             $table->decimal('post_bonus', 10, 4);
             $table->decimal('returned_bonus', 10, 4);
+            $table->decimal('login_price', 10, 4)->default(0);
             // [{key, name, percent, countries: [upper-case codes]}], the last
             // group holding every country the others do not name.
             $table->json('country_groups');
@@ -35,6 +37,7 @@ return new class extends Migration
             'account_price' => '0.5000',
             'post_bonus' => '1.0000',
             'returned_bonus' => '0.2000',
+            'login_price' => '0.0000',
             'country_groups' => json_encode([
                 ['key' => 't1', 'name' => 'Tier 1', 'percent' => 100, 'countries' => ['US', 'GB', 'CA', 'AU', 'DE', 'AT', 'CH', 'NL']],
                 ['key' => 't2', 'name' => 'Tier 2', 'percent' => 60, 'countries' => ['ES', 'FR', 'IT', 'PL']],

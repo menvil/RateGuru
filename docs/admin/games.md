@@ -105,6 +105,16 @@ finished, replays included. Between the finished players and the new accounts,
 **Sign-up begun** shows who started signing up from the game and how — email,
 Google, Facebook, the site's sign-up dialog or Log in.
 
+Under the funnel, **Sign-ups** shows for anonymous visitors how many signed up,
+how many confirmed, how many never confirmed and how many are still inside the
+7 days they have to. An account never confirmed is removed with everything it
+did, so the game's own figures lose it; these come from the game's visits that
+Traffic sources recorded instead, confirmed counted from the same visits, and
+can differ from **Account confirmed**, which counts accounts by the play they
+are credited to. While Traffic sources → Sources → **Record visits** is off
+there is nothing to count from: the card shows dashes and says where to switch
+it on.
+
 ## Privacy
 
 - To keep a guest on the same version, the site sets a first-party cookie,

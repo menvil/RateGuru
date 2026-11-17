@@ -2,7 +2,11 @@
 
 namespace App\Enums;
 
-/** Why a visitor is already known — worth nothing new and never reported to a network. */
+/**
+ * Why a visitor is already known — never a new user and never reported to a
+ * network. One known as they came is worth nothing; one who signs in during
+ * the visit is worth the price of a sign-in.
+ */
 enum TrafficKnownReason: string
 {
     case SignedIn = 'signed_in';

@@ -17,10 +17,15 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 5. Run a small campaign; its clicks appear, and its campaign shows up by itself.
 6. Connect the source's API (PopAds key, or ExoClick API token) in its editor.
    A day's spend closes once the network's figures came whole.
-7. On each game's Value tab, set values by hand while the data is thin; then
-   add a postback rule, **Send test**, and switch on **Send postbacks**. Send a
-   network one event per click on each of its goals: two rules on one goal are
-   counted as two conversions and their worth added up, and the editor says so.
+7. Value → What a new user is worth: price the outcomes once for the whole
+   site — a confirmed account, its two bonuses, and a sign-in to an account the
+   visitor already had (not a new user; $0 until you set it). A game's Value
+   tab shows what they make each step worth and links back here for both.
+8. On each game's Value tab, set the other steps by hand while the data is
+   thin; then add a postback rule, **Send test**, and switch on **Send
+   postbacks**. Send a network one event per click on each of its goals: two
+   rules on one goal are counted as two conversions and their worth added up,
+   and the editor says so.
    For a network that learns from conversions, choose the step its campaigns
    should buy (the flow's goal, or Halfway or Game finished while accounts are
    few). For one that bids on value, choose **Visit settled**: once a visit
@@ -29,8 +34,24 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
    settled rule a floor (Game started by default) unless the network bids on
    value. Country groups start at Tier 1 100 %, Tier 2 60 %, every other
    country 30 % (Value → Country groups).
-8. Block by hand first, then through the API on a test campaign, then let the
+9. Block by hand first, then through the API on a test campaign, then let the
    block rule do it by itself (only once the connector is verified).
+
+## Sign-ups that never confirm
+
+Report → **How accounts come** follows paid traffic from the click to a
+confirmed account. An email sign-up has 7 days to confirm; after that it is
+removed with everything it did — **Never confirmed** — and inside them it is
+**Still waiting**. Google and Facebook confirm at once.
+
+**Sign-ups and confirmation**, under it, shows every sign-up on the filters,
+unpaid traffic too, split by source (unpaid traffic by its channel), campaign,
+site, zone, country, device, sign-up method or where they signed up: signed up,
+confirmed, never confirmed, still waiting, and how soon after signing up the
+confirmed ones confirmed. Its **Of it paid traffic** row is How accounts
+come's figures. Many email sign-ups with few confirmations from one zone or
+country usually means bots: **Find in Sites & zones** opens a network's zone
+in the list where it is blocked.
 
 ## Privacy page
 

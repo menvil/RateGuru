@@ -1,11 +1,13 @@
 {{--
     Report, as the reference draws it: the period's tiles; mobile against
     desktop on paid traffic; how accounts come — the way to one, where they
-    signed up, how long after the click; then Performance: a tree by source,
-    device, country, game or version, each row opening the next level, ten
-    rows a level and the rest in one; or Sites & zones, every network site or
-    zone as one list, in the block rule's segments, searched, sorted, paged
-    and ticked across pages to block, unblock or copy.
+    signed up, how long after the click; sign-ups and confirmation — every
+    sign-up on the filters by a dimension, confirmed or not and how fast;
+    then Performance: a tree by source, device, country, game or version,
+    each row opening the next level, ten rows a level and the rest in one;
+    or Sites & zones, every network site or zone as one list, in the block
+    rule's segments, searched, sorted, paged and ticked across pages to
+    block, unblock or copy.
 --}}
 @php
     $paidValue = $paid->value();
@@ -102,14 +104,15 @@
             <h3 class="rg-admin-traffic__way-title">The way to an account<span class="rg-admin-traffic__note">Of {{ number_format($paidNew) }} new visitors</span></h3>
             @foreach ([
                 ['Saw a sign-up form', $within['signup_form'], $paidNew, 'Registration step, Full Result, or the form a vote or a comment opens', false],
-                ['Signed up', $within['signup'], $within['signup_form'], 'Of those who saw a form · email, Google or Facebook', false],
-                ['Confirmed', $paid->accounts, $within['signup'], 'Of those who signed up · these are the new accounts the reports and postbacks count', true],
+                ['Signed up', $paidSignups->signedUp, $within['signup_form'], 'Of those who saw a form · email, Google or Facebook', false],
+                ['Confirmed', $paidSignups->confirmed, $paidSignups->signedUp, 'Of those who signed up · these are the new accounts the reports and postbacks count', true],
             ] as [$name, $count, $of, $note, $good])
                 @include('filament.pages.traffic-sources.bar', ['name' => $name, 'count' => $count, 'of' => $of, 'note' => $note, 'good' => $good])
             @endforeach
             <dl class="rg-admin-traffic__way-lines">
-                <div><dt>Never confirmed: removed after 7 days, never counted</dt><dd>{{ number_format(max(0, $within['signup'] - $paid->accounts)) }}</dd></div>
-                <div><dt>Signed in to an account they already had: not new, not counted</dt><dd>{{ number_format($within['login']) }}</dd></div>
+                <div><dt>Never confirmed: signed up over {{ $graceDays }} days ago, removed, never counted</dt><dd>{{ number_format($paidSignups->neverConfirmed) }}</dd></div>
+                <div><dt>Still waiting: signed up in the last {{ $graceDays }} days, not confirmed yet</dt><dd>{{ number_format($paidSignups->waiting) }}</dd></div>
+                <div><dt>Signed in to an account they already had: not new, worth the sign-in price</dt><dd>{{ number_format($within['login']) }}</dd></div>
                 <div><dt>Signed up after the window closed: counted as Direct, no postback</dt><dd>{{ number_format($within['late']) }}</dd></div>
             </dl>
         </div>
@@ -128,6 +131,8 @@
         </div>
     </div>
 </section>
+
+@include('filament.pages.traffic-sources.signups')
 
 <section class="rg-admin-traffic__panel" data-testid="traffic-performance">
     <header class="rg-admin-traffic__perf-head">

@@ -41,7 +41,8 @@ use Livewire\Attributes\Url;
  * source, device and country group; the steps grouped as playing, after the
  * result, on the site and the account, each with how many reached it, its
  * chance, its worth and its tags — the Halfway round, the goal of a flow, the
- * postbacks that send it, a value set by hand — and set by hand in place.
+ * postbacks that send it, a value set by hand — and set by hand in place, all
+ * but the account and a sign-in, which are priced once for the whole site.
  * Beside them: what a new visitor here is worth and an account brings, each
  * source's figures, the game's paid traffic over 30 days and the postbacks
  * that send these values. A value set here counts from the next postback,
@@ -221,7 +222,9 @@ final class GameValue extends Page
                 'chance' => $step === 'login' ? null : $row['chance'],
                 'worth' => (string) $row['value'],
                 'worked' => $row['basis'] === TrafficValueBasis::Manual ? (string) $row['worked'] : null,
+                // What an account and a sign-in are worth is priced once for the whole site, on Traffic sources → Value.
                 'editable' => ! in_array($step, ['account', 'login'], true),
+                'sitePrice' => in_array($step, ['account', 'login'], true),
                 'halfway' => $step === $halfway,
                 'goal' => $goalSteps[$step] ?? null,
                 'manual' => $row['manual'] === null ? null : ($row['manual']['mode'] === TrafficStepValueMode::Thin ? 'Set by hand while data is thin' : 'Set by hand'),
@@ -240,7 +243,7 @@ final class GameValue extends Page
                 StepLabels::PLAYING => ['Playing', 'Every play goes through these. The further a visitor gets, the likelier an account.'],
                 StepLabels::AFTER_THE_RESULT => ['After the result', 'What the visitor does on the result and on the steps after it.'],
                 StepLabels::ON_THE_SITE => ['On the site', 'What they do on the post or in the feed that the flow sends them to.'],
-                StepLabels::ACCOUNTS => ['Accounts', 'Signed up is worth the share that go on to confirm. Confirmed is what an account brings. Signing in to an existing account is worth nothing: we had them already.'],
+                StepLabels::ACCOUNTS => ['Accounts', 'Signed up is worth the share that go on to confirm. Confirmed is what an account brings. Signing in to an existing account is worth its own price: not a new user, but someone we had already coming back. Both prices are set once for the whole site.'],
             ],
             'rows' => $rows,
             'basis' => $this->basis($game, $data, $visited, $groups),
@@ -519,7 +522,8 @@ final class GameValue extends Page
 
     /**
      * The steps a Visit settled rule can tell: every step of the game from
-     * the rule's floor up, the account always.
+     * the rule's floor up, the account always — never a sign-in, whose
+     * visitor is a known one and never told to a network.
      *
      * @return list<string>
      */
@@ -534,6 +538,6 @@ final class GameValue extends Page
         };
         $at = array_search($from, $steps, true);
 
-        return array_values(array_unique([...($at === false ? [] : array_slice($steps, (int) $at)), 'account']));
+        return array_values(array_diff(array_unique([...($at === false ? [] : array_slice($steps, (int) $at)), 'account']), ['login']));
     }
 }

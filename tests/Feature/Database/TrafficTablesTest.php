@@ -39,7 +39,7 @@ function refusesToStore(callable $write): bool
 it('starts with the starting prices in force', function () {
     $prices = TrafficPriceSet::current();
 
-    expect([$prices->account_price, $prices->post_bonus, $prices->returned_bonus])->toBe(['0.5000', '1.0000', '0.2000'])
+    expect([$prices->account_price, $prices->post_bonus, $prices->returned_bonus, $prices->login_price])->toBe(['0.5000', '1.0000', '0.2000', '0.0000'])
         ->and(array_column($prices->country_groups, 'key'))->toBe(['t1', 't2', 'rest'])
         ->and($prices->groupOf('DE'))->toBe(['key' => 't1', 'percent' => 100])
         ->and($prices->groupOf('FR'))->toBe(['key' => 't2', 'percent' => 60])

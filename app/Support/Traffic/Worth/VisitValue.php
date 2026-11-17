@@ -14,7 +14,10 @@ use Carbon\CarbonImmutable;
  * still bring (`value_expected`): before an account, the best of the steps it
  * reached, less the part of that chance its age has already used up; after
  * one, the bonuses whose windows are still open; once the visit is closed,
- * nothing more. A known visitor's visit is worth nothing either way.
+ * nothing more. A known visitor's visit may bring nothing more: it is worth
+ * the price of a sign-in, times its group's share, when the visitor turned
+ * out to have an account and signed in to it after arriving, and nothing when
+ * they were known as they came.
  */
 final class VisitValue
 {
@@ -27,11 +30,13 @@ final class VisitValue
     public const int RETURN_BONUS_DAYS = 7;
 
     /**
+     * @param  bool  $signedIn  whether the visitor signed in, after arriving, to an account they already had
      * @param  list<array{value: BigDecimal, basis: TrafficValueBasis, chance: float}>  $reached  the worth of each step the visit reached (StepWorth)
      * @return array{real: string, expected: string}
      */
     public static function of(
         bool $known,
+        bool $signedIn,
         CarbonImmutable $arrivedAt,
         ?CarbonImmutable $holdsUntil,
         ?CarbonImmutable $accountAt,
@@ -47,7 +52,7 @@ final class VisitValue
         CarbonImmutable $now,
     ): array {
         if ($known) {
-            return ['real' => TrafficMoney::stored(0), 'expected' => TrafficMoney::stored(0)];
+            return ['real' => TrafficMoney::stored($signedIn ? $prices->login($percent) : 0), 'expected' => TrafficMoney::stored(0)];
         }
 
         if ($accountAt !== null) {

@@ -80,12 +80,22 @@ it('switches recording on, and saves new prices as a new set', function () {
         ->call('saveSettings')
         ->assertHasNoErrors()
         ->set('prices.account_price', '0.75')
+        ->set('prices.login_price', '0.15')
         ->call('savePrices')
-        ->assertHasNoErrors();
+        ->assertHasNoErrors()
+        ->assertSet('prices.login_price', '0.15');
 
     expect(TrafficSetting::current()->capture_enabled)->toBeTrue()
         ->and(TrafficPriceSet::current()->id)->not->toBe($before)
-        ->and(TrafficPriceSet::current()->account_price)->toBe('0.7500');
+        ->and(TrafficPriceSet::current()->account_price)->toBe('0.7500')
+        ->and(TrafficPriceSet::current()->login_price)->toBe('0.1500');
+});
+
+it('refuses a sign-in price that is no amount, by its field', function () {
+    Livewire::test(TrafficSourcesPage::class)
+        ->set('prices.login_price', 'free')
+        ->call('savePrices')
+        ->assertHasErrors(['login_price']);
 });
 
 it('sets a campaign’s stage from its panel', function () {

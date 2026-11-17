@@ -3,8 +3,9 @@
 namespace App\Enums;
 
 /**
- * What a traffic report can be split by, and the visit columns each level
- * groups on — the only column names a report query ever writes into SQL.
+ * What a traffic report can be split by — a level of the tree, or the way
+ * Sign-ups and confirmation splits its sign-ups — and the visit columns each
+ * groups on: the only column names a report query ever writes into SQL.
  */
 enum TrafficDimension: string
 {
@@ -18,6 +19,8 @@ enum TrafficDimension: string
     case City = 'city';
     case Game = 'game';
     case Version = 'version';
+    case SignupMethod = 'signup_method';
+    case SignupPlace = 'signup_place';
 
     /** @return list<string> the columns a level groups on, the first naming it */
     public function columns(): array
@@ -33,6 +36,8 @@ enum TrafficDimension: string
             self::City => ['city', 'country'],
             self::Game => ['game_id'],
             self::Version => ['version_id', 'game_id'],
+            self::SignupMethod => ['signup_method'],
+            self::SignupPlace => ['signup_place'],
         };
     }
 
@@ -49,6 +54,8 @@ enum TrafficDimension: string
             self::City => 'City',
             self::Game => 'Game',
             self::Version => 'Game version',
+            self::SignupMethod => 'Sign-up method',
+            self::SignupPlace => 'Where they signed up',
         };
     }
 }

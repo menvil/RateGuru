@@ -17,6 +17,7 @@ class TrafficPriceSetFactory extends Factory
             'account_price' => '0.5',
             'post_bonus' => '1',
             'returned_bonus' => '0.2',
+            'login_price' => '0',
             'country_groups' => [['key' => 'rest', 'name' => 'Every country', 'percent' => 100, 'countries' => []]],
             'summary' => null,
             'created_at' => now(),

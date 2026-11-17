@@ -1,15 +1,22 @@
 <?php
 
+use App\Actions\Games\ApplyGameTrafficAction;
 use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\PublishGameVersionAction;
+use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficDevice;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
+use App\Models\GameAssignment;
 use App\Models\GameAttempt;
+use App\Models\GameTrafficPeriod;
+use App\Models\GameVersion;
 use App\Models\ProjectSettings;
+use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
@@ -245,4 +252,112 @@ it('compares the versions on paid traffic and shows every visitor by where they 
         ->assertSeeInOrder(['All visitors', '408']);
 
     expect(collect($page->viewData('sources')['groups'])->pluck('name')->all())->toBe(['Ad networks', 'Banners & links', 'Unpaid']);
+});
+
+it('lists only the traffic periods the version chosen had a share in, with every share but that version’s figures alone', function () {
+    $game = $this->draft['game'];
+    $periods = fn () => GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->orderByDesc('id')->get();
+    // A period someone was assigned in is kept when the shares change; an empty one is changed in place.
+    $assign = fn (string $guest, GameVersion $to): GameAssignment => GameAssignment::query()->forceCreate([
+        'game_id' => $game->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest),
+        'version_id' => $to->id, 'period_id' => $periods()->first()->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    ]);
+    $this->travelTo('2026-11-10 12:00:00');
+    $v1 = liveGame($this->draft);
+    $assign('guest-z', $v1);
+    $this->travelTo('2026-11-17 12:00:00');
+    $v2 = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $game->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $game, GameAudience::Anonymous, [$v1->id => 50, $v2->id => 50]);
+    $assign('guest-a', $v1);
+    $b = $assign('guest-b', $v2);
+    $this->travelTo('2026-11-18 12:00:00');
+    app(ApplyGameTrafficAction::class)->handle($this->draft['admin'], $game, GameAudience::Anonymous, [$v2->id => 100]);
+    $c = $assign('guest-c', $v2);
+    GameAttempt::factory()->create(['version_id' => $v2->id, 'assignment_id' => $b->id, 'visitor_hash' => $b->visitor_hash, 'status' => GameAttemptStatus::Completed, 'completed_at' => now()]);
+    GameAttempt::factory()->create(['version_id' => $v2->id, 'assignment_id' => $c->id, 'visitor_hash' => $c->visitor_hash]);
+    $this->actingAs($this->draft['admin']);
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $game->id]);
+
+    // Every version: every period, each with all it assigned and started.
+    expect($periods())->toHaveCount(3)
+        ->and(collect($page->viewData('periodRows'))->pluck('figures')->all())->toBe([
+            '1 assigned · 1 started · 0 completed',
+            '2 assigned · 1 started · 1 completed',
+            '1 assigned · 0 started · 0 completed',
+        ]);
+
+    // V1 had no share in the newest period: only the two it had, with its own figures, and every share still there.
+    $page->set('version', $v1->id)->assertSee('Traffic periods · Anonymous visitors · V1');
+    expect(collect($page->viewData('periodRows'))->map(fn (array $row): string => $row['shares'].' | '.$row['figures'])->all())->toBe([
+        'V1 50% · V2 50% | V1: 1 assigned · 0 started · 0 completed',
+        'V1 100% | V1: 1 assigned · 0 started · 0 completed',
+    ]);
+
+    $page->set('version', $v2->id);
+    expect(collect($page->viewData('periodRows'))->pluck('figures')->all())->toBe([
+        'V2: 1 assigned · 1 started · 0 completed',
+        'V2: 1 assigned · 1 started · 1 completed',
+    ]);
+
+    // Logged-in players were only ever sent to V1.
+    $page->set('audience', 'authenticated')
+        ->assertSee('V2 had no share of logged-in players in any period yet.')
+        ->assertDontSee('No periods yet for this group.');
+});
+
+it('counts the anonymous sign-ups from the game’s recorded visits, those never confirmed and still waiting too, of the version chosen', function () {
+    $first = liveGame($this->draft);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    $visit = fn (GameVersion $version, array $state) => TrafficVisit::factory()->create(['game_id' => $this->draft['game']->id, 'version_id' => $version->id, 'opened_at' => now(), ...$state]);
+    // V1: one confirmed, one signed up ten days ago and never confirmed, one still waiting, one who never signed up.
+    $visit($first, ['signup_at' => now(), 'account_at' => now()]);
+    $visit($first, ['arrived_at' => now()->subDays(10), 'network_day' => now()->subDays(10)->toDateString(), 'signup_at' => now()->subDays(10)]);
+    $visit($first, ['signup_at' => now()->subDay()]);
+    $visit($first, []);
+    // V2: one confirmed. Before the window: not counted.
+    $visit($second, ['signup_at' => now(), 'account_at' => now()]);
+    $visit($first, ['arrived_at' => now()->subDays(40), 'network_day' => now()->subDays(40)->toDateString(), 'signup_at' => now()->subDays(40)]);
+
+    $this->actingAs($this->draft['admin']);
+    $figures = fn ($page): array => collect($page->viewData('signups')['figures'])->pluck('value', 'label')->all();
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertSeeInOrder(['Sign-ups', 'Counted from the visits of the game Traffic sources recorded in this period', 'Signed up', '4', 'Of 5 recorded visits']);
+
+    expect($figures($page))->toBe(['Signed up' => '4', 'Confirmed' => '2', 'Never confirmed' => '1', 'Still waiting' => '1'])
+        // Recording is off now, though these visits were recorded: it says so, and where to switch it on.
+        ->and($page->viewData('signups')['note'])->toContain('Record visits is off now')
+        ->and($page->viewData('signups')['trafficUrl'])->toBe(TrafficSourcesPage::getUrl(['tab' => 'sources']))
+        // The funnel keeps its own steps: its counts are the game's, these the visits'.
+        ->and(collect($page->viewData('funnel'))->pluck('label')->all())->toBe(['Visitors', 'Game started', 'Completed', 'Sign-up begun', 'Goal reached', 'Account confirmed']);
+
+    $page->set('version', $first->id)->assertSee('Counted from the visits of this version');
+    expect($figures($page))->toBe(['Signed up' => '3', 'Confirmed' => '1', 'Never confirmed' => '1', 'Still waiting' => '1']);
+
+    $page->set('version', $second->id);
+    expect($figures($page))->toBe(['Signed up' => '1', 'Confirmed' => '1', 'Never confirmed' => '0', 'Still waiting' => '0']);
+
+    // Logged-in players never sign up: their funnel is as it was, without the card.
+    $page->set('audience', 'authenticated')->assertViewHas('signups', null)->assertDontSee('Counted from the visits');
+});
+
+it('shows dashes, never a nought, and where visits are recorded, while the game has no recorded visit', function () {
+    liveGame($this->draft);
+    $this->actingAs($this->draft['admin']);
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertSee('Visits aren’t recorded, so there are no sign-ups to count. Switch on Record visits under Traffic sources → Sources')
+        ->assertSee('Record visits');
+
+    expect($page->viewData('signups'))->toMatchArray(['tracked' => false, 'trafficUrl' => TrafficSourcesPage::getUrl(['tab' => 'sources'])])
+        ->and(collect($page->viewData('signups')['figures'])->pluck('value')->unique()->all())->toBe(['—']);
+
+    // Recording, but nobody of this game came: still nothing to count, and it says why.
+    TrafficSetting::current()->forceFill(['capture_enabled' => true])->save();
+    TrafficVisit::factory()->create(['signup_at' => now()]);
+
+    Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertSee('No visit of the game was recorded in this period')
+        ->assertViewHas('signups', fn (array $signups): bool => $signups['tracked'] === false && $signups['figures'][0]['value'] === '—' && $signups['trafficUrl'] === null);
 });

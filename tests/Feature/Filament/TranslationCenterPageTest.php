@@ -376,12 +376,13 @@ it('marks a translation made from older English, keeping it on the row beside th
         ->and(collect($page->viewData('client')['units'])->firstWhere('id', $unit))->toMatchArray(['stored' => 'Willkommen', 'outdated' => true])
         ->and($row)
         ->toContain('lang="en">Hello</div>')
-        ->toContain('<span class="rg-admin-translation-row__previous-label">Translated from</span>')
+        ->toContain('<span class="rg-admin-translation-row__previous-label">Translated from the old English</span>')
         ->toContain('<div class="rg-admin-translation-row__previous-text" lang="en">Welcome</div>')
         ->toContain('x-show="units[unit].outdated"')
         // Still stored, and still what visitors see, until the row is saved.
         ->toContain('value="Willkommen"')
-        ->toContain('English changed</span>')
+        ->toContain('English changed · update</span>')
+        ->toContain('rg-admin-translation-row--outdated')
         ->toContain('Made from older English. Visitors see it until you save.')
         ->toContain('Update with AI');
 });

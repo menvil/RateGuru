@@ -4,8 +4,12 @@
      * audience over a window, for every version or one, against the window
      * before — the figures and what the visits were worth, the versions on
      * paid traffic compared, the visitors by where they came from, the
-     * funnel, the rounds reached and the results earned in one version, the
-     * versions, flows or content sets side by side, and the traffic periods.
+     * funnel, who signed up and whether they confirmed — of anonymous
+     * visitors, from the visits Traffic sources recorded, so never confirmed
+     * ones still count once removed — the rounds reached and the results
+     * earned in one version, the versions, flows or content sets side by
+     * side, and the traffic periods — of one version, those it had a share
+     * in, with its own figures.
      */
 @endphp
 
@@ -204,7 +208,28 @@
                     </div>
                 </div>
             </x-admin.ui.card>
+            @endunless
 
+            @if ($signups !== null)
+                <x-admin.ui.card title="Sign-ups" :description="$signups['note']" data-testid="game-analytics-signups">
+                    @if ($signups['trafficUrl'] !== null)
+                        <x-slot:aside>
+                            <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$signups['trafficUrl']">Record visits</x-admin.ui.button>
+                        </x-slot:aside>
+                    @endif
+                    <dl class="rg-admin-games__kpis">
+                        @foreach ($signups['figures'] as $figure)
+                            <div class="rg-admin-games__kpi">
+                                <dt class="rg-admin-stat__label">{{ $figure['label'] }}</dt>
+                                <dd class="rg-admin-stat__value">{{ $figure['value'] }}</dd>
+                                <dd class="rg-admin-games__note">{{ $figure['note'] }}</dd>
+                            </div>
+                        @endforeach
+                    </dl>
+                </x-admin.ui.card>
+            @endif
+
+            @unless ($noData)
             @if ($focus !== null)
                 <div class="rg-admin-games__analytics-pair">
                     <x-admin.ui.card :title="'Rounds reached · '.$focus['label']" :description="$focus['note']">
@@ -283,11 +308,13 @@
         @endif
 
         @if (! $noVersions)
-            <x-admin.ui.card :title="'Traffic periods · '.$audiences[$audience]" description="A new period starts whenever the shares change. Versions are only a fair comparison inside one period.">
+            <x-admin.ui.card :title="'Traffic periods · '.$audiences[$audience].($periodVersion !== null ? ' · '.$periodVersion : '')" :description="'A new period starts whenever the shares change. Versions are only a fair comparison inside one period.'.($periodVersion !== null ? ' Periods '.$periodVersion.' had a share in, with every version’s share and '.$periodVersion.'’s figures only.' : '')">
                 <x-slot:aside>
                     <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$trafficUrl">Open Traffic</x-admin.ui.button>
                 </x-slot:aside>
-                @if ($periodRows === [])
+                @if ($periodRows === [] && $periodVersion !== null)
+                    <p class="rg-admin-games__note" data-testid="game-analytics-periods-none">{{ $periodVersion }} had no share of {{ $anonymous ? 'anonymous visitors' : 'logged-in players' }} in any period yet.</p>
+                @elseif ($periodRows === [])
                     <p class="rg-admin-games__note">No periods yet for this group.</p>
                 @else
                     <ul class="rg-admin-games__profiles">

@@ -3,6 +3,7 @@
 namespace App\Services\Traffic;
 
 use App\Enums\TrafficEvent;
+use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficValueBasis;
 use App\Models\GameVersion;
 use App\Models\TrafficChanceRun;
@@ -78,6 +79,7 @@ final class TrafficVisitWorth
 
         return VisitValue::of(
             (bool) $visit->known,
+            self::signedIn($visit),
             $visit->arrived_at,
             $visit->holds_until,
             $visit->account_at,
@@ -94,7 +96,7 @@ final class TrafficVisitWorth
         );
     }
 
-    /** The best a step the visit reached is worth — the account's worth, once it has one: what {value_total} says. */
+    /** The best a step the visit reached is worth — the account's worth, once it has one; a sign-in's, once it signed in: what {value_total} says. */
     public function best(TrafficVisit $visit): BigDecimal
     {
         return $this->settled($visit)['value'];
@@ -102,16 +104,27 @@ final class TrafficVisitWorth
 
     /**
      * The step the visit reached that is worth the most, and its worth: the
-     * account, once it has one. What a settled visit tells its network.
+     * account, once it has one; the sign-in, once the visitor signed in to an
+     * account they already had — a known visitor's, never told to a network,
+     * but worth what its `value_real` says. What a settled visit tells its
+     * network.
      *
      * @return array{value: BigDecimal, basis: TrafficValueBasis, step: string|null}
      */
     public function settled(TrafficVisit $visit): array
     {
-        if ($visit->account_at !== null) {
-            $account = $this->step($visit, 'account');
+        // A visit that signed in after it arrived stays a sign-in, even if an account lands on it later:
+        // VisitValue values it so, and what it tells its network must agree.
+        $outcome = match (true) {
+            self::signedIn($visit) => 'login',
+            $visit->account_at !== null => 'account',
+            default => null,
+        };
 
-            return ['value' => $account['value'], 'basis' => $account['basis'], 'step' => 'account'];
+        if ($outcome !== null) {
+            $worth = $this->step($visit, $outcome);
+
+            return ['value' => $worth['value'], 'basis' => $worth['basis'], 'step' => $outcome];
         }
 
         $best = ['value' => BigDecimal::zero(), 'basis' => TrafficValueBasis::None, 'step' => null];
@@ -125,6 +138,12 @@ final class TrafficVisitWorth
         }
 
         return $best;
+    }
+
+    /** Whether the visitor turned out to have an account and signed in to it after arriving, rather than being known as they came. */
+    private static function signedIn(TrafficVisit $visit): bool
+    {
+        return $visit->known_reason === TrafficKnownReason::Login && $visit->login_at !== null;
     }
 
     /** @return list<string> the steps before an account the visit reached */

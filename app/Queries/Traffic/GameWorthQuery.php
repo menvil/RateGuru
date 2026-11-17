@@ -53,7 +53,7 @@ final class GameWorthQuery
 
         $slice = new Slice((int) $game->id);
         $set = TrafficPriceSet::current();
-        $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+        $prices = $set->worth();
 
         return StepWorth::of($slice, 'opened', $prices, 100, false, $this->worth->manualValues((int) $game->id)['opened'] ?? null, $this->worth->table($run, $slice))['value'];
     }
@@ -79,7 +79,7 @@ final class GameWorthQuery
         $slice = new Slice((int) $game->id, $sourceId, $sourceId === null ? $channel : null, $device, $group);
         $table = $this->worth->table($run, $slice);
         $set = TrafficPriceSet::current();
-        $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+        $prices = $set->worth();
         $percent = $group === null ? $this->mix($run, (int) $game->id, $sourceId, $sourceId === null ? $channel : null, $device, $set) : (int) (collect($set->country_groups)->firstWhere('key', $group)['percent'] ?? 100);
         $manual = $this->worth->manualValues((int) $game->id);
         $own = $run === null ? collect() : TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', $slice->key())->get(['step', 'visitors', 'slice_accounts', 'stands_on'])->keyBy('step');

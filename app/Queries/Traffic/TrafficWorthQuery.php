@@ -50,7 +50,7 @@ final class TrafficWorthQuery
     {
         $set = TrafficPriceSet::query()->find($priceSetId) ?? TrafficPriceSet::current();
 
-        return new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+        return $set->worth();
     }
 
     /** @return array<string, array{value: string, mode: TrafficStepValueMode}> by step */

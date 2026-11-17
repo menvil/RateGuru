@@ -86,14 +86,19 @@ it('reads a chance from the slice or the nearest one above, thin when it is not 
         ->and($table->of(new Slice(2), 'opened'))->toBe(['chance' => 0.0, 'thin' => true]);
 });
 
-it('works out what a step is worth, in order: known, sign-in, account, a value by hand, the chance', function () {
-    $prices = new WorthPrices('0.5', '1', '0.2');
+it('works out what a step is worth, in order: sign-in, known, account, a value by hand, the chance', function () {
+    $prices = new WorthPrices('0.5', '1', '0.2', '0.3');
     $table = new ChanceTable(['*' => ['started' => ['chance' => '0.1', 'thin' => false], 'post_bonus' => ['chance' => '0.5', 'thin' => false], 'returned_bonus' => ['chance' => '0.5', 'thin' => false]]]);
     $site = Slice::site();
     $account = BigDecimal::of('1.1');
 
     expect(StepWorth::of($site, 'started', $prices, 100, true, null, $table)['basis'])->toBe(TrafficValueBasis::None)
-        ->and(StepWorth::of($site, 'login', $prices, 100, false, null, $table)['basis'])->toBe(TrafficValueBasis::None)
+        // A sign-in is its own price times the group's share, whatever the chances or a value by hand; no new account leads on from it.
+        ->and(StepWorth::of($site, 'login', $prices, 60, false, ['value' => '0.07', 'mode' => TrafficStepValueMode::Always], $table))->toEqual(['value' => BigDecimal::of('0.18000000'), 'basis' => TrafficValueBasis::Outcome, 'chance' => 0.0])
+        ->and((string) StepWorth::of($site, 'login', $prices, 100, true, null, $table)['value'])->toBe('0.30000000')
+        ->and((string) StepWorth::of($site, 'login', new WorthPrices('0.5', '1', '0.2', '0'), 100, false, null, $table)['value'])->toBe('0.00000000')
+        // Every other step of a known visitor is worth nothing, the account too.
+        ->and((string) StepWorth::of($site, 'account', $prices, 100, true, null, $table)['value'])->toBe('0')
         ->and((string) StepWorth::of($site, 'account', $prices, 50, false, null, $table)['value'])->toBe('0.55000000')
         ->and((string) StepWorth::of($site, 'started', $prices, 100, false, null, $table)['value'])->toBe((string) $account->multipliedBy('0.1')->toScale(8))
         ->and(StepWorth::of($site, 'started', $prices, 100, false, null, $table)['basis'])->toBe(TrafficValueBasis::Measured)
@@ -103,18 +108,21 @@ it('works out what a step is worth, in order: known, sign-in, account, a value b
 });
 
 it('works out what a visit brought and may still bring', function () {
-    $prices = new WorthPrices('0.5', '1', '0.2');
+    $prices = new WorthPrices('0.5', '1', '0.2', '0.3');
     $now = CarbonImmutable::parse('2026-11-17 12:00:00');
     $arrived = $now->subDay();
     $holds = $arrived->addDays(7);
     $reached = [['value' => BigDecimal::of('0.05'), 'basis' => TrafficValueBasis::Measured, 'chance' => 0.1]];
     $value = fn (...$changes) => VisitValue::of(...[
-        'known' => false, 'arrivedAt' => $arrived, 'holdsUntil' => $holds, 'accountAt' => null, 'signupAt' => null, 'posted' => false, 'returned' => false,
+        'known' => false, 'signedIn' => false, 'arrivedAt' => $arrived, 'holdsUntil' => $holds, 'accountAt' => null, 'signupAt' => null, 'posted' => false, 'returned' => false,
         'reached' => $reached, 'prices' => $prices, 'percent' => 100, 'postRate' => 0.0, 'returnRate' => 0.0, 'curve' => ConfirmationCurve::none(), 'now' => $now, ...$changes,
     ]);
 
     expect($value())->toBe(['real' => '0.00000000', 'expected' => '0.05000000'])
         ->and($value(known: true))->toBe(['real' => '0.00000000', 'expected' => '0.00000000'])
+        // A visitor who signed in after arriving brought the sign-in's price at the group's share, and is expected to bring nothing more.
+        ->and($value(known: true, signedIn: true, percent: 50))->toBe(['real' => '0.15000000', 'expected' => '0.00000000'])
+        ->and($value(known: true, signedIn: true, now: $holds->addDays(30)))->toBe(['real' => '0.30000000', 'expected' => '0.00000000'])
         ->and($value(now: $holds->addDays(7)))->toBe(['real' => '0.00000000', 'expected' => '0.00000000'])
         ->and($value(accountAt: $now, signupAt: $now, posted: true, percent: 50, returnRate: 0.5))->toBe(['real' => '0.75000000', 'expected' => '0.05000000']);
 });

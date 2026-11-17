@@ -13,7 +13,8 @@
 @endphp
 
 <div class="rg-admin rg-admin-screen rg-admin-traffic" wire:init="load">
-    <section class="rg-admin-page-header" aria-labelledby="rg-admin-traffic-title">
+    {{-- The header band holds the title, the period, the filters every tab reads and the tabs, as the reference draws it. --}}
+    <section class="rg-admin-page-header rg-admin-traffic__header" aria-labelledby="rg-admin-traffic-title">
         <div class="rg-admin-page-header__text">
             <h1 id="rg-admin-traffic-title" class="rg-admin-page-header__title">Traffic sources</h1>
             <p class="rg-admin-page-header__description">Where visitors come from, what they cost and what they bring. {{ $periodLabel }}, by each network’s own day.</p>
@@ -21,15 +22,17 @@
         <div class="rg-admin-traffic__filters">
             <x-admin.ui.filter-dropdown label="Period" id="rg-admin-traffic-period" :options="$periodOptions" :value="$period" wire:model.live="period" />
         </div>
-    </section>
 
-    <div class="rg-admin-traffic__filter-bar" data-testid="traffic-filters">
-        <x-admin.ui.filter-dropdown label="Traffic" id="rg-admin-traffic-type" :options="$typeOptions" :value="$type" wire:model.live="type" />
-        <x-admin.ui.filter-dropdown label="Source" id="rg-admin-traffic-source" :options="$sourceOptions" :value="$source" wire:model.live="source" />
-        <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
-        <x-admin.ui.filter-dropdown label="Game" id="rg-admin-traffic-game" :options="$gameOptions" :value="$game" wire:model.live="game" />
-        <x-admin.ui.filter-dropdown label="Device" id="rg-admin-traffic-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
-    </div>
+        <div class="rg-admin-traffic__filter-bar" data-testid="traffic-filters">
+            <x-admin.ui.filter-dropdown label="Traffic" id="rg-admin-traffic-type" :options="$typeOptions" :value="$type" wire:model.live="type" />
+            <x-admin.ui.filter-dropdown label="Source" id="rg-admin-traffic-source" :options="$sourceOptions" :value="$source" wire:model.live="source" />
+            <x-admin.ui.filter-dropdown label="Campaign" id="rg-admin-traffic-campaign" :options="$campaignOptions" :value="$campaignId" wire:model.live="campaignId" />
+            <x-admin.ui.filter-dropdown label="Game" id="rg-admin-traffic-game" :options="$gameOptions" :value="$game" wire:model.live="game" />
+            <x-admin.ui.filter-dropdown label="Device" id="rg-admin-traffic-device" :options="$deviceOptions" :value="$device" wire:model.live="device" />
+        </div>
+
+        <x-admin.ui.tabs label="Traffic sources" class="rg-admin-traffic__tabs" :active="$tab" :items="$tabs" />
+    </section>
 
     <div class="rg-admin-screen__body">
         @if (! $capture)
@@ -41,8 +44,6 @@
                 <x-slot:actions><x-admin.ui.button size="sm" icon="refresh-cw" wire:click="refreshGeo">Fetch it now</x-admin.ui.button></x-slot:actions>
             </x-admin.ui.inline-notice>
         @endif
-
-        <x-admin.ui.tabs label="Traffic sources" :active="$tab" :items="$tabs" />
 
         @if (! $ready)
             <div class="rg-admin-traffic__loading" aria-busy="true">

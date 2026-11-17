@@ -9362,6 +9362,29 @@
     }
 
     /*
+     * An outdated row: an orange edge down the whole row and a tinted translation cell, so a translation made
+     * from older English stands out from a missing one (amber) at a glance; its badge is orange too.
+     */
+    .rg-admin-translation-row--outdated {
+        box-shadow: inset 3px 0 0 var(--rg-admin-orange-500);
+    }
+
+    .rg-admin-translation-row--outdated .rg-admin-translation-row__target {
+        background: color-mix(in srgb, var(--rg-admin-orange-500) 7%, transparent);
+    }
+
+    .rg-admin-translation-row--outdated .rg-admin-translation-row__target .rg-admin-input,
+    .rg-admin-translation-row--outdated .rg-admin-translation-row__target .rg-admin-textarea {
+        border-color: var(--rg-admin-orange-500);
+    }
+
+    .rg-admin-translation-row__outdated-badge {
+        background: color-mix(in srgb, var(--rg-admin-orange-500) 16%, transparent);
+        color: var(--rg-admin-status-due-fg);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    /*
      * An outdated translation's English — what it was made from — under the English it now stands beside:
      * the same box, dashed and quieter, so the two read as before and now.
      */
@@ -9377,7 +9400,7 @@
         font-weight: var(--rg-admin-weight-medium);
         letter-spacing: var(--rg-admin-tracking-overline);
         text-transform: uppercase;
-        color: var(--rg-admin-status-warning-fg);
+        color: var(--rg-admin-status-due-fg);
     }
 
     .rg-admin-translation-row__previous-text {
@@ -15002,12 +15025,31 @@
         font-variant-numeric: tabular-nums;
     }
 
-    /* Traffic sources: the filter bar every tab reads, under the header. */
+    /*
+     * Traffic sources: the header band holds the filter bar every tab reads and the tabs, each a line of its own
+     * across the band, the tabs sitting on the band's bottom edge.
+     */
+    .rg-admin-traffic__header {
+        row-gap: 14px;
+        padding-bottom: 0;
+    }
+
+    .rg-admin-traffic__filter-bar,
+    .rg-admin-traffic__tabs {
+        flex: 1 0 100%;
+        min-width: 0;
+    }
+
     .rg-admin-traffic__filter-bar {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        padding: 0 var(--rg-admin-space-6, 24px) 12px;
+        margin-top: -6px;
+    }
+
+    .rg-admin-traffic__tabs .rg-admin-tabs {
+        margin-left: calc(var(--rg-admin-space-3) * -1);
+        border-bottom: 0;
     }
 
     .rg-admin-traffic__good {
@@ -15425,6 +15467,22 @@
         flex: 1;
         min-width: 280px;
         margin: 0;
+    }
+
+    /* Sign-ups and confirmation: a row's name and nine figures, and the paid part under the total. */
+    .rg-admin-traffic__perf-grid--signups {
+        min-width: 1080px;
+    }
+
+    .rg-admin-traffic__perf-grid--signups > .rg-admin-traffic__perf-row {
+        grid-template-columns: minmax(240px, 2.2fr) repeat(9, minmax(80px, 1fr));
+    }
+
+    .rg-admin-traffic__perf-row--part {
+        border-top: 1px solid var(--rg-admin-border-default);
+        border-bottom: 0;
+        background: var(--rg-admin-surface-sunken);
+        color: var(--rg-admin-text-secondary);
     }
 
     /* Worth blocking: the rule with its thresholds, in place. */

@@ -8,10 +8,11 @@ use Brick\Math\RoundingMode;
 
 /**
  * The figures of one row of a traffic report — visits, how far they got,
- * the accounts they brought, what they cost and what they are worth — read
- * the same whatever the engine returned, added up, and turned into the
- * rates the screens show. New visitors are the visits less the known ones:
- * an account can only come from them.
+ * the accounts they brought, what they cost and what they are worth, and of
+ * that worth what the accounts brought — read the same whatever the engine
+ * returned, added up, and turned into the rates the screens show. New
+ * visitors are the visits less the known ones: an account can only come from
+ * them.
  */
 final readonly class ReportFigures
 {
@@ -30,6 +31,7 @@ final readonly class ReportFigures
         public string $knownSpend = '0',
         public string $valueReal = '0',
         public string $valueExpected = '0',
+        public string $valueAccounts = '0',
     ) {}
 
     /** @param  array<string, mixed>|object  $row */
@@ -52,6 +54,7 @@ final readonly class ReportFigures
             TrafficMoney::stored($row['known_spend'] ?? 0),
             TrafficMoney::stored($row['value_real'] ?? 0),
             TrafficMoney::stored($row['value_expected'] ?? 0),
+            TrafficMoney::stored($row['value_accounts'] ?? 0),
         );
     }
 
@@ -74,6 +77,7 @@ final readonly class ReportFigures
             $sum($this->knownSpend, $other->knownSpend),
             $sum($this->valueReal, $other->valueReal),
             $sum($this->valueExpected, $other->valueExpected),
+            $sum($this->valueAccounts, $other->valueAccounts),
         );
     }
 
@@ -81,7 +85,7 @@ final readonly class ReportFigures
     public function withSpend(string $extra): self
     {
         return new self($this->visits, $this->opened, $this->started, $this->completed, $this->goal, $this->accounts, $this->posted, $this->returned, $this->knownOpened,
-            TrafficMoney::stored(TrafficMoney::of($this->spend)->plus(TrafficMoney::of($extra))), $this->spendEstimated, $this->knownSpend, $this->valueReal, $this->valueExpected);
+            TrafficMoney::stored(TrafficMoney::of($this->spend)->plus(TrafficMoney::of($extra))), $this->spendEstimated, $this->knownSpend, $this->valueReal, $this->valueExpected, $this->valueAccounts);
     }
 
     public function newVisitors(): int
