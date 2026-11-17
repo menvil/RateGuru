@@ -1,0 +1,9 @@
+app/Services/Traffic/Connectors/ExoClickConnector.php
+  ai_agent 104,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a3849ba5eca83e8a45d8b5b491a5b8c9e36496f4",
+  "prompts": {}
+}
