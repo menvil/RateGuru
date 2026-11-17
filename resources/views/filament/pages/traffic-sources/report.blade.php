@@ -183,9 +183,9 @@
                             <div class="rg-admin-traffic__perf-row rg-admin-traffic__perf-row--more" role="row" wire:key="more-{{ md5($row['key']) }}">
                                 <span class="rg-admin-traffic__perf-name" role="gridcell" style="--rg-depth: {{ $row['depth'] }}">
                                     @if ($row['list'] !== null)
-                                        <button type="button" class="rg-admin-traffic__link" wire:click="listSites({{ $row['list']['source'] }}, '{{ $row['list']['level'] }}')">+ {{ number_format($row['count']) }} more {{ $row['noun'] }} · open as a list</button>
+                                        <button type="button" class="rg-admin-traffic__text-button" wire:click="listSites({{ $row['list']['source'] }}, '{{ $row['list']['level'] }}')">+ {{ number_format($row['count']) }} more {{ $row['noun'] }} · open as a list</button>
                                     @else
-                                        <button type="button" class="rg-admin-traffic__link" wire:click="showMore(@js($row['key']))">+ {{ number_format($row['count']) }} more {{ $row['noun'] }}</button>
+                                        <button type="button" class="rg-admin-traffic__text-button" wire:click="showMore(@js($row['key']))">+ {{ number_format($row['count']) }} more {{ $row['noun'] }}</button>
                                     @endif
                                 </span>
                                 @include('filament.pages.traffic-sources.figure-cells', ['f' => $row['figures']])

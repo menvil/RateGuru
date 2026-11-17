@@ -17,10 +17,12 @@ use App\Enums\GeoEdition;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficEvent;
+use App\Enums\TrafficSourceType;
 use App\Exceptions\Abuse\RateLimitExceededException;
 use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Filament\Pages\TrafficSources\TrafficSourcesView;
 use App\Filament\Support\AdminNavigationGroup;
+use App\Models\Game;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficPostback;
@@ -170,6 +172,13 @@ final class TrafficSourcesPage extends Page
 
     public string $linkGame = '';
 
+    /** The source whose link Campaigns shows: a network or a banner, the first one to begin with. */
+    public string $linkSource = '';
+
+    /** Campaigns: those in a stage, the new ones, the archived, or every running one. */
+    #[Url(except: 'all')]
+    public mixed $stage = 'all';
+
     /** @var array{day: string, amount: string} */
     public array $spendEntry = ['day' => '', 'amount' => ''];
 
@@ -201,6 +210,10 @@ final class TrafficSourcesPage extends Page
     public function mount(): void
     {
         $this->normalize();
+        // Campaigns' link starts on the first network, or the first banner, and the first game.
+        $this->linkSource = (string) (TrafficSource::query()->where('type', TrafficSourceType::Network)->orderBy('name')->value('id')
+            ?? TrafficSource::query()->where('type', TrafficSourceType::Placement)->orderBy('name')->value('id') ?? '');
+        $this->linkGame = (string) (Game::query()->orderBy('title')->value('id') ?? '');
         $this->drawPrices();
         $this->drawSettings();
 
@@ -238,6 +251,15 @@ final class TrafficSourcesPage extends Page
     public function showTab(mixed $tab): void
     {
         $this->tab = $tab;
+        $this->pageNumber = 1;
+        $this->normalize();
+    }
+
+    /** Opens Report on one source: a banner's figures from its row in Campaigns. */
+    public function reportFor(mixed $sourceId): void
+    {
+        $this->source = is_numeric($sourceId) ? (string) (int) $sourceId : '';
+        $this->tab = 'report';
         $this->pageNumber = 1;
         $this->normalize();
     }
@@ -897,6 +919,7 @@ final class TrafficSourcesPage extends Page
         $this->device = in_array($this->device, ['mobile', 'desktop'], true) ? $this->device : '';
         $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
         $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';
+        $this->stage = in_array($this->stage, ['test', 'optimise', 'scale', 'paused', 'new', 'archived'], true) ? $this->stage : 'all';
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 80) : '';
         $this->minClicks = is_numeric($this->minClicks) ? max(0, min(100000, (int) $this->minClicks)) : 0;
         $this->segment = is_string($this->segment) && array_key_exists($this->segment, SiteZoneList::SEGMENTS) ? $this->segment : 'all';

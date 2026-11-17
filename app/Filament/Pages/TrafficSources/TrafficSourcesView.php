@@ -11,17 +11,22 @@ use App\Enums\TrafficDimension;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceType;
+use App\Enums\TrafficSpendMode;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\GameVersion;
+use App\Models\TrafficApiConnection;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
+use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
+use App\Models\TrafficVisit;
+use App\Models\TrafficVisitDetail;
 use App\Queries\Traffic\TrafficLogsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
@@ -39,6 +44,8 @@ use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Worth\TrafficStep;
 use BackedEnum;
+use Brick\Math\RoundingMode;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 /**
@@ -490,41 +497,65 @@ final class TrafficSourcesView
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Campaigns, as the reference draws it: the newest campaign that came in
+     * by itself, waiting to be set up; how a campaign gets here; the link to
+     * paste for a source and a game, with samples to check; the latest
+     * clicks; the networks' campaigns by source — targeting, stage, price
+     * and budget, block lists and the period's figures — in their stages;
+     * and the banners and links bought at a fixed price, against what they
+     * brought.
+     *
+     * @return array<string, mixed>
+     */
     private function campaigns(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
         $figures = $this->reports->byCampaign($filter);
-        $campaigns = TrafficCampaign::query()
+        $games = Game::query()->orderBy('title')->get(['id', 'slug', 'title']);
+        $all = TrafficCampaign::query()
             ->when(is_numeric($page->source), fn ($query) => $query->where('source_id', (int) $page->source))
             ->orderByDesc('first_click_at')
             ->orderByDesc('id')
-            ->limit(200)
-            ->get()
-            // New ones first — they came in by themselves and want setting up — then the running ones, then the archive.
-            ->sortBy(fn (TrafficCampaign $campaign): int => match ($campaign->status) {
-                TrafficCampaignStatus::New => 0,
-                TrafficCampaignStatus::Active => 1,
-                default => 2,
-            })
-            ->values();
-        $source = is_numeric($page->source) ? $sources->firstWhere('id', (int) $page->source) : null;
-        $games = Game::query()->orderBy('title')->get(['id', 'slug', 'title']);
-        $game = $games->firstWhere('id', (int) $page->linkGame) ?? $games->first();
+            ->limit(300)
+            ->get();
+        $stageOf = fn (TrafficCampaign $campaign): string => match (true) {
+            $campaign->status === TrafficCampaignStatus::Archived => 'archived',
+            $campaign->status === TrafficCampaignStatus::New => 'new',
+            default => $campaign->stage->value ?? 'test',
+        };
+        $counts = ['all' => $all->where('status', '!=', TrafficCampaignStatus::Archived)->count()] + collect(['test', 'optimise', 'scale', 'paused', 'new', 'archived'])->mapWithKeys(fn (string $stage): array => [$stage => $all->filter(fn (TrafficCampaign $campaign): bool => $stageOf($campaign) === $stage)->count()])->all();
+        $shown = $all->filter(fn (TrafficCampaign $campaign): bool => $page->stage === 'all' ? $campaign->status !== TrafficCampaignStatus::Archived : $stageOf($campaign) === $page->stage);
+        $since = TrafficCampaignStagePeriod::query()->whereIn('campaign_id', $shown->pluck('id'))->whereNull('ended_at')->pluck('started_at', 'campaign_id');
+        $blocked = TrafficBlock::query()->pluck('source_id')->countBy();
+        $toBlock = $this->toBlockByCampaign($filter);
+        $connections = TrafficApiConnection::query()->get()->keyBy('source_id');
+        $countries = Countries::all();
+        $networks = $sources->where('type', TrafficSourceType::Network)->values();
+        $placements = $sources->where('type', TrafficSourceType::Placement)->values();
+        $linkSource = $sources->firstWhere('id', (int) $page->linkSource) ?? $networks->first() ?? $placements->first();
+        $linkGame = $games->firstWhere('id', (int) $page->linkGame) ?? $games->first();
+        $link = $linkSource === null || $linkGame === null ? null : ($linkSource->type === TrafficSourceType::Network
+            ? TrackingLinkBuilder::forNetwork(route('games.play', ['slug' => $linkGame->slug]), $linkSource->link_key, $linkSource->link_params)
+            : TrackingLinkBuilder::forPlacement(route('games.play', ['slug' => $linkGame->slug]), $linkSource->link_key, $linkSource->creatives[0] ?? null));
+        $new = $all->first(fn (TrafficCampaign $campaign): bool => $campaign->status === TrafficCampaignStatus::New);
 
         return [
-            'campaigns' => $campaigns->map(fn (TrafficCampaign $campaign): array => [
-                'id' => $campaign->id,
-                'name' => $campaign->name ?? 'Campaign '.$campaign->external_id,
-                'external' => $campaign->external_id,
-                'source' => $sources->firstWhere('id', $campaign->source_id)?->name,
-                'status' => $campaign->status->value,
-                'stage' => $campaign->stage?->value,
-                'figures' => $figures[$campaign->id] ?? new ReportFigures,
-            ])->all(),
-            'link' => $source === null || $game === null ? null : ($source->type === TrafficSourceType::Network
-                ? TrackingLinkBuilder::forNetwork(route('games.play', ['slug' => $game->slug]), $source->link_key, $source->link_params)
-                : TrackingLinkBuilder::forPlacement(route('games.play', ['slug' => $game->slug]), $source->link_key, $source->creatives[0] ?? null)),
+            'newCampaign' => $new === null ? null : [
+                'id' => $new->id,
+                'source' => $sources->firstWhere('id', $new->source_id)->name ?? 'A network',
+                'external' => $new->external_id,
+                'visits' => ($figures[$new->id] ?? new ReportFigures)->visits,
+                'since' => $new->first_click_at,
+                'game' => $games->firstWhere('id', $new->game_id)->title ?? null,
+            ],
+            'linkSources' => $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->mapWithKeys(fn (TrafficSource $source): array => [(string) $source->id => $source->name])->all(),
+            'linkSourceId' => $linkSource === null ? '' : (string) $linkSource->id,
+            'linkSourceName' => $linkSource instanceof TrafficSource ? $linkSource->name : null,
+            'linkKey' => $linkSource instanceof TrafficSource ? $linkSource->link_key : null,
             'games' => $games->mapWithKeys(fn (Game $game): array => [(string) $game->id => $game->title])->all(),
+            'linkGameId' => $linkGame === null ? '' : (string) $linkGame->id,
+            'link' => $link,
+            'samples' => $link !== null && $linkSource instanceof TrafficSource && $linkSource->type === TrafficSourceType::Network ? $this->linkSamples($link, $linkSource) : [],
             'inspection' => trim($page->checkLink) === '' ? null : LinkInspector::inspect(
                 $page->checkLink,
                 (string) parse_url((string) config('app.url'), PHP_URL_HOST),
@@ -532,7 +563,192 @@ final class TrafficSourcesView
                 fn (string $slug): ?string => $games->firstWhere('slug', $slug)?->title,
                 fn (int $sourceId, string $id): ?array => ($found = TrafficCampaign::query()->where('source_id', $sourceId)->where('external_id', $id)->first()) === null ? null : ['name' => $found->name, 'archived' => $found->status === TrafficCampaignStatus::Archived],
             ),
+            'latestClicks' => $this->latestClicks($sources),
+            'stageCounts' => $counts,
+            'campaignGroups' => $networks->filter(fn (TrafficSource $source): bool => $shown->contains('source_id', $source->id))->map(fn (TrafficSource $source): array => [
+                'source' => $source->name,
+                'note' => ($connection = $connections->get($source->id)) !== null && $connection->status === TrafficConnectionStatus::Connected
+                    ? 'Campaigns, targeting, bids and budgets read from the '.$source->name.' API'.($connection->campaigns_synced_at !== null ? ' · synced '.$connection->campaigns_synced_at->format('j M H:i') : '')
+                    : 'No API connection for '.$source->name.': targeting, bid and budget typed in here',
+                'rows' => $shown->where('source_id', $source->id)->map(fn (TrafficCampaign $campaign): array => [
+                    'id' => $campaign->id,
+                    'name' => $campaign->status === TrafficCampaignStatus::New ? 'New campaign '.$campaign->external_id : ($campaign->name ?? 'Campaign '.$campaign->external_id),
+                    'new' => $campaign->status === TrafficCampaignStatus::New,
+                    'sub' => implode(' · ', array_filter([$source->name, $campaign->external_id, $games->firstWhere('id', $campaign->game_id)?->title])),
+                    'countries' => $campaign->countries === null ? null : collect($campaign->countries)->map(fn (string $code): string => $countries[$code] ?? $code)->take(3)->implode(', ').(count($campaign->countries) > 3 ? ' +'.(count($campaign->countries) - 3) : ''),
+                    'devices' => match (true) {
+                        $campaign->devices === null || count($campaign->devices) !== 1 => 'All devices',
+                        $campaign->devices[0] === 'mobile' => 'Phones only',
+                        default => 'Desktop only',
+                    },
+                    'format' => $campaign->format,
+                    'stage' => $stageOf($campaign),
+                    'since' => $campaign->status === TrafficCampaignStatus::New ? $campaign->first_click_at : ($since[$campaign->id] ?? $campaign->first_click_at),
+                    'price' => $this->priceLine($campaign),
+                    'budget' => implode(' · ', array_filter([
+                        $campaign->daily_budget !== null ? TrafficMoney::format($campaign->daily_budget, 0).' a day' : null,
+                        match ($campaign->spend_mode ?? $source->spend_mode) {
+                            TrafficSpendMode::Api => 'spend via API',
+                            TrafficSpendMode::ClickCost => 'click price',
+                            TrafficSpendMode::Rate => 'a rate per click',
+                            TrafficSpendMode::Price => 'its own price',
+                            TrafficSpendMode::Manual => 'typed in',
+                            default => null,
+                        },
+                    ])),
+                    'blocked' => (int) ($blocked[$source->id] ?? 0),
+                    'whitelist' => $campaign->whitelist_name,
+                    'figures' => $figures[$campaign->id] ?? new ReportFigures,
+                    'target' => $campaign->target_cpa ?? $source->target_cpa,
+                    'targetFrom' => $campaign->target_cpa !== null ? 'campaign' : 'source',
+                    'toBlock' => $toBlock[$campaign->id] ?? 0,
+                ])->values()->all(),
+            ])->values()->all(),
+            'archivedHidden' => $page->stage === 'archived' ? 0 : $counts['archived'],
+            'placements' => $this->placementRows($placements, $filter),
         ];
+    }
+
+    /**
+     * Samples to check against the link: the link itself, a real click from
+     * it — every token filled in — a click from a campaign RateGuru hasn't
+     * seen, and a click that lost its source key.
+     *
+     * @return array<string, string>
+     */
+    private function linkSamples(string $link, TrafficSource $source): array
+    {
+        $values = ['click' => substr(hash('sha256', $link), 0, 24), 'campaign' => '5521904', 'site' => '47494', 'zone' => '63528', 'creative' => '1180009', 'cost' => '0.0151'];
+        $fill = function (array $overrides) use ($link, $source, $values): string {
+            $filled = $link;
+
+            foreach ($source->link_params as $param) {
+                if ($param['token'] !== '') {
+                    $filled = str_replace($param['param'].'='.$param['token'], $param['param'].'='.rawurlencode((string) ($overrides[$param['kind']] ?? $values[$param['kind']] ?? 'x')), $filled);
+                }
+            }
+
+            return $filled;
+        };
+
+        return [
+            $source->name.' link' => $link,
+            'A real '.$source->name.' click' => $fill([]),
+            'A click from a new campaign' => $fill(['campaign' => '9'.random_int(100000, 999999)]),
+            'A broken link' => (string) preg_replace('/([?&])rg_src=[^&]*&?/', '$1', $fill([])),
+        ];
+    }
+
+    /**
+     * The newest paid clicks, as they came in: source and campaign, the
+     * query the network sent, device and country.
+     *
+     * @return list<array{at: CarbonImmutable, name: string, query: string, where: string}>
+     */
+    private function latestClicks($sources): array
+    {
+        $visits = TrafficVisit::query()->whereNotNull('source_id')->orderByDesc('id')->limit(7)->get(['id', 'source_id', 'campaign_id', 'site_ref', 'zone_ref', 'creative_ref', 'cost', 'device', 'country', 'arrived_at']);
+        $campaigns = TrafficCampaign::query()->whereKey($visits->pluck('campaign_id')->filter()->unique()->all())->get(['id', 'name', 'external_id'])->keyBy('id');
+        $clickIds = TrafficVisitDetail::query()->whereIn('visit_id', $visits->pluck('id'))->pluck('click_id', 'visit_id');
+
+        return $visits->map(function (TrafficVisit $visit) use ($sources, $campaigns, $clickIds): array {
+            $source = $sources->firstWhere('id', $visit->source_id);
+            $campaign = $visit->campaign_id === null ? null : $campaigns->get($visit->campaign_id);
+
+            return [
+                'at' => $visit->arrived_at,
+                'name' => implode(' · ', array_filter([$source?->name, $campaign === null ? null : ($campaign->name ?? 'Campaign '.$campaign->external_id)])),
+                'query' => '?'.http_build_query(array_filter([
+                    'rg_src' => $source?->link_key,
+                    'cid' => $clickIds[$visit->id] ?? null,
+                    'campaign' => $campaign?->external_id,
+                    'site' => $visit->site_ref,
+                    'zone' => $visit->zone_ref,
+                    'creative' => $visit->creative_ref,
+                    'cost' => $visit->cost === null ? null : rtrim(rtrim((string) $visit->cost, '0'), '.'),
+                ], fn ($value): bool => $value !== null && $value !== '')),
+                'where' => ucfirst($visit->device->value).($visit->country !== null ? ' · '.$visit->country : ''),
+            ];
+        })->all();
+    }
+
+    /** A campaign's price per click or per thousand, mobile then desktop where they differ. */
+    private function priceLine(TrafficCampaign $campaign): ?string
+    {
+        if ($campaign->bid_mobile === null && $campaign->bid_desktop === null) {
+            return null;
+        }
+
+        $cpm = $campaign->bid_model === 'cpm';
+        $format = fn (?string $bid): string => $bid === null ? '—' : TrafficMoney::format($bid, $cpm ? 2 : 4);
+        $pair = $campaign->bid_mobile === $campaign->bid_desktop || $campaign->bid_desktop === null ? $format($campaign->bid_mobile) : $format($campaign->bid_mobile).' / '.$format($campaign->bid_desktop);
+
+        return $pair.($cpm ? ' CPM' : '');
+    }
+
+    /**
+     * How many sites and zones the block rule picks out in each campaign, on
+     * the filters, where a site came through one campaign only.
+     *
+     * @return array<int, int> by campaign
+     */
+    private function toBlockByCampaign(TrafficReportFilter $filter): array
+    {
+        $judge = $this->judgeContext($filter);
+        $counts = [];
+
+        foreach ($this->reports->zones($filter, true) as $row) {
+            if ($row['campaign_id'] === null) {
+                continue;
+            }
+
+            $zone = $row['zone_ref'] !== null && $row['zone_ref'] !== '';
+            $ref = (string) ($zone ? $row['zone_ref'] : $row['site_ref']);
+            $state = BlockJudge::judge($row['figures'], $judge['startRates'][$row['source_id']] ?? null, $judge['worthKnown'], $judge['rule'])['state'];
+
+            if ($ref !== '' && in_array($state, ['bots', 'losing', 'weak_start'], true) && ! $judge['blocks']->has($row['source_id'].':'.($zone ? 'zone' : 'site').':'.$ref)) {
+                $counts[$row['campaign_id']] = ($counts[$row['campaign_id']] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Banners and links bought at a fixed price: what they brought in the
+     * period against what they cost.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function placementRows($placements, TrafficReportFilter $filter): array
+    {
+        if ($placements->isEmpty()) {
+            return [];
+        }
+
+        $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
+        $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay))->groupBy('source_id');
+
+        return $placements->map(function (TrafficSource $source) use ($bySource, $unallocated): array {
+            $figures = $bySource->get((string) $source->id)['figures'] ?? new ReportFigures;
+            $paid = TrafficMoney::of($figures->spend)->plus(TrafficMoney::of($unallocated->get($source->id)?->sum(fn (array $row): float => (float) $row['amount']) ?? 0));
+            $value = $figures->value();
+
+            return [
+                'id' => $source->id,
+                'name' => $source->name,
+                'sub' => implode(' · ', array_filter([
+                    $source->place_site,
+                    $source->fixed_amount !== null ? TrafficMoney::format($source->fixed_amount, 0).' '.($source->fixed_period?->value === 'once' ? 'once' : 'a '.($source->fixed_period->value ?? 'month')) : null,
+                    $source->fixed_from !== null ? CarbonImmutable::parse($source->fixed_from)->format('j M').($source->fixed_to !== null ? '–'.CarbonImmutable::parse($source->fixed_to)->format('j M') : '') : null,
+                    $source->status->value === 'ended' ? 'Ended' : 'Active',
+                ])),
+                'visits' => $figures->visits,
+                'value' => (string) $value,
+                'paid' => (string) $paid,
+                'ratio' => $paid->isZero() ? null : (float) (string) $value->dividedBy($paid, 4, RoundingMode::HalfUp),
+            ];
+        })->all();
     }
 
     /** @return array<string, mixed> */

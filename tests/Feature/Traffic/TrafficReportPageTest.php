@@ -168,3 +168,29 @@ it('narrows every figure by the type of traffic, the game and the device', funct
         ->and($visits(['game' => (string) $game->id]))->toBe(2)
         ->and($visits(['device' => 'desktop']))->toBe(1);
 });
+
+it('lays out Campaigns: the new campaign to set up, the link with samples, the latest clicks, campaigns by stage, and banners against their price', function () {
+    $network = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'link_key' => 'exo']);
+    $banner = TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '120', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
+    $new = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'external_id' => '881377', 'status' => 'new']);
+    $scaling = TrafficCampaign::factory()->create(['source_id' => $network->id, 'external_id' => '5521904', 'name' => 'TYT push', 'status' => 'active', 'stage' => 'scale', 'countries' => ['DE', 'AT'], 'bid_model' => 'click', 'bid_mobile' => '0.01', 'bid_desktop' => '0.017']);
+    siteClicks($network, '47494', 2, 2, ['campaign_id' => $scaling->id]);
+    siteClicks($banner, '', 1, 1, ['channel' => 'placement', 'spend' => '60']);
+    Game::factory()->create(['title' => 'Taste Test']);
+
+    $page = Livewire::withQueryParams(['tab' => 'campaigns'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('PopAds main campaign 881377 is new')
+        ->assertSee('How a campaign gets here')
+        ->assertSee('A real ExoClick tests click')
+        ->assertSee('Latest clicks')
+        ->assertSee('rg_src=exo')
+        ->assertSee('Germany, Austria')
+        ->assertSee('$0.0100 / $0.0170')
+        ->assertSee('Banners & links')
+        ->assertSee('Cat blog sidebar');
+
+    $page->set('stage', 'scale')->assertSee('TYT push')->assertDontSee('New campaign 881377')
+        ->set('stage', 'new')->assertSee('New campaign 881377')
+        ->call('openCampaign', $new->id)->assertSet('camp', (string) $new->id)
+        ->call('reportFor', $banner->id)->assertSet('tab', 'report')->assertSet('source', (string) $banner->id);
+});

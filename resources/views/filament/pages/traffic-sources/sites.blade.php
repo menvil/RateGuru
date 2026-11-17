@@ -62,9 +62,9 @@
     <div class="rg-admin-traffic__selection" data-testid="traffic-selection" x-data="{ copied: false }">
         <strong>{{ number_format($list['selected']) }} selected</strong>
         @if (count($list['matching']) > $list['selected'] && $segment !== 'all')
-            <button type="button" class="rg-admin-traffic__link" wire:click="selectMatching">Select all {{ number_format(count($list['matching'])) }} in {{ strtolower($segments[$segment][0]) }}</button>
+            <button type="button" class="rg-admin-traffic__text-button" wire:click="selectMatching">Select all {{ number_format(count($list['matching'])) }} in {{ strtolower($segments[$segment][0]) }}</button>
         @elseif (count($list['matching']) > $list['selected'])
-            <button type="button" class="rg-admin-traffic__link" wire:click="selectMatching">Select all {{ number_format(count($list['matching'])) }} matching</button>
+            <button type="button" class="rg-admin-traffic__text-button" wire:click="selectMatching">Select all {{ number_format(count($list['matching'])) }} matching</button>
         @endif
         <span class="rg-admin-traffic__selection-actions">
             @if ($segment === 'blocked')

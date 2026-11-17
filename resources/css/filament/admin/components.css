@@ -15130,7 +15130,7 @@
         white-space: nowrap;
     }
 
-    .rg-admin-traffic__link {
+    .rg-admin-traffic__text-button {
         padding: 0;
         border: 0;
         background: transparent;
@@ -15333,5 +15333,304 @@
     .rg-admin-traffic__pager-buttons {
         display: inline-flex;
         gap: 4px;
+    }
+
+    /* Campaigns: the new campaign, how one gets here, the link, its check, the latest clicks, the table, banners. */
+    .rg-admin-traffic__warn {
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-traffic__new-campaign {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        border: 1px solid var(--rg-admin-status-warning-dot);
+        border-radius: var(--rg-admin-radius-card);
+        background: var(--rg-admin-status-warning-bg);
+    }
+
+    .rg-admin-traffic__new-campaign-sign {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-status-warning-fg);
+    }
+
+    .rg-admin-traffic__new-campaign-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__how,
+    .rg-admin-traffic__pair-even {
+        display: grid;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .rg-admin-traffic__how {
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr);
+    }
+
+    .rg-admin-traffic__pair-even {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .rg-admin-traffic__how > .rg-admin-traffic__panel,
+    .rg-admin-traffic__pair-even > .rg-admin-traffic__panel {
+        margin-bottom: 0;
+    }
+
+    @media (max-width: 1100px) {
+        .rg-admin-traffic__how,
+        .rg-admin-traffic__pair-even {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .rg-admin-traffic__steps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .rg-admin-traffic__steps > li {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__steps > li > span:last-child {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .rg-admin-traffic__step-number {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--rg-admin-surface-inverse);
+        font-size: 11px;
+        font-weight: var(--rg-admin-weight-semibold);
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-traffic__link-pickers {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__link-foot {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .rg-admin-traffic__link-foot > .rg-admin-button {
+        flex: none;
+    }
+
+    .rg-admin-traffic__samples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__sample {
+        height: 26px;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-card);
+        font: inherit;
+        font-size: 12px;
+        color: var(--rg-admin-text-strong);
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__sample:hover {
+        background: var(--rg-admin-surface-pill);
+    }
+
+    .rg-admin-traffic__inspection {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__inspection > .rg-admin-notice {
+        align-self: stretch;
+    }
+
+    .rg-admin-traffic__inspection-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        margin: 0;
+        font-size: 12.5px;
+    }
+
+    .rg-admin-traffic__inspection-fields > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .rg-admin-traffic__inspection-fields dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+        text-align: right;
+    }
+
+    .rg-admin-traffic__live {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-traffic__live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-traffic__click {
+        display: grid;
+        grid-template-columns: 40px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+        padding: 6px 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: 12.5px;
+    }
+
+    .rg-admin-traffic__click-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__click-text > * {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-traffic__perf-grid--campaigns {
+        min-width: 1240px;
+    }
+
+    .rg-admin-traffic__camp-row {
+        display: grid;
+        grid-template-columns: minmax(200px, 1.6fr) minmax(150px, 1.2fr) 100px minmax(140px, 1fr) 110px 70px 80px 90px 110px 64px 90px;
+        gap: 8px;
+        align-items: center;
+        width: 100%;
+        padding: 8px 16px;
+        border: 0;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: transparent;
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        color: var(--rg-admin-text-strong);
+    }
+
+    button.rg-admin-traffic__camp-row {
+        cursor: pointer;
+    }
+
+    button.rg-admin-traffic__camp-row:hover {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-traffic__camp-row.rg-admin-traffic__perf-row--head {
+        padding-block: 6px;
+        background: var(--rg-admin-surface-sunken);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-traffic__camp-row.rg-admin-traffic__perf-row--head > * {
+        text-align: left;
+    }
+
+    .rg-admin-traffic__camp-row.rg-admin-traffic__perf-row--head > :nth-child(n + 6):nth-child(-n + 10) {
+        text-align: right;
+    }
+
+    .rg-admin-traffic__camp-group {
+        padding: 6px 16px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 12.5px;
+    }
+
+    .rg-admin-traffic__camp-group > span {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rg-admin-traffic__placement {
+        display: grid;
+        grid-template-columns: minmax(200px, 1fr) minmax(240px, 2fr) auto;
+        gap: 16px;
+        align-items: center;
+        padding: 10px 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-traffic__placement-bar {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .rg-admin-traffic__placement-bar .rg-admin-traffic__bar-head {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    @media (max-width: 760px) {
+        .rg-admin-traffic__placement {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .rg-admin-traffic__link-pickers {
+            grid-template-columns: minmax(0, 1fr);
+        }
     }
 }
