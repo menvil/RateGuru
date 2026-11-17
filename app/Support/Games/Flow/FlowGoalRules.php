@@ -34,7 +34,7 @@ final class FlowGoalRules
             GameFlowGoal::Account, GameFlowGoal::NewAccount => self::accountStep($steps, $result, $onward),
             GameFlowGoal::Email => self::indexOf($steps, GameFlowStepType::EmailCapture),
             GameFlowGoal::Shared => self::indexOf($steps, GameFlowStepType::Share)
-                ?? ($result !== null && $onward === GameOnward::Next && (bool) $steps[$result]->setting('share_enabled') ? $result : null),
+                ?? ($result !== null && (bool) $steps[$result]->setting('share_enabled') ? $result : null),
             GameFlowGoal::PostOpened, GameFlowGoal::PostVoted => self::postStep($steps, $result, $onward),
             GameFlowGoal::PostRated => self::ratedStep($steps, $result, $onward),
             GameFlowGoal::FeedVoted, GameFlowGoal::Feed => self::indexOf($steps, GameFlowStepType::Feed) ?? ($onward === GameOnward::Feed ? $result : null),

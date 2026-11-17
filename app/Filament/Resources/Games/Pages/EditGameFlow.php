@@ -832,8 +832,8 @@ final class EditGameFlow extends Page
                 GameFlowStepType::Game => ($settings['advance'] ?? 'auto') === 'auto' ? 'Next pair after '.($settings['advance_seconds'] ?? 2.5).' s' : 'Next pair by button',
                 GameFlowStepType::EmailCapture => ($settings['required'] ?? false) ? 'Required to continue' : 'Optional · '.($texts['secondary_label'] ?? 'Skip'),
                 GameFlowStepType::FullResult => match ($settings['onward'] ?? GameOnward::Next->value) {
-                    GameOnward::Post->value => 'Go to a post: '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ', opens by itself' : ''),
-                    GameOnward::Feed->value => 'Go to the feed',
+                    GameOnward::Post->value => (($settings['share_enabled'] ?? true) ? 'Share · ' : '').'Go to a post: '.$this->postTarget($settings, $postTitles).(($settings['auto_open'] ?? false) ? ', opens by itself' : ''),
+                    GameOnward::Feed->value => (($settings['share_enabled'] ?? true) ? 'Share · ' : '').'Go to the feed',
                     default => collect(['show_score' => 'Score', 'show_profile' => 'Profile', 'share_enabled' => 'Share'])->filter(fn ($label, $key) => (bool) ($settings[$key] ?? true))->values()->implode(' · ').' · '.(GameSignupMode::tryFrom((string) ($settings['signup'] ?? 'inline')) ?? GameSignupMode::Inline)->label(),
                 },
                 GameFlowStepType::Feed => trim((string) ($texts['button_label'] ?? '')).' → '.mb_strtolower(['newest' => 'Newest', 'top' => 'Top', 'hot' => 'Hot'][$settings['feed_sort'] ?? ''] ?? 'the feed'),

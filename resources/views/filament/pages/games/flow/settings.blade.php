@@ -127,12 +127,13 @@
                     @php($onward = $step['settings']['onward'] ?? 'next')
                     <x-admin.ui.switch label="Show score" id="rg-admin-step-score" :checked="(bool) ($step['settings']['show_score'] ?? true)" wire:model.live="{{ $path }}.settings.show_score" />
                     <x-admin.ui.switch label="Show profile" id="rg-admin-step-profile" :checked="(bool) ($step['settings']['show_profile'] ?? true)" wire:model.live="{{ $path }}.settings.show_profile" />
+                    <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" on-hint="A row of ways to share the result, whichever way on." wire:model.live="{{ $path }}.settings.share_enabled" />
                     @include('filament.pages.games.flow.choice', [
                         'label' => 'Way on',
                         'options' => ['next' => 'Sign-up and sharing, then the next step', 'post' => 'Go to a post — one you link to, or one from the game', 'feed' => 'Go to the feed'],
                         'value' => $onward,
                         'model' => $path.'.settings.onward',
-                        'note' => 'Go to a post and Go to the feed send the visitor on into the site; what they do there counts for the goal and for postbacks. That includes signing up: voting asks for an account, and a sign-up within 7 days counts. The steps after this one are then never shown.',
+                        'note' => 'Go to a post and Go to the feed send the visitor on into the site; what they do there counts for the goal and for postbacks. That includes signing up: voting asks for an account, and a sign-up within 7 days counts. The share buttons stay on the card; the steps after this one are then never shown.',
                         'testid' => 'game-flow-way-on',
                     ])
                     @if ($onward === 'post')
@@ -144,7 +145,6 @@
                         @include('filament.pages.games.flow.texts', ['columns' => ['secondary_label', 'notice', 'button_label']])
                         <p class="rg-admin-games__note">Three votes in the feed within 30 minutes count as Voted in the feed.</p>
                     @else
-                        <x-admin.ui.switch label="Share buttons" id="rg-admin-step-share" :checked="(bool) ($step['settings']['share_enabled'] ?? true)" wire:model.live="{{ $path }}.settings.share_enabled" />
                         <fieldset class="rg-admin-field rg-admin-games__radio-rows">
                             <legend class="rg-admin-label">Sign-up for anonymous visitors</legend>
                             @foreach ($signups as $signup)

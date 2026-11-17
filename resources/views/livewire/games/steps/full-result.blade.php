@@ -47,7 +47,10 @@
 
     <div class="rg-game__result-side">
         @if ($data['onward'] !== null)
-            {{-- Sent on into the site: the way in, without sign-up or sharing here. --}}
+            {{-- Sent on into the site: sharing, where it is on, then the way in; sign-up waits for the site. --}}
+            @if ((bool) ($settings['share_enabled'] ?? true))
+                @include('livewire.games.steps.share-buttons', ['share' => $result['share']])
+            @endif
             @include('livewire.games.steps.onward')
             @if ($data['canReplay'])
                 <button type="button" class="rg-game__link" wire:click="replay" data-testid="game-replay">{{ __('games.play.play_again') }}</button>

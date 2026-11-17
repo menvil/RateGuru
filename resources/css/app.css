@@ -347,8 +347,7 @@ select:disabled {
         color: var(--rg-danger-text);
     }
 
-    .rg-game__actions,
-    .rg-game__share-row {
+    .rg-game__actions {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
@@ -993,20 +992,101 @@ select:disabled {
         color: var(--rg-text);
     }
 
-    /* Sharing: the device's own sheet first where there is one, then the link and the places, four abreast. */
+    /*
+     * Sharing, as a phone's share sheet draws it: one line across the whole width, each way a round chip in its own
+     * colour with its name below — the device's own sheet first where there is one.
+     */
+    .rg-game__share {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
     .rg-game__share-row {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-auto-columns: minmax(0, 1fr);
+        grid-auto-flow: column;
+        gap: 4px;
+    }
+
+    .rg-game__share-way {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         gap: 6px;
+        min-width: 0;
+        padding: 4px 0;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--rg-text-2);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
     }
 
-    .rg-game__share-row > .rg-game__button--primary {
-        grid-column: 1 / -1;
+    .rg-game__share-way:focus-visible {
+        outline: 2px solid var(--rg-accent);
+        outline-offset: 2px;
     }
 
-    /* The link to copy by hand when the clipboard refused it, across the whole row. */
+    .rg-game__share-chip {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        color: #fff;
+        transition: transform 150ms;
+    }
+
+    .rg-game__share-way:hover .rg-game__share-chip {
+        transform: scale(1.06);
+    }
+
+    .rg-game__share-chip--native,
+    .rg-game__share-chip--copy {
+        border: 1px solid var(--rg-border);
+        background: var(--rg-card-2);
+        color: var(--rg-text);
+    }
+
+    .rg-game__share-name {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.3;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Seven ways on a phone: the chips a little smaller and the names tighter, so each name is whole. */
+    @media (max-width: 439.98px) {
+        .rg-game__share-row {
+            gap: 0;
+        }
+
+        .rg-game__share-chip {
+            width: 40px;
+            height: 40px;
+        }
+
+        .rg-game__share-name {
+            font-size: 10px;
+            letter-spacing: -0.02em;
+        }
+    }
+
+    @media (max-width: 374.98px) {
+        .rg-game__share-name {
+            font-size: 9.5px;
+        }
+    }
+
+    /* The link to copy by hand when the clipboard refused it, under the row. */
     .rg-game__share-fallback {
-        grid-column: 1 / -1;
         display: flex;
         flex-direction: column;
         gap: 6px;

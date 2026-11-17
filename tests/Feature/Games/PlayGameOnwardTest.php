@@ -183,3 +183,11 @@ it('sends a player who comes back to the post they went to before, not to a newe
 
     $page->call('leave', 'step')->assertRedirect(route('posts.show', ['post' => $first->id, 'vote' => 1]));
 });
+
+it('keeps the share row on a result that sends the player on to the feed', function () {
+    onwardGame($this->draft, [GameFlowStepType::Landing, GameFlowStepType::Game, GameFlowStepType::FullResult], ['full_result' => ['onward' => 'feed', 'share_enabled' => true]]);
+
+    playOnwardGameToResult($this->draft['game']->slug)
+        ->assertSee('data-testid="game-share"', false)
+        ->assertSee('data-testid="game-share-copy"', false);
+});
