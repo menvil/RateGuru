@@ -1,0 +1,39 @@
+app/Queries/Games/GameOnwardQuery.php
+  s_4b9dc6ab6b25d3::t_a7e1446cbbd7db 75,88
+app/Enums/GameFlowStepType.php
+  s_4b9dc6ab6b25d3::t_2165cc5b178f62 283-286,297-300
+app/Actions/Games/SaveGameFlowAction.php
+  s_4b9dc6ab6b25d3::t_2165cc5b178f62 90-96,102
+resources/views/livewire/games/steps/game.blade.php
+  s_4b9dc6ab6b25d3::t_dfcdedf14b7049 33-38
+resources/js/games.js
+  s_4b9dc6ab6b25d3::t_a90fa009c6857b 72-73,101
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_dfcdedf14b7049 333-350
+  s_4b9dc6ab6b25d3::t_88b8dbd6a20294 473-476,480-484,490-491,493-501,505-514,516-532,536-540
+resources/views/filament/pages/games/flow/post-settings.blade.php
+  s_4b9dc6ab6b25d3::t_88b8dbd6a20294 62-73
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_2165cc5b178f62 117,155-163
+resources/views/livewire/games/steps/onward.blade.php
+  s_4b9dc6ab6b25d3::t_88b8dbd6a20294 2-4,19,21-24,26-44
+tests/Feature/Games/PlayGameOnwardTest.php
+  s_4b9dc6ab6b25d3::t_005d7658442042 194-199,201,204-207,212,214-218
+  s_4b9dc6ab6b25d3::t_ea401a01a68e33 200,202-203,208-211,213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "15b4d4a794b8c4dd21d5f5fab2c4a79ebbb7c43f",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
