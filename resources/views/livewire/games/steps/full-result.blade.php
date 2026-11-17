@@ -8,9 +8,8 @@
      * have no account. Beside it, for an anonymous visitor, sign-up first when
      * the step asks for it here — the quickest way to an account is the point
      * of the screen; once they signed up or in, word that their name is on the
-     * card; then the way on, with Play again. Sharing sits under the card on a
-     * wide screen; on a phone, where everything is one column, it comes after
-     * the sign-up and before the way on, as the order of the column says.
+     * card; then the way on, with Play again. Sharing sits right under the
+     * card, on a phone too.
      */
     $result = $data['result'];
     $settings = $data['settings'];
@@ -26,12 +25,7 @@
 <section class="rg-game__result" data-testid="game-step-full_result">
     <div class="rg-game__result-card">
         @if ($description !== '')
-            {{-- Up to 80 characters on one line, its size scaled to the column (rgGameLine); a longer one wraps a size down. --}}
-            @if (mb_strlen($description) <= 80)
-                <p class="rg-game__result-headline rg-game__result-headline--line" style="--rg-game-line-chars: {{ max(1, mb_strlen($description)) }}" x-data="rgGameLine" x-on:resize.window="fit()" wire:ignore.self data-testid="game-profile-description">{{ $description }}</p>
-            @else
-                <p class="rg-game__result-headline rg-game__result-headline--long" data-testid="game-profile-description">{{ $description }}</p>
-            @endif
+            <x-games.headline :text="$description" as="p" size="result" data-testid="game-profile-description" />
         @endif
         <div class="rg-game__share-card">
             @if ($picture)

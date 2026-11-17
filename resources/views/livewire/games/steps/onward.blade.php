@@ -10,7 +10,7 @@
     @if ($onward['autoOpen']) x-data="{ seconds: 3 }" x-init="const tick = setInterval(() => { seconds--; if (seconds <= 0) { clearInterval(tick); $wire.leave('step') } }, 1000)" @endif
 >
     @if ($onward['title'] !== '')
-        <h2 class="rg-game__title rg-game__title--sm" data-testid="game-onward-title">{{ $onward['title'] }}</h2>
+        <x-games.headline :text="$onward['title']" as="h2" size="sm" data-testid="game-onward-title" />
     @endif
     @if ($onward['text'] !== '')
         <p class="rg-game__text">{{ $onward['text'] }}</p>

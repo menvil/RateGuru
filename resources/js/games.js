@@ -68,12 +68,13 @@ document.addEventListener('alpine:init', () => {
         },
     }));
 
-    // A headline kept to one line, as large as the title where it fits — the
-    // Result Preview teaser (result-preview.blade.php) and a round's question
-    // of up to 80 characters (game.blade.php). Measured at the
-    // title's size and scaled down to the column's width, never below 18px; a
-    // line too long even then wraps. The size CSS guesses from its length
-    // stands until then.
+    // A game's headline (x-games.headline) sized to its column: up to 80
+    // characters on one line, more on two — as large as fills the column's
+    // width, from 18px up to the size's own ceiling (--rg-game-line-cap). The
+    // text is measured on one line at 100px and scaled to the width it has;
+    // two lines get twice the width, and come down a step at a time while
+    // they still break onto a third. Below 18px it wraps as it will. The size
+    // CSS guesses from its length stands until then.
     window.Alpine.data('rgGameLine', () => ({
         init() {
             this.fit();
@@ -82,22 +83,35 @@ document.addEventListener('alpine:init', () => {
 
         fit() {
             const el = this.$el;
+            const lines = Number(el.dataset.lines ?? 1) > 1 ? 2 : 1;
+            const cap = parseFloat(getComputedStyle(el).getPropertyValue('--rg-game-line-cap')) || 64;
 
             el.style.whiteSpace = 'nowrap';
-            el.style.fontSize = 'var(--rg-game-line-max)';
+            el.style.fontSize = '100px';
 
-            const size = parseFloat(getComputedStyle(el).fontSize);
-            const ratio = el.clientWidth / el.scrollWidth;
+            const width = el.clientWidth;
+            const natural = el.scrollWidth;
 
-            if (ratio >= 1) {
+            if (width <= 0 || natural <= 0) {
                 return;
             }
 
-            const fitted = Math.floor(size * ratio * 0.98);
+            // Two lines never break evenly: leave room for the longer one.
+            let size = Math.min(cap, Math.floor((100 * width * lines * (lines > 1 ? 0.9 : 0.98)) / natural));
 
-            el.style.fontSize = `${Math.max(18, fitted)}px`;
+            el.style.whiteSpace = lines > 1 ? 'normal' : 'nowrap';
+            el.style.fontSize = `${Math.max(18, size)}px`;
 
-            if (fitted < 18) {
+            if (lines > 1) {
+                const lineHeight = () => parseFloat(getComputedStyle(el).lineHeight) || size * 1.1;
+
+                while (size > 18 && el.clientHeight > lineHeight() * 2.5) {
+                    size -= 1;
+                    el.style.fontSize = `${size}px`;
+                }
+            }
+
+            if (size < 18) {
                 el.style.whiteSpace = 'normal';
             }
         },

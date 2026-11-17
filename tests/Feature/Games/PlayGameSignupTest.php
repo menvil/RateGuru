@@ -45,6 +45,8 @@ it('asks an anonymous visitor for the email first, then a name and one password,
 
     playToResult($slug)
         ->assertSeeHtmlInOrder([
+            // Sharing right under the card, then the sign-up beside it on a wide screen and below it on a phone.
+            'data-testid="game-share"',
             'action="'.route('register').'"',
             'data-testid="game-signup"',
             'name="_auth_surface" value="embedded"',
@@ -60,8 +62,6 @@ it('asks an anonymous visitor for the email first, then a name and one password,
             'name="password_confirmation"',
             'Create account',
         ])
-        // Sharing sits under the card, in the card's column; on a phone the column's order puts it after the sign-up.
-        ->assertSee('data-testid="game-share"', false)
         ->assertDontSee('data-testid="game-signup-google"', false);
 });
 

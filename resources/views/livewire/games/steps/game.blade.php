@@ -30,12 +30,7 @@
         </ol>
     </div>
 
-    {{-- A question up to 80 characters stays on one line, its size scaled to the round's width (rgGameLine); a longer one wraps. --}}
-    @if (mb_strlen($round['question']) <= 80)
-        <h1 class="rg-game__question rg-game__question--line" style="--rg-game-line-chars: {{ max(1, mb_strlen($round['question'])) }}" x-data="rgGameLine" x-on:resize.window="fit()" wire:ignore.self>{{ $round['question'] }}</h1>
-    @else
-        <h1 class="rg-game__question">{{ $round['question'] }}</h1>
-    @endif
+    <x-games.headline :text="$round['question']" size="question" />
     @if ($round['description'] !== '')
         <p class="rg-game__lead">{{ $round['description'] }}</p>
     @endif

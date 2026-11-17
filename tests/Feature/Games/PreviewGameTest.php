@@ -133,13 +133,13 @@ it('shows the teaser under the player\'s numbers, or in their place on one line'
 
     $preview()
         ->assertSeeInOrder(['You matched 2 of 2', 'Your result profile is ready.', 'See my profile'])
-        ->assertDontSee('rg-game__title--line', false)
+        ->assertDontSee('class="rg-game__line"', false)
         ->assertDontSee('rg-game__eyebrow', false);
 
     $step->update(['settings' => ['show_partial' => false]]);
 
     $preview()
-        ->assertSeeInOrder(['rg-game__title rg-game__title--line', '--rg-game-line-chars: 29', 'Your result profile is ready.'], false)
+        ->assertSeeInOrder(['class="rg-game__line"', 'rg-game__title rg-game__fit', '--rg-game-line-chars: 29', 'Your result profile is ready.'], false)
         ->assertDontSee('You matched');
 });
 
