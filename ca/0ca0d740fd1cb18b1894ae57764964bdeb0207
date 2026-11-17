@@ -1,0 +1,46 @@
+app/Console/Commands/TrafficAllocateSpendCommand.php
+  s_4b9dc6ab6b25d3::t_437cafe486288b 12,63-64,66-68,70-75,78-79
+app/Actions/Traffic/SaveTrafficCampaignAction.php
+  s_4b9dc6ab6b25d3::t_3c2efb6761e9ed 73-76,79
+app/Actions/Traffic/RevalueOpenVisitsAction.php
+  s_4b9dc6ab6b25d3::t_8b1e068b184acd 8,30-34,45-47
+database/migrations/2026_11_17_100500_create_traffic_visits_tables.php
+  s_4b9dc6ab6b25d3::t_56f6bb9c47ea94 82
+app/Console/Commands/TrafficSendPostbacksCommand.php
+  s_4b9dc6ab6b25d3::t_7db7f99c4c3e7b 146
+tests/Feature/Traffic/TrafficSourceActionsTest.php
+  s_4b9dc6ab6b25d3::t_35aa2dc972593c 204-211
+tests/Unit/Support/Traffic/PostbacksTest.php
+  s_4b9dc6ab6b25d3::t_bac062e8c2196a 42-44
+tests/Feature/Traffic/TrafficWorthTest.php
+  s_4b9dc6ab6b25d3::t_35aa2dc972593c 152-161
+  ai_agent 13
+app/Actions/Traffic/MarkTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_dba68ef3972b96 100
+app/Support/Traffic/Postbacks/PostbackSchedule.php
+  s_4b9dc6ab6b25d3::t_7db7f99c4c3e7b 18-20
+tests/Feature/Traffic/TrafficPostbacksTest.php
+  s_4b9dc6ab6b25d3::t_35aa2dc972593c 214-227
+app/Support/Traffic/Postbacks/PostbackPlanner.php
+  s_4b9dc6ab6b25d3::t_dba68ef3972b96 38,40-42,47
+app/Actions/Traffic/ResendTrafficPostbackAction.php
+  s_4b9dc6ab6b25d3::t_39a05d7d954f0f 59,74
+  s_4b9dc6ab6b25d3::t_437cafe486288b 17
+  s_4b9dc6ab6b25d3::t_7db7f99c4c3e7b 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ca0ca0d740fd1cb18b1894ae57764964bdeb0207",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
