@@ -1,0 +1,23 @@
+tests/Feature/Seeders/TrafficDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_ab7ff518d0a6f2 1-23
+database/seeders/TrafficDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_ab7ff518d0a6f2 1-156
+database/seeders/TrafficVolumeSeeder.php
+  s_4b9dc6ab6b25d3::t_ab7ff518d0a6f2 1-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c4c07ce1c4bb36343064a499952b35d47e66e59c",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
