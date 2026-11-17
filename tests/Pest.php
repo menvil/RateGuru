@@ -126,6 +126,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Laravel\Nightwatch\Events\IngestingEvents as NightwatchIngestingEvents;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -14604,6 +14605,14 @@ function recordTraffic(bool $capture = true, bool $postbacks = false): TrafficSe
 
 /** A desktop Chrome's User-Agent: a real browser, as the traffic tracker classifies one. */
 const DESKTOP_CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+
+/** A browser holding the visitor token asking for a page, as a desktop Chrome asks: a click on an ad network's link, when the address carries rg_src. */
+function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserAbrowserA', array $headers = []): TestResponse
+{
+    return test()->withCookie((string) config('games.visitor_cookie.name'), $token)
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"', ...$headers])
+        ->get($path);
+}
 
 /** The SHA-256 the tracker and the games know a browser by, from its rg_game_visitor token. */
 function browserHashOf(string $token): string

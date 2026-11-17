@@ -42,6 +42,8 @@ final class SaveTrafficSourceAction
 {
     use LocksTrafficRecords;
 
+    public function __construct(private readonly MaterializeFixedSpendAction $fixed) {}
+
     /**
      * @param  array<string, mixed>  $source  the source's fields
      * @param  list<array<string, mixed>>  $rules  its postback rules, in order
@@ -96,6 +98,10 @@ final class SaveTrafficSourceAction
                     ->where('source_id', $record->id)
                     ->where('status', TrafficPostbackStatus::Pending)
                     ->update(['status' => TrafficPostbackStatus::Cancelled, 'finished_at' => now()]);
+            }
+
+            if ($type === TrafficSourceType::Placement) {
+                $this->fixed->handle($record->refresh());
             }
 
             return $record->refresh();

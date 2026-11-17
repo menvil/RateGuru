@@ -6,12 +6,15 @@ use App\Enums\TrafficActor;
 use App\Enums\TrafficCampaignEventKind;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficDevice;
 use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendBasis;
+use App\Enums\TrafficSpendMode;
 use App\Models\Game;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
+use App\Models\TrafficCampaignPrice;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
@@ -22,6 +25,7 @@ use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\ClickParameters;
 use App\Support\Traffic\Capture\VisitorSignals;
 use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Spend\ClickSpend;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -139,6 +143,7 @@ final class RecordPaidClickAction
 
         return DB::transaction(function () use ($source, $params, $attributes, $clickHash, $browserHash, $signals, $now): ?TrafficVisit {
             $attributes['campaign_id'] = $this->campaignId($source, $params, $now, true);
+            $attributes = [...$attributes, ...$this->clickSpend($source, $attributes['campaign_id'], $attributes['cost'], $signals->device, $now)];
 
             try {
                 $visit = DB::transaction(function () use ($attributes): TrafficVisit {
@@ -328,5 +333,32 @@ final class RecordPaidClickAction
 
         RateLimiter::hit($key, 60);
         $this->logger->warning('traffic.click.dropped', ['by' => $by]);
+    }
+
+    /**
+     * What the click is taken to have cost as it comes in (ClickSpend), by
+     * how its campaign — else its source — counts spend; a campaign priced
+     * by the day uses the price in force now.
+     *
+     * @return array{spend: string, spend_basis: TrafficSpendBasis, spend_estimated: bool}
+     */
+    private function clickSpend(TrafficSource $source, ?int $campaignId, ?string $cost, TrafficDevice $device, CarbonImmutable $now): array
+    {
+        $campaign = $campaignId === null ? null : TrafficCampaign::query()->find($campaignId);
+        $mode = $campaign->spend_mode ?? $source->spend_mode;
+        $price = $mode === TrafficSpendMode::Price && $campaign !== null
+            ? TrafficCampaignPrice::query()->where('campaign_id', $campaign->id)->where('device', $device)->where('effective_from', '<=', $now)
+                ->orderByDesc('effective_from')->orderByDesc('id')->first()
+            : null;
+        $spend = ClickSpend::of(
+            $mode,
+            $cost,
+            $device === TrafficDevice::Mobile ? $source->rate_mobile : $source->rate_desktop,
+            $source->rate_unit,
+            $price === null ? null : ['price' => (string) $price->price, 'model' => $price->bid_model],
+            $source->spend_estimate,
+        );
+
+        return ['spend' => $spend['spend'], 'spend_basis' => $spend['basis'], 'spend_estimated' => $spend['estimated']];
     }
 }

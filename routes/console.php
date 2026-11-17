@@ -69,6 +69,10 @@ Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinu
 // a process of its own, never by the one queue worker.
 Schedule::command('traffic:send-postbacks')->everyMinute()->withoutOverlapping(5)->runInBackground();
 
+// Spend figures shared out over the visits they cover (docs/architecture/
+// traffic.md, "Spend"), never in a web request.
+Schedule::command('traffic:allocate-spend')->everyMinute()->withoutOverlapping(5)->runInBackground();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.

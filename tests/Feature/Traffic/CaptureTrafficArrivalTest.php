@@ -14,7 +14,6 @@ use App\Models\TrafficVisitDetail;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Traffic\Capture\ArrivalToken;
 use Carbon\CarbonImmutable;
-use Illuminate\Testing\TestResponse;
 
 /**
  * A paid click is recorded when its page is asked for, before anything is
@@ -35,13 +34,6 @@ beforeEach(function () {
 afterEach(function () {
     CarbonImmutable::setTestNow();
 });
-
-function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserAbrowserA', array $headers = []): TestResponse
-{
-    return test()->withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"', ...$headers])
-        ->get($path);
-}
 
 it('records a paid click on a game page before the page is drawn, with its campaign, site, zone and price', function () {
     clickOn('/games/'.$this->slug.'?rg_src=exo&cid=tag-1&campaign=5521904&site=40123&zone=44718&cost=0.00045&utm_term=pop')->assertOk();
