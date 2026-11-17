@@ -1,0 +1,88 @@
+bootstrap/app.php
+  s_4b9dc6ab6b25d3::t_6bd61a7342b8c7 9,46-47
+app/Support/Traffic/Attribution/AttributeAccountOnSignIn.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 53
+  s_4b9dc6ab6b25d3::t_121728a97e4911 55
+  s_4b9dc6ab6b25d3::t_72c3b222de8074 1-52,54,56-57
+app/Actions/Traffic/RecordAccountLoginAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-65
+app/Actions/Posts/CreatePostAction.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 6,28,136-137
+app/Http/Middleware/RecordAccountReturn.php
+  s_4b9dc6ab6b25d3::t_6bd61a7342b8c7 1-45
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_0c6c7b8eb1e8bd 215-223
+  s_4b9dc6ab6b25d3::t_64189fcf544c5c 1-6,8-67,70-94,96-98,100-141,143-151,153-201,203,205-214
+  s_4b9dc6ab6b25d3::t_92337491dd6b09 7
+  s_4b9dc6ab6b25d3::t_597535ee2a09bd 68-69,95,99,142,152,202,204
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_f05cc13a40dce6 179-180
+docs/architecture/games.md
+  ai_agent 270
+app/Http/Controllers/Auth/RegisteredUserController.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 10,34
+app/Actions/Traffic/RecordAccountSignupAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-92
+app/Support/Traffic/Attribution/ConfirmAttributionOnVerified.php
+  s_4b9dc6ab6b25d3::t_72c3b222de8074 1-32
+resources/js/auth-modal.js
+  s_4b9dc6ab6b25d3::t_6bd61a7342b8c7 18,28-36
+app/Actions/Games/GameSignupFormRecorder.php
+  s_4b9dc6ab6b25d3::t_6bd61a7342b8c7 1-27
+app/Actions/Traffic/MarkTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-25
+app/Actions/Auth/LinkSocialAccountAction.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 5,12,15,113,118-126
+app/Actions/Games/MoveGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_f05cc13a40dce6 26,60
+app/Support/Auth/AuthSurfaceContext.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 113-120
+resources/views/auth/register.blade.php
+  s_4b9dc6ab6b25d3::t_025c5bf0cd1a5e 3-4
+app/Actions/Traffic/ConfirmAccountAttributionAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-71
+app/Actions/Traffic/LinkAccountBrowserAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-23
+app/Actions/Traffic/RecordAccountBonusAction.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-7,10-25,40-75
+  s_4b9dc6ab6b25d3::t_72c3b222de8074 8-9,26-39
+resources/views/auth/login.blade.php
+  s_4b9dc6ab6b25d3::t_025c5bf0cd1a5e 6-7
+app/Queries/Traffic/AccountCreditQuery.php
+  s_4b9dc6ab6b25d3::t_ade89cd423f3cd 1-32
+tests/Feature/Queries/GameMetricsQueryTest.php
+  s_4b9dc6ab6b25d3::t_025c5bf0cd1a5e 8
+  s_4b9dc6ab6b25d3::t_15fe36103a0f16 126-129,283-284
+app/Support/Games/Flow/FlowStepDraft.php
+  s_4b9dc6ab6b25d3::t_f05cc13a40dce6 71-84
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 49-51,60,97,127-130
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_c50c77a428b371 10,74,80,82,233,242-243,365-384
+app/Support/Traffic/Attribution/SignupPlace.php
+  s_4b9dc6ab6b25d3::t_72c3b222de8074 1-38
+app/Actions/Games/RecordGameAnswerAction.php
+  s_4b9dc6ab6b25d3::t_f05cc13a40dce6 34,114
+app/Actions/Moderation/ApprovePostAction.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 6,47,58-60
+app/Support/Traffic/Attribution/SignupOrigin.php
+  s_4b9dc6ab6b25d3::t_72c3b222de8074 1-32
+app/Http/Controllers/Auth/SocialAuthController.php
+  s_4b9dc6ab6b25d3::t_e9f76b349b59f7 19,69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0881a4533a75bd45d5da7844c68ace58f6c2805b",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
