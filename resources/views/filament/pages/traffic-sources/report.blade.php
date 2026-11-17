@@ -181,7 +181,7 @@
                     @foreach ($tree as $row)
                         @if ($row['kind'] === 'more')
                             <div class="rg-admin-traffic__perf-row rg-admin-traffic__perf-row--more" role="row" wire:key="more-{{ md5($row['key']) }}">
-                                <span class="rg-admin-traffic__perf-name" role="gridcell" style="--rg-depth: {{ $row['depth'] }}">
+                                <span class="rg-admin-traffic__perf-name" role="gridcell" style="--rg-admin-traffic-depth: {{ $row['depth'] }}">
                                     @if ($row['list'] !== null)
                                         <button type="button" class="rg-admin-traffic__text-button" wire:click="listSites({{ $row['list']['source'] }}, '{{ $row['list']['level'] }}')">+ {{ number_format($row['count']) }} more {{ $row['noun'] }} · open as a list</button>
                                     @else
@@ -192,7 +192,7 @@
                             </div>
                         @else
                             <div @class(['rg-admin-traffic__perf-row', 'rg-admin-traffic__perf-row--top' => $row['depth'] === 0]) role="row" aria-level="{{ $row['depth'] + 1 }}" @if ($row['children']) aria-expanded="{{ $row['open'] ? 'true' : 'false' }}" @endif wire:key="node-{{ md5($row['key']) }}">
-                                <span class="rg-admin-traffic__perf-name" role="gridcell" style="--rg-depth: {{ $row['depth'] }}">
+                                <span class="rg-admin-traffic__perf-name" role="gridcell" style="--rg-admin-traffic-depth: {{ $row['depth'] }}">
                                     @if ($row['children'])
                                         <button type="button" class="rg-admin-traffic__toggle" wire:click="toggleNode(@js($row['key']))" aria-label="{{ $row['open'] ? 'Close' : 'Open' }} {{ $row['label'] }}">
                                             <x-admin.ui.icon :name="$row['open'] ? 'chevron-down' : 'chevron-right'" :size="14" />

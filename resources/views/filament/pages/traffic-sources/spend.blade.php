@@ -67,7 +67,7 @@
                     @if ($row['open'])
                         @forelse ($row['campaigns'] as $campaign)
                             <div class="rg-admin-traffic__spend-row" role="row">
-                                <span role="gridcell" class="rg-admin-traffic__perf-name" style="--rg-depth: 1"><span class="rg-admin-traffic__toggle-space"></span><span class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title rg-admin-traffic__mono">{{ $campaign['external'] }}</span><span class="rg-admin-traffic__note">{{ $campaign['name'] }}</span></span></span>
+                                <span role="gridcell" class="rg-admin-traffic__perf-name" style="--rg-admin-traffic-depth: 1"><span class="rg-admin-traffic__toggle-space"></span><span class="rg-admin-traffic__perf-label"><span class="rg-admin-traffic__perf-title rg-admin-traffic__mono">{{ $campaign['external'] }}</span><span class="rg-admin-traffic__note">{{ $campaign['name'] }}</span></span></span>
                                 <span role="gridcell"></span>
                                 <span role="gridcell" class="rg-admin-traffic__fig">{{ number_format($campaign['figures']->visits) }}</span>
                                 <span role="gridcell" class="rg-admin-traffic__fig"><strong>{{ $money($campaign['figures']->spend) }}</strong>@if (\App\Support\Traffic\Money\TrafficMoney::of($campaign['figures']->spendEstimated)->isPositive())<small>incl. {{ $money($campaign['figures']->spendEstimated) }} est.</small>@endif</span>

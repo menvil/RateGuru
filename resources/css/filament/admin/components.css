@@ -15197,7 +15197,7 @@
     }
 
     .rg-admin-traffic__perf-row--more .rg-admin-traffic__perf-name {
-        padding-left: calc(var(--rg-depth, 0) * 20px + 28px);
+        padding-left: calc(var(--rg-admin-traffic-depth, 0) * 20px + 28px);
     }
 
     .rg-admin-traffic__perf-row--total {
@@ -15219,7 +15219,7 @@
         align-items: center;
         gap: 8px;
         min-width: 0;
-        padding-left: calc(var(--rg-depth, 0) * 20px);
+        padding-left: calc(var(--rg-admin-traffic-depth, 0) * 20px);
     }
 
     .rg-admin-traffic__perf-label {
@@ -15723,11 +15723,11 @@
         color: var(--rg-admin-text-strong);
     }
 
-    button.rg-admin-traffic__camp-row {
+    .rg-admin-traffic__camp-row--open {
         cursor: pointer;
     }
 
-    button.rg-admin-traffic__camp-row:hover {
+    .rg-admin-traffic__camp-row--open:hover {
         background: var(--rg-admin-surface-sunken);
     }
 

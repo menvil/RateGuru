@@ -146,7 +146,7 @@
                     </div>
                     @foreach ($group['rows'] as $row)
                         @php($f = $row['figures'])
-                        <button type="button" class="rg-admin-traffic__camp-row" role="row" wire:click="openCampaign({{ $row['id'] }})" wire:key="campaign-{{ $row['id'] }}" data-testid="traffic-campaign-row">
+                        <button type="button" class="rg-admin-traffic__camp-row rg-admin-traffic__camp-row--open" role="row" wire:click="openCampaign({{ $row['id'] }})" wire:key="campaign-{{ $row['id'] }}" data-testid="traffic-campaign-row">
                             <span role="cell" class="rg-admin-traffic__perf-label">
                                 <span @class(['rg-admin-traffic__perf-title', 'rg-admin-traffic__warn' => $row['new']])>{{ $row['name'] }}</span>
                                 <span class="rg-admin-traffic__note">{{ $row['sub'] }}</span>
