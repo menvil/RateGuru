@@ -1,0 +1,28 @@
+tests/Feature/Games/PreviewGameTest.php
+  s_4b9dc6ab6b25d3::t_5a57f886b8e61c 170-187
+  s_4b9dc6ab6b25d3::t_5228bcb9abe8cf 4,16
+resources/views/livewire/games/steps/game.blade.php
+  s_4b9dc6ab6b25d3::t_9f29d505c8f8eb 38
+app/Support/Games/Play/GamePlayView.php
+  s_4b9dc6ab6b25d3::t_9f29d505c8f8eb 12,19,46-47,266-267,274-275,448-497
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_9f29d505c8f8eb 174-180,588-591,595,612
+  s_4b9dc6ab6b25d3::t_0cb8efc2befb79 581-582,584,607
+  s_4b9dc6ab6b25d3::t_822de4f858bf67 254-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "59fae3e34e61e3a75a693886ae46657a3427df62",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
