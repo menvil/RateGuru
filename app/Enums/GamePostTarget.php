@@ -12,7 +12,7 @@ enum GamePostTarget: string
     public function label(): string
     {
         return match ($this) {
-            self::Chosen => 'A post you link to',
+            self::Chosen => 'A post you choose',
             self::LastPick => 'The post they picked in the last round',
             self::Fresh => 'A fresh post they haven’t rated',
         };

@@ -77,6 +77,10 @@
         </aside>
     </div>
 
+    @if ($picker !== null)
+        @include('filament.pages.games.post-picker')
+    @endif
+
     @if ($confirmingFlow !== null)
         <x-admin.ui.confirm-dialog
             id="rg-admin-game-flow"

@@ -1,8 +1,9 @@
 {{--
-    Which post a step sends the visitor to — one linked by its address, #id or
-    words of its title or author, looked up as they are typed; the post of
-    their last pick; a fresh one — and what to ask there: the vote and the
-    site's rating groups.
+    Which post a step sends the visitor to — one chosen from the list of
+    posts with their pictures, or linked by its address, #id or words of its
+    title or author, looked up as they are typed; the post of their last
+    pick; a fresh one — and what to ask there: the vote and the site's
+    rating groups.
 --}}
 @php
     $settings = $step['settings'];
@@ -11,17 +12,19 @@
 @endphp
 @include('filament.pages.games.flow.choice', [
     'label' => 'Which post',
-    'options' => ['chosen' => 'A post you link to', 'last_pick' => 'The post they picked in the last round', 'fresh' => 'A fresh post they haven’t rated'],
+    'options' => ['chosen' => 'A post you choose', 'last_pick' => 'The post they picked in the last round', 'fresh' => 'A fresh post they haven’t rated'],
     'value' => $settings['post_target'] ?? 'last_pick',
     'model' => $path.'.settings.post_target',
 ])
 
 @if (($settings['post_target'] ?? '') === 'chosen')
     <div class="rg-admin-field">
-        <label class="rg-admin-label" for="rg-admin-step-post-link">Post link</label>
+        <span class="rg-admin-label">Post</span>
+        <x-admin.ui.button icon="images" wire:click="openPicker" data-testid="game-flow-choose-post">{{ $linkedPost === null ? 'Choose a post' : 'Choose another post' }}</x-admin.ui.button>
+        <label class="rg-admin-games__note" for="rg-admin-step-post-link">or paste its link or #id, or type words of its title or author</label>
         <div class="rg-admin-games__post-link">
             <x-admin.ui.icon name="link" :size="14" class="rg-admin-games__post-link-icon" />
-            <input id="rg-admin-step-post-link" type="text" class="rg-admin-input rg-admin-games__post-link-input" placeholder="Paste the post’s link or search by title" autocomplete="off" wire:model.live.debounce.400ms="postLink" wire:keydown.enter.prevent="linkPost" />
+            <input id="rg-admin-step-post-link" type="text" class="rg-admin-input rg-admin-games__post-link-input" placeholder="https://…/posts/123, #123 or words of the title" autocomplete="off" wire:model.live.debounce.400ms="postLink" wire:keydown.enter.prevent="linkPost" />
         </div>
         @if ($postLinkError !== '')
             <span class="rg-admin-games__note rg-admin-games__note--danger">{{ $postLinkError }}</span>

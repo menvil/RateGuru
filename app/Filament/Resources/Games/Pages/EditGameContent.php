@@ -14,14 +14,13 @@ use App\Enums\ImageOrientation;
 use App\Enums\PostStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
+use App\Filament\Resources\Games\Concerns\PicksPosts;
 use App\Filament\Resources\Games\GameResource;
-use App\Filament\Support\ListPageNumber;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\GameVersion;
 use App\Models\Post;
 use App\Queries\Games\GameDraftQuery;
-use App\Queries\Games\GamePostPickerQuery;
 use App\Queries\Games\GameUnpublishedChangesQuery;
 use App\Services\Games\GamePreviewDrafts;
 use App\Services\Media\Exceptions\ImageIngestException;
@@ -64,6 +63,7 @@ use Livewire\WithFileUploads;
 final class EditGameContent extends Page
 {
     use InteractsWithGameEditor;
+    use PicksPosts;
     use WithFileUploads;
 
     protected static string $resource = GameResource::class;
@@ -105,10 +105,6 @@ final class EditGameContent extends Page
 
     /** The option the post picker chooses for, `{round key}:{slot}`. */
     public ?string $pickerFor = null;
-
-    public string $pickerSearch = '';
-
-    public int $pickerPage = 1;
 
     /** The profile the drawer edits, by key. */
     public ?string $editingProfile = null;
@@ -349,22 +345,6 @@ final class EditGameContent extends Page
     public function closePicker(): void
     {
         $this->pickerFor = null;
-    }
-
-    public function updatedPickerSearch(): void
-    {
-        $this->pickerPage = 1;
-    }
-
-    public function pickerGoToPage(mixed $page): void
-    {
-        $this->pickerPage = ListPageNumber::from($page);
-    }
-
-    /** The page is the browser's to set as well, so it is held to a page number either way. */
-    public function updatedPickerPage(): void
-    {
-        $this->pickerPage = ListPageNumber::from($this->pickerPage);
     }
 
     public function pickPost(mixed $postId): void
@@ -1002,27 +982,12 @@ final class EditGameContent extends Page
             }
         }
 
-        $paginator = app(GamePostPickerQuery::class)->paginate($this->pickerSearch, $except, $this->pickerPage);
-        $presenter = app(PostImagePresenter::class);
         $minVotes = (int) ($this->scoring['crowd_min_votes'] ?? config('games.crowd.min_votes'));
 
         return [
-            'option' => VersusRoundCheck::optionName((int) $slot),
-            'paginator' => $paginator,
-            'posts' => array_map(function (Post $post) use ($presenter, $minVotes): array {
-                $votes = (int) $post->upvotes_count + (int) $post->downvotes_count;
-
-                return [
-                    'id' => (int) $post->id,
-                    'title' => (string) $post->title,
-                    'author' => $post->user?->username,
-                    'thumbnail' => $presenter->assetThumbnailUrl($post->imageAsset),
-                    'share' => $votes > 0 ? number_format($post->upvotes_count * 100 / $votes, 1) : null,
-                    'votes' => $votes,
-                    'enough' => $votes >= $minVotes,
-                ];
-            }, $paginator->items()),
-            'minVotes' => $minVotes,
+            ...$this->pickablePosts($except, $minVotes),
+            'title' => 'Choose a post for '.strtolower(VersusRoundCheck::optionName((int) $slot)),
+            'note' => 'A crowd pick needs both posts to have at least '.number_format($minVotes).' site votes.',
         ];
     }
 }

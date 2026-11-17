@@ -17,6 +17,7 @@ use App\Enums\GameStepAudience;
 use App\Enums\GameVersionStatus;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
+use App\Filament\Resources\Games\Concerns\PicksPosts;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Category;
 use App\Models\Game;
@@ -65,6 +66,7 @@ use Livewire\Attributes\Url;
 final class EditGameFlow extends Page
 {
     use InteractsWithGameEditor;
+    use PicksPosts;
 
     protected static string $resource = GameResource::class;
 
@@ -100,6 +102,9 @@ final class EditGameFlow extends Page
 
     /** @var list<array{id: int, title: string, author: string}> */
     public array $postMatches = [];
+
+    /** Whether the post picker is open for the selected step. */
+    public bool $picking = false;
 
     public string $postLinkError = '';
 
@@ -265,6 +270,30 @@ final class EditGameFlow extends Page
         $this->steps[$this->selected]['settings']['post_target'] = GamePostTarget::Chosen->value;
         $this->resetPostLink();
         $this->toast('Post linked: '.Str::limit((string) $post->title, 60));
+    }
+
+    /** Opens the post picker for the selected step, from its first page. */
+    public function openPicker(): void
+    {
+        if (! array_key_exists('post_target', (array) ($this->steps[$this->selected]['settings'] ?? []))) {
+            return;
+        }
+
+        $this->picking = true;
+        $this->pickerSearch = '';
+        $this->pickerPage = 1;
+    }
+
+    public function closePicker(): void
+    {
+        $this->picking = false;
+    }
+
+    /** The post picked in the picker, linked to the selected step. */
+    public function pickPost(mixed $postId): void
+    {
+        $this->picking = false;
+        $this->choosePost($postId);
     }
 
     public function unlinkPost(): void
@@ -588,6 +617,7 @@ final class EditGameFlow extends Page
             'ratingGroups' => app(RatingConfigurationManager::class)->activeGroups()->map(fn ($group): array => ['key' => (string) $group->key, 'label' => $group->translatedLabel('en')])->values()->all(),
             'categories' => Category::query()->active()->ordered()->get()->mapWithKeys(fn (Category $category): array => [(string) $category->slug => $category->translatedName('en')])->all(),
             'linkedPost' => $this->linkedPost($step),
+            'picker' => $this->picking ? [...$this->pickablePosts(), 'title' => 'Choose a post to send visitors to'] : null,
             'feedSorts' => ['' => 'The site’s default', 'newest' => 'Newest', 'top' => 'Top', 'hot' => 'Hot'],
             'library' => array_map(fn (GameFlowStepType $type): array => [
                 'type' => $type->value,

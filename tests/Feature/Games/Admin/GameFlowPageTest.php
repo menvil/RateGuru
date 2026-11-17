@@ -251,3 +251,23 @@ it('names the + after the last step for where it adds one', function () {
         ->assertSeeHtml('aria-label="After step 3"')
         ->assertDontSeeHtml('aria-label="Between steps 3 and 4"');
 });
+
+it('chooses the post a step sends visitors to from the list of posts with their pictures', function () {
+    $post = tap(gamePost(3, 1))->update(['title' => 'A cat in a box']);
+
+    // Full Result, sending visitors on to a post.
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->set('selected', 2)
+        ->set('steps.2.settings.onward', 'post')
+        ->set('steps.2.settings.post_target', 'chosen')
+        ->assertSee('Choose a post')
+        ->call('openPicker')
+        ->assertSee('Choose a post to send visitors to')
+        ->assertViewHas('picker', fn (array $picker): bool => collect($picker['posts'])->contains('title', 'A cat in a box'))
+        ->set('pickerSearch', 'box')
+        ->assertSee('A cat in a box')
+        ->call('pickPost', $post->id)
+        ->assertSet('picking', false)
+        ->assertSet('steps.2.settings.post_id', $post->id)
+        ->assertSee('Choose another post');
+});
