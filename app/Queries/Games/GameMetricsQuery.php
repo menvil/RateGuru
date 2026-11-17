@@ -78,7 +78,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                     COUNT(DISTINCT {$person}) AS starters,
                     COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN {$person} END) AS finishers,
                     COUNT(DISTINCT confirmed_accounts.user_id) AS registered,
-                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in",
+                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in,
+                    SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached",
                     [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::SignedIn->value],
                 ),
         );
@@ -126,6 +127,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 emailers: $emails[$bucket]['emailers'] ?? 0,
                 sharers: $shared[$bucket]['sharers'] ?? 0,
                 signUpStarters: $signUps[$bucket]['sign_up_starters'] ?? 0,
+                goalReached: $attempts[$bucket]['goal_reached'] ?? 0,
             );
         }
 
@@ -222,7 +224,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * library's columns. Games with nothing in the window are absent.
      *
      * @param  list<int>  $gameIds
-     * @return array<int, array{started: int, completed: int, visitors: int, registered: int}>
+     * @return array<int, array{started: int, completed: int, visitors: int, registered: int, goal_reached: int}>
      */
     public function library(array $gameIds, CarbonImmutable $from, CarbonImmutable $to): array
     {
@@ -239,7 +241,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->selectRaw(
                 'COUNT(*) AS started,
                 SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
-                COUNT(DISTINCT confirmed_accounts.user_id) AS registered',
+                COUNT(DISTINCT confirmed_accounts.user_id) AS registered,
+                SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached',
                 [GameAttemptStatus::Completed->value],
             )
             ->toBase()
@@ -273,6 +276,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 'completed' => (int) ($row->completed ?? 0),
                 'visitors' => (int) ($seen->visitors ?? 0),
                 'registered' => (int) ($row->registered ?? 0),
+                'goal_reached' => (int) ($row->goal_reached ?? 0),
             ];
         }
 

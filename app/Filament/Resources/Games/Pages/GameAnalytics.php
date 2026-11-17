@@ -10,9 +10,13 @@ use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
 use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
+use App\Models\TrafficSource;
 use App\Queries\Games\GameMetricsQuery;
+use App\Queries\Traffic\TrafficReportQuery;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Traffic\Reports\ReportFigures;
+use App\Support\Traffic\Reports\TwoProportionTest;
 use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -112,6 +116,41 @@ final class GameAnalytics extends Page
             'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id)),
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
+            'paid' => self::paidTraffic((int) $game->id, $versions),
+        ];
+    }
+
+    /**
+     * The game's paid traffic of the last 30 days, by source — visits, new
+     * visitors, accounts, spend and worth — and its two best versions on it
+     * compared: whether one brings more accounts per new visitor, or it is
+     * too early to say (TwoProportionTest).
+     *
+     * @param  Collection<int, GameVersion>  $versions
+     * @return array{sources: list<array{name: string, figures: ReportFigures}>, comparison: array<string, mixed>|null}
+     */
+    private static function paidTraffic(int $gameId, $versions): array
+    {
+        $rows = collect(app(TrafficReportQuery::class)->gameBreakdown($gameId, CarbonImmutable::now()->subDays(30)))->where('source_id', '!==', null);
+        $names = TrafficSource::query()->whereIn('id', $rows->pluck('source_id')->unique())->pluck('name', 'id');
+        $sum = fn ($group): ReportFigures => $group->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
+        $byVersion = $rows->groupBy('version_id')->map($sum)->filter(fn (ReportFigures $figures, $versionId): bool => $versionId !== '' && $figures->newVisitors() > 0)
+            ->sortByDesc(fn (ReportFigures $figures): float => $figures->accounts / max(1, $figures->newVisitors()));
+        $comparison = null;
+
+        if ($byVersion->count() >= 2) {
+            [$a, $b] = [$byVersion->keys()[0], $byVersion->keys()[1]];
+            $result = TwoProportionTest::compare($byVersion[$a]->newVisitors(), $byVersion[$a]->accounts, $byVersion[$b]->newVisitors(), $byVersion[$b]->accounts);
+            $comparison = [
+                'a' => $versions->get((int) $a)?->label() ?? 'V?',
+                'b' => $versions->get((int) $b)?->label() ?? 'V?',
+                ...$result,
+            ];
+        }
+
+        return [
+            'sources' => $rows->groupBy('source_id')->map(fn ($group, $sourceId): array => ['name' => (string) ($names[$sourceId] ?? 'Source #'.$sourceId), 'figures' => $sum($group)])->values()->all(),
+            'comparison' => $comparison,
         ];
     }
 
@@ -163,6 +202,7 @@ final class GameAnalytics extends Page
             ['label' => 'Visitors', 'value' => number_format($total->visitors), 'note' => 'People who opened the game'],
             ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of visitors'],
             ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
+            ['label' => 'Goal reached', 'value' => self::percent($total->goalReached, $total->started), 'note' => number_format($total->goalReached).' of '.number_format($total->started).' '.str('play')->plural($total->started)],
             ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emailers, $finishedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : $noEmail],
             ['label' => 'New accounts', 'value' => number_format($total->registered), 'note' => self::percent($total->registered, $total->visitors).' of visitors'],
             ['label' => 'Signed in', 'value' => number_format($total->signedIn), 'note' => 'Existing accounts'],
@@ -204,7 +244,8 @@ final class GameAnalytics extends Page
             ['Completed', $total->finishers, $total->starters, 'Game started', 'People who finished at least once'],
             $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'finishers asked', 'Of the people who finished a version that asks for an email'] : null,
             ['Sign-up begun', $total->signUpStarters, $total->finishers, 'Completed', self::methods($methods)],
-            ['New account', $total->registered, $total->finishers, 'Completed', 'Made within a day of an attempt, each person once'],
+            ['Goal reached', $total->goalReached, $total->started, 'plays', 'Plays that reached their flow’s goal, on any page of the site'],
+            ['Account confirmed', $total->registered, $total->finishers, 'Completed', 'Signed up within 7 days of finishing, on any page of the site, and confirmed'],
         ])));
     }
 

@@ -42,6 +42,8 @@ final readonly class GameFunnel
         public int $sharers = 0,
         /** People who began signing up, or logging in, from an attempt. */
         public int $signUpStarters = 0,
+        /** Started attempts that reached their flow's goal, however late. */
+        public int $goalReached = 0,
     ) {}
 
     /** A whole share of a part, to one decimal place; null with nothing to divide by. */

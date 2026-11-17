@@ -278,8 +278,14 @@ version that asks for an email, and Played again of the players who started.
 The plays behind it — and how many of them were completed — are the
 Completion figure's.
 
-Nothing is estimated and nothing claims one version is better than another;
-versions are compared only inside one traffic period.
+Goal reached counts the attempts of the window that reached their flow's goal,
+however late — an account confirmed within 7 days on any page of the site
+included. The Value tab shows what each step of a play is worth to the paid
+traffic tracker (docs/architecture/traffic.md, "Worth"), and Analytics
+compares the two best versions on paid traffic by accounts per new visitor
+(TwoProportionTest): too early with fewer than 10 accounts on either, a leader
+from 95 % confidence. Outside paid traffic, versions are compared only inside
+one traffic period.
 
 ## Retention
 

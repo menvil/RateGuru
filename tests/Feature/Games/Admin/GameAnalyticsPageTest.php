@@ -73,10 +73,10 @@ it('shows what two guests did: one opened the game, the other played it through'
 
     // A row's bar comes before its count, so the funnel is read from its rows rather than the markup.
     expect(collect($page->viewData('funnel'))->pluck('count', 'label')->all())
-        ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'New account' => '0'])
+        ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'Goal reached' => '0', 'Account confirmed' => '0'])
         // Each rate names what it is a share of: signing up is of the people who finished, not of those who began it.
         ->and(collect($page->viewData('funnel'))->pluck('rateOf', 'label')->all())
-        ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'New account' => 'of Completed']);
+        ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'Goal reached' => 'of plays', 'Account confirmed' => 'of Completed']);
 
     // The funnel counts people, and says so.
     $page->assertSee('each counted once')
@@ -108,7 +108,7 @@ it('counts people where it counts people: a guest who played twice started once,
         ->assertSeeInOrder(['Completion', '100.0%', '2 of 2 plays completed']);
     $funnel = collect($page->viewData('funnel'));
 
-    expect($funnel->pluck('count', 'label')->all())->toBe(['Visitors' => '1', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '1', 'New account' => '0'])
+    expect($funnel->pluck('count', 'label')->all())->toBe(['Visitors' => '1', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '1', 'Goal reached' => '0', 'Account confirmed' => '0'])
         ->and($funnel->firstWhere('label', 'Sign-up begun')['hint'])->toBe('Email 1');
 });
 

@@ -160,6 +160,32 @@
             </x-admin.ui.card>
         @endif
 
+        @if ($paid['sources'] !== [])
+            <x-admin.ui.card title="Paid traffic · last 30 days" description="Visits paid for through Traffic sources, with the accounts they brought and what they cost." data-testid="game-paid-traffic">
+                <ul class="rg-admin-games__profiles">
+                    @foreach ($paid['sources'] as $row)
+                        <li class="rg-admin-games__profile">
+                            <span class="rg-admin-games__mechanic-text">
+                                <span class="rg-admin-games__mechanic-name">{{ $row['name'] }}</span>
+                                <span class="rg-admin-games__note">{{ number_format($row['figures']->visits) }} visits · {{ number_format($row['figures']->newVisitors()) }} new visitors · {{ number_format($row['figures']->accounts) }} accounts · {{ \App\Support\Traffic\Money\TrafficMoney::format($row['figures']->spend) }} spent · worth {{ \App\Support\Traffic\Money\TrafficMoney::format($row['figures']->value()) }}</span>
+                            </span>
+                        </li>
+                    @endforeach
+                </ul>
+                @if ($paid['comparison'] !== null)
+                    <p class="rg-admin-games__note" data-testid="game-version-comparison">
+                        {{ $paid['comparison']['a'] }} against {{ $paid['comparison']['b'] }}:
+                        {{ match ($paid['comparison']['verdict']) {
+                            'too_early' => 'too early to call — fewer than 10 accounts on one of them.',
+                            'leader' => $paid['comparison']['a'].' brings more accounts ('.number_format($paid['comparison']['confidence'] * 100, 0).'% sure).',
+                            'ahead' => $paid['comparison']['a'].' is ahead, not sure yet ('.number_format($paid['comparison']['confidence'] * 100, 0).'%); about '.number_format((int) $paid['comparison']['needed']).' new visitors each would tell.',
+                            default => 'no clear difference yet.',
+                        } }}
+                    </p>
+                @endif
+            </x-admin.ui.card>
+        @endif
+
         @if (! $noVersions)
             <x-admin.ui.card :title="'Traffic periods · '.$audiences[$audience]" description="A new period starts whenever the shares change. Versions are only a fair comparison inside one period.">
                 <x-slot:aside>

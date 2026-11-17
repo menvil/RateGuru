@@ -53,7 +53,7 @@ it('draws the library at every width, the table scrolling inside its card and ne
             }
         })()
     JS))->toBe([
-        'columns' => ['Game', 'Last version', 'Status', 'Plays', 'Completion', 'Sign-ups', 'Last updated', 'Actions'],
+        'columns' => ['Game', 'Last version', 'Status', 'Plays', 'Completion', 'Goal rate', 'Last updated', 'Actions'],
         'scrollsWhenNarrower' => true,
     ])->and(pageOverflows($page))->toBeFalse();
 
@@ -66,13 +66,13 @@ it('draws every tab of the editor at every width, never wider than the screen', 
 
     // A tab's badge, such as the number of versions, follows its name.
     expect($page->script("[...document.querySelectorAll('.rg-admin-tab')].map((tab) => tab.textContent.trim().split(/\\s+/)[0])"))
-        ->toBe(['General', 'Content', 'Flow', 'Versions', 'Traffic', 'Analytics', 'Preview'])
+        ->toBe(['General', 'Content', 'Flow', 'Versions', 'Traffic', 'Value', 'Analytics', 'Preview'])
         ->and($page->script("document.querySelector('.rg-admin-tab[aria-current=\"page\"]')?.textContent.trim().split(/\\s+/)[0]"))
-        ->toBe(['edit' => 'General', 'content' => 'Content', 'flow' => 'Flow', 'versions' => 'Versions', 'traffic' => 'Traffic', 'analytics' => 'Analytics', 'preview' => 'Preview'][$tab])
+        ->toBe(['edit' => 'General', 'content' => 'Content', 'flow' => 'Flow', 'versions' => 'Versions', 'traffic' => 'Traffic', 'value' => 'Value', 'analytics' => 'Analytics', 'preview' => 'Preview'][$tab])
         ->and(pageOverflows($page))->toBeFalse();
 
     $page->assertNoJavaScriptErrors();
-})->with(['edit', 'content', 'flow', 'versions', 'traffic', 'analytics', 'preview'])->with([1440, 1024, 390]);
+})->with(['edit', 'content', 'flow', 'versions', 'traffic', 'value', 'analytics', 'preview'])->with([1440, 1024, 390]);
 
 it('saves the General tab from the top bar', function () {
     $game = $this->draft['game'];

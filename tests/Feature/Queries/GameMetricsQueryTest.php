@@ -287,8 +287,8 @@ it('reads the library’s columns for each game with something in the window', f
     metricsAttempt($quiet, 'guest-d', '2026-10-01 12:00:00');
 
     expect(metricsQuery()->library([(int) $first->game_id, (int) $second->game_id, (int) $quiet->game_id], CarbonImmutable::parse('2026-11-01'), CarbonImmutable::parse('2026-11-09')))->toBe([
-        (int) $first->game_id => ['started' => 2, 'completed' => 1, 'visitors' => 2, 'registered' => 1],
-        (int) $second->game_id => ['started' => 1, 'completed' => 1, 'visitors' => 0, 'registered' => 0],
+        (int) $first->game_id => ['started' => 2, 'completed' => 1, 'visitors' => 2, 'registered' => 1, 'goal_reached' => 0],
+        (int) $second->game_id => ['started' => 1, 'completed' => 1, 'visitors' => 0, 'registered' => 0, 'goal_reached' => 0],
     ])->and(metricsQuery()->library([], CarbonImmutable::parse('2026-11-01'), CarbonImmutable::parse('2026-11-09')))->toBe([]);
 });
 
