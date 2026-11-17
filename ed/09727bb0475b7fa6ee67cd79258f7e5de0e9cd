@@ -1,0 +1,101 @@
+app/Support/Geo/Update/GeoStateStore.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-42
+app/Support/Geo/Update/GeoUpdatePlan.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-76
+app/Services/Geo/Sources/DbipMonthlySource.php
+  s_4b9dc6ab6b25d3::t_572bf28da5cf67 1-58
+tests/Unit/Support/Geo/GeoUpdatePlanTest.php
+  s_4b9dc6ab6b25d3::t_ede6792f8a8861 1-63
+app/Services/Geo/GeoUpdateOutcome.php
+  s_4b9dc6ab6b25d3::t_8bd78936b2e2a0 1-14
+.gitattributes
+  s_4b9dc6ab6b25d3::t_312a32be63230c 8
+app/Support/Geo/GeoLookup.php
+  s_4b9dc6ab6b25d3::t_b66eb795eb2d2d 1-13
+tests/Fixtures/geo/README.md
+  s_4b9dc6ab6b25d3::t_106e97267d0899 1-13
+config/geo.php
+  s_4b9dc6ab6b25d3::t_0675856636e11e 1-84
+composer.json
+  s_4b9dc6ab6b25d3::t_e66f4d82326b6f 19
+app/Support/Geo/Update/TarMemberExtractor.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-90
+tests/TestCase.php
+  s_4b9dc6ab6b25d3::t_312a32be63230c 92-96
+.gitignore
+  s_4b9dc6ab6b25d3::t_6b4ed780ea3fd3 121-122
+app/Services/Geo/Sources/GeoDatabaseSource.php
+  s_4b9dc6ab6b25d3::t_572bf28da5cf67 1-15
+app/Support/Geo/Update/GeoDatabaseValidator.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-93
+app/Services/Geo/GeoHttp.php
+  s_4b9dc6ab6b25d3::t_572bf28da5cf67 1-94
+app/Enums/GeoEdition.php
+  s_4b9dc6ab6b25d3::t_7d31e3ab276b38 1-40
+docs/architecture/geo.md
+  s_4b9dc6ab6b25d3::t_2ae408239acc2e 1-114
+app/Enums/GeoUpdateFailure.php
+  s_4b9dc6ab6b25d3::t_61ed1e11c450fe 1-47
+app/Support/Geo/GeoRecordMapper.php
+  s_4b9dc6ab6b25d3::t_b66eb795eb2d2d 1-56
+tests/Unit/Support/Geo/CountriesTest.php
+  s_4b9dc6ab6b25d3::t_ede6792f8a8861 1-22
+app/Support/Geo/Update/GeoRelease.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-28
+app/Support/Geo/GeoLocation.php
+  s_4b9dc6ab6b25d3::t_b66eb795eb2d2d 1-30
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_d895f65f76c53d 6,32-34,38,40,89-99
+app/Support/Geo/MmdbGeoLookup.php
+  s_4b9dc6ab6b25d3::t_b66eb795eb2d2d 1-86
+app/Services/Geo/Sources/JsdelivrFileSource.php
+  s_4b9dc6ab6b25d3::t_572bf28da5cf67 1-52
+routes/console.php
+  s_4b9dc6ab6b25d3::t_6b4ed780ea3fd3 54-63
+tests/Feature/Console/GeoUpdateCommandTest.php
+  s_4b9dc6ab6b25d3::t_bdb2eebb28aced 9,11,25-35,51-56,79,94,96,110,126,145,155,158,177,183-184,186-188,211,218
+  s_4b9dc6ab6b25d3::t_12687b74698d4b 1-8,10,12-24,36-50,57-78,80-93,95,97-109,111-125,127-144,146-154,156-157,159-176,178-182,185,189-210,212-217,219-235
+app/Exceptions/Geo/GeoUpdateException.php
+  s_4b9dc6ab6b25d3::t_61ed1e11c450fe 1-20
+app/Services/Geo/Sources/NpmTarballSource.php
+  s_4b9dc6ab6b25d3::t_572bf28da5cf67 1-45
+app/Services/Geo/GeoDatabaseUpdater.php
+  s_4b9dc6ab6b25d3::t_7d2c483c0cb0f6 174-179
+  s_4b9dc6ab6b25d3::t_8bd78936b2e2a0 1-165,167-173,180-343
+  s_4b9dc6ab6b25d3::t_94de53a9ac4ff3 166
+tests/Unit/Support/Geo/GeoArchivesTest.php
+  s_4b9dc6ab6b25d3::t_ede6792f8a8861 1-74
+app/Support/Geo/Update/GeoEditionSpec.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-43
+tests/Unit/Support/Geo/GeoRecordMapperTest.php
+  s_4b9dc6ab6b25d3::t_ede6792f8a8861 1-52
+app/Support/Geo/Update/GzipInflater.php
+  s_4b9dc6ab6b25d3::t_a7302a04edb384 1-95
+tests/Feature/Support/Geo/MmdbGeoLookupTest.php
+  s_4b9dc6ab6b25d3::t_4ea50764f06ee3 1-60
+app/Console/Commands/GeoUpdateCommand.php
+  s_4b9dc6ab6b25d3::t_ef578c97cd67dd 1-78
+app/Support/Geo/GeoDatabaseLocator.php
+  s_4b9dc6ab6b25d3::t_b66eb795eb2d2d 1-68
+app/Support/Geo/Countries.php
+  s_4b9dc6ab6b25d3::t_2b5f227177e9e2 1-284
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_a694384ec94b55 80
+  s_4b9dc6ab6b25d3::t_a75bad0d782b4c 14475-14545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ed09727bb0475b7fa6ee67cd79258f7e5de0e9cd",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
