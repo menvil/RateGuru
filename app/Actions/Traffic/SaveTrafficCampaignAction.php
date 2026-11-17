@@ -70,12 +70,13 @@ final class SaveTrafficCampaignAction
             $record->forceFill([
                 'name' => ($input['name'] ?? '') !== '' ? trim((string) $input['name']) : null,
                 'game_id' => isset($input['game_id']) ? (int) $input['game_id'] : null,
-                'format' => ($input['format'] ?? '') !== '' ? trim((string) $input['format']) : null,
-                'countries' => array_values(array_unique((array) ($input['countries'] ?? []))) ?: null,
-                'devices' => array_values(array_unique((array) ($input['devices'] ?? []))) ?: null,
+                // Targeting the network reported stays as it is unless the panel names it.
+                'format' => array_key_exists('format', $input) ? (($input['format'] ?? '') !== '' ? trim((string) $input['format']) : null) : $record->format,
+                'countries' => array_key_exists('countries', $input) ? (array_values(array_unique((array) ($input['countries'] ?? []))) ?: null) : $record->countries,
+                'devices' => array_key_exists('devices', $input) ? (array_values(array_unique((array) ($input['devices'] ?? []))) ?: null) : $record->devices,
                 'daily_budget' => $amount('daily_budget', 2),
                 'target_cpa' => $amount('target_cpa', 4),
-                'whitelist_name' => ($input['whitelist_name'] ?? '') !== '' ? trim((string) $input['whitelist_name']) : null,
+                'whitelist_name' => array_key_exists('whitelist_name', $input) ? (($input['whitelist_name'] ?? '') !== '' ? trim((string) $input['whitelist_name']) : null) : $record->whitelist_name,
                 'spend_mode' => ($input['spend_mode'] ?? null) === null ? null : TrafficSpendMode::from((string) $input['spend_mode']),
                 'bid_model' => $input['bid_model'] ?? null,
                 'bid_mobile' => $amount('bid_mobile', 6),

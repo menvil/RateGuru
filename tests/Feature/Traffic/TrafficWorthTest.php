@@ -10,6 +10,7 @@ use App\Exceptions\Traffic\CannotManageTrafficException;
 use App\Models\Game;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
+use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficStepValue;
 use App\Models\TrafficVisit;
@@ -145,6 +146,19 @@ it('brings the open visits’ worth up to date, and a closed visit to nothing', 
 
     expect($changed)->toBe(2)
         ->and($open->fresh()->value_expected)->toBe('0.04000000')
+        ->and($closed->fresh()->value_expected)->toBe('0.00000000');
+});
+
+it('keeps an unpaid visit open for its two weeks, however short the sources’ windows are now', function () {
+    TrafficSource::factory()->create(['attribution_days' => 2]);
+    $game = Game::factory()->create();
+    app(SetTrafficStepValueAction::class)->set($this->admin, $game, 'started', '0.04', TrafficStepValueMode::Always);
+    $unpaid = TrafficVisit::factory()->unpaid()->create(['game_id' => $game->id, 'arrived_at' => now()->subDays(12), 'opened_at' => now()->subDays(12), 'started_at' => now()->subDays(12), 'value_expected' => 0]);
+    $closed = TrafficVisit::factory()->unpaid()->create(['game_id' => $game->id, 'arrived_at' => now()->subDays(14)->subHours(2), 'opened_at' => now()->subDays(15), 'started_at' => now()->subDays(15), 'value_expected' => '0.02']);
+
+    app(RevalueOpenVisitsAction::class)->handle($this->now);
+
+    expect($unpaid->fresh()->value_expected)->toBe('0.04000000')
         ->and($closed->fresh()->value_expected)->toBe('0.00000000');
 });
 

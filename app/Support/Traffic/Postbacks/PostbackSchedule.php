@@ -15,6 +15,9 @@ use Carbon\CarbonImmutable;
  */
 final class PostbackSchedule
 {
+    /** How long a postback claimed for sending is left alone before a send run takes it as abandoned; a resend holds it as long. */
+    public const int CLAIM_SECONDS = 120;
+
     /** @var list<int> seconds before the next attempt, after attempt 1, 2, … */
     public const array RETRY_AFTER = [60, 300, 1800, 7200, 32400];
 

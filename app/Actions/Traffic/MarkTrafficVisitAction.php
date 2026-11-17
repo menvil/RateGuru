@@ -97,6 +97,7 @@ final class MarkTrafficVisitAction
             $rules->pluck('id')->map(fn (mixed $id): int => (int) $id)->all(),
             $at,
             CarbonImmutable::now(),
+            accountStep: $step === 'account',
         );
 
         $conversion = TrafficConversion::query()->create([

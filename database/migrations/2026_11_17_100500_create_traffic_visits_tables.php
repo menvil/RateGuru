@@ -79,7 +79,7 @@ return new class extends Migration
             // The click's own price, when its link carries one; the spend the
             // reports count, and where it came from.
             $table->decimal('cost', 14, 8)->nullable();
-            $table->decimal('spend', 14, 8)->default(0);
+            $table->decimal('spend', 18, 8)->default(0);
             $table->string('spend_basis', 16)->default('none');
             $table->boolean('spend_estimated')->default(false);
             $table->decimal('value_real', 14, 8)->default(0);

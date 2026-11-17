@@ -35,12 +35,16 @@ final class PostbackPlanner
         array $ruleIds,
         CarbonImmutable $occurredAt,
         CarbonImmutable $now,
+        bool $accountStep = false,
     ): array {
+        // An account may be confirmed up to the grace after its click's window: so may a flow goal that is the account.
+        $closes = $holdsUntil === null ? null : ($event === TrafficEvent::Account || $accountStep ? $holdsUntil->addDays($accountGraceDays) : $holdsUntil);
+
         $skip = match (true) {
             $known => TrafficPostbackSkip::KnownVisitor,
             ! $sourceActive => TrafficPostbackSkip::SourceInactive,
             ! $hasClickId => TrafficPostbackSkip::NoClickId,
-            $holdsUntil === null || $occurredAt->greaterThan($event === TrafficEvent::Account ? $holdsUntil->addDays($accountGraceDays) : $holdsUntil) => TrafficPostbackSkip::WindowClosed,
+            $closes === null || $occurredAt->greaterThan($closes) => TrafficPostbackSkip::WindowClosed,
             $clickIdTtlHours !== null && $occurredAt->greaterThan($arrivedAt->addHours($clickIdTtlHours)) => TrafficPostbackSkip::ClickIdExpired,
             $ruleIds === [] => TrafficPostbackSkip::NoRule,
             default => null,

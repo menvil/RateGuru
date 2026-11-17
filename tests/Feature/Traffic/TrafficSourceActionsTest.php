@@ -201,3 +201,11 @@ it('archives the campaigns no click came through for 30 days, by itself', functi
         ->and($busy->fresh()->status)->toBe(TrafficCampaignStatus::Active)
         ->and($young->fresh()->status)->toBe(TrafficCampaignStatus::New);
 });
+
+it('keeps the targeting a network reported when the campaign panel saves only its own fields', function () {
+    $campaign = TrafficCampaign::factory()->create(['countries' => ['US', 'CA'], 'devices' => ['mobile'], 'format' => 'popunder']);
+
+    app(SaveTrafficCampaignAction::class)->handle($this->admin, $campaign, ['name' => 'US popunder'], $campaign->lock_version);
+
+    expect($campaign->fresh())->name->toBe('US popunder')->countries->toBe(['US', 'CA'])->devices->toBe(['mobile'])->format->toBe('popunder');
+});

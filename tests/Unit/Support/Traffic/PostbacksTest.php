@@ -39,6 +39,9 @@ it('says why a conversion is not told to its network, or until when it is tried'
         ->and($plan(hasClickId: false)['skip'])->toBe(TrafficPostbackSkip::NoClickId)
         ->and($plan(occurredAt: $holds->addMinute())['skip'])->toBe(TrafficPostbackSkip::WindowClosed)
         ->and($plan(event: TrafficEvent::Account, clickIdTtlHours: null, occurredAt: $holds->addDays(3))['skip'])->toBeNull()
+        // A flow goal that is the account is the account: confirmed after the click's window, still told.
+        ->and($plan(event: TrafficEvent::Goal, clickIdTtlHours: null, occurredAt: $holds->addDays(3), accountStep: true)['skip'])->toBeNull()
+        ->and($plan(event: TrafficEvent::Goal, clickIdTtlHours: null, occurredAt: $holds->addDays(3))['skip'])->toBe(TrafficPostbackSkip::WindowClosed)
         ->and($plan(occurredAt: $arrived->addHours(47), clickIdTtlHours: 24)['skip'])->toBe(TrafficPostbackSkip::ClickIdExpired)
         ->and($plan(ruleIds: [])['skip'])->toBe(TrafficPostbackSkip::NoRule);
 });

@@ -9,6 +9,7 @@ use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Shares spend figures out over the visits they cover, outside any web
@@ -59,12 +60,23 @@ final class TrafficAllocateSpendCommand extends Command
             }
 
             $dayEnds = CarbonImmutable::parse((string) $slice->network_day, $source->reporting_timezone)->addDay()->startOfDay();
-            $stale = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $slice->network_day)->whereNull('allocated_at')->exists();
+            $facts = TrafficSpendDay::query()->where('source_id', $source->id)->where('network_day', $slice->network_day);
+            $stale = (clone $facts)->whereNull('allocated_at')->exists();
             $open = $dayEnds->greaterThan($now->subMinutes(self::OPEN_DAY_MINUTES));
+            // Shared out last while the day still ran: once more now it is over, so a fixed price stops being an estimate.
+            $before = (clone $facts)->min('allocated_at');
+            $endedSince = $before !== null && CarbonImmutable::parse((string) $before)->lessThan($dayEnds) && ! $open;
 
-            if ($stale || $open) {
+            if (! $stale && ! $open && ! $endedSince) {
+                continue;
+            }
+
+            // One day that can't be shared out must not hold back every day after it.
+            try {
                 $allocate->handle($source, (string) $slice->network_day, $now);
                 $done++;
+            } catch (Throwable $exception) {
+                report($exception);
             }
         }
 

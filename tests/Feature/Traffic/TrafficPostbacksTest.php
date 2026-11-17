@@ -211,3 +211,17 @@ it('records a postback whose answer is a GIF pixel, rather than sending it again
 
     expect($postback->fresh())->status->toBe(TrafficPostbackStatus::Delivered)->response_excerpt->toBe('[not text: 43 bytes]');
 });
+
+it('holds a resent postback as long as a send run’s claim, so the run leaves it alone', function () {
+    $failed = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'status' => TrafficPostbackStatus::Failed, 'run_after' => now()->subDay(), 'attempts' => 1, 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    Http::fake(function () use ($failed) {
+        expect($failed->fresh())->status->toBe(TrafficPostbackStatus::Sending)
+            ->and($failed->fresh()->run_after->greaterThan(now()->addSeconds(60)))->toBeTrue();
+
+        return Http::response('OK', 200);
+    });
+
+    app(ResendTrafficPostbackAction::class)->handle(User::factory()->admin()->create(), $failed);
+
+    expect($failed->fresh()->status)->toBe(TrafficPostbackStatus::Delivered);
+});

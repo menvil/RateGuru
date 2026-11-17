@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Traffic\Postbacks\PostbackAttempt;
 use App\Services\Traffic\Postbacks\PostbackDeliverer;
 use App\Support\AbuseGuards\ActionRateLimiter;
+use App\Support\Traffic\Postbacks\PostbackSchedule;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -55,7 +56,8 @@ final class ResendTrafficPostbackAction
                 throw CannotManageTrafficException::because('The click’s ID is no longer kept, so the network can’t be told which click it was.');
             }
 
-            $locked->forceFill(['status' => TrafficPostbackStatus::Sending, 'attempts' => $locked->attempts + 1, 'claimed_at' => now(), 'resent_at' => now()])->save();
+            // Held as long as a run's own claim, so the minute's send run leaves it alone while the resend is in flight.
+            $locked->forceFill(['status' => TrafficPostbackStatus::Sending, 'attempts' => $locked->attempts + 1, 'claimed_at' => now(), 'resent_at' => now(), 'run_after' => now()->addSeconds(PostbackSchedule::CLAIM_SECONDS)])->save();
 
             return [
                 'url' => PostbackUrl::withClickId($locked->url, $clickId),
@@ -69,7 +71,7 @@ final class ResendTrafficPostbackAction
 
         DB::transaction(function () use ($postback, $claim, $attempt, $delivered): void {
             $now = CarbonImmutable::now();
-            TrafficPostback::query()->whereKey($postback->id)->where('attempts', $claim['attempts'])->update([
+            TrafficPostback::query()->whereKey($postback->id)->where('attempts', $claim['attempts'])->where('status', TrafficPostbackStatus::Sending)->update([
                 'status' => $delivered ? TrafficPostbackStatus::Delivered : TrafficPostbackStatus::Failed,
                 'finished_at' => $now,
                 'http_status' => $attempt->httpStatus,

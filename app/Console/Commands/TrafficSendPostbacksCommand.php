@@ -40,8 +40,6 @@ final class TrafficSendPostbacksCommand extends Command
 
     private const int SECONDS = 45;
 
-    private const int CLAIM_SECONDS = 120;
-
     private const int SOURCE_FAILURES = 5;
 
     public function handle(PostbackDeliverer $deliverer, DomainLogger $log): int
@@ -145,7 +143,7 @@ final class TrafficSendPostbacksCommand extends Command
                     'status' => TrafficPostbackStatus::Sending,
                     'attempts' => $postback->attempts + 1,
                     'claimed_at' => $now,
-                    'run_after' => $now->addSeconds(self::CLAIM_SECONDS),
+                    'run_after' => $now->addSeconds(PostbackSchedule::CLAIM_SECONDS),
                 ])->save();
 
                 $claimed[(int) $postback->id] = [

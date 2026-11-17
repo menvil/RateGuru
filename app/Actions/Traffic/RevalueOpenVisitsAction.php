@@ -2,10 +2,10 @@
 
 namespace App\Actions\Traffic;
 
-use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Services\Traffic\TrafficVisitWorth;
 use App\Support\Traffic\Money\TrafficMoney;
+use App\Support\Traffic\Presets\PresetSchema;
 use App\Support\Traffic\Worth\VisitValue;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -27,8 +27,11 @@ final class RevalueOpenVisitsAction
 
     public function handle(CarbonImmutable $now): int
     {
-        $longestWindow = (int) (TrafficSource::query()->max('attribution_days') ?? 7);
-        $since = $now->subDays($longestWindow + VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS + 1);
+        // A visit is open until its own close — a paid click a week after the window it was given, an unpaid visit two weeks after it came —
+        // whatever the sources' windows are now; the longest window there can be bounds the scan.
+        $coarse = $now->subDays(max(max(PresetSchema::ATTRIBUTION_DAYS) + VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS, VisitValue::UNPAID_CLOSES_AFTER_DAYS) + 1);
+        $paidHeldSince = $now->subDays(VisitValue::PAID_CLOSES_AFTER_WINDOW_DAYS + 1);
+        $unpaidSince = $now->subDays(VisitValue::UNPAID_CLOSES_AFTER_DAYS + 1);
         $accountsSince = $now->subDays(VisitValue::POST_BONUS_DAYS + 1);
         $changed = 0;
         $after = 0;
@@ -39,7 +42,9 @@ final class RevalueOpenVisitsAction
                 ->whereNotNull('opened_at')
                 ->where('known', false)
                 ->where(fn ($open) => $open
-                    ->where(fn ($young) => $young->whereNull('account_at')->where('arrived_at', '>=', $since))
+                    ->where(fn ($young) => $young->whereNull('account_at')->where('arrived_at', '>=', $coarse)->where(fn ($closing) => $closing
+                        ->where(fn ($paid) => $paid->whereNotNull('holds_until')->where('holds_until', '>=', $paidHeldSince))
+                        ->orWhere(fn ($unpaid) => $unpaid->whereNull('holds_until')->where('arrived_at', '>=', $unpaidSince))))
                     ->orWhere(fn ($account) => $account->whereNotNull('account_at')->where('signup_at', '>=', $accountsSince)))
                 ->orderBy('id')
                 ->limit(self::BATCH)
