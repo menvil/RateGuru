@@ -132,6 +132,20 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/GameMetricsQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Traffic\TrafficReportQuery
+                methods: [selectRaw, havingRaw, orderByRaw]
+                reason: 'Traffic reports need conditional sums and counts of the visits of a period — per level of the tree, site or zone, campaign, stage and a game''s versions — ordered by the accounts they brought, without hydrating up to millions of visit rows; every value is bound and every column comes from TrafficDimension.'
+                bindings: required
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
+            -
+                class: App\Queries\Traffic\TrafficSpendQuery
+                methods: [selectRaw]
+                reason: 'Reconciling spend needs, per day and origin, the sums of the visits'' prices and counted spend and of the day''s figures, and the spend no visit took, without hydrating the rows; every value is bound.'
+                bindings: required
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
+            -
                 class: App\Queries\Traffic\TrafficChanceSampleQuery
                 methods: [selectRaw]
                 reason: 'Working out the chances of an account needs, per game, source, channel, device, country and rounds answered, conditional counts of the visits that reached each step and of those that became accounts, without hydrating up to millions of visit rows; every value is bound.'
@@ -146,6 +160,30 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/TranslationAiUsageQueryTest.php]
                 status: approved
         paginationBoundaries:
+            -
+                class: App\Queries\Traffic\TrafficLogsQuery
+                method: clicks
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
+            -
+                class: App\Queries\Traffic\TrafficLogsQuery
+                method: milestones
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
+            -
+                class: App\Queries\Traffic\TrafficLogsQuery
+                method: postbacks
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
+            -
+                class: App\Queries\Traffic\TrafficLogsQuery
+                method: blocks
+                uniqueOrder: [id]
+                behaviorTests: [tests/Feature/Traffic/TrafficReportsTest.php]
+                status: approved
             -
                 class: App\Queries\Feed\FeedQuery
                 method: paginate

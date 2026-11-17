@@ -93,6 +93,11 @@ The reviewed boundaries are:
 - `TrafficChanceSampleQuery` for the chances of an account: conditional counts
   of the matured visits that reached each step and of those that became
   accounts, per game, source, channel, device, country and rounds answered.
+- `TrafficReportQuery` for the traffic reports: conditional sums and counts of
+  a period's visits per level of the tree, site or zone, campaign, stage and a
+  game's versions, ordered by the accounts they brought.
+- `TrafficSpendQuery` for reconciling spend: the sums of the visits' prices and
+  counted spend and of the day's figures by origin, and the spend no visit took.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the
