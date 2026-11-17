@@ -1,0 +1,56 @@
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_47e28dc21d3fbf 38,42
+  s_4b9dc6ab6b25d3::t_fed45304cb0dd0 53-69,148-155,158,161,163,165-167,171-172,176-177,180-184,189-284,286-324,327-328,333-338,340-352,358-421,424-450,453-490
+  s_4b9dc6ab6b25d3::t_d3dff5f1563a3c 71-72,325-326,339
+  s_4b9dc6ab6b25d3::t_5a00747df6d538 422-423
+  s_4b9dc6ab6b25d3::t_c8a3fbbc165a62 6,114-117,162,353-357
+resources/views/filament/pages/traffic-sources/bar.blade.php
+  s_4b9dc6ab6b25d3::t_28e923f10ffacf 1-9
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_f9c28745529859 14765-15336
+resources/views/filament/pages/traffic-sources/sites.blade.php
+  s_4b9dc6ab6b25d3::t_d52eaeee52a2ca 1-70,72,74-105,107-129
+  s_4b9dc6ab6b25d3::t_c5e3d431f6376e 71,73,106
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_ae4938546aac25 35,41
+tests/Unit/Support/Traffic/SiteZoneListTest.php
+  s_4b9dc6ab6b25d3::t_303faeede1ecea 1-60
+resources/views/filament/pages/traffic-sources.blade.php
+  s_4b9dc6ab6b25d3::t_21c736d0e8af0d 29
+  s_4b9dc6ab6b25d3::t_d002e5a0129c9d 4-5,26-28,30-32
+app/Support/Traffic/Reports/SiteZoneList.php
+  s_4b9dc6ab6b25d3::t_5a00747df6d538 1-32,37-100
+  s_4b9dc6ab6b25d3::t_c8a3fbbc165a62 33-36
+resources/views/filament/pages/traffic-sources/report.blade.php
+  s_4b9dc6ab6b25d3::t_6ca68ca5ce01c8 2-8,11-14,16-22,24-31,33-34,37,39,41-57,61,64,70-93,95-130,132-147,150-219,223-228,231-235
+app/Filament/Resources/Games/Pages/GameValue.php
+  s_4b9dc6ab6b25d3::t_71dc5a5c03960e 262
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_18a118eee38f21 46,48,50-52,54-59
+  s_4b9dc6ab6b25d3::t_c7767cead161e4 1-45,47,49,60-170
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_5deccedad7d389 899
+  s_4b9dc6ab6b25d3::t_f2fb711ad730ac 105-106
+  s_4b9dc6ab6b25d3::t_21c736d0e8af0d 91-92,223,225-227,232,868,887
+  s_4b9dc6ab6b25d3::t_2e9c202480a989 102-103,273,381,890
+  s_4b9dc6ab6b25d3::t_89089ea1385bc0 33,86-90,93-101,104,107-113,116-135,228-231,250-251,253,257-272,274-347,350-351,353-380,382-425,865-867,869-871,873-875,886,888-889,891-898
+resources/views/filament/pages/traffic-sources/figure-cells.blade.php
+  s_4b9dc6ab6b25d3::t_c7767cead161e4 12-13
+  s_4b9dc6ab6b25d3::t_28e923f10ffacf 1-11,14-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b90b4263c8743d34a75aa2af88b924ab52816eb0",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
