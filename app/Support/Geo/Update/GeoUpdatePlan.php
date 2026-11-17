@@ -44,7 +44,8 @@ final readonly class GeoUpdatePlan
 
         $due = $force
             || $withdraw
-            || ! $databaseExists
+            // With no database a check is due at once — unless one just failed: then its backoff stands, rather than tens of MB again every minute.
+            || (! $databaseExists && (int) ($state['failures'] ?? 0) === 0)
             || $nextCheck === null
             || $now->greaterThanOrEqualTo($nextCheck)
             || ($refreshRequestedAt !== null && ($lastAttempt === null || $refreshRequestedAt->greaterThan($lastAttempt)));

@@ -103,6 +103,26 @@ it('reads a day of PopAds spend for the campaigns RateGuru saw, and the campaign
         ->and($connection->fresh()->spend_closed_through)->toBe('2026-11-16');
 });
 
+it('leaves out a campaign PopAds doesn’t know, and an archived one, without failing the sync', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $known = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '999999']);
+    TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '777', 'status' => 'archived']);
+    Http::fake(function (Request $request) {
+        return match (true) {
+            str_contains($request->url(), 'report_advertiser') => Http::response(['rows' => []]),
+            str_contains($request->url(), 'details/999999') => Http::response(['error' => 'Not found'], 404),
+            default => Http::response(['data' => ['general_information' => ['name' => 'US popunder']]]),
+        };
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+
+    Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'details/777'));
+    expect($known->fresh()->name)->toBe('US popunder')
+        ->and($connection->fresh())->status->toBe(TrafficConnectionStatus::Connected)->failures->toBe(0)->campaigns_synced_at->not->toBeNull();
+});
+
 it('waits longer after each failure, and asks for the administrator when the key is refused', function () {
     $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now()]);
     TrafficCampaign::factory()->create(['source_id' => $this->popads->id]);
@@ -177,6 +197,22 @@ it('marks a block by hand, and counts the clicks the network still sends an hour
 
     app(BlockTrafficRefsAction::class)->unblock($this->admin, $block);
     expect(TrafficBlock::query()->count())->toBe(0);
+});
+
+it('takes a block off the network before it goes, leaves one already going alone, and keeps one blocked again', function () {
+    $failed = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '501', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Failed]);
+    $going = TrafficBlock::factory()->create(['source_id' => $this->popads->id, 'level' => TrafficBlockLevel::Site, 'ref' => '502', 'method' => 'api', 'network_state' => TrafficBlockNetworkState::Removing]);
+
+    app(BlockTrafficRefsAction::class)->unblock($this->admin, $failed);
+    app(BlockTrafficRefsAction::class)->unblock($this->admin, $going);
+
+    // A block that failed part-way may be on some campaigns: it is taken off there, not just forgotten.
+    expect($failed->fresh()->network_state)->toBe(TrafficBlockNetworkState::Removing)
+        ->and($going->fresh()->network_state)->toBe(TrafficBlockNetworkState::Removing);
+
+    app(BlockTrafficRefsAction::class)->block($this->admin, $this->popads, TrafficBlockLevel::Site, ['502'], null, false);
+
+    expect($going->fresh()->network_state)->toBe(TrafficBlockNetworkState::Pending);
 });
 
 it('blocks by itself the sites the rule calls bots, within the day’s cap, only with a verified API', function () {

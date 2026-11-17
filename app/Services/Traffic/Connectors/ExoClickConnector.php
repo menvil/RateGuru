@@ -92,8 +92,14 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
             return [];
         }
 
-        $query = implode('&', [...array_map(fn (string $id): string => 'ids[]='.rawurlencode($id), $campaignIds), 'detailed=true']);
-        $json = $this->json($this->authed($session, fn (PendingRequest $client) => $client->get(self::BASE.'/campaigns?'.$query)));
+        // A few dozen IDs a request, so the address stays well within what a server takes.
+        $found = [];
+
+        foreach (array_chunk($campaignIds, 50) as $chunk) {
+            $query = implode('&', [...array_map(fn (string $id): string => 'ids[]='.rawurlencode($id), $chunk), 'detailed=true']);
+            $json = $this->json($this->authed($session, fn (PendingRequest $client) => $client->get(self::BASE.'/campaigns?'.$query)));
+            $found = [...$found, ...array_values(array_filter((array) ($json['result'] ?? []), 'is_array'))];
+        }
 
         return array_values(array_map(function (array $campaign): NetworkCampaign {
             $model = match ((int) ($campaign['pricing_model'] ?? 0)) {
@@ -113,7 +119,7 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
                 bidDesktop: $price,
                 dailyBudget: (int) ($campaign['daily_limit_type'] ?? 0) === 1 && isset($campaign['max_daily_budget_reset']) ? TrafficMoney::stored($campaign['max_daily_budget_reset'], 2) : null,
             );
-        }, array_filter((array) ($json['result'] ?? []), 'is_array')));
+        }, $found));
     }
 
     public function blockLevels(): array

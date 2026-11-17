@@ -61,3 +61,12 @@ it('waits longer after every failure in a row, up to the last step', function ()
         ->and(GeoUpdatePlan::retryAt($now, 3, [15, 60, 180, 360])->toIso8601String())->toBe('2026-11-17T13:00:00+00:00')
         ->and(GeoUpdatePlan::retryAt($now, 9, [15, 60, 180, 360])->toIso8601String())->toBe('2026-11-17T16:00:00+00:00');
 });
+
+it('keeps to the backoff of a failed attempt with no database, rather than downloading again every minute', function () {
+    $now = CarbonImmutable::parse('2026-11-17 10:00:00', 'UTC');
+    $failed = ['next_check_at' => '2026-11-17T11:00:00+00:00', 'last_attempt_at' => '2026-11-17T09:55:00+00:00', 'failures' => 2];
+
+    expect(GeoUpdatePlan::decide($failed, geoPlanSpec(), $now, null, false, false)->due)->toBeFalse()
+        ->and(GeoUpdatePlan::decide($failed, geoPlanSpec(), $now->addHour(), null, false, false)->due)->toBeTrue()
+        ->and(GeoUpdatePlan::decide($failed, geoPlanSpec(), $now, null, true, false)->due)->toBeTrue();
+});

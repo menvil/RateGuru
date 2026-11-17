@@ -68,7 +68,8 @@ final class CaptureTrafficArrival
             return;
         }
 
-        if (! $onGame) {
+        // Nothing is recorded while recording is off, so no visitor is given the tracker's cookie for it.
+        if (! $onGame || ! TrafficSetting::current()->capture_enabled) {
             return;
         }
 

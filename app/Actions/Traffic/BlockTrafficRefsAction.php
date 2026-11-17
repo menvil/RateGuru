@@ -58,7 +58,11 @@ final class BlockTrafficRefsAction
             }
 
             $batch = (string) Str::ulid();
-            $taken = TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->pluck('ref')->all();
+            $existing = TrafficBlock::query()->where('source_id', $source->id)->where('level', $level)->whereIn('ref', $refs)->get();
+            // A block on its way off the network's list is kept instead: blocked again, it goes back on the list at the next sync.
+            TrafficBlock::query()->whereKey($existing->where('network_state', TrafficBlockNetworkState::Removing)->pluck('id')->all())
+                ->update(['network_state' => TrafficBlockNetworkState::Pending, 'network_error' => null]);
+            $taken = $existing->pluck('ref')->all();
             $new = array_values(array_diff($refs, $taken));
 
             foreach ($new as $ref) {
@@ -107,11 +111,13 @@ final class BlockTrafficRefsAction
             $this->lockSource((int) $block->source_id);
             $record = TrafficBlock::query()->whereKey($block->id)->lockForUpdate()->first();
 
-            if ($record === null) {
+            // Already on its way off the network's list: nothing more to do.
+            if ($record === null || $record->network_state === TrafficBlockNetworkState::Removing) {
                 return;
             }
 
-            if ($record->network_state === TrafficBlockNetworkState::Applied) {
+            // A block that may have reached the network — applied, or failed after some campaigns took it — is taken off there first; one only marked here, or still waiting, simply goes.
+            if (in_array($record->network_state, [TrafficBlockNetworkState::Applied, TrafficBlockNetworkState::Failed], true)) {
                 $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null])->save();
             } else {
                 $record->delete();

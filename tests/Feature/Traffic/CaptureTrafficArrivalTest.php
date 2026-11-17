@@ -11,6 +11,7 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
+use App\Models\User;
 use App\Support\Settings\ProjectSettingsManager;
 use App\Support\Traffic\Capture\ArrivalToken;
 use Carbon\CarbonImmutable;
@@ -128,6 +129,8 @@ it('records nothing and gives no cookie while recording is off', function () {
     recordTraffic(false);
 
     $this->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])->get('/?rg_src=exo&cid=tag-10')->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
+    // A game's own result page gives no tracker cookie either; the game itself gives its players theirs as it always has.
+    $this->actingAs(User::factory()->create())->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])->get('/games/'.$this->slug)->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
 
     expect(TrafficVisit::query()->count())->toBe(0);
 });

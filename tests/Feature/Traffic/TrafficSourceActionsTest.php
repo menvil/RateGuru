@@ -139,9 +139,15 @@ it('refuses a stale editor, and anyone but an active administrator', function ()
 
 it('creates a banner bought at a fixed price, with no parameters and no rules', function () {
     $draft = SourceDefaults::forPlacement();
-    $source = app(SaveTrafficSourceAction::class)->handle($this->admin, null, [...$draft['source'], 'name' => 'Cat blog sidebar', 'link_key' => 'catblog', 'fixed_amount' => '120', 'creatives' => ['sidebar']], []);
+    $values = [...$draft['source'], 'name' => 'Cat blog sidebar', 'link_key' => 'catblog', 'fixed_amount' => '120', 'creatives' => ['sidebar']];
+
+    // A fixed price counts from its first day: without one it would count nothing.
+    expect(fn () => app(SaveTrafficSourceAction::class)->handle($this->admin, null, [...$values, 'fixed_from' => ''], []))->toThrow(ValidationException::class);
+
+    $source = app(SaveTrafficSourceAction::class)->handle($this->admin, null, [...$values, 'fixed_from' => '2026-11-01', 'fixed_to' => ''], []);
 
     expect($source->fixed_amount)->toBe('120.00')
+        ->and($source->fixed_to)->toBeNull()
         ->and($source->creatives)->toBe(['sidebar'])
         ->and($source->link_params)->toBe([]);
 });

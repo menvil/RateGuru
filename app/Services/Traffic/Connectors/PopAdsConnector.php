@@ -78,7 +78,17 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
                 Sleep::for(1)->second();
             }
 
-            $details = $this->json($this->get($session, '/apiv2/campaign/details/'.rawurlencode($id)));
+            // A campaign PopAds doesn't know — deleted there, a typo, a forged click — is left out; it says nothing about the key.
+            try {
+                $details = $this->json($this->get($session, '/apiv2/campaign/details/'.rawurlencode($id)));
+            } catch (ConnectorException $exception) {
+                if (in_array($exception->httpStatus, [403, 404], true)) {
+                    continue;
+                }
+
+                throw $exception;
+            }
+
             $data = is_array($details['data'] ?? null) ? $details['data'] : $details;
             $bid = isset($data['budget']['max_bid']) ? TrafficMoney::stored($data['budget']['max_bid'], 6) : null;
             $factors = array_map('strval', (array) ($data['device']['form_factor'] ?? []));

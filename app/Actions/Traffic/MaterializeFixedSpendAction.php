@@ -22,7 +22,7 @@ final class MaterializeFixedSpendAction
     public function handle(TrafficSource $source, ?string $onlyFrom = null): void
     {
         $today = CarbonImmutable::now($source->reporting_timezone)->toDateString();
-        $schedule = $source->spend_mode === TrafficSpendMode::Fixed && $source->fixed_amount !== null && $source->fixed_period !== null && $source->fixed_from !== null
+        $schedule = $source->spend_mode === TrafficSpendMode::Fixed && $source->fixed_amount !== null && $source->fixed_period !== null && trim((string) $source->fixed_from) !== ''
             ? FixedPriceSchedule::days((string) $source->fixed_amount, $source->fixed_period, (string) $source->fixed_from, $source->fixed_to, $today)
             : [];
         $stored = TrafficSpendDay::query()->where('source_id', $source->id)->where('origin', TrafficSpendOrigin::Fixed)->distinct()->pluck('network_day')->all();

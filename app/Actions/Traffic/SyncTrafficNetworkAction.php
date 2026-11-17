@@ -4,6 +4,7 @@ namespace App\Actions\Traffic;
 
 use App\Enums\TrafficActor;
 use App\Enums\TrafficCampaignEventKind;
+use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficConnectorFailure;
 use App\Enums\TrafficDevice;
@@ -77,7 +78,9 @@ final class SyncTrafficNetworkAction
             }
 
             if ($connector instanceof ReadsCampaigns && ($connection->campaigns_synced_at === null || $connection->campaigns_synced_at->addHours(self::CAMPAIGNS_EVERY_HOURS)->isPast())) {
-                $this->campaigns($connector->campaigns($session, array_map('strval', array_keys($campaigns))), $source, $now);
+                // Details only for the campaigns still running: an archived one has nothing to sync.
+                $running = TrafficCampaign::query()->where('source_id', $source->id)->where('status', '!=', TrafficCampaignStatus::Archived)->pluck('external_id')->map(fn ($id): string => (string) $id)->all();
+                $this->campaigns($connector->campaigns($session, $running), $source, $now);
                 $connection->campaigns_synced_at = $now;
             }
 
