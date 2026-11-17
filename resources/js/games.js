@@ -69,7 +69,8 @@ document.addEventListener('alpine:init', () => {
     }));
 
     // A headline kept to one line, as large as the title where it fits — the
-    // Result Preview teaser (result-preview.blade.php). Measured at the
+    // Result Preview teaser (result-preview.blade.php) and a round's question
+    // of up to 80 characters (game.blade.php). Measured at the
     // title's size and scaled down to the column's width, never below 18px; a
     // line too long even then wraps. The size CSS guesses from its length
     // stands until then.
@@ -97,7 +98,7 @@ document.addEventListener('alpine:init', () => {
             el.style.fontSize = `${Math.max(18, fitted)}px`;
 
             if (fitted < 18) {
-                el.style.whiteSpace = '';
+                el.style.whiteSpace = 'normal';
             }
         },
     }));

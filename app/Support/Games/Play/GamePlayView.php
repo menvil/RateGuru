@@ -114,7 +114,7 @@ final readonly class GamePlayView
      * whether it opens by itself, and another site's address when it opens in
      * a tab of its own.
      *
-     * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
+     * @return array{kind: string, title: string, text: string, button: string, post: array{title: string, image: ResponsiveImage|null, author: string|null, votes: int|null, likes: int|null, comments: int|null}|null, autoOpen: bool, newTab: bool, href: string|null}|null
      */
     private static function onward(Game $game, SnapshotStep $step, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, GameVisitor $visitor, string $locale, bool $preview): ?array
     {
@@ -152,7 +152,15 @@ final readonly class GamePlayView
         if ($kind === 'post') {
             $found = app(GameOnwardQuery::class)->post($draft, $snapshot, $attempt, $visitor->userId);
             $asset = $found?->image_asset_id === null ? null : MediaAsset::query()->with('variants')->find($found->image_asset_id);
-            $post = $found === null ? null : ['title' => (string) $found->title, 'image' => self::image($asset, '(max-width: 767px) 100vw, 480px')];
+            $show = fn (string $key): bool => (bool) $draft->setting($key);
+            $post = $found === null ? null : [
+                'title' => (string) $found->title,
+                'image' => self::image($asset, '(max-width: 767px) 100vw, 640px'),
+                'author' => $show('post_author') ? $found->user?->username : null,
+                'votes' => $show('post_votes') ? (int) $found->upvotes_count + (int) $found->downvotes_count : null,
+                'likes' => $show('post_likes') ? (int) $found->upvotes_count : null,
+                'comments' => $show('post_comments') && (int) $found->comments_count > 0 ? (int) $found->comments_count : null,
+            ];
         }
 
         $newTab = $kind === 'page' && $draft->destination() === GamePageDestination::Url && (bool) $draft->setting('new_tab');

@@ -59,6 +59,19 @@
 @endif
 
 <div class="rg-admin-field">
+    <span class="rg-admin-label" id="rg-admin-step-card-label">On the post's card</span>
+    <div class="rg-admin-games__asks" role="group" aria-labelledby="rg-admin-step-card-label">
+        @foreach (['post_author' => 'Author', 'post_likes' => 'Upvotes', 'post_votes' => 'Votes', 'post_comments' => 'Comments'] as $key => $label)
+            @php($on = (bool) ($settings[$key] ?? true))
+            <button type="button" @class(['rg-admin-games__ask', 'rg-admin-games__ask--on' => $on]) aria-pressed="{{ $on ? 'true' : 'false' }}" wire:click="$set('{{ $path }}.settings.{{ $key }}', {{ $on ? 'false' : 'true' }})">
+                @if ($on)<x-admin.ui.icon name="check" :size="12" />@endif{{ $label }}
+            </button>
+        @endforeach
+    </div>
+    <span class="rg-admin-games__note">The post shows with its picture and title; comments only once it has some.</span>
+</div>
+
+<div class="rg-admin-field">
     <span class="rg-admin-label" id="rg-admin-step-ask-label">Ask on the post</span>
     <div class="rg-admin-games__asks" role="group" aria-labelledby="rg-admin-step-ask-label">
         <button type="button" @class(['rg-admin-games__ask', 'rg-admin-games__ask--on' => $askVote]) aria-pressed="{{ $askVote ? 'true' : 'false' }}" wire:click="$set('{{ $path }}.settings.ask_vote', {{ $askVote ? 'false' : 'true' }})">

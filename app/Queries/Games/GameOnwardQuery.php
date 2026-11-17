@@ -72,6 +72,7 @@ final class GameOnwardQuery
     private function fresh(GameVersionSnapshot $snapshot, ?int $userId): ?Post
     {
         return Post::query()
+            ->with('user')
             ->published()
             ->whereNotIn('id', $snapshot->postIds())
             ->when($userId !== null, fn ($query) => $query
@@ -84,6 +85,6 @@ final class GameOnwardQuery
 
     private function published(mixed $postId): ?Post
     {
-        return is_int($postId) && $postId > 0 ? Post::query()->published()->find($postId) : null;
+        return is_int($postId) && $postId > 0 ? Post::query()->published()->with('user')->find($postId) : null;
     }
 }

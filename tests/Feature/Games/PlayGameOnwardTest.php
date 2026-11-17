@@ -191,3 +191,28 @@ it('keeps the share row on a result that sends the player on to the feed', funct
         ->assertSee('data-testid="game-share"', false)
         ->assertSee('data-testid="game-share-copy"', false);
 });
+
+it('shows the post the visitor goes to as the feed does: its title, author, upvotes, votes and comments, each as the step chooses', function () {
+    $author = User::factory()->create(['username' => 'catlover']);
+    $post = Post::factory()->published()->create(['user_id' => $author->id, 'title' => 'A cat in a box', 'upvotes_count' => 30, 'downvotes_count' => 10, 'comments_count' => 5]);
+    onwardGame($this->draft, [GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost], ['go_to_post' => ['post_target' => 'chosen', 'post_id' => $post->id]]);
+
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), str_repeat('c', 40))
+        ->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('choose', 0)->call('next')->call('continue')
+        ->assertSee('A cat in a box')
+        ->assertSee('@catlover')
+        ->assertSee('40 votes')
+        ->assertSee('5 comments');
+
+    // The step shows less: no votes, no comments — seen in the editor's preview of the flow as saved.
+    $step = $this->draft['flow']->steps()->where('type', 'go_to_post')->sole();
+    $step->forceFill(['settings' => [...GameFlowStepType::GoToPost->defaultSettings(), 'post_target' => 'chosen', 'post_id' => $post->id, 'post_votes' => false, 'post_comments' => false]])->save();
+    $this->actingAs($this->draft['admin']);
+
+    Livewire::withQueryParams(['flow' => $this->draft['flow']->id, 'start' => 'step:'.$step->key()])->test(PreviewGame::class, ['game' => $this->draft['game']->id])
+        ->assertSee('A cat in a box')
+        ->assertSee('@catlover')
+        ->assertDontSee('40 votes')
+        ->assertDontSee('5 comments');
+});

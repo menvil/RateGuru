@@ -1,6 +1,7 @@
 {{--
-    The way on into the site: a prompt, the post it leads to with its picture,
-    and the button. A post can open by itself after 3 seconds — once, so going
+    The way on into the site: a prompt, the post it leads to as the feed draws
+    it — its picture large, its title, and what the step shows of it: its
+    author, votes, upvotes and comments — and the button. A post can open by itself after 3 seconds — once, so going
     back to the game never sends the visitor away again; another site can open
     in a tab of its own, counted without leaving the game.
 --}}
@@ -15,11 +16,32 @@
         <p class="rg-game__text">{{ $onward['text'] }}</p>
     @endif
     @if ($onward['post'] !== null)
+        @php($post = $onward['post'])
         <figure class="rg-game__onward-post" data-testid="game-onward-post">
-            @if ($onward['post']['image'])
-                <img class="rg-game__onward-image" src="{{ $onward['post']['image']->src }}" @if ($onward['post']['image']->srcset) srcset="{{ $onward['post']['image']->srcset }}" sizes="{{ $onward['post']['image']->sizes }}" @endif alt="">
+            @if ($post['image'])
+                <img class="rg-game__onward-image" src="{{ $post['image']->src }}" @if ($post['image']->srcset) srcset="{{ $post['image']->srcset }}" sizes="{{ $post['image']->sizes }}" @endif @if ($post['image']->width) width="{{ $post['image']->width }}" height="{{ $post['image']->height }}" @endif alt="">
+            @else
+                <span class="rg-game__onward-image rg-game__onward-image--missing" aria-hidden="true"><x-ui.icon name="image" class="size-8" /></span>
             @endif
-            <figcaption class="rg-game__onward-caption">{{ $onward['post']['title'] }}</figcaption>
+            <figcaption class="rg-game__onward-caption">
+                <span class="rg-game__onward-title">{{ $post['title'] }}</span>
+                @if ($post['author'] !== null || $post['votes'] !== null || $post['likes'] !== null || $post['comments'] !== null)
+                    <span class="rg-game__onward-meta" data-testid="game-onward-post-meta">
+                        @if ($post['author'] !== null)
+                            <span class="rg-game__onward-author">{{ '@'.$post['author'] }}</span>
+                        @endif
+                        @if ($post['likes'] !== null)
+                            <span class="rg-game__onward-stat" title="{{ __('ui.voting.up') }}"><x-ui.icon name="arrow-up" class="size-4" /><span class="sr-only">{{ __('ui.voting.up') }}</span>{{ number_format($post['likes']) }}</span>
+                        @endif
+                        @if ($post['votes'] !== null)
+                            <span class="rg-game__onward-stat">{{ trans_choice('ui.voting.votes_count', $post['votes'], ['count' => number_format($post['votes'])]) }}</span>
+                        @endif
+                        @if ($post['comments'] !== null)
+                            <span class="rg-game__onward-stat"><x-ui.icon name="comment" class="size-4" />{{ trans_choice('ui.comments.count', $post['comments'], ['count' => number_format($post['comments'])]) }}</span>
+                        @endif
+                    </span>
+                @endif
+            </figcaption>
         </figure>
     @endif
     @if ($onward['newTab'] && $onward['href'] !== null)

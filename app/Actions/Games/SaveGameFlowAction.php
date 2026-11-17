@@ -87,12 +87,19 @@ final class SaveGameFlowAction
                     $texts[$column] = array_key_exists($column, $type->texts()) && $value !== '' ? $value : null;
                 }
 
+                $settings = GameFlowStepSettings::normalize($type, (array) ($data['settings'] ?? []));
+
+                // Stored before a setting it now has a default for, the step reads as it always did: no change.
+                if ($step->exists && $step->type === $type && GameFlowStepSettings::normalize($type, (array) $step->settings) === $settings) {
+                    $settings = $step->settings;
+                }
+
                 $step->forceFill([
                     'flow_id' => $locked->id,
                     'position' => $position,
                     'type' => $type,
                     'audience' => $type->fixedAudience() ?? GameStepAudience::from((string) $data['audience']),
-                    'settings' => GameFlowStepSettings::normalize($type, (array) ($data['settings'] ?? [])),
+                    'settings' => $settings,
                     ...$texts,
                 ]);
                 $changed = $this->keepsChanges($step) || $changed;

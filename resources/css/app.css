@@ -330,6 +330,24 @@ select:disabled {
         }
     }
 
+    /*
+     * One line, as large as the question's own size where it fits and scaled down to the round's width where it
+     * doesn't: the size CSS guesses from its length stands until rgGameLine measures it.
+     */
+    .rg-game__question--line {
+        --rg-game-line-max: clamp(24px, 6.4vw, 44px);
+        font-size: max(18px, min(var(--rg-game-line-max), calc(100cqi / (var(--rg-game-line-chars, 20) * 0.52))));
+        white-space: nowrap;
+        overflow-x: clip;
+        text-wrap: nowrap;
+    }
+
+    @media (min-width: 640px) {
+        .rg-game__question--line {
+            --rg-game-line-max: clamp(28px, 4.4vw, 48px);
+        }
+    }
+
     .rg-game__subtitle {
         margin: 0;
         font-size: 17px;
@@ -452,25 +470,74 @@ select:disabled {
         color: var(--rg-text-2);
     }
 
+    /*
+     * The post the way on leads to, as the feed draws a post: its picture large — the card's main part — then its
+     * title and what the step shows of it.
+     */
     .rg-game__onward-post {
-        margin: 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--rg-border);
+        border-radius: 20px;
+        background: var(--rg-card);
     }
 
     .rg-game__onward-image {
         display: block;
         width: 100%;
-        max-height: 320px;
+        height: auto;
+        max-height: min(62vh, 560px);
         object-fit: cover;
-        border-radius: 18px;
+        background: var(--rg-card-2);
+    }
+
+    .rg-game__onward-image--missing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 4 / 3;
+        color: var(--rg-muted);
     }
 
     .rg-game__onward-caption {
-        font-size: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px 14px 14px;
+    }
+
+    .rg-game__onward-title {
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: 17px;
         font-weight: 700;
+        line-height: 1.3;
         color: var(--rg-text);
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    .rg-game__onward-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 14px;
+        font-size: 13px;
+        color: var(--rg-text-2);
+    }
+
+    .rg-game__onward-author {
+        font-weight: 600;
+        color: var(--rg-text);
+    }
+
+    .rg-game__onward-stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-variant-numeric: tabular-nums;
     }
 
     .rg-game__hint {
