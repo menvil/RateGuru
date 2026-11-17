@@ -38,7 +38,7 @@ function arrivedAt(string $slug, array $arrival, string $token = OPEN_TOKEN)
     app(TrafficArrival::class)->set(ArrivalToken::make($arrival, browserHashOf($token), now()->getTimestamp()));
 
     return Livewire::withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => CHROME, 'Accept-Language' => 'en'])
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
         ->test(PlayGame::class, ['slug' => $slug]);
 }
 
@@ -101,7 +101,7 @@ it('records nothing for a crawler, for a token of another browser, or while reco
         ->assertNoContent();
 
     app(TrafficArrival::class)->set(ArrivalToken::make(['channel' => 'direct', 'slug' => $this->game->slug], browserHashOf('someone-else-someone-else-someone-elsexx'), now()->getTimestamp()));
-    Livewire::withCookie((string) config('games.visitor_cookie.name'), OPEN_TOKEN)->withHeaders(['User-Agent' => CHROME, 'Accept-Language' => 'en'])
+    Livewire::withCookie((string) config('games.visitor_cookie.name'), OPEN_TOKEN)->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
         ->test(PlayGame::class, ['slug' => $this->game->slug])->call('init');
 
     recordTraffic(false);

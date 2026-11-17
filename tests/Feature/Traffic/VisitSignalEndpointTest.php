@@ -23,7 +23,7 @@ afterEach(function () {
 function signal(array $data, string $token = SIGNAL_TOKEN): TestResponse
 {
     return test()->withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => CHROME, 'Accept-Language' => 'en'])
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en'])
         ->post(route('traffic.signal'), $data);
 }
 

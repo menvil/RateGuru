@@ -14602,6 +14602,9 @@ function recordTraffic(bool $capture = true, bool $postbacks = false): TrafficSe
     return $settings;
 }
 
+/** A desktop Chrome's User-Agent: a real browser, as the traffic tracker classifies one. */
+const DESKTOP_CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+
 /** The SHA-256 the tracker and the games know a browser by, from its rg_game_visitor token. */
 function browserHashOf(string $token): string
 {

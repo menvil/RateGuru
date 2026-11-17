@@ -22,8 +22,6 @@ use Illuminate\Testing\TestResponse;
  * visitor to sign in, once per network click id; and a page without rg_src
  * that is no game costs nothing.
  */
-const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
-
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-11-17 12:00:00');
     recordTraffic();
@@ -41,7 +39,7 @@ afterEach(function () {
 function clickOn(string $path, string $token = 'browserAbrowserAbrowserAbrowserAbrowserA', array $headers = []): TestResponse
 {
     return test()->withCookie((string) config('games.visitor_cookie.name'), $token)
-        ->withHeaders(['User-Agent' => CHROME, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"', ...$headers])
+        ->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT, 'Accept-Language' => 'en-GB', 'Sec-CH-UA' => '"Chromium";v="131"', ...$headers])
         ->get($path);
 }
 
@@ -81,7 +79,7 @@ it('hands the page a token of the click, which the layout prints on any page but
 });
 
 it('gives a browser arriving through a paid link its cookie', function () {
-    $this->withHeaders(['User-Agent' => CHROME])->get('/?rg_src=exo&cid=tag-3')->assertOk()->assertCookie((string) config('games.visitor_cookie.name'));
+    $this->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])->get('/?rg_src=exo&cid=tag-3')->assertOk()->assertCookie((string) config('games.visitor_cookie.name'));
 
     expect(TrafficVisit::query()->count())->toBe(1);
 });
@@ -137,7 +135,7 @@ it('brings an archived campaign back on its next click', function () {
 it('records nothing and gives no cookie while recording is off', function () {
     recordTraffic(false);
 
-    $this->withHeaders(['User-Agent' => CHROME])->get('/?rg_src=exo&cid=tag-10')->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
+    $this->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])->get('/?rg_src=exo&cid=tag-10')->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
 
     expect(TrafficVisit::query()->count())->toBe(0);
 });
@@ -150,7 +148,7 @@ it('costs a page without rg_src that is no game nothing', function () {
         }
     });
 
-    $this->withHeaders(['User-Agent' => CHROME])->get('/')->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
+    $this->withHeaders(['User-Agent' => DESKTOP_CHROME_USER_AGENT])->get('/')->assertOk()->assertCookieMissing((string) config('games.visitor_cookie.name'));
 
     expect($queries)->toBe(0);
 });
