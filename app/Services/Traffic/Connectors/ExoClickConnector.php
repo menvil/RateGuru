@@ -101,7 +101,7 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
             $found = [...$found, ...array_values(array_filter((array) ($json['result'] ?? []), 'is_array'))];
         }
 
-        return array_values(array_map(function (array $campaign): NetworkCampaign {
+        return array_map(function (array $campaign): NetworkCampaign {
             $model = match ((int) ($campaign['pricing_model'] ?? 0)) {
                 1, 7 => 'click',
                 2, 4 => 'cpm',
@@ -119,7 +119,7 @@ final class ExoClickConnector implements EditsBlockLists, ReadsCampaigns, ReadsS
                 bidDesktop: $price,
                 dailyBudget: (int) ($campaign['daily_limit_type'] ?? 0) === 1 && isset($campaign['max_daily_budget_reset']) ? TrafficMoney::stored($campaign['max_daily_budget_reset'], 2) : null,
             );
-        }, $found));
+        }, $found);
     }
 
     public function blockLevels(): array
