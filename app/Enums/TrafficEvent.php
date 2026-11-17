@@ -4,9 +4,9 @@ namespace App\Enums;
 
 /**
  * The moments of a visitor's way the tracker records, each once per visit,
- * in its own column (`traffic_visits.{event}_at`). Twelve of them and the
- * confirmed account can be reported to the network that sent the visitor;
- * the rest are counted only.
+ * in its own column (`traffic_visits.{event}_at`). Twelve of them, the
+ * confirmed account and the visit settling can be reported to the network
+ * that sent the visitor; the rest are counted only.
  */
 enum TrafficEvent: string
 {
@@ -31,6 +31,7 @@ enum TrafficEvent: string
     case Login = 'login';
     case PostPublished = 'post_published';
     case Returned = 'returned';
+    case Settled = 'settled';
 
     public function column(): string
     {
@@ -43,7 +44,7 @@ enum TrafficEvent: string
         return match ($this) {
             self::Opened, self::Started, self::Halfway, self::Completed, self::Goal, self::Email,
             self::Shared, self::Replayed, self::PostOpened, self::PostVoted, self::PostRated,
-            self::FeedVoted, self::Account => true,
+            self::FeedVoted, self::Account, self::Settled => true,
             default => false,
         };
     }
@@ -52,6 +53,17 @@ enum TrafficEvent: string
     public static function postbackEvents(): array
     {
         return array_values(array_filter(self::cases(), fn (self $event): bool => $event->canPostBack()));
+    }
+
+    /**
+     * How far a settled visit may be asked to have got before its network is
+     * told of it, the least first.
+     *
+     * @return list<self>
+     */
+    public static function settledFloors(): array
+    {
+        return [self::Opened, self::Started, self::Halfway, self::Completed, self::Goal, self::Account];
     }
 
     public function label(): string
@@ -78,6 +90,7 @@ enum TrafficEvent: string
             self::Login => 'Existing account signed in',
             self::PostPublished => 'Published a post',
             self::Returned => 'Came back',
+            self::Settled => 'Visit settled',
         };
     }
 
@@ -105,6 +118,7 @@ enum TrafficEvent: string
             self::Login => 'Signed in to an account they already had: worth nothing new',
             self::PostPublished => 'A first post published within 30 days of signing up',
             self::Returned => 'Back on another day within 7 days of signing up',
+            self::Settled => 'Came to rest — its account confirmed, 30 minutes without a new step, or a day after the click — with the best worth it reached',
         };
     }
 }

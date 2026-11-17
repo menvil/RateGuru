@@ -35,6 +35,9 @@ it('says why a conversion is not told to its network, or until when it is tried'
     expect($plan()['rules'])->toBe([4, 5])
         ->and($plan()['expires_at']->toDateTimeString())->toBe('2026-11-11 13:00:00')
         ->and($plan(now: $arrived->addHours(40))['expires_at']->toDateTimeString())->toBe('2026-11-12 12:00:00')
+        ->and($plan(ruleIds: [])['skip'])->toBe(TrafficPostbackSkip::NoRule)
+        // Rules are on, but the settled visit got as far as none of them asks.
+        ->and($plan(event: TrafficEvent::Settled, ruleIds: [], tooShallow: true)['skip'])->toBe(TrafficPostbackSkip::TooShallow)
         ->and($plan(known: true)['skip'])->toBe(TrafficPostbackSkip::KnownVisitor)
         ->and($plan(sourceActive: false)['skip'])->toBe(TrafficPostbackSkip::SourceInactive)
         ->and($plan(hasClickId: false)['skip'])->toBe(TrafficPostbackSkip::NoClickId)

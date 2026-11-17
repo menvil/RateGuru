@@ -52,7 +52,7 @@ final class TrafficStep
     {
         return match ($event) {
             TrafficEvent::Halfway => self::halfway($rounds),
-            TrafficEvent::Goal, TrafficEvent::SignupForm, TrafficEvent::PostPublished, TrafficEvent::Returned => null,
+            TrafficEvent::Goal, TrafficEvent::SignupForm, TrafficEvent::PostPublished, TrafficEvent::Returned, TrafficEvent::Settled => null,
             default => $event->value,
         };
     }

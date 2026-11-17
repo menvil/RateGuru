@@ -110,7 +110,7 @@ final class TrafficSourcesView
 
         return [
             'source' => array_map(fn (mixed $value): mixed => $value instanceof BackedEnum ? $value->value : $value, $values),
-            'rules' => $source->postbackRules->map(fn ($rule): array => ['id' => $rule->id, 'event' => $rule->event->value, 'goal_code' => (string) $rule->goal_code, 'url_template' => $rule->url_template, 'enabled' => (bool) $rule->enabled])->values()->all(),
+            'rules' => $source->postbackRules->map(fn ($rule): array => ['id' => $rule->id, 'event' => $rule->event->value, 'goal_code' => (string) $rule->goal_code, 'needs_event' => (string) $rule->needs_event?->value, 'url_template' => $rule->url_template, 'enabled' => (bool) $rule->enabled])->values()->all(),
         ];
     }
 
@@ -790,12 +790,17 @@ final class TrafficSourcesView
         $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
         $postRate = isset($site['post_bonus']) ? (float) $site['post_bonus']->chance : ($total->accounts > 0 ? $total->posted / $total->accounts : 0.0);
         $returnRate = isset($site['returned_bonus']) ? (float) $site['returned_bonus']->chance : ($total->accounts > 0 ? $total->returned / $total->accounts : 0.0);
-        $brings = fn (ReportFigures $f): BigDecimal => $prices->account($f->accounts > 0 ? $f->posted / $f->accounts : $postRate, $f->accounts > 0 ? $f->returned / $f->accounts : $returnRate, 100);
         $groups = collect($set->country_groups);
         $byGroup = $this->reports->byCountryGroup($filter);
         $opened = array_sum(array_map(fn (ReportFigures $f): int => $f->opened, $byGroup));
+        // Every group at once, as the period's visitors are spread over them; a full share before any came.
+        $mix = $opened === 0 ? 100 : (int) round(array_sum(array_map(fn (string $key, ReportFigures $f): int => $f->opened * (int) ($groups->firstWhere('key', $key)['percent'] ?? 100), array_keys($byGroup), $byGroup)) / $opened);
+        // What the accounts brought, each at its own group's share; for rows with none yet, the mix.
+        $brings = fn (ReportFigures $f): BigDecimal => $f->accounts > 0
+            ? TrafficMoney::of($f->valueReal)->dividedBy($f->accounts, TrafficMoney::SCALE, RoundingMode::HalfUp)
+            : $prices->account($postRate, $returnRate, $mix);
         $worth = app(TrafficWorthQuery::class);
-        $stepWorth = fn (string $step, ?string $device, ?string $group): string => (string) StepWorth::of(new Slice(device: $device, group: $group), $step, $prices, $group === null ? 100 : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $worth->table($run, new Slice(device: $device, group: $group)))['value'];
+        $stepWorth = fn (string $step, ?string $device, ?string $group): string => (string) StepWorth::of(new Slice(device: $device, group: $group), $step, $prices, $group === null ? $mix : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $worth->table($run, new Slice(device: $device, group: $group)))['value'];
         $bySource = collect($this->reports->level($filter, TrafficDimension::Source));
         $unpaid = $sum($bySource->filter(fn (array $group): bool => $group['keys']['source_id'] === null)->all());
 
@@ -804,7 +809,7 @@ final class TrafficSourcesView
             'outcomes' => ['accounts' => $total->accounts, 'posted' => $total->posted, 'returned' => $total->returned],
             'postRate' => $postRate,
             'returnRate' => $returnRate,
-            'accountBrings' => (string) $prices->account($postRate, $returnRate, 100),
+            'accountBrings' => (string) $brings($total),
             'sourceRows' => [
                 ...$bySource->filter(fn (array $group): bool => $group['keys']['source_id'] !== null)->map(function (array $group) use ($sources, $brings): array {
                     $source = $sources->firstWhere('id', (int) $group['keys']['source_id']);
@@ -1116,6 +1121,7 @@ final class TrafficSourcesView
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],
             'connection' => $source?->apiConnection?->only(['status', 'account_label', 'last_synced_at', 'next_sync_at', 'last_error', 'spend_closed_through']),
             'events' => array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()),
+            'floors' => collect(TrafficEvent::settledFloors())->mapWithKeys(fn (TrafficEvent $event): array => [$event->value => self::ruleEvent($event->value)])->all(),
             'sharedGoals' => array_map(
                 fn (array $keys): array => array_map(fn (int|string $key): string => self::ruleEvent((string) ($page->draft['rules'][$key]['event'] ?? '')), $keys),
                 PostbackTemplate::sharedGoals($page->draft['rules']),

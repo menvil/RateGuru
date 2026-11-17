@@ -201,7 +201,8 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
 });
 
 it('lays out Value: outcome prices with what an account brings, accounts by source against a target, who counts, and country groups with their countries', function () {
-    siteClicks($this->source, '40123', 4, 4, ['account_at' => now(), 'spend' => '0.25']);
+    // Four accounts, each worth an account at a full share: what they brought is measured, not assumed.
+    siteClicks($this->source, '40123', 4, 4, ['account_at' => now(), 'spend' => '0.25', 'value_real' => '0.5']);
 
     $page = Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)->call('load')
         ->assertSet('prices.account_price', '0.50')

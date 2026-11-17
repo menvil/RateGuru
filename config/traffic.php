@@ -20,6 +20,15 @@ return [
     // use them for its tokens, or the page would read the token instead.
     'reserved_params' => ['search', 'tag', 'category', 'ratings', 'sort', 'feed', 'tab', 'page', 'vote', 'ask'],
 
+    // When a paid visit settles, telling its network once what it was worth
+    // (docs/architecture/traffic.md, "Settling"): its account confirmed, so
+    // many minutes without a new step, or so many hours after the click,
+    // whichever comes first.
+    'settle' => [
+        'idle_minutes' => 30,
+        'after_hours' => 24,
+    ],
+
     // A campaign with no click for this many days is archived by itself.
     'quiet_campaign_days' => 30,
 

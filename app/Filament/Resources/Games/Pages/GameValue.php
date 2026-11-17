@@ -199,6 +199,11 @@ final class GameValue extends Page
         $stepTags = [];
 
         foreach ($postbacks as $postback) {
+            // A settled visit could tell any step: tagging them all would say nothing.
+            if ($postback['event'] === TrafficEvent::Settled) {
+                continue;
+            }
+
             foreach ($postback['steps'] as $step) {
                 $stepTags[$step][] = 'Postback · '.$postback['source'].($postback['code'] !== '' ? ' '.$postback['code'] : '').($postback['event'] === TrafficEvent::Goal ? ' (flow goal)' : '');
             }
@@ -452,6 +457,8 @@ final class GameValue extends Page
             $steps = match ($event) {
                 TrafficEvent::Goal => $goalSteps,
                 TrafficEvent::Halfway => [$halfway],
+                // A settled visit tells the best step it reached: any of them, from the rule's floor up.
+                TrafficEvent::Settled => self::settledSteps($rounds, $rule->needs_event),
                 default => TrafficStep::ofEvent($event, $rounds) === null ? [] : [TrafficStep::ofEvent($event, $rounds)],
             };
 
@@ -508,5 +515,25 @@ final class GameValue extends Page
             $percent >= 1 => number_format($percent, 1).'%',
             default => number_format($percent, 2).'%',
         };
+    }
+
+    /**
+     * The steps a Visit settled rule can tell: every step of the game from
+     * the rule's floor up, the account always.
+     *
+     * @return list<string>
+     */
+    private static function settledSteps(int $rounds, ?TrafficEvent $floor): array
+    {
+        $steps = TrafficStep::all($rounds);
+        $from = match ($floor) {
+            null, TrafficEvent::Opened => 'opened',
+            TrafficEvent::Halfway => TrafficStep::halfway($rounds),
+            TrafficEvent::Goal, TrafficEvent::Account => 'account',
+            default => TrafficStep::ofEvent($floor, $rounds) ?? 'opened',
+        };
+        $at = array_search($from, $steps, true);
+
+        return array_values(array_unique([...($at === false ? [] : array_slice($steps, (int) $at)), 'account']));
     }
 }

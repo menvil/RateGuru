@@ -535,7 +535,19 @@ final class TrafficSourcesPage extends Page
 
     public function addRule(): void
     {
-        $this->draft['rules'][] = ['id' => null, 'event' => TrafficEvent::Goal->value, 'goal_code' => '', 'url_template' => '', 'enabled' => false];
+        $this->draft['rules'][] = ['id' => null, 'event' => TrafficEvent::Goal->value, 'goal_code' => '', 'needs_event' => '', 'url_template' => '', 'enabled' => false];
+    }
+
+    /**
+     * A rule turned to a settled visit asks, to begin with, for one that
+     * started the game: a network that counts conversions learns nothing when
+     * every visit that opened the page is one.
+     */
+    public function updatedDraft(mixed $value, string $key): void
+    {
+        if (preg_match('/^rules\.(\d+)\.event$/', $key, $match) === 1 && $value === TrafficEvent::Settled->value && ($this->draft['rules'][(int) $match[1]]['needs_event'] ?? '') === '') {
+            $this->draft['rules'][(int) $match[1]]['needs_event'] = TrafficEvent::Started->value;
+        }
     }
 
     public function removeRule(mixed $index): void

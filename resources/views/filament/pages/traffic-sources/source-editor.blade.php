@@ -186,6 +186,17 @@
                             <x-admin.ui.text-field label="Goal code" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
                             <x-admin.ui.switch label="On" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
                         </div>
+                        @if (($rule['event'] ?? '') === 'settled')
+                            <label class="rg-admin-field">
+                                <span class="rg-admin-label">Only a visit that got at least to</span>
+                                <select class="rg-admin-traffic__select" wire:model="draft.rules.{{ $index }}.needs_event" aria-label="Only a visit that got at least to">
+                                    @foreach ($editor['floors'] as $floor => $name)
+                                        <option value="{{ $floor === 'opened' ? '' : $floor }}">{{ $name }}</option>
+                                    @endforeach
+                                </select>
+                                <span class="rg-admin-traffic__note">A visit settles once — its account confirmed, 30 minutes without a new step, or a day after the click — and tells the network the best worth it reached. A network that counts conversions learns nothing when every visit is one: send only those that got this far. One that bids on value can take every visit that opened the page.</span>
+                            </label>
+                        @endif
                         <x-admin.ui.text-field label="Address" :id="'rg-admin-rule-url-'.$index" :value="(string) $rule['url_template']" hint="{click_id}, {value}, {value_total}, {event}, {goal_code}, {device}, {game}, {version}, {param:name}" :error="$field('rules.'.$index.'.url_template')" wire:model.live.blur="draft.rules.{{ $index }}.url_template" />
                         <div class="rg-admin-traffic__row">
                             <x-admin.ui.button size="sm" icon="play" wire:click="testRule({{ $index }})">Send test</x-admin.ui.button>

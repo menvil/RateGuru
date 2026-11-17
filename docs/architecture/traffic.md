@@ -65,7 +65,10 @@ sign-ins are worth nothing; a value set by hand on a game's Value tab counts
 always or while the data is thin. Prices and country groups are immutable sets:
 every visit keeps the set it arrived under, so a price change never recounts the
 past. A visit's worth so far and still to come (`VisitValue`) is kept on the
-visit and brought up to date nightly.
+visit and brought up to date nightly. The starting set prices an account $0.50,
+a first post $1 more and a return $0.20 more, and counts Tier 1 at 100 %,
+Tier 2 at 60 % and every other country — a visit whose country isn't known
+among them — at 30 %.
 
 ## Conversions
 
@@ -76,7 +79,26 @@ actions. The first time only: the mark, the visit's worth again, and for a paid
 click and an event a network can be told of, a `traffic_conversions` row with
 the step's worth at that moment and a postback waiting for each rule on for it,
 unless `PostbackPlanner` gives the reason not (known visitor, source not active,
-no click ID, window or click ID past, no rule).
+no click ID, window or click ID past, no rule, or a settled visit that didn't
+get as far as its rules ask). While a paid visit can still settle, every mark
+but settling counts as the visit seen (`last_seen_at`), and so does every round
+answered; a late mark — an account, a return, a first post — leaves it alone.
+
+## Settling
+
+A network that learns from one conversion per click is told of a visit once it
+came to rest: its account confirmed, 30 minutes without a new step, or 24 hours
+after the click, whichever comes first (`config/traffic.php`, `settle`). The
+account settles it in the same transaction; `traffic:settle-visits` settles the
+rest every minute, at the moment each came to rest, and leaves alone a visit
+older than twice the settle hours. A settled visit is worth the best step it
+reached — the account's worth once it has one — which is also what
+`{value_total}` says. A Visit settled rule can ask for a visit that got at least
+to a step (started, halfway, finished, the flow's goal, an account; a step
+higher up the list, an account above all, meets it too): a network
+that counts conversions rather than bidding on value learns nothing when every
+visit is one. A network can't change a conversion it was told of, so a later
+account is told to it only by a rule of its own on another goal.
 
 ## Postbacks
 

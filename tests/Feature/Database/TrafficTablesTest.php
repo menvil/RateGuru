@@ -42,8 +42,10 @@ it('starts with the starting prices in force', function () {
     expect([$prices->account_price, $prices->post_bonus, $prices->returned_bonus])->toBe(['0.5000', '1.0000', '0.2000'])
         ->and(array_column($prices->country_groups, 'key'))->toBe(['t1', 't2', 'rest'])
         ->and($prices->groupOf('DE'))->toBe(['key' => 't1', 'percent' => 100])
-        ->and($prices->groupOf('BR'))->toBe(['key' => 'rest', 'percent' => 100])
-        ->and($prices->groupOf(null))->toBe(['key' => 'rest', 'percent' => 100]);
+        ->and($prices->groupOf('FR'))->toBe(['key' => 't2', 'percent' => 60])
+        ->and($prices->groupOf('IN'))->toBe(['key' => 'rest', 'percent' => 30])
+        // A visit whose country isn't known counts with every other country.
+        ->and($prices->groupOf(null))->toBe(['key' => 'rest', 'percent' => 30]);
 });
 
 it('keeps one of each thing the tracker counts once', function () {

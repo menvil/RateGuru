@@ -92,6 +92,8 @@ return new class extends Migration
             // A growing set (TrafficEvent).
             $table->string('event', 24);
             $table->string('goal_code', 120)->nullable();
+            // For a settled visit, how far it must have got to be told of (TrafficEvent).
+            $table->string('needs_event', 24)->nullable();
             $table->text('url_template');
             $table->boolean('enabled')->default(true);
             $table->unsignedInteger('position')->default(0);

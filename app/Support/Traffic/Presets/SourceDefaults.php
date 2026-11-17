@@ -30,7 +30,7 @@ final class SourceDefaults
     /**
      * @param  array<string, mixed>  $preset
      * @param  list<string>  $takenLinkKeys
-     * @return array{source: array<string, mixed>, rules: list<array{id: null, event: string, goal_code: null, url_template: string, enabled: bool}>}
+     * @return array{source: array<string, mixed>, rules: list<array{id: null, event: string, goal_code: null, needs_event: string, url_template: string, enabled: bool}>}
      */
     public static function forPreset(string $key, array $preset, bool $connectorDescribed, array $takenLinkKeys): array
     {
@@ -79,6 +79,7 @@ final class SourceDefaults
                 'id' => null,
                 'event' => TrafficEvent::Goal->value,
                 'goal_code' => null,
+                'needs_event' => '',
                 'url_template' => $template,
                 'enabled' => false,
             ]],

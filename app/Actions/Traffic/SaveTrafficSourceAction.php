@@ -176,6 +176,7 @@ final class SaveTrafficSourceAction
             'rules.*.id' => ['nullable', 'integer'],
             'rules.*.event' => ['required', Rule::in(array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()))],
             'rules.*.goal_code' => ['nullable', 'string', 'max:60'],
+            'rules.*.needs_event' => ['nullable', Rule::in(array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::settledFloors()))],
             'rules.*.url_template' => ['present', 'nullable', 'string', 'max:'.PostbackTemplate::MAX_LENGTH],
             'rules.*.enabled' => ['boolean'],
         ], [], ['source.link_key' => 'key', 'source.name' => 'name']);
@@ -301,6 +302,8 @@ final class SaveTrafficSourceAction
                 'source_id' => $source->id,
                 'event' => TrafficEvent::from((string) $rule['event']),
                 'goal_code' => ($rule['goal_code'] ?? '') !== '' ? trim((string) $rule['goal_code']) : null,
+                // Only a settled visit is asked how far it got; another event keeps no floor it can't show.
+                'needs_event' => $rule['event'] === TrafficEvent::Settled->value && ($rule['needs_event'] ?? '') !== '' ? TrafficEvent::from((string) $rule['needs_event']) : null,
                 'url_template' => trim((string) ($rule['url_template'] ?? '')),
                 'enabled' => (bool) ($rule['enabled'] ?? false),
                 'position' => $position,

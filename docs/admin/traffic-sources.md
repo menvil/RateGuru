@@ -18,7 +18,17 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 6. Connect the source's API (PopAds key, or ExoClick API token) in its editor.
    A day's spend closes once the network's figures came whole.
 7. On each game's Value tab, set values by hand while the data is thin; then
-   add a postback rule, **Send test**, and switch on **Send postbacks**.
+   add a postback rule, **Send test**, and switch on **Send postbacks**. Send a
+   network one event per click on each of its goals: two rules on one goal are
+   counted as two conversions and their worth added up, and the editor says so.
+   For a network that learns from conversions, choose the step its campaigns
+   should buy (the flow's goal, or Halfway or Game finished while accounts are
+   few). For one that bids on value, choose **Visit settled**: once a visit
+   came to rest — its account confirmed, 30 minutes without a step, or a day
+   after the click — it tells the best worth the visit reached. Give a Visit
+   settled rule a floor (Game started by default) unless the network bids on
+   value. Country groups start at Tier 1 100 %, Tier 2 60 %, every other
+   country 30 % (Value → Country groups).
 8. Block by hand first, then through the API on a test campaign, then let the
    block rule do it by itself (only once the connector is verified).
 

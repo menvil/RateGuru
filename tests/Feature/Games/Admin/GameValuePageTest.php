@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TrafficEvent;
 use App\Enums\TrafficStepValueMode;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameValue;
@@ -105,4 +106,15 @@ it('shows the game’s paid traffic by source on its analytics, and compares its
         ->assertSee('Versions on paid traffic')
         ->assertSee('No paid visitor reached a version in this period.')
         ->assertSeeInOrder(['Traffic sources', 'Ad networks', 'PopAds main', '3 visits']);
+});
+
+it('lists a Visit settled postback with what it can send, without tagging every step', function () {
+    $source = TrafficSource::factory()->create(['name' => 'ExoClick tests']);
+    TrafficPostbackRule::factory()->create(['source_id' => $source->id, 'event' => TrafficEvent::Settled, 'needs_event' => TrafficEvent::Completed, 'url_template' => 'https://s.magsrv.com/tag.php?goal=abc&tag={click_id}&value={value}', 'enabled' => true]);
+
+    $this->get(GameResource::getUrl('value', ['record' => $this->draft['game']]))
+        ->assertOk()
+        ->assertSeeInOrder(['ExoClick tests', 'Visit settled'])
+        ->assertDontSee('No postbacks are on.')
+        ->assertDontSee('Postback · ExoClick tests');
 });

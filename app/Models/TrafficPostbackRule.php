@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $source_id
  * @property TrafficEvent $event
  * @property string|null $goal_code
+ * @property TrafficEvent|null $needs_event
  * @property string $url_template
  * @property bool $enabled
  * @property int $position
@@ -39,6 +40,7 @@ class TrafficPostbackRule extends Model
         return [
             'source_id' => 'integer',
             'event' => TrafficEvent::class,
+            'needs_event' => TrafficEvent::class,
             'enabled' => 'boolean',
             'position' => 'integer',
             'created_at' => 'immutable_datetime',

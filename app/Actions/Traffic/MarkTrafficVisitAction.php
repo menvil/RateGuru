@@ -28,14 +28,16 @@ use Carbon\CarbonImmutable;
 /**
  * The tracker's one writer of what a visit reached (docs/architecture/
  * traffic.md, "Conversions"). Under a lock on the visit, the first time
- * only: the event's mark and whatever the moment records beside it, the
- * visit's worth worked out again, and — for a paid click and an event a
- * network can be told of — a conversion with what the step was worth at
- * that moment, and a postback waiting to be sent for each rule on for it,
- * unless PostbackPlanner says why not. It runs inside the transaction of
- * whatever reached the moment, so all of it is kept or undone with it.
- * While postbacks are switched off, conversions are kept and nothing is
- * queued.
+ * only: the event's mark and whatever the moment records beside it, a paid
+ * visit still settling seen at that moment, its worth worked out again,
+ * and — for a paid
+ * click and an event a network can be told of — a conversion with what the
+ * step was worth at that moment, and a postback waiting to be sent for each
+ * rule on for it, unless PostbackPlanner says why not. A confirmed account
+ * settles the visit then and there; a settled visit is worth the best step
+ * it reached ("Settling"). It runs inside the transaction of whatever
+ * reached the moment, so all of it is kept or undone with it. While
+ * postbacks are switched off, conversions are kept and nothing is queued.
  */
 final class MarkTrafficVisitAction
 {
@@ -55,18 +57,68 @@ final class MarkTrafficVisitAction
         }
 
         $visit->forceFill([$event->column() => $at, ...$also]);
+
+        // A step keeps a paid visit from settling while it can still settle; settling itself
+        // is no step, and a late mark — an account, a return, a first post — never brings an
+        // old visit back into the windows that reuse a visit seen in the last half hour.
+        if ($event !== TrafficEvent::Settled && $this->settling($visit, $at) && $at->greaterThan($visit->last_seen_at)) {
+            $visit->forceFill(['last_seen_at' => $at]);
+        }
+
         $values = $this->worth->values($visit, $at);
         $visit->forceFill(['value_real' => $values['real'], 'value_expected' => $values['expected']])->save();
 
         $this->convert($visit, $event, $at, $context ?? new MilestoneContext);
 
+        if ($event === TrafficEvent::Account && $visit->settled_at === null) {
+            $visit->forceFill(['settled_at' => $at])->save();
+            $this->convert($visit, TrafficEvent::Settled, $at, new MilestoneContext);
+        }
+
         return true;
     }
 
-    /** How deep into the game the visit has got: the rounds answered on it, never fewer than before. */
+    /**
+     * How deep into the game the visit has got: the rounds answered on it,
+     * never fewer than before. Every round answered, a replay's too, counts
+     * as a paid visit still settling seen now.
+     */
     public function answered(int $visitId, int $rounds): void
     {
+        $now = CarbonImmutable::now();
+
         TrafficVisit::query()->whereKey($visitId)->where('rounds_answered', '<', $rounds)->update(['rounds_answered' => $rounds]);
+        TrafficVisit::query()->whereKey($visitId)
+            ->whereNotNull('source_id')
+            ->whereNull('settled_at')
+            ->where('arrived_at', '>', $now->subHours((int) config('traffic.settle.after_hours', 24)))
+            ->where('last_seen_at', '<', $now)
+            ->update(['last_seen_at' => $now]);
+    }
+
+    /** Whether a step at this moment can still keep the visit from settling: a paid visit not settled, inside the settle hours. */
+    private function settling(TrafficVisit $visit, CarbonImmutable $at): bool
+    {
+        return $visit->source_id !== null
+            && $visit->settled_at === null
+            && $at->lessThan($visit->arrived_at->addHours((int) config('traffic.settle.after_hours', 24)));
+    }
+
+    /**
+     * Whether the visit got at least as far as a rule asks: the floor itself
+     * or any step above it — an account is above every floor.
+     */
+    private static function reached(TrafficVisit $visit, TrafficEvent $floor): bool
+    {
+        $floors = TrafficEvent::settledFloors();
+
+        foreach (array_slice($floors, (int) array_search($floor, $floors, true)) as $event) {
+            if ($visit->getAttribute($event->column()) !== null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -80,11 +132,20 @@ final class MarkTrafficVisitAction
         }
 
         $rounds = $context->rounds > 0 ? $context->rounds : (int) ($visit->version_id === null ? 0 : GameVersion::query()->whereKey($visit->version_id)->value('round_count'));
-        $step = $event === TrafficEvent::Goal ? $context->goal->step() : TrafficStep::ofEvent($event, max(1, $rounds));
-        $worth = $step === null ? ['value' => TrafficMoney::of(0), 'basis' => TrafficValueBasis::None] : $this->worth->step($visit, $step);
+
+        if ($event === TrafficEvent::Settled) {
+            $worth = $this->worth->settled($visit);
+            $step = $worth['step'];
+        } else {
+            $step = $event === TrafficEvent::Goal ? $context->goal->step() : TrafficStep::ofEvent($event, max(1, $rounds));
+            $worth = $step === null ? ['value' => TrafficMoney::of(0), 'basis' => TrafficValueBasis::None] : $this->worth->step($visit, $step);
+        }
+
         $source = TrafficSource::query()->find($visit->source_id);
         $details = TrafficVisitDetail::query()->find($visit->id);
-        $rules = TrafficPostbackRule::query()->where('source_id', $visit->source_id)->where('event', $event)->where('enabled', true)->orderBy('position')->get();
+        $on = TrafficPostbackRule::query()->where('source_id', $visit->source_id)->where('event', $event)->where('enabled', true)->orderBy('position')->get();
+        // A rule may ask for a visit that got at least so far.
+        $rules = $on->filter(fn (TrafficPostbackRule $rule): bool => $rule->needs_event === null || self::reached($visit, $rule->needs_event))->values();
         $plan = PostbackPlanner::plan(
             $event,
             (bool) $visit->known,
@@ -98,6 +159,7 @@ final class MarkTrafficVisitAction
             $at,
             CarbonImmutable::now(),
             accountStep: $step === 'account',
+            tooShallow: $on->isNotEmpty() && $rules->isEmpty(),
         );
 
         $conversion = TrafficConversion::query()->create([

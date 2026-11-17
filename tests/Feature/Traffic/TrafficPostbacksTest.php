@@ -16,6 +16,7 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackAttempt;
 use App\Models\TrafficPostbackRule;
 use App\Models\TrafficSource;
+use App\Models\TrafficStepValue;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
@@ -236,4 +237,123 @@ it('goes on past a batch of postbacks that only expired, rather than waiting a m
 
     expect($live->fresh()->status)->toBe(TrafficPostbackStatus::Delivered)
         ->and(TrafficPostback::query()->where('status', TrafficPostbackStatus::Expired)->count())->toBe(45);
+});
+
+/** A paid click whose visitor started and finished the game, finishing worth $0.05 by hand. */
+function finishedPaidClick(TrafficSource $source, array $attributes = []): TrafficVisit
+{
+    $value = TrafficStepValue::factory()->create(['step' => 'completed', 'value' => '0.05']);
+    TrafficStepValue::factory()->create(['game_id' => $value->game_id, 'step' => 'started', 'value' => '0.02']);
+
+    return paidClick($source, ['game_id' => $value->game_id, 'started_at' => now()->subHour(), 'completed_at' => now()->subHour(), ...$attributes]);
+}
+
+it('settles a paid visit 30 minutes after its last step, once, telling the best worth it reached', function () {
+    $rule = TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/s?id={click_id}&e={event}&v={value}', 'enabled' => true]);
+    $visit = finishedPaidClick($this->source, ['arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subMinutes(31)]);
+
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+
+    $conversion = TrafficConversion::query()->where('event', TrafficEvent::Settled)->sole();
+
+    expect($visit->fresh()->settled_at->toDateTimeString())->toBe($visit->last_seen_at->addMinutes(30)->toDateTimeString())
+        ->and($conversion->step)->toBe('completed')
+        ->and((string) $conversion->value)->toStartWith('0.05')
+        ->and(TrafficPostback::query()->where('rule_id', $rule->id)->sole()->url)->toBe('https://pb.example.com/s?id={click_id}&e=settled&v=0.05');
+});
+
+it('waits while the visitor keeps going, and settles a day after the click however busy', function () {
+    $busy = finishedPaidClick($this->source, ['arrived_at' => now()->subHour(), 'last_seen_at' => now()->subMinutes(40)]);
+    $day = finishedPaidClick($this->source, ['arrived_at' => now()->subHours(25), 'last_seen_at' => now()->subMinute()]);
+
+    // A step now: the visitor is still here.
+    app(MarkTrafficVisitAction::class)->handle($busy->id, TrafficEvent::PostOpened, now()->toImmutable());
+    // So is one answering rounds.
+    app(MarkTrafficVisitAction::class)->answered($day->id, 3);
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+
+    expect($busy->fresh()->settled_at)->toBeNull()
+        ->and($day->fresh()->settled_at->toDateTimeString())->toBe($day->arrived_at->addHours(24)->toDateTimeString());
+});
+
+it('settles a visit at once when its account is confirmed, with the account’s worth', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}', 'enabled' => true]);
+    $visit = paidClick($this->source);
+    $at = now()->toImmutable();
+
+    DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($visit->id, TrafficEvent::Account, $at));
+
+    $settled = TrafficConversion::query()->where('event', TrafficEvent::Settled)->sole();
+
+    expect($visit->fresh()->settled_at->toDateTimeString())->toBe($at->toDateTimeString())
+        ->and($settled->step)->toBe('account')
+        ->and((string) $settled->value)->toStartWith('0.5');
+
+    // Settled already: the run leaves it alone.
+    $this->travel(2)->days();
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+    expect(TrafficConversion::query()->where('event', TrafficEvent::Settled)->count())->toBe(1);
+});
+
+it('tells the network only of settled visits that got as far as the rule asks', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'needs_event' => TrafficEvent::Completed, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}', 'enabled' => true]);
+    $opened = paidClick($this->source, ['arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+    $finished = finishedPaidClick($this->source, ['arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+
+    expect(TrafficConversion::query()->where('visit_id', $opened->id)->where('event', TrafficEvent::Settled)->sole()->postback_skip)->toBe(TrafficPostbackSkip::TooShallow)
+        ->and(TrafficConversion::query()->where('visit_id', $finished->id)->where('event', TrafficEvent::Settled)->sole()->postback_skip)->toBeNull()
+        ->and(TrafficPostback::query()->where('event', TrafficEvent::Settled)->count())->toBe(1);
+});
+
+it('settles no unpaid, unopened or long-missed visit, and nothing while recording is off', function () {
+    $unpaid = TrafficVisit::factory()->unpaid()->create(['opened_at' => now(), 'arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+    $unopened = paidClick($this->source, ['opened_at' => null, 'arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+    $missed = paidClick($this->source, ['arrived_at' => now()->subDays(3), 'last_seen_at' => now()->subDays(3)]);
+    $due = paidClick($this->source, ['arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+
+    recordTraffic(capture: false, postbacks: true);
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+    expect($due->fresh()->settled_at)->toBeNull();
+
+    recordTraffic(capture: true, postbacks: true);
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+
+    expect($due->fresh()->settled_at)->not->toBeNull()
+        ->and($unpaid->fresh()->settled_at)->toBeNull()
+        ->and($unopened->fresh()->settled_at)->toBeNull()
+        ->and($missed->fresh()->settled_at)->toBeNull();
+});
+
+it('lets an account meet any floor, and a step above the floor meet it too', function () {
+    TrafficPostbackRule::factory()->create(['source_id' => $this->source->id, 'event' => TrafficEvent::Settled, 'needs_event' => TrafficEvent::Started, 'url_template' => 'https://pb.example.com/s?id={click_id}&v={value}', 'enabled' => true]);
+    // Signed up from a post before ever pressing Start.
+    $account = paidClick($this->source);
+    // Finished, its start never marked.
+    $finished = paidClick($this->source, ['completed_at' => now()->subHour(), 'arrived_at' => now()->subHours(2), 'last_seen_at' => now()->subHour()]);
+
+    DB::transaction(fn () => app(MarkTrafficVisitAction::class)->handle($account->id, TrafficEvent::Account, now()->toImmutable()));
+    $this->artisan('traffic:settle-visits')->assertSuccessful();
+
+    expect(TrafficConversion::query()->where('event', TrafficEvent::Settled)->pluck('postback_skip', 'visit_id')->all())->toBe([$account->id => null, $finished->id => null])
+        ->and(TrafficPostback::query()->where('event', TrafficEvent::Settled)->count())->toBe(2);
+});
+
+it('counts a step as the visit seen only while a paid visit can still settle, and every round answered too', function () {
+    $old = TrafficVisit::factory()->unpaid()->create(['opened_at' => now()->subDays(2), 'arrived_at' => now()->subDays(2), 'last_seen_at' => now()->subDays(2)]);
+    $settled = paidClick($this->source, ['arrived_at' => now()->subHours(3), 'last_seen_at' => now()->subHours(3), 'settled_at' => now()->subHours(2)]);
+    $playing = paidClick($this->source, ['arrived_at' => now()->subHour(), 'last_seen_at' => now()->subMinutes(20), 'rounds_answered' => 5]);
+
+    // A return days later, a first post on a settled visit: neither visit is back in the half-hour windows.
+    app(MarkTrafficVisitAction::class)->handle($old->id, TrafficEvent::Returned, now()->toImmutable());
+    app(MarkTrafficVisitAction::class)->handle($settled->id, TrafficEvent::PostPublished, now()->toImmutable());
+    // A replay's second round on a visit that answered five already.
+    app(MarkTrafficVisitAction::class)->answered($playing->id, 2);
+
+    expect($old->fresh()->last_seen_at->toDateTimeString())->toBe($old->last_seen_at->toDateTimeString())
+        ->and($settled->fresh()->last_seen_at->toDateTimeString())->toBe($settled->last_seen_at->toDateTimeString())
+        ->and($playing->fresh())->rounds_answered->toBe(5)
+        ->and($playing->fresh()->last_seen_at->greaterThan(now()->subMinute()))->toBeTrue();
 });

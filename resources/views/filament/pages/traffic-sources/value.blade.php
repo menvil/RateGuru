@@ -117,7 +117,7 @@
             <header class="rg-admin-traffic__perf-head">
                 <div class="rg-admin-games__value-card-head">
                     <h3 class="rg-admin-games__value-card-title">Country groups <span class="rg-admin-games__value-tag">Every game</span></h3>
-                    <p class="rg-admin-games__note">Chances are worked out per group, since one country rarely has enough accounts. Leave the worth at 100% unless an account from a group brings more or less, for example once ads pay differently by country.</p>
+                    <p class="rg-admin-games__note">Chances are worked out per group, since one country rarely has enough accounts. The worth says what an account from a group brings against a full one — it starts at 100%, 60% and 30% — for example as ads pay differently by country.</p>
                 </div>
                 <x-admin.ui.button size="sm" icon="plus" wire:click="addGroup">Add a group</x-admin.ui.button>
             </header>

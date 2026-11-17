@@ -5,12 +5,12 @@ use App\Enums\TrafficCostUnit;
 use App\Enums\TrafficEvent;
 use App\Support\Traffic\Worth\TrafficStep;
 
-it('gives every event a column of its own and lets twelve moments and the account be reported', function () {
+it('gives every event a column of its own and lets twelve moments, the account and the visit settling be reported', function () {
     expect(array_map(fn (TrafficEvent $event): string => $event->column(), TrafficEvent::cases()))
         ->each->toMatch('/^[a-z_]+_at$/')
         ->and(array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()))->toBe([
             'opened', 'started', 'halfway', 'completed', 'goal', 'email', 'shared', 'replayed',
-            'post_opened', 'post_voted', 'post_rated', 'feed_voted', 'account',
+            'post_opened', 'post_voted', 'post_rated', 'feed_voted', 'account', 'settled',
         ]);
 });
 

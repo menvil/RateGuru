@@ -11,6 +11,7 @@ enum TrafficPostbackSkip: string
     case WindowClosed = 'window_closed';
     case ClickIdExpired = 'click_id_expired';
     case NoRule = 'no_rule';
+    case TooShallow = 'too_shallow';
 
     public function label(): string
     {
@@ -21,6 +22,7 @@ enum TrafficPostbackSkip: string
             self::WindowClosed => 'After the source’s window',
             self::ClickIdExpired => 'The network no longer keeps the click ID',
             self::NoRule => 'No postback for this event',
+            self::TooShallow => 'Didn’t get as far as the postback asks',
         };
     }
 }

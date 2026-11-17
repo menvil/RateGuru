@@ -69,6 +69,11 @@ Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinu
 // a process of its own, never by the one queue worker.
 Schedule::command('traffic:send-postbacks')->everyMinute()->withoutOverlapping(5)->runInBackground();
 
+// Paid visits that came to rest, settled with the best worth they reached
+// (docs/architecture/traffic.md, "Settling"): a postback for those whose
+// networks ask for one.
+Schedule::command('traffic:settle-visits')->everyMinute()->withoutOverlapping(5)->runInBackground();
+
 // Spend figures shared out over the visits they cover (docs/architecture/
 // traffic.md, "Spend"), never in a web request.
 Schedule::command('traffic:allocate-spend')->everyMinute()->withoutOverlapping(5)->runInBackground();

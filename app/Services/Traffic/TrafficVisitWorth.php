@@ -97,15 +97,31 @@ final class TrafficVisitWorth
     /** The best a step the visit reached is worth — the account's worth, once it has one: what {value_total} says. */
     public function best(TrafficVisit $visit): BigDecimal
     {
+        return $this->settled($visit)['value'];
+    }
+
+    /**
+     * The step the visit reached that is worth the most, and its worth: the
+     * account, once it has one. What a settled visit tells its network.
+     *
+     * @return array{value: BigDecimal, basis: TrafficValueBasis, step: string|null}
+     */
+    public function settled(TrafficVisit $visit): array
+    {
         if ($visit->account_at !== null) {
-            return $this->step($visit, 'account')['value'];
+            $account = $this->step($visit, 'account');
+
+            return ['value' => $account['value'], 'basis' => $account['basis'], 'step' => 'account'];
         }
 
-        $best = BigDecimal::zero();
+        $best = ['value' => BigDecimal::zero(), 'basis' => TrafficValueBasis::None, 'step' => null];
 
         foreach ($this->reachedSteps($visit) as $step) {
-            $value = $this->step($visit, $step)['value'];
-            $best = $value->isGreaterThan($best) ? $value : $best;
+            $worth = $this->step($visit, $step);
+
+            if ($worth['value']->isGreaterThan($best['value'])) {
+                $best = ['value' => $worth['value'], 'basis' => $worth['basis'], 'step' => $step];
+            }
         }
 
         return $best;

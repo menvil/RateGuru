@@ -15,7 +15,7 @@ return new class extends Migration
     private const array EVENTS = [
         'opened', 'started', 'halfway', 'completed', 'goal', 'email', 'shared', 'replayed',
         'post_opened', 'post_voted', 'post_rated', 'feed_voted', 'next_game', 'page', 'feed',
-        'signup_form', 'signup', 'account', 'login', 'post_published', 'returned',
+        'signup_form', 'signup', 'account', 'login', 'post_published', 'returned', 'settled',
     ];
 
     public function up(): void
@@ -91,6 +91,8 @@ return new class extends Migration
             $table->index(['game_id', 'arrived_at'], 'traffic_visits_game_arrived_index');
             $table->index(['visitor_hash', 'id'], 'traffic_visits_visitor_index');
             $table->index('version_id', 'traffic_visits_version_index');
+            // The visits still to settle, by when they came: the settling run reads only these.
+            $table->index(['settled_at', 'arrived_at'], 'traffic_visits_settle_index');
             $table->index('price_set_id', 'traffic_visits_price_set_index');
             $table->unique(['source_id', 'click_hash'], 'traffic_visits_click_unique');
         });

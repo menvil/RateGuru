@@ -2,6 +2,7 @@
 
 use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficCampaignStatus;
+use App\Enums\TrafficEvent;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficConversion;
@@ -172,4 +173,35 @@ it('warns when two postbacks of a source go to the same goal of the network', fu
     // One of them switched off: nothing is counted twice.
     $page->set('draft.rules.1.enabled', false)
         ->assertDontSee('go to the same goal of the network');
+});
+
+it('asks a rule turned to a settled visit for one that started the game, and keeps that floor only on such a rule', function () {
+    $page = Livewire::test(TrafficSourcesPage::class)
+        ->call('openEditor', 'new:popads')
+        ->set('draft.source.name', 'PopAds main')
+        ->call('addRule')
+        ->assertDontSee('Only a visit that got at least to')
+        ->set('draft.rules.0.event', 'settled')
+        ->assertSet('draft.rules.0.needs_event', 'started')
+        ->assertSee('Only a visit that got at least to')
+        ->set('draft.rules.0.needs_event', 'completed')
+        ->set('draft.rules.0.url_template', 'https://serve.popads.net/cpixel.php?s2s=1&aid=7&id={click_id}&value={value}')
+        ->set('draft.rules.0.enabled', true)
+        ->call('addRule')
+        ->set('draft.rules.1.event', 'account')
+        ->set('draft.rules.1.needs_event', 'completed')
+        ->set('draft.rules.1.url_template', 'https://serve.popads.net/cpixel.php?s2s=1&aid=8&id={click_id}')
+        ->call('saveSource')
+        ->assertHasNoErrors();
+
+    $rules = TrafficSource::query()->sole()->postbackRules()->orderBy('position')->get();
+
+    expect($rules[0]->event)->toBe(TrafficEvent::Settled)->and($rules[0]->needs_event)->toBe(TrafficEvent::Completed)
+        ->and($rules[1]->event)->toBe(TrafficEvent::Account)->and($rules[1]->needs_event)->toBeNull();
+
+    // A floor that isn't one is refused.
+    $page->call('openEditor', (string) TrafficSource::query()->sole()->id)
+        ->set('draft.rules.0.needs_event', 'shared')
+        ->call('saveSource')
+        ->assertHasErrors(['rules.0.needs_event']);
 });

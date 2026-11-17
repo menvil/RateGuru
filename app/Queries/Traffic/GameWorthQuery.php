@@ -7,6 +7,7 @@ use App\Enums\TrafficValueBasis;
 use App\Models\Game;
 use App\Models\GameContentSet;
 use App\Models\GameVersion;
+use App\Models\TrafficChanceRun;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficStepChance;
 use App\Support\Traffic\Worth\Slice;
@@ -79,7 +80,7 @@ final class GameWorthQuery
         $table = $this->worth->table($run, $slice);
         $set = TrafficPriceSet::current();
         $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
-        $percent = $group === null ? 100 : (int) (collect($set->country_groups)->firstWhere('key', $group)['percent'] ?? 100);
+        $percent = $group === null ? $this->mix($run, (int) $game->id, $sourceId, $sourceId === null ? $channel : null, $device, $set) : (int) (collect($set->country_groups)->firstWhere('key', $group)['percent'] ?? 100);
         $manual = $this->worth->manualValues((int) $game->id);
         $own = $run === null ? collect() : TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', $slice->key())->get(['step', 'visitors', 'slice_accounts', 'stands_on'])->keyBy('step');
         $opened = (int) ($own['opened']->visitors ?? 0);
@@ -117,5 +118,23 @@ final class GameWorthQuery
             'returnRate' => $returnRate,
             'prices' => $prices,
         ];
+    }
+
+    /**
+     * Every group's worth share at once, as the slice's visitors are spread
+     * over the groups in the last run; a full share before any run counted
+     * them.
+     */
+    private function mix(?TrafficChanceRun $run, int $gameId, ?int $sourceId, ?string $channel, ?string $device, TrafficPriceSet $set): int
+    {
+        if ($run === null) {
+            return 100;
+        }
+
+        $groups = collect($set->country_groups)->mapWithKeys(fn (array $group): array => [(new Slice($gameId, $sourceId, $channel, $device, (string) $group['key']))->key() => (int) $group['percent']]);
+        $visitors = TrafficStepChance::query()->where('run_id', $run->id)->where('step', 'opened')->whereIn('slice_key', $groups->keys()->all())->pluck('visitors', 'slice_key');
+        $total = (int) $visitors->sum();
+
+        return $total === 0 ? 100 : (int) round($visitors->reduce(fn (int $sum, mixed $count, string $key): int => $sum + (int) $count * (int) $groups[$key], 0) / $total);
     }
 }

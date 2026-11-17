@@ -37,8 +37,8 @@ return new class extends Migration
             'returned_bonus' => '0.2000',
             'country_groups' => json_encode([
                 ['key' => 't1', 'name' => 'Tier 1', 'percent' => 100, 'countries' => ['US', 'GB', 'CA', 'AU', 'DE', 'AT', 'CH', 'NL']],
-                ['key' => 't2', 'name' => 'Tier 2', 'percent' => 100, 'countries' => ['ES', 'FR', 'IT', 'PL']],
-                ['key' => 'rest', 'name' => 'Every other country', 'percent' => 100, 'countries' => []],
+                ['key' => 't2', 'name' => 'Tier 2', 'percent' => 60, 'countries' => ['ES', 'FR', 'IT', 'PL']],
+                ['key' => 'rest', 'name' => 'Every other country', 'percent' => 30, 'countries' => []],
             ], JSON_THROW_ON_ERROR),
             'summary' => 'Starting prices',
             'created_by_user_id' => null,
