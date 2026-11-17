@@ -1,0 +1,25 @@
+tests/Feature/Traffic/VisitSignalEndpointTest.php
+  s_4b9dc6ab6b25d3::t_e106f7cbf7b3c9 26
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_e106f7cbf7b3c9 42,82,138,151
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_e106f7cbf7b3c9 14605-14607
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_e106f7cbf7b3c9 41,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6efeec0dc293c482004b8900d22aa0957af98f51",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
