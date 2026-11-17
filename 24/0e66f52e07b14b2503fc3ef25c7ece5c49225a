@@ -1,0 +1,21 @@
+tests/Browser/PostDrawerBrowserTest.php
+  s_4b9dc6ab6b25d3::t_a485eb34252d0d 108
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_a485eb34252d0d 1346-1363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "240e66f52e07b14b2503fc3ef25c7ece5c49225a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
