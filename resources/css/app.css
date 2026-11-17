@@ -171,6 +171,13 @@ select:disabled {
         padding-bottom: 16px;
     }
 
+    /* A round on a wide screen takes the screen's width, so its pictures can grow as far as its height allows. */
+    @media (min-width: 1024px) {
+        .rg-game--fit {
+            max-width: 1680px;
+        }
+    }
+
     .rg-game--fit > .rg-game__frame {
         flex: 1 1 0;
         align-items: stretch;
@@ -242,6 +249,13 @@ select:disabled {
         container: rg-game-round / size;
         justify-content: flex-start;
         height: 100%;
+    }
+
+    /* On a wide screen the round takes the whole column, and its pair grows into it. */
+    @media (min-width: 1024px) {
+        .rg-game--fit .rg-game__round {
+            max-width: none;
+        }
     }
 
     .rg-game__round > .rg-game__progress {
@@ -564,14 +578,21 @@ select:disabled {
 
         container: rg-game-pair / size;
         flex: 0 1 var(--rg-game-pair-h);
+        /* The frames side by side, kept together in the middle when the height stops them short of the width. */
+        grid-template-columns: repeat(2, max-content);
         grid-template-rows: minmax(0, 1fr);
+        justify-content: center;
         min-height: 0;
     }
 
+    /*
+     * Both frames one size, as large as the round allows — and no larger than the smaller picture's own pixels
+     * (--rg-game-widest, worked out with the pair), so neither is drawn past them while the other is not.
+     */
     .rg-game--fit .rg-game__pair > .rg-game__option {
         align-self: center;
         justify-self: center;
-        width: min((100cqw - var(--rg-game-gap)) / 2, 100cqh * var(--rg-game-ratio));
+        width: min((100cqw - var(--rg-game-gap)) / 2, 100cqh * var(--rg-game-ratio), var(--rg-game-widest, 100vw));
     }
 
     /* A wide pair on a phone: one above the other. */
@@ -583,11 +604,12 @@ select:disabled {
         .rg-game--fit .rg-game__pair--landscape {
             --rg-game-pair-h: calc(100cqw / var(--rg-game-ratio) * 2 + var(--rg-game-gap));
 
+            grid-template-columns: max-content;
             grid-template-rows: repeat(2, minmax(0, 1fr));
         }
 
         .rg-game--fit .rg-game__pair--landscape > .rg-game__option {
-            width: min(100cqw, (100cqh - var(--rg-game-gap)) / 2 * var(--rg-game-ratio));
+            width: min(100cqw, (100cqh - var(--rg-game-gap)) / 2 * var(--rg-game-ratio), var(--rg-game-widest, 100vw));
         }
     }
 

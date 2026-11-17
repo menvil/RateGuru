@@ -35,7 +35,7 @@
         <p class="rg-game__lead">{{ $round['description'] }}</p>
     @endif
 
-    <div class="rg-game__pair rg-game__pair--{{ $round['shape'] }}">
+    <div class="rg-game__pair rg-game__pair--{{ $round['shape'] }}" @if ($round['widest'] !== null) style="--rg-game-widest: {{ $round['widest'] }}px" @endif>
         @foreach ($round['options'] as $option)
             @php
                 $position = $option['position'];

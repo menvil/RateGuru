@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\GameFlowStepType;
+use App\Enums\MediaVariantName;
 use App\Filament\Resources\Games\GameResource;
 use App\Livewire\Games\PreviewGame;
 use App\Models\GameAnswer;
@@ -12,6 +13,7 @@ use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\ProjectSettings;
 use App\Models\User;
 use App\Support\Urls\DisplayHost;
@@ -164,4 +166,22 @@ it('gives a profile the result step hides away by neither its picture nor its si
     $this->draft['game']->forceFill(['cover_asset_id' => $cover->id])->save();
 
     $result()->assertSee($cover->path)->assertDontSee($picture->path);
+});
+
+it('lets a pair grow no wider than its smaller picture is drawn at its own pixels', function () {
+    $assets = $this->draft['set']->rounds()->first()->options()->orderBy('position')->with('post')->get()->map(fn ($option): int => (int) $option->post->image_asset_id);
+    $round = fn () => Livewire::withQueryParams(['start' => 'round:0'])->test(PreviewGame::class, ['game' => $this->draft['game']->id]);
+
+    // Both wide: a frame is 4:3, and a picture fills it at full size as wide as itself or its height allows.
+    MediaAsset::query()->whereIn('id', $assets)->update(['width' => 1600, 'height' => 900]);
+    MediaVariant::query()->where('media_asset_id', $assets[0])->where('name', MediaVariantName::PostFeed1280)->update(['width' => 1280, 'height' => 960]);
+    MediaVariant::query()->where('media_asset_id', $assets[1])->where('name', MediaVariantName::PostFeed1280)->update(['width' => 900, 'height' => 600]);
+
+    $round()->assertSee('--rg-game-widest: 800px', false);
+
+    // A picture whose size isn't known holds nothing back.
+    MediaVariant::query()->where('media_asset_id', $assets[1])->delete();
+    MediaAsset::query()->whereKey($assets[1])->update(['width' => null, 'height' => null]);
+
+    $round()->assertDontSee('--rg-game-widest', false);
 });
