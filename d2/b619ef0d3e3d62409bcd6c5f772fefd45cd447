@@ -1,0 +1,37 @@
+resources/views/livewire/games/steps/full-result.blade.php
+  s_4b9dc6ab6b25d3::t_a31045e1d64050 11-13,29-34,53-56,61
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_d51e067df59feb 1255-1257,1259-1261,1263-1265,1267-1269,1271-1273,1275-1277,1279-1281,1283-1285
+  s_4b9dc6ab6b25d3::t_a31045e1d64050 1238-1254,1286-1287,1299-1305
+  s_4b9dc6ab6b25d3::t_9293e4d7b371e0 1258,1262,1266,1270,1274,1278,1282
+app/Filament/Resources/Games/Pages/EditGameFlow.php
+  s_4b9dc6ab6b25d3::t_ddd7ee4577bdd8 707,718
+  s_4b9dc6ab6b25d3::t_eed68e4bb2ed16 43
+tests/Feature/Games/PlayGameSignupTest.php
+  s_4b9dc6ab6b25d3::t_37d2ac475750ce 63-64
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_ddd7ee4577bdd8 13219-13227,13236-13239
+  s_4b9dc6ab6b25d3::t_ba7253aecd1df4 13242-13254
+  s_4b9dc6ab6b25d3::t_5bf8b78b0bfd24 13234-13235
+resources/views/filament/pages/games/flow/post-settings.blade.php
+  s_4b9dc6ab6b25d3::t_ddd7ee4577bdd8 47-51
+  s_4b9dc6ab6b25d3::t_ba7253aecd1df4 55
+tests/Feature/Games/Admin/GameFlowPageTest.php
+  s_4b9dc6ab6b25d3::t_eed68e4bb2ed16 272-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2b619ef0d3e3d62409bcd6c5f772fefd45cd447",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
