@@ -1343,6 +1343,25 @@ function waitForPostDetailOverlay(mixed $page): void
 }
 
 /**
+ * Waits until the post-detail panel has slid away. Its focus trap lets go on a
+ * tick of its own and hands the focus back to what opened the panel; a key
+ * sent to another element before that lands on the element the focus goes
+ * back to instead.
+ */
+function waitForPostDetailOverlayClosed(mixed $page): void
+{
+    waitForScript($page, <<<'JS'
+        (() => {
+            const panel = document.querySelector('[data-testid="post-detail-overlay"]');
+
+            return ! panel
+                || (panel.classList.contains('translate-x-full')
+                    && panel.getAnimations().every((animation) => animation.playState === 'finished'));
+        })()
+    JS);
+}
+
+/**
  * Waits until the post-detail panel is open and has stopped sliding in — the
  * state its geometry is measured in.
  */
