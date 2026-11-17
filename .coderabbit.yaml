@@ -46,6 +46,16 @@ reviews:
         docs/architecture/http-and-database-boundaries.md and a semantic test.
         Check literal LIKE escaping, N+1 risks, aggregate efficiency, and stable
         unique ordering for pagination.
+    - path: "app/{Actions,Queries,Services,Support}/Traffic/**/*.php"
+      instructions: |
+        Enforce docs/architecture/traffic.md. Money is exact decimals through
+        TrafficMoney, never floats stored. A visit's marks, conversions and
+        postbacks are written only by MarkTrafficVisitAction, under a lock on
+        the visit, inside the caller's transaction. No HTTP inside a database
+        transaction. Connectors never change bids or budgets or call money
+        endpoints, and never let an HTTP client exception (which names the
+        address and key) escape or reach a log. Postback addresses go through
+        UrlImportValidator::validateFor with the postback policy.
     - path: "tools/phpstan/**/*.php"
       instructions: |
         Architecture rules require violation and false-positive fixtures. Keep

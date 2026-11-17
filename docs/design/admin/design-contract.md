@@ -190,7 +190,7 @@ This section is the target design from the prototype. Production builds it as de
   | Moderation | Posts (pending count, warning) · Comments (reported count, warning) · Reports (open count, warning) · Users |
   | Content | Categories · Tags · Rating groups |
   | Content Studio | Publications & plans · Action queue · Personas |
-  | Growth | Games |
+  | Growth | Games · Traffic sources |
   | Localization | Languages · Translation Center (missing count, neutral) · Translation AI |
   | Configuration | Project settings |
   | System | Media diagnostics (critical count, danger) |
@@ -1259,7 +1259,8 @@ check; global search stays with Users, whose result for a persona opens its edit
 
 ```text
 Growth
-└── Games
+├── Games
+└── Traffic sources
 ```
 
 Growth holds the games visitors play to discover the site. Its section holds only screens that work: the
@@ -1349,6 +1350,29 @@ games' actions (`docs/architecture/games.md`); the operator guide is `docs/admin
   Inside a frame the game page leaves out its own preview banner.
 - **Access:** an active administrator's (`manage-games`): the navigation item, every page, every Livewire request
   and the preview route ask, and so do the actions.
+
+
+### Traffic sources
+
+`TrafficSourcesPage` (`/admin/traffic-sources`, `megaphone`), for active administrators
+(`manage-traffic-sources`). The header band carries the period and the source filter; the tabs are Report,
+Campaigns, Value, Spend, Sources and Logs, each read once the page is in a browser. The top bar holds only
+Add source. Editors — a source, a campaign — are OVL-02 drawers with a draft saved by their footer.
+
+Deviations from the fifth delivery, each for the reason given:
+
+| Prototype | Built | Why |
+|---|---|---|
+| Full Result: one "Action on the card" choice | sign-up and share switches kept, plus "Way on": next step, a post, the feed | the app already keeps them apart |
+| "Email the card" | not built | nothing is ever sent |
+| Go to Page → Games catalog | a feed category, a tag, a page of the site, another site | the site has no catalog |
+| Feeds Main / Top today / Newest | the site's sorts Newest / Top / Hot | that is how the feed sorts |
+| Post `/p/{id}-{slug}` | `/posts/{id}`, shown as `#id` | the site's own address |
+| ExoClick blocks sites by API | zones by API, sites by hand | the API cannot block a site |
+| Draft / Tracking only source states | no draft; "Tracking only" is an active network without rules | a state too many |
+| The report's period in calendar days | each network's own day, in its reporting time zone | the figures match the network's |
+| Country only in the report | country › city | the owner's decision |
+| Losing always judged | only once 30 accounts are measured on the site | otherwise the first weeks block everything |
 
 ## Moderation
 

@@ -1,0 +1,153 @@
+# Traffic sources
+
+Growth → Traffic sources tells where visitors come from, what they cost and
+what they bring: paid clicks from ad networks and placements, unpaid visits by
+channel, the accounts they become, the worth of every step of a game, the
+postbacks that tell networks about it, and the sites and zones worth blocking.
+It is written to be dark until the administrator switches it on:
+`traffic_settings.capture_enabled` and `postbacks_enabled` are false on a new
+installation, and while they are, nothing is recorded, no visitor cookie is
+issued for the tracker, and nothing is sent to any network.
+
+Layers follow docs/architecture/http-and-database-boundaries.md: pure logic in
+`App\Support\Traffic\{Capture,Links,Presets,Postbacks,Worth,Spend,Reports,Blocking,Money}`
+with no config, clock or I/O; HTTP in `App\Services\Traffic\{Postbacks,Connectors}`;
+every write in `App\Actions\Traffic\*`; reads in `App\Queries\Traffic\*`.
+Background work runs as scheduled commands, never on the one shared queue
+worker. Money is US dollars only, as exact decimals (`TrafficMoney`).
+
+## Capture
+
+`CaptureTrafficArrival` (web middleware, GET only) records a paid click before
+any route's own middleware can send the visitor elsewhere: an address carrying
+`rg_src` with a source's key. Without `rg_src` it reads nothing at all. One
+network click ID is one visit (`traffic_visits` unique on source and click
+hash); a token the network left unfilled counts as no value; a click with an
+unknown campaign creates the campaign, an archived one comes back. Unpaid
+visits are created only by the page's first script call (`OpenTrafficVisitAction`
+through an encrypted arrival token or the game's `wire:init`), so a crawler that
+runs no script leaves no row. The visitor's browser is the `rg_game_visitor`
+cookie's SHA-256 — the same as the games use.
+
+## Accounts
+
+A new account records, as it signs up, what it will be credited to
+(`RecordAccountSignupAction`): the last game its browser finished within 7 days
+that no other account took, and the paid click holding the browser — within its
+source's window, 2 days for PopAds, 7 by default — else its unpaid visit. A
+click whose window had closed is told the account came late. The account counts
+once confirmed (`ConfirmAccountAttributionAction`): an email confirmed, a claim
+with a confirmed address, signing up through Google or Facebook, or linking one
+later. Unconfirmed accounts are purged after 7 days and never count. Signing in
+to an existing account marks the visit known and reaches the goal "Account
+confirmed". A first post within 30 days and a return on another day are the
+account's bonuses.
+
+## Presets
+
+`config/traffic_presets.php` holds eight networks and "Other ad network" as data:
+link tokens, the postback address and how to read the answer, time zone, window,
+cost unit and connector. A new source copies them (`SourceDefaults`); only
+labels are read live. `PresetSchema` checks the whole file in a test. A new
+network starts as a preset checked with a test postback; an API connector is
+separate code added later.
+
+## Worth
+
+`traffic:work-out-worth` works out nightly, from the matured visits of the last
+120 days (`TrafficChanceSampleQuery`), the chance that a new visitor who reached a
+step ends up a confirmed account, for every slice of game, source or channel,
+device and country group, each shrunk towards the slice above while it has fewer
+than 30 accounts: `p = (x + 30) / (n + 30 / p0)`. A step is worth that chance
+times what an account is worth — its price plus its bonuses by how often they
+happen, times its country group's share (`StepWorth`). Known visitors and
+sign-ins are worth nothing; a value set by hand on a game's Value tab counts
+always or while the data is thin. Prices and country groups are immutable sets:
+every visit keeps the set it arrived under, so a price change never recounts the
+past. A visit's worth so far and still to come (`VisitValue`) is kept on the
+visit and brought up to date nightly.
+
+## Conversions
+
+`MarkTrafficVisitAction` is the one writer of what a visit reached, under a lock
+on the visit and inside the transaction of whatever reached it — a game
+milestone through `GameMilestoneReached`, an account through the attribution
+actions. The first time only: the mark, the visit's worth again, and for a paid
+click and an event a network can be told of, a `traffic_conversions` row with
+the step's worth at that moment and a postback waiting for each rule on for it,
+unless `PostbackPlanner` gives the reason not (known visitor, source not active,
+no click ID, window or click ID past, no rule).
+
+## Postbacks
+
+`traffic:send-postbacks` sends the queue every minute from the table itself: a
+batch claimed under a lock, sent eight at a time outside any transaction, each
+answer written back only if the claim still stands; retries after 1, 5 and 30
+minutes, 2 and 9 hours. A network's answer is read by the source's response
+rules (ExoClick answers 200 to everything). Addresses go out as safely as an
+import (`UrlImportValidator::validateFor`): http or https on 80 or 443, every DNS
+answer public, the connection pinned to the checked IP, no redirects, no proxy,
+16 KB of answer at most. The click ID is filled in only at sending, so the log
+never keeps it in the address.
+
+## Spend
+
+A click is taken to cost what its campaign, else its source, counts
+(`ClickSpend`). A day's figures — from the API, a file, a typed total or a
+placement's fixed price — are counted from one origin, a typed total first, and
+`traffic:allocate-spend` shares them over the visits they cover, narrowest figure
+first, so the visits add up to the figures exactly (`SpendAllocator`). A day is
+the network's day, in the source's reporting time zone, which cannot change once
+visits came through it.
+
+## Connectors
+
+`App\Services\Traffic\Connectors`: PopAds and ExoClick, each checking its key
+and reading spend and campaigns and editing block lists through the interfaces
+it implements. Keys are kept in `traffic_api_connections.credentials`
+(`encrypted:array`, hidden, redacted from logs); a backup restored without the
+same `APP_KEY` makes them unreadable, and the connection asks for the key
+again. Neither connector ever changes a bid or a budget or touches money, and
+both are unverified until checked on a real account
+(`config/traffic_presets.php`, "connectors").
+
+## Sync
+
+`traffic:sync-networks` is the one process that calls networks' APIs: waiting
+blocks first, then each connection due — today and yesterday's spend in the
+network's day, a day closed once its figures came whole, up to 30 days back
+after connecting, the campaigns' own details every six hours, only for
+campaigns RateGuru saw a click of. Failures wait longer each time; a refused
+key, an account not in dollars or five failures running need the administrator.
+
+## Blocking
+
+Sites and zones are blocked by hand — marked, their IDs copied for the network's
+list — or queued for the API and applied per campaign. A click the network
+still sends an hour after a block is counted. `BlockJudge` calls a site bots,
+losing (judged only once 30 accounts are measured) or off to a weak start by
+its last 30 days; `traffic:block-losers` queues bots and losing ones by itself
+every night for a source with a verified API that blocks its level, within its
+daily cap.
+
+## Reports
+
+`TrafficReportQuery` reads every figure straight from the visits of a period of
+network days — conditional sums only, every value bound, every column named by
+`TrafficDimension`. `ReportTree` draws a level as its ten biggest groups and the
+rest; `TwoProportionTest` compares a game's two best versions on paid traffic.
+
+## Retention
+
+`traffic:purge-expired`, daily: visits, conversions, spend figures and the block
+log after 400 days, click details and postbacks after 90, all but the last 30
+runs of chances. Sources, campaigns, prices and attributions stay. A purged
+unconfirmed account takes its attribution and browsers with it
+(docs/architecture/user-lifecycle.md).
+
+## Privacy
+
+The visitor cookie now links an ad click to the account made from it, and is
+issued on sign-up and sign-in too while visits are recorded. No IP address is
+kept: only a keyed hash on the click's details, for 90 days. The site's privacy
+page is the owner's to update (docs/admin/traffic-sources.md).
