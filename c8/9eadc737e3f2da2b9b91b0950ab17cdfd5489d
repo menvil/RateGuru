@@ -1,0 +1,85 @@
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 49,90-92
+app/Support/Traffic/Capture/DeviceClassifier.php
+  s_4b9dc6ab6b25d3::t_aa66fe22e23d3d 1-32
+app/Support/Traffic/Capture/ClickParameters.php
+  s_4b9dc6ab6b25d3::t_5d337439dcaf91 46-47
+  s_4b9dc6ab6b25d3::t_aa66fe22e23d3d 1-45,48-98
+app/Support/Traffic/Capture/ChannelClassifier.php
+  s_4b9dc6ab6b25d3::t_aa66fe22e23d3d 1-122
+resources/views/layouts/guest.blade.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 7-9
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_705ad8ee0adb25 1-7,9-16,18-40,42-74,76-177
+  s_4b9dc6ab6b25d3::t_de894d698fcfe2 8,17,41,75
+app/Support/Traffic/Capture/TrafficArrival.php
+  s_4b9dc6ab6b25d3::t_ba8a43db700ecf 1-35
+bootstrap/app.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 6,41-44
+resources/js/traffic.js
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 1-45
+app/Support/Games/Play/GameVisitorResolver.php
+  s_4b9dc6ab6b25d3::t_4d8900d9157d91 12-17,21-22,30-54,57,60-66,81
+app/Support/Traffic/Links/LinkTokenDetector.php
+  s_4b9dc6ab6b25d3::t_aa66fe22e23d3d 1-22
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_eeaa56248cf9bb 1-332
+tests/Unit/Support/Traffic/CaptureClassifiersTest.php
+  s_4b9dc6ab6b25d3::t_56516a7e2905fc 1-81
+app/Actions/Traffic/RecordVisitSignalAction.php
+  s_4b9dc6ab6b25d3::t_c5be4ba91be15f 1-42
+app/Support/Traffic/Capture/VisitorSignals.php
+  s_4b9dc6ab6b25d3::t_ba8a43db700ecf 1-27
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_a9f2fb552b0a80 1-98,102-126
+  s_4b9dc6ab6b25d3::t_264e1b23b29c77 99-101
+app/Support/Games/Play/GameVisitor.php
+  s_4b9dc6ab6b25d3::t_4d8900d9157d91 12-16,24
+app/Http/Requests/Traffic/VisitSignalRequest.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 1-23
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_c5be4ba91be15f 1-153
+resources/js/app.js
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 7
+resources/views/layouts/app.blade.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 7-9
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_c5be4ba91be15f 1-172
+routes/web.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 13,32-35
+app/Livewire/Games/PlayGame.php
+  s_4b9dc6ab6b25d3::t_b4a0f96e67a2c4 11,33-34,36,41,80-90,103,138-142,147,151-152,154-159,161-162,402,492-517
+app/Support/Traffic/Capture/BotSignals.php
+  s_4b9dc6ab6b25d3::t_aa66fe22e23d3d 1-59
+app/Support/Traffic/Capture/ArrivalToken.php
+  s_4b9dc6ab6b25d3::t_ba8a43db700ecf 1-48
+app/Support/Traffic/Capture/RequestSignals.php
+  s_4b9dc6ab6b25d3::t_ba8a43db700ecf 1-84
+tests/Feature/Traffic/VisitSignalEndpointTest.php
+  s_4b9dc6ab6b25d3::t_a9f2fb552b0a80 1-5,7-22,24-69
+  s_4b9dc6ab6b25d3::t_de894d698fcfe2 6,23
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_56516a7e2905fc 72,14547-14563
+app/Actions/Games/StartGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_b4a0f96e67a2c4 12,37-44,66-69,78,91-93
+app/Http/Controllers/Traffic/VisitSignalController.php
+  s_4b9dc6ab6b25d3::t_17323bdb95410b 1-38
+app/Queries/Traffic/VisitorVisitQuery.php
+  s_4b9dc6ab6b25d3::t_eeaa56248cf9bb 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c89eadc737e3f2da2b9b91b0950ab17cdfd5489d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
