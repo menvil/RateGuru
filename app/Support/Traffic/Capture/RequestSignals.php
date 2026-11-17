@@ -37,7 +37,8 @@ final readonly class RequestSignals
             browser: self::browser($agent),
             language: self::language($this->request->headers->get('accept-language')),
             referrer: is_string($referrer) ? mb_substr($referrer, 0, 1000) : null,
-            referrerHost: is_string($referrer) ? ChannelClassifier::host($referrer) : null,
+            // A host is at most 253 characters, but a bot can send anything: kept to what the column holds.
+            referrerHost: is_string($referrer) && ($host = ChannelClassifier::host($referrer)) !== null ? mb_substr($host, 0, 190) : null,
             path: mb_substr('/'.ltrim($this->request->path(), '/'), 0, 255),
         );
     }

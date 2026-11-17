@@ -42,7 +42,7 @@ final class SaveTrafficCampaignAction
      */
     public function handle(User $admin, TrafficCampaign $campaign, array $input, int $lockVersion): TrafficCampaign
     {
-        $money = ['nullable', 'numeric', 'min:0', 'max:1000000'];
+        $money = ['nullable', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000000'];
         Validator::make($input, [
             'name' => ['nullable', 'string', 'max:120'],
             'game_id' => ['nullable', 'integer', Rule::exists('games', 'id')],

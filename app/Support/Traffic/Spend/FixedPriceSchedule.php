@@ -31,12 +31,15 @@ final class FixedPriceSchedule
             return [$start->toDateString() => TrafficMoney::stored($amount)];
         }
 
-        for ($blockStart = $start; $blockStart->lessThanOrEqualTo($end); $blockStart = $blockEnd) {
-            $blockEnd = match ($period) {
-                TrafficFixedPeriod::Day => $blockStart->addDay(),
-                TrafficFixedPeriod::Week => $blockStart->addDays(7),
-                default => $blockStart->addMonthNoOverflow(),
-            };
+        // Each block counted from the first day — the 31st's months end on the 30th, the 28th and back on the 31st — never from the block before, which would drift after a short month.
+        $boundary = fn (int $n): CarbonImmutable => match ($period) {
+            TrafficFixedPeriod::Day => $start->addDays($n),
+            TrafficFixedPeriod::Week => $start->addDays(7 * $n),
+            default => $start->addMonthsNoOverflow($n),
+        };
+
+        for ($n = 0, $blockStart = $start; $blockStart->lessThanOrEqualTo($end); $n++, $blockStart = $blockEnd) {
+            $blockEnd = $boundary($n + 1);
             $length = (int) $blockStart->diffInDays($blockEnd, true);
             $share = TrafficMoney::of($amount)->dividedBy($length, TrafficMoney::SCALE, RoundingMode::Down);
             $spent = TrafficMoney::of(0);

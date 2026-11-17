@@ -37,7 +37,7 @@ final class EnterSpendAction
         $today = CarbonImmutable::now($source->reporting_timezone)->toDateString();
         Validator::make(['day' => $day, 'amount' => $amount], [
             'day' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$today],
-            'amount' => ['nullable', 'numeric', 'min:0', 'max:10000000'],
+            'amount' => ['nullable', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:10000000'],
         ], ['day.before_or_equal' => 'That day hasn’t come yet in the network’s time zone.'])->validate();
 
         DB::transaction(function () use ($admin, $source, $day, $amount): void {

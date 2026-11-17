@@ -76,11 +76,14 @@ final class ApplyTrafficBlocksAction
 
             $ok = $targets !== [] && $done === count($targets);
 
+            // Each result is written only over the state it was read in: a block unblocked, or blocked again, while the network was being called keeps its new state for the next sync.
             foreach ($group as $block) {
+                $still = TrafficBlock::query()->whereKey($block->id)->where('network_state', $block->network_state);
+
                 if ($block->network_state === TrafficBlockNetworkState::Removing) {
-                    $ok ? $block->delete() : $block->forceFill(['network_state' => TrafficBlockNetworkState::Applied, 'network_error' => $error])->save();
+                    $ok ? $still->delete() : $still->update(['network_state' => TrafficBlockNetworkState::Applied, 'network_error' => $error]);
                 } else {
-                    $block->forceFill(['network_state' => $ok ? TrafficBlockNetworkState::Applied : TrafficBlockNetworkState::Failed, 'network_error' => $ok ? null : ($error ?? 'no_campaign')])->save();
+                    $still->update(['network_state' => $ok ? TrafficBlockNetworkState::Applied : TrafficBlockNetworkState::Failed, 'network_error' => $ok ? null : ($error ?? 'no_campaign')]);
                 }
             }
 

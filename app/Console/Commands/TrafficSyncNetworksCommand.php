@@ -8,6 +8,7 @@ use App\Enums\TrafficConnectionStatus;
 use App\Models\TrafficApiConnection;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * The one process that talks to ad networks' APIs (docs/architecture/
@@ -33,7 +34,12 @@ final class TrafficSyncNetworksCommand extends Command
                 return self::SUCCESS;
             }
 
-            $blocks->handle($connection);
+            // One connection that fails must not hold back the others.
+            try {
+                $blocks->handle($connection);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         }
 
         $due = TrafficApiConnection::query()
@@ -47,7 +53,11 @@ final class TrafficSyncNetworksCommand extends Command
                 break;
             }
 
-            $sync->handle($connection, CarbonImmutable::now());
+            try {
+                $sync->handle($connection, CarbonImmutable::now());
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         }
 
         return self::SUCCESS;

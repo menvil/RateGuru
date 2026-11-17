@@ -79,7 +79,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                     COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN {$person} END) AS finishers,
                     COUNT(DISTINCT confirmed_accounts.user_id) AS registered,
                     COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in,
-                    SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached",
+                    SUM(CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN 1 ELSE 0 END) AS goal_reached,
+                    COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN {$person} END) AS goal_people",
                     [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::SignedIn->value],
                 ),
         );
@@ -128,6 +129,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
                 sharers: $shared[$bucket]['sharers'] ?? 0,
                 signUpStarters: $signUps[$bucket]['sign_up_starters'] ?? 0,
                 goalReached: $attempts[$bucket]['goal_reached'] ?? 0,
+                goalPeople: $attempts[$bucket]['goal_people'] ?? 0,
             );
         }
 

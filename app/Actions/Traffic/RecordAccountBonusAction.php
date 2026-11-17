@@ -49,19 +49,30 @@ final class RecordAccountBonusAction
         $this->record($attribution, 'first_post_at', TrafficEvent::PostPublished, $publishedAt);
     }
 
-    public function returned(int $userId, CarbonImmutable $now): void
+    /**
+     * @return CarbonImmutable|null when a return is next worth looking for — the
+     *                              account still too young to have come back — or null
+     *                              when there is nothing more to look for
+     */
+    public function returned(int $userId, CarbonImmutable $now): ?CarbonImmutable
     {
         $attribution = AccountAttribution::query()->where('user_id', $userId)->whereNull('returned_at')->first();
         $signedUp = $attribution?->signed_up_at;
 
-        if ($attribution === null || $signedUp === null
-            || $now->utc()->toDateString() === $signedUp->utc()->toDateString()
-            || $now->lessThan($signedUp->addHours(self::RETURN_AFTER_HOURS))
-            || $now->greaterThan($signedUp->addDays(self::RETURN_WITHIN_DAYS))) {
-            return;
+        if ($attribution === null || $signedUp === null || $now->greaterThan($signedUp->addDays(self::RETURN_WITHIN_DAYS))) {
+            return null;
+        }
+
+        // Another day, and some hours after signing up: until then, the moment it can first be.
+        $earliest = $signedUp->addHours(self::RETURN_AFTER_HOURS)->max($signedUp->utc()->addDay()->startOfDay());
+
+        if ($now->lessThan($earliest)) {
+            return $earliest;
         }
 
         $this->record($attribution, 'returned_at', TrafficEvent::Returned, $now);
+
+        return null;
     }
 
     private function record(AccountAttribution $attribution, string $column, TrafficEvent $event, CarbonImmutable $at): void

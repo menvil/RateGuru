@@ -24,6 +24,7 @@ use App\Services\Traffic\Connectors\ReadsSpend;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * One connection's turn with its network (docs/architecture/traffic.md,
@@ -98,6 +99,10 @@ final class SyncTrafficNetworkAction
             }
 
             $this->failed($connection, $exception, $now);
+        } catch (Throwable $exception) {
+            // An answer that can't be read — a figure in words, a field of the wrong shape — is the network's: it backs off like any failure.
+            report($exception);
+            $this->failed($connection, new ConnectorException(TrafficConnectorFailure::UnexpectedResponse), $now);
         }
     }
 

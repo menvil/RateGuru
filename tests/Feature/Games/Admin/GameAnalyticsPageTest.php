@@ -76,7 +76,7 @@ it('shows what two guests did: one opened the game, the other played it through'
         ->toBe(['Visitors' => '2', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '0', 'Goal reached' => '0', 'Account confirmed' => '0'])
         // Each rate names what it is a share of: signing up is of the people who finished, not of those who began it.
         ->and(collect($page->viewData('funnel'))->pluck('rateOf', 'label')->all())
-        ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'Goal reached' => 'of plays', 'Account confirmed' => 'of Completed']);
+        ->toBe(['Visitors' => null, 'Game started' => 'of Visitors', 'Completed' => 'of Game started', 'Sign-up begun' => 'of Completed', 'Goal reached' => 'of Game started', 'Account confirmed' => 'of Completed']);
 
     // The funnel counts people, and says so.
     $page->assertSee('each counted once')

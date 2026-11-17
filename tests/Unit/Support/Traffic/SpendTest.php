@@ -33,6 +33,15 @@ it('spreads a fixed price over its days, the rounding on each block’s last day
         ->and(FixedPriceSchedule::days('50', TrafficFixedPeriod::Day, '2026-12-05', null, '2026-11-30'))->toBe([]);
 });
 
+it('counts each month of a fixed price from its first day, so a short month moves no later one', function () {
+    $days = FixedPriceSchedule::days('300', TrafficFixedPeriod::Month, '2027-01-31', '2027-03-30', '2027-04-30');
+
+    // Jan 31 – Feb 27 is the first month, Feb 28 – Mar 30 the second: $600 to Mar 30, not $629.
+    expect(array_sum(array_map('floatval', $days)))->toEqualWithDelta(600.0, 1e-6)
+        ->and(count($days))->toBe(59)
+        ->and(array_sum(array_map('floatval', array_slice($days, 0, 28))))->toEqualWithDelta(300.0, 1e-6);
+});
+
 it('shares figures from the narrowest first, so the visits add up to them exactly', function () {
     $plan = SpendAllocator::plan([
         ['id' => 1, 'campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00'],

@@ -244,7 +244,7 @@ final class GameAnalytics extends Page
             ['Completed', $total->finishers, $total->starters, 'Game started', 'People who finished at least once'],
             $asksForEmail ? ['Email captured', $total->emailers, $finishedWithEmail, 'finishers asked', 'Of the people who finished a version that asks for an email'] : null,
             ['Sign-up begun', $total->signUpStarters, $total->finishers, 'Completed', self::methods($methods)],
-            ['Goal reached', $total->goalReached, $total->started, 'plays', 'Plays that reached their flow’s goal, on any page of the site'],
+            ['Goal reached', $total->goalPeople, $total->starters, 'Game started', 'People who reached their flow’s goal at least once, on any page of the site'],
             ['Account confirmed', $total->registered, $total->finishers, 'Completed', 'Signed up within 7 days of finishing, on any page of the site, and confirmed'],
         ])));
     }

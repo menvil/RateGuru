@@ -34,7 +34,7 @@ final class SaveTrafficPricesAction
      */
     public function prices(User $admin, array $prices, int $drawnFrom): TrafficPriceSet
     {
-        $money = ['required', 'numeric', 'min:0', 'max:1000'];
+        $money = ['required', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000'];
         Validator::make($prices, ['account_price' => $money, 'post_bonus' => $money, 'returned_bonus' => $money], [], [
             'account_price' => 'price of an account', 'post_bonus' => 'first post bonus', 'returned_bonus' => 'return bonus',
         ])->validate();

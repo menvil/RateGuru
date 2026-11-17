@@ -20,6 +20,7 @@ use App\Models\GameEvent;
 use App\Models\ProjectSettings;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -206,6 +207,22 @@ it('records the first post within 30 days and a return on another day, once each
         ->and($attribution->returned_at)->not->toBeNull()
         ->and($click->fresh()->post_published_at)->not->toBeNull()
         ->and($click->fresh()->returned_at)->not->toBeNull();
+});
+
+it('looks for a return again once the account is old enough, not only the next day', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-11-17 20:00:00'));
+    recordTraffic();
+    $member = registerIn($this->token);
+    $member->forceFill(['email_verified_at' => now()])->save();
+
+    // 01:00 the next day: another day, but only five hours on. 10:00: fourteen hours on — a return.
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 01:00:00'));
+    $this->actingAs($member)->get('/')->assertOk();
+    expect(AccountAttribution::query()->sole()->returned_at)->toBeNull();
+
+    $this->travelTo(CarbonImmutable::parse('2026-11-18 10:00:00'));
+    $this->get('/')->assertOk();
+    expect(AccountAttribution::query()->sole()->returned_at)->not->toBeNull();
 });
 
 it('counts no first post after 30 days', function () {

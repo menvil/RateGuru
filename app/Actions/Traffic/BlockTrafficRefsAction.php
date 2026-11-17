@@ -116,8 +116,8 @@ final class BlockTrafficRefsAction
                 return;
             }
 
-            // A block that may have reached the network — applied, or failed after some campaigns took it — is taken off there first; one only marked here, or still waiting, simply goes.
-            if (in_array($record->network_state, [TrafficBlockNetworkState::Applied, TrafficBlockNetworkState::Failed], true)) {
+            // A block that may be on the network — applied, failed after some campaigns took it, or being sent there now — is taken off there first; one only marked here simply goes.
+            if ($record->network_state !== TrafficBlockNetworkState::ByHand) {
                 $record->forceFill(['network_state' => TrafficBlockNetworkState::Removing, 'network_error' => null])->save();
             } else {
                 $record->delete();

@@ -12,12 +12,15 @@ use Throwable;
 
 /**
  * A signed-in member coming back: looked at once a day per session — the
- * session remembers the day it last looked — whether a new account came back
+ * session remembers the day it last looked, or, for an account too young to
+ * have come back, the moment it first can — whether a new account came back
  * on another day (RecordAccountBonusAction). Never in the member's way.
  */
 final class RecordAccountReturn
 {
     private const string SESSION_KEY = 'traffic.return_checked_on';
+
+    private const string NOT_BEFORE_KEY = 'traffic.return_not_before';
 
     public function __construct(private readonly RecordAccountBonusAction $bonuses) {}
 
@@ -29,11 +32,15 @@ final class RecordAccountReturn
             $user = $request->user();
 
             if ($user instanceof User && $request->isMethod('GET') && $request->hasSession()) {
-                $today = CarbonImmutable::now()->utc()->toDateString();
+                $now = CarbonImmutable::now();
+                $today = $now->utc()->toDateString();
+                $notBefore = $request->session()->get(self::NOT_BEFORE_KEY);
+                $waiting = is_int($notBefore) && $now->getTimestamp() < $notBefore;
 
-                if ($request->session()->get(self::SESSION_KEY) !== $today) {
+                if (! $waiting && ($request->session()->get(self::SESSION_KEY) !== $today || is_int($notBefore))) {
                     $request->session()->put(self::SESSION_KEY, $today);
-                    $this->bonuses->returned((int) $user->id, CarbonImmutable::now());
+                    $next = $this->bonuses->returned((int) $user->id, $now);
+                    $next === null ? $request->session()->forget(self::NOT_BEFORE_KEY) : $request->session()->put(self::NOT_BEFORE_KEY, $next->getTimestamp());
                 }
             }
         } catch (Throwable $exception) {

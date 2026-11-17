@@ -3,6 +3,7 @@
 namespace App\Services\Traffic\Connectors;
 
 use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficConnector;
 use App\Enums\TrafficConnectorFailure;
 use App\Support\Traffic\Money\TrafficMoney;
 use Carbon\CarbonImmutable;
@@ -41,8 +42,9 @@ final class PopAdsConnector implements EditsBlockLists, ReadsCampaigns, ReadsSpe
             return new SpendDayReport([], true);
         }
 
-        $next = CarbonImmutable::parse($networkDay, 'UTC')->addDay()->toDateString();
-        $form = ['zone' => 'UTC', 'start' => $networkDay.' 00:00', 'end' => $next.' 00:00', 'campaigns' => implode(',', $campaignIds)];
+        $zone = TrafficConnector::PopAds->reportsIn();
+        $next = CarbonImmutable::parse($networkDay, $zone)->addDay()->toDateString();
+        $form = ['zone' => $zone, 'start' => $networkDay.' 00:00', 'end' => $next.' 00:00', 'campaigns' => implode(',', $campaignIds)];
         $rows = [];
 
         foreach ($this->reportRows($this->json($this->post($session, '/api/report_advertiser', [...$form, 'groups' => 'campaign,website,datetime:day']))) as $row) {

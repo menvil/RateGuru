@@ -5,6 +5,7 @@ namespace App\Actions\Traffic;
 use App\Actions\Traffic\Concerns\LocksTrafficRecords;
 use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficConnector;
 use App\Enums\TrafficCostUnit;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficFixedPeriod;
@@ -130,7 +131,7 @@ final class SaveTrafficSourceAction
         $spendModes = $network
             ? [TrafficSpendMode::ClickCost, TrafficSpendMode::Rate, TrafficSpendMode::Manual, TrafficSpendMode::None, ...(($source['connector'] ?? $existing?->connector) !== null ? [TrafficSpendMode::Api] : [])]
             : [TrafficSpendMode::Fixed, TrafficSpendMode::Manual, TrafficSpendMode::None];
-        $money = ['nullable', 'numeric', 'min:0', 'max:1000000'];
+        $money = ['nullable', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000000'];
 
         $validator = Validator::make(['source' => $source, 'rules' => $rules], [
             'source.name' => ['required', 'string', 'max:80'],
@@ -140,7 +141,8 @@ final class SaveTrafficSourceAction
             'source.attribution_days' => ['required', 'integer', Rule::in(PresetSchema::ATTRIBUTION_DAYS)],
             'source.click_id_ttl_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
             'source.target_cpa' => [...$money, 'max:1000'],
-            'source.reporting_timezone' => ['required', 'string', Rule::in(timezone_identifiers_list())],
+            // A network read through its API gives its spend by its own days: the source files its visits by the same.
+            'source.reporting_timezone' => ['required', 'string', Rule::in(($connector = TrafficConnector::tryFrom((string) ($source['connector'] ?? $existing?->connector->value ?? ''))) === null ? timezone_identifiers_list() : [$connector->reportsIn()])],
             'source.link_params' => ['array'],
             'source.response_rules' => ['nullable', 'array'],
             'source.response_rules.rules' => ['array', 'max:20'],

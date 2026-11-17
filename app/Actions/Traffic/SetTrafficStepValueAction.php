@@ -34,7 +34,7 @@ final class SetTrafficStepValueAction
         $steps = array_values(array_diff(TrafficStep::all(max($rounds, 1)), ['account', 'login']));
         Validator::make(['step' => $step, 'value' => $value, 'note' => $note], [
             'step' => ['required', Rule::in($steps)],
-            'value' => ['required', 'numeric', 'min:0', 'max:1000'],
+            'value' => ['required', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:1000'],
             'note' => ['nullable', 'string', 'max:200'],
         ])->validate();
 

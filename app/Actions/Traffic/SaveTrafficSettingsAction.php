@@ -33,7 +33,7 @@ final class SaveTrafficSettingsAction
             'capture_enabled' => ['sometimes', 'boolean'],
             'postbacks_enabled' => ['sometimes', 'boolean'],
             'geo_edition' => ['sometimes', 'in:'.implode(',', array_map(fn (GeoEdition $edition): string => $edition->value, GeoEdition::cases()))],
-            'block_min_spend' => ['sometimes', 'numeric', 'min:0', 'max:10000'],
+            'block_min_spend' => ['sometimes', 'numeric', 'regex:/^\d{1,10}(\.\d{1,8})?$/', 'min:0', 'max:10000'],
             'block_min_clicks' => ['sometimes', 'integer', 'min:1', 'max:1000000'],
             'block_roi_below' => ['sometimes', 'integer', 'min:-100', 'max:0'],
             'block_open_below' => ['sometimes', 'integer', 'min:1', 'max:100'],
