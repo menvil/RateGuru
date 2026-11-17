@@ -70,8 +70,11 @@ final class OpenTrafficVisitAction
 
         $holding = $this->visits->holding($browserHash, $now);
 
+        // The paid click holding the browser, met first on a later page — its own landing sent the visitor to sign in — is opened here.
         if ($holding !== null) {
-            return $this->touch($holding, $gameId, $versionId, $now);
+            return $holding->opened_at === null
+                ? $this->open((int) $holding->id, $browserHash, $gameId, $versionId, $signals, $now)
+                : $this->touch($holding, $gameId, $versionId, $now);
         }
 
         $recent = $this->visits->recentUnpaid($browserHash, $gameId, $now->subMinutes(30));

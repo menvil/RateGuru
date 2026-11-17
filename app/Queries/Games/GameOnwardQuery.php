@@ -2,6 +2,7 @@
 
 namespace App\Queries\Games;
 
+use App\Enums\GameOnwardKind;
 use App\Enums\GamePostTarget;
 use App\Models\Game;
 use App\Models\GameAttempt;
@@ -22,6 +23,11 @@ final class GameOnwardQuery
 {
     public function post(FlowStepDraft $step, GameVersionSnapshot $snapshot, ?GameAttempt $attempt, ?int $userId): ?Post
     {
+        // Once the play has gone on to a post, it is that post every time — a vote on it is what counts — while it is still published.
+        if ($attempt !== null && $attempt->onward_kind === GameOnwardKind::Post && $attempt->onward_post_id !== null) {
+            return $this->published($attempt->onward_post_id);
+        }
+
         return match ($step->postTarget()) {
             GamePostTarget::Chosen => $this->published($step->setting('post_id')),
             GamePostTarget::LastPick => $this->lastPick($snapshot, $attempt) ?? $this->fresh($snapshot, $userId),

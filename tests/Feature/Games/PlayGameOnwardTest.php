@@ -166,3 +166,20 @@ it('sends a signed-in player to a fresh post they have not voted on and did not 
         ->call('leave', 'step')
         ->assertRedirect(route('posts.show', ['post' => $older->id, 'vote' => 1]));
 });
+
+it('sends a player who comes back to the post they went to before, not to a newer one', function () {
+    onwardGame($this->draft, [GameFlowStepType::Game, GameFlowStepType::FullResult, GameFlowStepType::GoToPost], ['go_to_post' => ['post_target' => 'fresh']]);
+    $player = User::factory()->create();
+    $first = Post::factory()->published()->create(['published_at' => now()->subDay()]);
+
+    $page = Livewire::actingAs($player)
+        ->test(PlayGame::class, ['slug' => $this->draft['game']->slug])
+        ->call('init')->call('choose', 0)->call('next')->call('continue')
+        ->call('leave', 'step')
+        ->assertRedirect(route('posts.show', ['post' => $first->id, 'vote' => 1]));
+
+    // A newer post comes out while they are on the first one; back in the game, the way on still leads where it was counted.
+    Post::factory()->published()->create(['published_at' => now()->addMinute()]);
+
+    $page->call('leave', 'step')->assertRedirect(route('posts.show', ['post' => $first->id, 'vote' => 1]));
+});

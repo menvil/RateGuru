@@ -124,3 +124,13 @@ it('takes the arrival token from the page, so the layout prints none', function 
 
     expect($page->getContent())->not->toContain('rg-arrival');
 });
+
+it('opens the paid click holding the browser on the first page that runs, when its own landing sent the visitor to sign in', function () {
+    $held = TrafficVisit::factory()->create(['visitor_hash' => browserHashOf(OPEN_TOKEN), 'arrived_at' => now()->subMinutes(5), 'holds_until' => now()->addDays(7), 'opened_at' => null]);
+
+    arrivedAt($this->game->slug, ['channel' => 'direct', 'slug' => $this->game->slug])->call('init');
+
+    expect($held->fresh()->opened_at)->not->toBeNull()
+        ->and($held->fresh()->game_id)->toBe($this->game->id)
+        ->and(TrafficVisit::query()->count())->toBe(1);
+});
