@@ -68,6 +68,20 @@ final readonly class FlowStepDraft
     }
 
     /** Whether the step sends the visitor to a post: Go to Post, or Full Result going on to one. */
+    /**
+     * Whether the step asks an anonymous visitor for an account: Registration,
+     * or Full Result with its sign-up set into it while it sends nobody on.
+     */
+    public function asksForAccount(): bool
+    {
+        return match ($this->type) {
+            GameFlowStepType::Registration => true,
+            GameFlowStepType::FullResult => $this->onward() === GameOnward::Next
+                && (GameSignupMode::tryFrom((string) $this->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
+            default => false,
+        };
+    }
+
     public function sendsToPost(): bool
     {
         return $this->type === GameFlowStepType::GoToPost || $this->onward() === GameOnward::Post;

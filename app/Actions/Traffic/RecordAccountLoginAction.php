@@ -1,0 +1,65 @@
+<?php
+
+namespace App\Actions\Traffic;
+
+use App\Actions\Games\GameMilestoneRecorder;
+use App\Enums\GameFlowGoal;
+use App\Enums\TrafficEvent;
+use App\Enums\TrafficKnownReason;
+use App\Models\AccountAttribution;
+use App\Models\GameAttempt;
+use App\Models\User;
+use App\Queries\Traffic\AccountCreditQuery;
+use App\Queries\Traffic\VisitorVisitQuery;
+use App\Support\Games\Play\GameVisitor;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Somebody signs in to an account they already had. The browser is theirs
+ * from now on; the visit it is on, unless it is the one their own new
+ * account was credited to, turns out to be a known visitor's — it brings no
+ * account and is worth nothing. A game they finished in this browser within
+ * 7 days reaches the goal "Account confirmed" when the account is: an
+ * existing account counts for it, not for "New accounts only".
+ */
+final class RecordAccountLoginAction
+{
+    private const int WINDOW_DAYS = 7;
+
+    public function __construct(
+        private readonly AccountCreditQuery $credits,
+        private readonly VisitorVisitQuery $visits,
+        private readonly LinkAccountBrowserAction $browsers,
+        private readonly MarkTrafficVisitAction $marks,
+        private readonly GameMilestoneRecorder $milestones,
+    ) {}
+
+    public function handle(User $user, ?string $browserHash, CarbonImmutable $now): void
+    {
+        if ($browserHash === null) {
+            return;
+        }
+
+        DB::transaction(function () use ($user, $browserHash, $now): void {
+            $this->browsers->handle((int) $user->id, $browserHash, $now);
+            $attribution = AccountAttribution::query()->where('user_id', $user->id)->first();
+            $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latest($browserHash, $now->subDay());
+
+            if ($visit !== null && (int) $visit->id !== $attribution?->credited_visit_id) {
+                $this->marks->handle((int) $visit->id, TrafficEvent::Login, $now, ['known' => true, 'known_reason' => TrafficKnownReason::Login->value]);
+            }
+
+            if (! $user->hasVerifiedEmail() && ! $user->socialAccounts()->exists()) {
+                return;
+            }
+
+            $found = $this->credits->attempt($browserHash, (int) $user->id, $now->subDays(self::WINDOW_DAYS), (int) $user->id);
+            $attempt = $found === null || $found->id === $attribution?->credited_attempt_id ? null : GameAttempt::query()->whereKey($found->id)->lockForUpdate()->first();
+
+            if ($attempt !== null && $attempt->version->flowGoal() === GameFlowGoal::Account) {
+                $this->milestones->markGoal($attempt, new GameVisitor($attempt->audience, (int) $user->id, $attempt->visitor_hash), GameFlowGoal::Account);
+            }
+        });
+    }
+}

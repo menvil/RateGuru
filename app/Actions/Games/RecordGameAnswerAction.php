@@ -31,6 +31,7 @@ final class RecordGameAnswerAction
         private readonly ActionRateLimiter $limiter,
         private readonly GameFlowVisitorQuery $flowVisitors,
         private readonly GameEventRecorder $events,
+        private readonly GameSignupFormRecorder $signupForm,
         private readonly GameMilestoneRecorder $milestones,
     ) {}
 
@@ -110,6 +111,7 @@ final class RecordGameAnswerAction
                 // attempt moves on to, so it is counted the way a move counts it.
                 if ($next !== null) {
                     $this->events->record($next->type === GameFlowStepType::FullResult ? GameEventType::ResultViewed : GameEventType::StepViewed, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['step_type' => $next->type->value]);
+                    $this->signupForm->shown($locked, $next, $visitor);
                 }
             }
 

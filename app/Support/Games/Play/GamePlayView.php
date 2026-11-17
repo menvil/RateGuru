@@ -5,10 +5,8 @@ namespace App\Support\Games\Play;
 use App\Enums\GameAnswerOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameFlowStepType;
-use App\Enums\GameOnward;
 use App\Enums\GamePageDestination;
 use App\Enums\GameRoundMode;
-use App\Enums\GameSignupMode;
 use App\Enums\GameStatus;
 use App\Enums\ImageOrientation;
 use App\Enums\PostImageContext;
@@ -178,15 +176,8 @@ final readonly class GamePlayView
      */
     private static function signup(Game $game, SnapshotStep $step, GameVisitor $visitor): ?array
     {
-        $asks = match ($step->type) {
-            GameFlowStepType::Registration => true,
-            // Sent on into the site, Full Result asks for no sign-up: voting there does.
-            GameFlowStepType::FullResult => $step->draft()->onward() === GameOnward::Next
-                && (GameSignupMode::tryFrom((string) $step->setting('signup')) ?? GameSignupMode::Inline) === GameSignupMode::Inline,
-            default => false,
-        };
-
-        if (! $asks || ! $visitor->isAnonymous()) {
+        // Sent on into the site, Full Result asks for no sign-up: voting there does.
+        if (! $step->draft()->asksForAccount() || ! $visitor->isAnonymous()) {
             return null;
         }
 

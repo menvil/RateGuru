@@ -267,7 +267,7 @@ visitor was actually sent.
 | Completion | completed attempts over started ones — plays, a replay one more |
 | Email capture | people who left an email on one of those attempts, over the people who finished a version whose flow asks for one |
 | Sign-up begun | people with a `registration_cta_clicked` on one of those attempts, and how many began each way |
-| New accounts | distinct people whose attempt in the window led to `registered` |
+| New accounts | confirmed accounts credited to an attempt in the window (`account_attributions`): signed up within 7 days of finishing it, on any page of the site, then confirmed — an email or Google or Facebook. An account never confirmed never counts |
 | Shared | attempts in the window whose result was shared; in the funnel, the people who shared |
 | Played again | people with more than one attempt in the window |
 

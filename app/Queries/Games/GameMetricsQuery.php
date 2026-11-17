@@ -7,6 +7,7 @@ use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Models\AccountAttribution;
 use App\Models\GameAnswer;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
@@ -70,15 +71,15 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
         );
         $person = self::person($scope);
         $attempts = $this->counts(
-            $this->grouped($this->attempts($scope), 'game_attempts.version_id', $by)
+            $this->grouped($this->withConfirmedAccounts($this->attempts($scope)), 'game_attempts.version_id', $by)
                 ->selectRaw(
                     "COUNT(*) AS started,
                     SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
                     COUNT(DISTINCT {$person}) AS starters,
                     COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN {$person} END) AS finishers,
-                    COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS registered,
+                    COUNT(DISTINCT confirmed_accounts.user_id) AS registered,
                     COUNT(DISTINCT CASE WHEN game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS signed_in",
-                    [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::Registered->value, GameAccountOutcome::SignedIn->value],
+                    [GameAttemptStatus::Completed->value, GameAttemptStatus::Completed->value, GameAccountOutcome::SignedIn->value],
                 ),
         );
         $emails = $this->counts(
@@ -229,7 +230,7 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             return [];
         }
 
-        $attempts = GameAttempt::query()
+        $attempts = $this->withConfirmedAccounts(GameAttempt::query())
             ->whereIn('game_attempts.game_id', $gameIds)
             ->where('game_attempts.started_at', '>=', $from)
             ->where('game_attempts.started_at', '<', $to)
@@ -238,8 +239,8 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
             ->selectRaw(
                 'COUNT(*) AS started,
                 SUM(CASE WHEN game_attempts.status = ? THEN 1 ELSE 0 END) AS completed,
-                COUNT(DISTINCT CASE WHEN game_attempts.audience = ? AND game_attempts.account_outcome = ? THEN game_attempts.user_id END) AS registered',
-                [GameAttemptStatus::Completed->value, GameAudience::Anonymous->value, GameAccountOutcome::Registered->value],
+                COUNT(DISTINCT confirmed_accounts.user_id) AS registered',
+                [GameAttemptStatus::Completed->value],
             )
             ->toBase()
             ->get()
@@ -359,6 +360,28 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     private function attempts(GameMetricsScope $scope): Builder
     {
         return $this->cohort(GameAttempt::query(), $scope);
+    }
+
+    /**
+     * Attempts with the confirmed account credited to each, if any
+     * (`confirmed_accounts.user_id`): an account counts for the game once it
+     * is confirmed, on the play it was credited to when it signed up — on any
+     * page of the site, in any session. At most one row per attempt, so the
+     * attempts' own counts stay as they are.
+     *
+     * @param  Builder<GameAttempt>  $query
+     * @return Builder<GameAttempt>
+     */
+    private function withConfirmedAccounts(Builder $query): Builder
+    {
+        $confirmed = AccountAttribution::query()
+            ->whereNotNull('confirmed_at')
+            ->whereNotNull('credited_attempt_id')
+            ->groupBy('credited_attempt_id')
+            ->select('credited_attempt_id')
+            ->selectRaw('MIN(user_id) AS user_id', []);
+
+        return $query->leftJoinSub($confirmed, 'confirmed_accounts', 'confirmed_accounts.credited_attempt_id', '=', 'game_attempts.id');
     }
 
     /**

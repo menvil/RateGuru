@@ -5,6 +5,7 @@ use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
+use App\Models\AccountAttribution;
 use App\Models\GameAnswer;
 use App\Models\GameAssignment;
 use App\Models\GameAttempt;
@@ -122,6 +123,10 @@ it('counts the attempts started in the window, however late they finished, what 
     $registered = metricsAttempt($version, 'guest-b', attributes: [...metricsCompleted(), 'user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
     // The same new account from a second attempt is one account.
     metricsAttempt($version, 'guest-b', attributes: ['user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
+    // A new account counts once it is confirmed, on the play it was credited to.
+    AccountAttribution::factory()->confirmed()->create(['user_id' => $newcomer->id, 'credited_attempt_id' => $registered->id]);
+    // One never confirmed counts for nothing.
+    AccountAttribution::factory()->create(['credited_attempt_id' => $completed->id]);
     $signedIn = metricsAttempt($version, 'guest-c', attributes: ['user_id' => $returning->id, 'account_outcome' => GameAccountOutcome::SignedIn]);
     // Started before the window.
     metricsAttempt($version, 'guest-d', '2026-10-30 12:00:00', metricsCompleted());
@@ -275,7 +280,8 @@ it('reads the library’s columns for each game with something in the window', f
     metricsView($first, 'guest-a');
     metricsView($first, 'guest-b');
     metricsView($first, User::factory()->create());
-    metricsAttempt($first, 'guest-a', attributes: [...metricsCompleted(), 'user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
+    $credited = metricsAttempt($first, 'guest-a', attributes: [...metricsCompleted(), 'user_id' => $newcomer->id, 'account_outcome' => GameAccountOutcome::Registered]);
+    AccountAttribution::factory()->confirmed()->create(['user_id' => $newcomer->id, 'credited_attempt_id' => $credited->id]);
     metricsAttempt($first, 'guest-b');
     metricsAttempt($second, 'guest-c', attributes: metricsCompleted());
     metricsAttempt($quiet, 'guest-d', '2026-10-01 12:00:00');

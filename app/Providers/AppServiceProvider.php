@@ -46,6 +46,9 @@ use App\Support\StudioAi\StudioDiscussionGenerator;
 use App\Support\StudioAi\StudioImageAnalyzer;
 use App\Support\StudioAi\StudioPostTextGenerator;
 use App\Support\Theme\ThemeManager;
+use App\Support\Traffic\Attribution\AttributeAccountOnSignIn;
+use App\Support\Traffic\Attribution\ConfirmAttributionOnVerified;
+use App\Support\Traffic\Attribution\SignupOrigin;
 use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
@@ -54,6 +57,7 @@ use App\Support\VisualRegression\PestVisualScreenshotRunner;
 use App\Support\VisualRegression\VisualScreenshotRunner;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Auth\Events\Verified;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -90,6 +94,7 @@ class AppServiceProvider extends ServiceProvider
         // The arrival token of the page being drawn, shared by the capture
         // middleware, the game player and the layout for one request.
         $this->app->scoped(TrafficArrival::class);
+        $this->app->scoped(SignupOrigin::class);
 
         // The IP location database (docs/architecture/geo.md). The lookup is
         // scoped: one reader per request or job, opened by the first lookup
@@ -119,6 +124,10 @@ class AppServiceProvider extends ServiceProvider
         // generation; EnsureSessionGenerationIsCurrent ends older ones.
         Event::listen(Login::class, RememberSessionGenerationOnLogin::class);
         Event::listen([Registered::class, Login::class], ClaimGameAttemptsOnSignIn::class);
+        // After the claim: a new account is credited to the play the claim
+        // has just made its own (docs/architecture/traffic.md, "Accounts").
+        Event::listen([Registered::class, Login::class], AttributeAccountOnSignIn::class);
+        Event::listen(Verified::class, ConfirmAttributionOnVerified::class);
 
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.
