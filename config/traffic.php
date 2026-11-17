@@ -16,6 +16,16 @@ return [
         'block_events' => 400,
     ],
 
+    // Query parameters the site's own pages read: a network's link can't
+    // use them for its tokens, or the page would read the token instead.
+    'reserved_params' => ['search', 'tag', 'category', 'ratings', 'sort', 'feed', 'tab', 'page', 'vote', 'ask'],
+
+    // A campaign with no click for this many days is archived by itself.
+    'quiet_campaign_days' => 30,
+
+    // How many postback rules one source may have.
+    'rules_per_source' => 20,
+
     // How many runs of the chance working-out are kept.
     'chance_runs_kept' => 30,
 

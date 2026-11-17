@@ -16,6 +16,7 @@ use App\Policies\ModerationPolicy;
 use App\Policies\PersonaPolicy;
 use App\Policies\ProjectSettingsPolicy;
 use App\Policies\StudioPlanPolicy;
+use App\Policies\TrafficSourcePolicy;
 use App\Queries\SocialProvidersInUseQuery;
 use App\Services\Media\FilesystemMediaStorage;
 use App\Services\Media\FilesystemMediaUrlResolver;
@@ -140,6 +141,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('manage-personas', [PersonaPolicy::class, 'manage']);
         Gate::define('manage-studio-plans', [StudioPlanPolicy::class, 'manage']);
         Gate::define('manage-games', [GamePolicy::class, 'manage']);
+        Gate::define('manage-traffic-sources', [TrafficSourcePolicy::class, 'manage']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view): void {
             $themeManager = app(ThemeManager::class);

@@ -115,6 +115,12 @@ class TrafficCampaign extends Model
         return $this->hasMany(TrafficCampaignEvent::class, 'campaign_id')->orderByDesc('id');
     }
 
+    /** @return HasMany<TrafficVisit, $this> */
+    public function visits(): HasMany
+    {
+        return $this->hasMany(TrafficVisit::class, 'campaign_id');
+    }
+
     /** @return HasMany<TrafficCampaignPrice, $this> */
     public function prices(): HasMany
     {

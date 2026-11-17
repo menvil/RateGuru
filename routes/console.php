@@ -56,6 +56,7 @@ Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
 // click details and postbacks after 90, spend figures and the block log after
 // 400, in small batches. Sources, campaigns, prices and attributions stay.
 Schedule::command('traffic:purge-expired')->daily()->withoutOverlapping();
+Schedule::command('traffic:archive-quiet-campaigns')->dailyAt('02:40')->withoutOverlapping();
 
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a

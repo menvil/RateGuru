@@ -32,10 +32,10 @@ final class TrafficMoney
         return BigDecimal::of((string) $amount)->toScale(self::SCALE, RoundingMode::HalfUp);
     }
 
-    /** As stored: eight decimals. */
-    public static function stored(mixed $amount): string
+    /** As stored: eight decimals, or as many as the column keeps. */
+    public static function stored(mixed $amount, int $scale = self::SCALE): string
     {
-        return (string) self::of($amount)->toScale(self::SCALE, RoundingMode::HalfUp);
+        return (string) self::of($amount)->toScale($scale, RoundingMode::HalfUp);
     }
 
     /** For a postback: up to six decimals, without trailing zeros. */
