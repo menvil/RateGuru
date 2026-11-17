@@ -90,6 +90,9 @@ The reviewed boundaries are:
   over their authors' usernames, display names and names.
 - `StudioActionsQuery` for literal LIKE searches over the Action queue: the
   publication's title and its Persona's username, display name and name.
+- `TrafficChanceSampleQuery` for the chances of an account: conditional counts
+  of the matured visits that reached each step and of those that became
+  accounts, per game, source, channel, device, country and rounds answered.
 - `TranslationAiUsageQuery` for Translation AI usage: sums conditional on a
   call's status, and the UTC hour or day a call falls in, written per engine;
   and, per provider and model, the calls inside a period counted beside the

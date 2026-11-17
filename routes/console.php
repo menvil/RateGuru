@@ -58,6 +58,12 @@ Schedule::command('games:purge-expired')->daily()->withoutOverlapping();
 Schedule::command('traffic:purge-expired')->daily()->withoutOverlapping();
 Schedule::command('traffic:archive-quiet-campaigns')->dailyAt('02:40')->withoutOverlapping();
 
+// What each step of the traffic is worth (docs/architecture/traffic.md,
+// "Worth"): worked out from the matured visits at night, and again within
+// five minutes of a change to the country groups.
+Schedule::command('traffic:work-out-worth')->dailyAt('03:10')->withoutOverlapping(60)->runInBackground();
+Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.
