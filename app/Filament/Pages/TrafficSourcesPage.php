@@ -31,6 +31,7 @@ use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\User;
 use App\Services\Traffic\TrafficPresetCatalog;
+use App\Support\Geo\Countries;
 use App\Support\Traffic\Presets\SourceDefaults;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
@@ -175,6 +176,9 @@ final class TrafficSourcesPage extends Page
     /** The source whose link Campaigns shows: a network or a banner, the first one to begin with. */
     public string $linkSource = '';
 
+    /** @var array<int|string, string> each source’s target cost of an account, as typed on Value, by source id */
+    public array $targets = [];
+
     /** Campaigns: those in a stage, the new ones, the archived, or every running one. */
     #[Url(except: 'all')]
     public mixed $stage = 'all';
@@ -214,6 +218,7 @@ final class TrafficSourcesPage extends Page
         $this->linkSource = (string) (TrafficSource::query()->where('type', TrafficSourceType::Network)->orderBy('name')->value('id')
             ?? TrafficSource::query()->where('type', TrafficSourceType::Placement)->orderBy('name')->value('id') ?? '');
         $this->linkGame = (string) (Game::query()->orderBy('title')->value('id') ?? '');
+        $this->drawTargets();
         $this->drawPrices();
         $this->drawSettings();
 
@@ -833,6 +838,68 @@ final class TrafficSourcesPage extends Page
         $this->toast('Country groups saved. The chances are worked out again within five minutes.');
     }
 
+    /** Saves the target cost of an account typed for one source, the rest of the source as it is. */
+    public function saveTarget(mixed $sourceId): void
+    {
+        $source = is_numeric($sourceId) ? TrafficSource::query()->with('postbackRules')->find((int) $sourceId) : null;
+
+        if ($source === null) {
+            return;
+        }
+
+        $draft = TrafficSourcesView::draftOf($source);
+        $target = trim($this->targets[(string) $source->id] ?? '');
+
+        try {
+            app(SaveTrafficSourceAction::class)->handle($this->admin(), (int) $source->id, [...$draft['source'], 'target_cpa' => $target === '' ? null : $target], $draft['rules'], $source->lock_version);
+        } catch (ValidationException $exception) {
+            $this->toast((string) collect($exception->errors())->flatten()->first(), 'error');
+
+            return;
+        } catch (CannotManageTrafficException $exception) {
+            $this->toast($exception->getMessage(), 'error');
+
+            return;
+        }
+
+        $this->drawTargets();
+        $this->toast($target === '' ? $source->name.' has no target now' : $source->name.'’s target saved');
+    }
+
+    /** Puts a country in a group, out of any other it was in. */
+    public function addCountry(mixed $index, mixed $code): void
+    {
+        if (! is_numeric($index) || ! isset($this->groups[(int) $index]) || ! is_string($code) || ! array_key_exists(strtoupper($code), Countries::all())) {
+            return;
+        }
+
+        $code = strtoupper($code);
+
+        foreach ($this->groups as $at => $group) {
+            $this->groups[$at]['countries'] = implode(', ', array_values(array_diff(self::codes($group['countries']), [$code])));
+        }
+
+        $this->groups[(int) $index]['countries'] = implode(', ', [...self::codes($this->groups[(int) $index]['countries']), $code]);
+    }
+
+    public function removeCountry(mixed $index, mixed $code): void
+    {
+        if (is_numeric($index) && isset($this->groups[(int) $index]) && is_string($code)) {
+            $this->groups[(int) $index]['countries'] = implode(', ', array_values(array_diff(self::codes($this->groups[(int) $index]['countries']), [strtoupper($code)])));
+        }
+    }
+
+    /** @return list<string> */
+    private static function codes(mixed $countries): array
+    {
+        return array_values(array_filter(array_map(fn (string $code): string => strtoupper(trim($code)), explode(',', (string) $countries))));
+    }
+
+    private function drawTargets(): void
+    {
+        $this->targets = TrafficSource::query()->pluck('target_cpa', 'id')->mapWithKeys(fn (mixed $target, mixed $id): array => [(string) $id => $target === null ? '' : rtrim(rtrim((string) $target, '0'), '.')])->all();
+    }
+
     public function addGroup(): void
     {
         // The first key no group has: counting the groups again would repeat one removed and added back.
@@ -938,7 +1005,9 @@ final class TrafficSourcesPage extends Page
     {
         $set = TrafficPriceSet::current();
         $this->pricesFrom = $set->id;
-        $this->prices = ['account_price' => (string) $set->account_price, 'post_bonus' => (string) $set->post_bonus, 'returned_bonus' => (string) $set->returned_bonus];
+        // Prices read as money: two decimals, more only where a price has them.
+        $money = fn (string $amount): string => number_format((float) $amount, max(2, strlen(rtrim((string) substr((string) strrchr($amount, '.'), 1), '0'))), '.', '');
+        $this->prices = ['account_price' => $money((string) $set->account_price), 'post_bonus' => $money((string) $set->post_bonus), 'returned_bonus' => $money((string) $set->returned_bonus)];
         $this->groups = array_map(fn (array $group): array => ['key' => $group['key'], 'name' => $group['name'], 'percent' => $group['percent'], 'countries' => implode(', ', $group['countries'])], $set->country_groups);
     }
 

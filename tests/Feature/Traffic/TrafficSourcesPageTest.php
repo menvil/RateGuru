@@ -40,7 +40,7 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     'report' => ['report', 'PopAds main'],
     'report, sites and zones' => ['report', 'site 40123'],
     'campaigns' => ['campaigns', 'US popunder'],
-    'value' => ['value', 'What an account is worth'],
+    'value' => ['value', 'What a new user is worth'],
     'spend' => ['spend', 'Spend without visits'],
     'sources' => ['sources', 'Tracking'],
     'logs' => ['logs', 'failed'],

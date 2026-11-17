@@ -194,3 +194,27 @@ it('lays out Campaigns: the new campaign to set up, the link with samples, the l
         ->call('openCampaign', $new->id)->assertSet('camp', (string) $new->id)
         ->call('reportFor', $banner->id)->assertSet('tab', 'report')->assertSet('source', (string) $banner->id);
 });
+
+it('lays out Value: outcome prices with what an account brings, accounts by source against a target, who counts, and country groups with their countries', function () {
+    siteClicks($this->source, '40123', 4, 4, ['account_at' => now(), 'spend' => '0.25']);
+
+    $page = Livewire::withQueryParams(['tab' => 'value'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSet('prices.account_price', '0.50')
+        ->assertSee('What a new user is worth')
+        ->assertSee('An account brings on average')
+        ->assertSee('Accounts by source')
+        ->assertSee('PopAds main')
+        ->assertSee('below its worth')
+        ->assertSee('Who counts')
+        ->assertSee('A new visitor')
+        ->assertSee('Price changes');
+
+    $page->set('targets.'.$this->source->id, '0.20')->call('saveTarget', $this->source->id)->assertSee('over target');
+
+    expect($this->source->fresh()->target_cpa)->toBe('0.2000');
+
+    $page->call('addCountry', 0, 'br')->call('removeCountry', 0, 'US');
+
+    expect($page->get('groups')[0]['countries'])->toContain('BR')->not->toContain('US')
+        ->and(collect($page->get('groups'))->filter(fn (array $group): bool => str_contains((string) $group['countries'], 'BR'))->count())->toBe(1);
+});

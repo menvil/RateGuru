@@ -22,14 +22,17 @@ use App\Models\TrafficCampaignEvent;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficChanceRun;
 use App\Models\TrafficPostback;
+use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
+use App\Models\User;
 use App\Queries\Traffic\TrafficLogsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
+use App\Queries\Traffic\TrafficWorthQuery;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
@@ -42,8 +45,11 @@ use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
-use App\Support\Traffic\Worth\TrafficStep;
+use App\Support\Traffic\Worth\Slice;
+use App\Support\Traffic\Worth\StepWorth;
+use App\Support\Traffic\Worth\WorthPrices;
 use BackedEnum;
+use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -751,44 +757,86 @@ final class TrafficSourcesView
         })->all();
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Value, as the reference draws it: the prices of the outcomes with how
+     * often they came in the period and what an account brings on average;
+     * accounts by source, against each source's target; who counts as new;
+     * the country groups with their share of visitors and what a finished
+     * game is worth in each; what a new visitor is worth, step by step; how
+     * the chances are worked out; and the history of the prices.
+     *
+     * @return array<string, mixed>
+     */
     private function value(TrafficReportFilter $filter, $sources): array
     {
         $run = TrafficChanceRun::query()->where('status', 'finished')->orderByDesc('id')->first();
         $site = $run === null ? collect() : TrafficStepChance::query()->where('run_id', $run->id)->where('slice_key', '*')->get()->keyBy('step');
+        $summary = $this->reports->summary($filter);
+        $sum = fn (iterable $rows): ReportFigures => collect($rows)->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
+        $total = $sum($summary);
+        $paidRows = array_filter($summary, fn (array $row): bool => in_array($row['channel'], ['network', 'placement'], true));
+        $paid = $sum($paidRows);
+        $internal = $sum(array_filter($summary, fn (array $row): bool => $row['channel'] === 'internal'));
+        $set = TrafficPriceSet::current();
+        $prices = new WorthPrices((string) $set->account_price, (string) $set->post_bonus, (string) $set->returned_bonus);
+        $postRate = isset($site['post_bonus']) ? (float) $site['post_bonus']->chance : ($total->accounts > 0 ? $total->posted / $total->accounts : 0.0);
+        $returnRate = isset($site['returned_bonus']) ? (float) $site['returned_bonus']->chance : ($total->accounts > 0 ? $total->returned / $total->accounts : 0.0);
+        $brings = fn (ReportFigures $f): BigDecimal => $prices->account($f->accounts > 0 ? $f->posted / $f->accounts : $postRate, $f->accounts > 0 ? $f->returned / $f->accounts : $returnRate, 100);
+        $groups = collect($set->country_groups);
+        $byGroup = $this->reports->byCountryGroup($filter);
+        $opened = array_sum(array_map(fn (ReportFigures $f): int => $f->opened, $byGroup));
+        $worth = app(TrafficWorthQuery::class);
+        $stepWorth = fn (string $step, ?string $device, ?string $group): string => (string) StepWorth::of(new Slice(device: $device, group: $group), $step, $prices, $group === null ? 100 : (int) ($groups->firstWhere('key', $group)['percent'] ?? 100), false, null, $worth->table($run, new Slice(device: $device, group: $group)))['value'];
+        $bySource = collect($this->reports->level($filter, TrafficDimension::Source));
+        $unpaid = $sum($bySource->filter(fn (array $group): bool => $group['keys']['source_id'] === null)->all());
 
         return [
-            'run' => $run === null ? null : ['at' => $run->finished_at, 'visits' => $run->visits_scanned, 'accounts' => (int) ($site['opened']->accounts ?? 0)],
-            'chances' => $this->orderedChances($site),
-            'bySource' => array_map(fn (array $group): array => ['keys' => $group['keys'], 'figures' => $group['figures']], $this->reports->level($filter, TrafficDimension::Source)),
+            'run' => $run === null ? null : ['at' => $run->finished_at, 'visits' => $run->visits_scanned, 'accounts' => (int) ($site['opened']->slice_accounts ?? 0)],
+            'outcomes' => ['accounts' => $total->accounts, 'posted' => $total->posted, 'returned' => $total->returned],
+            'postRate' => $postRate,
+            'returnRate' => $returnRate,
+            'accountBrings' => (string) $prices->account($postRate, $returnRate, 100),
+            'sourceRows' => [
+                ...$bySource->filter(fn (array $group): bool => $group['keys']['source_id'] !== null)->map(function (array $group) use ($sources, $brings): array {
+                    $source = $sources->firstWhere('id', (int) $group['keys']['source_id']);
+                    $f = $group['figures'];
+
+                    return [
+                        'id' => (int) $group['keys']['source_id'],
+                        'name' => $source->name ?? 'Source #'.$group['keys']['source_id'],
+                        'kind' => $source?->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network',
+                        'figures' => $f,
+                        'brings' => (string) $brings($f),
+                        'target' => $source?->target_cpa,
+                    ];
+                })->values()->all(),
+            ],
+            'paidRow' => ['figures' => $paid, 'brings' => (string) $brings($paid)],
+            'unpaidRow' => ['figures' => $unpaid, 'brings' => (string) $brings($unpaid)],
+            'who' => [
+                'known' => $total->knownOpened,
+                'knownShare' => $total->opened > 0 ? $total->knownOpened / $total->opened : null,
+                'paidKnown' => $paid->knownOpened,
+                'paidKnownSpend' => $paid->knownSpend,
+                'internalKnown' => $internal->opened > 0 ? $internal->knownOpened / $internal->opened : null,
+            ],
+            'groupRows' => $groups->map(fn (array $group): array => [
+                'key' => $group['key'],
+                'share' => $opened > 0 ? ($byGroup[$group['key']]->opened ?? 0) / $opened : null,
+                'mobile' => $stepWorth('completed', 'mobile', $group['key']),
+                'desktop' => $stepWorth('completed', 'desktop', $group['key']),
+            ])->values()->all(),
             'countries' => Countries::all(),
+            'visitorWorth' => $stepWorth('opened', null, null),
+            'visitorChance' => isset($site['opened']) ? (float) $site['opened']->chance : null,
+            'visitorRows' => collect(['opened' => 'Opened the game', 'started' => 'Started it', 'completed' => 'Finished it', 'email' => 'Left an email', 'signup' => 'Signed up, not confirmed', 'account' => 'Confirmed the account'])
+                ->map(fn (string $label, string $step): array => ['label' => $label, 'mobile' => $stepWorth($step, 'mobile', null), 'desktop' => $stepWorth($step, 'desktop', null)])->values()->all(),
+            'priceChanges' => TrafficPriceSet::query()->orderByDesc('id')->limit(5)->get()->map(fn (TrafficPriceSet $priceSet): array => [
+                'summary' => $priceSet->summary ?? 'Account confirmed '.TrafficMoney::brief($priceSet->account_price).', Published a post +'.TrafficMoney::brief($priceSet->post_bonus).', Came back +'.TrafficMoney::brief($priceSet->returned_bonus),
+                'at' => $priceSet->created_at,
+                'by' => $priceSet->created_by_user_id === null ? 'First prices' : (User::query()->whereKey($priceSet->created_by_user_id)->value('name') ?? 'An administrator'),
+            ])->all(),
         ];
-    }
-
-    /**
-     * The whole site's chances in the order of a play — opened, started, the
-     * rounds, completed, what follows, signing up — then how often accounts
-     * post and come back, named for what they are.
-     *
-     * @return list<array{step: string, label: string, visitors: int, accounts: int, chance: float}>
-     */
-    private function orderedChances($site): array
-    {
-        $rounds = $site->keys()->filter(fn ($step): bool => TrafficStep::isRound((string) $step))->map(fn ($step): int => (int) substr((string) $step, 6))->max() ?? 0;
-        $order = [...array_values(array_diff(TrafficStep::all($rounds + 1), ['account', 'login'])), 'post_bonus', 'returned_bonus'];
-        $labels = ['post_bonus' => 'Accounts that posted within 30 days', 'returned_bonus' => 'Accounts that came back on another day'];
-
-        return collect($order)
-            ->filter(fn (string $step): bool => $site->has($step))
-            ->map(fn (string $step): array => [
-                'step' => $step,
-                'label' => $labels[$step] ?? ucfirst(str_replace('_', ' ', $step)),
-                'visitors' => (int) $site[$step]->visitors,
-                'accounts' => (int) $site[$step]->accounts,
-                'chance' => (float) $site[$step]->chance,
-            ])
-            ->values()
-            ->all();
     }
 
     /** @return array<string, mixed> */

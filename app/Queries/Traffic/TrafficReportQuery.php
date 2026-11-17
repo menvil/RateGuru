@@ -120,6 +120,25 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
             ->all();
     }
 
+    /**
+     * The period's visits by the country group each was priced in.
+     *
+     * @return array<string, ReportFigures> by group key
+     */
+    public function byCountryGroup(TrafficReportFilter $filter): array
+    {
+        [$metrics, $bindings] = self::metrics();
+
+        return $this->visits($filter)
+            ->groupBy('country_group')
+            ->select('country_group')
+            ->selectRaw($metrics, $bindings)
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [(string) $row->country_group => ReportFigures::fromRow($row)])
+            ->all();
+    }
+
     /** @return array<int, ReportFigures> by campaign */
     public function byCampaign(TrafficReportFilter $filter): array
     {
