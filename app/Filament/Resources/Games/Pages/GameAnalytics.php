@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Games\Pages;
 use App\Enums\GameAudience;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStepAudience;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\Game;
@@ -15,8 +16,11 @@ use App\Queries\Games\GameMetricsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
+use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\TwoProportionTest;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -25,13 +29,16 @@ use Livewire\Attributes\Url;
 
 /**
  * A game's Analytics tab: how far its visitors got — anonymous visitors and
- * logged-in players apart — over a window, for every version or one: the
- * figures, the funnel, how many attempts reached each round, which results
- * players earned, the versions, flows or content sets side by side, and the
- * traffic periods the figures were made in.
+ * logged-in players apart — over a window, for every version or one, against
+ * the window before it: the figures and what the visits were worth, the
+ * versions on paid traffic compared, the visitors by where they came from,
+ * the funnel, how many attempts reached each round, which results players
+ * earned, the versions, flows or content sets side by side, and the traffic
+ * periods the figures were made in.
  *
- * Every figure is read from what playing recorded (GameMetricsQuery); nothing
- * is estimated, and nothing claims one version is better than another.
+ * Playing figures are read from what playing recorded (GameMetricsQuery);
+ * worth, spend and where visitors came from from Traffic sources
+ * (TrafficReportQuery).
  */
 final class GameAnalytics extends Page
 {
@@ -60,6 +67,14 @@ final class GameAnalytics extends Page
     #[Url(as: 'by', except: 'version')]
     public string $breakdown = 'version';
 
+    /** Versions on paid traffic: every paid source, or one, by id. */
+    #[Url(as: 'paid', except: 0)]
+    public int $paidSource = 0;
+
+    /** Traffic sources: every device, or one. */
+    #[Url(as: 'device', except: 'all')]
+    public string $sourcesDevice = 'all';
+
     public function mount(int|string $record): void
     {
         $this->mountGame($record);
@@ -78,11 +93,22 @@ final class GameAnalytics extends Page
         $versionId = $versions->has($this->version) ? $this->version : null;
         // Up to and including the current second: the database keeps whole seconds.
         $now = CarbonImmutable::now()->startOfSecond()->addSecond();
-        $scope = new GameMetricsScope((int) $game->id, $audience, self::windowStart($period, $now), $now, $versionId);
+        $from = self::windowStart($period, $now);
+        // The window before, as long, to compare with; all time has none.
+        $before = $period === 'all' ? null : $from->subSeconds((int) $from->diffInSeconds($now));
+        $scope = new GameMetricsScope((int) $game->id, $audience, $from, $now, $versionId);
         $metrics = app(GameMetricsQuery::class);
+        $reports = app(TrafficReportQuery::class);
 
         $total = $metrics->funnels($scope)[0];
+        $earlier = $before !== null ? $metrics->funnels(new GameMetricsScope((int) $game->id, $audience, $before, $from, $versionId))[0] : null;
         $byVersion = $metrics->funnels($scope, 'version');
+        $ofVersion = fn (array $row): bool => $versionId === null || $row['version_id'] === $versionId;
+        $traffic = collect($reports->gameBreakdown((int) $game->id, $from, $now))->filter($ofVersion)->values();
+        $worth = self::sum($traffic);
+        $worthBefore = $before !== null ? self::sum(collect($reports->gameBreakdown((int) $game->id, $before, $from))->filter($ofVersion)) : null;
+        $goals = ($versionId !== null ? $versions->only([$versionId]) : $versions)->map(fn (GameVersion $version): string => $version->flowGoal()->label())->unique()->values();
+        $window = strtolower(self::PERIODS[$period]);
         // Of the versions the figures are of: the one chosen, or every one.
         $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
         $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
@@ -107,51 +133,264 @@ final class GameAnalytics extends Page
             'breakdown' => $breakdown,
             'breakdowns' => self::BREAKDOWNS,
             'scopeText' => implode(' · ', [$audience === GameAudience::Anonymous ? 'Anonymous visitors' : 'Logged-in players', self::PERIODS[$period], $versionId !== null ? $versions->get($versionId)?->label() : 'all versions']),
+            'datesText' => $before === null ? null : self::dates($from, $now).' · compared with '.self::dates($before, $from),
+            'valueUrl' => GameResource::getUrl('value', ['record' => $game]),
             'noVersions' => $versions->isEmpty(),
             'noData' => $total->isEmpty(),
-            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $finishedWithEmail, $emailVersions !== [], $versionId !== null) : self::playerKpis($total),
-            'funnel' => $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope)) : self::playerFunnel($total),
+            'kpis' => $audience === GameAudience::Anonymous ? self::anonymousKpis($total, $earlier, $worth, $worthBefore, $goals->count() === 1 ? $goals[0] : 'each flow’s own goal') : self::playerKpis($total, $earlier),
+            'funnel' => self::withChanges(
+                $audience === GameAudience::Anonymous ? self::anonymousFunnel($total, $finishedWithEmail, $emailVersions !== [], $metrics->signUpMethods($scope)) : self::playerFunnel($total),
+                $earlier === null ? null : ($audience === GameAudience::Anonymous ? self::anonymousFunnel($earlier, 0, $emailVersions !== [], []) : self::playerFunnel($earlier)),
+            ),
+            'compared' => $earlier !== null,
             'focus' => $focus !== null ? self::focus($focus, $metrics, $scope, $byVersion[(int) $focus->id] ?? new GameFunnel, $versionId === null) : null,
             'breakdownRows' => self::breakdownRows($breakdown, $breakdown === 'version' ? $byVersion : $metrics->funnels($scope, $breakdown), $versions, $audience),
             'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id)),
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
-            'paid' => self::paidTraffic((int) $game->id, $versions),
+            'paid' => self::paidVersions($game, $traffic, $versions, $this->paidSource, $window),
+            'sources' => self::sourceRows($game, $traffic, $this->sourcesDevice, $reports->gameCampaigns((int) $game->id, $from, $now)),
+            'sourcesDevice' => in_array($this->sourcesDevice, ['mobile', 'desktop'], true) ? $this->sourcesDevice : 'all',
+            'window' => $window,
+            'gameTitle' => $game->title,
         ];
     }
 
     /**
-     * The game's paid traffic of the last 30 days, by source — visits, new
-     * visitors, accounts, spend and worth — and its two best versions on it
-     * compared: whether one brings more accounts per new visitor, or it is
-     * too early to say (TwoProportionTest).
+     * The versions on paid traffic, of every paid source or one: each
+     * version's new visitors, how far they got, its accounts, what an account
+     * cost and what a visitor was worth, with the share it has now; and the
+     * two that bring the most accounts per new visitor compared — whether one
+     * brings more, or it is too early to say (TwoProportionTest).
      *
+     * @param  Collection<int, array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>  $traffic
      * @param  Collection<int, GameVersion>  $versions
-     * @return array{sources: list<array{name: string, figures: ReportFigures}>, comparison: array<string, mixed>|null}
+     * @return array<string, mixed>|null
      */
-    private static function paidTraffic(int $gameId, $versions): array
+    private static function paidVersions(Game $game, Collection $traffic, Collection $versions, int $sourceId, string $window): ?array
     {
-        $rows = collect(app(TrafficReportQuery::class)->gameBreakdown($gameId, CarbonImmutable::now()->subDays(30)))->where('source_id', '!==', null);
-        $names = TrafficSource::query()->whereIn('id', $rows->pluck('source_id')->unique())->pluck('name', 'id');
-        $sum = fn ($group): ReportFigures => $group->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
-        $byVersion = $rows->groupBy('version_id')->map($sum)->filter(fn (ReportFigures $figures, $versionId): bool => $versionId !== '' && $figures->newVisitors() > 0)
-            ->sortByDesc(fn (ReportFigures $figures): float => $figures->accounts / max(1, $figures->newVisitors()));
+        $paid = $traffic->where('source_id', '!==', null);
+
+        if ($paid->isEmpty()) {
+            return null;
+        }
+
+        $names = TrafficSource::query()->whereIn('id', $paid->pluck('source_id')->unique())->orderBy('name')->pluck('name', 'id');
+        $sourceId = $names->has($sourceId) ? $sourceId : 0;
+        $rows = $sourceId === 0 ? $paid : $paid->where('source_id', $sourceId);
+        $shares = GameTrafficPeriod::query()->where('game_id', $game->id)->where('audience', GameAudience::Anonymous->value)->whereNull('ended_at')->with('versions')->first()
+            ?->versions->mapWithKeys(fn (GameVersion $version): array => [(int) $version->id => (int) $version->getRelation('pivot')->getAttribute('share_percent')]) ?? collect();
+        $byVersion = $rows->where('version_id', '!==', null)->groupBy('version_id')->map(fn (Collection $group): ReportFigures => self::sum($group))
+            ->filter(fn (ReportFigures $figures, int|string $id): bool => $versions->has((int) $id) && $figures->newVisitors() > 0)
+            ->sortByDesc(fn (ReportFigures $figures): float => $figures->accountRate() ?? 0.0);
         $comparison = null;
 
         if ($byVersion->count() >= 2) {
-            [$a, $b] = [$byVersion->keys()[0], $byVersion->keys()[1]];
-            $result = TwoProportionTest::compare($byVersion[$a]->newVisitors(), $byVersion[$a]->accounts, $byVersion[$b]->newVisitors(), $byVersion[$b]->accounts);
+            [$a, $b] = [(int) $byVersion->keys()[0], (int) $byVersion->keys()[1]];
+            [$fa, $fb] = [$byVersion[$a], $byVersion[$b]];
             $comparison = [
-                'a' => $versions->get((int) $a)?->label() ?? 'V?',
-                'b' => $versions->get((int) $b)?->label() ?? 'V?',
-                ...$result,
+                'a' => $versions[$a]->label(),
+                'b' => $versions[$b]->label(),
+                'rateA' => self::percent($fa->accounts, $fa->newVisitors()),
+                'rateB' => self::percent($fb->accounts, $fb->newVisitors()),
+                'earlier' => 'Earlier steps: finished '.self::percent($fa->completed, $fa->opened).' on '.$versions[$a]->label().' vs '.self::percent($fb->completed, $fb->opened).' on '.$versions[$b]->label()
+                    .' · flow goal '.self::percent($fa->goal, $fa->opened).' on '.$versions[$a]->label().' vs '.self::percent($fb->goal, $fb->opened).' on '.$versions[$b]->label()
+                    .'. They move sooner than accounts, but only accounts are what the site is after.',
+                ...TwoProportionTest::compare($fa->newVisitors(), $fa->accounts, $fb->newVisitors(), $fb->accounts),
             ];
         }
 
+        $ahead = $comparison !== null && in_array($comparison['verdict'], ['leader', 'ahead'], true) ? (int) $byVersion->keys()[0] : null;
+
         return [
-            'sources' => $rows->groupBy('source_id')->map(fn ($group, $sourceId): array => ['name' => (string) ($names[$sourceId] ?? 'Source #'.$sourceId), 'figures' => $sum($group)])->values()->all(),
+            'sources' => ['0' => 'All paid', ...$names->mapWithKeys(fn (string $name, int $id): array => [(string) $id => $name])->all()],
+            'source' => (string) $sourceId,
+            'note' => 'New visitors from '.($sourceId === 0 ? 'ad networks and banners' : $names[$sourceId]).', '.$window.'. One campaign link for the game: RateGuru picks the version after the click, by the shares in Traffic.',
+            'reportUrl' => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'view' => 'versions', 'source' => $sourceId ?: null])),
             'comparison' => $comparison,
+            'rows' => $byVersion->map(function (ReportFigures $figures, int|string $id) use ($versions, $shares, $ahead): array {
+                $version = $versions[(int) $id];
+                $roi = $figures->roi();
+
+                return [
+                    'name' => $version->label().' · '.$version->flow->name,
+                    'sub' => 'Published '.$version->published_at->format('j M Y'),
+                    'ahead' => $ahead === (int) $id,
+                    'share' => $shares->has((int) $id) ? $shares[(int) $id].'%' : '—',
+                    'shareNote' => $shares->has((int) $id) ? 'of new visitors' : 'no share now',
+                    'newVisitors' => number_format($figures->newVisitors()),
+                    'clicks' => number_format($figures->visits).' '.str('click')->plural($figures->visits),
+                    'finished' => self::percent($figures->completed, $figures->opened),
+                    'finishedCount' => number_format($figures->completed),
+                    'goal' => self::percent($figures->goal, $figures->opened),
+                    'goalCount' => number_format($figures->goal),
+                    'accounts' => number_format($figures->accounts),
+                    'accountRate' => self::percent($figures->accounts, $figures->newVisitors()).' of new',
+                    'costPerAccount' => $figures->costPerAccount() === null ? '—' : TrafficMoney::format($figures->costPerAccount()),
+                    'spent' => TrafficMoney::format($figures->spend).' spent',
+                    'perVisitor' => self::perVisitor($figures->value(), $figures->opened),
+                    'roi' => $roi === null ? '—' : ($roi > 0 ? '+' : '').number_format($roi, 0).'%',
+                    'roiTone' => $roi === null || abs($roi) < 0.5 ? null : ($roi > 0 ? 'good' : 'bad'),
+                ];
+            })->values()->all(),
         ];
+    }
+
+    /**
+     * Every visitor of the game by where they came from: the ad networks,
+     * the banners and links and the unpaid ways in, each with its sources —
+     * how many opened the game, started, finished and reached the goal, what
+     * a visitor was worth and cost — and all of them together.
+     *
+     * @param  Collection<int, array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>  $traffic
+     * @param  array<int, int>  $campaigns
+     * @return array<string, mixed>|null
+     */
+    private static function sourceRows(Game $game, Collection $traffic, string $device, array $campaigns): ?array
+    {
+        if ($traffic->isEmpty()) {
+            return null;
+        }
+
+        $rows = in_array($device, ['mobile', 'desktop'], true) ? $traffic->where('device', $device) : $traffic;
+        $sources = TrafficSource::query()->whereIn('id', $rows->pluck('source_id')->filter()->unique())->get()->keyBy('id');
+        $types = ['network' => 'Ad networks', 'placement' => 'Banners & links', 'unpaid' => 'Unpaid'];
+        $channels = [
+            'internal' => ['Inside RateGuru', 'The feed, a post page or another game'],
+            'shared' => ['Shared results', 'Opened from a shared result'],
+            'referral' => ['Other sites', 'A link on another site'],
+            'search' => ['Search', 'A search engine'],
+            'direct' => ['Direct', 'No referrer'],
+        ];
+        $report = fn (array $filters): string => TrafficSourcesPage::getUrl(array_filter(['game' => $game->id, 'device' => $device !== 'all' ? $device : null, ...$filters]));
+        $groups = [];
+
+        foreach ($types as $type => $label) {
+            $ofType = $rows->filter(fn (array $row): bool => ($type === 'unpaid' ? $row['source_id'] === null : $row['channel'] === $type && $row['source_id'] !== null));
+
+            if ($ofType->isEmpty()) {
+                continue;
+            }
+
+            $children = $type === 'unpaid'
+                ? $ofType->groupBy('channel')->map(fn (Collection $group, string $channel): array => self::sourceRow($channels[$channel][0] ?? ucfirst($channel), $channels[$channel][1] ?? '', self::sum($group), false, $report(['type' => 'unpaid'])))
+                : $ofType->groupBy('source_id')->map(fn (Collection $group, int|string $id): array => self::sourceRow(
+                    $sources[(int) $id]->name ?? 'Source #'.$id,
+                    $type === 'network' ? number_format($campaigns[(int) $id] ?? 0).' '.str('campaign')->plural($campaigns[(int) $id] ?? 0) : ($sources[(int) $id]->place_site ?? 'A banner or link'),
+                    self::sum($group),
+                    true,
+                    $report(['source' => (int) $id]),
+                ));
+            $groups[] = [
+                ...self::sourceRow($label, $children->count().' '.str('source')->plural($children->count()), self::sum($ofType), $type !== 'unpaid', $report(['type' => $type])),
+                'children' => $children->sortByDesc('opened')->values()->all(),
+            ];
+        }
+
+        $all = self::sum($rows);
+        $paid = self::sum($rows->where('source_id', '!==', null));
+        $roi = $paid->roi();
+
+        return [
+            'note' => 'Every visitor of '.$game->title.' by where they came from. A visitor is a visit that opened the page. Click a row to open it in Traffic sources.',
+            'reportUrl' => $report([]),
+            'groups' => $groups,
+            'total' => [
+                ...self::sourceRow('All visitors', 'Every source', $all, false, $report([])),
+                'cost' => $paid->opened > 0 ? self::perVisitor(TrafficMoney::of($paid->spend), $paid->opened) : '—',
+                'costNote' => 'paid visitors',
+                'roi' => $roi === null ? '—' : ($roi > 0 ? '+' : '').number_format($roi, 0).'%',
+                'roiNote' => 'paid only',
+                'roiTone' => $roi === null || abs($roi) < 0.5 ? null : ($roi > 0 ? 'good' : 'bad'),
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> one row of the Traffic sources card */
+    private static function sourceRow(string $name, string $sub, ReportFigures $figures, bool $paid, string $url): array
+    {
+        $roi = $paid ? $figures->roi() : null;
+
+        return [
+            'name' => $name,
+            'sub' => $sub,
+            'url' => $url,
+            'opened' => $figures->opened,
+            'cells' => [
+                [number_format($figures->opened), number_format($figures->visits).' '.str('visit')->plural($figures->visits)],
+                [number_format($figures->started), self::percent($figures->started, $figures->opened)],
+                [number_format($figures->completed), self::percent($figures->completed, $figures->started)],
+                [number_format($figures->goal), self::percent($figures->goal, $figures->completed)],
+            ],
+            'value' => self::perVisitor($figures->value(), $figures->opened),
+            'cost' => $paid ? self::perVisitor(TrafficMoney::of($figures->spend), $figures->opened) : '—',
+            'costNote' => $paid ? null : 'unpaid',
+            'roi' => $paid ? ($roi === null ? '—' : ($roi > 0 ? '+' : '').number_format($roi, 0).'%') : '—',
+            'roiNote' => null,
+            'roiTone' => $roi === null || abs($roi) < 0.5 ? null : ($roi > 0 ? 'good' : 'bad'),
+        ];
+    }
+
+    /**
+     * @template TKey of array-key
+     * @template TRow of array{figures: ReportFigures}
+     *
+     * @param  Collection<TKey, TRow>  $rows
+     */
+    private static function sum(Collection $rows): ReportFigures
+    {
+        return $rows->reduce(fn (ReportFigures $total, array $row): ReportFigures => $total->plus($row['figures']), new ReportFigures);
+    }
+
+    private static function perVisitor(BigDecimal $amount, int $visitors): string
+    {
+        return $visitors === 0 ? '—' : TrafficMoney::fine($amount->dividedBy($visitors, 8, RoundingMode::HalfUp));
+    }
+
+    private static function dates(CarbonImmutable $from, CarbonImmutable $until): string
+    {
+        return $from->format('d M').' — '.$until->subSecond()->format('d M Y');
+    }
+
+    /**
+     * How a figure moved against the window before: up or down by how much,
+     * or that the window before had none.
+     *
+     * @return array{text: string, tone: string|null}|null
+     */
+    private static function change(float $now, ?float $before): ?array
+    {
+        if ($before === null) {
+            return null;
+        }
+
+        if ($before <= 0.0) {
+            return ['text' => $now > 0.0 ? 'No earlier data' : '', 'tone' => null];
+        }
+
+        $moved = ($now - $before) * 100 / $before;
+
+        return abs($moved) < 0.5
+            ? ['text' => 'Same as previous period', 'tone' => null]
+            : ['text' => ($moved > 0 ? '▲ ' : '▼ ').number_format(abs($moved), 0).'% vs previous period', 'tone' => $moved > 0 ? 'good' : 'bad'];
+    }
+
+    /**
+     * The funnel's rows, each with how its count moved against the same row
+     * of the window before.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @param  list<array<string, mixed>>|null  $before
+     * @return list<array<string, mixed>>
+     */
+    private static function withChanges(array $rows, ?array $before): array
+    {
+        $earlier = collect($before ?? [])->keyBy('label');
+
+        return array_map(fn (array $row): array => [
+            ...$row,
+            'change' => $before === null ? null : self::change((float) $row['people'], isset($earlier[$row['label']]) ? (float) $earlier[$row['label']]['people'] : 0.0),
+        ], $rows);
     }
 
     private static function windowStart(string $period, CarbonImmutable $now): CarbonImmutable
@@ -189,35 +428,36 @@ final class GameAnalytics extends Page
     }
 
     /**
-     * Started counts people, as Visitors does; Completion is of plays, a
-     * replay one more.
+     * People at every step, as the funnel counts them, and what the window's
+     * visits were worth, each against the window before.
      *
-     * @return list<array{label: string, value: string, note: string}>
+     * @return list<array{label: string, value: string, note: string, change: array{text: string, tone: string|null}|null}>
      */
-    private static function anonymousKpis(GameFunnel $total, int $finishedWithEmail, bool $asksForEmail, bool $oneVersion): array
+    private static function anonymousKpis(GameFunnel $total, ?GameFunnel $before, ReportFigures $worth, ?ReportFigures $worthBefore, string $goal): array
     {
-        $noEmail = $oneVersion ? 'This version doesn’t ask for an email' : 'No version asks for an email';
-
         return [
-            ['label' => 'Visitors', 'value' => number_format($total->visitors), 'note' => 'People who opened the game'],
-            ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of visitors'],
-            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
-            ['label' => 'Goal reached', 'value' => self::percent($total->goalReached, $total->started), 'note' => number_format($total->goalReached).' of '.number_format($total->started).' '.str('play')->plural($total->started)],
-            ['label' => 'Email capture', 'value' => $asksForEmail ? self::percent($total->emailers, $finishedWithEmail) : '—', 'note' => $asksForEmail ? number_format($total->emails).' '.str('email')->plural($total->emails) : $noEmail],
-            ['label' => 'New accounts', 'value' => number_format($total->registered), 'note' => self::percent($total->registered, $total->visitors).' of visitors'],
-            ['label' => 'Signed in', 'value' => number_format($total->signedIn), 'note' => 'Existing accounts'],
+            ['label' => 'Visitors', 'value' => number_format($total->visitors), 'note' => 'People who opened the game', 'change' => self::change($total->visitors, $before?->visitors)],
+            ['label' => 'Game started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of visitors', 'change' => self::change($total->starters, $before?->starters)],
+            ['label' => 'Completed', 'value' => number_format($total->finishers), 'note' => self::percent($total->finishers, $total->starters).' of starters', 'change' => self::change($total->finishers, $before?->finishers)],
+            ['label' => 'Goal reached', 'value' => number_format($total->goalPeople), 'note' => self::percent($total->goalPeople, $total->finishers).' of completed · '.$goal, 'change' => self::change($total->goalPeople, $before?->goalPeople)],
+            [
+                'label' => 'Value',
+                'value' => $worth->visits === 0 ? '—' : TrafficMoney::format($worth->value()),
+                'note' => $worth->visits === 0 ? 'No visits recorded in Traffic sources' : self::perVisitor($worth->value(), $worth->opened).' per visitor · accounts at what one brings',
+                'change' => $worth->visits === 0 ? null : self::change((float) (string) $worth->value(), $worthBefore === null ? null : (float) (string) $worthBefore->value()),
+            ],
         ];
     }
 
-    /** @return list<array{label: string, value: string, note: string}> */
-    private static function playerKpis(GameFunnel $total): array
+    /** @return list<array{label: string, value: string, note: string, change: array{text: string, tone: string|null}|null}> */
+    private static function playerKpis(GameFunnel $total, ?GameFunnel $before): array
     {
         return [
-            ['label' => 'Players', 'value' => number_format($total->visitors), 'note' => 'Logged-in players who opened the game'],
-            ['label' => 'Started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of players'],
-            ['label' => 'Completion', 'value' => self::percent($total->completed, $total->started), 'note' => self::plays($total)],
-            ['label' => 'Shared', 'value' => self::percent($total->shared, $total->completed), 'note' => number_format($total->shared).' '.str('result')->plural($total->shared).' shared'],
-            ['label' => 'Played again', 'value' => number_format($total->replayers), 'note' => 'Players who started more than once'],
+            ['label' => 'Players', 'value' => number_format($total->visitors), 'note' => 'Logged-in players who opened the game', 'change' => self::change($total->visitors, $before?->visitors)],
+            ['label' => 'Game started', 'value' => number_format($total->starters), 'note' => self::percent($total->starters, $total->visitors).' of players', 'change' => self::change($total->starters, $before?->starters)],
+            ['label' => 'Completed', 'value' => number_format($total->finishers), 'note' => self::percent($total->finishers, $total->starters).' of starters · '.self::plays($total), 'change' => self::change($total->finishers, $before?->finishers)],
+            ['label' => 'Shared', 'value' => self::percent($total->shared, $total->completed), 'note' => number_format($total->shared).' '.str('result')->plural($total->shared).' shared', 'change' => self::change($total->shared, $before?->shared)],
+            ['label' => 'Played again', 'value' => number_format($total->replayers), 'note' => 'Players who started more than once', 'change' => self::change($total->replayers, $before?->replayers)],
         ];
     }
 
@@ -297,6 +537,7 @@ final class GameAnalytics extends Page
         return array_map(fn (array $step): array => [
             'label' => $step[0],
             'hint' => $step[4],
+            'people' => $step[1],
             'count' => number_format($step[1]),
             'bar' => $start > 0 ? min(100, round($step[1] * 100 / $start, 1)) : 0,
             'rate' => $step[2] === null ? '—' : self::percent($step[1], $step[2]),
@@ -359,8 +600,8 @@ final class GameAnalytics extends Page
     private static function breakdownRows(string $by, array $funnels, Collection $versions, GameAudience $audience): array
     {
         $head = $audience === GameAudience::Anonymous
-            ? [self::BREAKDOWNS[$by], 'Visitors', 'Started', 'Completed', 'Emails', 'New accounts']
-            : [self::BREAKDOWNS[$by], 'Players', 'Started', 'Completed', 'Shared', 'Played again'];
+            ? [self::BREAKDOWNS[$by], 'Visitors', 'Started', 'Completed', 'Goal', 'Emails', 'Accounts']
+            : [self::BREAKDOWNS[$by], 'Players', 'Started', 'Completed', 'Goal', 'Shared', 'Played again'];
         $rows = [];
 
         foreach ($funnels as $key => $funnel) {
@@ -387,6 +628,7 @@ final class GameAnalytics extends Page
                         [number_format($funnel->visitors), null],
                         [number_format($funnel->starters), self::percent($funnel->starters, $funnel->visitors)],
                         [number_format($funnel->finishers), self::percent($funnel->finishers, $funnel->starters)],
+                        [number_format($funnel->goalPeople), self::percent($funnel->goalPeople, $funnel->finishers)],
                         [number_format($funnel->emailers), self::percent($funnel->emailers, $funnel->finishers)],
                         [number_format($funnel->registered), self::percent($funnel->registered, $funnel->visitors)],
                     ]
@@ -394,6 +636,7 @@ final class GameAnalytics extends Page
                         [number_format($funnel->visitors), null],
                         [number_format($funnel->starters), self::percent($funnel->starters, $funnel->visitors)],
                         [number_format($funnel->finishers), self::percent($funnel->finishers, $funnel->starters)],
+                        [number_format($funnel->goalPeople), self::percent($funnel->goalPeople, $funnel->finishers)],
                         [number_format($funnel->sharers), self::percent($funnel->sharers, $funnel->finishers)],
                         [number_format($funnel->replayers), self::percent($funnel->replayers, $funnel->starters)],
                     ],

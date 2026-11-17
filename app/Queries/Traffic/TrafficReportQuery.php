@@ -182,19 +182,21 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
     }
 
     /**
-     * A game's visits since a moment, by type, source, version and device,
-     * with each group's first visit: the game's Traffic sources card and the
-     * comparison of its versions on paid traffic, in one pass.
+     * A game's visits since a moment, and before another when given, by type,
+     * source, version and device, with each group's first visit: the game's
+     * Traffic sources card and the comparison of its versions on paid
+     * traffic, in one pass.
      *
      * @return list<array{channel: string, source_id: int|null, version_id: int|null, device: string, first_at: CarbonImmutable, figures: ReportFigures}>
      */
-    public function gameBreakdown(int $gameId, CarbonImmutable $since): array
+    public function gameBreakdown(int $gameId, CarbonImmutable $since, ?CarbonImmutable $until = null): array
     {
         [$metrics, $bindings] = self::metrics();
 
         return TrafficVisit::query()
             ->where('game_id', $gameId)
             ->where('arrived_at', '>=', $since)
+            ->when($until !== null, fn (Builder $query) => $query->where('arrived_at', '<', $until))
             ->groupBy('channel', 'source_id', 'version_id', 'device')
             ->select('channel', 'source_id', 'version_id', 'device')
             ->selectRaw('MIN(arrived_at) AS first_at, '.$metrics, $bindings)
@@ -208,6 +210,24 @@ final class TrafficReportQuery implements RawSqlPersistenceBoundary
                 'first_at' => CarbonImmutable::parse((string) $row->first_at),
                 'figures' => ReportFigures::fromRow($row),
             ])
+            ->all();
+    }
+
+    /**
+     * How many campaigns brought a game's visits in a window, by source.
+     *
+     * @return array<int, int>
+     */
+    public function gameCampaigns(int $gameId, CarbonImmutable $since, CarbonImmutable $until): array
+    {
+        return TrafficVisit::query()
+            ->where('game_id', $gameId)
+            ->where('arrived_at', '>=', $since)
+            ->where('arrived_at', '<', $until)
+            ->whereNotNull('campaign_id')
+            ->distinct()
+            ->get(['source_id', 'campaign_id'])
+            ->countBy(fn (TrafficVisit $visit): int => (int) $visit->source_id)
             ->all();
     }
 

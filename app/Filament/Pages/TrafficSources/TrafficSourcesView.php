@@ -1160,12 +1160,12 @@ final class TrafficSourcesView
                 'formats' => implode(' · ', $preset['formats']),
                 'api' => $preset['connector'] !== null,
                 'custom' => (bool) ($preset['custom'] ?? false),
-                'chips' => array_values(array_filter([
+                'chips' => [
                     ['Link', 'link', false],
                     [($preset['postback']['url_template'] ?? '') === '' ? 'Postbacks: paste the address' : 'Postbacks', 'arrow-up-right', false],
                     $preset['connector'] !== null ? ['Spend via API', 'refresh-cw', true] : (collect($preset['link_params'])->contains('kind', 'cost') ? ['Cost in each click', 'link', false] : ['Spend: your rate', 'smartphone', false]),
                     $preset['connector'] !== null ? ['Blocking via API', 'ban', true] : ['Blocking by hand', 'ban', false],
-                ])),
+                ],
                 'note' => match (true) {
                     (bool) ($preset['custom'] ?? false) => 'Any network without a preset. Link, postbacks and reports work the same: you type in its tokens and postback address and check them with Check a link.',
                     $preset['connector'] !== null => 'Read through the RateGuru connector: spend, campaigns and blocking.',

@@ -102,7 +102,7 @@ it('shows the game’s paid traffic by source on its analytics, and compares its
 
     $this->get(GameResource::getUrl('analytics', ['record' => $this->draft['game']]))
         ->assertOk()
-        ->assertSee('Paid traffic · last 30 days')
-        ->assertSee('PopAds main')
-        ->assertSee('3 visits');
+        ->assertSee('Versions on paid traffic')
+        ->assertSee('No paid visitor reached a version in this period.')
+        ->assertSeeInOrder(['Traffic sources', 'Ad networks', 'PopAds main', '3 visits']);
 });

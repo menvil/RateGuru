@@ -13959,7 +13959,11 @@
     }
 
     .rg-admin-games__analytics-scope {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
         margin-left: auto;
+        text-align: right;
     }
 
     .rg-admin-games__kpis {
@@ -13985,16 +13989,118 @@
         --rg-admin-table-min-width: 680px;
     }
 
+    .rg-admin-games__funnel--compared {
+        --rg-admin-table-columns: minmax(200px, 1.4fr) minmax(120px, 1fr) 90px 120px 100px 130px;
+        --rg-admin-table-min-width: 800px;
+    }
+
     .rg-admin-games__breakdown {
-        --rg-admin-table-columns: minmax(180px, 1.6fr) repeat(5, minmax(96px, 1fr));
-        --rg-admin-table-min-width: 760px;
+        --rg-admin-table-columns: minmax(180px, 1.6fr) repeat(6, minmax(90px, 1fr));
+        --rg-admin-table-min-width: 820px;
+    }
+
+    .rg-admin-games__paid-versions {
+        --rg-admin-table-columns: minmax(200px, 1.6fr) repeat(8, minmax(84px, 1fr));
+        --rg-admin-table-min-width: 1000px;
+    }
+
+    .rg-admin-games__sources {
+        --rg-admin-table-columns: minmax(200px, 1.6fr) repeat(7, minmax(84px, 1fr));
+        --rg-admin-table-min-width: 900px;
     }
 
     .rg-admin-games__funnel .rg-admin-table__cell--numeric,
-    .rg-admin-games__breakdown .rg-admin-table__cell--numeric {
+    .rg-admin-games__breakdown .rg-admin-table__cell--numeric,
+    .rg-admin-games__paid-versions .rg-admin-table__cell--numeric,
+    .rg-admin-games__sources .rg-admin-table__cell--numeric {
         display: flex;
         flex-direction: column;
         align-items: flex-end;
+    }
+
+    .rg-admin-games__change--good {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-games__change--bad {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-games__card-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--rg-admin-space-2);
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    @media (max-width: 767.98px) {
+        .rg-admin-games .rg-admin-card__header--aside:has(.rg-admin-games__card-tools) {
+            flex-wrap: wrap;
+        }
+
+        .rg-admin-games__card-tools {
+            justify-content: flex-start;
+        }
+    }
+
+    .rg-admin-games__card-foot {
+        margin: var(--rg-admin-space-3) 0 0;
+    }
+
+    .rg-admin-games__verdict {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--rg-admin-space-3);
+        margin-bottom: var(--rg-admin-space-3);
+        padding: var(--rg-admin-space-3);
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 13px;
+    }
+
+    .rg-admin-games__verdict--leader {
+        border-color: var(--rg-admin-status-success-dot);
+        background: var(--rg-admin-status-success-bg);
+    }
+
+    .rg-admin-games__verdict > svg {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    .rg-admin-games__verdict-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .rg-admin-games__sources-group,
+    .rg-admin-games__sources-total {
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-games__sources-group .rg-admin-games__sources-link,
+    .rg-admin-games__sources-total .rg-admin-games__sources-link {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-games__sources-child > .rg-admin-table__cell:first-child {
+        padding-left: calc(var(--rg-admin-space-3) + 14px);
+    }
+
+    .rg-admin-games__sources-link {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .rg-admin-games__sources-link:hover {
+        text-decoration: underline;
     }
 
     .rg-admin-games__bar {

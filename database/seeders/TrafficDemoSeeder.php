@@ -12,6 +12,7 @@ use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSpendBasis;
 use App\Enums\TrafficSpendOrigin;
 use App\Models\Game;
+use App\Models\GameVersion;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
@@ -88,6 +89,7 @@ final class TrafficDemoSeeder extends Seeder
         }
 
         $game = Game::query()->orderBy('id')->first();
+        $version = $game === null ? null : GameVersion::query()->where('game_id', $game->id)->orderByDesc('number')->first();
         $prices = TrafficPriceSet::current();
 
         for ($i = 0; $i < 900; $i++) {
@@ -114,6 +116,7 @@ final class TrafficDemoSeeder extends Seeder
                 'country' => $country,
                 'city' => $city,
                 'game_id' => $game?->id,
+                'version_id' => $opened ? $version?->id : null,
                 'price_set_id' => $prices->id,
                 'country_group' => $group['key'],
                 'worth_percent' => $group['percent'],
@@ -127,6 +130,7 @@ final class TrafficDemoSeeder extends Seeder
                 'completed_at' => $completed ? $arrived->addMinutes(3) : null,
                 'signup_at' => $account ? $arrived->addMinutes(5) : null,
                 'account_at' => $account ? $arrived->addMinutes(9) : null,
+                'goal_at' => $account ? $arrived->addMinutes(9) : null,
                 'account_after_seconds' => $account ? 540 : null,
                 'signup_place' => $account ? 'game' : null,
                 'rounds_answered' => $completed ? 5 : ($started ? mt_rand(1, 4) : 0),

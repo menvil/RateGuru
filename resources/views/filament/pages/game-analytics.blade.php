@@ -1,10 +1,11 @@
 @php
     /*
-     * A game's Analytics tab (GameAnalytics): one audience over a window, for
-     * every version or one — the figures, the funnel, the rounds reached and
-     * the results earned in one version, the versions, flows or content sets
-     * side by side, and the traffic periods. Every figure is read from what
-     * playing recorded.
+     * A game's Analytics tab (GameAnalytics), as the reference draws it: one
+     * audience over a window, for every version or one, against the window
+     * before — the figures and what the visits were worth, the versions on
+     * paid traffic compared, the visitors by where they came from, the
+     * funnel, the rounds reached and the results earned in one version, the
+     * versions, flows or content sets side by side, and the traffic periods.
      */
 @endphp
 
@@ -18,7 +19,11 @@
             @if (! $noVersions)
                 <x-admin.ui.filter-dropdown label="Version" id="rg-admin-games-analytics-version" :options="$versionOptions" :value="(string) $version" wire:model.live="version" />
             @endif
-            <span class="rg-admin-games__note rg-admin-games__analytics-scope" role="status">{{ $scopeText }}</span>
+            <span class="rg-admin-games__note rg-admin-games__analytics-scope" role="status">
+                <span>{{ $scopeText }}</span>
+                @if ($datesText !== null)<span>{{ $datesText }}</span>@endif
+            </span>
+            <x-admin.ui.button size="sm" icon="circle-dollar-sign" :href="$valueUrl">Step prices</x-admin.ui.button>
         </div>
 
         @if ($noVersions)
@@ -30,34 +35,147 @@
                     </x-slot:action>
                 </x-admin.ui.empty-state>
             </x-admin.ui.card>
-        @elseif ($noData)
-            <x-admin.ui.card>
-                <x-admin.ui.empty-state icon="chart-no-axes-column" title="No visitors here yet">
-                    Nobody of this group opened {{ $version > 0 ? 'this version' : 'the game' }} in this period. Try a longer period or the other group.
-                </x-admin.ui.empty-state>
-            </x-admin.ui.card>
         @else
-            <x-admin.ui.card>
-                <dl class="rg-admin-games__kpis" data-testid="game-analytics-kpis">
-                    @foreach ($kpis as $kpi)
-                        <div class="rg-admin-games__kpi">
-                            <dt class="rg-admin-stat__label">{{ $kpi['label'] }}</dt>
-                            <dd class="rg-admin-stat__value">{{ $kpi['value'] }}</dd>
-                            <dd class="rg-admin-games__note">{{ $kpi['note'] }}</dd>
+            @if ($noData)
+                <x-admin.ui.card>
+                    <x-admin.ui.empty-state icon="chart-no-axes-column" title="No visitors here yet">
+                        Nobody of this group opened {{ $version > 0 ? 'this version' : 'the game' }} in this period. Try a longer period or the other group.
+                    </x-admin.ui.empty-state>
+                </x-admin.ui.card>
+            @else
+                <x-admin.ui.card>
+                    <dl class="rg-admin-games__kpis" data-testid="game-analytics-kpis">
+                        @foreach ($kpis as $kpi)
+                            <div class="rg-admin-games__kpi">
+                                <dt class="rg-admin-stat__label">{{ $kpi['label'] }}</dt>
+                                <dd class="rg-admin-stat__value">{{ $kpi['value'] }}</dd>
+                                <dd class="rg-admin-games__note">{{ $kpi['note'] }}</dd>
+                                @if (($kpi['change']['text'] ?? '') !== '')
+                                    <dd @class(['rg-admin-games__note rg-admin-games__change', 'rg-admin-games__change--good' => $kpi['change']['tone'] === 'good', 'rg-admin-games__change--bad' => $kpi['change']['tone'] === 'bad'])>{{ $kpi['change']['text'] }}</dd>
+                                @endif
+                            </div>
+                        @endforeach
+                    </dl>
+                </x-admin.ui.card>
+            @endif
+
+            @if ($paid !== null)
+                <x-admin.ui.card title="Versions on paid traffic" :description="$paid['note']" data-testid="game-paid-versions">
+                    <x-slot:aside>
+                        <div class="rg-admin-games__card-tools">
+                        <div class="rg-admin-traffic__views" role="radiogroup" aria-label="Paid source">
+                            @foreach ($paid['sources'] as $key => $label)
+                                <button type="button" role="radio" aria-checked="{{ $paid['source'] === (string) $key ? 'true' : 'false' }}" @class(['rg-admin-traffic__view', 'rg-admin-traffic__view--on' => $paid['source'] === (string) $key]) wire:click="$set('paidSource', {{ (int) $key }})">{{ $label }}</button>
+                            @endforeach
                         </div>
-                    @endforeach
-                </dl>
-            </x-admin.ui.card>
+                        <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$paid['reportUrl']">Open report</x-admin.ui.button>
+                        </div>
+                    </x-slot:aside>
+                    @if ($paid['comparison'] !== null)
+                        @php($c = $paid['comparison'])
+                        <div @class(['rg-admin-games__verdict', 'rg-admin-games__verdict--leader' => $c['verdict'] === 'leader']) data-testid="game-version-comparison">
+                            <x-admin.ui.icon :name="$c['verdict'] === 'leader' ? 'trophy' : 'activity'" :size="16" />
+                            <div class="rg-admin-games__verdict-text">
+                                <strong>{{ match ($c['verdict']) {
+                                    'leader' => $c['a'].' brings more accounts',
+                                    'ahead' => $c['a'].' is ahead, not sure yet',
+                                    'too_early' => 'Too early to call',
+                                    default => 'No clear difference yet',
+                                } }}</strong>
+                                <span>{{ $c['rateA'] }} of new visitors end up a confirmed account on {{ $c['a'] }}, against {{ $c['rateB'] }} on {{ $c['b'] }}.
+                                    {{ match ($c['verdict']) {
+                                        'leader' => 'Sure enough ('.number_format($c['confidence'] * 100, 0).'%): a gap this size is unlikely to be chance.',
+                                        'ahead' => number_format($c['confidence'] * 100, 0).'% sure; about '.number_format((int) $c['needed']).' new visitors on each would tell.',
+                                        'too_early' => 'Fewer than 10 accounts on one of them: let more visitors through before reading anything into it.',
+                                        default => 'The gap is small enough to be chance.',
+                                    } }}</span>
+                                <span class="rg-admin-games__note">{{ $c['earlier'] }}</span>
+                            </div>
+                            <x-admin.ui.button size="sm" :href="$trafficUrl">Change shares</x-admin.ui.button>
+                        </div>
+                    @endif
+                    @if ($paid['rows'] === [])
+                        <p class="rg-admin-games__note">No paid visitor reached a version in this period.</p>
+                    @else
+                        <div class="rg-admin-table__scroll">
+                            <div class="rg-admin-table__grid rg-admin-games__paid-versions" role="table" aria-label="Versions on paid traffic">
+                                <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
+                                    @foreach (['Version', 'Share', 'New visitors', 'Finished', 'Flow goal', 'Accounts', 'Cost / account', 'Value / visitor', 'ROI'] as $index => $column)
+                                        <div @class(['rg-admin-table__cell', 'rg-admin-table__cell--numeric' => $index > 0]) role="columnheader">{{ $column }}</div>
+                                    @endforeach
+                                </div>
+                                @foreach ($paid['rows'] as $row)
+                                    <div class="rg-admin-table__row" role="row">
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
+                                            <div class="rg-admin-table__primary">{{ $row['name'] }} @if ($row['ahead'])<x-admin.ui.badge tone="success">Ahead</x-admin.ui.badge>@endif</div>
+                                            <div class="rg-admin-table__meta">{{ $row['sub'] }}</div>
+                                        </div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['share'] }}<span class="rg-admin-table__meta">{{ $row['shareNote'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['newVisitors'] }}<span class="rg-admin-table__meta">{{ $row['clicks'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['finished'] }}<span class="rg-admin-table__meta">{{ $row['finishedCount'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['goal'] }}<span class="rg-admin-table__meta">{{ $row['goalCount'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell"><strong @class(['rg-admin-games__change--good' => $row['ahead']])>{{ $row['accounts'] }}</strong><span class="rg-admin-table__meta">{{ $row['accountRate'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['costPerAccount'] }}<span class="rg-admin-table__meta">{{ $row['spent'] }}</span></div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['perVisitor'] }}</div>
+                                        <div @class(['rg-admin-table__cell rg-admin-table__cell--numeric', 'rg-admin-games__change--good' => $row['roiTone'] === 'good', 'rg-admin-games__change--bad' => $row['roiTone'] === 'bad']) role="cell">{{ $row['roi'] }}</div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                    <p class="rg-admin-games__note rg-admin-games__card-foot">Every version gets the same networks, zones, devices and countries, because the version is picked after the click; a visitor keeps theirs when they come back. Step worth and postbacks stay one for the whole game: versions come and go, and splitting them would thin the data. The comparison uses what visitors did.</p>
+                </x-admin.ui.card>
+            @endif
+
+            @if ($sources !== null)
+                <x-admin.ui.card title="Traffic sources" :description="$sources['note']" data-testid="game-traffic-sources">
+                    <x-slot:aside>
+                        <div class="rg-admin-games__card-tools">
+                        <x-admin.ui.segmented label="Device" compact :options="['all' => 'All devices', 'mobile' => 'Mobile', 'desktop' => 'Desktop']" :value="$sourcesDevice" wire:model.live="sourcesDevice" />
+                        <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$sources['reportUrl']">Open report</x-admin.ui.button>
+                        </div>
+                    </x-slot:aside>
+                    <div class="rg-admin-table__scroll">
+                        <div class="rg-admin-table__grid rg-admin-games__sources" role="table" aria-label="Traffic sources">
+                            <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
+                                @foreach (['Source', 'Visitors', 'Started', 'Finished', 'Goal', 'Value / visitor', 'Cost / visitor', 'ROI'] as $index => $column)
+                                    <div @class(['rg-admin-table__cell', 'rg-admin-table__cell--numeric' => $index > 0]) role="columnheader">{{ $column }}</div>
+                                @endforeach
+                            </div>
+                            @foreach ([...$sources['groups'], ['total' => true, ...$sources['total']]] as $group)
+                                @foreach ([$group, ...($group['children'] ?? [])] as $row)
+                                    @php($top = $loop->first)
+                                    <div @class(['rg-admin-table__row', 'rg-admin-games__sources-group' => $top && ! isset($group['total']), 'rg-admin-games__sources-total' => isset($group['total']), 'rg-admin-games__sources-child' => ! $top]) role="row">
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--padded" role="cell">
+                                            <a class="rg-admin-table__primary rg-admin-games__sources-link" href="{{ $row['url'] }}">{{ $row['name'] }}</a>
+                                            <div class="rg-admin-table__meta">{{ $row['sub'] }}</div>
+                                        </div>
+                                        @foreach ($row['cells'] as [$value, $note])
+                                            <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $value }}<span class="rg-admin-table__meta">{{ $note }}</span></div>
+                                        @endforeach
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['value'] }}</div>
+                                        <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $row['cost'] }}@if ($row['costNote'] !== null)<span class="rg-admin-table__meta">{{ $row['costNote'] }}</span>@endif</div>
+                                        <div @class(['rg-admin-table__cell rg-admin-table__cell--numeric', 'rg-admin-games__change--good' => $row['roiTone'] === 'good', 'rg-admin-games__change--bad' => $row['roiTone'] === 'bad']) role="cell">{{ $row['roi'] }}@if ($row['roiNote'] !== null)<span class="rg-admin-table__meta">{{ $row['roiNote'] }}</span>@endif</div>
+                                    </div>
+                                @endforeach
+                            @endforeach
+                        </div>
+                    </div>
+                </x-admin.ui.card>
+            @endif
+
+            @unless ($noData)
 
             <x-admin.ui.card title="Funnel" description="People at every step, each counted once — someone who played three times started once — from the attempts started in this period, however late they finished. Completion above counts plays.">
                 <div class="rg-admin-table__scroll">
-                    <div class="rg-admin-table__grid rg-admin-games__funnel" role="table" aria-label="Funnel">
+                    <div @class(['rg-admin-table__grid rg-admin-games__funnel', 'rg-admin-games__funnel--compared' => $compared]) role="table" aria-label="Funnel">
                         <div class="rg-admin-table__row rg-admin-table__row--head" role="row">
                             <div class="rg-admin-table__cell" role="columnheader">Step</div>
                             <div class="rg-admin-table__cell" role="columnheader"><span class="sr-only">Share of the first step</span></div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Count</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Rate</div>
                             <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">From first</div>
+                            @if ($compared)<div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="columnheader">Vs previous period</div>@endif
                         </div>
                         @foreach ($funnel as $step)
                             <div class="rg-admin-table__row" role="row">
@@ -78,6 +196,9 @@
                                     @endif
                                 </div>
                                 <div class="rg-admin-table__cell rg-admin-table__cell--numeric" role="cell">{{ $step['fromStart'] }}</div>
+                                @if ($compared)
+                                    <div @class(['rg-admin-table__cell rg-admin-table__cell--numeric rg-admin-games__note', 'rg-admin-games__change--good' => ($step['change']['tone'] ?? null) === 'good', 'rg-admin-games__change--bad' => ($step['change']['tone'] ?? null) === 'bad']) role="cell">{{ $step['change']['text'] ?? '' }}</div>
+                                @endif
                             </div>
                         @endforeach
                     </div>
@@ -158,32 +279,7 @@
                     </div>
                 @endif
             </x-admin.ui.card>
-        @endif
-
-        @if ($paid['sources'] !== [])
-            <x-admin.ui.card title="Paid traffic · last 30 days" description="Visits paid for through Traffic sources, with the accounts they brought and what they cost." data-testid="game-paid-traffic">
-                <ul class="rg-admin-games__profiles">
-                    @foreach ($paid['sources'] as $row)
-                        <li class="rg-admin-games__profile">
-                            <span class="rg-admin-games__mechanic-text">
-                                <span class="rg-admin-games__mechanic-name">{{ $row['name'] }}</span>
-                                <span class="rg-admin-games__note">{{ number_format($row['figures']->visits) }} visits · {{ number_format($row['figures']->newVisitors()) }} new visitors · {{ number_format($row['figures']->accounts) }} accounts · {{ \App\Support\Traffic\Money\TrafficMoney::format($row['figures']->spend) }} spent · worth {{ \App\Support\Traffic\Money\TrafficMoney::format($row['figures']->value()) }}</span>
-                            </span>
-                        </li>
-                    @endforeach
-                </ul>
-                @if ($paid['comparison'] !== null)
-                    <p class="rg-admin-games__note" data-testid="game-version-comparison">
-                        {{ $paid['comparison']['a'] }} against {{ $paid['comparison']['b'] }}:
-                        {{ match ($paid['comparison']['verdict']) {
-                            'too_early' => 'too early to call — fewer than 10 accounts on one of them.',
-                            'leader' => $paid['comparison']['a'].' brings more accounts ('.number_format($paid['comparison']['confidence'] * 100, 0).'% sure).',
-                            'ahead' => $paid['comparison']['a'].' is ahead, not sure yet ('.number_format($paid['comparison']['confidence'] * 100, 0).'%); about '.number_format((int) $paid['comparison']['needed']).' new visitors each would tell.',
-                            default => 'no clear difference yet.',
-                        } }}
-                    </p>
-                @endif
-            </x-admin.ui.card>
+            @endunless
         @endif
 
         @if (! $noVersions)

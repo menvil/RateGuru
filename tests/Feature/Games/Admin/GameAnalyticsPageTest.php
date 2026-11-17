@@ -3,11 +3,15 @@
 use App\Actions\Games\ChangeGameFlowAction;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Enums\GameAudience;
+use App\Enums\TrafficChannel;
+use App\Enums\TrafficDevice;
 use App\Filament\Resources\Games\GameResource;
 use App\Filament\Resources\Games\Pages\GameAnalytics;
 use App\Livewire\Games\PlayGame;
 use App\Models\GameAttempt;
 use App\Models\ProjectSettings;
+use App\Models\TrafficSource;
+use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
 use Livewire\Livewire;
@@ -59,9 +63,13 @@ it('shows what two guests did: one opened the game, the other played it through'
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->assertSee('Anonymous visitors · Last 30 days · all versions')
         ->assertSeeInOrder(['Visitors', '2', 'People who opened the game'])
-        ->assertSeeInOrder(['Started', '1', '50.0% of visitors'])
-        ->assertSeeInOrder(['Completion', '100.0%', '1 completed'])
-        ->assertSee('No version asks for an email')
+        ->assertSeeInOrder(['Game started', '1', '50.0% of visitors'])
+        ->assertSeeInOrder(['Completed', '1', '100.0% of starters'])
+        ->assertSeeInOrder(['Goal reached', '0', '0.0% of completed'])
+        // No traffic was recorded, so there is no worth to show.
+        ->assertSee('No visits recorded in Traffic sources')
+        // Nobody came in the 30 days before, so there is nothing to move against.
+        ->assertSee('No earlier data')
         // No version asks for an email, so the funnel has no step for it.
         ->assertDontSee('Email captured')
         ->assertSee('Rounds reached · V1')
@@ -104,8 +112,8 @@ it('counts people where it counts people: a guest who played twice started once,
     $this->actingAs($this->draft['admin']);
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
-        ->assertSeeInOrder(['Started', '1', '100.0% of visitors'])
-        ->assertSeeInOrder(['Completion', '100.0%', '2 of 2 plays completed']);
+        ->assertSeeInOrder(['Game started', '1', '100.0% of visitors'])
+        ->assertSeeInOrder(['Completed', '1', '100.0% of starters']);
     $funnel = collect($page->viewData('funnel'));
 
     expect($funnel->pluck('count', 'label')->all())->toBe(['Visitors' => '1', 'Game started' => '1', 'Completed' => '1', 'Sign-up begun' => '1', 'Goal reached' => '0', 'Account confirmed' => '0'])
@@ -124,7 +132,6 @@ it('counts the emails of versions that ask for one', function () {
     $this->actingAs($this->draft['admin']);
 
     Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
-        ->assertSeeInOrder(['Email capture', '100.0%', '1 email'])
         ->assertSeeInOrder(['Email captured', '1', '100.0%']);
 });
 
@@ -143,7 +150,7 @@ it('narrows the figures to one version, and to the window asked for', function (
     GameAttempt::factory()->create(['version_id' => $second->id]);
 
     $this->actingAs($this->draft['admin']);
-    $started = fn ($page): string => collect($page->viewData('kpis'))->firstWhere('label', 'Started')['value'];
+    $started = fn ($page): string => collect($page->viewData('kpis'))->firstWhere('label', 'Game started')['value'];
 
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id]);
     expect($started($page))->toBe('2');
@@ -197,8 +204,45 @@ it('leaves the emails out for a version chosen that asks for none, though anothe
     $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
         ->set('version', $version->id)
         ->assertSee('Anonymous visitors · Last 30 days · V2')
-        ->assertSee('This version doesn’t ask for an email')
         ->assertDontSee('Email captured');
 
-    expect(collect($page->viewData('kpis'))->firstWhere('label', 'Email capture')['value'])->toBe('—');
+    expect(collect($page->viewData('funnel'))->pluck('label'))->not->toContain('Email captured');
+});
+
+it('compares the versions on paid traffic and shows every visitor by where they came from', function () {
+    $first = liveGame($this->draft);
+    $second = app(PublishGameVersionAction::class)->handle($this->draft['admin'], $this->draft['game']->fresh(), $this->draft['set']->id, $this->draft['flow']->id);
+    $network = TrafficSource::factory()->create(['name' => 'PopAds main']);
+    $banner = TrafficSource::factory()->create(['name' => 'Cat blog', 'type' => 'placement', 'place_site' => 'catblog.example']);
+    $visits = function (int $count, array $state): void {
+        TrafficVisit::factory()->count($count)->create(['game_id' => $this->draft['game']->id, 'opened_at' => now(), ...$state]);
+    };
+
+    // V1: 400 new visitors from the network and 5 from the banner, 40 accounts; V2: 400, 12 — a gap that is not chance.
+    $visits(40, ['source_id' => $network->id, 'version_id' => $first->id, 'started_at' => now(), 'completed_at' => now(), 'goal_at' => now(), 'account_at' => now(), 'spend' => '0.5', 'value_real' => '0.5']);
+    $visits(360, ['source_id' => $network->id, 'version_id' => $first->id, 'spend' => '0.01']);
+    $visits(12, ['source_id' => $network->id, 'version_id' => $second->id, 'account_at' => now(), 'spend' => '0.5', 'value_real' => '0.5', 'device' => TrafficDevice::Desktop]);
+    $visits(388, ['source_id' => $network->id, 'version_id' => $second->id, 'spend' => '0.01', 'device' => TrafficDevice::Desktop]);
+    $visits(5, ['channel' => TrafficChannel::Placement, 'source_id' => $banner->id, 'click_hash' => null, 'version_id' => $first->id]);
+    TrafficVisit::factory()->unpaid(TrafficChannel::Search)->count(3)->create(['game_id' => $this->draft['game']->id, 'opened_at' => now(), 'version_id' => $first->id]);
+    // A visit of the window before moves the value against it.
+    $visits(1, ['source_id' => $network->id, 'version_id' => $first->id, 'arrived_at' => now()->subDays(40), 'network_day' => now()->subDays(40)->toDateString(), 'value_real' => '0.5']);
+
+    $this->actingAs($this->draft['admin']);
+
+    $page = Livewire::test(GameAnalytics::class, ['record' => $this->draft['game']->id])
+        ->assertSee('Versions on paid traffic')
+        ->assertSee('V1 brings more accounts')
+        ->assertSee('9.9% of new visitors end up a confirmed account on V1, against 3.0% on V2')
+        ->assertSeeInOrder(['V1 · '.$this->draft['flow']->name, 'Ahead', '405', '40'])
+        ->assertSee('Traffic sources')
+        ->assertSeeInOrder(['Ad networks', '1 source', 'PopAds main', 'Banners &amp; links', 'Cat blog', 'catblog.example', 'Unpaid', 'Search', 'All visitors', '808'], false);
+
+    // One network only: the banner's visitors leave the comparison; one device only: the desktop visitors leave the sources.
+    $page->call('$set', 'paidSource', $banner->id)
+        ->assertDontSee('V1 brings more accounts')
+        ->set('sourcesDevice', 'mobile')
+        ->assertSeeInOrder(['All visitors', '408']);
+
+    expect(collect($page->viewData('sources')['groups'])->pluck('name')->all())->toBe(['Ad networks', 'Banners & links', 'Unpaid']);
 });
