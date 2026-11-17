@@ -1,7 +1,7 @@
 {{--
-    The way on into the site: a prompt, the post it leads to as the feed draws
-    it — its picture large, its title, and what the step shows of it: its
-    author, votes, upvotes and comments — and the button. A post can open by itself after 3 seconds — once, so going
+    The way on into the site: a prompt, the post it leads to — its picture on
+    the left, its title and what the step shows of it on the right: its
+    author, upvotes, votes and comments — and the button. A post can open by itself after 3 seconds — once, so going
     back to the game never sends the visitor away again; another site can open
     in a tab of its own, counted without leaving the game.
 --}}
@@ -30,11 +30,15 @@
                         @if ($post['author'] !== null)
                             <span class="rg-game__onward-author">{{ '@'.$post['author'] }}</span>
                         @endif
-                        @if ($post['likes'] !== null)
-                            <span class="rg-game__onward-stat" title="{{ __('ui.voting.up') }}"><x-ui.icon name="arrow-up" class="size-4" /><span class="sr-only">{{ __('ui.voting.up') }}</span>{{ number_format($post['likes']) }}</span>
-                        @endif
-                        @if ($post['votes'] !== null)
-                            <span class="rg-game__onward-stat">{{ trans_choice('ui.voting.votes_count', $post['votes'], ['count' => number_format($post['votes'])]) }}</span>
+                        @if ($post['likes'] !== null || $post['votes'] !== null)
+                            <span class="rg-game__onward-stats">
+                                @if ($post['likes'] !== null)
+                                    <span class="rg-game__onward-stat" title="{{ __('ui.voting.up') }}"><x-ui.icon name="arrow-up" class="size-4" /><span class="sr-only">{{ __('ui.voting.up') }}</span>{{ number_format($post['likes']) }}</span>
+                                @endif
+                                @if ($post['votes'] !== null)
+                                    <span class="rg-game__onward-stat">{{ trans_choice('ui.voting.votes_count', $post['votes'], ['count' => number_format($post['votes'])]) }}</span>
+                                @endif
+                            </span>
                         @endif
                         @if ($post['comments'] !== null)
                             <span class="rg-game__onward-stat"><x-ui.icon name="comment" class="size-4" />{{ trans_choice('ui.comments.count', $post['comments'], ['count' => number_format($post['comments'])]) }}</span>
