@@ -1,0 +1,65 @@
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_588a681fb80a68 23,212-225
+app/Services/Traffic/Connectors/PopAdsConnector.php
+  s_4b9dc6ab6b25d3::t_b4b53163c06589 6,45-47
+app/Actions/Traffic/SaveTrafficPricesAction.php
+  s_4b9dc6ab6b25d3::t_84e65490e14252 37
+app/Support/Traffic/Spend/FixedPriceSchedule.php
+  s_4b9dc6ab6b25d3::t_0d00b728e79f82 34-42
+app/Console/Commands/TrafficSyncNetworksCommand.php
+  s_4b9dc6ab6b25d3::t_168e7d133d1e06 37-42,56-60
+  ai_agent 11
+tests/Unit/Support/Traffic/SpendTest.php
+  s_4b9dc6ab6b25d3::t_46c9dccad22292 36-44
+app/Actions/Traffic/SaveTrafficSettingsAction.php
+  s_4b9dc6ab6b25d3::t_84e65490e14252 36
+app/Support/Games/Analytics/GameFunnel.php
+  s_4b9dc6ab6b25d3::t_abc0bd4893ffda 47-48
+app/Filament/Resources/Games/Pages/GameAnalytics.php
+  s_4b9dc6ab6b25d3::t_abc0bd4893ffda 247
+tests/Feature/Games/Admin/GameAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_4edf53f72cad14 79
+app/Actions/Traffic/SaveTrafficCampaignAction.php
+  s_4b9dc6ab6b25d3::t_84e65490e14252 45
+app/Actions/Traffic/BlockTrafficRefsAction.php
+  s_4b9dc6ab6b25d3::t_590f20e900ee99 119-120
+app/Actions/Traffic/SyncTrafficNetworkAction.php
+  s_4b9dc6ab6b25d3::t_168e7d133d1e06 102-105
+  ai_agent 27
+app/Actions/Traffic/RecordAccountBonusAction.php
+  s_4b9dc6ab6b25d3::t_2e1e18b1623ad5 52-57,62-70,74-75
+app/Http/Middleware/RecordAccountReturn.php
+  s_4b9dc6ab6b25d3::t_2e1e18b1623ad5 15-16,23-24,35-38,40,42-43
+app/Actions/Traffic/ApplyTrafficBlocksAction.php
+  s_4b9dc6ab6b25d3::t_590f20e900ee99 79,81-82,84,86
+app/Support/Traffic/Capture/RequestSignals.php
+  s_4b9dc6ab6b25d3::t_6c5295bc6624d4 40-41
+app/Actions/Traffic/SaveTrafficSourceAction.php
+  s_4b9dc6ab6b25d3::t_90c8513ef3ff3a 145
+  s_4b9dc6ab6b25d3::t_b4b53163c06589 8,144
+  s_4b9dc6ab6b25d3::t_84e65490e14252 134
+app/Enums/TrafficConnector.php
+  s_4b9dc6ab6b25d3::t_b4b53163c06589 18-26
+app/Actions/Traffic/SetTrafficStepValueAction.php
+  s_4b9dc6ab6b25d3::t_84e65490e14252 37
+app/Actions/Traffic/EnterSpendAction.php
+  s_4b9dc6ab6b25d3::t_84e65490e14252 40
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_abc0bd4893ffda 82-83,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "41318a6e152479d7af2b98647d9d4aeaa1eb9e3d",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
