@@ -114,3 +114,21 @@ it('gives each country group it adds a key no other group has', function () {
 
     expect($keys)->toBe(array_values(array_unique($keys)));
 });
+
+it('edits a source in panes, with what its preset filled in, and names a parameter added without a name for what it carries', function () {
+    $source = TrafficSource::factory()->create(['name' => 'ExoClick tests', 'preset_key' => 'exoclick', 'link_key' => 'exo']);
+
+    $page = Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertSee('Link & parameters')
+        ->assertSee('Started from the ExoClick preset')
+        ->assertSee('Attribution window')
+        ->assertSee('Detected by RateGuru')
+        ->call('addParam')
+        ->set('draft.source.link_params.'.count($source->link_params).'.kind', 'creative')
+        ->set('draft.source.link_params.'.count($source->link_params).'.param', 'cr')
+        ->set('draft.source.link_params.'.count($source->link_params).'.token', '{creative}')
+        ->call('saveSource')
+        ->assertHasNoErrors();
+
+    expect(collect($source->fresh()->link_params)->firstWhere('param', 'cr')['label'])->toBe('Creative');
+});

@@ -9,6 +9,7 @@ use App\Enums\TrafficConnector;
 use App\Enums\TrafficCostUnit;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficFixedPeriod;
+use App\Enums\TrafficLinkParam;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceStatus;
 use App\Enums\TrafficSourceType;
@@ -63,6 +64,10 @@ final class SaveTrafficSourceAction
                 throw ValidationException::withMessages(['type' => 'Choose a network, or a banner or link.']);
             }
 
+            // A parameter left unnamed is named for what it carries.
+            $source['link_params'] = array_map(fn (mixed $param): mixed => is_array($param) && trim((string) ($param['label'] ?? '')) === '' && ($kind = TrafficLinkParam::tryFrom((string) ($param['kind'] ?? ''))) !== null
+                ? [...$param, 'label' => $kind->label()]
+                : $param, is_array($source['link_params'] ?? null) ? $source['link_params'] : []);
             $this->validate($type, $existing, $source, $rules);
             $hasVisits = $existing !== null && TrafficVisit::query()->where('source_id', $existing->id)->exists();
 

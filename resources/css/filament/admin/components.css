@@ -16146,4 +16146,191 @@
         justify-content: space-between;
         gap: 12px;
     }
+
+    /* Traffic sources → a source's editor: its panes, the preset card, the parameters, the window. */
+    .rg-admin-traffic__panes {
+        display: flex;
+        gap: 2px;
+        margin: calc(var(--rg-admin-space-5) * -1) calc(var(--rg-admin-space-5) * -1) 4px;
+        padding: 0 var(--rg-admin-space-5);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        overflow-x: auto;
+    }
+
+    .rg-admin-traffic__pane-tab {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 8px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        font: inherit;
+        font-size: 13px;
+        color: var(--rg-admin-text-secondary);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-traffic__pane-tab--on {
+        border-bottom-color: var(--rg-admin-surface-inverse);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__pane-error {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-traffic__pane {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .rg-admin-traffic__pane > .rg-admin-button,
+    .rg-admin-traffic__pane .rg-admin-field > .rg-admin-button {
+        align-self: flex-start;
+    }
+
+    .rg-admin-traffic__preset-card {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-sunken);
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__preset-chips {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 6px;
+    }
+
+    .rg-admin-traffic__preset-chip {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 6px 8px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-card);
+        font-size: 12px;
+    }
+
+    .rg-admin-traffic__preset-chip > span {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .rg-admin-traffic__preset-chip > svg {
+        flex: none;
+        margin-top: 2px;
+    }
+
+    .rg-admin-traffic__preset-chip--on {
+        border-color: var(--rg-admin-status-success-dot);
+        background: var(--rg-admin-status-success-bg);
+    }
+
+    .rg-admin-traffic__preset-fill {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        font-size: 12.5px;
+    }
+
+    .rg-admin-traffic__preset-fill > svg {
+        flex: none;
+        margin-top: 3px;
+    }
+
+    .rg-admin-traffic__connection {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-traffic__name-key {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 160px;
+        gap: 10px;
+    }
+
+    .rg-admin-traffic__param-table {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        overflow: hidden;
+    }
+
+    .rg-admin-traffic__param-row {
+        display: grid;
+        grid-template-columns: 130px minmax(0, 1fr) minmax(0, 1.2fr) 32px;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 8px;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-traffic__param-row:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-traffic__param-row--head {
+        background: var(--rg-admin-surface-sunken);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-traffic__param-row > .rg-admin-input,
+    .rg-admin-traffic__param-what > select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__param-row > p {
+        grid-column: 1 / -1;
+        margin: 0;
+    }
+
+    .rg-admin-traffic__window {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .rg-admin-traffic__detected {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 13px;
+    }
+
+    .rg-admin-traffic__footer-actions {
+        display: inline-flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    @media (max-width: 600px) {
+        .rg-admin-traffic__window,
+        .rg-admin-traffic__name-key {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
 }
