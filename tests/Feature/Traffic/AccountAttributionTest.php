@@ -176,6 +176,17 @@ it('counts a sign-in to an existing confirmed account for the goal “Account co
         ->and(AccountBrowser::query()->where('user_id', $existing->id)->where('visitor_hash', $this->hash)->exists())->toBeTrue();
 });
 
+it('keeps a paid click that brought an account when another account signs in on the same browser', function () {
+    recordTraffic();
+    $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash, 'arrived_at' => now()->subHour(), 'holds_until' => now()->addDays(7), 'opened_at' => now()->subHour()]);
+    registerIn($this->token);
+    $existing = User::factory()->create(['password' => bcrypt('password')]);
+
+    $this->withCookie($this->cookie, $this->token)->post('/login', ['email' => $existing->email, 'password' => 'password'])->assertRedirect();
+
+    expect($click->fresh())->signup_at->not->toBeNull()->login_at->toBeNull()->known->toBeFalse();
+});
+
 it('records the first post within 30 days and a return on another day, once each', function () {
     recordTraffic();
     $click = TrafficVisit::factory()->create(['visitor_hash' => $this->hash]);

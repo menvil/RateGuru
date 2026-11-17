@@ -225,3 +225,15 @@ it('holds a resent postback as long as a send run’s claim, so the run leaves i
 
     expect($failed->fresh()->status)->toBe(TrafficPostbackStatus::Delivered);
 });
+
+it('goes on past a batch of postbacks that only expired, rather than waiting a minute for each batch', function () {
+    $conversion = fn () => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id;
+    TrafficPostback::factory()->count(45)->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'run_after' => now()->subHours(2), 'expires_at' => now()->subHour(), 'conversion_id' => $conversion]);
+    $live = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'run_after' => now()->subMinute(), 'conversion_id' => $conversion()]);
+    Http::fake(['pb.example.com/*' => Http::response('OK', 200)]);
+
+    $this->artisan('traffic:send-postbacks')->assertSuccessful();
+
+    expect($live->fresh()->status)->toBe(TrafficPostbackStatus::Delivered)
+        ->and(TrafficPostback::query()->where('status', TrafficPostbackStatus::Expired)->count())->toBe(45);
+});

@@ -62,7 +62,10 @@ final class PostbackDeliverer
             $latency = (int) ((hrtime(true) - $started) / 1_000_000);
 
             foreach (array_keys($chunk) as $key) {
-                $results[$key] = $this->attempt($responses[(string) $key] ?? null, $postbacks[$key]['rules'], $latency);
+                $response = $responses[(string) $key] ?? null;
+                // Each answer's own time where the transfer gives it; the chunk's only for a request that never got one.
+                $own = $response instanceof Response ? (float) ($response->handlerStats()['total_time'] ?? 0) : 0.0;
+                $results[$key] = $this->attempt($response, $postbacks[$key]['rules'], $own > 0 ? (int) round($own * 1000) : $latency);
             }
         }
 

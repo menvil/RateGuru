@@ -278,12 +278,14 @@ final class EditGameFlow extends Page
     public function toggleAsk(mixed $key): void
     {
         $settings = (array) ($this->steps[$this->selected]['settings'] ?? []);
+        $type = (string) ($this->steps[$this->selected]['type'] ?? '');
 
-        if (! is_string($key) || ! array_key_exists('ask_groups', $settings)) {
+        // Any step that can send to a post asks for groups there — a Full Result saved before it could has no list yet.
+        if (! is_string($key) || ! in_array($type, [GameFlowStepType::GoToPost->value, GameFlowStepType::FullResult->value], true)) {
             return;
         }
 
-        $asked = array_values(array_filter(explode(',', (string) $settings['ask_groups'])));
+        $asked = array_values(array_filter(explode(',', (string) ($settings['ask_groups'] ?? ''))));
         $asked = in_array($key, $asked, true) ? array_values(array_diff($asked, [$key])) : [...$asked, $key];
         $this->steps[$this->selected]['settings']['ask_groups'] = implode(',', array_slice($asked, 0, GameFlowStepSettings::MAX_ASK_GROUPS));
     }

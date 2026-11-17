@@ -21,7 +21,8 @@ final class BotSignals
 
     public const int BURST = 16;
 
-    private const string CRAWLER_AGENT = '/bot|crawl|spider|slurp|preview|fetch|scrap|monitor|curl|wget|python|java\/|go-http|httpclient|okhttp|facebookexternalhit|whatsapp|telegram|discord|skype|embedly|headlesschrome/i';
+    // "bot" as a word or the end of a crawler's name (Googlebot, bingbot/2.0) — not inside a phone's brand such as CUBOT.
+    private const string CRAWLER_AGENT = '/(?<!cu)bot\b|bot\/|crawl|spider|slurp|preview|fetch|scrap|monitor|curl|wget|python|java\/|go-http|httpclient|okhttp|facebookexternalhit|whatsapp|telegram|discord|skype|embedly|headlesschrome/i';
 
     /** @param  array<string, string|null>  $headers  lower-case header name => value */
     public static function of(?string $userAgent, array $headers): int

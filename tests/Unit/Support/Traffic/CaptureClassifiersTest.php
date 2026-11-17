@@ -61,7 +61,11 @@ it('marks the cheap signs that a hit is no person', function () {
         ->and(BotSignals::of($chrome, [...$browser, 'sec-purpose' => 'prefetch;prerender']) & BotSignals::PREFETCH)->toBe(BotSignals::PREFETCH)
         ->and(BotSignals::of('Mozilla/5.0 HeadlessChrome/131.0', $browser) & BotSignals::HEADLESS)->toBe(BotSignals::HEADLESS)
         ->and(BotSignals::of($chrome, ['accept-language' => 'en']) & BotSignals::NO_BROWSER_HEADERS)->toBe(BotSignals::NO_BROWSER_HEADERS)
-        ->and(BotSignals::of(null, []) & BotSignals::NO_BROWSER_HEADERS)->toBe(BotSignals::NO_BROWSER_HEADERS);
+        ->and(BotSignals::of(null, []) & BotSignals::NO_BROWSER_HEADERS)->toBe(BotSignals::NO_BROWSER_HEADERS)
+        // A phone whose brand ends in "bot" is a person; a crawler's name ending in "bot" is not.
+        ->and(BotSignals::of('Mozilla/5.0 (Linux; Android 11; CUBOT P50) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36', $browser))->toBe(0)
+        ->and(BotSignals::of('Mozilla/5.0 (compatible; Googlebot/2.1)', $browser) & BotSignals::CRAWLER)->toBe(BotSignals::CRAWLER)
+        ->and(BotSignals::of('Mozilla/5.0 (compatible; AhrefsBot/7.0)', $browser) & BotSignals::CRAWLER)->toBe(BotSignals::CRAWLER);
 });
 
 it('finds the unpaid channel a visit came through', function (?string $referrer, bool $result, ?string $route, ?string $agent, TrafficChannel $channel, ?string $origin) {

@@ -22,7 +22,8 @@ final class TrafficVolumeSeeder extends Seeder
 {
     private const int VISITS = 1_500_000;
 
-    private const int CHUNK = 5000;
+    // 2 000 rows of 25 columns: 50 000 bound values, under the 65 535 PostgreSQL and MariaDB take in one statement.
+    private const int CHUNK = 2000;
 
     public function run(): void
     {

@@ -46,7 +46,9 @@ final class RecordAccountLoginAction
             $attribution = AccountAttribution::query()->where('user_id', $user->id)->first();
             $visit = $this->visits->holding($browserHash, $now) ?? $this->visits->latest($browserHash, $now->subDay());
 
-            if ($visit !== null && (int) $visit->id !== $attribution?->credited_visit_id) {
+            // A visit that brought an account — this one's or another's on the same browser — stays that account's: a sign-in doesn't make it a known visitor's.
+            if ($visit !== null && $visit->signup_at === null && $visit->account_at === null
+                && ! AccountAttribution::query()->where('credited_visit_id', $visit->id)->exists()) {
                 $this->marks->handle((int) $visit->id, TrafficEvent::Login, $now, ['known' => true, 'known_reason' => TrafficKnownReason::Login->value]);
             }
 

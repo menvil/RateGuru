@@ -148,3 +148,12 @@ it('looks a post up by its title as it is typed, and links the one picked', func
         ->assertSet('postMatches', [])
         ->assertSee('#'.$post->id.' · by');
 });
+
+it('asks for rating groups on a Full Result saved before it could send to a post', function () {
+    RatingGroup::factory()->create(['key' => 'cuteness']);
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        ->call('selectStep', 2)
+        ->set('steps.2.settings', ['show_score' => true, 'show_profile' => true, 'share_enabled' => true, 'signup' => 'inline', 'onward' => 'post']);
+
+    $page->call('toggleAsk', 'cuteness')->assertSet('steps.2.settings.ask_groups', 'cuteness');
+});

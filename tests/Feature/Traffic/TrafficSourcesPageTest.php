@@ -105,3 +105,12 @@ it('never lets a password manager fill the network key field', function () {
         ->assertSee('autocomplete="new-password"', false)
         ->assertSet('edit', (string) $source->id);
 });
+
+it('gives each country group it adds a key no other group has', function () {
+    $page = Livewire::test(TrafficSourcesPage::class)->call('addGroup')->call('addGroup');
+    $page->call('removeGroup', 1)->call('addGroup');
+
+    $keys = array_column($page->get('groups'), 'key');
+
+    expect($keys)->toBe(array_values(array_unique($keys)));
+});

@@ -58,8 +58,13 @@ final class TrafficSendPostbacksCommand extends Command
             $resting = array_keys(array_filter($failures, fn (int $count): bool => $count >= self::SOURCE_FAILURES));
             $claimed = $this->claim($resting);
 
-            if ($claimed === []) {
+            // Nothing due: the queue is done for this run. A batch of only expired or cancelled rows: on to the next.
+            if ($claimed === null) {
                 break;
+            }
+
+            if ($claimed === []) {
+                continue;
             }
 
             $results = $deliverer->send(array_map(fn (array $claim): array => ['url' => $claim['url'], 'rules' => $claim['rules']], $claimed));
@@ -94,11 +99,11 @@ final class TrafficSendPostbacksCommand extends Command
      * the rest marked as being sent.
      *
      * @param  list<int>  $resting  sources left for the next run
-     * @return array<int, array{url: string, rules: array{rules: list<array{outcome: string, match: string, text: string}>, otherwise: string}|null, attempts: int, expires_at: CarbonImmutable|null, source_id: int}>
+     * @return array<int, array{url: string, rules: array{rules: list<array{outcome: string, match: string, text: string}>, otherwise: string}|null, attempts: int, expires_at: CarbonImmutable|null, source_id: int}>|null null when no postback was due
      */
-    private function claim(array $resting): array
+    private function claim(array $resting): ?array
     {
-        return DB::transaction(function () use ($resting): array {
+        return DB::transaction(function () use ($resting): ?array {
             $now = CarbonImmutable::now();
             $rows = TrafficPostback::query()
                 ->where('status', TrafficPostbackStatus::Pending)
@@ -111,7 +116,7 @@ final class TrafficSendPostbacksCommand extends Command
                 ->all();
 
             if ($rows === []) {
-                return [];
+                return null;
             }
 
             $claimed = [];

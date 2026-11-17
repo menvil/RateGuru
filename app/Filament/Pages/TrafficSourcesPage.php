@@ -813,7 +813,15 @@ final class TrafficSourcesPage extends Page
 
     public function addGroup(): void
     {
-        array_splice($this->groups, max(0, count($this->groups) - 1), 0, [['key' => 'group'.count($this->groups), 'name' => '', 'percent' => 100, 'countries' => '']]);
+        // The first key no group has: counting the groups again would repeat one removed and added back.
+        $taken = array_column($this->groups, 'key');
+        $number = count($this->groups);
+
+        while (in_array('group'.$number, $taken, true)) {
+            $number++;
+        }
+
+        array_splice($this->groups, max(0, count($this->groups) - 1), 0, [['key' => 'group'.$number, 'name' => '', 'percent' => 100, 'countries' => '']]);
     }
 
     public function removeGroup(mixed $index): void
