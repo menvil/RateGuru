@@ -15086,6 +15086,15 @@
         white-space: nowrap;
     }
 
+    .rg-admin-traffic__perf-label > .rg-admin-badge,
+    .rg-admin-traffic__perf-label > button {
+        align-self: flex-start;
+    }
+
+    .rg-admin-traffic__perf-label > .rg-admin-traffic__path {
+        white-space: normal;
+    }
+
     .rg-admin-traffic__perf-title {
         font-weight: var(--rg-admin-weight-medium);
     }
@@ -16072,5 +16081,69 @@
         .rg-admin-traffic__source-line > :nth-child(6) {
             display: none;
         }
+    }
+
+    /* Traffic sources → Logs: a line of each log. */
+    .rg-admin-traffic__perf-grid--log {
+        min-width: 1000px;
+    }
+
+    .rg-admin-traffic__log-line {
+        display: grid;
+        gap: 10px;
+        align-items: start;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: 13px;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__log-line.rg-admin-traffic__perf-row--head > * {
+        white-space: nowrap;
+        text-align: left;
+    }
+
+    .rg-admin-traffic__log-line--postbacks {
+        grid-template-columns: 70px 110px minmax(220px, 1.4fr) 120px minmax(260px, 2fr) 150px 96px;
+    }
+
+    .rg-admin-traffic__log-line--milestones {
+        grid-template-columns: 70px 140px minmax(220px, 1.5fr) 140px minmax(180px, 1fr);
+    }
+
+    .rg-admin-traffic__log-line--blocks {
+        grid-template-columns: 70px 140px minmax(240px, 1.6fr) 180px minmax(220px, 1.4fr);
+    }
+
+    .rg-admin-traffic__log-line--clicks {
+        grid-template-columns: 70px 140px 140px 180px minmax(180px, 1.2fr) minmax(180px, 1.2fr) 80px;
+    }
+
+    .rg-admin-traffic__log-line--failed {
+        background: var(--rg-admin-status-danger-bg);
+    }
+
+    .rg-admin-traffic__log-request {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-traffic__path {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin: 4px 0 0;
+        padding: 6px 8px;
+        border-radius: var(--rg-admin-radius-sm);
+        background: var(--rg-admin-surface-sunken);
+        list-style: none;
+        font-size: 12px;
+    }
+
+    .rg-admin-traffic__path > li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
     }
 }

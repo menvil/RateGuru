@@ -145,8 +145,12 @@ final class TrafficSourcesPage extends Page
     #[Url(except: '')]
     public mixed $camp = '';
 
-    #[Url(except: 'clicks')]
-    public mixed $log = 'clicks';
+    #[Url(except: 'postbacks')]
+    public mixed $log = 'postbacks';
+
+    /** Logs → Postbacks: every postback, or only those that failed. */
+    #[Url(as: 'only', except: 'all')]
+    public mixed $logFilter = 'all';
 
     #[Url(as: 'page', except: 1)]
     public mixed $pageNumber = 1;
@@ -247,7 +251,7 @@ final class TrafficSourcesPage extends Page
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['tab', 'period', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
+        if (in_array($property, ['tab', 'period', 'source', 'type', 'campaignId', 'game', 'device', 'log', 'logFilter', 'reportView', 'listBy', 'q', 'minClicks', 'segment'], true)) {
             $this->pageNumber = 1;
         }
 
@@ -1034,7 +1038,8 @@ final class TrafficSourcesPage extends Page
         $this->open = array_values(array_filter($this->open, 'is_string'));
         $this->more = array_values(array_filter($this->more, 'is_string'));
         $this->selected = array_slice(array_values(array_filter($this->selected, 'is_string')), 0, 2000);
-        $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'clicks';
+        $this->log = is_string($this->log) && in_array($this->log, ['clicks', 'milestones', 'postbacks', 'blocks'], true) ? $this->log : 'postbacks';
+        $this->logFilter = $this->logFilter === 'failed' ? 'failed' : 'all';
         $this->pageNumber = is_numeric($this->pageNumber) ? max(1, (int) $this->pageNumber) : 1;
         $this->edit = is_string($this->edit) || is_int($this->edit) ? (string) $this->edit : '';
         $this->camp = is_numeric($this->camp) ? (string) (int) $this->camp : '';

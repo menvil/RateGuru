@@ -43,7 +43,7 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     'value' => ['value', 'What a new user is worth'],
     'spend' => ['spend', 'Where spend comes from'],
     'sources' => ['sources', 'How a visit gets its source'],
-    'logs' => ['logs', 'failed'],
+    'logs' => ['logs', 'Failed only'],
 ]);
 
 it('creates a source from a preset in its editor', function () {

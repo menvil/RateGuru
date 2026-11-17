@@ -6,11 +6,14 @@ use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
+use App\Models\TrafficConversion;
+use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackRule;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
+use App\Models\TrafficVisitDetail;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Livewire\Livewire;
@@ -255,4 +258,23 @@ it('lays out Sources: networks and banners with their postbacks, spend and click
         ->assertSeeInOrder(['AD NETWORKS', 'PopAds main', '1 postback', 'delivering', 'Flow goal reached', '3 clicks', 'BANNERS', 'Cat blog sidebar', 'No postbacks', 'UNPAID', 'Search', '1 visits'])
         ->assertSee('How a postback works')
         ->assertSee('Tracking');
+});
+
+it('lays out Logs: postbacks first, with the milestone, the click, the exact request, the answer and the path, failed ones only on asking', function () {
+    $visit = TrafficVisit::factory()->create(['source_id' => $this->source->id, 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour(), 'signup_at' => now()->subMinutes(55), 'account_at' => now()->subMinutes(50), 'signup_place' => 'game', 'signup_after_seconds' => 300]);
+    TrafficVisitDetail::query()->forceCreate(['visit_id' => $visit->id, 'click_id' => 'tag-81442', 'landing_path' => '/games/x', 'created_at' => now()]);
+    $conversion = TrafficConversion::factory()->create(['visit_id' => $visit->id, 'event' => 'account', 'source_id' => $this->source->id]);
+    TrafficPostback::factory()->create(['conversion_id' => $conversion->id, 'source_id' => $this->source->id, 'event' => 'account', 'url' => 'https://pb.example.com/c?id={click_id}', 'status' => 'failed', 'http_status' => 503, 'attempts' => 6]);
+
+    Livewire::withQueryParams(['tab' => 'logs'])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('1 failing')
+        ->assertSee('Signed up in the game')
+        ->assertSee('5 min after the click')
+        ->assertSee('tag-81442')
+        ->assertSee('GET https://pb.example.com/c?id=tag-81442')
+        ->assertSee('HTTP 503')
+        ->assertSee('Show the path')
+        ->assertSee('Resend')
+        ->set('logFilter', 'failed')->assertSee('tag-81442')
+        ->set('log', 'clicks')->assertSee('/games/x');
 });

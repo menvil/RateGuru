@@ -22,6 +22,7 @@ use App\Models\TrafficCampaign;
 use App\Models\TrafficCampaignEvent;
 use App\Models\TrafficCampaignStagePeriod;
 use App\Models\TrafficChanceRun;
+use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPostbackRule;
 use App\Models\TrafficPriceSet;
@@ -46,10 +47,12 @@ use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
+use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
 use App\Support\Traffic\Reports\TrafficReportFilter;
 use App\Support\Traffic\Worth\Slice;
+use App\Support\Traffic\Worth\StepLabels;
 use App\Support\Traffic\Worth\StepWorth;
 use App\Support\Traffic\Worth\WorthPrices;
 use BackedEnum;
@@ -1018,17 +1021,84 @@ final class TrafficSourcesView
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Logs, as the reference draws them: postbacks — the milestone, how the
+     * account came where it did, the click, the exact request and the
+     * network's answer — milestones, clicks and blocking, newest first, fifty
+     * to a page, with how many postbacks are failing.
+     *
+     * @return array<string, mixed>
+     */
     private function logsTab(TrafficSourcesPage $page): array
     {
         $source = is_numeric($page->source) ? (int) $page->source : null;
-
-        return ['logPage' => match ($page->log) {
+        $logPage = match ($page->log) {
             'milestones' => $this->logs->milestones($source, $page->pageNumber),
-            'postbacks' => $this->logs->postbacks($source, null, $page->pageNumber),
+            'clicks' => $this->logs->clicks($source, null, $page->pageNumber),
             'blocks' => $this->logs->blocks($source, $page->pageNumber),
-            default => $this->logs->clicks($source, null, $page->pageNumber),
-        }];
+            default => $this->logs->postbacks($source, $page->logFilter === 'failed' ? TrafficPostbackStatus::Failed->value : null, $page->pageNumber),
+        };
+        $failing = TrafficPostback::query()->where('status', TrafficPostbackStatus::Failed)->where('created_at', '>=', now()->subDays(7))->when($source !== null, fn ($query) => $query->where('source_id', $source))->count();
+
+        return [
+            'logPage' => $logPage,
+            'logRows' => $page->log === 'postbacks' ? $this->postbackRows($logPage->items()) : [],
+            'failing' => $failing,
+            'tries' => count(PostbackSchedule::RETRY_AFTER) + 1,
+        ];
+    }
+
+    /**
+     * Each postback of a page as the log shows it.
+     *
+     * @param  list<TrafficPostback>  $postbacks
+     * @return list<array<string, mixed>>
+     */
+    private function postbackRows(array $postbacks): array
+    {
+        $conversions = TrafficConversion::query()->whereKey(array_map(fn (TrafficPostback $postback): int => (int) $postback->conversion_id, $postbacks))->with('visit.detail')->get()->keyBy('id');
+        $places = ['game' => 'in the game', 'post' => 'on a post', 'feed' => 'in the feed', 'other' => 'elsewhere on the site'];
+        $tries = count(PostbackSchedule::RETRY_AFTER) + 1;
+
+        return array_map(function (TrafficPostback $postback) use ($conversions, $places, $tries): array {
+            $conversion = $conversions->get($postback->conversion_id);
+            $visit = $conversion?->visit;
+            $clickId = (string) ($visit?->detail->click_id ?? '');
+            $account = in_array($postback->event, [TrafficEvent::Account, TrafficEvent::Goal], true) && $visit?->account_at !== null;
+            $after = $visit?->signup_after_seconds;
+
+            return [
+                'id' => $postback->id,
+                'source' => (int) $postback->source_id,
+                'at' => $postback->created_at,
+                'milestone' => $postback->event === TrafficEvent::Goal ? 'Flow goal reached'.($conversion?->step !== null ? ' · '.StepLabels::name($conversion->step, 1) : '') : $postback->event->label(),
+                'how' => $account && $visit->signup_place !== null ? 'Signed up '.$places[$visit->signup_place->value].($after !== null ? ' · '.self::duration($after).' after the click' : '') : null,
+                'path' => $visit === null ? [] : collect([
+                    'arrived_at' => 'Clicked', 'opened_at' => 'Opened the page', 'started_at' => 'Started the game', 'completed_at' => 'Finished it', 'signup_form_at' => 'Saw a sign-up form', 'signup_at' => 'Signed up', 'account_at' => 'Confirmed the account',
+                ])->filter(fn (string $label, string $column): bool => $visit->{$column} !== null)->map(fn (string $label, string $column): array => ['label' => $label, 'at' => $visit->{$column}])->values()->all(),
+                'clickId' => $clickId,
+                'request' => 'GET '.($clickId !== '' ? PostbackUrl::withClickId($postback->url, $clickId) : $postback->url),
+                'status' => $postback->status,
+                'http' => $postback->http_status,
+                'outcome' => $postback->outcome,
+                'attempt' => match (true) {
+                    $postback->status === TrafficPostbackStatus::Delivered => $postback->attempts <= 1 ? 'First try' : 'Try '.$postback->attempts.' of '.$tries,
+                    $postback->status === TrafficPostbackStatus::Pending && $postback->attempts > 0 => 'Try '.$postback->attempts.' of '.$tries.' · retry at '.$postback->run_after->format('H:i'),
+                    $postback->status === TrafficPostbackStatus::Pending => 'Waiting to be sent',
+                    default => 'Try '.$postback->attempts.' of '.$tries,
+                },
+                'resendable' => in_array($postback->status, [TrafficPostbackStatus::Failed, TrafficPostbackStatus::Expired, TrafficPostbackStatus::Cancelled], true),
+            ];
+        }, $postbacks);
+    }
+
+    private static function duration(int $seconds): string
+    {
+        return match (true) {
+            $seconds < 3600 => max(1, intdiv($seconds, 60)).' min',
+            $seconds < 86400 => intdiv($seconds, 3600).' h '.intdiv($seconds % 3600, 60).' min',
+            default => intdiv($seconds, 86400).' day '.intdiv($seconds % 86400, 3600).' h',
+        };
     }
 
     /** @return array<string, mixed> */
