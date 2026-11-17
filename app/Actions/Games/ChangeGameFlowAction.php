@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Translations\RecordProjectTranslationSourceAction;
 use App\Exceptions\Games\CannotManageGameException;
 use App\Models\Game;
 use App\Models\GameFlow;
@@ -10,6 +11,7 @@ use App\Models\GameFlowStep;
 use App\Models\GameVersion;
 use App\Models\User;
 use App\Support\Games\Flow\GameFlowTemplate;
+use App\Support\Translations\ProjectContentSection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,6 +30,8 @@ final class ChangeGameFlowAction
     use LocksGameDraft;
 
     public const NAME_MAX = 80;
+
+    public function __construct(private readonly RecordProjectTranslationSourceAction $sources) {}
 
     /** @throws CannotManageGameException */
     public function create(User $admin, Game $game, string $name, ?GameFlowTemplate $template, ?int $copyOfFlowId = null): GameFlow
@@ -53,6 +57,7 @@ final class ChangeGameFlowAction
                 foreach ($source->steps as $step) {
                     $copy = $step->replicate(['flow_id']);
                     $copy->forceFill(['flow_id' => $flow->id])->save();
+                    $this->sources->copy(ProjectContentSection::GameFlowSteps, (int) $step->id, (int) $copy->id);
                 }
             } else {
                 FlowTemplateWriter::fromTemplate($flow, $template ?? GameFlowTemplate::ResultFirst, $locked->title);

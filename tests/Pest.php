@@ -15,6 +15,7 @@ use App\Actions\Studio\SaveStudioVotesAction;
 use App\Actions\Studio\UpdateStudioPlanAction;
 use App\Actions\Translations\ReadProjectTranslationGenerationAction;
 use App\Actions\Translations\StartProjectTranslationGenerationAction;
+use App\Actions\Translations\UpdateProjectTranslationAction;
 use App\Data\Studio\SavedStudioDiscussion;
 use App\Data\Studio\SavedStudioVotes;
 use App\Data\Studio\StudioDiscussionData;
@@ -60,6 +61,7 @@ use App\Models\MediaVariant;
 use App\Models\PersonaProfile;
 use App\Models\Post;
 use App\Models\ProjectSettings;
+use App\Models\ProjectTranslationSource;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Report;
@@ -8844,6 +8846,31 @@ function installLanguagesUpTo(int $total): array
 function untranslatedCategory(string $name = 'Georgian food'): Category
 {
     return Category::factory()->create(['slug' => Str::slug($name), 'name' => $name, 'name_translations' => null, 'is_active' => true]);
+}
+
+/**
+ * A category whose translation into $locale was saved by Translation Center's
+ * writer from the English $was, and whose English is $now since: an outdated
+ * translation, still stored.
+ */
+function outdatedCategory(string $locale, string $translation = 'Willkommen', string $was = 'Welcome', string $now = 'Hello'): Category
+{
+    $category = untranslatedCategory($was);
+    app(UpdateProjectTranslationAction::class)->handle(User::factory()->admin()->create(), "categories:{$category->id}:name", $locale, $translation);
+    $category->update(['name' => $now]);
+
+    return $category->fresh();
+}
+
+/**
+ * What is recorded of the English a language's translation of a unit was
+ * made from, or null when nothing is.
+ *
+ * @return array{fingerprint: string, reference: string}|null
+ */
+function translationSourceOf(string $unit, string $locale): ?array
+{
+    return ProjectTranslationSource::query()->where('unit_id', $unit)->where('locale', $locale)->first()?->only(['fingerprint', 'reference']);
 }
 
 /**

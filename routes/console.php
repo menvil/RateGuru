@@ -45,6 +45,13 @@ Schedule::command('moderation:purge-content')->daily()->withoutOverlapping();
 // (90) are deleted in small batches. Nothing else is touched.
 Schedule::command('translations:purge-ai-calls')->daily()->withoutOverlapping();
 
+// Which English each project translation was made from (docs/architecture/
+// translation-engine.md, "Outdated translations"): Translation Center records
+// it with every save; this gives a translation saved some other way — a
+// preset, the deploy's backfill — the English it stands beside now. It only
+// adds records, never replaces one, so a change of English stays visible.
+Schedule::command('translations:baseline-sources')->daily()->withoutOverlapping();
+
 // What playing games recorded (docs/architecture/games.md): game events older
 // than games.retention_days.events (400) and emails left in games older than
 // games.retention_days.email_captures (365) are deleted in small batches.
