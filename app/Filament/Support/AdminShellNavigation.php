@@ -7,6 +7,7 @@ use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\StudioActionQueue;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -56,6 +57,7 @@ final class AdminShellNavigation
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
+        TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',

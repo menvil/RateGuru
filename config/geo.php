@@ -15,10 +15,6 @@ return [
     // host's repair checks.
     'directory' => storage_path('geoip'),
 
-    // The edition a new installation serves until the administrator picks
-    // another one.
-    'default_edition' => 'geolite2_city',
-
     // Seconds: making a connection, reading a small metadata answer, and
     // downloading a database.
     'timeouts' => [

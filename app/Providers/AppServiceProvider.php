@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Enums\AuthModalMode;
-use App\Enums\GeoEdition;
 use App\Enums\PostStatus;
 use App\Enums\ThemePreference;
 use App\Events\Games\GameMilestoneReached;
@@ -11,6 +10,7 @@ use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
 use App\Models\Tag;
+use App\Models\TrafficSetting;
 use App\Policies\GamePolicy;
 use App\Policies\MediaDiagnosticsPolicy;
 use App\Policies\ModerationPolicy;
@@ -106,7 +106,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(GeoDatabaseLocator::class, fn (): GeoDatabaseLocator => new GeoDatabaseLocator((string) config('geo.directory')));
         $this->app->scoped(GeoLookup::class, fn ($app): GeoLookup => new MmdbGeoLookup(
             $app->make(GeoDatabaseLocator::class),
-            GeoEdition::tryFrom((string) config('geo.default_edition')) ?? GeoEdition::GeoLite2City,
+            TrafficSetting::current()->geo_edition,
             $app->make(PublicIpClassifier::class),
             $app->make(DomainLogger::class),
         ));

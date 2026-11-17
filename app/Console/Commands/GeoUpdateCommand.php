@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Enums\GeoEdition;
 use App\Exceptions\Geo\GeoUpdateException;
+use App\Models\TrafficSetting;
 use App\Services\Geo\GeoDatabaseUpdater;
 use App\Services\Geo\GeoUpdateOutcome;
 use App\Support\Geo\GeoDatabaseLocator;
@@ -66,13 +67,15 @@ final class GeoUpdateCommand extends Command
     }
 
     /**
-     * The edition to serve, and when the administrator last asked for a
-     * refresh.
+     * The edition to serve and when the administrator last asked for a
+     * refresh, as Traffic sources → Sources (Tracking) has them.
      *
      * @return array{0: GeoEdition, 1: ?CarbonImmutable}
      */
     private function preferences(): array
     {
-        return [GeoEdition::tryFrom((string) config('geo.default_edition')) ?? GeoEdition::GeoLite2City, null];
+        $settings = TrafficSetting::current();
+
+        return [$settings->geo_edition, $settings->geo_refresh_requested_at];
     }
 }

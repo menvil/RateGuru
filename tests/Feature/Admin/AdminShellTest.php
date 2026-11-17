@@ -5,6 +5,7 @@ use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\StudioActionQueue;
+use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Pages\TranslationAiPage;
 use App\Filament\Pages\TranslationCenterPage;
 use App\Filament\Resources\Categories\CategoryResource;
@@ -45,7 +46,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
     'Content Studio' => ['Publications & plans', 'Action queue', 'Personas'],
-    'Growth' => ['Games'],
+    'Growth' => ['Games', 'Traffic sources'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -255,7 +256,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(17);
+    expect($keys)->toHaveCount(18);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -274,6 +275,7 @@ it('has an Admin v2 icon for every production destination', function () {
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
+        TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
         TranslationAiPage::class => 'bot',

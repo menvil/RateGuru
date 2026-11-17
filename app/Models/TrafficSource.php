@@ -131,4 +131,10 @@ class TrafficSource extends Model
     {
         return $this->hasMany(TrafficBlock::class, 'source_id');
     }
+
+    /** @return HasMany<TrafficVisit, $this> */
+    public function visits(): HasMany
+    {
+        return $this->hasMany(TrafficVisit::class, 'source_id');
+    }
 }
