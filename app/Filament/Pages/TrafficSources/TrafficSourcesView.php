@@ -1159,8 +1159,21 @@ final class TrafficSourcesView
                 'name' => $preset['name'],
                 'formats' => implode(' · ', $preset['formats']),
                 'api' => $preset['connector'] !== null,
+                'custom' => (bool) ($preset['custom'] ?? false),
+                'chips' => array_values(array_filter([
+                    ['Link', 'link', false],
+                    [($preset['postback']['url_template'] ?? '') === '' ? 'Postbacks: paste the address' : 'Postbacks', 'arrow-up-right', false],
+                    $preset['connector'] !== null ? ['Spend via API', 'refresh-cw', true] : (collect($preset['link_params'])->contains('kind', 'cost') ? ['Cost in each click', 'link', false] : ['Spend: your rate', 'smartphone', false]),
+                    $preset['connector'] !== null ? ['Blocking via API', 'ban', true] : ['Blocking by hand', 'ban', false],
+                ])),
+                'note' => match (true) {
+                    (bool) ($preset['custom'] ?? false) => 'Any network without a preset. Link, postbacks and reports work the same: you type in its tokens and postback address and check them with Check a link.',
+                    $preset['connector'] !== null => 'Read through the RateGuru connector: spend, campaigns and blocking.',
+                    ($preset['network_api'] ?? '') !== '' => 'Its API offers '.$preset['network_api'].' · no RateGuru connector yet',
+                    default => '',
+                },
             ])->values()->all(),
-            ['key' => 'placement', 'name' => 'Banner or link', 'formats' => 'A placement bought at a fixed price', 'api' => false],
+            ['key' => 'placement', 'name' => 'Banner or link', 'formats' => 'A placement bought at a fixed price', 'api' => false, 'custom' => false, 'chips' => [['Link', 'link', false], ['Fixed price', 'calendar', false]], 'note' => 'A banner, a partner site, a channel post or a newsletter: a tracking link and a price agreed up front. No click ID, so no postbacks.'],
         ];
     }
 

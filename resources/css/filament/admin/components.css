@@ -14320,12 +14320,54 @@
 
     .rg-admin-traffic__preset {
         display: flex;
-        flex-direction: column;
-        gap: 2px;
+        align-items: flex-start;
+        gap: 10px;
         width: 100%;
         padding: 10px 12px;
         border: 1px solid var(--rg-admin-border-default);
         border-radius: var(--rg-admin-radius-md);
+    }
+
+    .rg-admin-traffic__preset > svg {
+        flex: none;
+        margin-top: 2px;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-traffic__preset-text {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .rg-admin-traffic__preset-caps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .rg-admin-traffic__preset-cap {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 6px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-sm);
+        font-size: 11px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-traffic__preset-cap--api {
+        border-color: var(--rg-admin-status-success-dot);
+        background: var(--rg-admin-status-success-bg);
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-traffic__presets-heading {
+        margin-top: 10px;
     }
 
     .rg-admin-traffic__preset:hover {
