@@ -176,6 +176,13 @@ final class TrafficSourcesPage extends Page
     /** The source whose link Campaigns shows: a network or a banner, the first one to begin with. */
     public string $linkSource = '';
 
+    /** The source Spend shows day by day and takes a corrected day or a file for. */
+    #[Url(as: 'spend_source', except: '')]
+    public mixed $spendSource = '';
+
+    /** @var list<int> the sources Spend shows by campaign */
+    public array $spendOpen = [];
+
     /** @var array<int|string, string> each source’s target cost of an account, as typed on Value, by source id */
     public array $targets = [];
 
@@ -219,6 +226,9 @@ final class TrafficSourcesPage extends Page
             ?? TrafficSource::query()->where('type', TrafficSourceType::Placement)->orderBy('name')->value('id') ?? '');
         $this->linkGame = (string) (Game::query()->orderBy('title')->value('id') ?? '');
         $this->drawTargets();
+        $firstPaid = TrafficSource::query()->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->orderBy('name')->value('id');
+        $this->spendSource = is_numeric($this->spendSource) ? (string) (int) $this->spendSource : (string) ($firstPaid ?? '');
+        $this->spendOpen = $firstPaid === null ? [] : [(int) $firstPaid];
         $this->drawPrices();
         $this->drawSettings();
 
@@ -606,6 +616,26 @@ final class TrafficSourcesPage extends Page
         }
     }
 
+    /** Shows a source by campaign on Spend, or folds it back. */
+    public function toggleSpendSource(mixed $sourceId): void
+    {
+        if (is_numeric($sourceId)) {
+            $this->spendOpen = in_array((int) $sourceId, $this->spendOpen, true)
+                ? array_values(array_diff($this->spendOpen, [(int) $sourceId]))
+                : [...$this->spendOpen, (int) $sourceId];
+        }
+    }
+
+    /** Asks a source's network for its figures at the next sync, from its row on Spend. */
+    public function syncSource(mixed $sourceId): void
+    {
+        $source = is_numeric($sourceId) ? TrafficSource::query()->find((int) $sourceId) : null;
+
+        if ($source !== null) {
+            $this->attempt(fn () => app(ConnectTrafficApiAction::class)->syncNow($this->admin(), $source), 'Syncing within a minute.');
+        }
+    }
+
     public function syncNow(): void
     {
         $source = $this->editedSource();
@@ -747,7 +777,7 @@ final class TrafficSourcesPage extends Page
 
     public function enterSpend(): void
     {
-        $source = is_numeric($this->source) ? TrafficSource::query()->find((int) $this->source) : null;
+        $source = is_numeric($this->spendSource) ? TrafficSource::query()->find((int) $this->spendSource) : null;
 
         if ($source === null) {
             $this->toast('Choose a source first.', 'error');
@@ -771,9 +801,17 @@ final class TrafficSourcesPage extends Page
         $this->toast('Spend saved; it is shared over the day’s visits within a minute.');
     }
 
+    /** A file chosen on Spend is taken as soon as it has uploaded. */
+    public function updatedSpendFile(): void
+    {
+        if ($this->spendFile !== null) {
+            $this->importSpend();
+        }
+    }
+
     public function importSpend(): void
     {
-        $source = is_numeric($this->source) ? TrafficSource::query()->find((int) $this->source) : null;
+        $source = is_numeric($this->spendSource) ? TrafficSource::query()->find((int) $this->spendSource) : null;
 
         if ($source === null || $this->spendFile === null) {
             $this->toast('Choose a source and a file first.', 'error');
@@ -987,6 +1025,8 @@ final class TrafficSourcesPage extends Page
         $this->reportView = is_string($this->reportView) && array_key_exists($this->reportView, TrafficSourcesView::VIEWS) ? $this->reportView : 'sources';
         $this->listBy = $this->listBy === 'site' ? 'site' : 'zone';
         $this->stage = in_array($this->stage, ['test', 'optimise', 'scale', 'paused', 'new', 'archived'], true) ? $this->stage : 'all';
+        $this->spendSource = is_numeric($this->spendSource) ? (string) (int) $this->spendSource : '';
+        $this->spendOpen = array_values(array_map('intval', array_filter($this->spendOpen, 'is_numeric')));
         $this->q = is_string($this->q) ? mb_substr($this->q, 0, 80) : '';
         $this->minClicks = is_numeric($this->minClicks) ? max(0, min(100000, (int) $this->minClicks)) : 0;
         $this->segment = is_string($this->segment) && array_key_exists($this->segment, SiteZoneList::SEGMENTS) ? $this->segment : 'all';

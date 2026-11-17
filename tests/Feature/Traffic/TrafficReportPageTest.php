@@ -8,6 +8,7 @@ use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -217,4 +218,27 @@ it('lays out Value: outcome prices with what an account brings, accounts by sour
 
     expect($page->get('groups')[0]['countries'])->toContain('BR')->not->toContain('US')
         ->and(collect($page->get('groups'))->filter(fn (array $group): bool => str_contains((string) $group['countries'], 'BR'))->count())->toBe(1);
+});
+
+it('lays out Spend: where spend comes from, spend by source by campaign — those whose spend found no visit too — and a source day by day, with a day corrected', function () {
+    $this->source->forceFill(['spend_mode' => 'click_cost'])->save();
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->source->id, 'external_id' => '881204', 'name' => 'US popunder']);
+    siteClicks($this->source, '40123', 3, 3, ['campaign_id' => $campaign->id, 'cost' => '0.01']);
+    $banner = TrafficSource::factory()->create(['name' => 'Cat blog sidebar', 'type' => 'placement', 'link_key' => 'cat', 'spend_mode' => 'fixed', 'fixed_amount' => '30', 'fixed_period' => 'month', 'fixed_from' => '2026-11-01']);
+    TrafficSpendDay::query()->forceCreate(['source_id' => $banner->id, 'network_day' => '2026-11-16', 'origin' => 'fixed', 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00', 'counted' => true, 'allocated_amount' => 0, 'allocated_at' => now()]);
+
+    $page = Livewire::withQueryParams(['tab' => 'spend', 'spend_source' => (string) $this->source->id])->test(TrafficSourcesPage::class)->call('load')
+        ->assertSee('Where spend comes from')
+        ->assertSee('Used by PopAds main')
+        ->assertSee('Price in each click · per click')
+        ->assertSee('Cat blog sidebar')
+        ->assertSee('$1.00 without visits')
+        ->assertSee('Day by day')
+        ->assertSee('Yesterday')
+        ->call('toggleSpendSource', $this->source->id)
+        ->assertSee('881204');
+
+    $page->set('spendEntry.day', '2026-11-16')->set('spendEntry.amount', '5')->call('enterSpend')->assertHasNoErrors();
+
+    expect(TrafficSpendDay::query()->where('source_id', $this->source->id)->where('origin', 'manual')->sole()->amount)->toBe('5.00000000');
 });

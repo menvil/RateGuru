@@ -41,7 +41,7 @@ it('draws every tab on real figures', function (string $tab, string $text) {
     'report, sites and zones' => ['report', 'site 40123'],
     'campaigns' => ['campaigns', 'US popunder'],
     'value' => ['value', 'What a new user is worth'],
-    'spend' => ['spend', 'Spend without visits'],
+    'spend' => ['spend', 'Where spend comes from'],
     'sources' => ['sources', 'Tracking'],
     'logs' => ['logs', 'failed'],
 ]);

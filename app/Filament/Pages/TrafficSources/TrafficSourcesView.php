@@ -12,6 +12,7 @@ use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendMode;
+use App\Enums\TrafficSpendOrigin;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
 use App\Models\GameVersion;
@@ -25,6 +26,7 @@ use App\Models\TrafficPostback;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Models\TrafficSpendDay;
 use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
@@ -53,6 +55,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * What each tab of Growth → Traffic sources shows, read for the tab on
@@ -839,19 +842,116 @@ final class TrafficSourcesView
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Spend, as the reference draws it: the ways a source's spend is known
+     * and which sources use each; spend by source — how it is worked out,
+     * what reports count, what the network itself says, how the source
+     * stands — each opening its campaigns; and, for the source chosen, each
+     * day: its clicks, what their links said they cost, the network's own
+     * figure and what reports count, with a day corrected or a file taken.
+     *
+     * @return array<string, mixed>
+     */
     private function spendTab(TrafficSourcesPage $page, TrafficReportFilter $filter, $sources): array
     {
-        $unallocated = $this->spend->unallocated($filter->fromDay, $filter->toDay);
+        $paid = $sources->whereIn('type', [TrafficSourceType::Network, TrafficSourceType::Placement])->values();
+        $unallocated = collect($this->spend->unallocated($filter->fromDay, $filter->toDay));
+        $bySource = collect($this->reports->level($filter, TrafficDimension::Source))->keyBy(fn (array $group): string => (string) ($group['keys']['source_id'] ?? ''));
+        $network = TrafficSpendDay::query()->whereBetween('network_day', [$filter->fromDay, $filter->toDay])->whereIn('origin', [TrafficSpendOrigin::Api, TrafficSpendOrigin::Csv])->get(['source_id', 'campaign_id', 'origin', 'network_day', 'amount']);
+        $campaignFigures = $this->reports->byCampaign($filter);
+        $connections = TrafficApiConnection::query()->get()->keyBy('source_id');
+        $users = fn (array $modes): array => $paid->filter(fn (TrafficSource $source): bool => in_array($source->spend_mode, $modes, true))->pluck('name')->all();
+        $chosen = $paid->firstWhere('id', (int) $page->spendSource);
+        $days = $chosen === null ? [] : $this->spend->days((int) $chosen->id, $filter->fromDay, $filter->toDay);
+        $today = CarbonImmutable::now($chosen->reporting_timezone ?? 'UTC')->toDateString();
 
         return [
-            'bySource' => array_map(fn (array $group): array => [
-                'keys' => $group['keys'],
-                'figures' => $group['figures'],
-                'unallocated' => collect($unallocated)->where('source_id', (int) $group['keys']['source_id'])->reduce(fn (string $sum, array $row): string => TrafficMoney::stored(TrafficMoney::of($sum)->plus(TrafficMoney::of($row['amount']))), '0'),
-            ], array_values(array_filter($this->reports->level($filter, TrafficDimension::Source), fn (array $group): bool => ($group['keys']['source_id'] ?? null) !== null))),
-            'days' => is_numeric($page->source) ? $this->spend->days((int) $page->source, $filter->fromDay, $filter->toDay) : null,
+            'methods' => [
+                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => 'RateGuru asks the network for its spend per campaign, site, zone and day, every few hours. Exactly what the network bills. Today is estimated until the next sync.', 'users' => $users([TrafficSpendMode::Api])],
+                ['icon' => 'link', 'name' => 'Price in each click', 'text' => 'The network puts the price of every click into the link. Exact per click, available at once, no typing.', 'users' => $users([TrafficSpendMode::ClickCost])],
+                ['icon' => 'smartphone', 'name' => 'Rate you set', 'text' => 'You type the price you bid, per device. Clicks × rate. An estimate: good enough to compare zones, not to match the invoice.', 'users' => $users([TrafficSpendMode::Rate])],
+                ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],
+                ['icon' => 'file', 'name' => 'Typed in or imported', 'text' => 'Type the spend per campaign and day, or import the network’s CSV export. It replaces any estimate for those days.', 'users' => $users([TrafficSpendMode::Manual])],
+            ],
+            'spendRows' => $paid->map(function (TrafficSource $source) use ($bySource, $unallocated, $network, $campaignFigures, $connections, $page): array {
+                $figures = $bySource->get((string) $source->id)['figures'] ?? new ReportFigures;
+                $without = $unallocated->where('source_id', $source->id)->sum(fn (array $row): float => (float) $row['amount']);
+                $reported = TrafficMoney::of($figures->spend)->plus(TrafficMoney::of($without));
+                $networkFacts = $network->where('source_id', $source->id);
+                $networkSum = $networkFacts->sum(fn (TrafficSpendDay $fact): float => (float) $fact->amount);
+                $connection = $connections->get($source->id);
+                $campaigns = TrafficCampaign::query()->where('source_id', $source->id)->orderByDesc('first_click_at')->limit(50)->get(['id', 'external_id', 'name', 'game_id']);
+
+                return [
+                    'id' => $source->id,
+                    'name' => $source->name,
+                    'kind' => $source->type === TrafficSourceType::Placement ? 'Banner or link' : 'Ad network · '.$campaigns->count().' '.Str::plural('campaign', $campaigns->count()),
+                    'how' => $this->spendHow($source),
+                    'visits' => $figures->visits,
+                    'reported' => (string) $reported,
+                    'estimated' => $figures->spendEstimated,
+                    'without' => (string) $without,
+                    'network' => match (true) {
+                        $source->spend_mode === TrafficSpendMode::Fixed => ['Agreed price', null],
+                        $networkFacts->isEmpty() => ['Not checked', $source->spend_mode === TrafficSpendMode::Api ? 'Waiting for the first sync' : 'Import the network’s CSV to compare'],
+                        default => [TrafficMoney::format($networkSum), $networkSum > 0 ? 'Differs by '.number_format(((float) (string) $reported - $networkSum) / $networkSum * 100, 1).'%' : null],
+                    },
+                    'status' => $this->spendStatus($source, $connection),
+                    'api' => $connection !== null,
+                    'open' => in_array((int) $source->id, $page->spendOpen, true),
+                    'campaigns' => $campaigns->map(fn (TrafficCampaign $campaign): array => [
+                        'external' => $campaign->external_id,
+                        'name' => $campaign->name ?? 'Campaign '.$campaign->external_id,
+                        'figures' => $campaignFigures[$campaign->id] ?? new ReportFigures,
+                        'network' => ($sum = $networkFacts->where('campaign_id', $campaign->id)->sum(fn (TrafficSpendDay $fact): float => (float) $fact->amount)) > 0 ? TrafficMoney::format($sum) : null,
+                    ])->filter(fn (array $row): bool => $row['figures']->visits > 0 || $row['network'] !== null)->values()->all(),
+                ];
+            })->all(),
+            'spendSourceName' => $chosen?->name,
+            'spendSources' => $paid->mapWithKeys(fn (TrafficSource $source): array => [(string) $source->id => $source->name])->all(),
+            'dayRows' => collect($days)->map(fn (array $row, string $day): array => [
+                'day' => $day === $today ? 'Today' : ($day === CarbonImmutable::parse($today)->subDay()->toDateString() ? 'Yesterday' : CarbonImmutable::parse($day)->format('d M')),
+                'date' => $day,
+                'clicks' => $row['clicks'],
+                'costs' => $row['costs'],
+                'network' => $row['figures']['api'] ?? $row['figures']['csv'] ?? null,
+                'networkOpen' => $day === $today,
+                'origin' => $row['counted_origin'],
+                'counted' => $row['counted'],
+                'allocated' => $row['allocated'],
+            ])->values()->all(),
+            'correctDays' => collect(range(0, 13))->mapWithKeys(fn (int $back): array => [CarbonImmutable::parse($today)->subDays($back)->toDateString() => $back === 0 ? 'Today' : ($back === 1 ? 'Yesterday' : CarbonImmutable::parse($today)->subDays($back)->format('d M'))])->all(),
         ];
+    }
+
+    /** @return array{icon: string, text: string} how a source's spend is worked out, as Spend says it */
+    private function spendHow(TrafficSource $source): array
+    {
+        return match ($source->spend_mode) {
+            TrafficSpendMode::Api => ['icon' => 'refresh-cw', 'text' => 'Network API · today from '.($source->spend_estimate === 'rate' ? 'the rate' : 'the cost in each click')],
+            TrafficSpendMode::ClickCost => ['icon' => 'link', 'text' => 'Price in each click · per '.($source->cost_unit->value === 'cpm' ? '1000 clicks' : 'click')],
+            TrafficSpendMode::Rate => ['icon' => 'smartphone', 'text' => 'Rate you set · '.implode(' / ', array_filter([$source->rate_mobile !== null ? TrafficMoney::format($source->rate_mobile, 4).' mobile' : null, $source->rate_desktop !== null ? TrafficMoney::format($source->rate_desktop, 4).' desktop' : null]))],
+            TrafficSpendMode::Fixed => ['icon' => 'calendar', 'text' => 'Fixed · '.($source->fixed_amount !== null ? TrafficMoney::format($source->fixed_amount, 0) : '—').' '.($source->fixed_period?->value === 'once' ? 'once' : 'a '.($source->fixed_period->value ?? 'month')).($source->fixed_from !== null ? ', '.CarbonImmutable::parse($source->fixed_from)->format('d M').($source->fixed_to !== null ? '–'.CarbonImmutable::parse($source->fixed_to)->format('d M') : '') : '')],
+            TrafficSpendMode::Manual => ['icon' => 'file', 'text' => 'Typed in or imported'],
+            default => ['icon' => 'circle', 'text' => 'Not counted'],
+        };
+    }
+
+    /** @return array{tone: string, text: string} how a source's spend stands */
+    private function spendStatus(TrafficSource $source, ?TrafficApiConnection $connection): array
+    {
+        return match (true) {
+            $source->spend_mode === TrafficSpendMode::Api && $connection === null => ['tone' => 'danger', 'text' => 'No API connection yet'],
+            $source->spend_mode === TrafficSpendMode::Api && $connection->status !== TrafficConnectionStatus::Connected => ['tone' => 'danger', 'text' => 'Needs attention: '.str_replace('_', ' ', (string) $connection->last_error)],
+            $source->spend_mode === TrafficSpendMode::Api => ['tone' => 'success', 'text' => 'Synced '.($connection->last_synced_at?->format('j M H:i') ?? 'not yet').($connection->next_sync_at !== null ? ' · next at '.$connection->next_sync_at->format('H:i') : '')],
+            $source->spend_mode === TrafficSpendMode::ClickCost => ['tone' => 'warning', 'text' => 'Exact per click, as the network passed it'],
+            $source->spend_mode === TrafficSpendMode::Rate => ['tone' => 'warning', 'text' => 'An estimate from the rate'],
+            $source->spend_mode === TrafficSpendMode::Fixed => $source->status->value === 'ended' || ($source->fixed_to !== null && $source->fixed_to < CarbonImmutable::now()->toDateString())
+                ? ['tone' => 'neutral', 'text' => 'Ended · paid in full']
+                : ['tone' => 'success', 'text' => 'Running · spread over the '.($source->fixed_period->value ?? 'month')],
+            $source->spend_mode === TrafficSpendMode::Manual => ['tone' => 'neutral', 'text' => 'Typed in'],
+            default => ['tone' => 'neutral', 'text' => 'Spend not counted'],
+        };
     }
 
     /** @return array<string, mixed> */
