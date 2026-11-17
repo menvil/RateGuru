@@ -73,6 +73,12 @@ Schedule::command('traffic:send-postbacks')->everyMinute()->withoutOverlapping(5
 // traffic.md, "Spend"), never in a web request.
 Schedule::command('traffic:allocate-spend')->everyMinute()->withoutOverlapping(5)->runInBackground();
 
+// The ad networks' APIs (docs/architecture/traffic.md, "Sync"): one process
+// reads spend and campaigns and applies blocks; the block rule queues the
+// sites and zones it calls bots or losing after the night's worth.
+Schedule::command('traffic:sync-networks')->everyMinute()->withoutOverlapping(10)->runInBackground();
+Schedule::command('traffic:block-losers')->dailyAt('03:40')->withoutOverlapping();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.

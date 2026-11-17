@@ -169,6 +169,8 @@ final class RecordPaidClickAction
                 'created_at' => $now,
             ]);
 
+            app(RecordBlockedHitAction::class)->handle($visit);
+
             return $visit;
         });
     }

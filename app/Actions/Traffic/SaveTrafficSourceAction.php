@@ -18,6 +18,7 @@ use App\Models\TrafficPostbackRule;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Support\Traffic\Links\LinkParams;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackTemplate;
@@ -64,6 +65,10 @@ final class SaveTrafficSourceAction
             $this->validate($type, $existing, $source, $rules);
             $hasVisits = $existing !== null && TrafficVisit::query()->where('source_id', $existing->id)->exists();
 
+            if ((bool) ($source['block_auto'] ?? false) && ! $this->canBlockByItself($existing, TrafficBlockLevel::tryFrom((string) ($source['block_level'] ?? '')))) {
+                throw ValidationException::withMessages(['block_auto' => 'Blocking by itself needs the network’s API connected, checked on a real account, and able to block this level.']);
+            }
+
             if ($hasVisits && $existing->link_key !== $source['link_key']) {
                 throw ValidationException::withMessages(['link_key' => 'Visits have come through this key, so it can’t change: links already in campaigns would stop counting.']);
             }
@@ -106,6 +111,13 @@ final class SaveTrafficSourceAction
 
             return $record->refresh();
         });
+    }
+
+    private function canBlockByItself(?TrafficSource $source, ?TrafficBlockLevel $level): bool
+    {
+        return $source !== null && $source->connector !== null && $level !== null
+            && app(ConnectorRegistry::class)->verified($source->connector)
+            && app(BlockTrafficRefsAction::class)->canBlockViaApi($source, $level);
     }
 
     /**
