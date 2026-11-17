@@ -3,6 +3,7 @@
 namespace App\Actions\Games;
 
 use App\Actions\Games\Concerns\LocksGameDraft;
+use App\Actions\Games\Concerns\SavesOnlyChanges;
 use App\Data\Games\GameFlowDraft;
 use App\Enums\GameFlowGoal;
 use App\Enums\GameFlowStepType;
@@ -28,6 +29,7 @@ use Illuminate\Validation\ValidationException;
 final class SaveGameFlowAction
 {
     use LocksGameDraft;
+    use SavesOnlyChanges;
 
     /** The longest each text column holds. */
     public const TEXT_MAX = ['title' => 160, 'body' => 600, 'button_label' => 60, 'secondary_label' => 80, 'field_label' => 60, 'notice' => 300, 'consent_label' => 300];
@@ -70,6 +72,8 @@ final class SaveGameFlowAction
             $locked = $this->lockFlow($game, (int) $flow->id, $expectedLockVersion);
             $existing = $locked->steps()->get()->keyBy('id');
             $kept = [];
+            // Whether anything players would meet changed: a save of what is already there writes nothing.
+            $changed = false;
 
             foreach ($draft->steps as $position => $data) {
                 $type = GameFlowStepType::from((string) $data['type']);
@@ -90,15 +94,22 @@ final class SaveGameFlowAction
                     'audience' => $type->fixedAudience() ?? GameStepAudience::from((string) $data['audience']),
                     'settings' => GameFlowStepSettings::normalize($type, (array) ($data['settings'] ?? [])),
                     ...$texts,
-                ])->save();
+                ]);
+                $changed = $this->keepsChanges($step) || $changed;
+                $step->save();
                 $kept[] = (int) $step->id;
             }
 
-            $existing->reject(fn (GameFlowStep $step): bool => in_array((int) $step->id, $kept, true))
-                ->each(fn (GameFlowStep $step) => $step->delete());
+            $gone = $existing->reject(fn (GameFlowStep $step): bool => in_array((int) $step->id, $kept, true));
+            $gone->each(fn (GameFlowStep $step) => $step->delete());
+            $locked->forceFill(['goal' => $draft->goal]);
+            $changed = $changed || $gone->isNotEmpty() || $locked->isDirty('goal');
 
-            $locked->forceFill(['goal' => $draft->goal, 'lock_version' => $locked->lock_version + 1])->save();
-            $this->touchGame($game, $lockedAdmin);
+            if ($changed) {
+                $locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
+                $this->touchGame($game, $lockedAdmin);
+            }
+
             $flow->setRawAttributes($locked->getAttributes(), true);
         });
 

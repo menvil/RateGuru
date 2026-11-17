@@ -529,7 +529,7 @@ final class EditGameContent extends Page
         }
 
         try {
-            app(ChangeContentSetAction::class)->rename($this->admin(), $set, $this->setName, $this->lockVersion);
+            $renamed = app(ChangeContentSetAction::class)->rename($this->admin(), $set, $this->setName, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
             $this->stale = $exception->isStale();
             $this->toast($exception->getMessage(), 'error');
@@ -537,9 +537,11 @@ final class EditGameContent extends Page
             return;
         }
 
-        // The rename moved the set on from the version on screen, and nothing else did.
-        $this->lockVersion++;
-        $this->toast('Content set renamed');
+        if ($renamed) {
+            // The rename moved the set on from the version on screen, and nothing else did.
+            $this->lockVersion++;
+            $this->toast('Content set renamed');
+        }
     }
 
     public function askSet(mixed $action): void

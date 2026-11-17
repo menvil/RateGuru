@@ -397,7 +397,7 @@ final class EditGameFlow extends Page
         }
 
         try {
-            app(ChangeGameFlowAction::class)->rename($this->admin(), $flow, $this->flowName, $this->lockVersion);
+            $renamed = app(ChangeGameFlowAction::class)->rename($this->admin(), $flow, $this->flowName, $this->lockVersion);
         } catch (CannotManageGameException $exception) {
             // A name refused is not shown as the flow's.
             $this->flowName = $flow->name;
@@ -407,11 +407,14 @@ final class EditGameFlow extends Page
             return;
         }
 
-        // The rename moved the flow on from the version on screen, and nothing else did.
-        $this->lockVersion++;
         // The name as stored: trimmed, and cut to its limit.
         $this->flowName = (string) $flow->fresh()?->name;
-        $this->toast('Flow renamed');
+
+        if ($renamed) {
+            // The rename moved the flow on from the version on screen, and nothing else did.
+            $this->lockVersion++;
+            $this->toast('Flow renamed');
+        }
     }
 
     public function askFlow(mixed $action): void

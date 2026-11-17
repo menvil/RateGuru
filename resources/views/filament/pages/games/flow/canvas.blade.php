@@ -38,9 +38,9 @@
         </div>
     </template>
     <template x-if="renaming">
-        <form class="rg-admin-games__flow-title-row" x-on:submit.prevent="$wire.renameFlow(); renaming = false">
+        <form class="rg-admin-games__flow-title-row rg-admin-games__flow-title-row--renaming" x-on:submit.prevent="$wire.renameFlow(); renaming = false">
             <x-admin.ui.text-field label="Flow name" id="rg-admin-game-flow-name" :value="$flowName" class="rg-admin-games__flow-name-field" wire:model="flowName" />
-            <x-admin.ui.button size="sm" type="submit">Done</x-admin.ui.button>
+            <x-admin.ui.button type="submit">Done</x-admin.ui.button>
         </form>
     </template>
 </div>

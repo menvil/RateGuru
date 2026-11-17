@@ -65,11 +65,30 @@ final class ChangeGameFlowAction
     }
 
     /** @throws CannotManageGameException */
-    public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): void
+    /**
+     * The flow's name, which only the editor shows: a name kept as it was
+     * writes nothing, and a new one doesn't count as an edit players would
+     * see (GameUnpublishedChangesQuery reads when a flow was saved).
+     * Whether it wrote one.
+     *
+     * @throws CannotManageGameException
+     */
+    public function rename(User $admin, GameFlow $flow, string $name, ?int $expectedLockVersion = null): bool
     {
         $name = $this->name($name);
+        $renamed = false;
 
-        $this->change($admin, $flow, fn (GameFlow $locked) => $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save(), $expectedLockVersion);
+        $this->change($admin, $flow, function (GameFlow $locked) use ($name, &$renamed): void {
+            if ($locked->name === $name) {
+                return;
+            }
+
+            $locked->timestamps = false;
+            $locked->forceFill(['name' => $name, 'lock_version' => $locked->lock_version + 1])->save();
+            $renamed = true;
+        }, $expectedLockVersion);
+
+        return $renamed;
     }
 
     /** @throws CannotManageGameException */

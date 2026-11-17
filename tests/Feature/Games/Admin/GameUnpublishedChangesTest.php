@@ -115,3 +115,48 @@ it('opens Versions set to publish from the set and flow the address names, takin
         ->assertSet('publishFlowId', $this->draft['flow']->id)
         ->assertSet('takeOver', '');
 });
+
+it('says nothing on Flow when the flow is renamed, kept as it was, or saved without a change', function () {
+    liveGame($this->draft);
+    $this->travel(1)->minutes();
+    $lock = $this->draft['flow']->fresh()->lock_version;
+
+    $page = Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])
+        // Done with the name as it was: nothing written, nothing to put live, and the editor isn't left behind.
+        ->call('renameFlow')
+        ->assertNotDispatched('rg-admin-toast')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('stale', false)
+        ->assertDontSee('data-testid="game-unpublished"', false);
+
+    expect($this->draft['flow']->fresh()->lock_version)->toBe($lock);
+
+    // A new name is the editor's alone: players see no flow's name.
+    $page->set('flowName', 'Result First, renamed')->call('renameFlow');
+    expect($this->draft['flow']->fresh())->name->toBe('Result First, renamed')->lock_version->toBe($lock + 1);
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])->assertDontSee('data-testid="game-unpublished"', false);
+
+    // A real change still says so: here, the goal the flow counts.
+    $page->set('goal', 'completed')->call('save')->assertHasNoErrors();
+    Livewire::test(EditGameFlow::class, ['record' => $this->draft['game']->id])->assertSee('data-testid="game-unpublished"', false);
+});
+
+it('says nothing on Content when the set is renamed, kept as it was, or saved without a change', function () {
+    liveGame($this->draft);
+    $this->travel(1)->minutes();
+    $lock = $this->draft['set']->fresh()->lock_version;
+
+    $page = Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])
+        ->call('renameSet')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('stale', false)
+        ->assertDontSee('data-testid="game-unpublished"', false);
+
+    expect($this->draft['set']->fresh()->lock_version)->toBe($lock);
+
+    $page->set('setName', 'Beach and mountains, renamed')->call('renameSet');
+    expect($this->draft['set']->fresh()->name)->toBe('Beach and mountains, renamed');
+    Livewire::test(EditGameContent::class, ['record' => $this->draft['game']->id])->assertDontSee('data-testid="game-unpublished"', false);
+});

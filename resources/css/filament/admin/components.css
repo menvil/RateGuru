@@ -12812,6 +12812,16 @@
         flex: 1;
     }
 
+    /* Renaming: the button sits on the line of the field, under the field's label. */
+    .rg-admin-games__flow-title-row--renaming {
+        align-items: flex-end;
+    }
+
+    /* Centred on the field, which stands a pixel above its wrapper's foot and two taller than a button. */
+    .rg-admin-games__flow-title-row--renaming > .rg-admin-button {
+        margin-bottom: 2px;
+    }
+
     .rg-admin-games__issues {
         margin: var(--rg-admin-space-1) 0 0;
         padding-left: 18px;
