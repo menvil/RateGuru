@@ -1,0 +1,54 @@
+resources/js/games.js
+  s_4b9dc6ab6b25d3::t_79a652efb5bcfc 71-77,86-87,90,92-93,95,99-100,102-103,105-114
+resources/views/livewire/games/steps/share.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 3
+resources/views/livewire/games/steps/registration.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 8
+resources/views/livewire/games/steps/email-capture.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 7
+resources/views/livewire/games/steps/landing.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 10
+tests/Feature/Games/PlayGameSignupTest.php
+  s_4b9dc6ab6b25d3::t_30c6068e82b714 48-49
+resources/views/components/games/headline.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 1-2,5,8-18
+  s_4b9dc6ab6b25d3::t_79a652efb5bcfc 3-4,6-7,19
+tests/Feature/Games/PreviewGameTest.php
+  s_4b9dc6ab6b25d3::t_30c6068e82b714 136,142
+resources/views/livewire/games/steps/full-result.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 28
+  s_4b9dc6ab6b25d3::t_1e45f25b7965a4 11-12
+resources/views/livewire/games/steps/game.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 33
+resources/views/livewire/games/steps/intro.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 3
+resources/views/livewire/games/steps/next-game.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 7
+resources/views/livewire/games/steps/instructions.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 3
+resources/css/app.css
+  s_4b9dc6ab6b25d3::t_9e6fe02efbbd6a 315-317
+  s_4b9dc6ab6b25d3::t_79a652efb5bcfc 320,324-329,333,1271,1275-1280
+  s_4b9dc6ab6b25d3::t_316f2cd5e87c03 314,318-319,323,332,334-336
+  s_4b9dc6ab6b25d3::t_1e45f25b7965a4 998,1004-1009,1013-1018,1269-1270,1272-1274
+resources/views/livewire/games/steps/result-preview.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 4-5,9,16
+resources/views/livewire/games/steps/onward.blade.php
+  s_4b9dc6ab6b25d3::t_bf29e7263c2d6a 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd34ae306b39d56aec1a9210a90d7695fcbcc368",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
