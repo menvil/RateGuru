@@ -10,6 +10,7 @@ use App\Http\Controllers\Sharing\SharePostController;
 use App\Http\Controllers\SiteManifestController;
 use App\Http\Controllers\StaticPageController;
 use App\Http\Controllers\SubmitContactMessageController;
+use App\Http\Controllers\Traffic\VisitSignalController;
 use App\Http\Middleware\EnsureDevEnvironment;
 use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
@@ -27,6 +28,11 @@ use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/locale', ChangeLocaleController::class)->name('locale.change')->middleware('throttle:10,1');
+
+// What a page's script tells the traffic tracker: the page ran, or a sign-up
+// form was shown (docs/architecture/traffic.md). Outside the guest-viewing
+// check, like the locale: it answers 204 whatever it is sent.
+Route::post('/visit/signal', VisitSignalController::class)->name('traffic.signal')->middleware('throttle:30,1,traffic-signal');
 
 // Named from the project's settings, so not a static file in public/.
 Route::get('/site.webmanifest', SiteManifestController::class)->name('site-manifest');

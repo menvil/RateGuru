@@ -8,6 +8,7 @@ use App\Actions\Games\MoveGameAttemptAction;
 use App\Actions\Games\RecordGameAnswerAction;
 use App\Actions\Games\RecordGameInteractionAction;
 use App\Actions\Games\StartGameAttemptAction;
+use App\Actions\Traffic\OpenTrafficVisitAction;
 use App\Enums\AuthModalMode;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
@@ -29,11 +30,15 @@ use App\Support\Games\Play\GameSessionAttempts;
 use App\Support\Games\Play\GameVisitor;
 use App\Support\Games\Play\GameVisitorResolver;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
+use App\Support\Traffic\Capture\RequestSignals;
+use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\View\AppLayoutData;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
 use Livewire\Component;
+use Throwable;
 
 /**
  * A live game, played: the version the visitor is assigned, through its flow,
@@ -72,6 +77,17 @@ final class PlayGame extends Component
     #[Locked]
     public ?array $reveal = null;
 
+    /**
+     * How the visitor arrived, as the page was given it (an encrypted token
+     * tied to this browser), and the visit of the traffic tracker the game's
+     * steps are credited to once the page ran.
+     */
+    #[Locked]
+    public string $arrival = '';
+
+    #[Locked]
+    public ?int $visitId = null;
+
     public string $email = '';
 
     public bool $consent = false;
@@ -84,6 +100,7 @@ final class PlayGame extends Component
         abort_if($game === null || $game->status === GameStatus::Draft, 404);
 
         $this->gameId = (int) $game->id;
+        $this->arrival = (string) app(TrafficArrival::class)->take();
         $visitor = $this->visitor();
         $attempt = $this->resumable($game, $visitor);
 
@@ -118,23 +135,31 @@ final class PlayGame extends Component
         $this->stepKey = (string) GameFlowRunner::first($this->snapshot()->flowSteps(), $this->flowVisitor($visitor))?->key;
     }
 
-    /** Once the browser runs the page: the visitor is assigned and the view counted. */
+    /**
+     * Once the browser runs the page: the visitor is assigned and the view
+     * counted, and the traffic tracker's visit is marked opened — a resumed
+     * attempt's and a paused game's too.
+     */
     public function init(): void
     {
         $game = $this->game();
 
-        if ($game === null || $this->unavailable !== null || $this->attemptId !== null) {
+        if ($game === null) {
             return;
         }
 
-        $assignment = app(AssignGameVersionAction::class)->handle($game, $this->visitor(), viewed: true);
+        if ($this->unavailable === null && $this->attemptId === null) {
+            $assignment = app(AssignGameVersionAction::class)->handle($game, $this->visitor(), viewed: true);
 
-        // The shares changed between the page and now: start from the version given.
-        if ($assignment !== null && (int) $assignment->version_id !== $this->versionId) {
-            $this->versionId = (int) $assignment->version_id;
-            $this->snapshotRead = null;
-            $this->stepKey = (string) GameFlowRunner::first($this->snapshot()->flowSteps(), $this->flowVisitor($this->visitor()))?->key;
+            // The shares changed between the page and now: start from the version given.
+            if ($assignment !== null && (int) $assignment->version_id !== $this->versionId) {
+                $this->versionId = (int) $assignment->version_id;
+                $this->snapshotRead = null;
+                $this->stepKey = (string) GameFlowRunner::first($this->snapshot()->flowSteps(), $this->flowVisitor($this->visitor()))?->key;
+            }
         }
+
+        $this->openVisit();
     }
 
     /** On from the step on screen: before the game by the flow alone, after it through the attempt. */
@@ -374,7 +399,7 @@ final class PlayGame extends Component
         }
 
         try {
-            $attempt = app(StartGameAttemptAction::class)->handle($game, $this->visitor(), app()->getLocale(), $replay);
+            $attempt = app(StartGameAttemptAction::class)->handle($game, $this->visitor(), app()->getLocale(), $replay, $this->visitId);
         } catch (CannotPlayGameException $exception) {
             $this->unavailable = $exception->reason === 'not_live' ? ($game->status === GameStatus::Archived ? 'ended' : 'paused') : 'unavailable';
 
@@ -462,6 +487,34 @@ final class PlayGame extends Component
     private function currentType(): ?GameFlowStepType
     {
         return GameFlowRunner::find($this->snapshot()->flowSteps(), $this->stepKey)?->type;
+    }
+
+    /** Hands the arrival back to the tracker; a failure there never stops the game. */
+    private function openVisit(): void
+    {
+        if ($this->visitId !== null || $this->arrival === '') {
+            return;
+        }
+
+        $visitor = $this->visitor();
+
+        if ($visitor->browserHash === null) {
+            return;
+        }
+
+        try {
+            $this->visitId = app(OpenTrafficVisitAction::class)->handle(
+                $this->arrival,
+                $visitor->browserHash,
+                $visitor->userId,
+                $this->gameId,
+                $this->versionId > 0 ? $this->versionId : null,
+                app(RequestSignals::class)->read(),
+                CarbonImmutable::now('UTC'),
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 
     private function visitor(): GameVisitor

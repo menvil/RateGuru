@@ -69,6 +69,7 @@ use App\Models\StudioPlanDiscussionGeneration;
 use App\Models\StudioPlanImageAnalysis;
 use App\Models\StudioPlanTextGeneration;
 use App\Models\Tag;
+use App\Models\TrafficSetting;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
@@ -14542,4 +14543,22 @@ function tarOf(array $files): string
     }
 
     return $archive.str_repeat("\0", 1024);
+}
+
+/**
+ * Switches the traffic tracker's recording (and, if asked, its postbacks) on
+ * or off, as the administrator does on Traffic sources → Sources.
+ */
+function recordTraffic(bool $capture = true, bool $postbacks = false): TrafficSetting
+{
+    $settings = TrafficSetting::query()->find(1) ?? (new TrafficSetting)->forceFill(['id' => 1]);
+    $settings->forceFill(['capture_enabled' => $capture, 'postbacks_enabled' => $postbacks])->save();
+
+    return $settings;
+}
+
+/** The SHA-256 the tracker and the games know a browser by, from its rg_game_visitor token. */
+function browserHashOf(string $token): string
+{
+    return hash('sha256', $token);
 }

@@ -46,6 +46,7 @@ use App\Support\StudioAi\StudioDiscussionGenerator;
 use App\Support\StudioAi\StudioImageAnalyzer;
 use App\Support\StudioAi\StudioPostTextGenerator;
 use App\Support\Theme\ThemeManager;
+use App\Support\Traffic\Capture\TrafficArrival;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
@@ -85,6 +86,10 @@ class AppServiceProvider extends ServiceProvider
         // A singleton, so a provider call is recorded once however often its
         // result is handed to the recorder within a request or a worker.
         $this->app->singleton(TranslationAiCallRecorder::class);
+
+        // The arrival token of the page being drawn, shared by the capture
+        // middleware, the game player and the layout for one request.
+        $this->app->scoped(TrafficArrival::class);
 
         // The IP location database (docs/architecture/geo.md). The lookup is
         // scoped: one reader per request or job, opened by the first lookup

@@ -9,6 +9,7 @@ use App\Exceptions\Games\CannotPlayGameException;
 use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameVersion;
+use App\Models\TrafficVisit;
 use App\Queries\Games\GameTrafficQuery;
 use App\Support\AbuseGuards\ActionRateLimiter;
 use App\Support\AbuseGuards\RateLimitKey;
@@ -33,8 +34,14 @@ final class StartGameAttemptAction
         private readonly GameEventRecorder $events,
     ) {}
 
-    /** @throws CannotPlayGameException */
-    public function handle(Game $game, GameVisitor $visitor, string $locale, bool $replay = false): GameAttempt
+    /**
+     * The attempt is started under the traffic tracker's visit the page was
+     * credited to, when it is this browser's: the visit then shows the game
+     * version the attempt plays, and its later steps go to it.
+     *
+     * @throws CannotPlayGameException
+     */
+    public function handle(Game $game, GameVisitor $visitor, string $locale, bool $replay = false, ?int $visitId = null): GameAttempt
     {
         if (! $game->status->acceptsNewAttempts()) {
             throw CannotPlayGameException::becauseGameIsNotLive();
@@ -56,7 +63,10 @@ final class StartGameAttemptAction
             throw CannotPlayGameException::becauseGameIsNotLive();
         }
 
-        return DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version): GameAttempt {
+        $visit = $visitId === null || $visitor->browserHash === null ? null
+            : TrafficVisit::query()->whereKey($visitId)->where('visitor_hash', $visitor->browserHash)->first(['id', 'game_id', 'version_id']);
+
+        return DB::transaction(function () use ($game, $visitor, $locale, $replay, $assignment, $version, $visit): GameAttempt {
             $gameStep = GameFlowRunner::ofType($version->read()->flowSteps(), GameFlowStepType::Game);
 
             $attempt = new GameAttempt;
@@ -65,6 +75,7 @@ final class StartGameAttemptAction
                 'game_id' => $game->id,
                 'version_id' => $version->id,
                 'assignment_id' => $assignment->id,
+                'traffic_visit_id' => $visit?->id,
                 'audience' => $visitor->audience,
                 'user_id' => $visitor->userId,
                 'visitor_hash' => $visitor->visitorHash,
@@ -76,6 +87,10 @@ final class StartGameAttemptAction
                 'started_at' => now(),
                 'last_activity_at' => now(),
             ])->save();
+
+            if ($visit !== null && $visit->version_id === null && ($visit->game_id === null || (int) $visit->game_id === (int) $game->id)) {
+                TrafficVisit::query()->whereKey($visit->id)->whereNull('version_id')->update(['game_id' => $game->id, 'version_id' => $version->id]);
+            }
 
             $this->events->record(GameEventType::Started, (int) $game->id, $visitor, attempt: $attempt);
 
