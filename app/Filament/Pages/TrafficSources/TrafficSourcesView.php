@@ -47,6 +47,7 @@ use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
 use App\Support\Traffic\Money\TrafficMoney;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
+use App\Support\Traffic\Postbacks\PostbackTemplate;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use App\Support\Traffic\Reports\ReportFigures;
 use App\Support\Traffic\Reports\SiteZoneList;
@@ -1115,8 +1116,18 @@ final class TrafficSourcesView
             'connector' => $connector === null ? null : [...($this->presets->connector($connector->value) ?? []), 'verified' => $this->connectors->verified($connector)],
             'connection' => $source?->apiConnection?->only(['status', 'account_label', 'last_synced_at', 'next_sync_at', 'last_error', 'spend_closed_through']),
             'events' => array_map(fn (TrafficEvent $event): string => $event->value, TrafficEvent::postbackEvents()),
+            'sharedGoals' => array_map(
+                fn (array $keys): array => array_map(fn (int|string $key): string => self::ruleEvent((string) ($page->draft['rules'][$key]['event'] ?? '')), $keys),
+                PostbackTemplate::sharedGoals($page->draft['rules']),
+            ),
             'timezones' => ['UTC', 'America/New_York', 'Europe/London', 'Europe/Berlin', 'Asia/Singapore'],
         ];
+    }
+
+    /** A postback rule's event, as the editor names it. */
+    private static function ruleEvent(string $event): string
+    {
+        return $event === TrafficEvent::Goal->value ? 'Flow goal reached' : (TrafficEvent::tryFrom($event)?->label() ?? $event);
     }
 
     /**

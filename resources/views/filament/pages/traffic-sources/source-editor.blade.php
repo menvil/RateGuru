@@ -167,21 +167,26 @@
         @if ($network)
             <div class="rg-admin-traffic__pane" x-show="pane === 'postbacks'" x-cloak>
                 <p class="rg-admin-traffic__note">Each rule tells the network of a milestone its clicks reach, once per click, with its worth in {value}. Send test calls the address with a made-up click ID and writes nothing.</p>
+                @foreach ($editor['sharedGoals'] as $events)
+                    <x-admin.ui.inline-notice tone="warning" data-testid="traffic-rules-shared-goal">
+                        {{ count(array_unique($events)) === 1 ? count($events).' postbacks on “'.$events[0].'”' : \Illuminate\Support\Arr::join($events, ', ', ' and ') }} go to the same goal of the network. It counts each as another conversion of the same click and adds up their values, so one visitor looks like several and their worth is counted more than once. Give each its own goal in the network, or keep one of them.
+                    </x-admin.ui.inline-notice>
+                @endforeach
                 @foreach ($draft['rules'] as $index => $rule)
                     <div class="rg-admin-traffic__rule" wire:key="rule-{{ $index }}">
                         <div class="rg-admin-traffic__row">
                             <label class="rg-admin-field">
                                 <span class="rg-admin-label">When</span>
-                                <select class="rg-admin-traffic__select" wire:model="draft.rules.{{ $index }}.event" aria-label="Event">
+                                <select class="rg-admin-traffic__select" wire:model.live="draft.rules.{{ $index }}.event" aria-label="Event">
                                     @foreach ($editor['events'] as $event)
                                         <option value="{{ $event }}">{{ $event === 'goal' ? 'Flow goal reached' : (\App\Enums\TrafficEvent::tryFrom($event)?->label() ?? $event) }}</option>
                                     @endforeach
                                 </select>
                             </label>
-                            <x-admin.ui.text-field label="Goal code" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" wire:model="draft.rules.{{ $index }}.goal_code" />
-                            <x-admin.ui.switch label="On" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model="draft.rules.{{ $index }}.enabled" />
+                            <x-admin.ui.text-field label="Goal code" :id="'rg-admin-rule-goal-'.$index" :value="(string) ($rule['goal_code'] ?? '')" wire:model.live.blur="draft.rules.{{ $index }}.goal_code" />
+                            <x-admin.ui.switch label="On" :id="'rg-admin-rule-on-'.$index" :checked="(bool) $rule['enabled']" wire:model.live="draft.rules.{{ $index }}.enabled" />
                         </div>
-                        <x-admin.ui.text-field label="Address" :id="'rg-admin-rule-url-'.$index" :value="(string) $rule['url_template']" hint="{click_id}, {value}, {value_total}, {event}, {goal_code}, {device}, {game}, {version}, {param:name}" :error="$field('rules.'.$index.'.url_template')" wire:model="draft.rules.{{ $index }}.url_template" />
+                        <x-admin.ui.text-field label="Address" :id="'rg-admin-rule-url-'.$index" :value="(string) $rule['url_template']" hint="{click_id}, {value}, {value_total}, {event}, {goal_code}, {device}, {game}, {version}, {param:name}" :error="$field('rules.'.$index.'.url_template')" wire:model.live.blur="draft.rules.{{ $index }}.url_template" />
                         <div class="rg-admin-traffic__row">
                             <x-admin.ui.button size="sm" icon="play" wire:click="testRule({{ $index }})">Send test</x-admin.ui.button>
                             <x-admin.ui.button size="sm" variant="ghost" icon="x" wire:click="removeRule({{ $index }})">Remove</x-admin.ui.button>

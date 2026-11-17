@@ -7,6 +7,7 @@ use App\Enums\TrafficPostbackStatus;
 use App\Support\Traffic\Postbacks\PostbackPlanner;
 use App\Support\Traffic\Postbacks\PostbackResponse;
 use App\Support\Traffic\Postbacks\PostbackSchedule;
+use App\Support\Traffic\Postbacks\PostbackTemplate;
 use App\Support\Traffic\Postbacks\PostbackUrl;
 use Carbon\CarbonImmutable;
 
@@ -89,3 +90,34 @@ it('keeps an answer that is not text as its size, so the log can always hold it'
         ->and(PostbackResponse::excerpt($pixel, 'X-PopAds-EC: 4 '))->toBe('X-PopAds-EC: 4 [not text: 43 bytes]')
         ->and(PostbackResponse::excerpt("OK\n"))->toBe('OK');
 });
+
+it('finds the switched-on rules that report to the same goal of the network', function (array $rules, array $shared) {
+    expect(PostbackTemplate::sharedGoals($rules))->toBe($shared);
+})->with([
+    'one address, two events' => [[
+        ['event' => 'opened', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal=abc&tag={click_id}&value={value}'],
+        ['event' => 'completed', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?tag={click_id}&goal=abc&value={value_total}'],
+    ], [[0, 1]]],
+    'a goal each, typed in' => [[
+        ['event' => 'opened', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal=abc&tag={click_id}'],
+        ['event' => 'completed', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal=def&tag={click_id}'],
+    ], []],
+    'a goal each, through {goal_code}' => [[
+        ['event' => 'opened', 'goal_code' => 'abc', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal={goal_code}&tag={click_id}'],
+        ['event' => 'completed', 'goal_code' => 'def', 'enabled' => true, 'url_template' => 'https://s.magsrv.com/tag.php?goal={goal_code}&tag={click_id}'],
+    ], []],
+    'the event names the goal' => [[
+        ['event' => 'opened', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://pb.example.com/c?id={click_id}&event={event}'],
+        ['event' => 'account', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://pb.example.com/c?id={click_id}&event={event}'],
+    ], []],
+    'one of them is off' => [[
+        ['event' => 'opened', 'goal_code' => '', 'enabled' => false, 'url_template' => 'https://serve.popads.net/cpixel.php?s2s=1&aid=1&id={click_id}&value={value}'],
+        ['event' => 'account', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://serve.popads.net/cpixel.php?s2s=1&aid=1&id={click_id}&value={value}'],
+    ], []],
+    'three on one address, one apart' => [[
+        ['event' => 'opened', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://serve.popads.net/cpixel.php?s2s=1&aid=1&id={click_id}&value={value}'],
+        ['event' => 'halfway', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://Serve.PopAds.net/cpixel.php?aid=1&s2s=1&id={click_id}'],
+        ['event' => 'completed', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://other.example.com/pb?id={click_id}'],
+        ['event' => 'account', 'goal_code' => '', 'enabled' => true, 'url_template' => 'https://serve.popads.net/cpixel.php?s2s=1&aid=1&id={click_id}&value={value_total}'],
+    ], [[0, 1, 3]]],
+]);

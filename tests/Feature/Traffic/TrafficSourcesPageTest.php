@@ -150,3 +150,26 @@ it('shows a campaign in its panel — stages, results, targeting typed in where 
 
     $page->call('campaignReport')->assertSet('tab', 'report')->assertSet('campaignId', (string) $campaign->id)->assertSet('camp', '');
 });
+
+it('warns when two postbacks of a source go to the same goal of the network', function () {
+    $page = Livewire::test(TrafficSourcesPage::class)
+        ->call('openEditor', 'new:popads')
+        ->assertDontSee('go to the same goal of the network')
+        ->call('addRule')
+        ->set('draft.rules.0.event', 'completed')
+        ->set('draft.rules.0.url_template', 'https://serve.popads.net/cpixel.php?s2s=1&aid=7&id={click_id}&value={value}')
+        ->set('draft.rules.0.enabled', true)
+        ->call('addRule')
+        ->set('draft.rules.1.event', 'account')
+        ->set('draft.rules.1.url_template', 'https://serve.popads.net/cpixel.php?s2s=1&aid=7&id={click_id}&value={value}')
+        ->set('draft.rules.1.enabled', true)
+        ->assertSee('Game finished and New account confirmed go to the same goal of the network');
+
+    // The same event twice is named once.
+    $page->set('draft.rules.0.event', 'account')
+        ->assertSee('2 postbacks on “New account confirmed” go to the same goal of the network', false);
+
+    // One of them switched off: nothing is counted twice.
+    $page->set('draft.rules.1.enabled', false)
+        ->assertDontSee('go to the same goal of the network');
+});

@@ -37,11 +37,11 @@ return [
                 ['kind' => 'cost', 'label' => 'Click cost', 'param' => 'cost', 'token' => '##COST_CPM##', 'note' => 'Spend per 1000 clicks'],
             ],
             'postback' => [
-                'url_template' => 'https://www.pbterra.com/name/…/at?subid_short={click_id}&atpay={value}',
+                'url_template' => 'https://www.pbterra.com/name/…/at?subid_short={click_id}',
                 'response_rules' => [],
                 'otherwise' => 'ok',
             ],
-            'fill' => 'Your Adsterra username in the postback address, in place of … (it is case-sensitive). On CPC campaigns use ##COST_CPC## for the click cost.',
+            'fill' => 'Your Adsterra username in the postback address, in place of … (it is case-sensitive). On CPC campaigns use ##COST_CPC## for the click cost. Adsterra reads atpay as what you pay it for a conversion, not what the conversion is worth to you, so the address leaves it out: on a CPA campaign, add &atpay= with your CPA price, never {value}.',
             'custom' => false,
         ],
 

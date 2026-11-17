@@ -78,6 +78,56 @@ final class PostbackTemplate
         return array_values(array_unique($problems));
     }
 
+    /**
+     * The switched-on rules that report to the same goal of the network: the
+     * same address once each rule's own {goal_code} and {event} are in it,
+     * the parameters that only carry another placeholder set aside, and its
+     * query read in any order. The
+     * network counts each of them as another conversion of the same click and
+     * adds up their values, so one estimate of a visitor arrives as several.
+     *
+     * @param  array<int|string, array<string, mixed>>  $rules
+     * @return list<list<int|string>> the keys of the rules in each such group, in their order
+     */
+    public static function sharedGoals(array $rules): array
+    {
+        $groups = [];
+
+        foreach ($rules as $key => $rule) {
+            $template = trim((string) ($rule['url_template'] ?? ''));
+
+            if (! (bool) ($rule['enabled'] ?? false) || $template === '') {
+                continue;
+            }
+
+            $groups[self::destination($template, (string) ($rule['goal_code'] ?? ''), (string) ($rule['event'] ?? ''))][] = $key;
+        }
+
+        return array_values(array_filter($groups, fn (array $keys): bool => count($keys) > 1));
+    }
+
+    /** Where an address reports to, as the network tells one goal from another. */
+    private static function destination(string $template, string $goalCode, string $event): string
+    {
+        $address = preg_replace_callback('/\{([^{}]*)\}/', fn (array $match): string => match ($match[1]) {
+            'goal_code' => $goalCode,
+            'event' => $event,
+            default => '{}',
+        }, $template) ?? $template;
+        $parts = parse_url($address);
+
+        if ($parts === false) {
+            return $address;
+        }
+
+        parse_str((string) ($parts['query'] ?? ''), $query);
+        // A parameter that only carries a placeholder — the click, the worth — says nothing of which goal it is.
+        $query = array_filter($query, fn (mixed $value): bool => $value !== '{}');
+        ksort($query);
+
+        return strtolower((string) ($parts['host'] ?? '')).($parts['path'] ?? '').'?'.http_build_query($query);
+    }
+
     /** @return list<string> the names in braces, in order, each once */
     public static function placeholders(string $template): array
     {
