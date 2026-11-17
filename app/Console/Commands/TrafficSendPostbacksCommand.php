@@ -18,6 +18,7 @@ use App\Support\Traffic\Postbacks\PostbackUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Sends the postbacks waiting in the queue — the table itself, not the job
@@ -67,7 +68,16 @@ final class TrafficSendPostbacksCommand extends Command
 
             foreach ($claimed as $id => $claim) {
                 $attempt = $results[$id];
-                $this->record($id, $claim['attempts'], $claim['expires_at'], $attempt);
+
+                // One answer that can't be kept must not leave the rest of the batch marked as being sent.
+                try {
+                    $this->record($id, $claim['attempts'], $claim['expires_at'], $attempt);
+                } catch (Throwable $exception) {
+                    report($exception);
+
+                    continue;
+                }
+
                 $network = in_array($attempt->outcome, [TrafficPostbackOutcome::Timeout, TrafficPostbackOutcome::ConnectionError], true);
                 $failures[$claim['source_id']] = $network ? ($failures[$claim['source_id']] ?? 0) + 1 : 0;
                 $log->info('traffic.postback.attempt', ['postback_id' => $id, 'outcome' => $attempt->outcome->value, 'http_status' => $attempt->httpStatus]);

@@ -124,7 +124,7 @@ final class PostbackDeliverer
                 ->map(fn (string $name): string => $name.': '.$headers[strtolower($name)].' ')
                 ->implode('');
 
-            return new PostbackAttempt(PostbackResponse::outcome($response->status(), $body, $rules, $headers), $response->status(), $latency, PostbackResponse::excerpt(trim($said.$body)));
+            return new PostbackAttempt(PostbackResponse::outcome($response->status(), $body, $rules, $headers), $response->status(), $latency, PostbackResponse::excerpt($body, $said));
         }
 
         if ($response instanceof ConnectionException && str_contains(strtolower($response->getMessage()), 'timed out')) {

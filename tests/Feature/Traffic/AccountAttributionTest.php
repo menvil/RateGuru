@@ -9,10 +9,12 @@ use App\Enums\AccountSignupMethod;
 use App\Enums\AccountSignupPlace;
 use App\Enums\GameEventType;
 use App\Enums\SocialProvider;
+use App\Enums\TrafficChannel;
 use App\Enums\TrafficKnownReason;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
 use App\Models\AccountBrowser;
+use App\Models\Game;
 use App\Models\GameAttempt;
 use App\Models\GameEvent;
 use App\Models\ProjectSettings;
@@ -115,6 +117,17 @@ it('tells a click whose window closed that the account came late, and credits th
         ->and($attribution->credited_visit_id)->toBe($unpaid->id)
         ->and($expired->fresh()->late_signup_at)->not->toBeNull()
         ->and($expired->fresh()->signup_at)->toBeNull();
+});
+
+it('credits the unpaid visit a game opened, and never takes the sign-in that follows the sign-up for a returning member', function () {
+    recordTraffic();
+    $game = Game::factory()->create();
+    $unpaid = TrafficVisit::factory()->unpaid(TrafficChannel::Search)->create(['visitor_hash' => $this->hash, 'game_id' => $game->id, 'arrived_at' => now()->subHour(), 'opened_at' => now()->subHour()]);
+
+    registerIn($this->token);
+
+    expect(AccountAttribution::query()->sole()->credited_visit_id)->toBe($unpaid->id)
+        ->and($unpaid->fresh())->signup_at->not->toBeNull()->login_at->toBeNull()->known->toBeFalse();
 });
 
 it('confirms an account signed up through Google at once', function () {

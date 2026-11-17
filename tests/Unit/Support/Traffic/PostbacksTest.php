@@ -77,3 +77,12 @@ it('reads an error a network names only in a header', function () {
         ->and(PostbackResponse::outcome(200, '', $popads, ['x-popads-ec' => ' ']))->toBe(TrafficPostbackOutcome::Ok)
         ->and(PostbackResponse::outcome(200, '', $popads))->toBe(TrafficPostbackOutcome::Ok);
 });
+
+it('keeps an answer that is not text as its size, so the log can always hold it', function () {
+    $pixel = base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+
+    expect(PostbackResponse::excerpt($pixel))->toBe('[not text: 43 bytes]')
+        ->and(PostbackResponse::excerpt("caf\xE9 ok"))->toBe('[not text: 7 bytes]')
+        ->and(PostbackResponse::excerpt($pixel, 'X-PopAds-EC: 4 '))->toBe('X-PopAds-EC: 4 [not text: 43 bytes]')
+        ->and(PostbackResponse::excerpt("OK\n"))->toBe('OK');
+});

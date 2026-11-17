@@ -9,11 +9,13 @@ use App\Enums\TrafficSpendBasis;
 use App\Enums\TrafficSpendMode;
 use App\Enums\TrafficSpendOrigin;
 use App\Models\TrafficCampaign;
+use App\Models\TrafficCampaignPrice;
 use App\Models\TrafficSource;
 use App\Models\TrafficSpendDay;
 use App\Models\TrafficSpendImport;
 use App\Models\TrafficVisit;
 use App\Models\User;
+use App\Queries\Traffic\TrafficSpendQuery;
 use App\Support\Traffic\Presets\SourceDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
@@ -110,4 +112,54 @@ it('keeps a banner’s fixed price as a cost for each day it ran', function () {
     expect(TrafficSpendDay::query()->where('source_id', $source->id)->orderBy('network_day')->pluck('amount', 'network_day')->all())->toBe([
         '2026-11-14' => '10.00000000', '2026-11-15' => '10.00000000', '2026-11-16' => '10.00000000', '2026-11-17' => '10.00000000',
     ]);
+});
+
+it('puts a day’s clicks back to their own prices when its typed total is removed', function () {
+    $source = TrafficSource::factory()->create(['spend_mode' => TrafficSpendMode::Rate, 'rate_mobile' => '0.01', 'rate_unit' => 'click']);
+    $visits = TrafficVisit::factory()->count(2)->create(['source_id' => $source->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'device' => 'mobile', 'spend' => '0.01', 'spend_basis' => TrafficSpendBasis::Rate]);
+
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', '100');
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    expect($visits[0]->fresh()->spend)->toBe('50.00000000');
+
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', null);
+
+    expect($visits->map(fn ($visit) => $visit->fresh()->spend)->all())->toBe(['0.01000000', '0.01000000'])
+        ->and($visits[0]->fresh()->spend_basis)->toBe(TrafficSpendBasis::Rate);
+});
+
+it('counts the network’s figures only for a source that takes its spend from them', function () {
+    $source = TrafficSource::factory()->create(['spend_mode' => TrafficSpendMode::ClickCost]);
+    $visit = TrafficVisit::factory()->create(['source_id' => $source->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'cost' => '0.002', 'spend' => '0.002', 'spend_basis' => TrafficSpendBasis::ClickCost]);
+    app(ReplaceSpendSliceAction::class)->handle($source->id, '2026-11-16', TrafficSpendOrigin::Api, [['campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '5.00']]);
+
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    // The clicks' own prices stand; the API's figure is not spend without visits on top of them.
+    expect($visit->fresh()->spend)->toBe('0.00200000')
+        ->and(TrafficSpendDay::query()->sole()->counted)->toBeFalse()
+        ->and(app(TrafficSpendQuery::class)->unallocated('2026-11-16', '2026-11-16'))->toBe([]);
+});
+
+it('shares the network’s figures over visits a removed typed total had priced, and leaves a campaign priced its own way alone', function () {
+    $source = TrafficSource::factory()->create(['spend_mode' => TrafficSpendMode::Api]);
+    $own = TrafficCampaign::factory()->create(['source_id' => $source->id, 'spend_mode' => TrafficSpendMode::Price]);
+    TrafficCampaignPrice::query()->forceCreate(['campaign_id' => $own->id, 'device' => 'mobile', 'bid_model' => 'click', 'price' => '0.05', 'effective_from' => '2026-11-01 00:00:00', 'actor' => 'user']);
+    $visits = TrafficVisit::factory()->count(2)->create(['source_id' => $source->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'spend_estimated' => true, 'spend_basis' => TrafficSpendBasis::Rate]);
+    $priced = TrafficVisit::factory()->create(['source_id' => $source->id, 'campaign_id' => $own->id, 'network_day' => '2026-11-16', 'arrived_at' => '2026-11-16 10:00:00', 'device' => 'mobile', 'spend' => '0.05', 'spend_basis' => TrafficSpendBasis::CampaignPrice]);
+
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', '9');
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+    app(ReplaceSpendSliceAction::class)->handle($source->id, '2026-11-16', TrafficSpendOrigin::Api, [
+        ['campaign_id' => null, 'site_ref' => '', 'zone_ref' => '', 'amount' => '1.00'],
+        ['campaign_id' => $own->id, 'site_ref' => '', 'zone_ref' => '', 'amount' => '3.00'],
+    ]);
+    app(EnterSpendAction::class)->day($this->admin, $source, '2026-11-16', null);
+    app(AllocateSpendDayAction::class)->handle($source, '2026-11-16', now()->toImmutable());
+
+    expect($visits->map(fn ($visit) => $visit->fresh()->spend)->all())->toBe(['0.50000000', '0.50000000'])
+        ->and($visits[0]->fresh()->spend_basis)->toBe(TrafficSpendBasis::Api)
+        ->and($priced->fresh()->spend)->toBe('0.05000000')
+        ->and(TrafficSpendDay::query()->where('campaign_id', $own->id)->sole()->counted)->toBeFalse();
 });

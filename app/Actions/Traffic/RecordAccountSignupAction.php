@@ -47,7 +47,7 @@ final class RecordAccountSignupAction
             $attempt = $browserHash === null ? null : $this->credits->attempt($browserHash, (int) $locked->id, $since);
             $holding = $browserHash === null ? null : $this->visits->holding($browserHash, $now);
             $expired = $holding === null && $browserHash !== null ? $this->visits->latestExpiredPaid($browserHash, $now) : null;
-            $visit = $holding ?? ($browserHash === null ? null : $this->visits->recentUnpaid($browserHash, null, $since));
+            $visit = $holding ?? ($browserHash === null ? null : $this->visits->latestUnpaid($browserHash, $since));
 
             AccountAttribution::query()->create([
                 'user_id' => $locked->id,

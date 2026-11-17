@@ -47,6 +47,17 @@ final class VisitorVisitQuery
             ->first();
     }
 
+    /** The browser's latest unpaid visit seen since the given moment, on whatever page or game. */
+    public function latestUnpaid(string $browserHash, CarbonImmutable $since): ?TrafficVisit
+    {
+        return TrafficVisit::query()
+            ->where('visitor_hash', $browserHash)
+            ->whereNull('source_id')
+            ->where('last_seen_at', '>=', $since)
+            ->orderByDesc('id')
+            ->first();
+    }
+
     /** The browser's latest visit of any kind since the given moment. */
     public function latest(string $browserHash, CarbonImmutable $since): ?TrafficVisit
     {

@@ -202,3 +202,12 @@ it('fails a PopAds postback whose answer names an error in its header, keeping w
 
     expect($postback->fresh())->status->toBe(TrafficPostbackStatus::Failed)->outcome->toBe(TrafficPostbackOutcome::Rejected)->response_excerpt->toBe('X-PopAds-EC: 7');
 });
+
+it('records a postback whose answer is a GIF pixel, rather than sending it again', function () {
+    $postback = TrafficPostback::factory()->create(['source_id' => $this->source->id, 'rule_id' => $this->rule->id, 'url' => 'https://pb.example.com/c?id={click_id}', 'conversion_id' => TrafficConversion::factory()->create(['visit_id' => paidClick($this->source)->id])->id]);
+    Http::fake(['pb.example.com/*' => Http::response(base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='), 200, ['Content-Type' => 'image/gif'])]);
+
+    $this->artisan('traffic:send-postbacks')->assertSuccessful();
+
+    expect($postback->fresh())->status->toBe(TrafficPostbackStatus::Delivered)->response_excerpt->toBe('[not text: 43 bytes]');
+});
