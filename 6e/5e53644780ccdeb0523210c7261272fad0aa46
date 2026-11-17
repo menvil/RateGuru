@@ -1,0 +1,34 @@
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_3d3b07795a51ba 46
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_3d3b07795a51ba 9-10,262-279
+  ai_agent 16
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_018d8b388eab59 148-153,254,1041-1042
+resources/views/filament/pages/traffic-sources/logs.blade.php
+  s_4b9dc6ab6b25d3::t_0cfa88ca1bda6c 1-10,12-26,28-31,33-46,48-78,80-125,127
+  s_4b9dc6ab6b25d3::t_f517e9fcde9a82 47,79
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_ac6aa6db817b23 1075
+  s_4b9dc6ab6b25d3::t_f517e9fcde9a82 1072
+  s_4b9dc6ab6b25d3::t_018d8b388eab59 25,50,55,1024-1031,1035,1037,1039-1071,1073-1074,1076-1101
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_3d3b07795a51ba 15089-15097
+  s_4b9dc6ab6b25d3::t_f517e9fcde9a82 16085-16148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e5e53644780ccdeb0523210c7261272fad0aa46",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
