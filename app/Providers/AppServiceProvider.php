@@ -6,6 +6,7 @@ use App\Enums\AuthModalMode;
 use App\Enums\GeoEdition;
 use App\Enums\PostStatus;
 use App\Enums\ThemePreference;
+use App\Events\Games\GameMilestoneReached;
 use App\Http\Middleware\EnsureGamesAreEnabled;
 use App\Http\Middleware\RequireSignInWhileGuestViewingIsOff;
 use App\Models\Category;
@@ -51,6 +52,7 @@ use App\Support\Traffic\Attribution\AttributeAccountOnSignIn;
 use App\Support\Traffic\Attribution\ConfirmAttributionOnVerified;
 use App\Support\Traffic\Attribution\SignupOrigin;
 use App\Support\Traffic\Capture\TrafficArrival;
+use App\Support\Traffic\Conversions\RecordGameMilestoneOnVisit;
 use App\Support\Translations\Telemetry\TranslationAiCallRecorder;
 use App\Support\Translations\TranslatableField;
 use App\Support\View\AppLayoutData;
@@ -129,6 +131,9 @@ class AppServiceProvider extends ServiceProvider
         // has just made its own (docs/architecture/traffic.md, "Accounts").
         Event::listen([Registered::class, Login::class], AttributeAccountOnSignIn::class);
         Event::listen(Verified::class, ConfirmAttributionOnVerified::class);
+        // A moment of a play becomes its visit's mark, conversion and
+        // postbacks, inside the game action's own transaction.
+        Event::listen(GameMilestoneReached::class, RecordGameMilestoneOnVisit::class);
 
         // A component drawn on the feed, a post or a profile keeps that
         // page's guest check on every later request it makes.

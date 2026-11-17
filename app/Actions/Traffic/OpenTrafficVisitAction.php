@@ -3,6 +3,7 @@
 namespace App\Actions\Traffic;
 
 use App\Enums\TrafficChannel;
+use App\Enums\TrafficEvent;
 use App\Enums\TrafficKnownReason;
 use App\Enums\TrafficSpendBasis;
 use App\Models\Game;
@@ -11,9 +12,11 @@ use App\Models\TrafficSetting;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Queries\Traffic\VisitorVisitQuery;
+use App\Services\Traffic\TrafficVisitWorth;
 use App\Support\Traffic\Capture\ArrivalToken;
 use App\Support\Traffic\Capture\BotSignals;
 use App\Support\Traffic\Capture\VisitorSignals;
+use App\Support\Traffic\Postbacks\MilestoneContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -29,7 +32,11 @@ use Illuminate\Support\Facades\DB;
  */
 final class OpenTrafficVisitAction
 {
-    public function __construct(private readonly VisitorVisitQuery $visits) {}
+    public function __construct(
+        private readonly VisitorVisitQuery $visits,
+        private readonly TrafficVisitWorth $worth,
+        private readonly MarkTrafficVisitAction $marks,
+    ) {}
 
     public function handle(
         ?string $token,
@@ -119,6 +126,9 @@ final class OpenTrafficVisitAction
                 'created_at' => $now,
             ]);
 
+            $values = $this->worth->values($visit, $now);
+            $visit->forceFill(['value_real' => $values['real'], 'value_expected' => $values['expected']])->save();
+
             return (int) $visit->id;
         });
     }
@@ -147,6 +157,14 @@ final class OpenTrafficVisitAction
             }
 
             $visit->forceFill($changes)->save();
+
+            // A paid click that turned out to run in a browser: a step its
+            // network can be told of, worth what opening the page is worth.
+            if (isset($changes['opened_at'])) {
+                $values = $this->worth->values($visit, $now);
+                $visit->forceFill(['value_real' => $values['real'], 'value_expected' => $values['expected']])->save();
+                $this->marks->convert($visit, TrafficEvent::Opened, $now, new MilestoneContext(gameId: $visit->game_id, versionId: $visit->version_id));
+            }
 
             return (int) $visit->id;
         });

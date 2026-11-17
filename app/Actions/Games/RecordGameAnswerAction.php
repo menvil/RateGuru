@@ -2,6 +2,7 @@
 
 namespace App\Actions\Games;
 
+use App\Actions\Traffic\MarkTrafficVisitAction;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
@@ -33,6 +34,7 @@ final class RecordGameAnswerAction
         private readonly GameEventRecorder $events,
         private readonly GameSignupFormRecorder $signupForm,
         private readonly GameMilestoneRecorder $milestones,
+        private readonly MarkTrafficVisitAction $visits,
     ) {}
 
     /** @throws CannotPlayGameException */
@@ -80,6 +82,10 @@ final class RecordGameAnswerAction
 
             $locked->forceFill(['rounds_answered' => $roundIndex + 1, 'last_activity_at' => now()]);
             $this->events->record(GameEventType::RoundAnswered, (int) $locked->game_id, $visitor, attempt: $locked, detail: ['round_index' => $roundIndex]);
+
+            if ($locked->traffic_visit_id !== null) {
+                $this->visits->answered((int) $locked->traffic_visit_id, $roundIndex + 1);
+            }
 
             // Halfway: the middle round, whatever the length of the game — the
             // same moment for every game, so one postback fits them all.

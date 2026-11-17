@@ -94,6 +94,23 @@ final class TrafficVisitWorth
         );
     }
 
+    /** The best a step the visit reached is worth — the account's worth, once it has one: what {value_total} says. */
+    public function best(TrafficVisit $visit): BigDecimal
+    {
+        if ($visit->account_at !== null) {
+            return $this->step($visit, 'account')['value'];
+        }
+
+        $best = BigDecimal::zero();
+
+        foreach ($this->reachedSteps($visit) as $step) {
+            $value = $this->step($visit, $step)['value'];
+            $best = $value->isGreaterThan($best) ? $value : $best;
+        }
+
+        return $best;
+    }
+
     /** @return list<string> the steps before an account the visit reached */
     private function reachedSteps(TrafficVisit $visit): array
     {

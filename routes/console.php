@@ -64,6 +64,11 @@ Schedule::command('traffic:archive-quiet-campaigns')->dailyAt('02:40')->withoutO
 Schedule::command('traffic:work-out-worth')->dailyAt('03:10')->withoutOverlapping(60)->runInBackground();
 Schedule::command('traffic:work-out-worth --when-groups-changed')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
 
+// The postbacks waiting to be told to ad networks (docs/architecture/
+// traffic.md, "Postbacks"): the table is the queue, sent by this command in
+// a process of its own, never by the one queue worker.
+Schedule::command('traffic:send-postbacks')->everyMinute()->withoutOverlapping(5)->runInBackground();
+
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a
 // day, sooner after a failure or when the administrator asks for a refresh.
