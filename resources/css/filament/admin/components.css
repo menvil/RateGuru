@@ -16087,8 +16087,21 @@
         flex: 1;
         flex-direction: column;
         min-width: 0;
-        font-size: var(--rg-admin-text-caption);
+    }
+
+    /* As the reference sizes them: a 14/20 title over a 12/16 note. */
+    .rg-admin-traffic__new-campaign-title {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-traffic__new-campaign-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
     }
 
     .rg-admin-traffic__how,

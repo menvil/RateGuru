@@ -16,8 +16,8 @@
     <div class="rg-admin-traffic__new-campaign" data-testid="traffic-new-campaign">
         <span class="rg-admin-traffic__new-campaign-sign" aria-hidden="true"><x-admin.ui.icon name="sparkles" :size="16" /></span>
         <span class="rg-admin-traffic__new-campaign-text">
-            <strong>{{ $newCampaign['source'] }} campaign {{ $newCampaign['external'] }} is new</strong>
-            <span class="rg-admin-traffic__note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
+            <span class="rg-admin-traffic__new-campaign-title">{{ $newCampaign['source'] }} campaign {{ $newCampaign['external'] }} is new</span>
+            <span class="rg-admin-traffic__new-campaign-note">{{ number_format($newCampaign['visits']) }} {{ \Illuminate\Support\Str::plural('visit', $newCampaign['visits']) }} since {{ $newCampaign['since']->format('j M H:i') }}{{ $newCampaign['game'] !== null ? ', from the '.$newCampaign['source'].' link of '.$newCampaign['game'] : '' }}. Its clicks and postbacks already work; give it a name, its targeting, bid and stage so reports can tell it apart.</span>
         </span>
         <x-admin.ui.button size="sm" variant="primary" wire:click="openCampaign({{ $newCampaign['id'] }})">Set it up</x-admin.ui.button>
     </div>
