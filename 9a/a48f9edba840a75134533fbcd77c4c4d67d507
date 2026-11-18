@@ -1,0 +1,23 @@
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_90e76827cdedaa 45
+resources/views/filament/pages/analytics/geo.blade.php
+  s_4b9dc6ab6b25d3::t_90e76827cdedaa 92
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_2d638602aa6baa 536-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9aa48f9edba840a75134533fbcd77c4c4d67d507",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
