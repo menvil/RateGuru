@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\GeoEdition;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,8 @@ use Illuminate\Support\Facades\DB;
 class TrafficSetting extends Model
 {
     private const string CAPTURE_FLAGS_KEY = 'traffic-capture-flags';
+
+    private const string BLOCK_RULE_RAN_KEY = 'traffic-block-rule-ran-at';
 
     protected $table = 'traffic_settings';
 
@@ -106,6 +109,25 @@ class TrafficSetting extends Model
     public static function forgetCaptureFlags(): void
     {
         Cache::forget(self::CAPTURE_FLAGS_KEY);
+    }
+
+    /**
+     * When traffic:block-losers last went over the sources, as a source's
+     * Blocking pane shows it. Kept in the cache, not on this row: the row is
+     * saved under its lock_version, and a write every five minutes would
+     * make an administrator's save of the block rule stale; a cleared cache
+     * only shows no run until the next one, within five minutes.
+     */
+    public static function blockRuleRanAt(): ?CarbonImmutable
+    {
+        $at = Cache::get(self::BLOCK_RULE_RAN_KEY);
+
+        return is_string($at) && $at !== '' ? CarbonImmutable::parse($at) : null;
+    }
+
+    public static function recordBlockRuleRun(CarbonInterface $at): void
+    {
+        Cache::forever(self::BLOCK_RULE_RAN_KEY, $at->toIso8601String());
     }
 
     protected static function booted(): void

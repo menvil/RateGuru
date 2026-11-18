@@ -87,9 +87,14 @@ Schedule::command('traffic:allocate-spend')->everyMinute()->withoutOverlapping(5
 
 // The ad networks' APIs (docs/architecture/traffic.md, "Sync"): one process
 // reads spend and campaigns and applies blocks; the block rule queues the
-// sites and zones it calls bots or losing after the night's worth.
+// sites and zones it calls bots or losing every five minutes, so a block
+// reaches the network within minutes of the figures that call for it. A run
+// with no source set to block by itself reads no figures. A run reads a
+// month of figures per source and goes to the background; its overlap lock
+// lasts an hour, longer than the slowest run, so two runs never share out
+// one day's cap.
 Schedule::command('traffic:sync-networks')->everyMinute()->withoutOverlapping(10)->runInBackground();
-Schedule::command('traffic:block-losers')->dailyAt('03:40')->withoutOverlapping();
+Schedule::command('traffic:block-losers')->everyFiveMinutes()->withoutOverlapping(60)->runInBackground();
 
 // The local IP location database (docs/architecture/geo.md). Every minute,
 // but a run with nothing to do ends at once: each edition is checked once a

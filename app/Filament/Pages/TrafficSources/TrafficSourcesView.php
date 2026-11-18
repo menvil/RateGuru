@@ -5,13 +5,16 @@ namespace App\Filament\Pages\TrafficSources;
 use App\Enums\AccountSignupMethod;
 use App\Enums\AccountSignupPlace;
 use App\Enums\GeoEdition;
+use App\Enums\TrafficBlockLevel;
 use App\Enums\TrafficBlockMethod;
+use App\Enums\TrafficBlockNetworkState;
 use App\Enums\TrafficCampaignStatus;
 use App\Enums\TrafficChannel;
 use App\Enums\TrafficConnectionStatus;
 use App\Enums\TrafficDimension;
 use App\Enums\TrafficEvent;
 use App\Enums\TrafficPostbackStatus;
+use App\Enums\TrafficSourceStatus;
 use App\Enums\TrafficSourceType;
 use App\Enums\TrafficSpendMode;
 use App\Enums\TrafficSpendOrigin;
@@ -35,6 +38,7 @@ use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\TrafficVisitDetail;
 use App\Models\User;
+use App\Queries\Traffic\TrafficBlocksQuery;
 use App\Queries\Traffic\TrafficLogsQuery;
 use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
@@ -42,6 +46,7 @@ use App\Queries\Traffic\TrafficWorthQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
 use App\Services\Geo\GeoAttribution;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
+use App\Services\Traffic\Connectors\EditsBlockLists;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
 use App\Support\Traffic\Blocking\BlockJudge;
@@ -119,6 +124,7 @@ final class TrafficSourcesView
         private readonly TrafficReportQuery $reports,
         private readonly TrafficSpendQuery $spend,
         private readonly TrafficLogsQuery $logs,
+        private readonly TrafficBlocksQuery $blocks,
         private readonly TrafficPresetCatalog $presets,
         private readonly ConnectorRegistry $connectors,
     ) {}
@@ -558,6 +564,36 @@ final class TrafficSourcesView
                 'flag' => $this->flag($state, $block),
                 'figures' => $row['figures'],
             ];
+        }
+
+        // A block in force that sent no click in the period — a working block stops them — is listed too, with no
+        // figures, so Blocked lists what a source's Blocking pane counts. Blocks are a source's, so only while the
+        // filters go no narrower than the source; a site whose clicks show as its zones is left to them.
+        if (array_diff_key($filter->where, array_flip(['source_id', 'channel'])) === [] && ($filter->where['channel'] ?? 'network') === 'network') {
+            $shown = array_flip(array_column($out, 'key'));
+            $zonedSites = $byZone ? collect($rows)->filter(fn (array $row): bool => (string) $row['zone_ref'] !== '')->map(fn (array $row): string => $row['source_id'].':'.$row['site_ref'])->flip() : collect();
+
+            foreach ($judge['blocks'] as $key => $block) {
+                if (isset($shown[$key]) || $block->network_state === TrafficBlockNetworkState::Removing
+                    || (array_key_exists('source_id', $filter->where) && $filter->where['source_id'] !== (int) $block->source_id)
+                    || ($block->level === TrafficBlockLevel::Zone ? ! $byZone : $zonedSites->has($block->source_id.':'.$block->ref))) {
+                    continue;
+                }
+
+                $out[] = [
+                    'key' => (string) $key,
+                    'ref' => (string) $block->ref,
+                    'level' => $block->level->value,
+                    'site' => null,
+                    'source' => (string) ($sources->firstWhere('id', $block->source_id)->name ?? 'Source #'.$block->source_id),
+                    'source_id' => (int) $block->source_id,
+                    'campaign' => null,
+                    'state' => 'early',
+                    'blocked' => true,
+                    'flag' => $this->flag('early', $block),
+                    'figures' => new ReportFigures,
+                ];
+            }
         }
 
         return $out;
@@ -1256,6 +1292,74 @@ final class TrafficSourcesView
                 PostbackTemplate::sharedGoals($page->draft['rules']),
             ),
             'timezones' => ['UTC', 'America/New_York', 'Europe/London', 'Europe/Berlin', 'Asia/Singapore'],
+            'blocking' => $source !== null && $source->type === TrafficSourceType::Network ? $this->blocking($source) : null,
+        ];
+    }
+
+    /**
+     * A saved network's Blocking pane, read as the source is saved: the block
+     * rule's thresholds as set and whether the worth is known yet; the source's
+     * blocks in force — sites and zones, by an administrator or by the rule —
+     * and where every block stands with the network; the rule's blocks today
+     * against the source's cap and when the rule last ran; why the rule can't
+     * block for it, if it can't; and the ways to its blocked sites and zones
+     * in the report and to its blocks log. A bounded few reads, however many
+     * blocks.
+     *
+     * @return array<string, mixed>
+     */
+    private function blocking(TrafficSource $source): array
+    {
+        $counts = $this->blocks->counts((int) $source->id, CarbonImmutable::now());
+        $settings = TrafficSetting::current();
+        $accounts = $this->blocks->worthAccounts();
+        $connection = $source->apiConnection;
+        $connector = $source->connector === null ? null : $this->connectors->connector($source->connector);
+        $api = $source->connector === null ? 'The network’s API' : 'The '.($this->presets->connector($source->connector->value)['name'] ?? 'network’s API');
+        $level = $source->block_level === TrafficBlockLevel::Zone ? 'zones' : 'sites';
+        // The list by zone lists zone blocks and site blocks alike; by site, only site blocks.
+        $listBy = match (true) {
+            $counts['zones'] > 0 => 'zone',
+            $counts['sites'] > 0 => 'site',
+            default => $source->block_level->value,
+        };
+
+        return [
+            'counts' => $counts,
+            'cap' => (int) $source->block_daily_cap,
+            'auto' => (bool) $source->block_auto,
+            'ranAt' => TrafficSetting::blockRuleRanAt(),
+            'rule' => [
+                'bot_clicks' => (int) $settings->block_bot_clicks,
+                'open_below' => (int) $settings->block_open_below,
+                'min_spend' => TrafficMoney::format($settings->block_min_spend),
+                'min_clicks' => (int) $settings->block_min_clicks,
+                'roi_below' => (int) $settings->block_roi_below,
+            ],
+            'worth' => ['accounts' => $accounts, 'needed' => TrafficBlocksQuery::WORTH_KNOWN_AT, 'known' => $accounts >= TrafficBlocksQuery::WORTH_KNOWN_AT],
+            'connected' => $connection?->status === TrafficConnectionStatus::Connected,
+            // What keeps the rule from blocking for this source by itself, in the order it asks.
+            'why' => array_values(array_filter([
+                $source->status !== TrafficSourceStatus::Active
+                    ? ($source->status === TrafficSourceStatus::Ended ? 'The source has ended' : 'The source is paused').': the rule blocks only for an active source.'
+                    : null,
+                $source->connector === null ? 'RateGuru has no API for this network: block by hand and copy the IDs into its blacklist.' : null,
+                $source->connector !== null && $connection?->status !== TrafficConnectionStatus::Connected
+                    ? ($connection === null || $connection->status === TrafficConnectionStatus::Disconnected ? 'No API connected: connect it below.' : 'The API connection needs attention: reconnect it below.')
+                    : null,
+                $source->connector !== null && ! $this->connectors->verified($source->connector) ? $api.' isn’t verified on a real account yet, so the rule doesn’t block through it.' : null,
+                $connector !== null && ! ($connector instanceof EditsBlockLists && in_array($source->block_level, $connector->blockLevels(), true))
+                    ? $api.' can’t block '.$level.': block by '.($level === 'zones' ? 'site' : 'zone').', or by hand.'
+                    : null,
+            ])),
+            // Blocked lists every block in force whatever the period, so the default period does.
+            'sitesUrl' => TrafficSourcesPage::getUrl(array_filter([
+                'view' => 'sites',
+                'source' => $source->id,
+                'list' => $listBy === 'site' ? 'site' : null,
+                'seg' => 'blocked',
+            ])).'#traffic-performance',
+            'logUrl' => TrafficSourcesPage::getUrl(['tab' => 'logs', 'log' => 'blocks', 'source' => $source->id]),
         ];
     }
 

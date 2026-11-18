@@ -17397,6 +17397,33 @@
     .rg-admin-traffic__chip--toggle:disabled {
         cursor: default;
     }
+    /* A source's Blocking pane: the ways to its blocked sites and to its blocks log on one line, and how blocking works in a few numbered steps. */
+    .rg-admin-traffic__block-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+    }
+
+    .rg-admin-traffic__block-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 0;
+        padding-left: 18px;
+        list-style: decimal;
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    /* Why the rule can't block for a source by itself: one reason a line, under the notice's lead. */
+    .rg-admin-traffic__block-why {
+        margin: 4px 0 0;
+        padding-left: 18px;
+        list-style: disc;
+    }
+
 
     .rg-admin-traffic__chip--on {
         border-color: var(--rg-admin-surface-inverse);
@@ -17463,6 +17490,11 @@
     .rg-admin-experiments__game-title {
         font-size: var(--rg-admin-text-body);
         line-height: 20px;
+
+        /* An odd tile left over at the end takes the whole row rather than half of it. */
+        .rg-admin-traffic__kpis > :last-child:nth-child(odd) {
+            grid-column: 1 / -1;
+        }
         font-weight: var(--rg-admin-weight-medium);
         color: var(--rg-admin-text-strong);
     }

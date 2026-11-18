@@ -55,6 +55,34 @@ Growth → Traffic sources (`/admin/traffic-sources`), for active administrators
 9. Block by hand first, then through the API on a test campaign, then let the
    block rule do it by itself (only once the connector is verified).
 
+## Blocking
+
+You block by hand in Report → Sites & zones: tick sites or zones, then
+**Block**, or **Copy IDs** for the network's own blacklist. With the source's
+API connected the block is queued and reaches the network within a minute;
+without it the block is only marked here, and the IDs go into the network's
+blacklist by hand.
+
+**Block bots and losing sites by itself** (a source's editor → Blocking) lets
+the block rule do it every 5 minutes, over each site's or zone's last 30 days:
+likely bots and losing ones, as Report → Worth blocking sets them — losing only
+once the worth stands on 30 accounts. Only those with a click in the last 3
+days, the most spent first, up to the source's cap a day. It needs an active
+source with its API connected and verified, and an API that blocks the level
+chosen; the pane lists what is missing. A site you unblock stays unblocked: the
+rule leaves it alone for 30 days. The cap counts every block the rule queued
+that UTC day, so unblocking one frees no room for another until the next day.
+
+The Blocking pane shows what the source has blocked now — sites and zones, by
+hand and by the rule — and the rule's blocks today against the cap, and when
+the rule last ran. With an API connected it shows where the blocks it sent
+stand (on the network's list, waiting, failed); without one only how many are
+marked here, since RateGuru can't see the network's own blacklist. **See
+blocked in Sites & zones** and **Open the blocks log** open the list and
+Logs → Blocks for the source in a new tab. The Blocked segment of Sites & zones
+lists every block in force, whatever the period: one that sent no click in it
+shows with no figures.
+
 ## Period
 
 The period picker in the header — the same as a game's Analytics tab has —

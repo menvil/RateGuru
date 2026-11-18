@@ -134,7 +134,8 @@
 
 @include('filament.pages.traffic-sources.signups')
 
-<section class="rg-admin-traffic__panel" data-testid="traffic-performance">
+{{-- A link to the list itself (a source's blocked sites, from its editor) lands here once the figures are drawn, after the page's own first paint. --}}
+<section class="rg-admin-traffic__panel" id="traffic-performance" data-testid="traffic-performance" x-data x-init="if (location.hash === '#traffic-performance') { $nextTick(() => $el.scrollIntoView()); history.replaceState(history.state, '', location.pathname + location.search) }">
     <header class="rg-admin-traffic__perf-head">
         <div>
             <h2 class="rg-admin-traffic__panel-title">Performance</h2>

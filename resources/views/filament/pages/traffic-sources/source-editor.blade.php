@@ -2,9 +2,10 @@
     A source's editor, as the reference draws it: one draft in four panes —
     Link & parameters (the preset it started from and what it filled in,
     the API connection, name, key, the link's parameters, the window and the
-    network's day), Spend, Postbacks and Blocking — saved together with its
-    state; its API connected or disconnected at once, the key never shown
-    again. A pane holding a refusal is marked.
+    network's day), Spend, Postbacks and Blocking — what a saved source has
+    blocked, where those blocks stand and how blocking works — saved together
+    with its state; its API connected or disconnected at once, the key never
+    shown again. A pane holding a refusal is marked.
 --}}
 @php
     $s = $draft['source'];
@@ -252,8 +253,78 @@
                     <span class="rg-admin-label">Block by</span>
                     <x-admin.ui.segmented label="Block by" :options="['site' => 'Site', 'zone' => 'Zone']" :value="$s['block_level'] ?? 'site'" wire:model="draft.source.block_level" compact />
                 </div>
-                <x-admin.ui.switch label="Block bots and losing sites by itself" id="rg-admin-source-auto" :checked="(bool) ($s['block_auto'] ?? false)" on-hint="Every night, through the network’s API, within the day’s cap." off-hint="Only you block, from Report → Sites & zones." wire:model="draft.source.block_auto" />
+                <x-admin.ui.switch label="Block bots and losing sites by itself" id="rg-admin-source-auto" :checked="(bool) ($s['block_auto'] ?? false)" on-hint="Every 5 minutes, through the network’s API, within the day’s cap." off-hint="Only you block, from Report → Sites & zones." wire:model="draft.source.block_auto" />
                 @error('block_auto')<p class="rg-admin-games__note rg-admin-games__note--danger">{{ $message }}</p>@enderror
+
+                @if ($editor['blocking'] !== null)
+                    @php
+                        $b = $editor['blocking'];
+                        $c = $b['counts'];
+                        $r = $b['rule'];
+                        $noun = ($s['block_level'] ?? 'site') === 'zone' ? 'zone' : 'site';
+                        $percent = fn (int $value): string => ($value < 0 ? '−' : '').abs($value).'%';
+                    @endphp
+                    {{-- What the source has blocked as saved, and where those blocks stand: the figures the rule and the report wrote. --}}
+                    <div class="rg-admin-field" data-testid="traffic-source-blocking-status">
+                        <span class="rg-admin-label">Blocked now</span>
+                        <div class="rg-admin-traffic__kpis">
+                            <div>
+                                <span class="rg-admin-traffic__tile-label">In force</span>
+                                <strong>{{ number_format($c['sites'] + $c['zones']) }}</strong>
+                                <span class="rg-admin-traffic__note">{{ $c['sites'] + $c['zones'] === 0 ? 'Nothing blocked yet' : implode(' · ', array_filter([$c['sites'] > 0 ? number_format($c['sites']).' '.\Illuminate\Support\Str::plural('site', $c['sites']) : null, $c['zones'] > 0 ? number_format($c['zones']).' '.\Illuminate\Support\Str::plural('zone', $c['zones']) : null])) }}</span>
+                                <span class="rg-admin-traffic__note">{{ number_format($c['by_hand']) }} by hand · {{ number_format($c['by_rule']) }} by the rule</span>
+                            </div>
+                            {{-- What the API sent, where an API sends blocks; else only what is marked here, since RateGuru can't see the network's blacklist. --}}
+                            @if ($b['connected'] || $c['pending'] + $c['applied'] + $c['failed'] + $c['removing'] > 0)
+                                <div>
+                                    <span class="rg-admin-traffic__tile-label">Sent through the API</span>
+                                    <strong>{{ number_format($c['applied']) }}</strong>
+                                    <span class="rg-admin-traffic__note">on the network’s list · {{ number_format($c['pending']) }} waiting · {{ number_format($c['failed']) }} failed</span>
+                                    @if ($c['marked'] > 0 || $c['removing'] > 0)
+                                        <span class="rg-admin-traffic__note">{{ implode(' · ', array_filter([$c['marked'] > 0 ? number_format($c['marked']).' marked here only, not sent' : null, $c['removing'] > 0 ? number_format($c['removing']).' coming off' : null])) }}</span>
+                                    @endif
+                                </div>
+                            @else
+                                <div>
+                                    <span class="rg-admin-traffic__tile-label">Marked here</span>
+                                    <strong>{{ number_format($c['marked']) }}</strong>
+                                    <span class="rg-admin-traffic__note">No API sends these: copy their IDs into the network’s blacklist. RateGuru can’t see that list.</span>
+                                </div>
+                            @endif
+                            <div>
+                                <span class="rg-admin-traffic__tile-label">By the rule today</span>
+                                <strong>{{ number_format($c['rule_today']) }} of {{ number_format($b['cap']) }}</strong>
+                                <span class="rg-admin-traffic__note">{{ $b['auto'] ? 'On for this source' : 'Off for this source' }}</span>
+                                <span class="rg-admin-traffic__note">{{ $b['ranAt'] !== null ? 'Last ran '.$b['ranAt']->format('j M H:i') : 'Hasn’t run yet' }}</span>
+                            </div>
+                        </div>
+                        @if ($b['why'] !== [])
+                            <x-admin.ui.inline-notice :tone="$b['auto'] ? 'warning' : 'info'" data-testid="traffic-source-blocking-why">
+                                {{ $b['auto'] ? 'The rule can’t block for this source by itself:' : 'The rule couldn’t block for this source by itself:' }}
+                                <ul class="rg-admin-traffic__block-why">
+                                    @foreach ($b['why'] as $reason)
+                                        <li>{{ $reason }}</li>
+                                    @endforeach
+                                </ul>
+                            </x-admin.ui.inline-notice>
+                        @endif
+                        <span class="rg-admin-traffic__block-links">
+                            {{-- In a tab of their own, so the editor and its unsaved draft stay as they are. --}}
+                            <a class="rg-admin-link" href="{{ $b['sitesUrl'] }}" target="_blank" rel="noopener" data-testid="traffic-source-blocked-sites">See blocked in Sites & zones</a>
+                            <a class="rg-admin-link" href="{{ $b['logUrl'] }}" target="_blank" rel="noopener" data-testid="traffic-source-blocks-log">Open the blocks log</a>
+                        </span>
+                    </div>
+
+                    <div class="rg-admin-traffic__preset-card" data-testid="traffic-source-blocking-how">
+                        <strong>How blocking works</strong>
+                        <ol class="rg-admin-traffic__block-steps">
+                            <li>Every 5 minutes the rule reads each {{ $noun }}’s last 30 days. <strong>Likely bots</strong>: at least {{ number_format($r['bot_clicks']) }} clicks and fewer than {{ $percent($r['open_below']) }} opened the page. <strong>Losing</strong>: at least {{ $r['min_spend'] }} spent or {{ number_format($r['min_clicks']) }} clicks, and ROI below {{ $percent($r['roi_below']) }}, {{ $b['worth']['known'] ? 'judged now that the worth stands on '.number_format($b['worth']['accounts']).' accounts' : 'only once the worth is known: '.number_format($b['worth']['accounts']).' of the '.$b['worth']['needed'].' accounts it needs so far' }}.</li>
+                            <li>It blocks only those with a click in the last 3 days, the most spent first, up to {{ number_format($b['cap']) }} a day; one you unblock stays unblocked for 30 days. Change the thresholds in Report → Worth blocking.</li>
+                            <li>You block by hand in Report → Sites & zones: tick them, then Block, or Copy IDs.</li>
+                            <li>With the API connected, a block reaches the network within a minute; otherwise copy the IDs into the network’s blacklist.</li>
+                        </ol>
+                    </div>
+                @endif
 
                 @if (! $editor['new'] && $editor['connector'] !== null)
                     <div class="rg-admin-traffic__preset-card">

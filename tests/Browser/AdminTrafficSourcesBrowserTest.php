@@ -1,7 +1,9 @@
 <?php
 
 use App\Actions\Traffic\SaveTrafficSourceAction;
+use App\Enums\TrafficBlockLevel;
 use App\Models\ProjectSettings;
+use App\Models\TrafficBlock;
 use App\Models\TrafficCampaign;
 use App\Models\TrafficSource;
 use App\Models\TrafficVisit;
@@ -18,7 +20,8 @@ use function Pest\Laravel\actingAs;
  * to the pointer lit while only the start is chosen, the report reading the
  * range the moment its end is picked; a fixed price's days in one calendar,
  * given an end by keys, left with none by No end and by closing after a
- * start, each saved as chosen; and a campaign's price from the day clicked.
+ * start, each saved as chosen; a campaign's price from the day clicked; and
+ * a source's blocked sites opened from its editor at the list itself.
  */
 beforeEach(function () {
     ProjectSettings::factory()->create();
@@ -240,4 +243,29 @@ it('takes a campaign’s price day the moment it is clicked, with nothing to con
     waitForScript($page, "getComputedStyle(document.querySelector('{$dialog}')).display", 'none');
 
     $page->assertNoJavaScriptErrors();
+});
+
+it('opens a source’s blocked sites from its Blocking pane at the list itself, once the report is drawn', function () {
+    $today = CarbonImmutable::now('UTC')->startOfDay();
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    TrafficVisit::factory()->count(3)->create(['source_id' => $source->id, 'site_ref' => '40123', 'arrived_at' => $today->subDay()->setTime(10, 0), 'network_day' => $today->subDay()->toDateString()]);
+    TrafficBlock::factory()->create(['source_id' => $source->id, 'level' => TrafficBlockLevel::Site, 'ref' => '40123']);
+    $page = visitAdminEditor('/admin/traffic-sources?tab=sources&edit='.$source->id, 1440, 700);
+
+    waitForScript($page, "document.querySelector('#rg-admin-traffic-source [role=\"tab\"][aria-selected=\"true\"]') !== null");
+    $page->click('#rg-admin-traffic-source [role="tab"]:has-text("Blocking")');
+    waitForScript($page, "document.querySelector('[data-testid=\"traffic-source-blocked-sites\"]').offsetParent !== null");
+    // On this server's origin, whole: the browser plugin drops the anchor of an address given as a path.
+    $link = $page->script("(() => { const link = new URL(document.querySelector('[data-testid=\"traffic-source-blocked-sites\"]').href); return location.origin + link.pathname + link.search + link.hash })()");
+
+    expect($link)->toEndWith('#traffic-performance');
+
+    // The list comes after the page's first paint, and the page scrolls to it then; the address keeps no anchor to jump to again.
+    $list = $page->navigate($link);
+    waitForScript($list, "document.querySelector('#traffic-performance') !== null", true, 10.0);
+    waitForScript($list, "(() => { const box = document.querySelector('#traffic-performance').getBoundingClientRect(); return box.top < window.innerHeight && box.bottom > 0 && window.scrollY > 0 })()");
+    waitForScript($list, 'location.hash', '');
+    expect($list->script("document.querySelector('#traffic-performance').textContent"))->toContain('site 40123')->toContain('Blocked');
+
+    $list->assertNoJavaScriptErrors();
 });

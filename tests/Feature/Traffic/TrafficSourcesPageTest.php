@@ -1,20 +1,35 @@
 <?php
 
+use App\Actions\Traffic\BlockTrafficRefsAction;
 use App\Actions\Traffic\SaveTrafficSettingsAction;
+use App\Enums\TrafficActor;
+use App\Enums\TrafficBlockLevel;
+use App\Enums\TrafficBlockMethod;
+use App\Enums\TrafficBlockNetworkState;
+use App\Enums\TrafficBlockVerdict;
 use App\Enums\TrafficCampaignStage;
 use App\Enums\TrafficCampaignStatus;
+use App\Enums\TrafficConnectionStatus;
+use App\Enums\TrafficConnector;
 use App\Enums\TrafficEvent;
+use App\Enums\TrafficSourceStatus;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Models\Game;
+use App\Models\TrafficApiConnection;
+use App\Models\TrafficBlock;
+use App\Models\TrafficBlockEvent;
 use App\Models\TrafficCampaign;
+use App\Models\TrafficChanceRun;
 use App\Models\TrafficConversion;
 use App\Models\TrafficPostback;
 use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
+use App\Models\TrafficStepChance;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Livewire\Livewire;
 
 beforeEach(function () {
@@ -472,4 +487,152 @@ it('reads its period from the address — a preset or a range of network days �
         ->set('from', '2026-11-01')
         ->assertSet('from', '')
         ->assertSet('period', 'yesterday');
+});
+
+it('shows on Blocking what a source blocked, where its blocks stand with the network and the rule’s day, with the ways to them', function () {
+    config(['traffic_presets.connectors.popads.verified' => true]);
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, 'block_daily_cap' => 5]);
+    TrafficApiConnection::factory()->create(['source_id' => $source->id]);
+    $block = fn (string $ref, TrafficBlockLevel $level, TrafficBlockMethod $method, TrafficBlockNetworkState $state, ?CarbonInterface $at = null) => TrafficBlock::factory()->create(['source_id' => $source->id, 'ref' => $ref, 'level' => $level, 'method' => $method, 'network_state' => $state, 'blocked_at' => $at ?? now()]);
+    $block('s1', TrafficBlockLevel::Site, TrafficBlockMethod::Manual, TrafficBlockNetworkState::ByHand);
+    $block('s2', TrafficBlockLevel::Site, TrafficBlockMethod::Api, TrafficBlockNetworkState::Applied);
+    $block('s3', TrafficBlockLevel::Site, TrafficBlockMethod::Auto, TrafficBlockNetworkState::Pending);
+    $block('s4', TrafficBlockLevel::Site, TrafficBlockMethod::Auto, TrafficBlockNetworkState::Failed, now()->subDay());
+    $block('z1', TrafficBlockLevel::Zone, TrafficBlockMethod::Manual, TrafficBlockNetworkState::ByHand);
+    // On its way off the network's list: no longer in force.
+    $block('s5', TrafficBlockLevel::Site, TrafficBlockMethod::Api, TrafficBlockNetworkState::Removing);
+    TrafficBlock::factory()->create(['level' => TrafficBlockLevel::Site, 'ref' => 'other']);
+    // The rule's own entries in the blocks log: today's count against the cap, yesterday's not.
+    $queued = fn (string $ref, CarbonInterface $at) => TrafficBlockEvent::query()->create(['source_id' => $source->id, 'kind' => 'queued', 'level' => TrafficBlockLevel::Site, 'ref' => $ref, 'ref_count' => 1, 'method' => TrafficBlockMethod::Auto, 'actor' => TrafficActor::BlockRule, 'ok' => true, 'occurred_at' => $at]);
+    $queued('s3', now());
+    $queued('s4', now()->subDay());
+    TrafficSetting::recordBlockRuleRun(now()->subMinutes(3));
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['counts'] === ['sites' => 4, 'zones' => 1, 'by_hand' => 3, 'by_rule' => 2, 'marked' => 2, 'pending' => 1, 'applied' => 1, 'failed' => 1, 'removing' => 1, 'rule_today' => 1])
+        ->assertSee('Every 5 minutes, through the network’s API, within the day’s cap.')
+        ->assertSeeHtmlInOrder([
+            'data-testid="traffic-source-blocking-status"',
+            'In force', '<strong>5</strong>', '4 sites · 1 zone', '3 by hand · 2 by the rule',
+            'Sent through the API', '<strong>1</strong>', 'on the network’s list · 1 waiting · 1 failed', '2 marked here only, not sent · 1 coming off',
+            'By the rule today', '1 of 5', 'On for this source', 'Last ran 17 Nov 11:57',
+            // A zone among its blocks: the list by zone, which lists zone and site blocks alike.
+            'href="'.e(TrafficSourcesPage::getUrl(['view' => 'sites', 'source' => $source->id, 'seg' => 'blocked']).'#traffic-performance').'"', 'See blocked in Sites &amp; zones',
+            'href="'.e(TrafficSourcesPage::getUrl(['tab' => 'logs', 'log' => 'blocks', 'source' => $source->id])).'"', 'Open the blocks log',
+        ])
+        // Everything the rule needs is in place: nothing to explain.
+        ->assertDontSee('traffic-source-blocking-why');
+});
+
+it('opens a source’s blocked zones in the list it blocks them in, whatever the period on screen, and says when the rule has not run', function () {
+    $source = TrafficSource::factory()->create(['block_level' => TrafficBlockLevel::Zone]);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id, 'period' => '7d'])->test(TrafficSourcesPage::class)
+        ->assertSeeHtmlInOrder(['Nothing blocked yet', '0 by hand · 0 by the rule', '0 of 10', 'Off for this source', 'Hasn’t run yet'])
+        ->assertSee('href="'.e(TrafficSourcesPage::getUrl(['view' => 'sites', 'source' => $source->id, 'seg' => 'blocked']).'#traffic-performance').'"', false);
+
+    // A new source has nothing blocked to show yet, and a placement no Blocking pane.
+    Livewire::test(TrafficSourcesPage::class)->call('openEditor', 'new:popads')->assertDontSee('traffic-source-blocking-status');
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) TrafficSource::factory()->placement()->create()->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking'] === null);
+});
+
+it('explains on Blocking how blocking works, with the rule’s thresholds as set and whether the worth is known yet', function () {
+    TrafficSetting::current()->forceFill(['block_bot_clicks' => 45, 'block_open_below' => 40, 'block_min_spend' => '3.50', 'block_min_clicks' => 150, 'block_roi_below' => -25])->save();
+    $source = TrafficSource::factory()->create(['block_level' => TrafficBlockLevel::Zone, 'block_daily_cap' => 7]);
+    $open = fn () => Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class);
+
+    $open()->assertSeeHtmlInOrder([
+        'data-testid="traffic-source-blocking-how"', 'How blocking works',
+        'Every 5 minutes the rule reads each zone’s last 30 days.',
+        'at least 45 clicks and fewer than 40% opened the page.',
+        'at least $3.50 spent or 150 clicks, and ROI below −25%, only once the worth is known: 0 of the 30 accounts it needs so far.',
+        'only those with a click in the last 3 days, the most spent first, up to 7 a day; one you unblock stays unblocked for 30 days.',
+        'You block by hand in Report → Sites &amp; zones',
+        'With the API connected, a block reaches the network within a minute; otherwise copy the IDs into the network’s blacklist.',
+    ]);
+
+    $run = TrafficChanceRun::query()->forceCreate(['status' => 'finished', 'reason' => 'nightly', 'price_set_id' => TrafficPriceSet::current()->id, 'matured_before' => now(), 'started_at' => now(), 'finished_at' => now()]);
+    TrafficStepChance::query()->forceCreate(['run_id' => $run->id, 'slice_key' => '*', 'step' => 'opened', 'visitors' => 900, 'accounts' => 42, 'slice_accounts' => 42, 'chance' => '0.04666667', 'thin' => false, 'stands_on' => '*']);
+
+    $open()->assertSee('ROI below −25%, judged now that the worth stands on 42 accounts.');
+});
+
+it('says on Blocking why the rule can’t block for a source by itself', function (array $source, ?TrafficConnectionStatus $connection, bool $verified, string $why) {
+    config(['traffic_presets.connectors.popads.verified' => $verified]);
+    $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, ...$source]);
+
+    if ($connection !== null) {
+        TrafficApiConnection::factory()->create(['source_id' => $source->id, 'status' => $connection]);
+    }
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertViewHas('editor', fn (array $editor): bool => $editor['blocking']['why'] === [$why])
+        ->assertSeeHtmlInOrder(['data-testid="traffic-source-blocking-why"', 'The rule can’t block for this source by itself:', '<li>'.e($why).'</li>']);
+})->with([
+    'a paused source' => [['status' => TrafficSourceStatus::Paused], TrafficConnectionStatus::Connected, true, 'The source is paused: the rule blocks only for an active source.'],
+    'an ended source' => [['status' => TrafficSourceStatus::Ended], TrafficConnectionStatus::Connected, true, 'The source has ended: the rule blocks only for an active source.'],
+    'a network RateGuru has no API for' => [['connector' => null], null, true, 'RateGuru has no API for this network: block by hand and copy the IDs into its blacklist.'],
+    'no API connected' => [[], null, true, 'No API connected: connect it below.'],
+    'a disconnected API' => [[], TrafficConnectionStatus::Disconnected, true, 'No API connected: connect it below.'],
+    'a connection that needs attention' => [[], TrafficConnectionStatus::NeedsAttention, true, 'The API connection needs attention: reconnect it below.'],
+    'an unverified connector' => [[], TrafficConnectionStatus::Connected, false, 'The PopAds API isn’t verified on a real account yet, so the rule doesn’t block through it.'],
+    'an API that can’t block the level' => [['block_level' => TrafficBlockLevel::Zone], TrafficConnectionStatus::Connected, true, 'The PopAds API can’t block zones: block by site, or by hand.'],
+]);
+
+it('says on Blocking what the rule would need, as a note, while the source doesn’t ask it to block', function () {
+    $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => false]);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertSee('Only you block, from Report → Sites &amp; zones.', false)
+        ->assertSeeHtmlInOrder(['rg-admin-notice--info', 'The rule couldn’t block for this source by itself:', '<li>No API connected: connect it below.</li>', '<li>The PopAds API isn’t verified on a real account yet']);
+});
+
+it('says on Blocking only how many a source without an API marked, since RateGuru can’t see the network’s blacklist', function () {
+    $source = TrafficSource::factory()->create(['connector' => null, 'block_level' => TrafficBlockLevel::Site]);
+    TrafficBlock::factory()->create(['source_id' => $source->id, 'level' => TrafficBlockLevel::Site, 'ref' => 's1', 'method' => TrafficBlockMethod::Manual, 'network_state' => TrafficBlockNetworkState::ByHand, 'blocked_at' => now()]);
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertSeeHtmlInOrder(['Marked here', '<strong>1</strong>', 'No API sends these: copy their IDs into the network’s blacklist. RateGuru can’t see that list.'])
+        ->assertDontSee('Sent through the API')
+        ->assertDontSee('waiting ·');
+});
+
+it('keeps on Blocking the rule’s blocks today against the cap after an administrator takes one off', function () {
+    config(['traffic_presets.connectors.popads.verified' => true]);
+    $source = TrafficSource::factory()->create(['connector' => TrafficConnector::PopAds, 'block_level' => TrafficBlockLevel::Site, 'block_auto' => true, 'block_daily_cap' => 2]);
+    TrafficApiConnection::factory()->create(['source_id' => $source->id]);
+    $blocking = app(BlockTrafficRefsAction::class);
+    $blocking->block(null, $source, TrafficBlockLevel::Site, ['s1', 's2'], null, true, TrafficBlockMethod::Auto, TrafficBlockVerdict::Bots, 'Block rule');
+    $blocking->unblock($this->admin, TrafficBlock::query()->where('ref', 's1')->sole());
+    // The sync takes it off the network's list and drops it.
+    TrafficBlock::query()->where('ref', 's1')->delete();
+
+    Livewire::withQueryParams(['tab' => 'sources', 'edit' => (string) $source->id])->test(TrafficSourcesPage::class)
+        ->assertSeeHtmlInOrder(['In force', '<strong>1</strong>', 'By the rule today', '2 of 2']);
+});
+
+it('lists under Blocked every block in force of a source, with no figures for one that sent no click in the period', function () {
+    $source = TrafficSource::factory()->create(['name' => 'PopAds main', 'block_level' => TrafficBlockLevel::Site]);
+    $other = TrafficSource::factory()->create(['name' => 'Other network']);
+    TrafficVisit::factory()->create(['source_id' => $source->id, 'site_ref' => '41003', 'arrived_at' => '2026-11-16 10:00:00', 'network_day' => '2026-11-16', 'spend' => '0.25']);
+    $block = fn (TrafficSource $owner, string $ref, TrafficBlockLevel $level, TrafficBlockNetworkState $state = TrafficBlockNetworkState::ByHand) => TrafficBlock::factory()->create(['source_id' => $owner->id, 'ref' => $ref, 'level' => $level, 'method' => TrafficBlockMethod::Manual, 'network_state' => $state, 'blocked_at' => now()->subDays(40)]);
+    $block($source, '41003', TrafficBlockLevel::Site);
+    // Blocked 40 days ago and quiet since: no visit in any period.
+    $block($source, '41004', TrafficBlockLevel::Site);
+    $block($source, 'z9', TrafficBlockLevel::Zone);
+    // Coming off the network's list: no longer in force.
+    $block($source, '41005', TrafficBlockLevel::Site, TrafficBlockNetworkState::Removing);
+    $block($other, '50001', TrafficBlockLevel::Site);
+    $open = fn (array $query) => Livewire::withQueryParams(['view' => 'sites', 'seg' => 'blocked', ...$query])->test(TrafficSourcesPage::class)->call('load');
+
+    $open(['source' => (string) $source->id, 'list' => 'site', 'period' => 'yesterday'])
+        ->assertViewHas('list', fn (array $list): bool => $list['counts']['blocked'] === 2 && collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004'])
+        ->assertDontSee('50001');
+    // By zone it lists the zone blocks too.
+    $open(['source' => (string) $source->id])
+        ->assertViewHas('list', fn (array $list): bool => collect($list['rows'])->pluck('ref')->sort()->values()->all() === ['41003', '41004', 'z9']);
+    // Blocks are a source's: a campaign filter lists only what had clicks.
+    $open(['source' => (string) $source->id, 'list' => 'site', 'campaign' => (string) TrafficCampaign::factory()->create(['source_id' => $source->id])->id])
+        ->assertViewHas('list', fn (array $list): bool => $list['counts']['blocked'] === 0);
 });

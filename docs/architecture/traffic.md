@@ -285,8 +285,22 @@ list — or queued for the API and applied per campaign. A click the network
 still sends an hour after a block is counted. `BlockJudge` calls a site bots,
 losing (judged only once 30 accounts are measured) or off to a weak start by
 its last 30 days; `traffic:block-losers` queues bots and losing ones by itself
-every night for a source with a verified API that blocks its level, within its
-daily cap.
+every five minutes for an active source set to, with a verified API that
+blocks its level: only those with a click in the last 3 days, the most spent
+first, within the source's daily cap (a UTC day), never one blocked or queued
+already, nor one an administrator unblocked in the last 30 days.
+`traffic:sync-networks` applies them within a minute. A run with no such
+source reads no figures. `TrafficBlocksQuery` reads what the rule and a
+source's Blocking pane share: the source's blocks counted by level, maker and
+network state in one query, the rule's blocks today and the accounts the worth
+stands on. The rule's blocks today are summed from its own `queued` entries in
+`traffic_block_events`, which an unblock leaves in place, so a block taken off
+again never frees room under the cap the same day. Sites & zones lists a block
+in force that sent no click in the period too, with no figures, while the
+filters go no narrower than the source, so its Blocked segment matches the
+pane. When the rule last ran is kept in the cache
+(`TrafficSetting::blockRuleRanAt()`), not on the settings row, whose saves are
+held to their `lock_version`.
 
 ## Reports
 
