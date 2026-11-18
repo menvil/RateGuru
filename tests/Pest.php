@@ -24,7 +24,10 @@ use App\Data\Studio\StudioDiscussionNodeData;
 use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
+use App\Enums\AccountSignupMethod;
+use App\Enums\AccountSignupPlace;
 use App\Enums\CommentStatus;
+use App\Enums\GameAccountOutcome;
 use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
 use App\Enums\GameEventType;
@@ -52,6 +55,7 @@ use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
 use App\Livewire\Games\PlayGame;
 use App\Models\AccountAttribution;
+use App\Models\AccountBrowser;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Game;
@@ -92,6 +96,7 @@ use App\Models\TrafficVisit;
 use App\Models\TrafficVisitPost;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
+use App\Models\UserActivityDay;
 use App\Queries\Games\GameTrafficQuery;
 use App\Services\Media\GeneratedMediaVariant;
 use App\Services\Media\ImageVariantProcessor;
@@ -15011,4 +15016,116 @@ function analyticsClick(string $browser, TrafficCampaign $campaign, array $attri
         'campaign_key' => CampaignKey::paid((int) $campaign->id),
         ...$attributes,
     ]);
+}
+
+/**
+ * A member's new account, confirmed as it signed up at the moment given
+ * unless the attributes say otherwise — credited to the visit and attempt
+ * they give, none by default — that came back and voted on each day of its
+ * life listed, as RecordUserActivityAction records it.
+ *
+ * @param  list<int>  $returns  the days of the account's life it came back on, day 0 the day it signed up
+ */
+function retentionAccount(string $signedUpAt, array $returns = [], array $attributes = [], ?User $user = null): AccountAttribution
+{
+    $user ??= User::factory()->create();
+    $signedUp = CarbonImmutable::parse($signedUpAt, 'UTC');
+
+    foreach ($returns as $day) {
+        UserActivityDay::factory()->create([
+            'user_id' => $user->id,
+            'day' => $signedUp->addDays($day)->toDateString(),
+            'day_number' => $day,
+            'first_at' => $signedUp->addDays($day)->startOfDay()->addHours(9),
+        ]);
+    }
+
+    return AccountAttribution::factory()->create([
+        'user_id' => $user->id,
+        'signed_up_at' => $signedUp,
+        'confirmed_at' => $signedUp,
+        'credited_visit_id' => null,
+        'credited_attempt_id' => null,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * A member's journey from a moment on, as Analytics → Journeys reads it — of
+ * Trust Your Taste, made unless another journey made it already: a
+ * browser (a name, hashed) that came from Reddit to a game and finished it,
+ * came back two days later through a paid click of ExoClick tests, was given
+ * V7 of a period sharing V7 80% and V8 20%, finished again, reached the goal,
+ * pressed Sign up and signed up with Google in the game — the click and the
+ * attempt credited — opened two posts, came back on day 3 and voted
+ * (activating) and on day 5 and commented.
+ *
+ * @return array{user: User, hash: string, game: Game, first: TrafficVisit, click: TrafficVisit, attempt: GameAttempt}
+ */
+function journeyAccount(CarbonImmutable $start, string $browser = 'journey-member'): array
+{
+    $hash = hash('sha256', $browser);
+    $at = fn (int $days, string $time): CarbonImmutable => $start->addDays($days)->setTimeFromTimeString($time);
+    $game = Game::query()->firstWhere('slug', 'trust-your-taste') ?? Game::factory()->create(['title' => 'Trust Your Taste', 'slug' => 'trust-your-taste']);
+    $period = comparisonPeriod($game, [7 => 80, 8 => 20], $start->subDay()->toDateTimeString());
+    $version = $period->versions->firstWhere('number', 7);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => TrafficSource::factory()->create(['name' => 'ExoClick tests'])->id, 'name' => 'Versus October Launch']);
+
+    $first = analyticsVisit($browser, ['network_day' => $at(0, '19:42')->toDateString(), 'arrived_at' => $at(0, '19:42'), 'channel' => TrafficChannel::Referral, 'origin' => 'reddit.com',
+        'source_key' => 'reddit:organic', 'landing_key' => 'games.play:'.$game->id.':'.$version->id, 'game_id' => $game->id, 'version_id' => $version->id, 'device' => 'mobile', 'country' => 'DE', 'city' => 'Hamburg']);
+    $first->forceFill(['entry_visit_id' => $first->id])->save();
+    $click = analyticsClick($browser, $campaign, ['network_day' => $at(2, '18:10')->toDateString(), 'arrived_at' => $at(2, '18:10'), 'creative_key' => 'video_03',
+        'landing_key' => 'games.play:'.$game->id.':'.$version->id, 'game_id' => $game->id, 'version_id' => $version->id, 'device' => 'desktop', 'country' => 'DE', 'city' => 'Berlin']);
+    $click->forceFill(['entry_visit_id' => $click->id])->save();
+    analyticsVisitPost($click, 12, ['views' => 2, 'voted' => true, 'first_at' => $at(2, '18:20')]);
+    analyticsVisitPost($click, 15, ['first_at' => $at(2, '18:21')]);
+
+    GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'max_score' => 5, 'score' => 3, 'started_at' => $at(0, '19:43'), 'completed_at' => $at(0, '19:44'), 'last_activity_at' => $at(0, '19:44'), 'traffic_visit_id' => $first->id]);
+    $assignment = GameAssignment::query()->forceCreate(['game_id' => $game->id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => $hash, 'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => $at(2, '18:10'), 'last_seen_at' => $at(2, '18:10')]);
+    $attempt = GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'assignment_id' => $assignment->id, 'visitor_hash' => $hash, 'max_score' => 5, 'score' => 4,
+        'started_at' => $at(2, '18:11'), 'completed_at' => $at(2, '18:12'), 'last_activity_at' => $at(2, '18:12'), 'goal_reached_at' => $at(2, '18:12'), 'traffic_visit_id' => $click->id]);
+    (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'assignment_id' => $assignment->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => $hash, 'type' => GameEventType::RegistrationCtaClicked, 'provider' => 'register', 'occurred_at' => $at(2, '18:12')->addSeconds(30)])->save();
+
+    $user = User::factory()->create();
+    $attempt->forceFill(['user_id' => $user->id, 'account_outcome' => GameAccountOutcome::Registered, 'account_outcome_at' => $at(2, '18:13')])->save();
+    AccountBrowser::factory()->create(['user_id' => $user->id, 'visitor_hash' => $hash, 'linked_at' => $at(2, '18:13')]);
+    retentionAccount($at(2, '18:13')->toDateTimeString(), [], [
+        'visitor_hash' => $hash, 'signup_method' => AccountSignupMethod::Google, 'signup_place' => AccountSignupPlace::Game,
+        'credited_visit_id' => $click->id, 'credited_attempt_id' => $attempt->id, 'activated_at' => $at(5, '10:00'),
+    ], $user);
+    UserActivityDay::factory()->create(['user_id' => $user->id, 'day' => $at(5, '10:00')->toDateString(), 'day_number' => 3, 'voted' => true, 'commented' => false, 'posted' => false, 'played' => false, 'first_at' => $at(5, '10:00')]);
+    UserActivityDay::factory()->create(['user_id' => $user->id, 'day' => $at(7, '09:00')->toDateString(), 'day_number' => 5, 'voted' => false, 'commented' => true, 'posted' => false, 'played' => false, 'first_at' => $at(7, '09:00')]);
+
+    return ['user' => $user, 'hash' => $hash, 'game' => $game, 'first' => $first, 'click' => $click, 'attempt' => $attempt];
+}
+
+/**
+ * A player no account has, from a moment on — of Swipe Challenge, made
+ * unless another journey made it already: a browser (a name, hashed)
+ * that came with nothing to name its source and left a game unfinished,
+ * then came back from a shared result, finished, left an email — the
+ * address given — and copied the link to the result.
+ *
+ * @return array{hash: string, game: Game, attempt: GameAttempt}
+ */
+function journeyPlayer(CarbonImmutable $start, string $browser = 'journey-player', string $email = 'player@example.com'): array
+{
+    $hash = hash('sha256', $browser);
+    $game = Game::query()->firstWhere('slug', 'swipe-challenge') ?? Game::factory()->create(['title' => 'Swipe Challenge', 'slug' => 'swipe-challenge']);
+    $version = GameVersion::query()->where('game_id', $game->id)->where('number', 3)->first() ?? GameVersion::factory()->create(['game_id' => $game->id, 'number' => 3]);
+
+    $direct = analyticsVisit($browser, ['network_day' => $start->toDateString(), 'arrived_at' => $start, 'landing_key' => 'games.play:'.$game->id, 'game_id' => $game->id, 'device' => 'mobile']);
+    $direct->forceFill(['entry_visit_id' => $direct->id])->save();
+    GameAttempt::factory()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'rounds_answered' => 2, 'started_at' => $start->addMinute(), 'last_activity_at' => $start->addMinutes(2)]);
+
+    $back = $start->addDays(3);
+    $shared = analyticsVisit($browser, ['network_day' => $back->toDateString(), 'arrived_at' => $back, 'channel' => TrafficChannel::Shared, 'source_key' => 'shared', 'landing_key' => 'games.result:'.$game->id, 'game_id' => $game->id, 'device' => 'mobile', 'country' => 'BG', 'city' => 'Sofia']);
+    $shared->forceFill(['entry_visit_id' => $shared->id])->save();
+    $attempt = GameAttempt::factory()->completed()->create(['version_id' => $version->id, 'visitor_hash' => $hash, 'started_at' => $back->addMinute(), 'completed_at' => $back->addMinutes(2), 'last_activity_at' => $back->addMinutes(2), 'traffic_visit_id' => $shared->id]);
+    GameEmailCapture::query()->forceCreate(['attempt_id' => $attempt->id, 'game_id' => $game->id, 'email' => $email, 'captured_at' => $back->addMinutes(3)]);
+    (new GameEvent)->forceFill(['game_id' => $game->id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'audience' => GameAudience::Anonymous,
+        'visitor_hash' => $hash, 'type' => GameEventType::ShareClicked, 'provider' => 'copy_link', 'occurred_at' => $back->addMinutes(4)])->save();
+
+    return ['hash' => $hash, 'game' => $game, 'attempt' => $attempt];
 }

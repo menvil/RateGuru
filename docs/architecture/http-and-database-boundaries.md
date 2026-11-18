@@ -111,6 +111,13 @@ The reviewed boundaries are:
 - `PersonasQuery` for literal LIKE searches over Persona usernames, names, short
   descriptions and characters.
 - `RatingVoteCountsQuery` for grouped rating counts.
+- `RetentionQuery` for Analytics → Retention, which follows new accounts in
+  weekly cohorts: per source and game, conditional sums of the confirmed
+  accounts that signed up between each week's bound boundaries, of those of
+  them that came back on day 1, day 7, day 30 and any of days 1–7 — whether
+  one did read from its days of activity by a correlated subquery — of those
+  inside the period, and of the period's, over one read of the accounts,
+  never a row per account and never arithmetic on dates.
 - `StudioPlansQuery` for literal LIKE searches over publication plan titles and
   over their authors' usernames, display names and names.
 - `StudioActionsQuery` for literal LIKE searches over the Action queue: the

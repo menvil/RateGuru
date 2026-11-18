@@ -53,7 +53,7 @@ function campaignTreeNames(mixed $page): array
 it('draws the tab at every width, the tree scrolling inside its card, never the page', function (int $width) {
     $page = visitAnalyticsCampaigns('/admin/analytics?tab=campaigns', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and(campaignTreeNames($page))->toBe(['US popunder', '  banner-1', '    Trust Your Taste', '  banner-2', 'spring'])
         ->and($page->script("[...document.querySelectorAll('[data-testid=\"analytics-paid-source\"] .rg-admin-analytics__paid-name')].map((name) => name.textContent.trim())"))->toBe(['ExoClick tests'])
         ->and($page->script(<<<'JS'

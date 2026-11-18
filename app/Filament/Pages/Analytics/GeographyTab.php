@@ -139,6 +139,7 @@ final class GeographyTab implements AnalyticsTab
             'sort' => $sort,
             'rows' => $rows,
             'foot' => sprintf(self::FOOT, $minimum),
+            'journeys' => GrowthAnalyticsPage::getUrl(['tab' => 'journeys']),
         ];
     }
 

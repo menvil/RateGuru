@@ -10,7 +10,8 @@
      * band, the rest of the country last; then every other country together
      * and those no database could place. A click on a country opens it, or
      * closes it when open. The table scrolls sideways inside its card where
-     * the card is narrower. While no IP database serves, the tab says so
+     * the card is narrower; the footnote leads to Journeys, where each visit
+     * has its place. While no IP database serves, the tab says so
      * first, with the way to the setting that fetches one; nobody matching
      * the filters is said once, with no table drawn.
      */
@@ -88,6 +89,6 @@
                 @endforeach
             </div>
         </div>
-        <x-slot:footer data-testid="analytics-geo-foot">{{ $data['foot'] }}</x-slot:footer>
+        <x-slot:footer data-testid="analytics-geo-foot">{{ $data['foot'] }} A visitor’s location for each visit is <a href="{{ $data['journeys'] }}" class="rg-admin-analytics__geo-journeys" wire:click.prevent="$set('tab', 'journeys')">on the Journeys tab</a>.</x-slot:footer>
     </x-admin.ui.card>
 @endif

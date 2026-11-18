@@ -27,7 +27,9 @@ use App\Support\Traffic\Money\TrafficMoney;
  * against the window before — visitors, new visitors, game starters and
  * completers, accounts and activated users, and the rates of new visitors
  * becoming either — the acquisition funnel, whose accounts are the tile's,
- * and the visitors of each hour, day or week with what happened on them.
+ * with the way to the journey of one of its people on the Journeys tab
+ * (GrowthAnalyticsPage::openExampleJourney()), and the visitors of each
+ * hour, day or week with what happened on them.
  * Then, for the period and the device alone, whatever source and campaign
  * are chosen: the sources the most people came from, a click on one
  * filtering the whole page; what shared results brought; why the figures can

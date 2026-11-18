@@ -20557,4 +20557,557 @@
             --rg-admin-experiments-metric-width: 156px;
         }
     }
+
+    /*
+     * Retention: the definition's bold lead; five tiles narrower than
+     * Overview's so all fit a row on a wide screen; the cohorts card, whose
+     * cuts wrap under its title where both don't fit, each cut a pill; the
+     * cohorts a row per week, each window's cell a box shaded with the ink
+     * of the page the more came back (--rg-admin-analytics-heat), its figure
+     * light on the darkest, a sunken box for too few, a bare dash until it
+     * matures; then the legend and the line adding the cohorts up; and the
+     * two tables side by side where both fit, a row the cut it shows sunken.
+     */
+    .rg-admin-analytics__retention-lead {
+        font-weight: var(--rg-admin-weight-semibold);
+        color: var(--rg-admin-text-strong);
+    }
+
+    @media (min-width: 640px) {
+        .rg-admin-analytics__kpis--retention {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+        }
+    }
+
+    .rg-admin-analytics__retention-card .rg-admin-card__header--aside {
+        flex-wrap: wrap;
+    }
+
+    .rg-admin-analytics__retention-card .rg-admin-card__heading {
+        flex: 1 1 320px;
+    }
+
+    .rg-admin-analytics__retention-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .rg-admin-analytics__retention-chip {
+        max-width: 100%;
+        height: 28px;
+        overflow: hidden;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-full);
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-caption);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__retention-chip:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-analytics__retention-chip:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__retention-chip--on,
+    .rg-admin-analytics__retention-chip--on:hover {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-card);
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__cohorts {
+        --rg-admin-table-columns: minmax(160px, 1fr) 100px repeat(3, minmax(90px, 120px));
+        --rg-admin-table-min-width: 620px;
+        --rg-admin-table-row-height: 44px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__cohorts .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__cohorts .rg-admin-table__row:not(.rg-admin-table__row--head):hover {
+        background: transparent;
+    }
+
+    .rg-admin-analytics__cohort-head {
+        text-align: center;
+    }
+
+    .rg-admin-analytics__cohort-week {
+        display: flex;
+        flex-direction: column;
+        padding-block: 4px;
+    }
+
+    .rg-admin-analytics__cohort-label {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-analytics__cohort-note {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__cohort-users {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-analytics__cohort-cell {
+        padding: 4px 6px;
+    }
+
+    .rg-admin-analytics__heat {
+        display: grid;
+        place-items: center;
+        height: 34px;
+        border-radius: var(--rg-admin-radius-item);
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        font-variant-numeric: tabular-nums;
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__heat--heat {
+        background: color-mix(in srgb, var(--rg-admin-surface-inverse) var(--rg-admin-analytics-heat, 6%), transparent);
+    }
+
+    .rg-admin-analytics__heat--dark {
+        color: var(--rg-admin-text-inverse);
+    }
+
+    .rg-admin-analytics__heat--small {
+        background: var(--rg-admin-surface-sunken);
+        font-size: var(--rg-admin-text-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__heat--none {
+        font-weight: var(--rg-admin-weight-regular);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__cohort-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__cohort-key {
+        font-weight: var(--rg-admin-weight-semibold);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__cohort-recon {
+        margin: 0;
+        padding: 0 var(--rg-admin-space-5) 14px;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        font-variant-numeric: tabular-nums;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__retention-pair {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+        gap: var(--rg-admin-card-gap);
+        align-items: start;
+    }
+
+    .rg-admin-analytics__retention-table {
+        --rg-admin-table-columns: minmax(140px, 1fr) 84px 60px 60px 64px 104px;
+        --rg-admin-table-min-width: 528px;
+        --rg-admin-table-row-height: 50px;
+        border-bottom: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__retention-table .rg-admin-table__cell {
+        padding-inline: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__retention-table .rg-admin-table__cell:first-child {
+        padding-left: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__retention-table .rg-admin-table__cell:last-child {
+        padding-right: var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__retention-table .rg-admin-table__row--head .rg-admin-table__cell {
+        padding-block: var(--rg-admin-space-2);
+        overflow-wrap: break-word;
+    }
+
+    .rg-admin-analytics__retention-row {
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__retention-name-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding-block: 6px;
+    }
+
+    .rg-admin-analytics__retention-name {
+        max-width: 100%;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--rg-admin-text-strong);
+        font: inherit;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: inherit;
+    }
+
+    .rg-admin-analytics__retention-name:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__retention-sub {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__retention-figure {
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+    }
+
+    .rg-admin-analytics__retention-figure--strong {
+        font-weight: var(--rg-admin-weight-medium);
+    }
+
+    .rg-admin-analytics__retention-kept {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__retention-figure--quiet {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__retention-figure--small {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        white-space: nowrap;
+    }
+
+    .rg-admin-analytics__retention-answer {
+        margin: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-strong);
+        text-wrap: pretty;
+    }
+
+    /*
+     * Journeys: the bar of the search, the examples — each a mono chip, the
+     * one shown pressed — and the word about lookups, wrapping where they
+     * don't fit; the journey beside its side column where both fit, the
+     * column under it otherwise; the journey's mono name over what became
+     * of it, its steps' details in caption type and their session, page,
+     * device and place in small mono; the touches of Attribution, each under
+     * a hairline below the first; Identity's rows, a long value cut short,
+     * and its note. Overview's way to an example journey sits beside the
+     * funnel's title, and Geography's footnote leads here.
+     */
+    .rg-admin-analytics__journey-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-analytics__journey-search {
+        flex: 0 1 360px;
+        min-width: min(100%, 240px);
+    }
+
+    .rg-admin-analytics__journey-examples {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__journey-examples-label {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-example {
+        max-width: 100%;
+        height: 28px;
+        overflow: hidden;
+        padding: 0 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .rg-admin-analytics__journey-example:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-analytics__journey-example:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-analytics__journey-example--on,
+    .rg-admin-analytics__journey-example--on:hover {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-analytics__journey-logged {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-missing {
+        margin: 0;
+        padding: var(--rg-admin-space-6) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+        text-align: center;
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__journey-matches {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__journey {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rg-admin-card-gap);
+    }
+
+    .rg-admin-analytics__journey-path {
+        flex: 1 1 520px;
+        min-width: 0;
+    }
+
+    .rg-admin-analytics__journey-side {
+        display: flex;
+        flex: 0 1 380px;
+        flex-direction: column;
+        gap: var(--rg-admin-card-gap);
+        min-width: min(100%, 300px);
+    }
+
+    .rg-admin-analytics__journey-head {
+        padding: var(--rg-admin-space-4) var(--rg-admin-space-5) var(--rg-admin-space-2);
+    }
+
+    .rg-admin-analytics__journey-label {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-ui);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__journey-status {
+        margin: 2px 0 0;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-steps {
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-5) var(--rg-admin-space-5);
+    }
+
+    .rg-admin-analytics__journey-steps .rg-admin-timeline-item__body {
+        gap: 6px;
+    }
+
+    .rg-admin-analytics__journey-cut {
+        margin: 0 0 var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-body {
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-analytics__journey-meta {
+        overflow-wrap: anywhere;
+        font-family: var(--rg-admin-font-mono);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-touches {
+        margin: 0;
+        padding: var(--rg-admin-space-1) var(--rg-admin-space-5) var(--rg-admin-space-3);
+    }
+
+    .rg-admin-analytics__journey-touch {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 10px 0;
+        border-top: 1px solid var(--rg-admin-border-default);
+    }
+
+    .rg-admin-analytics__journey-touch:first-child {
+        border-top: 0;
+    }
+
+    .rg-admin-analytics__journey-touch-label {
+        font-size: var(--rg-admin-text-overline);
+        line-height: var(--rg-admin-leading-overline);
+        font-weight: var(--rg-admin-weight-medium);
+        letter-spacing: var(--rg-admin-tracking-overline);
+        text-transform: uppercase;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-analytics__journey-touch-value {
+        margin: 0;
+        font-size: var(--rg-admin-text-body);
+        line-height: var(--rg-admin-leading-ui);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-analytics__journey-touch-note {
+        margin: 0;
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-secondary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-analytics__journey-identity {
+        padding: var(--rg-admin-space-1) var(--rg-admin-space-5) var(--rg-admin-space-3);
+    }
+
+    .rg-admin-analytics__journey-identity-value {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .rg-admin-analytics__journey-note {
+        margin: 0;
+        padding: 0 var(--rg-admin-space-5) var(--rg-admin-space-4);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    /* The funnel card: the title and the example journey share a row, the description runs the card's width under them. */
+    .rg-admin-analytics__funnel-card > .rg-admin-card__header--aside {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: baseline;
+        column-gap: var(--rg-admin-space-3);
+    }
+
+    .rg-admin-analytics__funnel-card > .rg-admin-card__header--aside > .rg-admin-card__heading {
+        display: contents;
+    }
+
+    .rg-admin-analytics__funnel-card > .rg-admin-card__header--aside .rg-admin-card__description {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .rg-admin-analytics__journey-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: var(--rg-admin-text-caption);
+        line-height: var(--rg-admin-leading-caption);
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+        white-space: nowrap;
+        text-decoration: none;
+    }
+
+    .rg-admin-analytics__journey-link:hover,
+    .rg-admin-analytics__geo-journeys:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .rg-admin-analytics__journey-link:focus-visible,
+    .rg-admin-analytics__geo-journeys:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--rg-admin-radius-xs);
+    }
+
+    .rg-admin-analytics__geo-journeys {
+        color: inherit;
+        text-decoration: underline;
+        text-decoration-color: var(--rg-admin-border-strong);
+        text-underline-offset: 3px;
+    }
 }

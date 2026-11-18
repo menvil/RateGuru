@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Analytics\LogJourneyLookupAction;
 use App\Actions\Analytics\RestoreTrafficSegmentAction;
 use App\Enums\TrafficDevice;
 use App\Exceptions\Traffic\CannotManageTrafficException;
@@ -12,13 +13,16 @@ use App\Filament\Pages\Analytics\EngagementTab;
 use App\Filament\Pages\Analytics\ExperimentsTab;
 use App\Filament\Pages\Analytics\GamesTab;
 use App\Filament\Pages\Analytics\GeographyTab;
+use App\Filament\Pages\Analytics\JourneysTab;
 use App\Filament\Pages\Analytics\LandingsTab;
 use App\Filament\Pages\Analytics\OverviewTab;
+use App\Filament\Pages\Analytics\RetentionTab;
 use App\Filament\Pages\Analytics\TrackingLinksTab;
 use App\Filament\Resources\Games\Analytics\ReadsGameAnalytics;
 use App\Filament\Support\AdminNavigationGroup;
 use App\Models\TrafficSegment;
 use App\Models\User;
+use App\Queries\Analytics\JourneyQuery;
 use App\Queries\Games\ComparisonPeriodsQuery;
 use App\Support\Analytics\AnalyticsFilter;
 use App\Support\Analytics\AnalyticsPeriod;
@@ -44,9 +48,15 @@ use UnitEnum;
  * period assigned to which version instead, and none of them applies to it;
  * Games is a game's own analytics, of the period and the device with the
  * game's own filters (ReadsGameAnalytics), the source and campaign said not
- * to apply. Tracking links lists the administrator's tagged addresses with
+ * to apply; Retention reads the new accounts and the days they came back,
+ * of the period and the device, the source and campaign said not to apply
+ * either. Tracking links lists the administrator's tagged addresses with
  * what each brought, and is drawn before any visit is recorded, since links
- * come first. The strip lists only the tabs built so far.
+ * come first. Journeys looks up one visitor's or member's every step by an
+ * opaque ID, whatever the period and filters; each lookup is written down
+ * (LogJourneyLookupAction) — once an ID is typed, picked or opened from an
+ * address, never on the way to one. The strip lists only the tabs built so
+ * far.
  *
  * Everything on screen is in the address — the tab, the period, the device,
  * the source and campaign, a tab's own sorting, the two sources Site
@@ -54,7 +64,8 @@ use UnitEnum;
  * was opened from and the paid source's segment whose drawer is open, the
  * search of Tracking links and the link whose drawer or details are open,
  * the comparison Experiments shows, the game Games shows and its filters,
- * the country Geography opens — and anything it can't read is the default;
+ * the cut of the cohorts Retention shows, the country Geography opens, the
+ * journey Journeys looks up — and anything it can't read is the default;
  * only the rows of the Campaigns tree opened or closed by hand stay with the
  * page alone. A segment is saved, deleted and brought back by Undo through
  * its drawer (TrafficSegmentEditor) and the toast it leaves; a tracking link
@@ -71,20 +82,22 @@ final class GrowthAnalyticsPage extends Page
     use ReadsGameAnalytics;
 
     /** @var array<string, string> the tabs built so far, in the reference's order: the strip lists these and no other */
-    public const array TABS = ['overview' => 'Overview', 'engagement' => 'Site engagement', 'campaigns' => 'Campaigns', 'links' => 'Tracking links', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'geo' => 'Geography'];
+    public const array TABS = ['overview' => 'Overview', 'engagement' => 'Site engagement', 'campaigns' => 'Campaigns', 'links' => 'Tracking links', 'landings' => 'Landings', 'games' => 'Games', 'experiments' => 'Experiments', 'retention' => 'Retention', 'geo' => 'Geography', 'journeys' => 'Journeys'];
 
     /** @var array<string, class-string<AnalyticsTab>> what each tab of the strip reads */
-    public const array TAB_DATA = ['overview' => OverviewTab::class, 'engagement' => EngagementTab::class, 'campaigns' => CampaignsTab::class, 'links' => TrackingLinksTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'geo' => GeographyTab::class];
+    public const array TAB_DATA = ['overview' => OverviewTab::class, 'engagement' => EngagementTab::class, 'campaigns' => CampaignsTab::class, 'links' => TrackingLinksTab::class, 'landings' => LandingsTab::class, 'games' => GamesTab::class, 'experiments' => ExperimentsTab::class, 'retention' => RetentionTab::class, 'geo' => GeographyTab::class, 'journeys' => JourneysTab::class];
 
     /**
      * @var list<string> the tabs not counted from the visits Analytics
      *                   records — Experiments reads who was assigned to which
      *                   version, Games what playing recorded, saying itself
-     *                   what Traffic sources didn't record — so what the page
-     *                   says about recorded visits, and the states it draws
-     *                   for none, don't apply to them
+     *                   what Traffic sources didn't record, Retention the
+     *                   accounts and the days they came back, Journeys one
+     *                   visitor's or member's every step whatever the period
+     *                   — so what the page says about recorded visits, and
+     *                   the states it draws for none, don't apply to them
      */
-    public const array OWN_STATES = ['games', 'experiments'];
+    public const array OWN_STATES = ['games', 'experiments', 'retention', 'journeys'];
 
     /**
      * @var list<string> the tabs drawn before any visit was recorded, or in
@@ -103,7 +116,7 @@ final class GrowthAnalyticsPage extends Page
     public const array OWN_SITE_STATE = ['engagement'];
 
     /** @var list<string> the tabs the source and campaign filters don't apply to: each says so while one is chosen */
-    public const array WITHOUT_SOURCE = ['games'];
+    public const array WITHOUT_SOURCE = ['games', 'retention'];
 
     /** @var array<string, string> how Overview's sources table can be sorted */
     public const array SORTS = ['visitors' => 'Visitors', 'start' => 'Start rate', 'registration' => 'Registration rate', 'activation' => 'Activation rate'];
@@ -208,6 +221,10 @@ final class GrowthAnalyticsPage extends Page
     #[Url(except: '')]
     public mixed $game = '';
 
+    /** Retention: the cut of the cohorts shown — a source's key, a game as `game:{id}`, every other source or game, or the accounts that finished no game (RetentionTab::readDim()); every new account while none is named or the one named has no row. */
+    #[Url(except: '')]
+    public mixed $dim = '';
+
     /** Geography: what its countries and cities are sorted by, one of GeographyTab::SORTS. */
     #[Url(except: 'visitors')]
     public mixed $gsort = 'visitors';
@@ -215,6 +232,10 @@ final class GrowthAnalyticsPage extends Page
     /** Geography: the country whose cities are open, by its code, or none (GeographyTab::NONE_OPEN); the one the most people came from while none is named. */
     #[Url(except: '')]
     public mixed $open = '';
+
+    /** Journeys: what is looked up — a visitor_… or user_… ID, or whatever is being typed (JourneyTimeline::read()); the first example's journey while nothing is. */
+    #[Url(except: '')]
+    public mixed $who = '';
 
     /** Whether the page is in a browser: only then does the open tab read its figures. */
     public bool $ready = false;
@@ -250,6 +271,11 @@ final class GrowthAnalyticsPage extends Page
     {
         $this->ready = true;
         $this->dropUnknownComparison();
+
+        // A journey the address names is looked up as the page comes into a browser.
+        if ($this->tab === 'journeys') {
+            $this->logJourneyLookup('address');
+        }
     }
 
     public function updated(string $property): void
@@ -270,6 +296,35 @@ final class GrowthAnalyticsPage extends Page
         if ($this->ready && in_array($property, ['tab', 'exp'], true)) {
             $this->dropUnknownComparison();
         }
+
+        // Typed: a lookup once what is typed is an ID, never on the way to one.
+        if ($property === 'who') {
+            $this->logJourneyLookup('search');
+        }
+    }
+
+    /**
+     * Overview's “See an example journey”: the journey of one of the people
+     * its filters keep — the latest account credited to one of their visits,
+     * else the latest player of one no account has — read only as it is
+     * followed; with neither, Journeys' first example.
+     */
+    public function openExampleJourney(): void
+    {
+        if ($this->tab !== 'overview') {
+            return;
+        }
+
+        $this->pickJourney(app(JourneyQuery::class)->examples($this->filter())[0] ?? '');
+    }
+
+    /** An example of Journeys, or one of several browsers sharing an ID's digits: that journey, looked up. */
+    public function pickJourney(mixed $who): void
+    {
+        $this->tab = 'journeys';
+        $this->who = $who;
+        $this->normalize();
+        $this->logJourneyLookup('pick');
     }
 
     public function choosePeriod(mixed $preset): void
@@ -575,6 +630,16 @@ final class GrowthAnalyticsPage extends Page
         $this->dispatch('rg-admin-analytics-range', text: self::readPeriod($this->period, $this->from, $this->to)->range());
     }
 
+    /** Writes down that the journey asked for was looked up, when what is asked for is an ID: Journeys says lookups are logged. */
+    private function logJourneyLookup(string $via): void
+    {
+        $user = auth()->user();
+
+        if ($this->who !== '' && $user instanceof User) {
+            app(LogJourneyLookupAction::class)->handle($user, $this->who, $via);
+        }
+    }
+
     /** A period the address names that isn't a comparison Experiments lists — one version, hidden, of an archived game, gone — gives way to the latest. */
     private function dropUnknownComparison(): void
     {
@@ -631,6 +696,12 @@ final class GrowthAnalyticsPage extends Page
         // The two sources compared are the Site engagement tab's alone.
         $this->a = $this->tab === 'engagement' ? (AnalyticsSource::read($this->a) ?? '') : '';
         $this->b = $this->tab === 'engagement' ? (AnalyticsSource::read($this->b) ?? '') : '';
+
+        // The cut of the cohorts is the Retention tab's alone.
+        $this->dim = $this->tab === 'retention' ? RetentionTab::readDim($this->dim) : '';
+
+        // What is looked up is the Journeys tab's alone, as typed — an ID or not — but in lower case.
+        $this->who = $this->tab === 'journeys' && is_string($this->who) ? mb_substr(mb_strtolower(trim((string) preg_replace('/[\x00-\x1F\x7F]/u', '', $this->who))), 0, 80) : '';
 
         // The sorting and the open country are the Geography tab's alone.
         $this->gsort = $this->tab === 'geo' && is_string($this->gsort) && array_key_exists($this->gsort, GeographyTab::SORTS) ? $this->gsort : 'visitors';

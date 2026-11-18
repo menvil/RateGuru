@@ -54,7 +54,7 @@ function engagementAnswer(mixed $page): ?string
 it('draws the tab at every width, the posts scrolling inside their card, never the page', function (int $width) {
     $page = visitAnalyticsEngagement('/admin/analytics?tab=engagement', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and($page->script("[...document.querySelectorAll('[data-testid=\"analytics-engagement-card\"] .rg-admin-analytics__unit')].map((pill) => pill.textContent.trim())"))->toBe(['Visitors', 'Visitors', 'Actions', 'Visitors', 'Actions', 'Actions', 'Actions', 'Accounts', 'Accounts'])
         ->and($page->script("[...document.querySelectorAll('[data-testid=\"analytics-engagement-post\"] .rg-admin-analytics__post-title')].map((title) => title.textContent.trim())"))->toBe(['Glacier Blue Water'])
         ->and(engagementAnswer($page))->toBe('Reddit visitors vote more often: 37.5% of post viewers voted, against 10.0% from Google.')

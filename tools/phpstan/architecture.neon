@@ -181,6 +181,13 @@ parameters:
                 behaviorTests: [tests/Feature/Queries/TrafficSegmentsQueryTest.php]
                 status: approved
             -
+                class: App\Queries\Analytics\RetentionQuery
+                methods: [selectRaw]
+                reason: 'Retention follows new accounts in weekly cohorts: per source and game, conditional SUM(CASE WHEN … THEN 1 ELSE 0 END) of the confirmed accounts that signed up between each week''s bound boundaries, of those of them that came back on day 1, day 7, day 30 and any of days 1–7, of those inside the period, and of the period''s, over one read of the accounts, without hydrating a row per account or doing arithmetic on dates; every value is bound and every column of the visit comes from AnalyticsDimension.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/RetentionQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Analytics\TrackingLinksQuery
                 methods: [whereRaw, orWhereRaw]
                 reason: 'Literal search over tracking links'' names, sources, campaigns, contents and terms requires an explicit ESCAPE clause and separately bound patterns.'

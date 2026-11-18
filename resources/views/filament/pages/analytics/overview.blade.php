@@ -1,8 +1,9 @@
 @php
     /*
      * Analytics → Overview (OverviewTab), as the reference draws it: the
-     * tiles, the acquisition funnel beside the visitors of each hour, day or
-     * week with what happened on them, the sources table — whose rows filter
+     * tiles, the acquisition funnel — with the way to the journey of one of
+     * its people — beside the visitors of each hour, day or week with what
+     * happened on them, the sources table — whose rows filter
      * the whole page — then what shared results brought, why the figures can
      * differ from an ad network's, and what RateGuru records. Nobody matching
      * the filter is said once, with nothing else drawn.
@@ -38,7 +39,11 @@
     </x-admin.ui.card>
 
     <div class="rg-admin-analytics__pair">
-        <x-admin.ui.card title="Acquisition funnel" :description="$data['funnel']['note']" data-testid="analytics-funnel">
+        <x-admin.ui.card title="Acquisition funnel" :description="$data['funnel']['note']" class="rg-admin-analytics__funnel-card" data-testid="analytics-funnel">
+            {{-- Which journey is picked when it is followed: one of the people the filters keep. --}}
+            <x-slot:aside>
+                <a href="{{ GrowthAnalyticsPage::getUrl(['tab' => 'journeys']) }}" class="rg-admin-analytics__journey-link" wire:click.prevent="openExampleJourney" data-testid="analytics-example-journey">See an example journey<x-admin.ui.icon name="arrow-right" :size="13" /></a>
+            </x-slot:aside>
             <ol class="rg-admin-analytics__funnel">
                 @foreach ($data['funnel']['steps'] as $step)
                     <li class="rg-admin-analytics__step" title="{{ $step['hint'] }}">

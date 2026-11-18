@@ -60,7 +60,7 @@ function analyticsScreen(mixed $page): array
 it('draws the shell and Overview at every width, never wider than the screen', function (int $width) {
     $page = visitAnalytics('/admin/analytics', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and($page->script(<<<'JS'
             (() => {
                 const scroll = document.querySelector('[data-testid="analytics-sources"] .rg-admin-table__scroll')

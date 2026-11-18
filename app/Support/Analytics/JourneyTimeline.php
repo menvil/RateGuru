@@ -1,0 +1,742 @@
+<?php
+
+namespace App\Support\Analytics;
+
+use App\Enums\AccountSignupPlace;
+use App\Enums\TrafficDevice;
+use App\Support\Geo\Countries;
+use Carbon\CarbonImmutable;
+
+/**
+ * One visitor's or one member's way through the site, as Analytics →
+ * Journeys draws it from what JourneyQuery read: every step recorded of the
+ * browsers it is read for — each visit, a session's first with where it came
+ * from (its source, campaign tags, page and place), the posts each session
+ * opened, shared, voted and commented on in one line, the versions the games
+ * gave, the attempts and how far each got, the sign-up and share buttons
+ * pressed, an email left (never the address), signing in, and for an account
+ * its sign-up, confirmation, activation and the later days it came back —
+ * oldest first, at most the latest MOST_STEPS. Then what brought the browser
+ * and what the account is credited to (Attribution) and who it is
+ * (Identity).
+ *
+ * A visitor is a browser, named by the first hex of its visitor hash
+ * (`visitor_8f31c2ab`); a member by the account's id (`user_3814`), whose
+ * journey is every browser it signed up or signed in with. A browser's own
+ * journey carries the account's steps only when the account signed up in it.
+ *
+ * The journey read is a plain array (JourneyQuery::journey()): `kind`
+ * (visitor or user), `browsers` (the hashes read), `user` (the account the
+ * journey names, if any), `account` (whether the account's own steps belong),
+ * `more` (whether the member signed in with more browsers than were read),
+ * `visits`, `posts`, `attempts`, `assignments` (with when each `ended`, if
+ * it did), `periods`, `events`,
+ * `emails`, `attribution`, `days`, `first` (the earliest visit, when the
+ * visits read are only the latest), `credited` (visits named by the
+ * attribution and not among them), `games`, `versions` and `cut` (whether
+ * there was more than was read). Pure: every moment given is UTC.
+ */
+final class JourneyTimeline
+{
+    /** The most steps a journey shows: the latest. */
+    public const int MOST_STEPS = 200;
+
+    /** The most browsers a visitor ID lists to choose from, where several share its digits. */
+    public const int MOST_MATCHES = 10;
+
+    /** The most browsers a member signed in with that their journey reads: the latest. */
+    public const int MOST_BROWSERS = 500;
+
+    /** The fewest hex digits of a visitor hash a visitor ID names: as many as an ID shows. */
+    public const int VISITOR_DIGITS = 8;
+
+    /** The hex digits a browser is named by where several share an ID's digits. */
+    public const int LONG_DIGITS = 16;
+
+    /** How a step ranks against another of the same moment: the arrival first, a goal after what reached it, the activation last. */
+    private const array RANK = ['visit' => 0, 'assigned' => 1, 'started' => 2, 'posts' => 3, 'done' => 4, 'pressed' => 5, 'signin' => 6, 'signup' => 6, 'claimed' => 7, 'confirmed' => 8, 'goal' => 9, 'activated' => 10, 'returned' => 10];
+
+    /** @var list<array<string, mixed>> the visits read and any the attribution names, oldest first */
+    private readonly array $visits;
+
+    /** @var array<string, mixed>|null the earliest visit of the browsers */
+    private readonly ?array $first;
+
+    /**
+     * @param  array<string, mixed>  $journey  as JourneyQuery::journey() reads it, with `kind`, `browsers`, `user` and `account`
+     * @param  array<int, string>  $sourceNames  the paid sources' names, by id
+     * @param  array<int, string>  $campaignNames  the paid campaigns' names, by id
+     */
+    public function __construct(
+        private readonly array $journey,
+        private readonly array $sourceNames = [],
+        private readonly array $campaignNames = [],
+    ) {
+        $visits = $journey['visits'];
+        usort($visits, fn (array $a, array $b): int => [$a['at'], $a['id']] <=> [$b['at'], $b['id']]);
+        $this->visits = $visits;
+        $this->first = $journey['first'] ?? ($visits[0] ?? null);
+    }
+
+    /**
+     * An ID as it is typed or named by an address, when it is one: a visitor
+     * by at least the hex digits an ID shows of its hash, or a member by the
+     * account's id — any case, around any spaces. Null for anything else.
+     *
+     * @return array{kind: 'visitor', value: string}|array{kind: 'user', value: int}|null
+     */
+    public static function read(mixed $value): ?array
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = strtolower(trim($value));
+
+        if (preg_match('/^visitor_([0-9a-f]{'.self::VISITOR_DIGITS.',64})$/', $value, $match) === 1) {
+            return ['kind' => 'visitor', 'value' => $match[1]];
+        }
+
+        if (preg_match('/^user_([1-9]\d{0,17})$/', $value, $match) === 1) {
+            return ['kind' => 'user', 'value' => (int) $match[1]];
+        }
+
+        return null;
+    }
+
+    /** A browser's ID: `visitor_` and the first hex digits of its hash. */
+    public static function visitorId(string $hash, int $digits = self::VISITOR_DIGITS): string
+    {
+        return 'visitor_'.substr($hash, 0, $digits);
+    }
+
+    /** A member's ID. */
+    public static function userId(int $id): string
+    {
+        return 'user_'.$id;
+    }
+
+    /**
+     * What the tab draws: the journey's name and what became of it, its
+     * steps and whether earlier ones were left out, the touches of
+     * Attribution, the rows of Identity and what Identity says of them.
+     *
+     * @return array{label: string, status: string, entries: list<array{time: string, icon: string, title: string, body: string, meta: string|null}>, cut: bool, touches: list<array{label: string, value: string, note: string}>, identity: list<array{icon: string, label: string, value: string}>, note: string}
+     */
+    public function view(): array
+    {
+        $steps = $this->steps();
+        $cut = (bool) ($this->journey['cut'] ?? false) || count($steps) > self::MOST_STEPS;
+        $steps = array_slice($steps, -self::MOST_STEPS);
+        $years = array_unique(array_map(fn (array $step): string => $step['at']->format('Y'), $steps));
+        $format = count($years) > 1 ? 'd M Y H:i' : 'd M H:i';
+
+        return [
+            'label' => $this->label(),
+            'status' => implode(' · ', [$this->status(), self::count($this->sessions(), 'session'), self::count(count($this->journey['attempts']), 'attempt')]),
+            'entries' => array_map(fn (array $step): array => [
+                'time' => $step['at']->format($format),
+                'icon' => $step['icon'],
+                'title' => $step['title'],
+                'body' => $step['body'],
+                'meta' => $step['meta'],
+            ], $steps),
+            'cut' => $cut,
+            'touches' => $this->touches(),
+            'identity' => $this->identity(),
+            'note' => $this->journey['kind'] === 'user'
+                ? (($this->journey['more'] ?? false)
+                    ? 'The latest '.self::MOST_BROWSERS.' browsers '.self::userId((int) $this->journey['user']).' signed in with, and the one it signed up in, together: signing in is the only thing that links them. It signed in with more, which aren’t read.'
+                    : 'Every browser '.self::userId((int) $this->journey['user']).' signed up or signed in with, together: signing in is the only thing that links them.')
+                    .' Visitor, session and user IDs are separate. No fingerprinting or cross-device matching. Times are UTC.'
+                : 'One browser, by its visitor ID. Visitor, session and user IDs are separate: a browser’s visits join an account only once it signs up or signs in there. No fingerprinting or cross-device matching. Times are UTC.',
+        ];
+    }
+
+    /** The journey's name: the browser and the account, or the account and its browsers. */
+    private function label(): string
+    {
+        $browsers = $this->journey['browsers'];
+        $user = $this->journey['user'];
+
+        if ($this->journey['kind'] === 'visitor') {
+            return self::visitorId($browsers[0]).' · '.($user === null ? 'not registered' : self::userId((int) $user));
+        }
+
+        return match (count($browsers)) {
+            0 => self::userId((int) $user).' · no browser recorded',
+            1 => self::visitorId($browsers[0]).' · '.self::userId((int) $user),
+            default => self::userId((int) $user).' · '.(($this->journey['more'] ?? false) ? 'more than ' : '').count($browsers).' browsers',
+        };
+    }
+
+    /** What became of the visitor or the account. */
+    private function status(): string
+    {
+        $attribution = $this->account();
+
+        return match (true) {
+            $attribution !== null && $attribution['confirmed'] !== null && $attribution['activated'] !== null => 'Registered and activated',
+            $attribution !== null && $attribution['confirmed'] !== null => 'Registered',
+            $attribution !== null => 'Signed up · not confirmed',
+            $this->journey['user'] !== null && $this->journey['kind'] === 'visitor' => 'Signed in as '.self::userId((int) $this->journey['user']),
+            $this->journey['user'] !== null => 'Member',
+            $this->journey['emails'] !== [] => 'Anonymous · email captured',
+            default => 'Anonymous',
+        };
+    }
+
+    /**
+     * The account's sign-up, when its steps belong to this journey.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function account(): ?array
+    {
+        return $this->journey['account'] ? $this->journey['attribution'] : null;
+    }
+
+    /** How many sessions the visits read began: each visit belongs to the one its entry began. */
+    private function sessions(): int
+    {
+        return count(array_unique(array_map(fn (array $visit): int => $visit['entry'], $this->visits)));
+    }
+
+    /**
+     * Every step, oldest first — of the same moment, the arrival first and
+     * the activation last.
+     *
+     * @return list<array{at: CarbonImmutable, rank: int, order: int, icon: string, title: string, body: string, meta: string|null}>
+     */
+    private function steps(): array
+    {
+        $steps = [];
+        $add = function (CarbonImmutable $at, string $rank, string $icon, string $title, string $body, ?string $meta = null) use (&$steps): void {
+            $steps[] = ['at' => $at, 'rank' => self::RANK[$rank], 'order' => count($steps), 'icon' => $icon, 'title' => $title, 'body' => $body, 'meta' => $meta];
+        };
+
+        $this->visitSteps($add);
+        $this->postSteps($add);
+        $this->gameSteps($add);
+        $this->accountSteps($add);
+
+        usort($steps, fn (array $a, array $b): int => [$a['at'], $a['rank'], $a['order']] <=> [$b['at'], $b['rank'], $b['order']]);
+
+        return $steps;
+    }
+
+    /** Each visit: where a session came from, or the page a session went on to; and signing in on it. */
+    private function visitSteps(callable $add): void
+    {
+        foreach ($this->visits as $visit) {
+            $starts = $visit['entry'] === $visit['id'];
+            [$icon, $title, $body] = $starts ? $this->arrival($visit) : $this->moveOn($visit);
+            $add($visit['at'], 'visit', $icon, $title, $body.($visit['opened'] ? '' : ' The page never ran in a browser.'), $this->visitMeta($visit, $starts));
+
+            if ($visit['login'] !== null) {
+                $add($visit['login'], 'signin', 'user-check', 'Signed in', 'To an account the browser already had: a sign-in, not a new account.');
+            }
+        }
+    }
+
+    /**
+     * A session's first visit: where it came from, and what said so.
+     *
+     * @param  array<string, mixed>  $visit
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function arrival(array $visit): array
+    {
+        $key = $visit['source'];
+        $verb = $this->first !== null && $this->first['id'] === $visit['id'] ? 'Arrived' : 'Returned';
+        $firstKey = $this->first['source'] ?? null;
+        $kept = $verb === 'Returned' && $firstKey !== null && $firstKey !== $key && $firstKey !== AnalyticsSource::DIRECT
+            ? ' The '.AnalyticsSource::label($firstKey, $this->sourceNames).' first touch is kept.'
+            : '';
+
+        if (AnalyticsSource::paidSourceId($key) !== null) {
+            return ['megaphone', $verb.' from '.AnalyticsSource::label($key, $this->sourceNames), implode(' · ', array_filter(['Paid click', $this->campaign($visit), $visit['creative']])).'.'.$kept];
+        }
+
+        return match ($key) {
+            AnalyticsSource::DIRECT => ['log-in', $verb.' with no attribution', 'No tags and no referrer. Counted as Direct / Unknown.'.$kept],
+            AnalyticsSource::SHARED => ['share-2', $verb.' from a shared result', 'Opened a result another player shared.'.$kept],
+            AnalyticsSource::INTERNAL => ['log-in', $verb.' from inside the site', 'Came from another page of the site.'],
+            default => [AnalyticsSource::medium($key) === 'email' ? 'mail' : 'log-in', $verb.' from '.AnalyticsSource::label($key, $this->sourceNames), $this->recognised($visit).$kept],
+        };
+    }
+
+    /**
+     * A later visit of a session: the page it went on to.
+     *
+     * @param  array<string, mixed>  $visit
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function moveOn(array $visit): array
+    {
+        $game = $visit['game'] === null ? null : ($this->journey['games'][$visit['game']]['title'] ?? 'a game');
+        $page = $game ?? ($visit['path'] ?? 'another page');
+
+        return ['arrow-right', 'Went on to '.$page, 'Same session: its visits keep the source it began with.'];
+    }
+
+    /**
+     * What told a network's visit apart: its campaign tags, or the referrer.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private function recognised(array $visit): string
+    {
+        if ($visit['tags'] !== []) {
+            return 'Campaign tags: '.implode(' · ', array_map(fn (string $tag, string $value): string => $tag.'='.$value, array_keys($visit['tags']), $visit['tags'])).'.';
+        }
+
+        $host = $visit['referrer'] ?? $visit['origin'];
+
+        return $host === null ? 'No campaign tags.' : 'No campaign tags. Source inferred from the referrer '.$host.'.';
+    }
+
+    /**
+     * A visit's session, page, device and place — and its browser, when the
+     * journey has more than one.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private function visitMeta(array $visit, bool $starts): string
+    {
+        $slug = $visit['game'] === null ? null : ($this->journey['games'][$visit['game']]['slug'] ?? null);
+        $path = $visit['path'] ?? match (true) {
+            $starts && $visit['landing'] !== null => LandingRoute::path($visit['landing'], $slug),
+            $slug !== null => '/games/'.$slug,
+            default => null,
+        };
+
+        return implode(' · ', array_filter([
+            'session_'.$visit['entry'],
+            count($this->journey['browsers']) > 1 ? self::visitorId($visit['hash']) : null,
+            $path,
+            TrafficDevice::tryFrom((string) $visit['device'])?->label(),
+            self::place($visit),
+        ]));
+    }
+
+    /**
+     * The posts each session opened, shared, voted and commented on, and
+     * the votes, comments and posts its member made on its visits — one
+     * line a session.
+     */
+    private function postSteps(callable $add): void
+    {
+        $visits = [];
+
+        foreach ($this->journey['visits'] as $visit) {
+            $visits[$visit['id']] = $visit;
+        }
+
+        $sessions = [];
+
+        foreach ($this->journey['posts'] as $row) {
+            $entry = $visits[$row['visit']]['entry'] ?? null;
+
+            if ($entry === null) {
+                continue;
+            }
+
+            $session = $sessions[$entry] ?? ['at' => $row['at'], 'posts' => [], 'views' => 0, 'shared' => 0, 'voted' => 0, 'commented' => 0, 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session['at'] = $row['at'] < $session['at'] ? $row['at'] : $session['at'];
+            $session['posts'][$row['post']] = true;
+            $session['views'] += $row['views'];
+            $session['shared'] += $row['shared'] ? 1 : 0;
+            $session['voted'] += $row['voted'] ? 1 : 0;
+            $session['commented'] += $row['commented'] ? 1 : 0;
+            $sessions[$entry] = $session;
+        }
+
+        foreach ($this->journey['visits'] as $visit) {
+            if ($visit['votes'] + $visit['comments'] + $visit['posts'] === 0) {
+                continue;
+            }
+
+            $session = $sessions[$visit['entry']] ?? ['at' => $visit['seen'], 'posts' => [], 'views' => 0, 'shared' => 0, 'voted' => 0, 'commented' => 0, 'votes' => 0, 'comments' => 0, 'made' => 0];
+            $session['votes'] += $visit['votes'];
+            $session['comments'] += $visit['comments'];
+            $session['made'] += $visit['posts'];
+            $sessions[$visit['entry']] = $session;
+        }
+
+        foreach ($sessions as $entry => $session) {
+            $opened = count($session['posts']);
+            $ids = array_keys($session['posts']);
+            $parts = array_filter([
+                $session['views'] > $opened ? self::count($session['views'], 'view') : null,
+                $session['shared'] > 0 ? 'shared '.$session['shared'] : null,
+                $session['voted'] > 0 ? 'voted on '.self::count($session['voted'], 'post') : null,
+                $session['commented'] > 0 ? 'commented on '.self::count($session['commented'], 'post') : null,
+                // The member's own counts, where they say more than the posts voted and commented on.
+                $session['votes'] > $session['voted'] ? self::count($session['votes'], 'vote') : null,
+                $session['comments'] > $session['commented'] ? self::count($session['comments'], 'comment') : null,
+                $session['made'] > 0 ? self::count($session['made'], 'post', 'posts').' published' : null,
+            ]);
+
+            $add(
+                $session['at'],
+                'posts',
+                $opened > 0 ? 'eye' : 'message-square',
+                $opened > 0 ? 'Opened '.self::count($opened, 'post') : 'Took part on the site',
+                match (true) {
+                    $parts !== [] => ucfirst(implode(' · ', $parts)).'.',
+                    $opened === 1 => 'One view.',
+                    default => 'One view each.',
+                },
+                implode(' · ', array_filter([
+                    'session_'.$entry,
+                    $ids === [] ? null : implode(', ', array_map(fn (int $id): string => '#'.$id, array_slice($ids, 0, 5))).(count($ids) > 5 ? ' +'.(count($ids) - 5) : ''),
+                ])),
+            );
+        }
+    }
+
+    /** The versions games gave, each attempt and how far it got, and what was pressed or left on the way. */
+    private function gameSteps(callable $add): void
+    {
+        foreach ($this->journey['assignments'] as $assignment) {
+            $period = $this->journey['periods'][$assignment['period']] ?? null;
+            $version = $this->version($assignment['version']);
+            $body = $period === null
+                ? 'Assigned '.$version.'.'
+                : 'Assigned '.$version.' in the period from '.$period['from']->format('d M').($period['scope'] === null ? '' : ' for '.$period['scope'])
+                    .' ('.implode(' · ', array_map(fn (array $share): string => 'V'.$share['number'].' '.$share['percent'].'%', $period['shares'])).').';
+            $ended = $assignment['ended'] ?? null;
+            $add($assignment['at'], 'assigned', 'flask-conical', 'Assigned to '.$this->game($assignment['game']), $body.($ended === null
+                ? ' The version stays the same when they come back.'
+                : ' Kept until '.$ended->format('d M H:i').', when the version lost its share or could no longer be played.'), 'assignment_'.$assignment['id']);
+        }
+
+        foreach ($this->journey['attempts'] as $attempt) {
+            $meta = 'attempt_'.$attempt['id'];
+            $flow = $this->journey['versions'][$attempt['version']]['flow'] ?? null;
+            $add($attempt['started'], 'started', 'gamepad-2', 'Started '.$this->game($attempt['game']), 'Attempt on '.$this->version($attempt['version']).($flow === null ? '' : ' with '.$flow).'.', $meta);
+
+            if ($attempt['completed'] !== null) {
+                $add($attempt['completed'], 'done', 'flag', 'Completed the game', $attempt['score'] === null ? 'Finished.' : 'Score '.$attempt['score'].' of '.$attempt['max'].'.', $meta);
+            } else {
+                $rounds = (int) ($this->journey['versions'][$attempt['version']]['rounds'] ?? 0);
+                $add($attempt['last'], 'done', 'log-out', 'Didn’t finish', $attempt['rounds'].($rounds > 0 ? ' of '.$rounds : '').' rounds answered. Attempt not completed.', $meta);
+            }
+
+            if ($attempt['goal'] !== null) {
+                $goal = $this->journey['versions'][$attempt['version']]['goal'] ?? null;
+                $add($attempt['goal'], 'goal', 'target', 'Reached the goal', ($goal === null ? 'The goal of its flow' : $goal.': the goal of its flow').'.', $meta);
+            }
+
+            if ($attempt['outcome'] !== null && $attempt['outcomeAt'] !== null) {
+                $account = $this->journey['user'] === null ? 'the account' : self::userId((int) $this->journey['user']);
+                $add($attempt['outcomeAt'], 'claimed', 'link', $attempt['outcome'] === 'registered' ? 'Result claimed' : 'Result kept on sign-in',
+                    $attempt['outcome'] === 'registered' ? $meta.' is linked to the new account, '.$account.'.' : $meta.' is linked to the account it signed in to.', $meta);
+            }
+        }
+
+        foreach ($this->journey['events'] as $event) {
+            $meta = 'attempt_'.$event['attempt'];
+
+            if ($event['type'] === 'share_clicked') {
+                $add($event['at'], 'pressed', 'share-2', 'Shared the result', match ($event['provider']) {
+                    null, '' => 'Pressed a share button.',
+                    'copy_link' => 'Copied the link to the result.',
+                    'native' => 'Through the device’s own share sheet.',
+                    default => 'Through '.ucfirst(str_replace('_', ' ', (string) $event['provider'])).'.',
+                }, $meta);
+
+                continue;
+            }
+
+            $add($event['at'], 'pressed', 'mouse-pointer-click', match ($event['provider']) {
+                'login' => 'Clicked “Sign in”',
+                'email' => 'Started signing up with email',
+                'google', 'facebook' => 'Started signing up with '.ucfirst((string) $event['provider']),
+                default => 'Clicked “Sign up”',
+            }, 'Registration call to action on the result.', $meta);
+        }
+
+        foreach ($this->journey['emails'] as $email) {
+            $add($email['at'], 'pressed', 'mail-check', 'Email captured', 'Stored by the game. The address isn’t shown in analytics.', 'attempt_'.$email['attempt']);
+        }
+    }
+
+    /** The account's sign-up, confirmation and activation, and every later day it came back and did something. */
+    private function accountSteps(callable $add): void
+    {
+        $attribution = $this->account();
+        $activatedDay = $attribution === null ? null : $attribution['activated']?->toDateString();
+
+        // The days are read only for the account whose steps belong: drawn even when its sign-up was never recorded.
+        foreach ($this->journey['days'] as $day) {
+            if ($day['number'] >= 1 && $day['day'] !== $activatedDay) {
+                $add($day['at'], 'returned', 'repeat', 'Came back on day '.$day['number'], ucfirst(self::did($day)).'.');
+            }
+        }
+
+        if ($attribution === null) {
+            return;
+        }
+
+        $user = self::userId((int) $this->journey['user']);
+        $credited = $attribution['visit'] === null ? null : $this->visit($attribution['visit']);
+        $add($attribution['signedUp'], 'signup', 'user-plus', 'Signed up with '.self::method($attribution['method']),
+            'Account '.$user.' created'.(AccountSignupPlace::tryFrom((string) $attribution['place']) === null ? '' : ' '.lcfirst(AccountSignupPlace::from((string) $attribution['place'])->label())).'.'
+            .($credited === null ? '' : ' Conversion touch: '.AnalyticsSource::label($credited['source'], $this->sourceNames).'.'), $user);
+
+        if ($attribution['confirmed'] !== null) {
+            $add($attribution['confirmed'], 'confirmed', 'circle-check', 'Confirmed the account', $attribution['method'] === null || $attribution['method'] === 'email'
+                ? 'The email address was confirmed: the new account counts from here.'
+                : 'Confirmed at once by '.self::method($attribution['method']).': the new account counts from here.');
+        }
+
+        $signedUpDay = $attribution['signedUp']->startOfDay();
+
+        if ($attribution['activated'] !== null) {
+            $day = null;
+
+            foreach ($this->journey['days'] as $each) {
+                if ($each['day'] === $activatedDay) {
+                    $day = $each;
+                }
+            }
+
+            $number = $day['number'] ?? (int) $signedUpDay->diffInDays($attribution['activated']->startOfDay());
+            $did = $day === null ? 'did something' : self::did($day);
+            $add($attribution['activated'], 'activated', 'badge-check', 'Came back on day '.$number.' and '.$did.' — activation rule met', 'The first vote, comment, post or game on one of the 7 days after signing up.', 'Within 7 days');
+        }
+    }
+
+    /**
+     * Attribution: how the browser first came and last came from somewhere
+     * named, and — for an account — the visit and the game its sign-up is
+     * credited to; for nobody signed up yet, that there is no conversion.
+     *
+     * @return list<array{label: string, value: string, note: string}>
+     */
+    private function touches(): array
+    {
+        $first = $this->first === null
+            ? ['label' => 'First touch', 'value' => 'None recorded', 'note' => 'No visit of this '.($this->journey['kind'] === 'user' ? 'account' : 'browser').' was recorded']
+            : ['label' => 'First touch', 'value' => $this->source($this->first), 'note' => $this->first['at']->format('d M').' · '.$this->basis($this->first)];
+        $attribution = $this->account();
+        // A touch is where a session came from: its first visit, whose referrer is the one that brought it.
+        $starts = array_values(array_filter($this->visits, fn (array $visit): bool => $visit['entry'] === $visit['id']));
+        $starts = $starts === [] ? $this->visits : $starts;
+
+        if ($attribution === null) {
+            $latest = $starts === [] ? null : $starts[count($starts) - 1];
+            $other = $this->journey['user'] !== null && $this->journey['kind'] === 'visitor';
+
+            return array_values(array_filter([
+                $first,
+                $latest === null || $latest['id'] === ($this->first['id'] ?? null) ? null : ['label' => 'Latest touch', 'value' => $this->source($latest), 'note' => $latest['at']->format('d M').' · '.$this->basis($latest)],
+                match (true) {
+                    $other => ['label' => 'Conversion touch', 'value' => 'In another browser', 'note' => self::userId((int) $this->journey['user']).' signed up elsewhere: its journey has the sign-up'],
+                    $this->journey['user'] !== null => ['label' => 'Conversion touch', 'value' => 'Not recorded', 'note' => 'The account signed up before RateGuru recorded what accounts are credited to'],
+                    default => ['label' => 'Conversion touch', 'value' => 'None yet', 'note' => 'No account created'],
+                },
+            ]));
+        }
+
+        $credited = $attribution['visit'] === null ? null : $this->visit($attribution['visit']);
+        $expired = $attribution['expired'] === null ? null : $this->visit($attribution['expired']);
+        $closed = $expired === null ? null : 'a paid click whose window had closed, on '.$expired['at']->format('d M').' from '.AnalyticsSource::label($expired['source'], $this->sourceNames);
+        $conversion = match (true) {
+            $credited !== null => ['label' => 'Conversion touch', 'value' => $this->source($credited), 'note' => implode(' · ', array_filter([$credited['at']->format('d M'), $this->campaign($credited), $credited['creative'], $closed === null ? null : 'before it, '.$closed]))],
+            $expired !== null => ['label' => 'Conversion touch', 'value' => 'None', 'note' => 'Only '.$closed.', so nothing is credited'],
+            default => ['label' => 'Conversion touch', 'value' => 'None', 'note' => 'No visit of the last 7 days was recorded before signing up'],
+        };
+
+        $named = array_values(array_filter($starts, fn (array $visit): bool => ! in_array($visit['source'], [AnalyticsSource::DIRECT, AnalyticsSource::INTERNAL], true)));
+        $last = $named === [] ? null : $named[count($named) - 1];
+
+        return [
+            $first,
+            $conversion,
+            $last === null
+                ? ['label' => 'Last non-direct touch', 'value' => 'None', 'note' => 'Every visit came with no tags and no referrer']
+                : ['label' => 'Last non-direct touch', 'value' => $this->source($last), 'note' => $last['at']->format('d M').($last['at'] > $attribution['signedUp'] ? ' · after registration' : ' · '.$this->basis($last))],
+            $this->credit($attribution, $credited),
+        ];
+    }
+
+    /**
+     * What the sign-up is credited to: the attempt finished before it, else
+     * the page of the visit, else nothing.
+     *
+     * @param  array<string, mixed>  $attribution
+     * @param  array<string, mixed>|null  $credited
+     * @return array{label: string, value: string, note: string}
+     */
+    private function credit(array $attribution, ?array $credited): array
+    {
+        $attempt = null;
+
+        foreach ($this->journey['attempts'] as $each) {
+            if ($each['id'] === $attribution['attempt']) {
+                $attempt = $each;
+            }
+        }
+
+        if ($attempt !== null) {
+            $flow = $this->journey['versions'][$attempt['version']]['flow'] ?? null;
+
+            return ['label' => 'Registration credited to', 'value' => $this->game($attempt['game']).' · '.$this->version($attempt['version']), 'note' => implode(' · ', array_filter([$flow, 'attempt_'.$attempt['id']]))];
+        }
+
+        if ($credited !== null) {
+            $page = $credited['game'] !== null ? $this->game($credited['game']) : ($credited['landing'] === null ? 'Another page' : LandingRoute::page($credited['landing']));
+
+            return ['label' => 'Registration credited to', 'value' => $page, 'note' => 'The page of the credited visit · no game attempt was credited'];
+        }
+
+        return ['label' => 'Registration credited to', 'value' => 'Nothing', 'note' => 'No game attempt or visit was recorded before signing up'];
+    }
+
+    /**
+     * Identity: the browser or browsers, the account, how many sessions and
+     * attempts, and where the latest visit came from.
+     *
+     * @return list<array{icon: string, label: string, value: string}>
+     */
+    private function identity(): array
+    {
+        $browsers = $this->journey['browsers'];
+        $ids = array_map(fn (string $hash): string => self::visitorId($hash), array_slice($browsers, 0, 2));
+        $placed = array_values(array_filter($this->visits, fn (array $visit): bool => $visit['country'] !== null));
+        $place = $placed === [] ? null : self::place($placed[count($placed) - 1]);
+
+        return [
+            count($browsers) > 1
+                ? ['icon' => 'user-round', 'label' => 'Browsers', 'value' => implode(', ', $ids).(count($browsers) > 2 ? ' +'.(count($browsers) - 2) : '')]
+                : ['icon' => 'user-round', 'label' => 'Visitor ID', 'value' => $ids[0] ?? 'None recorded'],
+            ['icon' => 'user', 'label' => 'User ID', 'value' => $this->journey['user'] === null ? 'Not registered' : self::userId((int) $this->journey['user'])],
+            ['icon' => 'layers', 'label' => 'Sessions · attempts', 'value' => $this->sessions().' · '.count($this->journey['attempts'])],
+            ['icon' => 'map-pin', 'label' => 'Location', 'value' => $place === null ? 'Unknown' : $place.' · from IP'],
+        ];
+    }
+
+    /**
+     * A touch's source: the network and its medium, or Direct / Unknown and
+     * Inside the site alone.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private function source(array $visit): string
+    {
+        return in_array($visit['source'], [AnalyticsSource::DIRECT, AnalyticsSource::INTERNAL], true)
+            ? AnalyticsSource::label($visit['source'])
+            : AnalyticsSource::label($visit['source'], $this->sourceNames).' · '.AnalyticsSource::medium($visit['source']);
+    }
+
+    /**
+     * What a touch was known by: the paid link and its campaign, the tags,
+     * the referrer, or nothing at all.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private function basis(array $visit): string
+    {
+        $key = $visit['source'];
+        $host = $visit['referrer'] ?? $visit['origin'];
+
+        return match (true) {
+            AnalyticsSource::paidSourceId($key) !== null => implode(' · ', array_filter(['rg_src link', $this->campaign($visit), $visit['creative']])),
+            $visit['tags'] !== [] => 'tagged'.(isset($visit['tags']['utm_campaign']) ? ' '.$visit['tags']['utm_campaign'] : ''),
+            $key === AnalyticsSource::DIRECT => 'no tags and no referrer, so no source is assumed',
+            $key === AnalyticsSource::SHARED => 'a result another player shared',
+            $key === AnalyticsSource::INTERNAL => 'another page of the site',
+            default => $host === null ? 'no tags' : 'inferred from referrer '.$host.', no tags',
+        };
+    }
+
+    /**
+     * A visit's campaign as it reads, if it came by one.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private function campaign(array $visit): ?string
+    {
+        return $visit['campaign'] === null ? null : CampaignKey::label($visit['campaign'], $this->campaignNames);
+    }
+
+    /**
+     * A visit by its id: among those read, or one the attribution names.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function visit(int $id): ?array
+    {
+        foreach ([...$this->visits, ...($this->journey['credited'] ?? [])] as $visit) {
+            if ($visit['id'] === $id) {
+                return $visit;
+            }
+        }
+
+        return null;
+    }
+
+    private function game(int $id): string
+    {
+        return $this->journey['games'][$id]['title'] ?? 'Game #'.$id;
+    }
+
+    private function version(int $id): string
+    {
+        $number = $this->journey['versions'][$id]['number'] ?? null;
+
+        return $number === null ? 'a version' : 'V'.$number;
+    }
+
+    /**
+     * Where a visit came from, by its IP: the city and the country, or the
+     * country alone.
+     *
+     * @param  array<string, mixed>  $visit
+     */
+    private static function place(array $visit): ?string
+    {
+        if ($visit['country'] === null) {
+            return null;
+        }
+
+        $country = Countries::name((string) $visit['country']);
+
+        return $visit['city'] === null ? $country : $visit['city'].', '.$country;
+    }
+
+    /** How an account signed up: Email, Google or Facebook. */
+    private static function method(?string $method): string
+    {
+        return match ($method) {
+            'google' => 'Google',
+            'facebook' => 'Facebook',
+            default => 'email',
+        };
+    }
+
+    /**
+     * What a member did on a day: voted, commented, posted, played a game.
+     *
+     * @param  array<string, mixed>  $day
+     */
+    private static function did(array $day): string
+    {
+        $did = array_keys(array_filter(['voted' => $day['voted'], 'commented' => $day['commented'], 'posted' => $day['posted'], 'played a game' => $day['played']]));
+
+        return match (count($did)) {
+            0 => 'did something',
+            1 => $did[0],
+            default => implode(', ', array_slice($did, 0, -1)).' and '.$did[count($did) - 1],
+        };
+    }
+
+    /** A count with its noun, one or many. */
+    private static function count(int $count, string $one, ?string $many = null): string
+    {
+        return $count.' '.($count === 1 ? $one : ($many ?? $one.'s'));
+    }
+}

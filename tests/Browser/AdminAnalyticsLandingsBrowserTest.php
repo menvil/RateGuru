@@ -55,7 +55,7 @@ function visitAnalyticsLandings(string $url, int $width = 1440): mixed
 it('draws the tab at every width, the landings and the comparison scrolling inside their cards with the metric held in place, never the page', function (int $width) {
     $page = visitAnalyticsLandings('/admin/analytics?tab=landings', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and($page->script("[...document.querySelectorAll('[data-testid=\"analytics-landing-row\"] .rg-admin-analytics__landing-path')].map((path) => path.textContent.trim())"))->toBe(['/games/trust-your-taste', '/'])
         ->and($page->script("document.querySelector('[data-testid=\"analytics-landings-compare\"] .rg-admin-card__title')?.textContent.trim()"))->toBe('Result First · V7 vs Email Before Result · V8')
         ->and($page->script(<<<'JS'

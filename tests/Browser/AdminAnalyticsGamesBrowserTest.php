@@ -54,7 +54,7 @@ function chosenAnalyticsGame(mixed $page): ?string
 it('draws the tab at every width, the chooser and the cards wrapping and scrolling inside themselves, never the page', function (int $width) {
     $page = visitAnalyticsGames('/admin/analytics?tab=games', $width);
 
-    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Geography'])
+    expect($page->script("[...document.querySelectorAll('.rg-admin-analytics__tabs .rg-admin-tab')].map((tab) => tab.textContent.trim())"))->toBe(['Overview', 'Site engagement', 'Campaigns', 'Tracking links', 'Landings', 'Games', 'Experiments', 'Retention', 'Geography', 'Journeys'])
         ->and(chosenAnalyticsGame($page))->toBe('Trust Your Taste')
         ->and($page->script("document.querySelector('[data-testid=\"game-analytics-kpis\"] .rg-admin-stat__value')?.textContent.trim()"))->toBe('2')
         // The page's own period picker and device are the shell's: the bar has neither.
