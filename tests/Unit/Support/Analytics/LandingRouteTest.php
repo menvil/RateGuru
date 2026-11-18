@@ -52,3 +52,23 @@ it('names a campaign by its paid campaign or by its tag, within its column', fun
         ->and(CampaignKey::tag(null))->toBeNull()
         ->and(mb_strlen((string) CampaignKey::tag(str_repeat('c', 300))))->toBe(140);
 });
+
+it('lists a campaign’s visits that came by no creative under a name of their own', function () {
+    expect(CampaignKey::creative('video_03'))->toBe('video_03')
+        ->and(CampaignKey::creative(null))->toBe('(no creative)')
+        ->and(CampaignKey::creative('  '))->toBe(CampaignKey::NO_CREATIVE);
+});
+
+it('reads a campaign key as its paid campaign’s name or its tag, and from an address only when a visit could carry it', function () {
+    expect(CampaignKey::label('paid:55', [55 => 'US popunder']))->toBe('US popunder')
+        ->and(CampaignKey::label('paid:56'))->toBe('Campaign #56')
+        ->and(CampaignKey::label('tag:Versus October Launch'))->toBe('Versus October Launch')
+        ->and(CampaignKey::paidCampaignId('paid:55'))->toBe(55)
+        ->and(CampaignKey::paidCampaignId('tag:55'))->toBeNull()
+        ->and(CampaignKey::read('paid:55'))->toBe('paid:55')
+        ->and(CampaignKey::read('tag:launch'))->toBe('tag:launch')
+        ->and(CampaignKey::read('tag: '))->toBeNull()
+        ->and(CampaignKey::read('launch'))->toBeNull()
+        ->and(CampaignKey::read(['paid:55']))->toBeNull()
+        ->and(CampaignKey::read('tag:'.str_repeat('c', 140)))->toBeNull();
+});

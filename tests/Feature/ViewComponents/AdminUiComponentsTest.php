@@ -40,6 +40,12 @@ it('draws the icons Growth → Experiments uses with the reference’s Lucide ge
     'route' => ['route', '<path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>'],
 ]);
 
+it('draws the icons Growth → Analytics uses with the reference’s Lucide geometry', function (string $name, string $geometry) {
+    $this->blade('<x-admin.ui.icon name="'.$name.'" />')->assertSee($geometry, false);
+})->with([
+    'circle-help' => ['circle-help', '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'],
+]);
+
 it('fails loudly on an icon it does not have', function () {
     $this->blade('<x-admin.ui.icon name="no-such-icon" />');
 })->throws(ViewException::class, 'Unknown admin icon [no-such-icon]');

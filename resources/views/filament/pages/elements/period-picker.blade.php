@@ -7,9 +7,11 @@
     leave the period as it was. The fields' limits only help: the server reads
     whatever it is sent, and a range it cannot read is the default preset.
 
-    $picker comes from ChoosesReportPeriod::periodPicker(); $id names the
-    trigger and its panel; $align 'end' opens the panel from the trigger's
-    right edge, for a picker at the right of its row.
+    $picker comes from ChoosesReportPeriod::periodPicker(), or a page's own
+    with the same keys; its optional 'most' is the longest range the page
+    reads at a time. $id names the trigger and its panel; $align 'end' opens
+    the panel from the trigger's right edge, for a picker at the right of its
+    row.
 --}}
 @php($align ??= 'start')
 <div
@@ -23,6 +25,7 @@
         last: @js($picker['to']),
         min: @js($picker['min']),
         max: @js($picker['max']),
+        most: @js($picker['most'] ?? null),
         days() {
             if (! this.from || ! this.to) {
                 return null
@@ -33,7 +36,7 @@
         valid() {
             const days = this.days()
 
-            return days !== null && days >= 1 && this.from >= this.min && this.to <= this.max
+            return days !== null && days >= 1 && this.from >= this.min && this.to <= this.max && (this.most === null || days <= this.most)
         },
         summary() {
             const days = this.days()
@@ -52,6 +55,10 @@
 
             if (this.from < this.min) {
                 return @js('Figures are kept '.$picker['kept'].' days')
+            }
+
+            if (this.most !== null && days > this.most) {
+                return 'Up to ' + this.most + ' days at a time'
             }
 
             return days + (days === 1 ? ' day' : ' days')

@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\TrafficSourcesPage;
@@ -171,6 +172,12 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => ExperimentsPage::topbar(request()),
                 scopes: ExperimentsPage::class,
+            )
+            // Analytics: the days its period covers, moved as another period is chosen.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => GrowthAnalyticsPage::topbar(request()),
+                scopes: GrowthAnalyticsPage::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

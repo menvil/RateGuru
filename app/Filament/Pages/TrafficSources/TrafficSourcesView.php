@@ -40,11 +40,10 @@ use App\Queries\Traffic\TrafficReportQuery;
 use App\Queries\Traffic\TrafficSpendQuery;
 use App\Queries\Traffic\TrafficWorthQuery;
 use App\Queries\Users\UnconfirmedAccountsQuery;
+use App\Services\Geo\GeoAttribution;
 use App\Services\Traffic\Connectors\ConnectorRegistry;
 use App\Services\Traffic\TrafficPresetCatalog;
 use App\Support\Geo\Countries;
-use App\Support\Geo\GeoDatabaseLocator;
-use App\Support\Geo\Update\GeoStateStore;
 use App\Support\Traffic\Blocking\BlockJudge;
 use App\Support\Traffic\Links\LinkInspector;
 use App\Support\Traffic\Links\TrackingLinkBuilder;
@@ -1323,20 +1322,10 @@ final class TrafficSourcesView
         ];
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> the IP database serving, its last update and the credit its licence asks for */
     private function geo(GeoEdition $chosen): array
     {
-        $locator = app(GeoDatabaseLocator::class);
-        $state = app(GeoStateStore::class)->read($chosen);
-        $serving = $locator->serving($chosen);
-
-        return [
-            'chosen' => $chosen,
-            'serving' => $serving,
-            'installed' => $state['installed'] ?? null,
-            'checked' => $state['last_checked_at'] ?? null,
-            'error' => $state['last_error']['code'] ?? null,
-        ];
+        return app(GeoAttribution::class)->read($chosen);
     }
 
     /** @return array<string, array<string, string>> names for the IDs a report groups by */

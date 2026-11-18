@@ -146,3 +146,64 @@ it('reads every key as its label, medium and group', function (string $key, stri
     ['direct', 'Direct / Unknown', '(none)', 'Unattributed'],
     ['internal', 'Inside the site', '(none)', 'Inside the site'],
 ]);
+
+it('knows the type of the network a key names, and none for any other key', function (string $key, ?string $type) {
+    expect(AnalyticsSource::networkType($key))->toBe($type);
+})->with([
+    ['google:paid', 'search'],
+    ['bing:organic', 'search'],
+    ['reddit:organic', 'social'],
+    ['x:referral', 'social'],
+    ['email:email', 'email'],
+    ['tag.mailchimp:email', null],
+    ['host.example.com:organic', null],
+    ['paid:7', null],
+    ['shared', null],
+    ['direct', null],
+    ['internal', null],
+]);
+
+it('says what a row was recognised by: a paid link, its fixed key, or the share of its visits that carried tags', function (string $key, int $visits, int $tagged, string $basis) {
+    expect(AnalyticsSource::basis($key, $visits, $tagged))->toBe($basis);
+})->with([
+    ['paid:7', 40, 0, 'rg_src link · click ID'],
+    ['direct', 40, 0, 'No tags or referrer'],
+    ['shared', 40, 0, 'Shared result link'],
+    ['internal', 40, 0, 'Another page of the site'],
+    ['email:email', 12, 12, 'Tagged'],
+    ['google:organic', 30, 0, 'Referrer'],
+    ['reddit:organic', 100, 62, '62% tagged · 38% referrer'],
+    ['reddit:organic', 3, 1, '33% tagged · 67% referrer'],
+    // Both kinds are there, so neither reads as none.
+    ['reddit:organic', 1000, 1, '1% tagged · 99% referrer'],
+    ['reddit:organic', 1000, 999, '99% tagged · 1% referrer'],
+    ['host.example.com:organic', 0, 0, 'Referrer'],
+]);
+
+it('calls the rows past the top other referrals, or other sources once a tagged visit is among them', function () {
+    expect(AnalyticsSource::otherLabel(0))->toBe('Other referrals')
+        ->and(AnalyticsSource::otherLabel(3))->toBe('Other sources')
+        ->and(AnalyticsSource::share(25, 0))->toBe('Referrer')
+        ->and(AnalyticsSource::share(25, 5))->toBe('20% tagged · 80% referrer');
+});
+
+it('reads a key from an address only when a visit could carry it', function (mixed $value, ?string $key) {
+    expect(AnalyticsSource::read($value))->toBe($key);
+})->with([
+    ['paid:7', 'paid:7'],
+    ['shared', 'shared'],
+    ['direct', 'direct'],
+    ['internal', 'internal'],
+    ['reddit:organic', 'reddit:organic'],
+    ['google:paid', 'google:paid'],
+    ['tag.exo click:paid', 'tag.exo click:paid'],
+    ['host.example.com:referral', 'host.example.com:referral'],
+    ['reddit:social', null],
+    [':organic', null],
+    ['reddit', null],
+    ['paid:', null],
+    ['', null],
+    [null, null],
+    [['reddit:organic'], null],
+    ["reddit\n:organic", null],
+]);

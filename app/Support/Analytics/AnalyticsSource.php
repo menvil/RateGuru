@@ -19,9 +19,11 @@ use App\Enums\TrafficChannel;
  * - `shared`, `direct`, `internal` — a shared result, nothing to name the
  *   arrival by, a move inside the site.
  *
- * The label, medium and group each key reads as come from the same
- * dictionary, when it is shown: a key written once never needs rewriting for
- * a better label. Pure; every key fits the column's 140 characters.
+ * The label, medium, group and network type each key reads as come from the
+ * same dictionary, when it is shown: a key written once never needs
+ * rewriting for a better label. A row of a key also says what it was
+ * recognised by, from the share of its visits that carried tags. Pure; every
+ * key fits the column's 140 characters.
  */
 final class AnalyticsSource
 {
@@ -227,6 +229,87 @@ final class AnalyticsSource
         };
     }
 
+    /** The type of a known network a key names — search, social or email — or none for any other key. */
+    public static function networkType(string $key): ?string
+    {
+        if (self::paidSourceId($key) !== null || in_array($key, [self::SHARED, self::DIRECT, self::INTERNAL], true)) {
+            return null;
+        }
+
+        return self::NETWORKS[self::split($key)[0]]['type'] ?? null;
+    }
+
+    /**
+     * How a row of the key was recognised: a paid click by its rg_src link,
+     * the fixed keys by what defines them, a network by the share of its
+     * visits that carried tags — “Tagged”, “Referrer”, or both as
+     * “62% tagged · 38% referrer”. A visit is tagged when its session came
+     * with utm_source or utm_medium; otherwise its referrer named the network.
+     */
+    public static function basis(string $key, int $visits, int $tagged): string
+    {
+        if (self::paidSourceId($key) !== null) {
+            return 'rg_src link · click ID';
+        }
+
+        return match ($key) {
+            self::SHARED => 'Shared result link',
+            self::DIRECT => 'No tags or referrer',
+            self::INTERNAL => 'Another page of the site',
+            default => self::share($visits, $tagged),
+        };
+    }
+
+    /**
+     * What the row of every source past the top ones is called: other
+     * referrals, or other sources once a tagged visit is among them.
+     */
+    public static function otherLabel(int $tagged): string
+    {
+        return $tagged > 0 ? 'Other sources' : 'Other referrals';
+    }
+
+    /**
+     * The basis of a row by the share of its visits that carried tags.
+     */
+    public static function share(int $visits, int $tagged): string
+    {
+        $tagged = max(0, min($tagged, $visits));
+
+        if ($tagged === 0) {
+            return 'Referrer';
+        }
+
+        if ($tagged === $visits) {
+            return 'Tagged';
+        }
+
+        // Both kinds are there: neither share reads as 0 % or 100 %.
+        $percent = max(1, min(99, (int) round($tagged * 100 / $visits)));
+
+        return $percent.'% tagged · '.(100 - $percent).'% referrer';
+    }
+
+    /**
+     * A key as an address names it, when it is one a visit could carry: a
+     * paid source by its id, a fixed key, or a network with one of the four
+     * classes; null for anything else.
+     */
+    public static function read(mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '' || mb_strlen($value) > self::MAX_LENGTH || preg_match('/[\x00-\x1F\x7F]/u', $value) === 1) {
+            return null;
+        }
+
+        if (self::paidSourceId($value) !== null || in_array($value, [self::SHARED, self::DIRECT, self::INTERNAL], true)) {
+            return $value;
+        }
+
+        [$network, $class] = self::split($value);
+
+        return $network !== '' && in_array($class, [self::PAID, self::ORGANIC, self::EMAIL, self::REFERRAL], true) ? $value : null;
+    }
+
     /** The class of traffic utm_medium names; organic without one. */
     private static function classOf(?string $medium): string
     {
@@ -300,7 +383,8 @@ final class AnalyticsSource
         return $value === '' ? null : $value;
     }
 
-    private static function paidSourceId(string $key): ?int
+    /** The paid source a key names; null for any other key. */
+    public static function paidSourceId(string $key): ?int
     {
         return preg_match('/^paid:(\d+)$/', $key, $match) === 1 ? (int) $match[1] : null;
     }

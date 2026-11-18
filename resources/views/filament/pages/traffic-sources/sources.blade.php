@@ -109,10 +109,10 @@
     ]" :value="$settings['geo_edition']" wire:model="settings.geo_edition" />
     <p class="rg-admin-traffic__note">
         Serving: {{ $geo['serving']?->label() ?? 'none yet' }}{{ isset($geo['installed']['version']) ? ' · build '.$geo['installed']['version'] : '' }}{{ $geo['error'] !== null ? ' · last error: '.$geo['error'] : '' }}.
-        @if ($geo['serving'] === \App\Enums\GeoEdition::DbipCityLite)
-            <a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a>
+        @if ($geo['credit']['url'] !== null)
+            <a href="{{ $geo['credit']['url'] }}" target="_blank" rel="noopener">{{ $geo['credit']['text'] }}</a>
         @else
-            This product includes GeoLite Data created by MaxMind, available from https://www.maxmind.com.
+            {{ $geo['credit']['text'] }}
         @endif
     </p>
     <div class="rg-admin-traffic__row">

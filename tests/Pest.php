@@ -38,6 +38,7 @@ use App\Enums\StudioActionType;
 use App\Enums\StudioDiscussionGenerationMode;
 use App\Enums\StudioPlanPublicationMode;
 use App\Enums\StudioPostTextTone;
+use App\Enums\TrafficDevice;
 use App\Exceptions\Studio\CannotManageStudioPlanException;
 use App\Exceptions\Translations\CannotGenerateTranslationsException;
 use App\Jobs\Studio\AnalyzeStudioPlanImageJob;
@@ -84,6 +85,7 @@ use App\Models\TrafficPriceSet;
 use App\Models\TrafficSetting;
 use App\Models\TrafficSource;
 use App\Models\TrafficStepChance;
+use App\Models\TrafficVisit;
 use App\Models\TranslationAiProviderCall;
 use App\Models\User;
 use App\Services\Media\GeneratedMediaVariant;
@@ -91,6 +93,9 @@ use App\Services\Media\ImageVariantProcessor;
 use App\Services\Media\MediaReferenceChecker;
 use App\Services\Media\MediaVariantSpecification;
 use App\Services\Media\NormalizedImage;
+use App\Support\Analytics\AnalyticsFilter;
+use App\Support\Analytics\AnalyticsPeriod;
+use App\Support\Analytics\AnalyticsSource;
 use App\Support\Games\Flow\FlowStepDraft;
 use App\Support\Games\Flow\GameFlowValidator;
 use App\Support\Games\Results\ResultProfileCoverage;
@@ -14827,4 +14832,27 @@ function finishedChanceRun(array $slices, int $sliceAccounts = 40): TrafficChanc
     }
 
     return $run;
+}
+
+/** The visits of an Analytics preset, or of a range of days, narrowed as given, read for today. */
+function analyticsFilter(string $preset = '7d', ?TrafficDevice $device = null, ?string $source = null, ?string $campaign = null, ?string $from = null, ?string $to = null): AnalyticsFilter
+{
+    return new AnalyticsFilter(AnalyticsPeriod::read($preset, $from, $to, CarbonImmutable::now(), 400, 93), $device, $source, $campaign);
+}
+
+/** An unpaid visit by a browser (a name, hashed) whose page ran, on a network day of the last 7 — Direct unless the attributes say otherwise. */
+function analyticsVisit(string $browser, array $attributes = []): TrafficVisit
+{
+    $day = $attributes['network_day'] ?? '2026-11-15';
+    $at = $attributes['arrived_at'] ?? $day.' 10:00:00';
+
+    return TrafficVisit::factory()->unpaid()->create([
+        'visitor_hash' => hash('sha256', $browser),
+        'network_day' => $day,
+        'arrived_at' => $at,
+        'last_seen_at' => $at,
+        'opened_at' => $at,
+        'source_key' => AnalyticsSource::DIRECT,
+        ...$attributes,
+    ]);
 }

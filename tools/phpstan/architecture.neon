@@ -160,6 +160,13 @@ parameters:
                 behaviorTests: [tests/Feature/Traffic/TrafficWorthTest.php]
                 status: approved
             -
+                class: App\Queries\Analytics\AnalyticsVisitsQuery
+                methods: [selectRaw, orderByRaw]
+                reason: 'Growth → Analytics counts people, not visits: conditional COUNT(DISTINCT CASE WHEN … THEN visitor_hash END) and sums over a period''s visits — per source, campaign, creative, landing, device, country, city, game or version with the people past the top groups counted together, per day, per hour or per block of days between bound boundaries — ordered by the people of each group, and the result shares of the attempts played on them, without hydrating up to millions of visit rows; every value is bound and every grouping column comes from AnalyticsDimension.'
+                bindings: required
+                behaviorTests: [tests/Feature/Queries/AnalyticsVisitsQueryTest.php]
+                status: approved
+            -
                 class: App\Queries\Translations\TranslationAiUsageQuery
                 methods: [selectRaw]
                 reason: 'Translation AI usage needs conditional sums by status, a UTC hour or day bucket per engine, and per provider and model a call count conditional on a period beside MAX(completed_at), without hydrating call rows; every value is bound.'

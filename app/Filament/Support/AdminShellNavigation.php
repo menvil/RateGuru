@@ -4,6 +4,7 @@ namespace App\Filament\Support;
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
@@ -59,6 +60,7 @@ final class AdminShellNavigation
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
         ExperimentsPage::class => 'flask-conical',
+        GrowthAnalyticsPage::class => 'chart-no-axes-column',
         TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',

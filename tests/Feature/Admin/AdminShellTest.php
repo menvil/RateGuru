@@ -2,6 +2,7 @@
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
@@ -47,7 +48,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
     'Content Studio' => ['Publications & plans', 'Action queue', 'Personas'],
-    'Growth' => ['Games', 'Experiments', 'Traffic sources'],
+    'Growth' => ['Games', 'Experiments', 'Analytics', 'Traffic sources'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -162,6 +163,7 @@ it('marks the destination of the current page', function (string $path, string $
     'personas' => ['/admin/personas', 'Personas'],
     'publications and plans' => ['/admin/studio-plans', 'Publications & plans'],
     'action queue' => ['/admin/studio-actions', 'Action queue'],
+    'analytics' => ['/admin/analytics', 'Analytics'],
 ]);
 
 it('keeps a resource marked on its create and edit pages, with a breadcrumb back to its list', function (Closure $url, string $active) {
@@ -198,6 +200,18 @@ it('leads back to Experiments from a period’s results, which open at the page�
         ->not->toContain('rg-admin-breadcrumb__current');
 });
 
+it('carries Analytics’ period in the top bar, beside its breadcrumb', function () {
+    $this->travelTo(now()->setDate(2026, 11, 18));
+
+    $html = $this->actingAs(User::factory()->admin()->create())->get(GrowthAnalyticsPage::getUrl(['period' => '7d']))->assertOk()->getContent();
+    $topbar = substr($html, (int) strpos($html, 'class="rg-admin rg-admin-shell-topbar"'), 6000);
+
+    expect(adminShellCurrent($html))->toBe('Analytics')
+        ->and($topbar)->toContain('aria-current="page">Analytics')
+        ->and($topbar)->toContain('x-on:rg-admin-analytics-range.window')
+        ->and($topbar)->toContain('>12 Nov — 18 Nov 2026</span>');
+});
+
 it('names the section and page in the breadcrumb without loading any record', function () {
     $this->actingAs(User::factory()->admin()->create())
         ->get('/admin/posts')
@@ -224,6 +238,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Action queue' => StudioActionQueue::canAccess(),
         'Personas' => PersonaResource::canAccess(),
         'Experiments' => ExperimentsPage::canAccess(),
+        'Analytics' => GrowthAnalyticsPage::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
         'Media diagnostics' => MediaDiagnosticsPage::canAccess(),
@@ -244,6 +259,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
     $this->get(StudioPlanResource::getUrl('index'))->assertForbidden();
     $this->get(StudioActionQueue::getUrl())->assertForbidden();
     $this->get(ExperimentsPage::getUrl())->assertForbidden();
+    $this->get(GrowthAnalyticsPage::getUrl())->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -272,7 +288,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(19);
+    expect($keys)->toHaveCount(20);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -292,6 +308,7 @@ it('has an Admin v2 icon for every production destination', function () {
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
         ExperimentsPage::class => 'flask-conical',
+        GrowthAnalyticsPage::class => 'chart-no-axes-column',
         TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',

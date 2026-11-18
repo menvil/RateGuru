@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\ExperimentsPage;
+use App\Filament\Pages\GrowthAnalyticsPage;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
@@ -26,6 +27,11 @@ function administratorOnlyAbilities(): array
             return ExperimentsPage::canAccess();
         },
         'manage traffic sources' => fn (User $user): bool => Gate::forUser($user)->allows('manage-traffic-sources'),
+        'open Growth → Analytics' => function (User $user): bool {
+            auth()->setUser($user);
+
+            return GrowthAnalyticsPage::canAccess();
+        },
         'list rating groups' => fn (User $user): bool => $user->can('viewAny', RatingGroup::class),
         'view a rating group' => fn (User $user): bool => $user->can('view', RatingGroup::factory()->create()),
         'create a rating group' => fn (User $user): bool => $user->can('create', RatingGroup::class),

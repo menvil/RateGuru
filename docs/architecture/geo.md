@@ -22,7 +22,9 @@ files are deleted.
 Attribution, shown wherever the data is shown in the admin: “This product
 includes GeoLite Data created by MaxMind, available from
 https://www.maxmind.com.” for GeoLite2, and a link “IP Geolocation by DB-IP” to
-https://db-ip.com for DB-IP.
+https://db-ip.com for DB-IP. `App\Services\Geo\GeoAttribution` gives every
+screen the edition serving, its last update and the credit of that edition,
+so the wording has one home.
 
 ## Files
 
