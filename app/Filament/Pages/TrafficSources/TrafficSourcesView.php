@@ -1033,7 +1033,7 @@ final class TrafficSourcesView
 
         return [
             'methods' => [
-                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => 'RateGuru asks the network for its spend per campaign, site, zone and day, every few hours. Exactly what the network bills. Today is estimated until the next sync.', 'users' => $users([TrafficSpendMode::Api])],
+                ['icon' => 'refresh-cw', 'name' => 'Network API', 'text' => 'RateGuru asks the network for its spend per campaign, site, zone and day, every five minutes. Exactly what the network bills, as soon as the network has it.', 'users' => $users([TrafficSpendMode::Api])],
                 ['icon' => 'link', 'name' => 'Price in each click', 'text' => 'The network puts the price of every click into the link. Exact per click, available at once, no typing.', 'users' => $users([TrafficSpendMode::ClickCost])],
                 ['icon' => 'smartphone', 'name' => 'Rate you set', 'text' => 'You type the price you bid, per device. Clicks × rate. An estimate: good enough to compare zones, not to match the invoice.', 'users' => $users([TrafficSpendMode::Rate])],
                 ['icon' => 'calendar', 'name' => 'Fixed price', 'text' => 'A set amount for a day, a month or once, spread evenly over the days and split across visits.', 'users' => $users([TrafficSpendMode::Fixed])],

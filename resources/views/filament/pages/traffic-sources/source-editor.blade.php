@@ -121,7 +121,7 @@
         <div class="rg-admin-traffic__pane" x-show="pane === 'spend'" x-cloak>
             @php
                 $modes = $network
-                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', 'RateGuru asks the network for its spend every few hours; until then each click’s price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
+                    ? ['click_cost' => ['The price in each click', 'The network puts the price of every click into the link. Exact per click, at once.'], 'rate' => ['A rate you set', 'You type the price you bid, per device. Clicks × rate, an estimate.'], 'api' => ['The network’s API', 'RateGuru asks the network for its spend every five minutes; until the network has a click’s cost, the click’s own price stands in.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import the network’s CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']]
                     : ['fixed' => ['A fixed price', 'A set amount once, a day, a week or a month, spread over the days.'], 'manual' => ['Typed in or a file', 'Type a day’s spend, or import a CSV.'], 'none' => ['Not counted', 'Visits from this source cost nothing in reports.']];
             @endphp
             <fieldset class="rg-admin-field rg-admin-games__radio-rows">

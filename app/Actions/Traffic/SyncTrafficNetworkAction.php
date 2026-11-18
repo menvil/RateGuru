@@ -31,16 +31,16 @@ use Throwable;
  * "Sync"): spend for today and yesterday in the network's time zone, a day
  * closed once its figures and the two before came complete and six hours
  * have passed, then a few older days back to 30 before it was connected;
- * the campaigns' own details every six hours. Only campaigns RateGuru saw a
+ * the campaigns' own details each turn, so a campaign that has just had its
+ * first click is named within minutes. A turn comes every five minutes.
+ * Only campaigns RateGuru saw a
  * click of are read and kept: a network account can hold campaigns sent
  * elsewhere. A failure waits longer each time; a refused key, an account not
  * in dollars or five failures running need the administrator.
  */
 final class SyncTrafficNetworkAction
 {
-    private const int EVERY_HOURS = 3;
-
-    private const int CAMPAIGNS_EVERY_HOURS = 6;
+    private const int EVERY_MINUTES = 5;
 
     private const int CLOSE_AFTER_HOURS = 6;
 
@@ -78,7 +78,7 @@ final class SyncTrafficNetworkAction
                 $this->spend($connector, $session, $connection, $source, array_map('strval', array_keys($campaigns)), $campaigns, $now);
             }
 
-            if ($connector instanceof ReadsCampaigns && ($connection->campaigns_synced_at === null || $connection->campaigns_synced_at->addHours(self::CAMPAIGNS_EVERY_HOURS)->isPast())) {
+            if ($connector instanceof ReadsCampaigns) {
                 // Details only for the campaigns still running: an archived one has nothing to sync.
                 $running = TrafficCampaign::query()->where('source_id', $source->id)->where('status', '!=', TrafficCampaignStatus::Archived)->pluck('external_id')->map(fn ($id): string => (string) $id)->all();
                 $this->campaigns($connector->campaigns($session, $running), $source, $now);
@@ -89,7 +89,7 @@ final class SyncTrafficNetworkAction
                 'credentials' => $session->changed() ? $session->credentials() : $connection->credentials,
                 'status' => TrafficConnectionStatus::Connected,
                 'last_synced_at' => $now,
-                'next_sync_at' => $now->addHours(self::EVERY_HOURS),
+                'next_sync_at' => $now->addMinutes(self::EVERY_MINUTES),
                 'failures' => 0,
                 'last_error' => null,
             ])->save();

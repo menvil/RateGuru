@@ -99,8 +99,36 @@ it('reads a day of PopAds spend for the campaigns RateGuru saw, and the campaign
         ->and($campaign->fresh()->countries)->toBe(['US'])
         ->and($campaign->fresh()->bid_mobile)->toBe('0.000500')
         ->and(TrafficCampaignPrice::query()->where('campaign_id', $campaign->id)->count())->toBe(2)
-        ->and($connection->fresh()->next_sync_at->diffInHours(now(), true))->toEqualWithDelta(3, 0.01)
+        ->and($connection->fresh()->next_sync_at->diffInMinutes(now(), true))->toEqualWithDelta(5, 0.01)
         ->and($connection->fresh()->spend_closed_through)->toBe('2026-11-16');
+});
+
+it('reads the campaigns’ own details on every turn, five minutes apart, and the same spend again changes nothing', function () {
+    $connection = TrafficApiConnection::factory()->create(['source_id' => $this->popads->id, 'next_sync_at' => now(), 'backfill_cursor' => null]);
+    $campaign = TrafficCampaign::factory()->create(['source_id' => $this->popads->id, 'external_id' => '881204', 'name' => null]);
+    $name = 'US popunder';
+    Http::fake(function (Request $request) use (&$name) {
+        if (str_contains($request->url(), 'report_advertiser')) {
+            return Http::response(['rows' => [['campaign_id' => '881204', 'website_id' => '40123', 'cost' => '1.25', 'datetime' => '2026-11-16']]]);
+        }
+
+        return Http::response(['data' => ['general_information' => ['name' => $name], 'budget' => ['max_bid' => '0.0005', 'max_per_day' => '20'], 'countries' => ['codes' => ['us']]]]);
+    });
+
+    app(SyncTrafficNetworkAction::class)->handle($connection, CarbonImmutable::now());
+    $fact = TrafficSpendDay::query()->where('network_day', '2026-11-16')->sole();
+    TrafficSpendDay::query()->whereKey($fact->id)->update(['allocated_at' => now()]);
+
+    expect($campaign->fresh()->name)->toBe('US popunder');
+
+    // Renamed in the network a few minutes later: the next turn, five minutes on, reads it.
+    $name = 'US popunder · night';
+    $this->travel(5)->minutes();
+    app(SyncTrafficNetworkAction::class)->handle($connection->fresh(), CarbonImmutable::now());
+
+    expect($campaign->fresh()->name)->toBe('US popunder · night')
+        // The network's spend for the day came back the same: the day isn't shared out over its visits again.
+        ->and(TrafficSpendDay::query()->where('network_day', '2026-11-16')->sole())->id->toBe($fact->id)->allocated_at->not->toBeNull();
 });
 
 it('leaves out a campaign PopAds doesn’t know, and an archived one, without failing the sync', function () {

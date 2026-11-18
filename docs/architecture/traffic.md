@@ -272,10 +272,13 @@ both are unverified until checked on a real account
 ## Sync
 
 `traffic:sync-networks` is the one process that calls networks' APIs: waiting
-blocks first, then each connection due — today and yesterday's spend in the
-network's day, a day closed once its figures came whole, up to 30 days back
-after connecting, the campaigns' own details every six hours, only for
-campaigns RateGuru saw a click of. Failures wait longer each time; a refused
+blocks first, then each connection due — every five minutes — today and
+yesterday's spend in the network's day, a day closed once its figures came
+whole, up to 30 days back after connecting, and the campaigns' own details,
+only for campaigns RateGuru saw a click of, so a new campaign is named within
+minutes of its first click. The same figures again change nothing: a day is
+shared out over its visits again only when the network's figures for it
+changed. Failures wait longer each time; a refused
 key, an account not in dollars or five failures running need the administrator.
 
 ## Blocking
