@@ -1,0 +1,148 @@
+app/Filament/Pages/Analytics/AnalyticsView.php
+  s_4b9dc6ab6b25d3::t_08b68fc46f555c 33-37,72-77,118-121,124-127,129-135,138
+  s_4b9dc6ab6b25d3::t_84c3faabd45c8a 122-123,128,136-137,141-148,175-178,193
+  s_4b9dc6ab6b25d3::t_4394d1ddb0b8e8 149-153
+  s_4b9dc6ab6b25d3::t_20fea903eb7c25 1-32,38-71,78-117,139-140,154-174,179-192,194-218,221-226
+  s_4b9dc6ab6b25d3::t_bbb3bf8a87dd49 219-220
+tests/Feature/Analytics/GrowthAnalyticsPageTest.php
+  s_4b9dc6ab6b25d3::t_3c48fc52682293 4
+  s_4b9dc6ab6b25d3::t_45cf19d4c292dd 1-3,5-12,14-70,72-78,80-163,165-167,169-170,172-173,186-192,197-257,260-297,300-324,326-342,346-366,372-384,386-422,424,429-435,437-501,504-505,508
+  s_4b9dc6ab6b25d3::t_18f8cd0f59e4af 502-503,506-507
+  s_4b9dc6ab6b25d3::t_3e6886d86eafe9 13,171,174-185,193-196,258-259,298-299,325,343-345,427-428
+  s_4b9dc6ab6b25d3::t_74f95d1b80f437 71,79,164,168,385,423,425-426,436
+  s_4b9dc6ab6b25d3::t_aa219f73f49973 367-371
+app/Support/Analytics/FigureChange.php
+  s_4b9dc6ab6b25d3::t_845dc9f53b43d5 1-48
+database/migrations/2026_11_18_100700_add_traffic_visit_index_to_game_attempts_table.php
+  s_4b9dc6ab6b25d3::t_126d547fe5523b 1-32
+tests/Unit/Support/Analytics/AnalyticsFilterTest.php
+  s_4b9dc6ab6b25d3::t_2c2d2cda99adcd 1-63
+app/Services/Geo/GeoAttribution.php
+  s_4b9dc6ab6b25d3::t_2ea5f42e58ea0a 1-61
+tests/Browser/AdminAnalyticsBrowserTest.php
+  s_4b9dc6ab6b25d3::t_16b3eebc34fa46 23-25,28,81,86,92,97,103,107,111,116
+  s_4b9dc6ab6b25d3::t_36df0ab537a5fa 1-22,26-27,29-80,82-85,87-91,93-96,98-102,104-106,108-110,112-115,117-125
+resources/views/filament/pages/analytics.blade.php
+  s_4b9dc6ab6b25d3::t_bbb3bf8a87dd49 64,66
+  s_4b9dc6ab6b25d3::t_970623b554388b 1-63,65,67-79
+app/Queries/Analytics/AnalyticsMarkersQuery.php
+  s_4b9dc6ab6b25d3::t_dc713e866225d7 18-22
+  s_4b9dc6ab6b25d3::t_b3c629585b3b80 59
+  s_4b9dc6ab6b25d3::t_5ad302b4e27564 1-17,23-58,60-87
+resources/css/filament/admin/components.css
+  s_4b9dc6ab6b25d3::t_d35dfd151b9409 17371-17775,17777-17936,17952,17961-17969
+  s_4b9dc6ab6b25d3::t_5abb06beb35fa0 17937-17950,17953-17960
+  s_4b9dc6ab6b25d3::t_f09f024312df19 17951
+  s_4b9dc6ab6b25d3::t_90699a24d7620e 17776
+app/Enums/AnalyticsDimension.php
+  s_4b9dc6ab6b25d3::t_5b730d510c6899 1-66
+docs/architecture/geo.md
+  s_4b9dc6ab6b25d3::t_13b7dbdd55f59f 25-27
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_44117bcf11521e 41,88,96-98,14836-14857
+resources/views/filament/pages/analytics/topbar.blade.php
+  s_4b9dc6ab6b25d3::t_962782cff76ea5 1-8
+tests/Feature/Queries/AnalyticsMarkersQueryTest.php
+  s_4b9dc6ab6b25d3::t_51645e54c42b87 32
+  s_4b9dc6ab6b25d3::t_b3c629585b3b80 41,44
+  s_4b9dc6ab6b25d3::t_0cbb7f1de6ad17 1-31,33-40,42-43,45-57
+tests/Feature/Policies/SanctionedAdministratorPoliciesTest.php
+  s_4b9dc6ab6b25d3::t_9f5d68b617858c 4,30-34
+tests/Feature/ViewComponents/AdminUiComponentsTest.php
+  s_4b9dc6ab6b25d3::t_9f5d68b617858c 43-48
+app/Providers/Filament/AdminPanelProvider.php
+  s_4b9dc6ab6b25d3::t_1aee9f5a90e827 7,176-180
+app/Support/Analytics/AnalyticsSource.php
+  s_4b9dc6ab6b25d3::t_822df28a8f8505 22-26
+  s_4b9dc6ab6b25d3::t_d98217aa13c583 232-312
+  s_4b9dc6ab6b25d3::t_d6a6ac87bf7d4c 386-387
+tests/Feature/Queries/AnalyticsVisitsQueryTest.php
+  s_4b9dc6ab6b25d3::t_91fe84fecb7942 1-24,28-119,121-307,341
+  s_4b9dc6ab6b25d3::t_158eb9b80fa807 120
+  s_4b9dc6ab6b25d3::t_970c7cb0fcbdaf 25-27,308-310,312-316,319-324,326-340
+  s_4b9dc6ab6b25d3::t_83b7a55bc7d313 317-318,325
+  s_4b9dc6ab6b25d3::t_cca2be9b81079f 311
+tests/Unit/Support/Analytics/FigureChangeTest.php
+  s_4b9dc6ab6b25d3::t_1d70e8dec91c78 1-37
+tests/Unit/Support/Analytics/LandingRouteTest.php
+  s_4b9dc6ab6b25d3::t_f5c3fac8485784 55,57-61,63-74
+  s_4b9dc6ab6b25d3::t_36f133f03362d6 56,62
+app/Support/Analytics/AnalyticsFilter.php
+  s_4b9dc6ab6b25d3::t_4fc3bfa206601d 1-38,44-130
+  s_4b9dc6ab6b25d3::t_e4f6f930d1ba6d 39-43
+app/Queries/Analytics/AnalyticsVisitsQuery.php
+  s_4b9dc6ab6b25d3::t_4da24802f1b4c0 1-17,19-44,50-114,116-242,281-394
+  s_4b9dc6ab6b25d3::t_f10a3800f0e17c 243-280
+  s_4b9dc6ab6b25d3::t_4b57c97a4d5e58 18,115
+  s_4b9dc6ab6b25d3::t_2c2b725d71feaa 45-49
+app/Filament/Support/AdminShellNavigation.php
+  s_4b9dc6ab6b25d3::t_1aee9f5a90e827 7,63
+app/Filament/Pages/Analytics/AnalyticsTab.php
+  s_4b9dc6ab6b25d3::t_a3628440921214 1-17
+app/Filament/Pages/Analytics/OverviewTab.php
+  s_4b9dc6ab6b25d3::t_e65961e0ddd2cc 14,50,69-78,138,148-149
+  s_4b9dc6ab6b25d3::t_a3aa070808a9d6 262
+  s_4b9dc6ab6b25d3::t_a9fb42f08d2bb9 1-13,15-49,51-68,79,81-137,139-147,150-261,263-347,349-387,390,392-399,401-421
+  s_4b9dc6ab6b25d3::t_84c3faabd45c8a 80
+  s_4b9dc6ab6b25d3::t_08b68fc46f555c 348,388-389,391,400
+docs/architecture/http-and-database-boundaries.md
+  s_4b9dc6ab6b25d3::t_c96d329d055610 71-72
+  s_4b9dc6ab6b25d3::t_2f3263f70db9f5 66-70,73
+tools/phpstan/architecture.neon
+  s_4b9dc6ab6b25d3::t_ad890d6ef2ad8d 163-168
+composer.json
+  s_4b9dc6ab6b25d3::t_dfd56311ba2458 84
+tests/Feature/Database/GameAttemptTrafficVisitIndexTest.php
+  s_4b9dc6ab6b25d3::t_94443760a2d9ee 1-34
+resources/views/filament/pages/traffic-sources/sources.blade.php
+  s_4b9dc6ab6b25d3::t_0431d3f59a38fa 112-113,115
+app/Support/Analytics/CampaignKey.php
+  s_4b9dc6ab6b25d3::t_b3fabe12d14e61 8-11,17-18
+  s_4b9dc6ab6b25d3::t_ec2ca0222afd8f 31-69
+tests/Feature/Admin/AdminShellTest.php
+  s_4b9dc6ab6b25d3::t_eb828185272238 5,51,166,203-214,241,262,291,311
+app/Filament/Pages/TrafficSources/TrafficSourcesView.php
+  s_4b9dc6ab6b25d3::t_620a6d86580d73 43,1325,1328
+tests/Unit/Support/Analytics/AnalyticsPeriodTest.php
+  s_4b9dc6ab6b25d3::t_1797fa3d1d8058 125-126,128-135
+  s_4b9dc6ab6b25d3::t_12c4232a9c15ed 1-124,127
+app/Support/Analytics/AnalyticsPeriod.php
+  s_4b9dc6ab6b25d3::t_4c5dfc687a8a64 175-179
+  s_4b9dc6ab6b25d3::t_82e5219c64982a 1-174,180-229
+tests/Feature/Analytics/GeoAttributionTest.php
+  s_4b9dc6ab6b25d3::t_1ccfe77afaa765 1-85
+app/Support/Analytics/VisitorFigures.php
+  s_4b9dc6ab6b25d3::t_ba654b872b0fdd 1-124
+app/Filament/Pages/GrowthAnalyticsPage.php
+  s_4b9dc6ab6b25d3::t_793657176a2341 1-287
+resources/views/components/admin/ui/icon.blade.php
+  s_4b9dc6ab6b25d3::t_1d9b84870417d8 121
+tests/Unit/Support/Analytics/AnalyticsSourceTest.php
+  s_4b9dc6ab6b25d3::t_f5c3fac8485784 149-209
+tests/Unit/Support/Analytics/VisitorFiguresTest.php
+  s_4b9dc6ab6b25d3::t_d1b7ad29628ea1 1-64
+resources/views/filament/pages/elements/period-picker.blade.php
+  s_4b9dc6ab6b25d3::t_7c9c754751b50d 10-14,28,39,60-61
+resources/views/filament/pages/analytics/overview.blade.php
+  s_4b9dc6ab6b25d3::t_5abb06beb35fa0 93
+  s_4b9dc6ab6b25d3::t_e2af8b3ef6469f 1-30,32-92,94-123,125-135,137-143,145-191
+  s_4b9dc6ab6b25d3::t_f9d68531c726ca 144
+  s_4b9dc6ab6b25d3::t_90699a24d7620e 124,136
+  s_4b9dc6ab6b25d3::t_a3aa070808a9d6 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7e0a66e1dc180f2928246eea50c06ab1117e71b9",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
