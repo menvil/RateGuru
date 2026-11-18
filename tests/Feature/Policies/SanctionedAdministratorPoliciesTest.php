@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Pages\ExperimentsPage;
 use App\Models\RatingGroup;
 use App\Models\RatingOption;
 use App\Models\Tag;
@@ -19,6 +20,11 @@ function administratorOnlyAbilities(): array
         'manage project settings' => fn (User $user): bool => Gate::forUser($user)->allows('manage-project-settings'),
         'view media diagnostics' => fn (User $user): bool => Gate::forUser($user)->allows('view-media-diagnostics'),
         'manage games' => fn (User $user): bool => Gate::forUser($user)->allows('manage-games'),
+        'open Growth → Experiments' => function (User $user): bool {
+            auth()->setUser($user);
+
+            return ExperimentsPage::canAccess();
+        },
         'manage traffic sources' => fn (User $user): bool => Gate::forUser($user)->allows('manage-traffic-sources'),
         'list rating groups' => fn (User $user): bool => $user->can('viewAny', RatingGroup::class),
         'view a rating group' => fn (User $user): bool => $user->can('view', RatingGroup::factory()->create()),

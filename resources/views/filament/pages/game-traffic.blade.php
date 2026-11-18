@@ -2,7 +2,8 @@
     /*
      * A game's Traffic tab (GameTraffic): each audience's shares between the
      * active versions, applied on its own, and the periods allocations were
-     * in effect, newest first, each with the visitors it assigned.
+     * in effect, newest first, each with the visitors it assigned and the way
+     * to its results in Growth → Experiments.
      */
 @endphp
 
@@ -77,6 +78,9 @@
                                 <span class="rg-admin-games__note">{{ $period['from'] }} — {{ $period['to'] ?? 'now' }} · {{ number_format($period['visitors']) }} {{ \Illuminate\Support\Str::plural('visitor', $period['visitors']) }} assigned · {{ number_format($period['started']) }} started · {{ number_format($period['completed']) }} completed</span>
                             </span>
                             <x-admin.ui.badge :tone="$period['to'] === null ? 'success' : 'neutral'">{{ $period['to'] === null ? 'Current' : 'Ended' }}</x-admin.ui.badge>
+                            @if ($period['resultsUrl'] !== null)
+                                <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$period['resultsUrl']">Results</x-admin.ui.button>
+                            @endif
                         </li>
                     @endforeach
                 </ul>

@@ -3,10 +3,10 @@
 namespace App\Filament\Resources\Games\Pages;
 
 use App\Enums\GameAudience;
-use App\Enums\GameFlowStepType;
-use App\Enums\GameStepAudience;
 use App\Enums\TrafficDevice;
 use App\Filament\Concerns\ChoosesReportPeriod;
+use App\Filament\Pages\Experiments\ExperimentsView;
+use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Pages\TrafficSourcesPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
@@ -136,6 +136,12 @@ final class GameAnalytics extends Page
     /** The figures go back as far as both the game's events and the recorded visits are kept. */
     protected function keptDays(): int
     {
+        return self::retentionDays();
+    }
+
+    /** How many days back, today included, a game's figures can be read: what a range may start from. */
+    public static function retentionDays(): int
+    {
         return min((int) config('games.retention_days.events'), (int) config('traffic.retention_days.visits'));
     }
 
@@ -177,7 +183,7 @@ final class GameAnalytics extends Page
         $goals = ($versionId !== null ? $versions->only([$versionId]) : $versions)->map(fn (GameVersion $version): string => $version->flowGoal()->label())->unique()->values();
         $window = $period->isCustom() ? self::dates($from, $until) : strtolower(self::PERIODS[$period->preset]);
         // Of the versions the figures are of: the one chosen, or every one.
-        $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => self::asksForEmail($version))->keys()->all();
+        $emailVersions = ($versionId !== null ? $versions->only([$versionId]) : $versions)->filter(fn (GameVersion $version): bool => $version->asksAnonymousForEmail())->keys()->all();
         $finishedWithEmail = array_sum(array_map(fn (GameFunnel $funnel): int => $funnel->finishers, array_intersect_key($byVersion, array_flip($emailVersions))));
         $focus = $versionId !== null ? $versions->get($versionId) : self::busiest($versions, $byVersion);
         $other = $audience === GameAudience::Anonymous ? GameAudience::Authenticated : GameAudience::Anonymous;
@@ -238,7 +244,7 @@ final class GameAnalytics extends Page
             'signups' => $audience === GameAudience::Anonymous
                 ? self::signups($reports->gameSignups((int) $game->id, $from, $until, $versionId, UnconfirmedAccountsQuery::cutoff(), $visits), (bool) TrafficSetting::current()->capture_enabled, $versionId !== null)
                 : null,
-            'periodRows' => self::periodRows($game, $audience, $metrics->periods((int) $game->id, $versionId), $metrics->periodVersions((int) $game->id, $audience), $versionId !== null ? $versions->get($versionId) : null),
+            'periodRows' => self::periodRows($game, $audience, $metrics, $versionId !== null ? $versions->get($versionId) : null),
             'periodVersion' => $versionId !== null ? $versions->get($versionId)?->label() : null,
             'periodsNote' => self::periodsNote($audience, $versionId !== null ? $versions->get($versionId)?->label() : null),
             'trafficUrl' => GameResource::getUrl('traffic', ['record' => $game]),
@@ -584,18 +590,6 @@ final class GameAnalytics extends Page
         return $period === 'all' ? CarbonImmutable::createFromTimestampUTC(0) : $now->subSecond()->startOfDay()->subDays((self::PERIOD_DAYS[$period] ?? 30) - 1);
     }
 
-    /** Whether an anonymous visitor of the version can meet an Email capture step. */
-    private static function asksForEmail(GameVersion $version): bool
-    {
-        foreach ($version->read()->steps as $step) {
-            if ($step->type === GameFlowStepType::EmailCapture && $step->audience !== GameStepAudience::Authenticated) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * The version with the most attempts started in the window, the newest
      * first among equals; the newest version when nobody started any.
@@ -923,23 +917,21 @@ final class GameAnalytics extends Page
     /**
      * The audience's traffic periods, newest first, with their shares, the
      * visitors sent to a version in each and what they started and
-     * completed, and whether its versions can be compared yet: one version
-     * has nothing to be compared with; with more, enough data once each has
-     * the accounts the versions comparison asks for (TwoProportionTest) —
-     * logged-in players make no accounts, so their goals are counted
-     * instead. Of one version: only the periods it had a share in, each
-     * still with every version's share, but with that version's visitors
-     * and attempts alone.
+     * completed, and whether its versions can be compared yet — the badge
+     * Growth → Experiments gives the period, from the same rule
+     * (PeriodComparison::state()): one version has nothing to be compared
+     * with; with more, enough data once each has the accounts the versions
+     * comparison asks for (TwoProportionTest) — logged-in players make no
+     * accounts, so their goals are counted instead. A period with shares
+     * links to its results there. Of one version: only the periods it had a
+     * share in, each still with every version's share, but with that
+     * version's visitors and attempts alone.
      *
-     * @param  array<int, array{started: int, completed: int}>  $attempts  by period, of the version when there is one
-     * @param  array<int, array<int, array{accounts: int, goal_people: int}>>  $conversions  by period and version
      * @return list<array<string, mixed>>
      */
-    private static function periodRows(Game $game, GameAudience $audience, array $attempts, array $conversions, ?GameVersion $version): array
+    private static function periodRows(Game $game, GameAudience $audience, GameMetricsQuery $metrics, ?GameVersion $version): array
     {
-        $measure = $audience === GameAudience::Anonymous ? 'accounts' : 'goal_people';
-
-        return GameTrafficPeriod::query()
+        $periods = GameTrafficPeriod::query()
             ->where('game_id', $game->id)
             ->where('audience', $audience->value)
             ->when($version !== null, fn (Builder $query) => $query->whereHas('versions', fn (Builder $shared) => $shared->whereKey($version->id)))
@@ -948,10 +940,16 @@ final class GameAnalytics extends Page
             ->orderByDesc('started_at')
             ->orderByDesc('id')
             ->limit(20)
-            ->get()
-            ->map(function (GameTrafficPeriod $period) use ($attempts, $conversions, $measure, $version): array {
-                $shared = $period->versions->filter(fn (GameVersion $each): bool => (int) $each->getRelation('pivot')->getAttribute('share_percent') > 0);
+            ->get();
+        $attempts = $metrics->periods((int) $game->id, $version?->id);
+        $funnels = $metrics->periodFunnel($periods->map(fn (GameTrafficPeriod $period): int => (int) $period->id)->all(), ExperimentsView::maturedBefore());
+        $results = ExperimentsPage::canAccess();
+
+        return $periods
+            ->map(function (GameTrafficPeriod $period) use ($attempts, $funnels, $audience, $version, $results): array {
                 $visitors = (int) $period->assignments_count;
+                $comparison = ExperimentsView::comparison($period, $audience, $funnels[(int) $period->id] ?? []);
+                $state = $comparison->versions === [] ? null : $comparison->state();
 
                 return [
                     'dates' => $period->started_at->format('d M Y').' — '.($period->ended_at?->format('d M Y') ?? 'now'),
@@ -960,13 +958,9 @@ final class GameAnalytics extends Page
                         .number_format($attempts[(int) $period->id]['started'] ?? 0).' started · '
                         .number_format($attempts[(int) $period->id]['completed'] ?? 0).' completed',
                     'visitors' => number_format($visitors).' '.str('visitor')->plural($visitors),
-                    'badge' => match (true) {
-                        $shared->isEmpty() => null,
-                        $shared->count() === 1 => ['label' => 'One version', 'tone' => 'outline'],
-                        TwoProportionTest::enoughToCompare(...$shared->map(fn (GameVersion $each): int => $conversions[(int) $period->id][(int) $each->id][$measure] ?? 0)->values()->all()) => ['label' => 'Enough data', 'tone' => 'success'],
-                        default => ['label' => 'Too early', 'tone' => 'warning'],
-                    },
+                    'badge' => $state === null ? null : ['label' => $state->label(), 'tone' => $state->tone()],
                     'current' => $period->ended_at === null,
+                    'resultsUrl' => $state !== null && $results ? ExperimentsPage::getUrl(['period' => $period->id]) : null,
                 ];
             })
             ->all();

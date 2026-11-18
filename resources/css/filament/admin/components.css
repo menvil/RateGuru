@@ -17131,4 +17131,241 @@
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
+
+    /*
+     * Growth → Experiments: the list of traffic periods and a period's
+     * results. Kit components carry the controls, the badges, the notices and
+     * the table; these are the screen's own elements.
+     */
+    .rg-admin-experiments .rg-admin-page-header__text,
+    .rg-admin-experiments .rg-admin-page-header__description {
+        max-width: none;
+    }
+
+    .rg-admin-experiments__search {
+        flex: 0 1 280px;
+        min-width: 200px;
+        width: auto;
+    }
+
+    .rg-admin-experiments__row {
+        min-height: 60px;
+        cursor: pointer;
+    }
+
+    .rg-admin-experiments__game {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .rg-admin-experiments__glyph {
+        display: grid;
+        flex-shrink: 0;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-item);
+        background: var(--rg-admin-surface-pill);
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-experiments__game-title {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__group {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+        font-size: var(--rg-admin-text-caption);
+        line-height: 18px;
+        color: var(--rg-admin-text-secondary);
+    }
+
+    .rg-admin-experiments__dates {
+        font-size: var(--rg-admin-text-caption);
+        line-height: 18px;
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__mix {
+        font-size: var(--rg-admin-text-caption);
+        line-height: 18px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-experiments__visitors,
+    .rg-admin-experiments__figure {
+        font-size: var(--rg-admin-text-body);
+    }
+
+    .rg-admin-experiments__empty {
+        margin: 0;
+        padding: 48px var(--rg-admin-space-6);
+        border-bottom: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-caption);
+        line-height: 18px;
+        text-align: center;
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__foot {
+        margin: 0;
+        padding: var(--rg-admin-space-3) var(--rg-admin-space-4);
+        border-top: 1px solid var(--rg-admin-border-default);
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        text-wrap: pretty;
+    }
+
+    .rg-admin-experiments__empty + .rg-admin-experiments__foot,
+    .rg-admin-pagination + .rg-admin-experiments__foot {
+        border-top: 0;
+    }
+
+    .rg-admin-experiments__title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2) 10px;
+    }
+
+    .rg-admin-experiments__loading {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .rg-admin-experiments__switcher {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-experiments__switcher-label {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__period {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1px;
+        padding: 6px 10px;
+        border: 1px solid var(--rg-admin-border-default);
+        border-radius: var(--rg-admin-radius-md);
+        background: var(--rg-admin-surface-card);
+        color: var(--rg-admin-text-strong);
+        text-decoration: none;
+    }
+
+    .rg-admin-experiments__period:hover {
+        border-color: var(--rg-admin-border-strong);
+    }
+
+    .rg-admin-experiments__period:focus-visible {
+        outline: 2px solid var(--rg-admin-focus-ring);
+        outline-offset: 2px;
+    }
+
+    .rg-admin-experiments__period[aria-current="page"] {
+        border-color: var(--rg-admin-surface-inverse);
+        background: var(--rg-admin-surface-sunken);
+    }
+
+    .rg-admin-experiments__period-dates {
+        font-size: var(--rg-admin-text-caption);
+        line-height: 18px;
+        font-weight: var(--rg-admin-weight-medium);
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__period[aria-current="page"] .rg-admin-experiments__period-dates {
+        font-weight: var(--rg-admin-weight-semibold);
+    }
+
+    .rg-admin-experiments__period-mix {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__version-row {
+        min-height: 64px;
+    }
+
+    .rg-admin-experiments__version-row:not(.rg-admin-table__row--head):hover {
+        background: transparent;
+    }
+
+    .rg-admin-experiments__version-row .rg-admin-table__cell:first-child,
+    .rg-admin-experiments__versions-head .rg-admin-table__cell:first-child {
+        padding-left: 20px;
+    }
+
+    .rg-admin-experiments__version {
+        display: flex;
+        align-items: center;
+        gap: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-experiments__version-label {
+        font-size: 15px;
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-semibold);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rg-admin-experiments__metric {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        padding-block: var(--rg-admin-space-2);
+    }
+
+    .rg-admin-experiments__rate {
+        font-size: var(--rg-admin-text-body);
+        line-height: 20px;
+        font-weight: var(--rg-admin-weight-medium);
+        color: var(--rg-admin-text-strong);
+    }
+
+    .rg-admin-experiments__rate--none {
+        color: var(--rg-admin-text-tertiary);
+    }
+
+    .rg-admin-experiments__sub {
+        font-size: var(--rg-admin-text-micro);
+        line-height: var(--rg-admin-leading-micro);
+        color: var(--rg-admin-text-tertiary);
+        white-space: nowrap;
+    }
+
+    .rg-admin-experiments__sub--good {
+        color: var(--rg-admin-status-success-fg);
+    }
+
+    .rg-admin-experiments__sub--bad {
+        color: var(--rg-admin-status-danger-fg);
+    }
+
+    .rg-admin-experiments__versions .rg-admin-experiments__foot {
+        padding-inline: 20px;
+    }
+
+    .rg-admin-experiments__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--rg-admin-space-2);
+    }
 }

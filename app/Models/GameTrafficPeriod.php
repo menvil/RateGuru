@@ -14,13 +14,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A stretch of time one allocation of an audience's visitors was in effect,
  * open until the next allocation is applied. Its versions carry their share
- * on the pivot; a period without any is an explicit "no traffic".
+ * on the pivot; a period without any is an explicit "no traffic". An ended
+ * period can be hidden from Growth → Experiments, its numbers kept.
  *
  * @property int $id
  * @property int $game_id
  * @property GameAudience $audience
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $ended_at
+ * @property CarbonImmutable|null $hidden_at
  * @property int $started_by_user_id
  */
 class GameTrafficPeriod extends Model
@@ -39,6 +41,7 @@ class GameTrafficPeriod extends Model
             'audience' => GameAudience::class,
             'started_at' => 'immutable_datetime',
             'ended_at' => 'immutable_datetime',
+            'hidden_at' => 'immutable_datetime',
             'started_by_user_id' => 'integer',
         ];
     }

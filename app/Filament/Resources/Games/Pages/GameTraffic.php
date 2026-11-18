@@ -7,6 +7,7 @@ use App\Enums\GameAudience;
 use App\Enums\GameStatus;
 use App\Enums\GameVersionStatus;
 use App\Exceptions\Games\CannotManageGameException;
+use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Resources\Games\Concerns\InteractsWithGameEditor;
 use App\Filament\Resources\Games\GameResource;
 use App\Models\GameTrafficPeriod;
@@ -23,7 +24,8 @@ use Livewire\Attributes\Locked;
  * its active versions — anonymous visitors and logged-in players apart — each
  * applied on its own (ApplyGameTrafficAction), and every period an allocation
  * was in effect, with how many visitors it assigned and how many attempts
- * they started and completed.
+ * they started and completed, and the way to its results in Growth →
+ * Experiments.
  *
  * Apply names the shares the audience was drawn with, so shares changed
  * since — by another administrator, or by a version published taking over
@@ -202,6 +204,7 @@ final class GameTraffic extends Page
 
         $periods = GameTrafficPeriod::query()->where('game_id', $game->id)->with('versions')->withCount('assignments')->orderByDesc('started_at')->orderByDesc('id')->limit(50)->get();
         $attempts = app(GameMetricsQuery::class)->periods((int) $game->id);
+        $results = ExperimentsPage::canAccess();
 
         return [
             'header' => $this->editorHeader($game, 'traffic'),
@@ -217,6 +220,8 @@ final class GameTraffic extends Page
                 'visitors' => (int) $period->assignments_count,
                 'started' => $attempts[(int) $period->id]['started'] ?? 0,
                 'completed' => $attempts[(int) $period->id]['completed'] ?? 0,
+                // A period with shares has results in Growth → Experiments.
+                'resultsUrl' => $results && $period->versions->isNotEmpty() ? ExperimentsPage::getUrl(['period' => $period->id]) : null,
             ])->all(),
             'versionsUrl' => GameResource::getUrl('versions', ['record' => $game]),
         ];

@@ -20,6 +20,8 @@ use App\Models\GameVersion;
 use App\Models\TrafficVisit;
 use App\Models\User;
 use App\Queries\Games\GameMetricsQuery;
+use App\Support\Analytics\ActivityDay;
+use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
 use App\Support\Traffic\Reports\VisitFilter;
@@ -454,26 +456,71 @@ it('splits the figures by the device, country and country group of the visits be
         ->and(array_keys(metricsQuery()->funnels(metricsScope($version, visits: new VisitFilter(TrafficDevice::Mobile)), 'country')))->toBe(['DE', 'US']);
 });
 
-it('counts, per traffic period and version, the confirmed accounts and the people who reached the goal', function () {
+it('counts, per traffic period and version, how far the visitors it assigned got', function () {
+    $this->travelTo('2026-11-18 12:00:00');
     $draft = publishableGameDraft(rounds: 1);
     $first = liveGame($draft);
     $second = metricsSecondVersion($draft);
     $period = GameTrafficPeriod::query()->where('game_id', $first->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
-    $assign = fn (string $guest, GameVersion $to): GameAssignment => GameAssignment::query()->forceCreate([
-        'game_id' => $first->game_id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => hash('sha256', $guest),
-        'version_id' => $to->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    $maturedBefore = CarbonImmutable::parse('2026-11-11 00:00:00');
+
+    // V1: one visitor who never started, one who started, one who saw the result and left an email,
+    // one who reached the goal with a matured, activated account, and one whose account isn't confirmed.
+    periodVisitor($period, $first);
+    periodVisitor($period, $first, ['started' => true]);
+    periodVisitor($period, $first, ['result' => true, 'email' => true]);
+    periodVisitor($period, $first, ['goal' => true, 'account' => '2026-11-02 10:00:00', 'activated' => true]);
+    periodVisitor($period, $first, ['account' => '2026-11-03 10:00:00', 'confirmed' => false]);
+    // V2: a visitor whose account signed up too recently to have matured, though active already.
+    $late = periodVisitor($period, $second, ['completed' => true, 'account' => '2026-11-15 10:00:00', 'activated' => true]);
+    // A second attempt from the same assignment counts the visitor once.
+    GameAttempt::factory()->create(['version_id' => $second->id, 'assignment_id' => $late->id, 'visitor_hash' => $late->visitor_hash, ...metricsCompleted()]);
+
+    $funnels = metricsQuery()->periodFunnel([(int) $period->id], $maturedBefore);
+    $figures = fn (PeriodVersionFunnel $f): array => [$f->assigned, $f->started, $f->completed, $f->resultViewed, $f->emailed, $f->goal, $f->accounts, $f->matured, $f->activated];
+
+    expect(array_keys($funnels))->toBe([(int) $period->id])
+        ->and($figures($funnels[$period->id][$first->id]))->toBe([5, 4, 1, 1, 1, 1, 1, 1, 1])
+        ->and($figures($funnels[$period->id][$second->id]))->toBe([1, 1, 1, 0, 0, 0, 1, 0, 0])
+        ->and(metricsQuery()->periodFunnel([], $maturedBefore))->toBe([]);
+});
+
+it('keeps a visitor assigned again in a later period in each period’s own figures, and an account in the period of the attempt it is credited to', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    $draft = publishableGameDraft(rounds: 1);
+    $first = liveGame($draft);
+    $second = metricsSecondVersion($draft);
+    $earlier = GameTrafficPeriod::query()->where('game_id', $first->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
+    $earlier->forceFill(['ended_at' => now()])->save();
+    $later = GameTrafficPeriod::factory()->create(['game_id' => $first->game_id, 'started_at' => now()]);
+    $later->versions()->attach($second->id, ['share_percent' => 100]);
+
+    // The same browser: played V1 in the first period, then given V2 in the next and signed up from that play.
+    $before = periodVisitor($earlier, $first, ['completed' => true]);
+    $after = GameAssignment::query()->forceCreate([
+        'game_id' => $first->game_id, 'audience' => GameAudience::Anonymous, 'visitor_hash' => $before->visitor_hash,
+        'version_id' => $second->id, 'period_id' => $later->id, 'assigned_at' => now(), 'last_seen_at' => now(),
     ]);
-    $newcomer = User::factory()->create();
-    $a = $assign('guest-a', $first);
-    $b = $assign('guest-b', $second);
+    $credited = GameAttempt::factory()->create(['version_id' => $second->id, 'assignment_id' => $after->id, 'visitor_hash' => $before->visitor_hash]);
+    AccountAttribution::factory()->confirmed()->create(['credited_attempt_id' => $credited->id, 'signed_up_at' => '2026-11-01 10:00:00']);
 
-    $credited = metricsAttempt($first, 'guest-a', attributes: ['assignment_id' => $a->id, 'goal_reached_at' => '2026-11-05 12:10:00']);
-    metricsAttempt($first, 'guest-a', attributes: ['assignment_id' => $a->id, 'goal_reached_at' => '2026-11-05 12:20:00']);
-    AccountAttribution::factory()->confirmed()->create(['user_id' => $newcomer->id, 'credited_attempt_id' => $credited->id]);
-    $unconfirmed = metricsAttempt($second, 'guest-b', attributes: ['assignment_id' => $b->id]);
-    AccountAttribution::factory()->create(['credited_attempt_id' => $unconfirmed->id]);
+    $funnels = metricsQuery()->periodFunnel([(int) $earlier->id, (int) $later->id], CarbonImmutable::parse('2026-11-11 00:00:00'));
 
-    expect(metricsQuery()->periodVersions((int) $first->game_id, GameAudience::Anonymous))->toBe([
-        $period->id => [$first->id => ['accounts' => 1, 'goal_people' => 1], $second->id => ['accounts' => 0, 'goal_people' => 0]],
-    ])->and(metricsQuery()->periodVersions((int) $first->game_id, GameAudience::Authenticated))->toBe([]);
+    expect([$funnels[$earlier->id][$first->id]->assigned, $funnels[$earlier->id][$first->id]->completed, $funnels[$earlier->id][$first->id]->accounts])->toBe([1, 1, 0])
+        ->and(array_keys($funnels[$earlier->id]))->toBe([$first->id])
+        ->and([$funnels[$later->id][$second->id]->assigned, $funnels[$later->id][$second->id]->started, $funnels[$later->id][$second->id]->completed, $funnels[$later->id][$second->id]->accounts, $funnels[$later->id][$second->id]->matured])->toBe([1, 1, 0, 1, 1]);
+});
+
+it('counts an account as matured once its seven days after the day it signed up are over', function () {
+    $this->travelTo('2026-11-18 12:00:00');
+    $version = liveGame(publishableGameDraft(rounds: 1));
+    $period = GameTrafficPeriod::query()->where('game_id', $version->game_id)->where('audience', GameAudience::Anonymous->value)->firstOrFail();
+
+    // Signed up on 10 Nov: days 1 to 7 ran to the end of 17 Nov. On 11 Nov: day 7 is today.
+    periodVisitor($period, $version, ['account' => '2026-11-10 23:59:59', 'activated' => true]);
+    periodVisitor($period, $version, ['account' => '2026-11-11 00:00:00', 'activated' => true]);
+
+    $funnel = metricsQuery()->periodFunnel([(int) $period->id], ActivityDay::maturedBefore(CarbonImmutable::now(), 7))[$period->id][$version->id];
+
+    expect([$funnel->accounts, $funnel->matured, $funnel->activated])->toBe([2, 1, 1]);
 });

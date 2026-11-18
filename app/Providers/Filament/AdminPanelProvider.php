@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
 use App\Filament\Pages\TrafficSourcesPage;
@@ -164,6 +165,12 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_END,
                 fn (): string => self::createAction(Gate::allows('manage-traffic-sources'), 'Add source', 'add-traffic-source'),
                 scopes: TrafficSourcesPage::class,
+            )
+            // A period's results: Delete period while it can be, and the way to the game's Traffic.
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn (): string => ExperimentsPage::topbar(request()),
+                scopes: ExperimentsPage::class,
             )
             ->navigationGroups(AdminNavigationGroup::all())
             // Admin v2 is light only; a dark page inside a light shell, with

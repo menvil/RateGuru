@@ -78,7 +78,8 @@ final class TrafficSourcesPage extends Page
 
     protected static ?string $slug = 'traffic-sources';
 
-    protected static ?int $navigationSort = 2;
+    // Last in Growth, after Games (1) and Experiments (2).
+    protected static ?int $navigationSort = 4;
 
     #[Url(except: 'report')]
     public mixed $tab = 'report';

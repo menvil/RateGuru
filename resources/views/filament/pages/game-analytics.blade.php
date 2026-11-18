@@ -13,7 +13,8 @@
      * results earned in one version, the figures broken down by version,
      * flow, content set, device, country or group, and the traffic periods —
      * of one version, those it had a share in, with its own figures — each
-     * with whether its versions can be compared yet.
+     * with whether its versions can be compared yet and the way to its
+     * results in Growth → Experiments.
      */
 @endphp
 
@@ -353,6 +354,9 @@
                                 <span class="rg-admin-games__period-visitors">{{ $row['visitors'] }}</span>
                                 @if ($row['badge'] !== null)
                                     <x-admin.ui.badge :tone="$row['badge']['tone']">{{ $row['badge']['label'] }}</x-admin.ui.badge>
+                                @endif
+                                @if ($row['resultsUrl'] !== null)
+                                    <x-admin.ui.button size="sm" trailing-icon="arrow-right" :href="$row['resultsUrl']">Results</x-admin.ui.button>
                                 @endif
                             </li>
                         @endforeach

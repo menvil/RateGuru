@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\GameAudience;
 use App\Enums\GameFlowGoal;
+use App\Enums\GameFlowStepType;
 use App\Enums\GameVersionStatus;
 use App\Support\Games\Flow\FlowGoalRules;
 use App\Support\Games\Snapshot\GameVersionSnapshot;
@@ -97,6 +99,18 @@ class GameVersion extends Model
     public function label(): string
     {
         return 'V'.$this->number;
+    }
+
+    /** Whether an anonymous visitor of the version can meet an Email capture step. */
+    public function asksAnonymousForEmail(): bool
+    {
+        foreach ($this->read()->steps as $step) {
+            if ($step->type === GameFlowStepType::EmailCapture && $step->audience->includes(GameAudience::Anonymous)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isActive(): bool

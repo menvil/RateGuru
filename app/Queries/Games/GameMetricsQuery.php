@@ -10,10 +10,12 @@ use App\Enums\GameEventType;
 use App\Enums\TrafficDimension;
 use App\Models\AccountAttribution;
 use App\Models\GameAnswer;
+use App\Models\GameAssignment;
 use App\Models\GameAttempt;
 use App\Models\GameEmailCapture;
 use App\Models\GameEvent;
 use App\Models\TrafficVisit;
+use App\Support\Analytics\PeriodVersionFunnel;
 use App\Support\Games\Analytics\GameFunnel;
 use App\Support\Games\Analytics\GameMetricsScope;
 use Carbon\CarbonImmutable;
@@ -33,8 +35,8 @@ use InvalidArgumentException;
  *  - reach()        how many started attempts answered each round of a version;
  *  - results()      the completed attempts of a version by result;
  *  - periods()      the attempts started and completed in each traffic period;
- *  - periodVersions() per traffic period and version, the accounts and goals
- *                   the versions are compared by;
+ *  - periodFunnel() per traffic period and version, how far the visitors it
+ *                   assigned got, what the versions are compared by;
  *  - library()      per game, the starts, completions, anonymous visitors and
  *                   new accounts of a window.
  *
@@ -252,34 +254,62 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
     }
 
     /**
-     * Per traffic period of one audience of the game, and per version, what
-     * versions are compared by: the confirmed accounts credited to the
-     * attempts started from an assignment made in it, and the people who
-     * reached their flow's goal from them. A version nobody started in a
-     * period is absent from it.
+     * Per traffic period asked for, and per version, how far the visitors the
+     * period sent to it got — what Growth → Experiments compares versions by
+     * and a game's Analytics badges its periods by. Each visitor is their
+     * assignment in that period, counted once whatever they did on it:
+     * assigned, started an attempt from it, completed one, reached a result
+     * screen, left an email, reached the flow's goal. A visitor assigned again
+     * in a later period is that period's there, and stays this one's here.
+     * Accounts are the confirmed accounts credited to those attempts, as
+     * everywhere else (withConfirmedAccounts); matured are those signed up
+     * before `$maturedBefore`, whose seven days to activate are over, and
+     * activated those of them that did. One query for every period asked
+     * for; a version nobody was sent to in a period is absent from it.
      *
-     * @return array<int, array<int, array{accounts: int, goal_people: int}>>
+     * @param  list<int>  $periodIds
+     * @return array<int, array<int, PeriodVersionFunnel>>
      */
-    public function periodVersions(int $gameId, GameAudience $audience): array
+    public function periodFunnel(array $periodIds, CarbonImmutable $maturedBefore): array
     {
-        $person = $audience === GameAudience::Anonymous ? 'game_attempts.visitor_hash' : 'game_attempts.user_id';
-        $rows = $this->withConfirmedAccounts(GameAttempt::query())
-            ->join('game_assignments', 'game_assignments.id', '=', 'game_attempts.assignment_id')
-            ->where('game_attempts.game_id', $gameId)
-            ->where('game_attempts.audience', $audience->value)
-            ->groupBy('game_assignments.period_id', 'game_attempts.version_id')
-            ->select('game_assignments.period_id', 'game_attempts.version_id')
+        if ($periodIds === []) {
+            return [];
+        }
+
+        $rows = $this->withConfirmedAccounts(GameAssignment::query()->leftJoin('game_attempts', 'game_attempts.assignment_id', '=', 'game_assignments.id'))
+            ->leftJoin('account_attributions as credited_accounts', 'credited_accounts.user_id', '=', 'confirmed_accounts.user_id')
+            ->leftJoin('game_email_captures', 'game_email_captures.attempt_id', '=', 'game_attempts.id')
+            ->whereIn('game_assignments.period_id', $periodIds)
+            ->groupBy('game_assignments.period_id', 'game_assignments.version_id')
+            ->select('game_assignments.period_id', 'game_assignments.version_id')
             ->selectRaw(
-                "COUNT(DISTINCT confirmed_accounts.user_id) AS accounts,
-                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN {$person} END) AS goal_people",
-                [],
+                'COUNT(DISTINCT game_assignments.id) AS assigned,
+                COUNT(DISTINCT CASE WHEN game_attempts.id IS NOT NULL THEN game_assignments.id END) AS started,
+                COUNT(DISTINCT CASE WHEN game_attempts.status = ? THEN game_assignments.id END) AS completed,
+                COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM game_events WHERE game_events.attempt_id = game_attempts.id AND game_events.type = ?) THEN game_assignments.id END) AS result_viewed,
+                COUNT(DISTINCT CASE WHEN game_email_captures.id IS NOT NULL THEN game_assignments.id END) AS emailed,
+                COUNT(DISTINCT CASE WHEN game_attempts.goal_reached_at IS NOT NULL THEN game_assignments.id END) AS goal,
+                COUNT(DISTINCT confirmed_accounts.user_id) AS accounts,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? THEN confirmed_accounts.user_id END) AS matured,
+                COUNT(DISTINCT CASE WHEN credited_accounts.signed_up_at < ? AND credited_accounts.activated_at IS NOT NULL THEN confirmed_accounts.user_id END) AS activated',
+                [GameAttemptStatus::Completed->value, GameEventType::ResultViewed->value, $maturedBefore, $maturedBefore],
             )
             ->toBase()
             ->get();
         $periods = [];
 
         foreach ($rows as $row) {
-            $periods[(int) $row->period_id][(int) $row->version_id] = ['accounts' => (int) $row->accounts, 'goal_people' => (int) $row->goal_people];
+            $periods[(int) $row->period_id][(int) $row->version_id] = new PeriodVersionFunnel(
+                assigned: (int) $row->assigned,
+                started: (int) $row->started,
+                completed: (int) $row->completed,
+                resultViewed: (int) $row->result_viewed,
+                emailed: (int) $row->emailed,
+                goal: (int) $row->goal,
+                accounts: (int) $row->accounts,
+                matured: (int) $row->matured,
+                activated: (int) $row->activated,
+            );
         }
 
         return $periods;
@@ -507,8 +537,10 @@ final class GameMetricsQuery implements RawSqlPersistenceBoundary
      * page of the site, in any session. At most one row per attempt, so the
      * attempts' own counts stay as they are.
      *
-     * @param  Builder<GameAttempt>  $query
-     * @return Builder<GameAttempt>
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $query  of attempts, or of a table `game_attempts` is joined to
+     * @return Builder<TModel>
      */
     private function withConfirmedAccounts(Builder $query): Builder
     {

@@ -25,7 +25,9 @@ use App\Data\Studio\StudioPlanData;
 use App\Data\Studio\StudioVoteData;
 use App\Data\Studio\StudioVotesData;
 use App\Enums\CommentStatus;
+use App\Enums\GameAttemptStatus;
 use App\Enums\GameAudience;
+use App\Enums\GameEventType;
 use App\Enums\GameFlowStepType;
 use App\Enums\GameStatus;
 use App\Enums\MediaResizeMode;
@@ -46,15 +48,21 @@ use App\Jobs\Translations\GenerateProjectTranslationChunkJob;
 use App\Livewire\Admin\StudioPlanDiscussionEditor;
 use App\Livewire\Admin\StudioPlanDiscussionVotesEditor;
 use App\Livewire\Admin\StudioPlanPostVotesEditor;
+use App\Models\AccountAttribution;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Game;
+use App\Models\GameAssignment;
+use App\Models\GameAttempt;
 use App\Models\GameContentSet;
+use App\Models\GameEmailCapture;
+use App\Models\GameEvent;
 use App\Models\GameFlow;
 use App\Models\GameFlowStep;
 use App\Models\GameResultProfile;
 use App\Models\GameRound;
 use App\Models\GameRoundOption;
+use App\Models\GameTrafficPeriod;
 use App\Models\GameVersion;
 use App\Models\MediaAsset;
 use App\Models\MediaVariant;
@@ -14492,6 +14500,82 @@ function liveGame(array $draft): GameVersion
     allowGames();
 
     return $version;
+}
+
+/**
+ * A traffic period of a game — of anonymous visitors unless told otherwise —
+ * started at a moment and ended at another when one is given, sharing its
+ * visitors between the game's versions by number (number => share); a version
+ * the game hasn't got yet is made.
+ *
+ * @param  array<int, int>  $shares
+ */
+function comparisonPeriod(Game $game, array $shares, string $startedAt, ?string $endedAt = null, GameAudience $audience = GameAudience::Anonymous): GameTrafficPeriod
+{
+    $period = GameTrafficPeriod::factory()->audience($audience)->create(['game_id' => $game->id, 'started_at' => $startedAt, 'ended_at' => $endedAt]);
+
+    foreach ($shares as $number => $share) {
+        $version = GameVersion::query()->where('game_id', $game->id)->where('number', $number)->first()
+            ?? GameVersion::factory()->create(['game_id' => $game->id, 'number' => $number]);
+        $period->versions()->attach($version->id, ['share_percent' => $share]);
+    }
+
+    return $period->load('versions');
+}
+
+/**
+ * A visitor a traffic period sent to a version — a guest by a browser of
+ * their own, or the logged-in player given — and what they did from that
+ * assignment, as asked: an attempt started, completed, reaching the flow's
+ * goal, a result screen reached, an email left; and an account credited to
+ * that attempt, signed up at the moment given, confirmed unless told
+ * otherwise and activated when told so.
+ *
+ * @param  array{started?: bool, completed?: bool, goal?: bool, result?: bool, email?: bool, account?: string, confirmed?: bool, activated?: bool, player?: User}  $did
+ */
+function periodVisitor(GameTrafficPeriod $period, GameVersion $version, array $did = []): GameAssignment
+{
+    $player = $did['player'] ?? null;
+    $hash = $player === null ? hash('sha256', 'period-visitor-'.Str::random(24)) : null;
+    $assignment = GameAssignment::query()->forceCreate([
+        'game_id' => $period->game_id, 'audience' => $period->audience, 'user_id' => $player?->id, 'visitor_hash' => $hash,
+        'version_id' => $version->id, 'period_id' => $period->id, 'assigned_at' => now(), 'last_seen_at' => now(),
+    ]);
+    $completed = ($did['completed'] ?? false) || ($did['result'] ?? false) || ($did['email'] ?? false);
+
+    if (! $completed && ! ($did['started'] ?? false) && ! ($did['goal'] ?? false) && ! isset($did['account'])) {
+        return $assignment;
+    }
+
+    $attempt = GameAttempt::factory()->create([
+        'version_id' => $version->id, 'assignment_id' => $assignment->id, 'audience' => $period->audience,
+        'user_id' => $player?->id, 'visitor_hash' => $hash,
+        ...($completed ? ['status' => GameAttemptStatus::Completed, 'completed_at' => now(), 'matches' => 1, 'score' => 1, 'profile_key' => 'oracle'] : []),
+        ...(($did['goal'] ?? false) ? ['goal_reached_at' => now()] : []),
+    ]);
+
+    if ($did['result'] ?? false) {
+        (new GameEvent)->forceFill([
+            'game_id' => $period->game_id, 'version_id' => $version->id, 'attempt_id' => $attempt->id, 'assignment_id' => $assignment->id,
+            'audience' => $period->audience, 'user_id' => $player?->id, 'visitor_hash' => $hash, 'type' => GameEventType::ResultViewed, 'occurred_at' => now(),
+        ])->save();
+    }
+
+    if ($did['email'] ?? false) {
+        GameEmailCapture::query()->forceCreate(['attempt_id' => $attempt->id, 'game_id' => $period->game_id, 'email' => fake()->unique()->safeEmail(), 'captured_at' => now()]);
+    }
+
+    if (isset($did['account'])) {
+        $signedUp = CarbonImmutable::parse($did['account']);
+        AccountAttribution::factory()->create([
+            'credited_attempt_id' => $attempt->id,
+            'signed_up_at' => $signedUp,
+            'confirmed_at' => ($did['confirmed'] ?? true) ? $signedUp : null,
+            'activated_at' => ($did['activated'] ?? false) ? $signedUp->addDays(2) : null,
+        ]);
+    }
+
+    return $assignment;
 }
 
 /**

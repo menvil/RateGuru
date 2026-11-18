@@ -7,6 +7,7 @@ use App\Actions\Games\ChangeGameStatusAction;
 use App\Actions\Games\ChangeGameVersionAction;
 use App\Actions\Games\CreateContentSetAction;
 use App\Actions\Games\CreateGameAction;
+use App\Actions\Games\HideGameTrafficPeriodAction;
 use App\Actions\Games\PublishGameVersionAction;
 use App\Actions\Games\SaveContentSetAction;
 use App\Actions\Games\SaveGameFlowAction;
@@ -55,6 +56,7 @@ function gameWriteState(array $draft): array
         (int) GameFlow::query()->whereKey($draft['flow']->id)->value('lock_version'),
         GameVersion::query()->count(),
         GameTrafficPeriod::query()->count(),
+        GameTrafficPeriod::query()->whereNotNull('hidden_at')->count(),
         MediaAsset::withTrashed()->count(),
         Storage::disk('public')->allFiles(),
     ];
@@ -106,4 +108,7 @@ it('refuses every game action to someone who may not manage games, and writes no
     'archive a version' => [fn (User $user, array $d) => app(ChangeGameVersionAction::class)->retire($user, $d['version'])],
     'restore a version' => [fn (User $user, array $d) => app(ChangeGameVersionAction::class)->restore($user, $d['version'])],
     'change the status' => [fn (User $user, array $d) => app(ChangeGameStatusAction::class)->handle($user, $d['game'], GameStatus::Archived)],
+    // Asked before the period is even looked for.
+    'hide a traffic period' => [fn (User $user, array $d) => app(HideGameTrafficPeriodAction::class)->hide($user, (new GameTrafficPeriod)->forceFill(['id' => 0, 'game_id' => $d['game']->id]))],
+    'show a traffic period' => [fn (User $user, array $d) => app(HideGameTrafficPeriodAction::class)->show($user, (new GameTrafficPeriod)->forceFill(['id' => 0, 'game_id' => $d['game']->id]))],
 ]);

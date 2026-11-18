@@ -30,6 +30,16 @@ it('keeps an icon with a blank label decorative', function () {
         ->assertDontSee('<title>', false);
 });
 
+it('draws the icons Growth → Experiments uses with the reference’s Lucide geometry', function (string $name, string $geometry) {
+    $this->blade('<x-admin.ui.icon name="'.$name.'" />')->assertSee($geometry, false);
+})->with([
+    'flask-conical' => ['flask-conical', '<path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/>'],
+    'user-round' => ['user-round', '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>'],
+    'user-check' => ['user-check', '<polyline points="16 11 18 13 22 9"/>'],
+    'history' => ['history', '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>'],
+    'route' => ['route', '<path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>'],
+]);
+
 it('fails loudly on an icon it does not have', function () {
     $this->blade('<x-admin.ui.icon name="no-such-icon" />');
 })->throws(ViewException::class, 'Unknown admin icon [no-such-icon]');

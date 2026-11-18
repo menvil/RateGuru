@@ -36,4 +36,15 @@ final class ActivityDay
     {
         return $dayNumber !== null && $dayNumber >= 1 && $dayNumber <= $activationDays;
     }
+
+    /**
+     * The moment an account must have signed up before for its activation
+     * to be settled now: its last activation day over by today, UTC — so an
+     * account that signed up on any day up to eight days ago, with seven
+     * activation days.
+     */
+    public static function maturedBefore(CarbonImmutable $now, int $activationDays): CarbonImmutable
+    {
+        return $now->utc()->startOfDay()->subDays($activationDays);
+    }
 }

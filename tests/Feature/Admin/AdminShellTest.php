@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\ExperimentsPage;
 use App\Filament\Pages\LanguagesPage;
 use App\Filament\Pages\MediaDiagnosticsPage;
 use App\Filament\Pages\ProjectSettingsPage;
@@ -46,7 +47,7 @@ const ADMIN_SHELL_DESTINATIONS = [
     'Moderation' => ['Posts', 'Comments', 'Reports', 'Users'],
     'Content' => ['Categories', 'Tags', 'Rating groups'],
     'Content Studio' => ['Publications & plans', 'Action queue', 'Personas'],
-    'Growth' => ['Games', 'Traffic sources'],
+    'Growth' => ['Games', 'Experiments', 'Traffic sources'],
     'Localization' => ['Languages', 'Translation Center', 'Translation AI'],
     'Configuration' => ['Project settings'],
     'System' => ['Media diagnostics'],
@@ -184,6 +185,19 @@ it('keeps a resource marked on its create and edit pages, with a breadcrumb back
     'publication edit' => [fn (): string => StudioPlanResource::getUrl('edit', ['record' => StudioPlan::factory()->create()]), 'Publications & plans'],
 ]);
 
+it('leads back to Experiments from a period’s results, which open at the page’s own address', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $url = ExperimentsPage::getUrl();
+
+    expect($this->get($url)->assertOk()->getContent())->toContain('aria-current="page">Experiments');
+
+    $period = $this->get(ExperimentsPage::getUrl(['period' => 1]))->assertOk()->getContent();
+
+    expect(adminShellCurrent($period))->toBe('Experiments')
+        ->and($period)->toContain('<a class="rg-admin-breadcrumb__link" href="'.e($url).'">Experiments</a>')
+        ->not->toContain('rg-admin-breadcrumb__current');
+});
+
 it('names the section and page in the breadcrumb without loading any record', function () {
     $this->actingAs(User::factory()->admin()->create())
         ->get('/admin/posts')
@@ -209,6 +223,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
         'Publications & plans' => StudioPlanResource::canAccess(),
         'Action queue' => StudioActionQueue::canAccess(),
         'Personas' => PersonaResource::canAccess(),
+        'Experiments' => ExperimentsPage::canAccess(),
         'Languages' => LanguagesPage::canAccess(),
         'Project settings' => ProjectSettingsPage::canAccess(),
         'Media diagnostics' => MediaDiagnosticsPage::canAccess(),
@@ -228,6 +243,7 @@ it('shows a moderator only the destinations Filament lets a moderator open', fun
     $this->get(PersonaResource::getUrl('index'))->assertForbidden();
     $this->get(StudioPlanResource::getUrl('index'))->assertForbidden();
     $this->get(StudioActionQueue::getUrl())->assertForbidden();
+    $this->get(ExperimentsPage::getUrl())->assertForbidden();
 });
 
 it('lets nobody past the panel\'s own access check', function () {
@@ -256,7 +272,7 @@ it('has an Admin v2 icon for every production destination', function () {
 
     $keys = collect(AdminShellNavigation::sections())->flatMap(fn (array $section): array => $section['items'])->pluck('key');
 
-    expect($keys)->toHaveCount(18);
+    expect($keys)->toHaveCount(19);
 
     foreach ($keys as $key) {
         expect(array_key_exists($key, AdminShellNavigation::ICONS))->toBeTrue("{$key} has no Admin v2 icon");
@@ -275,6 +291,7 @@ it('has an Admin v2 icon for every production destination', function () {
         StudioActionQueue::class => 'list-checks',
         PersonaResource::class => 'bot',
         GameResource::class => 'gamepad-2',
+        ExperimentsPage::class => 'flask-conical',
         TrafficSourcesPage::class => 'megaphone',
         LanguagesPage::class => 'globe',
         TranslationCenterPage::class => 'languages',
@@ -314,12 +331,14 @@ it('runs no queries of its own to draw the shell, only the counts its destinatio
     Livewire::test(Topbar::class)->assertOk();
 
     // Posts gives its count of posts waiting for review, Comments its count
-    // of reported comments still visible, Reports its open reports and Media
-    // diagnostics the missing masters of the last completed audit, once per
-    // navigation drawn; every other query would be the shell's own.
+    // of reported comments still visible, Reports its open reports, Media
+    // diagnostics the missing masters of the last completed audit and
+    // Experiments its comparisons running now, once per navigation drawn;
+    // every other query would be the shell's own.
     [$counts, $others] = collect(DB::getQueryLog())->pluck('query')
         ->partition(fn (string $query): bool => preg_match('/count\(\*\).* from [`"](posts|comments|reports)[`"] where [`"]status[`"] = \?/', $query) === 1
-            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1);
+            || preg_match('/^select [`"]missing_masters[`"] from [`"]media_audit_runs[`"] where [`"]status[`"] = \?/', $query) === 1
+            || preg_match('/^select count\(\*\) as [`"]?aggregate[`"]? from [`"]game_traffic_periods[`"] inner join [`"]games[`"]/', $query) === 1);
 
     expect($counts)->not->toBeEmpty();
 
