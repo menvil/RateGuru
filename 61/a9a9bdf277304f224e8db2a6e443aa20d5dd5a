@@ -1,0 +1,261 @@
+resources/js/share.js
+  s_4b9dc6ab6b25d3::t_731633021fd32d 14,70-76
+tests/Feature/Analytics/UserActivityTest.php
+  s_4b9dc6ab6b25d3::t_4f5e8d34533fe3 63
+app/Enums/UserActivity.php
+  s_4b9dc6ab6b25d3::t_6508ab81f09519 24-44
+app/Actions/Games/StartGameAttemptAction.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 125
+tests/Feature/Analytics/VisitPostsTest.php
+  s_4b9dc6ab6b25d3::t_c4124a7670d27d 198-199,201,203,222-223
+  s_4b9dc6ab6b25d3::t_0c70323a6bf917 1-14,16-27,29,32-67,70-71,73-125,152-197,200,211-212,221,224-371
+  s_4b9dc6ab6b25d3::t_144b35d3e3a2cd 15,128
+  s_4b9dc6ab6b25d3::t_2248e389c2dfc8 28,30-31,68-69,72,202,204-210,213-220
+  s_4b9dc6ab6b25d3::t_435eed857d40e6 126-127,129-151
+tests/Feature/Database/TrafficVisitPostsTableTest.php
+  s_4b9dc6ab6b25d3::t_aa9db465aaabff 1-62
+app/Models/TrafficVisitPost.php
+  s_4b9dc6ab6b25d3::t_d2ddb2d4967b05 1-79
+tests/Feature/Seeders/AnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_3e19a2f2da0bc9 1-66,71-76
+  s_4b9dc6ab6b25d3::t_a02c2411187f70 67-70
+app/Actions/Traffic/RevalueOpenVisitsAction.php
+  s_4b9dc6ab6b25d3::t_073a7718368d50 17-18,42
+app/Queries/Traffic/TrafficLogsQuery.php
+  s_4b9dc6ab6b25d3::t_073a7718368d50 14-17,27
+resources/views/auth/login.blade.php
+  s_4b9dc6ab6b25d3::t_f725833f013e2a 7
+docs/admin/traffic-sources.md
+  s_4b9dc6ab6b25d3::t_90d05e3f9e46c1 11-16
+tests/Feature/Traffic/TrafficSourcesPageTest.php
+  s_4b9dc6ab6b25d3::t_fc9b59ee5849ea 3,95-132
+tests/Feature/Console/TrafficPurgeExpiredCommandTest.php
+  s_4b9dc6ab6b25d3::t_3dc4eb3a5ab9ea 8,15-17,53-65
+resources/js/traffic.js
+  s_4b9dc6ab6b25d3::t_f5034ef40b9c5b 3-6,55-56,60,65,88-90
+  s_4b9dc6ab6b25d3::t_85aeaedec90530 10,16,24-27,41
+  s_4b9dc6ab6b25d3::t_f725833f013e2a 7-9,69-78,82,84,86,91
+  s_4b9dc6ab6b25d3::t_7d66a84a29bc0a 11-15,29,36-38,42-52,66
+app/Support/Traffic/Capture/ArrivalToken.php
+  s_4b9dc6ab6b25d3::t_8d03095d155fce 13-14
+  s_4b9dc6ab6b25d3::t_c3e6f5b3bdbc12 12,15-16,23-24,28-32,38-48,54,72-73,77-83,91,95-96,107-112
+  s_4b9dc6ab6b25d3::t_6f1bab47d04a7b 17-19
+  s_4b9dc6ab6b25d3::t_26fe83018cfb4d 34,51
+  s_4b9dc6ab6b25d3::t_54fa6f14756bf5 74-76,84-90,92-94,97-106
+app/Support/Analytics/UtmTags.php
+  s_4b9dc6ab6b25d3::t_d62eb8650df373 1-122
+database/migrations/2026_11_18_100400_add_site_capture_enabled_to_traffic_settings_table.php
+  s_4b9dc6ab6b25d3::t_b51439a130c7d4 1-26
+app/Support/Traffic/Worth/VisitValue.php
+  s_4b9dc6ab6b25d3::t_19c2707fdaad79 102-112
+docs/architecture/traffic.md
+  s_4b9dc6ab6b25d3::t_4e74d32c185f91 94-96,101-103,106-112,141-144,311-312,321-326
+  s_4b9dc6ab6b25d3::t_4325ffa139e271 97-100,104-105
+  s_4b9dc6ab6b25d3::t_72d0062dff0411 70-72
+  s_4b9dc6ab6b25d3::t_b4f5896bf72167 8-11,24-35,44-49,66-69,118-124,157-165,294-295,319-320
+  s_4b9dc6ab6b25d3::t_72bd91916699c7 36-37
+  s_4b9dc6ab6b25d3::t_fcf7301bef9bfd 38-41
+  s_4b9dc6ab6b25d3::t_97e7d2d7a89564 78-93
+tests/Unit/Support/Analytics/UtmTagsTest.php
+  s_4b9dc6ab6b25d3::t_fbf329ed5609ee 1-120
+app/Livewire/Voting/RatingVoting.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 150
+app/Livewire/Concerns/CountsPostViews.php
+  s_4b9dc6ab6b25d3::t_80ce0ffe19eac5 1-42
+app/Livewire/Comments/CommentForm.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 11,63
+resources/views/components/share/copy-link-button.blade.php
+  s_4b9dc6ab6b25d3::t_731633021fd32d 25
+app/Actions/Traffic/RecordAccountSignupAction.php
+  s_4b9dc6ab6b25d3::t_af92a0d21ddc9c 20-25,53
+tests/Feature/Seeders/GameAnalyticsDemoSeederTest.php
+  s_4b9dc6ab6b25d3::t_f7d6f5d136479f 35
+app/Queries/Games/GameMetricsQuery.php
+  s_4b9dc6ab6b25d3::t_66d32194e75c4d 51-52,497,588
+database/seeders/AnalyticsDemoSeeder.php
+  s_4b9dc6ab6b25d3::t_0589f83a102eb6 576
+  s_4b9dc6ab6b25d3::t_ec4e8afc9eace6 329
+  s_4b9dc6ab6b25d3::t_d53bcc685d09f1 433-434
+  s_4b9dc6ab6b25d3::t_cb3ed6046f5a0d 532-533
+  s_4b9dc6ab6b25d3::t_bb85f9228049db 1-16,18-44,46-291,293-298,301-305,317,319-320,322-323,325-328,330-336,351-386,388-431,435-439,441-444,450-531,534-575,577-617
+  s_4b9dc6ab6b25d3::t_89bfa011451af6 45,292,299-300,306-316,318,321,324,338-350,387
+  s_4b9dc6ab6b25d3::t_01110d4c7cae52 17,337,432,440,445-449
+app/Models/TrafficVisit.php
+  s_4b9dc6ab6b25d3::t_7e7d117a8d3e0d 24-25,193-215
+  s_4b9dc6ab6b25d3::t_17d03919995bb2 29-32
+  s_4b9dc6ab6b25d3::t_25570bbfbd0904 171-173
+  s_4b9dc6ab6b25d3::t_3167d6c67594f0 101-105
+  s_4b9dc6ab6b25d3::t_3ebf4e775e63e1 279-284
+  s_4b9dc6ab6b25d3::t_399d3499bd5bfe 28
+  s_4b9dc6ab6b25d3::t_a92ebf5fd1ef6b 106-108
+app/Actions/Traffic/RecordAccountLoginAction.php
+  s_4b9dc6ab6b25d3::t_af92a0d21ddc9c 20-23,50
+app/Providers/AppServiceProvider.php
+  s_4b9dc6ab6b25d3::t_1f235ef71b4c7d 34,65-66,70,142-152
+app/Actions/Traffic/OpenTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_26fe83018cfb4d 200
+  s_4b9dc6ab6b25d3::t_737c93816f5ae5 349
+  s_4b9dc6ab6b25d3::t_51fa89cf6deefd 28,53-57,83-85,129-132,273
+  s_4b9dc6ab6b25d3::t_debdc3b10b0321 20,23,44-52,161-162,176,181,189,193,206,221-222,224,232,301-304
+  s_4b9dc6ab6b25d3::t_8d03095d155fce 5,31,60-63,71,95-117
+  s_4b9dc6ab6b25d3::t_db807bf5e0f8cc 58-59,136-137,139-142
+  s_4b9dc6ab6b25d3::t_acb7ad90e190da 165-175
+tests/Feature/Database/ForeignKeyIndexesTest.php
+  s_4b9dc6ab6b25d3::t_3dc4eb3a5ab9ea 28
+docs/dev/seed-data.md
+  s_4b9dc6ab6b25d3::t_0589f83a102eb6 97-120
+app/Support/Analytics/SessionRule.php
+  s_4b9dc6ab6b25d3::t_5270b1b7c995e8 17-19
+  s_4b9dc6ab6b25d3::t_0e99e917be57f5 52
+  s_4b9dc6ab6b25d3::t_07e59115f33314 30
+  s_4b9dc6ab6b25d3::t_42fbfbc0d3ffa7 21-24,49-51,54,56
+tests/Feature/Traffic/TrafficReportPageTest.php
+  s_4b9dc6ab6b25d3::t_2b067f93c4d1d8 50,167-168,264,302
+tests/Feature/Traffic/TrafficWorthTest.php
+  s_4b9dc6ab6b25d3::t_2b067f93c4d1d8 56-57,282
+app/Actions/Analytics/RecordUserActivityAction.php
+  s_4b9dc6ab6b25d3::t_cacfd5cca13fc4 10,32-37,41-44,51,54,60-64,121-140
+  s_4b9dc6ab6b25d3::t_469b610cc7b458 70-85
+app/Livewire/Posts/PostVoting.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 128
+tests/Feature/Database/TrafficVisitTagColumnsTest.php
+  s_4b9dc6ab6b25d3::t_e05634648ad236 1-53
+app/Http/Controllers/Sharing/SharePostController.php
+  s_4b9dc6ab6b25d3::t_7cd80f3f4d82b8 5,9,12-13,15-16,23-26,31,37-38,43-44,48-56
+tests/Feature/Traffic/CaptureTrafficArrivalTest.php
+  s_4b9dc6ab6b25d3::t_a876f22ba323b3 111,117-122,248-249
+  s_4b9dc6ab6b25d3::t_75f9245e1aa63b 301-302,304,307
+  s_4b9dc6ab6b25d3::t_8613e31ff55a01 303
+  s_4b9dc6ab6b25d3::t_4959d80c42fc9e 8,21-24,30-32,51-84,186-191,207-235,239-247,250-252,256-294,296-299,306
+  s_4b9dc6ab6b25d3::t_3fc1c55ccb8eb9 300
+  s_4b9dc6ab6b25d3::t_43de0b5c9a07c5 253-255,295,308-311
+  s_4b9dc6ab6b25d3::t_8ce4b4786604b1 386,409-410,412,414
+  s_4b9dc6ab6b25d3::t_5c4d7872fca5d4 236-238,305
+  s_4b9dc6ab6b25d3::t_3903e5a61c0086 388,390,392,401-402,406-408,415-417,419-424,426-434
+  s_4b9dc6ab6b25d3::t_43cd1be3f59fa4 33-35,352-385,387,389,391,393-400,403-405,411,413,418,425
+resources/views/components/share/provider-link.blade.php
+  s_4b9dc6ab6b25d3::t_731633021fd32d 22-27,37-39
+tests/Feature/Database/TrafficSiteCaptureColumnTest.php
+  s_4b9dc6ab6b25d3::t_6434b345fd6595 1-41
+app/Actions/Traffic/SaveTrafficSettingsAction.php
+  s_4b9dc6ab6b25d3::t_5710880c9e61c3 15-23,38,50,59,63-69,73-76
+app/Actions/Traffic/MarkTrafficVisitAction.php
+  s_4b9dc6ab6b25d3::t_f872bbea0da20b 42-43
+  s_4b9dc6ab6b25d3::t_19c2707fdaad79 26,71
+database/migrations/2026_11_18_100600_add_post_views_and_actions_to_traffic_visits.php
+  s_4b9dc6ab6b25d3::t_e3a33fe7de9588 1-53
+resources/views/components/sharing/share-buttons.blade.php
+  s_4b9dc6ab6b25d3::t_731633021fd32d 7-10
+app/Console/Commands/TrafficPurgeExpiredCommand.php
+  s_4b9dc6ab6b25d3::t_f4ec216a999a1b 11,20-25,75,105-106
+app/Actions/Analytics/RecordVisitPostAction.php
+  s_4b9dc6ab6b25d3::t_63765f5f27896d 20-21
+  s_4b9dc6ab6b25d3::t_dc5d759f240aab 104-115
+  s_4b9dc6ab6b25d3::t_bd59bd8abfb191 1-12,14-19,22-103,116-137,140-143
+  s_4b9dc6ab6b25d3::t_9e533e8c064e6a 13,138-139
+resources/views/auth/register.blade.php
+  s_4b9dc6ab6b25d3::t_f725833f013e2a 4
+app/Http/Requests/Traffic/VisitSignalRequest.php
+  s_4b9dc6ab6b25d3::t_868638a97ff445 5,7,10-13,21,25,27,30,32-39
+  s_4b9dc6ab6b25d3::t_17b76298446af0 28-29,31
+  s_4b9dc6ab6b25d3::t_5f8dc3dc040212 6,26
+app/Livewire/Posts/PostShow.php
+  s_4b9dc6ab6b25d3::t_871e72202aaa11 5,12,22-23,55-60
+app/Livewire/Feed/UploadPostForm.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 20,158
+tests/Feature/Traffic/TrafficReportsTest.php
+  s_4b9dc6ab6b25d3::t_c0c170db3ba488 47,211,216-217,257
+database/migrations/2026_11_18_100500_add_utm_tags_to_traffic_visits_table.php
+  s_4b9dc6ab6b25d3::t_63707cf9b163bb 9-11,14-17,19-20,34
+  s_4b9dc6ab6b25d3::t_65dddf2e2114e1 1-8,12-13,18,21-33,35-37
+app/Filament/Pages/TrafficSourcesPage.php
+  s_4b9dc6ab6b25d3::t_5b8adf95531e4c 275-279,1164
+docs/architecture/community-fk-safety.md
+  s_4b9dc6ab6b25d3::t_4e74d32c185f91 73-74
+tests/Browser/TrafficBeaconBrowserTest.php
+  s_4b9dc6ab6b25d3::t_325f0fea281c65 80-81
+  s_4b9dc6ab6b25d3::t_d9e449d68f7554 42
+  s_4b9dc6ab6b25d3::t_9559f9d1ce8ed0 82-84
+  s_4b9dc6ab6b25d3::t_0b5b90c94f3145 1-4,6-39,43-69,88
+  s_4b9dc6ab6b25d3::t_16c67e48b6b8e9 75-76
+  s_4b9dc6ab6b25d3::t_79497b1343f22e 5,70-74,77-79,85-87
+  s_4b9dc6ab6b25d3::t_5aa0e814c18fbe 40-41
+  s_4b9dc6ab6b25d3::t_6b24fd71a22ba1 89-95
+app/Queries/Posts/PublishedPostDetailsQuery.php
+  s_4b9dc6ab6b25d3::t_91b53b938403ca 20-25
+app/Support/Traffic/Capture/BotSignals.php
+  s_4b9dc6ab6b25d3::t_136a2f2cda310e 60-65
+app/Http/Controllers/Traffic/VisitSignalController.php
+  s_4b9dc6ab6b25d3::t_868638a97ff445 33
+app/Queries/Traffic/TrafficReportQuery.php
+  s_4b9dc6ab6b25d3::t_b2c9265958b32d 31-34,219,243,272,296,323,338
+routes/web.php
+  s_4b9dc6ab6b25d3::t_1f235ef71b4c7d 34-36
+tests/Pest.php
+  s_4b9dc6ab6b25d3::t_dba1d90147bc15 14757-14760,14762,14765-14766
+  s_4b9dc6ab6b25d3::t_f7d6f5d136479f 85,123
+  s_4b9dc6ab6b25d3::t_2e5b814b3974df 14442-14467
+app/Queries/Traffic/VisitorVisitQuery.php
+  s_4b9dc6ab6b25d3::t_d792d6ecc58de0 17,63-77,121-133
+  s_4b9dc6ab6b25d3::t_4ee8250c198a13 84,89
+  s_4b9dc6ab6b25d3::t_b5556a21634afd 96-104
+  s_4b9dc6ab6b25d3::t_e10b61c9ab2bc5 14-16
+  s_4b9dc6ab6b25d3::t_9f36ee8135da2a 81-82
+tests/Feature/Traffic/AccountAttributionTest.php
+  s_4b9dc6ab6b25d3::t_916a2fb7c3b0a1 134-171
+app/Livewire/Feed/PostDrawer.php
+  s_4b9dc6ab6b25d3::t_b9239f914f9daa 8,19-20,57-59,64
+app/Actions/Traffic/RecordPaidClickAction.php
+  s_4b9dc6ab6b25d3::t_8d19c6bdd00d16 24,50-51,158
+app/Livewire/Comments/CommentsSection.php
+  s_4b9dc6ab6b25d3::t_21b9a0152b395d 18,191
+app/Models/TrafficSetting.php
+  s_4b9dc6ab6b25d3::t_5d141a333b58df 98
+  s_4b9dc6ab6b25d3::t_250f0c05942a8d 8-9,13-14,27,36-37,57,81,87-97,99-114
+app/Actions/Traffic/RecordVisitSignalAction.php
+  s_4b9dc6ab6b25d3::t_868638a97ff445 5,9,15,19-22,29,32-33,41-44
+  s_4b9dc6ab6b25d3::t_af92a0d21ddc9c 17-18,49,53
+resources/views/filament/pages/traffic-sources/sources.blade.php
+  s_4b9dc6ab6b25d3::t_5b8adf95531e4c 102-104
+tests/Feature/Traffic/OpenTrafficVisitTest.php
+  s_4b9dc6ab6b25d3::t_0b1e4372995626 507-627
+  s_4b9dc6ab6b25d3::t_41f2c0fefc077b 448-449
+  s_4b9dc6ab6b25d3::t_5531532dd465e2 472,475,480,487
+  s_4b9dc6ab6b25d3::t_1ae60c28a9c84c 489-506
+  s_4b9dc6ab6b25d3::t_c73a8b36cc4f39 42-46,74-77,79,82,86,94,96
+  s_4b9dc6ab6b25d3::t_ec05fc2b9d31bf 3-4,7,13,18-19,38-41,396-443,464-471,473-474,476-479,481-486
+  s_4b9dc6ab6b25d3::t_20dd20946e17d3 444-447,450-463
+tests/Feature/Traffic/TrackedVisitsTest.php
+  s_4b9dc6ab6b25d3::t_ff257805ad8d1a 1-114,117-141
+  s_4b9dc6ab6b25d3::t_0658003f03a77f 115-116
+app/Queries/Traffic/TrafficChanceSampleQuery.php
+  s_4b9dc6ab6b25d3::t_073a7718368d50 14-17,54
+app/Livewire/Feed/FeedPage.php
+  s_4b9dc6ab6b25d3::t_b9239f914f9daa 5,13,24-25,123-126,132-133
+  s_4b9dc6ab6b25d3::t_be67355ab50746 131
+app/Http/Middleware/CaptureTrafficArrival.php
+  s_4b9dc6ab6b25d3::t_a9ac52b8403cc1 19,40-44,51-61,70-71,74,80-86,89-90,94-97,99-100,103-104,106-115,120,137,145-146,167-177,179,181-183
+  s_4b9dc6ab6b25d3::t_eb2511db176d18 6,142,149-155,157-161,163-166,210
+  s_4b9dc6ab6b25d3::t_7e302c2736739a 33,38-39
+  s_4b9dc6ab6b25d3::t_b2894bb5a17895 9,31-32,131,143
+  s_4b9dc6ab6b25d3::t_26fe83018cfb4d 162
+  s_4b9dc6ab6b25d3::t_1e8328b3346db6 34-37
+tests/Unit/Support/Analytics/SessionRuleTest.php
+  s_4b9dc6ab6b25d3::t_32d0bad47079e4 12-13,59,62-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "61a9a9bdf277304f224e8db2a6e443aa20d5dd5a",
+  "prompts": {},
+  "sessions": {
+    "s_4b9dc6ab6b25d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6892fe8f-c739-4dfb-b47b-c59741c0e6a7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Moroz <menvil.menvil@gmail.com>"
+    }
+  }
+}
